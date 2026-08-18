@@ -16,7 +16,16 @@ from egpt.memory.adapters.seed import SeedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, build_memory_provider
 from egpt.memory.manager import MemoryManager
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryEvent, MemoryOperationError, MemoryQuery, PartialWriteError, Scope, Substrate
+from egpt.memory.types import (
+    CONSOLIDATION_KEYS,
+    NO_ENTITIES,
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryQuery,
+    PartialWriteError,
+    Scope,
+    Substrate,
+)
 
 ACME = Scope(tenant_id="acme", user_id="u1")
 GLOBEX = Scope(tenant_id="globex", user_id="u1")
@@ -769,6 +778,21 @@ def test_consolidation_says_whether_the_curator_actually_ran():
     assert ran.details["ran"] is True
     assert skipped.details["ran"] is False
     assert skipped.details["skipped_because"] == "no LearningMachine wired"
+
+
+def test_consolidate_carries_the_entities_floor_key_too():
+    """SM-G2's (#100) diagnostics floor, checked on the adapter that never overrides it explicitly.
+
+    The seed adapter's ``consolidate`` builds its report through the shared ``consolidation_details``
+    helper without naming ``entities`` -- it gets ``NO_ENTITIES`` for free. Asserted directly
+    (review finding on PR #89, round 2) rather than assumed, because a future change to this
+    adapter that constructed ``details`` by hand instead would drop the key silently and this is
+    the only test that would notice.
+    """
+    report = SeedMemoryProvider(manager=FakeManager(), config=seed_config()).consolidate(ACME)
+
+    assert set(report.details) >= set(CONSOLIDATION_KEYS)
+    assert report.details["entities"] == NO_ENTITIES
 
 
 def test_consolidate_refuses_a_tier_set_it_would_ignore():

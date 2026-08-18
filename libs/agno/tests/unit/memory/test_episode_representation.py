@@ -9,8 +9,9 @@ import importlib
 import importlib.util
 from dataclasses import replace
 
-import egpt.memory as memory_package
 import pytest
+
+import egpt.memory as memory_package
 from egpt.db.schemas.memory import EpisodicRecord as PersistedEpisodicRecord
 from egpt.memory.schemas.episodic import (
     EPISODE_KEYS,

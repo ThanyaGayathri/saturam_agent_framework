@@ -37,6 +37,11 @@ This section demonstrates how EGPT agents persist and use user memories across r
   the network (ADR 0003 A.3c), the version tag stamped on every stored vector, and the single
   embedder shared by the write and query paths. No database and no API key; downloads `bge-base`
   at the end to resolve the real Mode A default.
+- `17_entity_extraction_graph.py`: Entity extraction into temporal-graph nodes (SM-G2) -- where the
+  pass runs (the consolidation lane, never a read), what a candidate carries (type, provenance back
+  to the interaction, a 768-d vector), and which duplicates are deliberately left for SM-G8's entity
+  resolution. Needs `./cookbook/scripts/run_neo4j.sh`, `./cookbook/scripts/run_pgvector.sh`, and an
+  `OPENAI_API_KEY` -- extraction is one model call per interaction.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

@@ -19,6 +19,7 @@ Spec: ``benchmarks/memory_provider_spec/SPEC.md`` section 5.2 (SM-R11 #86).
 Ratified by ``docs/adr/0003-symbiotic-memory.md``.
 """
 
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -36,6 +37,9 @@ __all__ = [
     "NO_SUPERSEDE",
     "consolidation_details",
     "ConsolidationReport",
+    "entity_extraction_complete",
+    "entity_extraction_ran",
+    "EntityWrite",
     "escape_key_slot",
     "FactWrite",
     "fusion_diagnostics",
@@ -45,6 +49,8 @@ __all__ = [
     "MemoryRecord",
     "MemoryScopeRequiredError",
     "MemorySlice",
+    "NO_ENTITIES",
+    "normalize_entity_name",
     "PartialWriteError",
     "require_scope",
     "RetrievalCandidates",
@@ -154,6 +160,41 @@ def escape_key_slot(value: Optional[str]) -> str:
     # because it is the unset sentinel: without it `agent_id="*"` and an unset agent_id produce the
     # same key, which is the injectivity this function exists for.
     return value.replace("%", "%25").replace("/", "%2F").replace("*", "%2A")
+
+
+#: Non-word, non-space characters, which :func:`normalize_entity_name` drops.
+_ENTITY_PUNCTUATION = re.compile(r"[^\w\s]")
+_ENTITY_WHITESPACE = re.compile(r"\s+")
+
+
+def normalize_entity_name(name: str) -> str:
+    """The comparison form of an entity's surface name -- lowercased, unpunctuated, single-spaced.
+
+    This is :class:`EntityWrite`'s ``key``: the *exact-match* grouping SM-G8 (#106) starts from, not
+    the resolution itself. "Acme Corp." and "acme corp" collapse here; "Acme" and "Acme Corporation"
+    do not, and merging those is SM-G8's embedding match.
+
+    The interior transform -- lowercase, drop punctuation, collapse whitespace -- is
+    ``Curator._normalize``'s (``learn/curate.py``), which SM-G8 is assigned to reuse. Restated
+    rather than imported because that one is a private method on a class needing a wired
+    ``LearningMachine``. ``test_entity_normalization_matches_the_curator`` asserts the two agree,
+    including the one point where this function goes further: it strips the surrounding whitespace
+    a stripped-punctuation edge leaves (``"! hi !"`` -> ``"hi"``, not ``" hi "``), because this is a
+    merge key and a key carrying whitespace it need not is a distinct key from one that does not --
+    a second rule for one concept is how two entities that should have merged stop.
+    """
+    if not isinstance(name, str):
+        raise MemoryOperationError(f"An entity name must be a string, got {name!r}.", field_name="name")
+    collapsed = _ENTITY_WHITESPACE.sub(" ", _ENTITY_PUNCTUATION.sub("", name.lower().strip())).strip()
+    if not collapsed:
+        # A name that is entirely punctuation normalises to "", which would make every such entity
+        # one candidate and file unrelated facts under it. Refused here rather than at the write,
+        # so an extractor's junk output cannot reach the graph under a shared empty key.
+        raise MemoryOperationError(
+            f"Entity name {name!r} normalises to empty, so it cannot identify an entity.",
+            field_name="name",
+        )
+    return collapsed
 
 
 #: Every partition slot a memory row carries, in :meth:`Scope.key` order.
@@ -553,6 +594,114 @@ class FactWrite:
 
 
 @dataclass
+class EntityWrite:
+    """One extracted entity, as :meth:`GraphSubstrate.upsert_entities` takes it (SM-G2 #100).
+
+    **Flat, where :class:`FactWrite` composes a** :class:`MemoryRecord`. ADR 0003 section 1 makes
+    ``SemanticEntity`` embeddable but **not** bi-temporal -- an entity's identity is stable, so it
+    has no valid-time interval -- and wrapping a record here would hand every caller four temporal
+    fields the graph must then refuse to store.
+
+    Field names mirror SM-C3's ``SemanticEntity`` so the projection is 1:1. ``key`` is derived from
+    ``name`` rather than accepted, because a caller-chosen grouping key is a caller-chosen
+    duplicate: two writers spelling the same normalisation differently produce two candidates that
+    SM-G8 (#106) then has to re-merge.
+
+    ``source_episode_ids`` is the provenance SM-R7 section 7 makes load-bearing, and it is
+    **unioned** rather than replaced when an entity is seen again -- see
+    ``cypher.upsert_entities_statement``.
+    """
+
+    name: str
+    entity_type: str
+    scope: Scope
+    key: str = field(init=False)
+    description: Optional[str] = None
+    #: Other surface forms seen for this entity. Retaining them across a merge is SM-G8's (#106)
+    #: acceptance criterion; carrying them is this ticket's.
+    aliases: List[str] = field(default_factory=list)
+    properties: Dict[str, Any] = field(default_factory=dict)
+    source_episode_ids: List[str] = field(default_factory=list)
+    embedding: Optional[List[float]] = None
+    embedding_version: Optional[str] = None
+    confidence: float = 1.0
+    derived_by: Optional[str] = None  # the extractor that produced it
+
+    def __post_init__(self) -> None:
+        for field_name in ("name", "entity_type"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise MemoryOperationError(
+                    f"EntityWrite.{field_name} must be a non-empty string; the graph node is "
+                    f"addressed by it. Got {value!r}.",
+                    field_name=field_name,
+                )
+            setattr(self, field_name, value.strip())
+        if not isinstance(self.scope, Scope):
+            raise MemoryOperationError(
+                f"EntityWrite.scope must be a Scope; the isolation check reads it. Got {self.scope!r}.",
+                field_name="scope",
+            )
+        # Derived after `name` is stripped, so trailing whitespace cannot produce a second key.
+        self.key = normalize_entity_name(self.name)
+        if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
+            raise MemoryOperationError(
+                f"EntityWrite.confidence must be a number in [0.0, 1.0], got {self.confidence!r}.",
+                field_name="confidence",
+            )
+        if not 0.0 <= float(self.confidence) <= 1.0:
+            raise MemoryOperationError(
+                f"EntityWrite.confidence is {self.confidence}, outside [0.0, 1.0]. A ranking that "
+                "mixes it with a similarity would be decided by whichever scale is larger.",
+                field_name="confidence",
+            )
+        self.confidence = float(self.confidence)
+        if self.embedding is not None:
+            if not isinstance(self.embedding, list) or not self.embedding:
+                raise MemoryOperationError(
+                    "EntityWrite.embedding must be a non-empty list of floats, or None when the "
+                    f"candidate is not embedded. Got {self.embedding!r}.",
+                    field_name="embedding",
+                )
+            # An embedder returning strings stores a vector no similarity can read, and the failure
+            # surfaces at SM-G8's match rather than at the write that caused it.
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in self.embedding):
+                raise MemoryOperationError(
+                    "EntityWrite.embedding contains a non-numeric component, so no similarity can "
+                    "be computed against it.",
+                    field_name="embedding",
+                )
+            self.embedding = [float(value) for value in self.embedding]
+        # Sorted, not merely copied: these two are sets by meaning, and an extractor's ordering is
+        # whatever the model emitted, so an unsorted copy makes two identical candidates compare
+        # unequal and re-write the node for nothing.
+        #
+        # The entity's own surface form is never its own alias (review finding on PR #89, round 2):
+        # it is already the merge key, and carrying it in both places makes a candidate look like it
+        # was seen under two spellings when it was seen under one. Filtered here, not only at write
+        # time, so code reading ``.aliases`` between construction and write (``_merged``'s
+        # concatenation in ``memory/graph/entities.py``) never sees it either.
+        self.aliases = sorted(
+            {
+                alias.strip()
+                for alias in self.aliases
+                if isinstance(alias, str) and alias.strip() and alias.strip() != self.name
+            }
+        )
+        self.source_episode_ids = sorted(set(self.source_episode_ids))
+        self.properties = dict(self.properties or {})
+
+    def with_embedding(self, vector: Sequence[float], version: Optional[str]) -> "EntityWrite":
+        """A copy carrying ``vector``, validated by the same ``__post_init__`` as any other write.
+
+        A method rather than an assignment at the call site, because assigning the field directly
+        skips every check above -- and an embedder returning strings then stores a vector no
+        similarity can read, surfacing at SM-G8's (#106) match rather than at this write.
+        """
+        return replace(self, embedding=list(vector), embedding_version=version)
+
+
+@dataclass
 class MemoryQuery:
     """A read request.
 
@@ -816,29 +965,73 @@ def fusion_diagnostics(
 #: no SM-C1 provider retires the rows it subsumes, and a scheduler must not have to infer that.
 NO_SUPERSEDE = "not implemented in SM-C1 -- SM-L3 (#124)"
 
+#: The honest default for ``entities``: a pass with no entity pipeline extracted none, which a
+#: scheduler cannot tell from an episode set that mentioned none.
+NO_ENTITIES = "not extracted -- no entity pipeline wired (SM-G2 #100)"
+
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
-CONSOLIDATION_KEYS = ("derived_by", "complete", "supersede")
+#:
+#: ``entities`` needs its own discriminant beyond presence: it is one field carrying two shapes
+#: (:data:`NO_ENTITIES` or a pipeline's dict), and the top-level ``complete`` cannot answer whether
+#: extraction specifically drained -- SM-L1 (#122) must read ``details["entities"]`` through
+#: :func:`entity_extraction_ran` / :func:`entity_extraction_complete`, not ``details["complete"]``
+#: alone, or a truncated extraction pass under a clean episode scan reads as fully complete.
+CONSOLIDATION_KEYS = ("derived_by", "complete", "supersede", "entities")
 
 
 def consolidation_details(
     derived_by: Optional[str],
     complete: bool = True,
     supersede: str = NO_SUPERSEDE,
+    entities: Any = NO_ENTITIES,
     **extra: Any,
 ) -> Dict[str, Any]:
     """Build a ``ConsolidationReport.details`` payload carrying every :data:`CONSOLIDATION_KEYS`.
 
     ``complete`` is what a scheduler actually needs: whether the tier was drained. ``supersede``
-    is the other thing it cannot infer -- whether the pass retires the rows it subsumes. In the
-    floor rather than an adapter extra, because one provider silently leaving duplicates while
-    another claims a retirement is exactly the divergence the floor exists to prevent.
+    is the other thing it cannot infer -- whether the pass retires the rows it subsumes.
+    ``entities`` is the third: whether the pass populated the graph's nodes (SM-G2 #100), which a
+    provider with no extractor did not, and which reads identically to "nothing to extract" unless
+    it is said. All three in the floor rather than as adapter extras, because one provider silently
+    doing less than another is exactly the divergence the floor exists to prevent.
 
     Extra keys are free; the contract is a floor, not a ceiling.
     """
-    details: Dict[str, Any] = {"derived_by": derived_by, "complete": complete, "supersede": supersede}
+    details: Dict[str, Any] = {
+        "derived_by": derived_by,
+        "complete": complete,
+        "supersede": supersede,
+        "entities": entities,
+    }
     details.update(extra)
     return details
+
+
+def entity_extraction_ran(details: Dict[str, Any]) -> bool:
+    """Whether ``details["entities"]`` is a pipeline result rather than the ``NO_ENTITIES`` sentinel.
+
+    The floor's ``entities`` key is one field carrying two shapes -- a dict when a pipeline ran
+    (including on zero episodes), the ``NO_ENTITIES`` string when none is wired -- and SM-L1 (#122)
+    needs the discriminant as a named function, not an ``isinstance`` check re-derived at each call
+    site (review finding on PR #89, round 3).
+    """
+    return isinstance(details.get("entities"), dict)
+
+
+def entity_extraction_complete(details: Dict[str, Any]) -> bool:
+    """Whether this pass left no known entity-extraction tail.
+
+    ``True`` when no pipeline is wired -- there is no tail to be incomplete, and that is a wiring
+    decision for :func:`entity_extraction_ran` to answer, not a retry signal for a scheduler.
+    ``False`` only when a pipeline ran **and** its own ``complete`` is ``False`` -- SM-L1's
+    (#122) two-cap hazard (:meth:`CoLocatedMemoryProvider._entities`'s docstring): a pass that
+    stayed under the provider's episode cap but hit the pipeline's own can report the top-level
+    ``ConsolidationReport`` complete while a tail of un-extracted episodes remains.
+    """
+    if not entity_extraction_ran(details):
+        return True
+    return bool(details["entities"].get("complete", True))
 
 
 @dataclass

@@ -21,15 +21,17 @@ They are deliberately faithful on the two behaviours the provider depends on:
 
 import asyncio
 from dataclasses import replace
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     SCOPE_SLOTS,
+    EntityWrite,
     FactWrite,
     MemoryEvent,
+    MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
     Scope,
@@ -223,6 +225,11 @@ class FakeGraph:
         #: from `len(events)` of them, which is the property the batched verbs exist for.
         self.episode_batch_sizes: List[int] = []
         self.fact_batch_sizes: List[int] = []
+        self.entity_batch_sizes: List[int] = []
+        #: Keyed on ``(scope.key(), name)``, which is the identity the Neo4j backend MERGEs on --
+        #: keying on the normalised ``key`` instead would model a backend that had already done
+        #: SM-G8's (#106) resolution, and no test could then see that it has not happened.
+        self.entities: Dict[Tuple[str, str], EntityWrite] = {}
 
     def _bucket(self, scope: Scope) -> List[MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, [])
@@ -293,6 +300,66 @@ class FakeGraph:
         await _yield()
         self.calls.append("aupsert_facts")
         self.upsert_facts(scope, facts)
+
+    def upsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        """Merge by ``(scope, name)``, unioning provenance and aliases as the port requires."""
+        require_scope(scope, method="upsert_entities")
+        self.calls.append("upsert_entities")
+        self.entity_batch_sizes.append(len(entities))
+        for entity in entities:
+            self._upsert_entity(scope, entity)
+
+    def _upsert_entity(self, scope: Scope, entity: EntityWrite) -> None:
+        if entity.scope != scope:
+            # `MemoryOperationError`, matching `Neo4jGraphSubstrate._reject_foreign_scope`: a
+            # caller catching that type specifically would not be exercised against a double that
+            # raised a bare `ValueError` for the same refusal.
+            raise MemoryOperationError(
+                f"Entity {entity.name!r} carries scope {entity.scope.key()} but is being written "
+                f"under {scope.key()}. Batch per scope; the two must agree.",
+                field_name="scope",
+            )
+        stored = self.entities.get((scope.key(), entity.name))
+        # The entity's own surface form is never its own alias, matching
+        # `Neo4jGraphSubstrate._entity_rows` -- carrying it in both places would make a candidate
+        # look like it was seen under two spellings when it was seen under one.
+        new_aliases = [alias for alias in entity.aliases if alias != entity.name]
+        # Ordered `[stored not already in new] + new`, matching `cypher._union` exactly (review
+        # finding on PR #89, round 2) rather than `new + stored`. `EntityWrite.__post_init__`
+        # `sorted(set(...))`s both fields on every construction, including this one, so the two
+        # orderings produce byte-identical output today -- this is matching the real statement for
+        # its own sake, in case a caller ever reads pre-`EntityWrite` intermediate state or the
+        # dedup ever stops being unconditional.
+        stored_aliases = [a for a in (stored.aliases if stored else []) if a not in new_aliases]
+        new_episode_ids = list(entity.source_episode_ids)
+        stored_episode_ids = [e for e in (stored.source_episode_ids if stored else []) if e not in new_episode_ids]
+        # A fresh instance rather than a mutation: the caller keeps its own ``EntityWrite``, and a
+        # double that stored the object handed to it would let a later mutation rewrite history --
+        # the "return copies" rule, applied on the write side where the aliasing starts.
+        self.entities[(scope.key(), entity.name)] = EntityWrite(
+            name=entity.name,
+            entity_type=entity.entity_type,
+            scope=entity.scope,
+            description=entity.description,
+            aliases=stored_aliases + new_aliases,
+            properties=dict(entity.properties),
+            source_episode_ids=stored_episode_ids + new_episode_ids,
+            embedding=list(entity.embedding) if entity.embedding is not None else None,
+            embedding_version=entity.embedding_version,
+            confidence=entity.confidence,
+            derived_by=entity.derived_by,
+        )
+
+    async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        require_scope(scope, method="aupsert_entities")
+        await _yield()
+        self.calls.append("aupsert_entities")
+        # Not `self.upsert_entities(...)`: that appends `"upsert_entities"` too, so one async call
+        # would leave both verbs in `self.calls` (review finding on PR #89, round 3). The per-entity
+        # write logic is called directly instead, matching what the sync method does internally.
+        self.entity_batch_sizes.append(len(entities))
+        for entity in entities:
+            self._upsert_entity(scope, entity)
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         require_scope(scope, method="traverse")

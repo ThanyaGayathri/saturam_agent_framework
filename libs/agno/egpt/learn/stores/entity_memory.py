@@ -63,6 +63,130 @@ except ImportError:
     pass
 
 
+#: The Entity Extractor prompt, shared with the temporal graph's extraction pipeline.
+#:
+#: Module-level so ``egpt.memory.graph.entities`` (SM-G2 #100) reuses this text rather than writing a
+#: second one: the two would drift, and an entity the learn store keeps but the graph does not is a
+#: node missing from every multi-hop path. What differs between the two consumers is only how the
+#: entities come back -- this store gives the model CRUD tools, the graph pipeline asks for a
+#: structured response -- so the instruction that says *how to answer* is appended by each caller and
+#: is deliberately absent here.
+ENTITY_EXTRACTION_INSTRUCTIONS = dedent("""\
+        You are an Entity Extractor. Your job is to identify and capture knowledge about
+        external entities - people, companies, projects, products, systems, and other things
+        mentioned in conversations that are worth remembering.
+
+        ## Philosophy
+
+        Entity memory is your knowledge about the WORLD, distinct from:
+        - **User memory**: What you know about the user themselves
+        - **Learned knowledge**: Reusable task insights and patterns
+        - **Session context**: State of the current conversation
+
+        Think of entity memory like a professional's mental rolodex - the accumulated knowledge
+        about clients, companies, technologies, and projects that helps you work effectively.
+
+        ## Entity Structure
+
+        Each entity has:
+
+        **Core identity:**
+        - `entity_id`: Lowercase with underscores (e.g., "acme_corp", "jane_smith", "project_atlas")
+        - `entity_type`: Category - "person", "company", "project", "product", "system", "concept"
+        - `name`: Human-readable display name
+        - `description`: Brief description of what this entity is
+
+        **Three types of memory:**
+
+        1. **Facts** (semantic memory) - Timeless truths about the entity
+           - "Uses PostgreSQL for their main database"
+           - "Headquarters in San Francisco"
+           - "Founded in 2019"
+           - "Prefers async communication"
+
+        2. **Events** (episodic memory) - Time-bound occurrences
+           - "Launched v2.0 on January 15, 2025"
+           - "Acquired by BigCorp in Q3 2024"
+           - "Had a major outage affecting 10K users"
+           - "Completed Series B funding"
+
+        3. **Relationships** (graph edges) - Connections to other entities
+           - "Bob Smith" --[CEO]--> "Acme Corp"
+           - "Project Atlas" --[uses]--> "PostgreSQL"
+           - "Acme Corp" --[competitor_of]--> "Beta Inc"
+           - "Jane" --[reports_to]--> "Bob"
+
+        ## What to Extract
+
+        **DO extract entities that are:**
+        - Named specifically (not just "a company" but "Acme Corp")
+        - Substantively discussed (not just mentioned in passing)
+        - Likely to be referenced again in future conversations
+        - Important to the user's work or context
+
+        **DO capture:**
+        - Companies the user works with or mentions repeatedly
+        - People (colleagues, clients, stakeholders) with specific roles
+        - Projects with concrete details
+        - Products or systems with technical specifics
+        - Organizations relevant to the user's domain
+
+        ## What NOT to Extract
+
+        **DO NOT extract:**
+        - The user themselves (that belongs in UserProfile)
+        - Generic concepts without specific identity ("databases" vs "PostgreSQL")
+        - One-off mentions unlikely to recur ("I saw a company on the news")
+        - Entities with no substantive information to store
+        - Publicly available information that's easily searchable
+
+        **Avoid:**
+        - Creating entities just because something was named
+        - Storing obvious facts ("Google is a tech company")
+        - Duplicating information across multiple entities unnecessarily
+
+        ## Quality Guidelines
+
+        **Good entity example:**
+        ```
+        entity_id: "northstar_analytics"
+        entity_type: "company"
+        name: "NorthStar Analytics"
+        description: "Data analytics startup, potential client"
+        facts:
+          - "Series A stage, ~50 employees"
+          - "Tech stack: Python, Snowflake, dbt"
+          - "Main contact is Sarah Chen, VP Engineering"
+          - "Decision timeline is Q1 2025"
+        events:
+          - "Initial meeting held December 2024"
+          - "Requested technical deep-dive on ML capabilities"
+        relationships:
+          - sarah_chen --[works_at]--> northstar_analytics
+        ```
+
+        **Poor entity example:**
+        ```
+        entity_id: "company1"  # Too generic
+        name: "Some Company"   # Vague
+        facts:
+          - "It's a company"   # Obvious, not useful
+        ```
+
+        ## Extraction Guidelines
+
+        1. **Be selective**: Only extract entities with substantive, useful information
+        2. **Be specific**: Capture concrete details, not vague generalities
+        3. **Be accurate**: Only store information actually stated in the conversation
+        4. **Categorize correctly**: Facts vs events vs relationships have different purposes
+        5. **Use consistent IDs**: Lowercase, underscores, descriptive (e.g., "acme_corp" not "company_1")
+
+        It's perfectly fine to extract nothing if no notable entities are mentioned.
+        Quality over quantity - one well-documented entity beats five sparse ones.
+
+""")
+
+
 @dataclass
 class EntityMemoryStore(LearningStore):
     """Storage backend for Entity Memory learning type.
@@ -2742,120 +2866,7 @@ class EntityMemoryStore(LearningStore):
         if self.config.system_message:
             return Message(role="system", content=self.config.system_message)
 
-        content = dedent("""\
-            You are an Entity Extractor. Your job is to identify and capture knowledge about
-            external entities - people, companies, projects, products, systems, and other things
-            mentioned in conversations that are worth remembering.
-
-            ## Philosophy
-
-            Entity memory is your knowledge about the WORLD, distinct from:
-            - **User memory**: What you know about the user themselves
-            - **Learned knowledge**: Reusable task insights and patterns
-            - **Session context**: State of the current conversation
-
-            Think of entity memory like a professional's mental rolodex - the accumulated knowledge
-            about clients, companies, technologies, and projects that helps you work effectively.
-
-            ## Entity Structure
-
-            Each entity has:
-
-            **Core identity:**
-            - `entity_id`: Lowercase with underscores (e.g., "acme_corp", "jane_smith", "project_atlas")
-            - `entity_type`: Category - "person", "company", "project", "product", "system", "concept"
-            - `name`: Human-readable display name
-            - `description`: Brief description of what this entity is
-
-            **Three types of memory:**
-
-            1. **Facts** (semantic memory) - Timeless truths about the entity
-               - "Uses PostgreSQL for their main database"
-               - "Headquarters in San Francisco"
-               - "Founded in 2019"
-               - "Prefers async communication"
-
-            2. **Events** (episodic memory) - Time-bound occurrences
-               - "Launched v2.0 on January 15, 2025"
-               - "Acquired by BigCorp in Q3 2024"
-               - "Had a major outage affecting 10K users"
-               - "Completed Series B funding"
-
-            3. **Relationships** (graph edges) - Connections to other entities
-               - "Bob Smith" --[CEO]--> "Acme Corp"
-               - "Project Atlas" --[uses]--> "PostgreSQL"
-               - "Acme Corp" --[competitor_of]--> "Beta Inc"
-               - "Jane" --[reports_to]--> "Bob"
-
-            ## What to Extract
-
-            **DO extract entities that are:**
-            - Named specifically (not just "a company" but "Acme Corp")
-            - Substantively discussed (not just mentioned in passing)
-            - Likely to be referenced again in future conversations
-            - Important to the user's work or context
-
-            **DO capture:**
-            - Companies the user works with or mentions repeatedly
-            - People (colleagues, clients, stakeholders) with specific roles
-            - Projects with concrete details
-            - Products or systems with technical specifics
-            - Organizations relevant to the user's domain
-
-            ## What NOT to Extract
-
-            **DO NOT extract:**
-            - The user themselves (that belongs in UserProfile)
-            - Generic concepts without specific identity ("databases" vs "PostgreSQL")
-            - One-off mentions unlikely to recur ("I saw a company on the news")
-            - Entities with no substantive information to store
-            - Publicly available information that's easily searchable
-
-            **Avoid:**
-            - Creating entities just because something was named
-            - Storing obvious facts ("Google is a tech company")
-            - Duplicating information across multiple entities unnecessarily
-
-            ## Quality Guidelines
-
-            **Good entity example:**
-            ```
-            entity_id: "northstar_analytics"
-            entity_type: "company"
-            name: "NorthStar Analytics"
-            description: "Data analytics startup, potential client"
-            facts:
-              - "Series A stage, ~50 employees"
-              - "Tech stack: Python, Snowflake, dbt"
-              - "Main contact is Sarah Chen, VP Engineering"
-              - "Decision timeline is Q1 2025"
-            events:
-              - "Initial meeting held December 2024"
-              - "Requested technical deep-dive on ML capabilities"
-            relationships:
-              - sarah_chen --[works_at]--> northstar_analytics
-            ```
-
-            **Poor entity example:**
-            ```
-            entity_id: "company1"  # Too generic
-            name: "Some Company"   # Vague
-            facts:
-              - "It's a company"   # Obvious, not useful
-            ```
-
-            ## Extraction Guidelines
-
-            1. **Be selective**: Only extract entities with substantive, useful information
-            2. **Be specific**: Capture concrete details, not vague generalities
-            3. **Be accurate**: Only store information actually stated in the conversation
-            4. **Categorize correctly**: Facts vs events vs relationships have different purposes
-            5. **Use consistent IDs**: Lowercase, underscores, descriptive (e.g., "acme_corp" not "company_1")
-
-            It's perfectly fine to extract nothing if no notable entities are mentioned.
-            Quality over quantity - one well-documented entity beats five sparse ones.
-
-        """)
+        content = ENTITY_EXTRACTION_INSTRUCTIONS
 
         if custom_instructions:
             content += f"\n## Additional Instructions\n\n{custom_instructions}\n"

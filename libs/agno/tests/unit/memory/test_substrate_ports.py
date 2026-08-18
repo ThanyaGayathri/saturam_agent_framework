@@ -12,7 +12,15 @@ import pytest
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope, TemporalBounds
+from egpt.memory.types import (
+    EntityWrite,
+    FactWrite,
+    MemoryEvent,
+    MemoryQuery,
+    MemoryRecord,
+    Scope,
+    TemporalBounds,
+)
 
 SCOPE = Scope(tenant_id="acme", user_id="u1")
 
@@ -48,6 +56,10 @@ class CompleteGraph:
     def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None: ...
 
     async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None: ...
+
+    def upsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None: ...
+
+    async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None: ...
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]: ...
 
@@ -98,6 +110,8 @@ def test_a_vector_backend_missing_any_method_fails_the_port(missing):
         "aupsert_episodes",
         "upsert_facts",
         "aupsert_facts",
+        "upsert_entities",
+        "aupsert_entities",
         "traverse",
         "atraverse",
         "bounds_for_ids",
