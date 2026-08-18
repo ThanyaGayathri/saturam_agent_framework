@@ -11,6 +11,7 @@ import math
 from hashlib import blake2b
 
 import pytest
+
 from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.errors import MemoryOperationError
 
