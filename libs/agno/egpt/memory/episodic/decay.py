@@ -33,7 +33,7 @@ same construction-only exemption CLAUDE.md gives ``episode_from_event``.
 from dataclasses import replace
 from typing import Optional
 
-from egpt.db.schemas.memory import EpisodicRecord
+from egpt.memory.schemas.episodic import EpisodicRecord
 from egpt.memory.types import MemoryOperationError
 from egpt.utils.dttm import now_epoch_s
 
@@ -104,10 +104,13 @@ def recency_decay(
 ) -> float:
     """DECISION.md section 1: ``0.5 ** (age_since_access / half_life)``.
 
-    Returns a value in ``(0.0, 1.0]``: 1.0 at zero age, approaching (never reaching) zero as age
-    grows. ``now`` before ``last_accessed_at`` is refused rather than clamped -- a caller scoring
-    against a clock that has not reached the access time has a bug upstream, and clamping to 1.0
-    would hide it behind a plausible-looking score.
+    Returns a value in ``[0.0, 1.0]``: 1.0 at zero age, and -- at ages within any half-life this
+    module's parameters produce -- effectively never zero. Float underflow only reaches exact
+    ``0.0`` past roughly 15,000 years at the default parameters, so the practical range is
+    ``(0.0, 1.0]``; the formal one is closed at both ends. ``now`` before ``last_accessed_at`` is
+    refused rather than clamped -- a caller scoring against a clock that has not reached the
+    access time has a bug upstream, and clamping to 1.0 would hide it behind a plausible-looking
+    score.
     """
     at = now_epoch_s() if now is None else now
     if at < last_accessed_at:
@@ -154,7 +157,10 @@ def reinforce(episode: EpisodicRecord, at: Optional[int] = None) -> EpisodicReco
 
     Returns a detached copy -- mutating the caller's row in place would let a reader see a
     reinforced timestamp on a record nothing has actually persisted, the same hazard
-    ``MemoryRecord.detached()`` guards against on the read side. Persisting the reset (an
+    ``MemoryRecord.detached()`` guards against on the read side. The isolation ``dataclasses.
+    replace`` alone would not give: it shares mutable fields (``entity_ids``, ``supersedes``,
+    ``embedding``, ...) between the original and the copy unless something re-copies them, which
+    is what ``MemoryRow.__post_init__`` does on every field of list type. Persisting the reset (an
     ``upsert`` through the substrate the episode came from) is the caller's job: this function
     computes what reinforcement means, not how it reaches storage (see module docstring).
 

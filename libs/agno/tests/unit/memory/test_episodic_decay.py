@@ -11,7 +11,6 @@ from dataclasses import replace
 
 import pytest
 
-from egpt.db.schemas.memory import EpisodicRecord
 from egpt.memory.episodic.decay import (
     DEFAULT_BASE_HALF_LIFE_S,
     DEFAULT_IMP_FACTOR,
@@ -20,6 +19,7 @@ from egpt.memory.episodic.decay import (
     recency_decay,
     reinforce,
 )
+from egpt.memory.schemas.episodic import EpisodicRecord
 from egpt.memory.types import MemoryOperationError
 
 DAY = 24 * 3600
@@ -130,13 +130,29 @@ def test_recency_decay_uses_default_constants_when_unset():
     assert DEFAULT_IMP_FACTOR == 4.0
 
 
+def test_recency_decay_defaults_now_to_now_epoch_s(monkeypatch):
+    monkeypatch.setattr("egpt.memory.episodic.decay.now_epoch_s", lambda: DAY * 3)
+    assert recency_decay(last_accessed_at=0, importance=0.0, now=None) == recency_decay(
+        last_accessed_at=0, importance=0.0, now=DAY * 3
+    )
+
+
 # -- episode_decay_score ---------------------------------------------------------------------------
 
 
-def test_episode_decay_score_uses_last_accessed_at_when_set():
+def test_episode_decay_score_uses_last_accessed_at_over_the_created_at_fallback():
+    """`last_accessed_at` wins when set; a later assertion confirms the fallback separately."""
     episode = an_episode(created_at=0, last_accessed_at=DAY * 9, importance=0.5)
     never_accessed = an_episode(created_at=DAY * 9, last_accessed_at=None, importance=0.5)
     assert episode_decay_score(episode, now=DAY * 10) == episode_decay_score(never_accessed, now=DAY * 10)
+
+
+def test_episode_decay_score_rejects_an_access_time_before_the_episodes_clock():
+    """The `recency_decay` `now`-before-`last_accessed_at` refusal, through the episode path."""
+    episode = an_episode(created_at=0, last_accessed_at=DAY * 5)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        episode_decay_score(episode, now=DAY * 3)
+    assert exc_info.value.field_name == "now"
 
 
 def test_episode_decay_score_defaults_last_accessed_at_to_created_at():
