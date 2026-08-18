@@ -8,10 +8,12 @@ from egpt.media import (
     Image,  # noqa: F401  (re-exported: the deprecated egpt.utils.openai shims star-import this namespace)
 )
 from egpt.utils.log import log_error, log_warning
-from egpt.utils.media import (  # noqa: F401  (re-exported: provider modules import these from here)
-    _process_bytes_image,
-    _process_image_path,
-    _process_image_url,
+from egpt.utils.media import (  # noqa: F401  (re-exported: llama.py/ai_foundry.py/groq/deepseek/litellm/
+    # openai-chat import process_image/images_to_message from here, and resolve_image_mime_type stays
+    # public for the deprecated egpt.utils.openai star-import shim, same as it was pre-move. The
+    # private _process_* helpers are NOT re-exported -- nothing imports them from this path, and
+    # underscore names never survive `import *` anyway; each mock.patch target for them lives on
+    # openai_responses.py's own independent copies.)
     images_to_message,
     process_image,
     resolve_image_mime_type,
