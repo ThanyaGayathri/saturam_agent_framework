@@ -50,11 +50,13 @@ __all__ = [
     "start_writeback_task",
 ]
 
-#: Where :func:`event_from_message` puts ``Message.role``. Not one of
-#: ``egpt.memory.schemas.episodic.EPISODE_KEYS`` / ``TOPICS_KEY``, so it survives the episode
-#: projection as ordinary metadata. ``episode_from_event`` (SM-E1) deliberately does not carry role
-#: itself -- its docstring names this module as the one caller with a role to place -- so the key
-#: lives here rather than being invented again at whichever store eventually reads it.
+#: Where :func:`event_from_message` puts ``Message.role`` *in addition to* the typed
+#: ``MemoryEvent.role`` field -- distinct slots. ``MemoryEvent.role`` is what a provider reads
+#: directly (``adapters/seed.py`` does: ``event.role or "user"``), but ``episode_from_event``
+#: (SM-E1) deliberately does not carry that typed field into the stored episode -- its docstring
+#: names this module as the one caller with a role to place once the event reaches that
+#: projection. Not one of ``egpt.memory.schemas.episodic.EPISODE_KEYS`` / ``TOPICS_KEY``, so it
+#: survives that projection as ordinary metadata.
 ROLE_KEY = "role"
 
 #: Where :func:`event_from_tool_execution` puts ``ToolExecution.tool_name`` / ``tool_call_id``.
@@ -98,6 +100,7 @@ def event_from_message(
         content=content,
         scope=scope,
         tier=MemoryTier.EPISODIC,
+        role=message.role,
         topics=topics,
         occurred_at=occurred_at,
         metadata=event_metadata,
@@ -143,20 +146,26 @@ def events_from_run(
     tool_executions: Sequence[ToolExecution] = (),
     occurred_at: Optional[int] = None,
     topics: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> List[MemoryEvent]:
     """Build every episodic event one turn produces, content-free ones already dropped.
 
     Order is messages first, then tool executions, both in the order given -- the order a
     consolidation pass would want to read a turn back in, and stable so two calls over the same
     turn produce the same sequence.
+
+    ``metadata``, like ``occurred_at`` and ``topics``, is forwarded to every event in the batch --
+    a caller with a run-level annotation (e.g. a channel id) applies it once here rather than to
+    each builder call individually. Each builder still owns writing its own reserved keys
+    (:data:`ROLE_KEY`, :data:`TOOL_NAME_KEY`, :data:`TOOL_CALL_ID_KEY`) into the same dict.
     """
     events: List[MemoryEvent] = []
     for message in messages:
-        event = event_from_message(message, scope, occurred_at=occurred_at, topics=topics)
+        event = event_from_message(message, scope, occurred_at=occurred_at, topics=topics, metadata=metadata)
         if event is not None:
             events.append(event)
     for execution in tool_executions:
-        event = event_from_tool_execution(execution, scope, occurred_at=occurred_at, topics=topics)
+        event = event_from_tool_execution(execution, scope, occurred_at=occurred_at, topics=topics, metadata=metadata)
         if event is not None:
             events.append(event)
     return events
@@ -192,7 +201,7 @@ def start_writeback_future(
     events: Sequence[MemoryEvent],
     *,
     executor: Executor,
-) -> Optional["Future[WriteReceipt]"]:
+) -> Optional[Future[WriteReceipt]]:
     """Enqueue a write-back batch on a background thread; returns immediately.
 
     ``None`` for an empty batch -- nothing to submit, and a caller checking "did this queue
@@ -214,7 +223,7 @@ def start_writeback_task(
     provider: MemoryProvider,
     scope: Scope,
     events: Sequence[MemoryEvent],
-) -> Optional["Task[WriteReceipt]"]:
+) -> Optional[Task[WriteReceipt]]:
     """Async twin of :func:`start_writeback_future`, via ``asyncio.create_task``.
 
     Requires a running event loop, same as every other ``create_task`` background dispatch in this
@@ -224,4 +233,7 @@ def start_writeback_task(
     if not events:
         return None
     log_debug(f"Enqueuing {len(events)} write-back event(s) for scope {scope.key()}")
-    return create_task(_awrite_and_log(provider, scope, list(events)))
+    return create_task(
+        _awrite_and_log(provider, scope, list(events)),
+        name=f"writeback:{scope.key()}",
+    )
