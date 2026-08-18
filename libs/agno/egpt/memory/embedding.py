@@ -122,11 +122,20 @@ def _model_id(embedder: Any) -> str:
 
     Every shipped embedder carries ``id``; the fallback is for a duck-typed one, and it names the
     class rather than inventing an id -- two different classes must not tag their vectors alike.
+
+    **Module-qualified, not just the bare class name.** ``__name__`` alone collides for two
+    same-named classes from different modules -- a deployment swapping in its own duck-typed
+    embedder and landing on a common name (``CustomEmbedder``, ``Wrapper``) would tag both models'
+    vectors identically, and nothing downstream can tell the difference back apart. ``__module__``
+    plus ``__qualname__`` (not bare ``__name__``, which drops a class nested inside a function or
+    another class) is unique per class object -- Python does not allow two distinct classes to
+    share both.
     """
     declared = getattr(embedder, "id", None)
     if isinstance(declared, str) and declared.strip():
         return declared.strip()
-    return type(embedder).__name__
+    cls = type(embedder)
+    return f"{cls.__module__}.{cls.__qualname__}"
 
 
 def _reject_online_for_local(key: Optional[str], embedder: Any) -> None:
@@ -182,7 +191,7 @@ def _reject_online_for_local(key: Optional[str], embedder: Any) -> None:
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class MemoryEmbedder:
     """One resolved embedder, plus the dimension and version tag every stored vector carries.
 
@@ -197,6 +206,12 @@ class MemoryEmbedder:
       once is the embedder's property and not the substrate's.
     * **One version tag.** ``embedding_version`` stamps every row so a re-embedding migration has
       something to key its cutover on (SM-R4 section 7, D8).
+
+    **Frozen.** The same-embedder-for-write-and-read guarantee (SM-R4 decision 2) is this class's
+    whole reason to exist, and a mutable ``dimensions`` or ``embedding_version`` would let it be
+    silently violated after construction -- every stored vector under a changed tag reads as
+    belonging to a model it was never embedded by. All three fields are set once, at resolution
+    time, so freezing costs nothing a caller was relying on.
     """
 
     embedder: Embedder
@@ -362,9 +377,8 @@ class MemoryEmbedder:
         """
         vectors: List[List[float]] = []
         for chunk in self._chunks(texts):
-            result = await self.embedder.async_get_embedding(self._call_arg(chunk))
-            checked = self._checked(self._as_vectors(result, len(chunk)))
-            vectors.extend(checked)
+            result = self._as_vectors(await self.embedder.async_get_embedding(self._call_arg(chunk)), len(chunk))
+            vectors.extend(self._checked(result))
         return vectors
 
     def embed_query(self, text: str) -> List[float]:

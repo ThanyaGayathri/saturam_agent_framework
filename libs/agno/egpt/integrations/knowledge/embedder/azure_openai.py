@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from os import getenv
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union, overload
 
 from typing_extensions import Literal
 
@@ -136,12 +136,21 @@ class AzureOpenAIEmbedder(Embedder):
 
         return self.client.embeddings.create(**_request_params)
 
-    def get_embedding(self, text: Union[str, List[str]]) -> List[float]:
+    @overload
+    def get_embedding(self, text: str) -> List[float]: ...
+    @overload
+    def get_embedding(self, text: List[str]) -> List[List[float]]: ...
+    def get_embedding(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
         """One vector for a single text, or one vector per text, in order, for a list.
 
         The plural form is one request, not one per text -- the endpoint natively accepts a list
         of inputs (`async_get_embeddings_batch_and_usage` below already relies on this), and
         `response.data` returns in the same order it was given.
+
+        The two ``@overload`` signatures above are the real contract: a caller passing ``str`` is
+        told it gets ``List[float]`` back, and a caller passing ``List[str]`` is told it gets
+        ``List[List[float]]`` -- the single implementation signature below is deliberately the
+        union of both, because that is what a type checker sees at the call site, not what runs.
         """
         if isinstance(text, str):
             response: CreateEmbeddingResponse = self._response(text=text)
@@ -152,7 +161,11 @@ class AzureOpenAIEmbedder(Embedder):
                 return []
         response = self._batch_response(list(text))
         try:
-            return [item.embedding for item in response.data]  # type: ignore  # List[List[float]] for the plural form, matching SentenceTransformerEmbedder
+            # Sorted by `.index` rather than trusted to arrive in request order: the API documents
+            # that it preserves order, but a documented behaviour is not an enforced one, and this
+            # zips silently against the wrong record if it is ever wrong -- the same failure mode
+            # `_as_vectors`' count check exists to catch on the memory pipeline side of this call.
+            return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
         except Exception as e:
             log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
@@ -196,8 +209,13 @@ class AzureOpenAIEmbedder(Embedder):
 
         return await self.aclient.embeddings.create(**_request_params)
 
-    async def async_get_embedding(self, text: Union[str, List[str]]) -> List[float]:
-        """Async twin of :meth:`get_embedding`, same call shape, same ordering guarantee."""
+    @overload
+    async def async_get_embedding(self, text: str) -> List[float]: ...
+    @overload
+    async def async_get_embedding(self, text: List[str]) -> List[List[float]]: ...
+    async def async_get_embedding(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
+        """Async twin of :meth:`get_embedding`, same call shape, same ordering guarantee, same
+        reason for the two ``@overload`` signatures above the union implementation."""
         if isinstance(text, str):
             response: CreateEmbeddingResponse = await self._aresponse(text=text)
             try:
@@ -207,7 +225,7 @@ class AzureOpenAIEmbedder(Embedder):
                 return []
         response = await self._abatch_response(list(text))
         try:
-            return [item.embedding for item in response.data]  # type: ignore  # List[List[float]] for the plural form, matching SentenceTransformerEmbedder
+            return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
         except Exception as e:
             log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []

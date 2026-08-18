@@ -471,7 +471,7 @@ def test_the_batch_size_fallback_logs_a_warning(monkeypatch):
     assert "ZeroBatch" in seen[0]
 
 
-def test_a_non_batching_embedders_batch_size_fallback_logs_nothing():
+def test_a_non_batching_embedders_batch_size_fallback_logs_nothing(monkeypatch):
     """The log is conditioned on ``_accepts_batches()``: a non-batching embedder is always one text
     per call regardless of ``batch_size``, so a log there would fire on every deployment that never
     declared the capability at all -- noise, not a signal. ``_batch_size`` is never even reached
@@ -482,14 +482,24 @@ def test_a_non_batching_embedders_batch_size_fallback_logs_nothing():
         batch_size = 0
 
     seen = []
-    embedding_module_warning = embedding.log_warning
-    try:
-        embedding.log_warning = lambda msg: seen.append(msg)
-        resolved = pipeline(ZeroBatchNonBatching())
-        assert resolved._batch_size() == 1
-    finally:
-        embedding.log_warning = embedding_module_warning
+    monkeypatch.setattr(embedding, "log_warning", lambda msg: seen.append(msg))
+    resolved = pipeline(ZeroBatchNonBatching())
+    assert resolved._batch_size() == 1
     assert seen == []
+
+
+def test_memory_embedder_is_frozen():
+    """The same-embedder-for-write-and-read guarantee (SM-R4 decision 2) is this class's whole
+    reason to exist, and a mutable field would let it be silently violated after construction --
+    every stored vector under a changed tag reads as belonging to a model it was never embedded
+    by. Asserted on all three fields, not just one, since a frozen dataclass without this test
+    could still have one field left mutable by a future edit that missed the decorator's scope."""
+    import dataclasses
+
+    resolved = pipeline()
+    for field, value in (("embedder", Recorder()), ("dimensions", 1), ("embedding_version", "x")):
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            setattr(resolved, field, value)
 
 
 # -- criterion 3: the dimension matches the vector store -----------------------
@@ -645,7 +655,21 @@ def test_an_embedder_without_an_id_is_tagged_by_its_class_not_a_shared_placehold
     class Anonymous(Recorder):
         id = None
 
-    assert resolve_memory_embedder(ProviderMode.FRONTIER, Anonymous()).embedding_version.startswith("Anonymous|")
+    tag = resolve_memory_embedder(ProviderMode.FRONTIER, Anonymous()).embedding_version
+    assert tag.startswith(f"{Anonymous.__module__}.{Anonymous.__qualname__}|")
+
+
+def test_two_same_named_classes_from_different_modules_do_not_collide():
+    """The regression this module-qualification closes: bare ``__name__`` alone is identical for
+    two distinct classes sharing a common name, which would tag two different models' vectors
+    alike and make a migration or a similarity comparison unable to tell them apart."""
+    duplicate_a = type("Duplicate", (Recorder,), {"id": None, "__module__": "fake_module_a"})
+    duplicate_b = type("Duplicate", (Recorder,), {"id": None, "__module__": "fake_module_b"})
+
+    tag_a = resolve_memory_embedder(ProviderMode.FRONTIER, duplicate_a()).embedding_version
+    tag_b = resolve_memory_embedder(ProviderMode.FRONTIER, duplicate_b()).embedding_version
+    assert tag_a != tag_b
+    assert duplicate_a.__name__ == duplicate_b.__name__ == "Duplicate"  # the collision bare __name__ would hit
 
 
 # -- resolution refusals -------------------------------------------------------

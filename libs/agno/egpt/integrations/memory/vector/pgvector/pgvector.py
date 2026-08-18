@@ -188,6 +188,19 @@ class PgVectorMemorySubstrate:
 
     Sync and async are both native: the async half drives SQLAlchemy's async engine on the same
     psycopg 3 driver, because a thread hop is a sync call wearing an ``async def``.
+
+    **Migration note (SM-V2 #96).** Before this ticket, ``embedder`` was passed straight to a
+    resolver with no offline-capability check, so any injected instance -- a Bedrock wrapper, a
+    fine-tuned in-house client, anything not in :data:`~egpt.memory.embedding.OFFLINE_CAPABLE` --
+    worked regardless of deployment mode. ``mode`` is new, and it **defaults to**
+    ``ProviderMode.LOCAL`` (Mode A, air-gapped), which now enforces ADR 0003 A.3c at construction:
+    an embedder that is neither a recognised offline-capable key nor an instance declaring
+    ``offline_capable = True`` is refused, not silently accepted. A deployment upgrading from a
+    pre-SM-V2 version with such an embedder already injected gets a
+    :class:`~egpt.memory.config.MemoryProviderConfigError` where it previously got nothing --
+    correct for Mode A, but a behaviour change with no runtime warning. Fix by either declaring
+    ``offline_capable = True`` on the embedder class (asserting it is genuinely offline), or by
+    passing ``mode=ProviderMode.FRONTIER`` explicitly if the embedder is meant to reach a provider.
     """
 
     def __init__(

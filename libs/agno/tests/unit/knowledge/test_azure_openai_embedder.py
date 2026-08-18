@@ -142,9 +142,9 @@ class TestAzureOpenAIEmbedderBatching:
     def test_a_list_of_texts_is_one_api_call_returning_one_vector_per_text_in_order(self, _mock_openai):
         mock_client, mock_response = _mock_openai
         mock_response.data = [
-            MagicMock(embedding=[0.1, 0.1]),
-            MagicMock(embedding=[0.2, 0.2]),
-            MagicMock(embedding=[0.3, 0.3]),
+            MagicMock(index=0, embedding=[0.1, 0.1]),
+            MagicMock(index=1, embedding=[0.2, 0.2]),
+            MagicMock(index=2, embedding=[0.3, 0.3]),
         ]
 
         from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
@@ -161,6 +161,30 @@ class TestAzureOpenAIEmbedderBatching:
         assert mock_client.embeddings.create.call_count == 1
         call_kwargs = mock_client.embeddings.create.call_args[1]
         assert call_kwargs["input"] == ["a", "b", "c"]
+        assert result == [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
+
+    def test_a_response_out_of_order_is_sorted_by_index_not_trusted_to_arrive_in_order(self, _mock_openai):
+        """The regression this closes: relying on the API's documented-but-unenforced ordering
+        zips a vector to the wrong text the moment a response ever arrives out of order. Sorted by
+        the response's own ``.index`` rather than trusted positionally."""
+        mock_client, mock_response = _mock_openai
+        mock_response.data = [
+            MagicMock(index=2, embedding=[0.3, 0.3]),
+            MagicMock(index=0, embedding=[0.1, 0.1]),
+            MagicMock(index=1, embedding=[0.2, 0.2]),
+        ]
+
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+
+        embedder = AzureOpenAIEmbedder(
+            id="text-embedding-3-small",
+            api_key="test-key",
+            azure_endpoint="https://test.openai.azure.com/",
+            openai_client=mock_client,
+        )
+
+        result = embedder.get_embedding(["a", "b", "c"])
+
         assert result == [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
 
     def test_a_single_bare_string_still_takes_the_single_text_path(self, _mock_openai):
@@ -184,7 +208,7 @@ class TestAzureOpenAIEmbedderBatching:
     @pytest.mark.asyncio()
     async def test_the_async_half_batches_identically(self, _mock_openai):
         _, mock_response = _mock_openai
-        mock_response.data = [MagicMock(embedding=[0.1, 0.1]), MagicMock(embedding=[0.2, 0.2])]
+        mock_response.data = [MagicMock(index=0, embedding=[0.1, 0.1]), MagicMock(index=1, embedding=[0.2, 0.2])]
 
         from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 
@@ -204,3 +228,30 @@ class TestAzureOpenAIEmbedderBatching:
         call_kwargs = async_mock.embeddings.create.call_args[1]
         assert call_kwargs["input"] == ["x", "y"]
         assert result == [[0.1, 0.1], [0.2, 0.2]]
+
+    @pytest.mark.asyncio()
+    async def test_the_async_half_sorts_by_index_too(self, _mock_openai):
+        """The async twin of the out-of-order test above -- ``_abatch_response`` is a separate code
+        path from ``_batch_response`` and needs its own proof, not an inference from the sync half."""
+        _, mock_response = _mock_openai
+        mock_response.data = [
+            MagicMock(index=2, embedding=[0.3, 0.3]),
+            MagicMock(index=0, embedding=[0.1, 0.1]),
+            MagicMock(index=1, embedding=[0.2, 0.2]),
+        ]
+
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+
+        async_mock = MagicMock()
+        async_mock.embeddings.create = AsyncMock(return_value=mock_response)
+
+        embedder = AzureOpenAIEmbedder(
+            id="text-embedding-3-small",
+            api_key="test-key",
+            azure_endpoint="https://test.openai.azure.com/",
+            async_client=async_mock,
+        )
+
+        result = await embedder.async_get_embedding(["a", "b", "c"])
+
+        assert result == [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]

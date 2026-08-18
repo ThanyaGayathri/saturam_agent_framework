@@ -615,3 +615,40 @@ def test_a_remote_embedder_is_refused_by_the_store_under_mode_A():
     actually builds, and a store that forgot to pass its mode would pass every pipeline test."""
     with pytest.raises(MemoryProviderConfigError, match="A.3c"):
         PgVectorMemorySubstrate(db_url=URL, embedder="huggingface", mode=ProviderMode.LOCAL)
+
+
+def test_a_preupgrade_injected_embedder_with_no_offline_capable_now_needs_it():
+    """The migration this ticket introduces, pinned as a test: before SM-V2, ``mode`` did not exist
+    and any injected embedder worked regardless of what it was. Now ``mode`` defaults to
+    ``ProviderMode.LOCAL``, and an injected instance with no ``offline_capable`` declaration and a
+    module path outside the four in-tree ones is refused at construction where it previously
+    succeeded silently -- a real behaviour change for an upgrading deployment, not a hypothetical
+    one. The fix (per the migration note on the class) is one line: declare
+    ``offline_capable = True``, or pass ``mode=ProviderMode.FRONTIER``."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+
+    class LegacyCustomEmbedder(StubEmbedder):
+        """A pre-upgrade-style injected embedder: no ``offline_capable``, and its module is this
+        test file, not one of :data:`~egpt.memory.embedding.OFFLINE_CAPABLE`."""
+
+        offline_capable = False  # explicit: this is the pre-upgrade shape, not an oversight here
+
+    with pytest.raises(MemoryProviderConfigError, match="A.3c"):
+        PgVectorMemorySubstrate(db_url=URL, embedder=LegacyCustomEmbedder())
+
+    # The two-line fix the migration note gives: declare offline_capable and it passes again.
+    class FixedLegacyEmbedder(LegacyCustomEmbedder):
+        offline_capable = True
+
+    assert (
+        PgVectorMemorySubstrate(db_url=URL, embedder=FixedLegacyEmbedder(), auto_init_schema=False).mode
+        is ProviderMode.LOCAL
+    )
+
+    # Or pass mode=FRONTIER explicitly, the other fix the note gives.
+    assert (
+        PgVectorMemorySubstrate(
+            db_url=URL, embedder=LegacyCustomEmbedder(), mode=ProviderMode.FRONTIER, auto_init_schema=False
+        ).mode
+        is ProviderMode.FRONTIER
+    )
