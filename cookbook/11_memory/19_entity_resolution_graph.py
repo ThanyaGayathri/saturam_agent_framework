@@ -88,6 +88,9 @@ candidates = [
 ]
 graph.upsert_entities(ACME_ADA, candidates)
 
+# The three `graph._driver` blocks below are demo narrative only, not the public API: the port has
+# no read verb for entity nodes (querying the semantic subgraph is SM-G7 #105 / SM-G9 #107), the
+# same gap `17_entity_extraction_graph.py`'s own `entity_nodes` helper notes.
 print("Before resolution -- two nodes for one company:")
 with graph._driver.session(database=graph.database) as session:
     for row in session.run(

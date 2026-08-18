@@ -448,15 +448,28 @@ class GraphSubstrate(Protocol):
 
         Per merge: the canonical node is written through the same union rule
         :meth:`upsert_entities` uses (``source_episode_ids`` and ``aliases`` accumulate; everything
-        else is last-write), every edge into a duplicate node is re-pointed at the canonical node --
-        a ``MENTIONS`` edge (SM-G6 #104) today, a relation edge once SM-G3 (#101) ships -- and the
-        duplicate node is then removed. An edge whose two endpoints both fold into one merge's
-        canonical is not duplicated: re-pointing both to the same node is the same edge.
+        else is last-write), every **live** edge into a duplicate node is re-pointed at the
+        canonical node -- a ``MENTIONS`` edge (SM-G6 #104) today, a relation edge once SM-G3 (#101)
+        ships -- and the duplicate node is then removed. An edge whose two endpoints both fold into
+        one merge's canonical is not duplicated: re-pointing both to the same node is the same edge.
+
+        **Live, not every edge -- stated because "every edge" is the more comfortable claim and the
+        false one.** A duplicate node's edge from an episode that is no longer the live revision of
+        its id (superseded, per this port's own SCD-2 rule) is removed along with the node and is
+        **not** re-pointed: liveness is exactly what :func:`~egpt.memory.graph.episodic.mention_rows`
+        and ``link_mentions_statement`` already gate mention-linking on, and re-pointing an edge
+        those statements would refuse to create in the first place would be a second, disagreeing
+        rule for the same concept.
 
         **Not required to be atomic**, exactly as :meth:`upsert_episodes` describes: the canonical
         write, the re-point, and the delete are each idempotent (``MERGE``-keyed, or a no-op on a
         node already gone), so a caller that retries the whole batch after a partial failure reaches
-        the same end state rather than a different one.
+        the same end state rather than a different one. That non-atomicity has a concrete edge: a
+        backend that reads which episodes currently mention a duplicate and only then deletes it
+        (the shipped Neo4j backend does) has a window between the two where a concurrent write can
+        add a new mention to that duplicate -- and lose it silently, since the read already happened
+        and the delete does not re-check. Low-write-concurrency deployments accept this; a caller
+        needing the window closed serialises merges against concurrent mention writes itself.
 
         Batched, and empty-is-a-no-op like every other write on this port. A merge whose
         ``duplicate_names`` names a node this scope does not have is not an error -- resolution runs

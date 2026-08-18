@@ -188,6 +188,37 @@ def test_a_merge_leaves_exactly_one_node_carrying_the_union_of_both(graph):
     assert sorted(props["aliases"]) == ["ACME Inc", "Acme Corporation"]
 
 
+def test_a_merge_never_erases_the_survivors_existing_embedding(graph):
+    """Review finding on PR #96: ``_canonical`` builds the merge's ``canonical`` with no
+    embedding of its own -- ``EntityResolutionPipeline`` never re-embeds a match, since
+    ``match_entities`` deliberately does not return one (see its docstring). ``_entity_rows`` must
+    omit the key entirely rather than write ``embedding: null``, or every merge would erase the
+    survivor's vector and silently take it out of every future embedding-similarity match.
+    """
+    graph.upsert_entities(ACME, [entity_write("Acme", embedding=_vec(1.0))])
+    graph.upsert_entities(ACME, [entity_write("Acme Corporation", embedding=_vec(0.99, 0.01))])
+
+    # The canonical this write carries no `embedding` -- exactly what `EntityResolutionPipeline.
+    # _canonical` produces when the survivor came from a `match_entities` result, not the fresh
+    # candidate.
+    graph.merge_entities(
+        ACME,
+        [
+            EntityMerge(
+                canonical=EntityWrite(name="Acme", entity_type="company", scope=ACME),
+                duplicate_names=["Acme Corporation"],
+            )
+        ],
+    )
+
+    with graph._driver.session(database=graph.database) as session:
+        props = session.run(
+            "MATCH (n:Entity {scope_key: $scope_key, name: 'Acme'}) RETURN properties(n) AS props",
+            scope_key=ACME.key(),
+        ).single()["props"]
+    assert props["embedding"] == _vec(1.0)
+
+
 def test_a_merge_repoints_mentions_edges_and_leaves_no_dangling_edge_on_the_deleted_node(graph):
     graph.upsert_episodes(ACME, [MemoryEvent(id="e1", content="ep1", scope=ACME, entities=["Acme"])])
     graph.upsert_episodes(ACME, [MemoryEvent(id="e2", content="ep2", scope=ACME, entities=["Acme Corporation"])])

@@ -616,8 +616,19 @@ class Neo4jGraphSubstrate:
                         "entity_type": entity.entity_type,
                         "description": entity.description,
                         "properties": _as_json(entity.properties, "properties"),
-                        "embedding": entity.embedding,
-                        "embedding_version": entity.embedding_version,
+                        # Omitted entirely, not set to `None`, when the entity carries no embedding.
+                        # `SET n += row.props` merges by key: a key present with a `null` value
+                        # **deletes** that property in Neo4j 5.x, while an absent key leaves
+                        # whatever the node already has untouched. A candidate written once with an
+                        # embedding and updated later with `embedding=None` (a description-only
+                        # re-write, or `_canonical`'s output before SM-G8's `resolve.py` review
+                        # fix) would otherwise erase the node's vector on every such write, silently
+                        # taking it out of every future embedding-similarity match.
+                        **(
+                            {"embedding": entity.embedding, "embedding_version": entity.embedding_version}
+                            if entity.embedding is not None
+                            else {}
+                        ),
                         "confidence": entity.confidence,
                         "derived_by": entity.derived_by,
                         "updated_at": now,
@@ -741,12 +752,11 @@ class Neo4jGraphSubstrate:
                 continue
             seen.add(link_id)
             props = {
-                "scope_key": entity["scope_key"],
                 "link_id": link_id,
                 "episode_id": row["episode_id"],
                 "name": canonical_name,
                 "position": row["position"],
-                **entity,
+                **entity,  # carries `scope_key` and every other scope slot
                 "created_at": now,
             }
             rows.append(
@@ -772,10 +782,9 @@ class Neo4jGraphSubstrate:
         ``mention_link_id`` already owns.
         """
         canonical_by_duplicate = {name: merge.canonical.name for merge in merges for name in merge.duplicate_names}
-        statements = [
-            (text, {**bound, "rows": self._entity_rows(scope, [merge.canonical for merge in merges])})
-            for text, bound in (cypher.upsert_entities_statement(scope),)
-        ]
+        upsert_text, upsert_bound = cypher.upsert_entities_statement(scope)
+        canonical_rows = self._entity_rows(scope, [merge.canonical for merge in merges])
+        statements: List[Tuple[str, Dict[str, Any]]] = [(upsert_text, {**upsert_bound, "rows": canonical_rows})]
         mention_rows_ = self._merge_mention_rows(scope, mentions, canonical_by_duplicate)
         if mention_rows_:
             text, bound = cypher.link_mentions_statement(scope)

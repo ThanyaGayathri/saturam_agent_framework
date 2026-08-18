@@ -214,6 +214,20 @@ def test_the_losing_names_become_aliases_of_the_survivor():
     assert survivor.name not in survivor.aliases
 
 
+def test_the_canonical_tiebreak_is_deterministic_when_confidence_type_and_description_all_tie():
+    """The typical LLM-extraction case: every candidate shares the default ``confidence=1.0`` and
+    the same ``entity_type``/``description``, so the tiebreak falls all the way through to
+    ``tuple(source_episode_ids)`` -- the smaller tuple, lexicographically, wins as head. Pinned
+    directly against ``_canonical`` rather than through a full resolve pass, so a change to the
+    tiebreak order shows up here first."""
+    first = ew("Acme", eids=["e1"])
+    second = ew("Acme Corporation", eids=["e2"])
+
+    canonical = EntityResolutionPipeline._canonical([second, first])
+
+    assert canonical.name == "Acme"  # ("e1",) < ("e2",), so `first` is head regardless of order
+
+
 def test_an_alias_equal_to_the_survivors_own_name_is_not_duplicated():
     pipe, graph = resolver(min_score=0.9)
     seeded(graph, ew("Acme"), ew("Acme Corporation", vec=(0.99, 0.01, 0.0), aliases=["Acme"]))

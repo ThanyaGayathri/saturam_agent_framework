@@ -28,7 +28,7 @@ never sees a match for is left exactly as its writer left it -- this module neve
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from egpt.memory.substrates import GraphSubstrate
 from egpt.memory.types import EntityMerge, EntityWrite, MemoryOperationError, Scope, require_scope
@@ -215,7 +215,7 @@ class EntityResolutionPipeline:
         """
         require_scope(scope, method="run")
         merges: List[EntityMerge] = []
-        folded: set = set()
+        folded: Set[str] = set()
         for candidate in candidates:
             self._require_own_scope(scope, candidate)
             if candidate.name in folded:
@@ -233,7 +233,7 @@ class EntityResolutionPipeline:
         """Async variant of :meth:`run`, making the same decisions through the same helpers."""
         require_scope(scope, method="arun")
         merges: List[EntityMerge] = []
-        folded: set = set()
+        folded: Set[str] = set()
         for candidate in candidates:
             self._require_own_scope(scope, candidate)
             if candidate.name in folded:

@@ -471,6 +471,13 @@ class FakeGraph:
                 canonical_by_duplicate[name] = merge.canonical.name
         if not canonical_by_duplicate:
             return
+        # Node-id lookup built once, not re-derived per linked id per row: `entity_node_id_for` is
+        # pure in `(scope, name)`, so computing it |duplicate_names| times up front makes the
+        # re-point below O(ids) instead of O(ids * duplicates).
+        id_for_duplicate = {
+            entity_node_id_for(scope, duplicate_name): entity_node_id_for(scope, canonical_name)
+            for duplicate_name, canonical_name in canonical_by_duplicate.items()
+        }
         # Re-point every episode's mention edges from a duplicate's node id to the canonical's,
         # matching `link_mentions_statement`'s MERGE semantics: a row already mentioning the
         # canonical is not duplicated.
@@ -483,11 +490,7 @@ class FakeGraph:
             repointed = []
             seen = set()
             for entity_id in linked:
-                new_id = entity_id
-                for duplicate_name, canonical_name in canonical_by_duplicate.items():
-                    if entity_id == entity_node_id_for(scope, duplicate_name):
-                        new_id = entity_node_id_for(scope, canonical_name)
-                        break
+                new_id = id_for_duplicate.get(entity_id, entity_id)
                 if new_id not in seen:
                     seen.add(new_id)
                     repointed.append(new_id)

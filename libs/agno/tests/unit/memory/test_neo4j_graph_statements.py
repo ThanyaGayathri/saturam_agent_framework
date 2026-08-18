@@ -305,6 +305,30 @@ def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties()
     assert "aliases" not in row["props"], "union semantics break if this enters props"
 
 
+def test_an_unembedded_entity_omits_the_embedding_keys_rather_than_nulling_them():
+    """Review finding on PR #96 (SM-G8): ``SET n += row.props`` deletes a property whose value in
+    the map is ``null``. A row for an ``EntityWrite`` with no embedding must omit ``embedding`` and
+    ``embedding_version`` from ``props`` entirely, or every such write -- a merge whose canonical
+    came from a match result, or a plain description-only re-upsert -- erases whatever embedding
+    the node already had.
+    """
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    (row,) = substrate._entity_rows(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)])
+
+    assert "embedding" not in row["props"]
+    assert "embedding_version" not in row["props"]
+
+
+def test_an_embedded_entity_still_carries_both_embedding_keys():
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    (row,) = substrate._entity_rows(
+        FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL, embedding=[0.1, 0.2], embedding_version="v")]
+    )
+
+    assert row["props"]["embedding"] == [0.1, 0.2]
+    assert row["props"]["embedding_version"] == "v"
+
+
 def test_an_entity_node_carries_no_bi_temporal_field():
     """ADR 0003 section 1 ratifies ``SemanticEntity`` as embeddable but **not** bi-temporal.
 
