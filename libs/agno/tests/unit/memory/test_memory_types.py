@@ -353,6 +353,47 @@ def test_every_exported_name_is_importable():
     assert not missing, f"__all__ names symbols nothing imported: {missing}"
 
 
+def test_a_value_type_added_to_types_all_reaches_the_package_seam():
+    """`ValidWindow` (SM-V4 #98) shipped in `types.__all__` and unused elsewhere in that module,
+    but was never re-added to `egpt/memory/__init__.py` -- so `from egpt.memory import ValidWindow`,
+    the pattern the port docstring tells SM-V3 authors to use, raised `ImportError` while
+    `from egpt.memory.types import ValidWindow` worked. The other guard here checks the seam's own
+    `__all__` is internally consistent; it cannot see a name missing from both places at once.
+
+    Scoped to the *value types* `ValidWindow` sits beside -- `Scope`, `MemoryRecord`,
+    `TemporalBounds`, and friends -- rather than every name in `types.__all__`. `WRITE_KEYS` and
+    `write_details` are absent from the seam on `main` already, predating this ticket; widening the
+    check to them is a pre-existing gap with its own fix, not this regression.
+    """
+    import egpt.memory as memory_package
+    import egpt.memory.types as types_module
+
+    value_types = (
+        "ConsolidationReport",
+        "FactWrite",
+        "MemoryEvent",
+        "MemoryRecord",
+        "MemoryScopeRequiredError",
+        "MemorySlice",
+        "PartialWriteError",
+        "Scope",
+        "Substrate",
+        "TemporalBounds",
+        "ValidWindow",
+        "WriteReceipt",
+    )
+    assert set(value_types) <= set(types_module.__all__), "the fixture list has drifted from types.py"
+    unreachable = [name for name in value_types if not hasattr(memory_package, name)]
+    assert not unreachable, f"value type(s) reachable from egpt.memory.types but not egpt.memory: {unreachable}"
+    # `hasattr` alone would not have caught the actual defect: `from egpt.memory import ValidWindow`
+    # succeeds the moment the name is imported into the module, whether or not it is also listed in
+    # `__all__`. Every sibling value type is in both places, and the review's fix explicitly named
+    # `__all__` as the second thing to update -- so a fix that added the import and skipped `__all__`
+    # would pass the check above and still leave the seam inconsistent with its own convention.
+    unlisted = [name for name in value_types if name not in memory_package.__all__]
+    assert not unlisted, f"value type(s) importable from egpt.memory but missing from its __all__: {unlisted}"
+
+
 # ---------------------------------------------------------------------------
 # Round-7 review
 # ---------------------------------------------------------------------------

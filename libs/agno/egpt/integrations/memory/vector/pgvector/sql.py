@@ -264,12 +264,12 @@ def window_predicate(window: Optional[ValidWindow], alias: str = "") -> Tuple[st
     prefix = f"{alias}." if alias else ""
     clauses: List[str] = []
     binds: Dict[str, Any] = {}
-    if window.valid_to is not None:
-        clauses.append(f"({prefix}t_valid IS NULL OR {prefix}t_valid < :valid_to)")
-        binds["valid_to"] = window.valid_to
     if window.valid_from is not None:
         clauses.append(f"({prefix}t_invalid IS NULL OR {prefix}t_invalid > :valid_from)")
         binds["valid_from"] = window.valid_from
+    if window.valid_to is not None:
+        clauses.append(f"({prefix}t_valid IS NULL OR {prefix}t_valid < :valid_to)")
+        binds["valid_to"] = window.valid_to
     return " AND ".join(clauses), binds
 
 

@@ -65,81 +65,88 @@ config = MemoryProviderConfig(
 
 provider = build_memory_provider(config)
 
-# Ids are stated so a second run replaces these rows rather than accumulating a fresh set.
-# `occurred_at` is valid time -- when it was true -- and is what the window filters on.
-history = [
-    ("ada-q1", "ada joined the berlin office", ACME_ADA, Q1),
-    ("ada-q2", "ada leads the payments team", ACME_ADA, Q2),
-    ("ada-q3", "ada relocated to the lisbon office", ACME_ADA, Q3),
-    ("bob-q3", "bob relocated to the lisbon office", ACME_BOB, Q3),
-    ("other-q3", "ada relocated to the lisbon office", GLOBEX, Q3),
-]
-for memory_id, content, scope, occurred_at in history:
-    provider.write(
-        scope,
-        [
-            MemoryEvent(
-                id=memory_id, content=content, scope=scope, occurred_at=occurred_at
-            )
-        ],
+# Guarded from here on: every write and read below can fail transiently against a real database,
+# and an exception escaping mid-script would leak the connection pool `provider.close()` exists to
+# release.
+try:
+    # Ids are stated so a second run replaces these rows rather than accumulating a fresh set.
+    # `occurred_at` is valid time -- when it was true -- and is what the window filters on.
+    history = [
+        ("ada-q1", "ada joined the berlin office", ACME_ADA, Q1),
+        ("ada-q2", "ada leads the payments team", ACME_ADA, Q2),
+        ("ada-q3", "ada relocated to the lisbon office", ACME_ADA, Q3),
+        ("bob-q3", "bob relocated to the lisbon office", ACME_BOB, Q3),
+        ("other-q3", "ada relocated to the lisbon office", GLOBEX, Q3),
+    ]
+    for memory_id, content, scope, occurred_at in history:
+        provider.write(
+            scope,
+            [
+                MemoryEvent(
+                    id=memory_id, content=content, scope=scope, occurred_at=occurred_at
+                )
+            ],
+        )
+
+    question = "where does ada work"
+    episodic = {"tiers": [MemoryTier.EPISODIC]}
+
+    def show(label, memory_slice):
+        print(f"\n{label}")
+        for record in memory_slice.records:
+            print(f"  {record.id}: {record.content}")
+
+    show(
+        "Unwindowed -- everything acme/ada can read:",
+        provider.read(ACME_ADA, MemoryQuery(text=question, **episodic)),
     )
 
-question = "where does ada work"
-episodic = {"tiers": [MemoryTier.EPISODIC]}
+    # Upper bound only: nothing that became true at or after Q3 is a candidate. The lisbon
+    # relocation starts exactly at Q3, and the window is half-open, so it is excluded.
+    show(
+        "valid_to=Q3 -- what was true before July:",
+        provider.read(ACME_ADA, MemoryQuery(text=question, valid_to=Q3, **episodic)),
+    )
 
+    # Lower bound only, and the interesting case: the two earlier memories come back as well.
+    # Neither has an end date, so both are still true in the second half of the year -- joining the
+    # berlin office in Q1 does not stop being true because a later memory was written. A window is
+    # not a created-at filter, and nothing here has claimed the earlier facts ended.
+    show(
+        "valid_from=Q3 -- what is true from July onward:",
+        provider.read(ACME_ADA, MemoryQuery(text=question, valid_from=Q3, **episodic)),
+    )
 
-def show(label, memory_slice):
-    print(f"\n{label}")
-    for record in memory_slice.records:
-        print(f"  {record.id}: {record.content}")
+    # The window narrows time and nothing else. Every scope slot still applies, so acme/bob never
+    # sees ada's rows and globex never sees acme's -- a filter that widened the scope while
+    # narrowing the time would be a leak that looks like a feature.
+    print("\nThe same window [Q3, Q4), read by each scope:")
+    windowed = MemoryQuery(text=question, valid_from=Q3, valid_to=Q4, **episodic)
+    for label, scope in (
+        ("acme/ada", ACME_ADA),
+        ("acme/bob", ACME_BOB),
+        ("globex/ada", GLOBEX),
+    ):
+        print(f"  {label}: {[r.id for r in provider.read(scope, windowed).records]}")
 
+    # `dropped_outside_window` is reported separately from `dropped_by_validity`: one says the
+    # caller asked a narrower question, the other says the world moved on. Both zero here means the
+    # substrate filtered in-search and the provider had nothing left to drop -- the whole design.
+    print("\nDiagnostics for the windowed read:")
+    diagnostics = provider.read(ACME_ADA, windowed).fusion
+    for key in (
+        "vector_hits",
+        "returned",
+        "dropped_outside_window",
+        "dropped_by_validity",
+    ):
+        print(f"  {key}: {diagnostics[key]}")
 
-show(
-    "Unwindowed -- everything acme/ada can read:",
-    provider.read(ACME_ADA, MemoryQuery(text=question, **episodic)),
-)
-
-# Upper bound only: nothing that became true at or after Q3 is a candidate. The lisbon relocation
-# starts exactly at Q3, and the window is half-open, so it is excluded.
-show(
-    "valid_to=Q3 -- what was true before July:",
-    provider.read(ACME_ADA, MemoryQuery(text=question, valid_to=Q3, **episodic)),
-)
-
-# Lower bound only, and the interesting case: the two earlier memories come back as well. Neither
-# has an end date, so both are still true in the second half of the year -- joining the berlin
-# office in Q1 does not stop being true because a later memory was written. A window is not a
-# created-at filter, and nothing here has claimed the earlier facts ended.
-show(
-    "valid_from=Q3 -- what is true from July onward:",
-    provider.read(ACME_ADA, MemoryQuery(text=question, valid_from=Q3, **episodic)),
-)
-
-# The window narrows time and nothing else. Every scope slot still applies, so acme/bob never sees
-# ada's rows and globex never sees acme's -- a filter that widened the scope while narrowing the
-# time would be a leak that looks like a feature.
-print("\nThe same window [Q3, Q4), read by each scope:")
-windowed = MemoryQuery(text=question, valid_from=Q3, valid_to=Q4, **episodic)
-for label, scope in (
-    ("acme/ada", ACME_ADA),
-    ("acme/bob", ACME_BOB),
-    ("globex/ada", GLOBEX),
-):
-    print(f"  {label}: {[r.id for r in provider.read(scope, windowed).records]}")
-
-# `dropped_outside_window` is reported separately from `dropped_by_validity`: one says the caller
-# asked a narrower question, the other says the world moved on. Both zero here means the substrate
-# filtered in-search and the provider had nothing left to drop -- which is the whole design.
-print("\nDiagnostics for the windowed read:")
-diagnostics = provider.read(ACME_ADA, windowed).fusion
-for key in ("vector_hits", "returned", "dropped_outside_window", "dropped_by_validity"):
-    print(f"  {key}: {diagnostics[key]}")
-
-# One valid-time question per read. Both set would have to be intersected, and an empty
-# intersection comes back as a plain miss rather than as the bad request it is.
-try:
-    MemoryQuery(text=question, as_of=Q2, valid_from=Q3, valid_to=Q4)
-except ValueError as error:
-    print(f"\nas_of together with a window: refused -- {type(error).__name__}")
-
-provider.close()
+    # One valid-time question per read. Both set would have to be intersected, and an empty
+    # intersection comes back as a plain miss rather than as the bad request it is.
+    try:
+        MemoryQuery(text=question, as_of=Q2, valid_from=Q3, valid_to=Q4)
+    except ValueError as error:
+        print(f"\nas_of together with a window: refused -- {type(error).__name__}")
+finally:
+    provider.close()
