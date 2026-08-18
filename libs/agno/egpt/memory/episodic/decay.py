@@ -30,6 +30,7 @@ Every function here is pure -- no store is read or written -- so there are no as
 same construction-only exemption CLAUDE.md gives ``episode_from_event``.
 """
 
+import math
 from dataclasses import replace
 from typing import Optional
 
@@ -70,6 +71,14 @@ def half_life_s(
     Left unguarded that is a ``ZeroDivisionError`` inside :func:`recency_decay`, or worse, a
     negative half-life that flips the exponent's sign and produces a score above the documented
     ``(0.0, 1.0]`` range -- silently wrong rather than visibly refused.
+
+    Non-finite inputs are the same failure by a different door: under IEEE 754, ``nan <= 0`` and
+    ``inf <= 0`` are both ``False``, so a bare ``<= 0`` comparison lets a NaN or infinite
+    ``base_half_life_s``/``imp_factor`` through -- a NaN half-life poisons the score, and an
+    infinite one produces a memory that never decays. ``math.isfinite`` is checked ahead of the
+    positivity comparisons for that reason, on both ``base_half_life_s`` and the computed
+    ``half_life`` (which also catches a non-finite ``imp_factor``, since NaN/inf propagate through
+    the multiply).
     """
     if not 0.0 <= importance <= 1.0:
         raise MemoryOperationError(
@@ -78,18 +87,20 @@ def half_life_s(
             "scoring a raw value bypasses that guard.",
             field_name="importance",
         )
-    if base_half_life_s <= 0:
+    if not math.isfinite(base_half_life_s) or base_half_life_s <= 0:
         raise MemoryOperationError(
-            f"base_half_life_s must be positive, got {base_half_life_s!r}: zero divides the decay "
-            "exponent and negative flips its sign, so age would increase the score.",
+            f"base_half_life_s must be a finite positive number, got {base_half_life_s!r}: zero "
+            "divides the decay exponent, negative flips its sign, and NaN/inf poison or disable "
+            "decay entirely.",
             field_name="base_half_life_s",
         )
     half_life = base_half_life_s * (1.0 + imp_factor * importance)
-    if half_life <= 0:
+    if not math.isfinite(half_life) or half_life <= 0:
         raise MemoryOperationError(
             f"imp_factor={imp_factor!r} at importance={importance!r} drives the computed half-life "
-            f"to {half_life!r}: zero divides the decay exponent and negative flips its sign, the "
-            "same failure base_half_life_s is already guarded against above.",
+            f"to {half_life!r}, which is not finite and positive: zero divides the decay exponent, "
+            "negative flips its sign, and NaN/inf poison or disable decay entirely -- the same "
+            "failure base_half_life_s is already guarded against above.",
             field_name="imp_factor",
         )
     return half_life
@@ -105,12 +116,14 @@ def recency_decay(
     """DECISION.md section 1: ``0.5 ** (age_since_access / half_life)``.
 
     Returns a value in ``[0.0, 1.0]``: 1.0 at zero age, and -- at ages within any half-life this
-    module's parameters produce -- effectively never zero. Float underflow only reaches exact
-    ``0.0`` past roughly 15,000 years at the default parameters, so the practical range is
-    ``(0.0, 1.0]``; the formal one is closed at both ends. ``now`` before ``last_accessed_at`` is
-    refused rather than clamped -- a caller scoring against a clock that has not reached the
-    access time has a bug upstream, and clamping to 1.0 would hide it behind a plausible-looking
-    score.
+    module's parameters produce -- effectively never zero. Float underflow reaches exact ``0.0``
+    at an age of roughly 1075 half-lives (``2 ** -1074`` is the smallest representable positive
+    ``float``, and ``0.5 ** 1075`` underflows past it) -- about 14.7 years at the default 5-day
+    half-life, or 73.6 years at the longest half-life the default parameters produce (importance
+    1.0). So the practical range is ``(0.0, 1.0]``; the formal one is closed at both ends. ``now``
+    before ``last_accessed_at`` is refused rather than clamped -- a caller scoring against a clock
+    that has not reached the access time has a bug upstream, and clamping to 1.0 would hide it
+    behind a plausible-looking score.
     """
     at = now_epoch_s() if now is None else now
     if at < last_accessed_at:

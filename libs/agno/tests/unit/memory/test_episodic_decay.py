@@ -90,6 +90,30 @@ def test_half_life_rejects_imp_factor_that_inverts_the_computed_half_life():
     assert exc_info.value.field_name == "imp_factor"
 
 
+def test_half_life_rejects_nan_base():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        half_life_s(0.5, base_half_life_s=float("nan"))
+    assert exc_info.value.field_name == "base_half_life_s"
+
+
+def test_half_life_rejects_infinite_base():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        half_life_s(0.5, base_half_life_s=float("inf"))
+    assert exc_info.value.field_name == "base_half_life_s"
+
+
+def test_half_life_rejects_imp_factor_that_makes_the_computed_half_life_infinite():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        half_life_s(importance=0.5, imp_factor=float("inf"))
+    assert exc_info.value.field_name == "imp_factor"
+
+
+def test_half_life_rejects_imp_factor_that_makes_the_computed_half_life_nan():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        half_life_s(importance=0.5, imp_factor=float("nan"))
+    assert exc_info.value.field_name == "imp_factor"
+
+
 # -- recency_decay --------------------------------------------------------------------------------
 
 
@@ -119,6 +143,12 @@ def test_recency_decay_rejects_now_before_last_accessed_at():
     with pytest.raises(MemoryOperationError) as exc_info:
         recency_decay(last_accessed_at=1000, importance=0.5, now=999)
     assert exc_info.value.field_name == "now"
+
+
+def test_recency_decay_rejects_infinite_base_half_life_rather_than_scoring_an_immortal_memory():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        recency_decay(0, 0.5, now=100, base_half_life_s=float("inf"))
+    assert exc_info.value.field_name == "base_half_life_s"
 
 
 def test_recency_decay_uses_default_constants_when_unset():
@@ -213,6 +243,14 @@ def test_reinforce_only_changes_last_accessed_at():
     episode = an_episode(created_at=0, last_accessed_at=0, importance=0.7, content="x")
     reinforced = reinforce(episode, at=DAY)
     assert reinforced == replace(episode, last_accessed_at=DAY)
+
+
+def test_reinforce_does_not_share_mutable_fields_with_the_original():
+    """Object identity differing (test above) doesn't by itself prove nested fields are copied."""
+    episode = an_episode(created_at=0, last_accessed_at=0, entity_ids=["e1"])
+    reinforced = reinforce(episode, at=DAY)
+    assert reinforced.entity_ids == episode.entity_ids
+    assert reinforced.entity_ids is not episode.entity_ids
 
 
 def test_reinforce_allows_backward_access_for_out_of_order_replay():
