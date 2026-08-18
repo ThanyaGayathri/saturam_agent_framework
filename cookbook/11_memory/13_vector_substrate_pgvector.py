@@ -14,15 +14,13 @@ HNSW index per tenant. A shared table with a `tenant_id` filter measured recall 
 because it filters a shared index whose traversal rarely lands enough in-tenant neighbours. Nothing
 below configures that -- it is what the backend builds.
 
-The embedder is separate from the store: which model, at which dimension, is SM-V2's (#96). This
-uses the one ADR 0003 section A.3 ratifies for Mode A, which runs offline.
+The embedder is separate from the store: which model, at which dimension, is SM-V2's (#96), and
+`mode` below is what selects it. Mode A gets the offline-capable model ADR 0003 section A.3
+ratifies, without this file naming it.
 """
 
 import os
 
-from egpt.integrations.knowledge.embedder.sentence_transformer import (
-    SentenceTransformerEmbedder,
-)
 from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, MemoryQuery, Scope
@@ -44,13 +42,10 @@ config = MemoryProviderConfig(
         "db_url": os.getenv(
             "EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"
         ),
-        # `dimensions` is stated because `SentenceTransformerEmbedder` defaults to 384 whatever
-        # model it loads, and bge-base emits 768. The substrate takes the column width from the
-        # embedder and then checks every vector against it, so the mismatch surfaces as a named
-        # refusal rather than as a column that rejects every write.
-        "embedder": SentenceTransformerEmbedder(
-            id="BAAI/bge-base-en-v1.5", dimensions=768
-        ),
+        # No embedder is named: `mode` selects it. SM-V2 (#96) made bge-base-en-v1.5 at 768 the
+        # Mode A default, so stating it here would be a second copy of a value that lives in
+        # `egpt/memory/embedding.py` -- and the copy is what drifts when the model changes.
+        # `16_memory_embedding_pipeline.py` shows the selection itself.
         # The measured default, stated here because it is a per-deployment parameter rather than
         # a constant: 256 reaches recall@10 0.967 at 100k/tenant for a p95 of 7 ms, where the
         # benchmark's old constant of 64 reached 0.889. See benchmarks/memory_vectordb/EF_SWEEP.md.

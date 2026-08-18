@@ -28,12 +28,6 @@ from egpt.memory.strategies import (
     SummarizeStrategy,
 )
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
-from egpt.memory.validation import (
-    MEMORY_DATA_ACCESS_METHODS,
-    assert_scope_isolation,
-    reject_duplicate_ids,
-    reject_foreign_scopes,
-)
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
     CONSOLIDATION_TARGET,
@@ -52,9 +46,11 @@ from egpt.memory.types import (
     CONSOLIDATION_KEYS,
     FUSION_KEYS,
     MAX_LIMIT,
+    NO_ENTITIES,
     NO_SUPERSEDE,
     SCOPE_SLOTS,
     ConsolidationReport,
+    EntityWrite,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
@@ -66,11 +62,21 @@ from egpt.memory.types import (
     Scope,
     Substrate,
     TemporalBounds,
+    ValidWindow,
     WriteReceipt,
     consolidation_details,
+    entity_extraction_complete,
+    entity_extraction_ran,
     escape_key_slot,
     fusion_diagnostics,
+    normalize_entity_name,
     require_scope,
+)
+from egpt.memory.validation import (
+    MEMORY_DATA_ACCESS_METHODS,
+    assert_scope_isolation,
+    reject_duplicate_ids,
+    reject_foreign_scopes,
 )
 
 __all__ = [
@@ -109,6 +115,7 @@ __all__ = [
     "Scope",
     "Substrate",
     "TemporalBounds",
+    "ValidWindow",
     "WriteReceipt",
     # Substrate ports and the helpers a third-party adapter needs (SM-C1, SM-C4)
     "GraphSubstrate",
@@ -121,15 +128,20 @@ __all__ = [
     "reject_foreign_scopes",
     "require_scope",
     "consolidation_details",
+    "entity_extraction_complete",
+    "entity_extraction_ran",
     "escape_key_slot",
     "fusion_diagnostics",
     "substrates_for_tier",
     # The seam and its construction path (SM-C1)
     "CONSOLIDATION_KEYS",
     "CoLocatedMemoryProvider",
+    "EntityWrite",
     "FUSION_KEYS",
     "MAX_LIMIT",
+    "NO_ENTITIES",
     "NO_SUPERSEDE",
+    "normalize_entity_name",
     "MemoryProvider",
     "PartialWriteError",
     "MemoryProviderConfig",

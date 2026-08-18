@@ -37,6 +37,7 @@ from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.graph.episodic import entity_node_id_for, mention_rows
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    EntityWrite,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
@@ -567,6 +568,69 @@ class Neo4jGraphSubstrate:
         if not facts:
             return
         await self._arun(self._fact_statements(scope, facts))
+
+    def _entity_rows(self, scope: Scope, entities: Sequence[EntityWrite]) -> List[Dict[str, Any]]:
+        """One row per entity node (SM-G2 #100), split into merge keys, unioned lists, and ``props``.
+
+        The split is what the statement needs: ``name`` and ``scope_key`` address the node,
+        ``created_at`` is set only on creation, the two lists are unioned into whatever the node
+        already holds, and everything in ``props`` is last-write.
+
+        Deliberately **not** :meth:`_row`. That builds a bi-temporal, tiered, SCD-2 row with a
+        surrogate key and a live marker, and an entity node is none of those (ADR 0003 section 1) --
+        reusing it would put four timestamps and a ``tier`` on a node whose validity is not a claim
+        anything can contradict.
+        """
+        now = now_epoch_s()
+        # Invariant across the loop -- `scope` is the call scope, not the entity's -- so computed
+        # once rather than once per entity. Read-only below (`**scope_props` spreads a copy), so
+        # sharing the one dict across rows is safe.
+        scope_props = cypher.scope_props(scope)
+        # `scope_key` alone excluded: unlike `_row`'s `SET n = row` (a full overwrite, where every
+        # property including `scope_key` must be present), this shape's `SET n += row.props` is
+        # additive on top of what `MERGE (n:{ENTITY} {scope_key: row.scope_key, name: row.name})`
+        # already bound -- so repeating it in `props` writes the same value MERGE already set.
+        # Review finding on PR #89, round 2. The individual slots (`tenant_id`, etc.) are not
+        # redundant the same way: MERGE binds only `scope_key`, not them.
+        entity_props = {k: v for k, v in scope_props.items() if k != "scope_key"}
+        rows = []
+        for entity in entities:
+            self._reject_foreign_scope(scope, entity.scope)
+            rows.append(
+                {
+                    "scope_key": scope_props["scope_key"],
+                    "name": entity.name,
+                    "created_at": now,
+                    "source_episode_ids": list(entity.source_episode_ids),
+                    # The entity's own surface form is never its own alias: it is already the merge
+                    # key, and carrying it in both places makes a candidate look like it was seen
+                    # under two spellings when it was seen under one.
+                    "aliases": [alias for alias in entity.aliases if alias != entity.name],
+                    "props": {
+                        **entity_props,
+                        "key": entity.key,
+                        "entity_type": entity.entity_type,
+                        "description": entity.description,
+                        "properties": _as_json(entity.properties, "properties"),
+                        "embedding": entity.embedding,
+                        "embedding_version": entity.embedding_version,
+                        "confidence": entity.confidence,
+                        "derived_by": entity.derived_by,
+                        "updated_at": now,
+                    },
+                }
+            )
+        return rows
+
+    def upsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        if not entities:
+            return
+        self._run([cypher.upsert_entities_statement(scope)], rows=self._entity_rows(scope, entities))
+
+    async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        if not entities:
+            return
+        await self._arun([cypher.upsert_entities_statement(scope)], rows=self._entity_rows(scope, entities))
 
     # -- reads ----------------------------------------------------------------
 

@@ -1841,3 +1841,21 @@ def test_a_first_write_refusal_in_consolidate_propagates_bare():
 
     with pytest.raises(MemoryOperationError, match="refuses facts"):
         p.consolidate(ACME)
+
+
+def test_an_episode_whose_valid_time_has_not_started_is_not_consolidated():
+    """`_visible_episodes` checks **both** bounds, not only `t_invalid`.
+
+    The upper half is covered above by an invalidated episode; the lower half needs a future-dated
+    one, and nothing else can observe it. Distilling one mints a semantic fact asserting something
+    that has not happened yet -- and the fact carries no bound saying so, because `_distil`
+    propagates the sources' bounds and the source looked live.
+    """
+    future = 3_000_000_000
+    p, vector, _ = provider()
+    p.write(ACME, [event("the migration completed", id="ep1", occurred_at=future)])
+
+    p.consolidate(ACME)
+
+    facts = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+    assert facts == [], "a future-dated episode is not evidence yet"
