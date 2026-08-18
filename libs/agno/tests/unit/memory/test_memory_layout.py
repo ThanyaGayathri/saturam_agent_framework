@@ -43,32 +43,32 @@ _ISLAND_MODULES = {
 # integrations -- because integrations import island modules, anything the island imports is
 # one hop from every backend, and import-linter checks only direct edges
 # (`allow_indirect_imports = true`). Core (egpt.utils, egpt.metrics, egpt.knowledge's embedder
-# interface, ...) stays importable.
-_FORBIDDEN_FOR_ISLAND = (
-    "egpt.integrations",
-    "egpt.agent",
-    "egpt.agents",
-    "egpt.team",
-    "egpt.workflow",
-    "egpt.reasoning",
-    "egpt.hooks",
-    "egpt.components",
-    "egpt.eval",
-    "egpt.learn",
-    "egpt.culture",
-    "egpt.skills",
-    "egpt.scheduler",
-    "egpt.compression",
-    "egpt.factory",
-    "egpt.guardrails",
-    "egpt.os",
-    "egpt.api",
-    "egpt.client",
-    "egpt.remote",
-    "egpt.container",
-    "egpt.providers",
-    "egpt.settings",
-)
+# interface, ...) stays importable. The list is read from the contract itself (via
+# import-linter's own config reader, the parser `lint-imports` trusts) rather than hand-copied:
+# a new services package added to the contract must not leave the island guard behind silently.
+_INTEGRATIONS_CONTRACT_NAME = "integrations must not import orchestration, services, or api"
+
+
+def _forbidden_for_island():
+    from importlinter import configuration
+    from importlinter.application import use_cases
+
+    configuration.configure()
+    user_options = use_cases.read_user_options(config_filename=str(package_root() / "pyproject.toml"))
+    contract = next(
+        (c for c in user_options.contracts_options if c.get("name") == _INTEGRATIONS_CONTRACT_NAME),
+        None,
+    )
+    assert contract is not None, (
+        f"import-linter contract {_INTEGRATIONS_CONTRACT_NAME!r} not found in pyproject.toml -- "
+        "if it was renamed, update _INTEGRATIONS_CONTRACT_NAME so this guard keeps tracking it"
+    )
+    forbidden = set(contract["forbidden_modules"])
+    assert forbidden, "the contract's forbidden_modules emptied out; the island guard would check nothing"
+    return tuple(sorted(forbidden | {"egpt.integrations"}))
+
+
+_FORBIDDEN_FOR_ISLAND = _forbidden_for_island()
 
 # Non-vacuity floor: the backends that exist today and provably import from the island. If the
 # scan roots go stale, the guards below would compare empty sets and pass while checking

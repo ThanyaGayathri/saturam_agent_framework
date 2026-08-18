@@ -1,5 +1,4 @@
 from os import getenv
-from textwrap import dedent
 from typing import Optional, Union
 
 from egpt.media import Audio, File, Image, Video
@@ -108,17 +107,21 @@ class DiscordClient:
 
             async with thread.typing():
                 # TODO Unhappy with the duplication here but it keeps MyPy from complaining
-                additional_context = dedent(f"""
-                    Discord username: {message_user}
-                    Discord userid: {message_user_id} 
-                    Discord url: {message_url}
-                    """)
+                # Per-call kwargs, never `self.agent.additional_context = ...`: discord.py
+                # dispatches each on_message as its own task, so mutating the shared entity
+                # lets concurrent messages read each other's context.
+                dependencies = {
+                    "discord_username": message_user,
+                    "discord_userid": message_user_id,
+                    "discord_url": message_url,
+                }
                 if self.agent:
-                    self.agent.additional_context = additional_context
                     agent_response: RunOutput = await self.agent.arun(  # type: ignore[misc]
                         input=message_text,
                         user_id=message_user_id,
                         session_id=str(thread.id),
+                        dependencies=dependencies,
+                        add_dependencies_to_context=True,
                         images=[Image(url=message_image)] if message_image else None,
                         videos=[Video(content=message_video)] if message_video else None,
                         audio=[Audio(url=message_audio)] if message_audio else None,
@@ -131,11 +134,12 @@ class DiscordClient:
                         )
                     await self._handle_response_in_thread(agent_response, thread)
                 elif self.team:
-                    self.team.additional_context = additional_context
                     team_response: TeamRunOutput = await self.team.arun(  # type: ignore[misc]
                         input=message_text,
                         user_id=message_user_id,
                         session_id=str(thread.id),
+                        dependencies=dependencies,
+                        add_dependencies_to_context=True,
                         images=[Image(url=message_image)] if message_image else None,
                         videos=[Video(content=message_video)] if message_video else None,
                         audio=[Audio(url=message_audio)] if message_audio else None,

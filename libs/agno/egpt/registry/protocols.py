@@ -70,19 +70,20 @@ touch the handle still annotate with it so the parameter documents what the fram
 without naming ``egpt.agent``.
 
 ``ChatRunnableLike`` is the chat-client variant (EGPT-1.7c): ``egpt.integrations.discord``
-drives a conversation loop -- set ``additional_context`` for the turn, ``arun`` it, and
-``acontinue_run`` when a paused run's tools are confirmed. It extends ``AsyncRunnableLike``
-with ``acontinue_run`` (same member ``HitlRunnableLike`` declares, but without
-``aget_run_output``, which Discord never calls -- and ``HitlRunnableLike`` cannot be reused
-whole for exactly that reason) plus the mutable ``additional_context`` attribute.
+drives a conversation loop -- ``arun`` a turn (per-message context rides in ``arun``'s own
+kwargs), then ``acontinue_run`` when a paused run's tools are confirmed. It extends
+``AsyncRunnableLike`` with ``acontinue_run`` (same member ``HitlRunnableLike`` declares, but
+without ``aget_run_output``, which Discord never calls -- and ``HitlRunnableLike`` cannot be
+reused whole for exactly that reason).
 
 ``SessionAgentLike`` is the session-UI variant (EGPT-1.7c): ``egpt.integrations._utils.streamlit``
 renders session pickers and chat history, so it needs the session surface of an agent --
 ``session_id``, ``db``, ``get_session_name``/``set_session_name``, a sync streaming ``run``,
-and the ``run_response``/``knowledge`` attributes its widgets read. The private
-``_agent_session`` reset it also performs stays out of the protocol (a leading-underscore
-member would write privates into a public contract); the call site uses ``hasattr``/``setattr``
-for that one access.
+and the ``knowledge`` attribute its widgets read. Members the concrete classes only *may*
+carry stay out of the contract: the tool-call display probes ``run_response`` with
+``hasattr`` (no egpt entity is guaranteed to define it), and the private ``_agent_session``
+reset uses ``hasattr``/``setattr`` (a leading-underscore member would write privates into a
+public contract).
 
 This module must keep importing nothing but ``typing`` -- that is the whole point of it.
 """
@@ -186,12 +187,15 @@ class ToolHandleLike(Protocol):
 
 @runtime_checkable
 class ChatRunnableLike(AsyncRunnableLike, Protocol):
-    """The part of an entity a chat client depends on: run a turn with per-turn context,
-    resume a paused run. See the module docstring for why ``HitlRunnableLike`` (which also
-    requires ``aget_run_output``) is not reused here.
-    """
+    """The part of an entity a chat client depends on: run a turn, resume a paused run.
+    See the module docstring for why ``HitlRunnableLike`` (which also requires
+    ``aget_run_output``) is not reused here.
 
-    additional_context: Optional[str]
+    Deliberately behavioral -- no mutable attributes. Per-message context goes through
+    ``arun``'s per-call kwargs (``dependencies``/``add_dependencies_to_context``); declaring
+    a settable member here would ratify the set-then-run pattern, which races when the chat
+    framework dispatches each inbound message as its own task against a shared entity.
+    """
 
     def acontinue_run(self, *args: Any, **kwargs: Any) -> Any:
         """Resume a paused run with resolved approvals; ``*args``/``**kwargs`` for the same
@@ -206,7 +210,6 @@ class SessionAgentLike(Protocol):
 
     session_id: Optional[str]
     db: Any
-    run_response: Any
     knowledge: Any
 
     def get_session_name(self) -> Any:

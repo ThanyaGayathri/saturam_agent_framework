@@ -2,7 +2,11 @@ import base64
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from egpt.media import Audio, File
+from egpt.media import (
+    Audio,
+    File,
+    Image,  # noqa: F401  (re-exported: the deprecated egpt.utils.openai shims star-import this namespace)
+)
 from egpt.utils.log import log_error, log_warning
 from egpt.utils.media import (  # noqa: F401  (re-exported: provider modules import these from here)
     _process_bytes_image,

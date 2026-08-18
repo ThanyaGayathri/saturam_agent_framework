@@ -44,7 +44,10 @@ def _actual_violations():
     configuration.configure()
     user_options = use_cases.read_user_options(config_filename=str(config_path))
     use_cases._register_contract_types(user_options)
-    report = use_cases.create_report(user_options, cache_dir=None)
+    # The cache dir is import-linter's default location relative to libs/agno (gitignored),
+    # so repeat local `pytest` runs and `lint-imports` runs share a warm grimp graph instead
+    # of each paying the cold multi-second rebuild `cache_dir=None` used to force.
+    report = use_cases.create_report(user_options, cache_dir=str(package_root() / ".import_linter_cache"))
 
     violations = set()
     for _contract, check in report.get_contracts_and_checks():
