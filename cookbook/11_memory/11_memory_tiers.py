@@ -148,7 +148,7 @@ class InMemoryGraph:
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
         # The episodic subgraph's read (SM-G6). This example is about tier routing, so it records
-        # the call and returns nothing; 14_episodic_subgraph.py exercises it for real.
+        # the call and returns nothing; 15_episodic_subgraph.py exercises it for real.
         #
         # Minimal stub -- for the full guard contract see 09_memory_provider_seam.py's
         # `InMemoryGraph.recall_episodes`. Missing here: require_recall_filters,

@@ -5,8 +5,8 @@ import pytest
 pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
 
 from egpt.agent import RunEvent  # noqa: E402
-from egpt.os.interfaces.slack.events import process_event  # noqa: E402
-from egpt.os.interfaces.slack.state import StreamState  # noqa: E402
+from egpt.integrations.channels.slack.events import process_event  # noqa: E402
+from egpt.integrations.channels.slack.state import StreamState  # noqa: E402
 from egpt.run.team import TeamRunEvent  # noqa: E402
 from egpt.run.workflow import WorkflowRunEvent  # noqa: E402
 

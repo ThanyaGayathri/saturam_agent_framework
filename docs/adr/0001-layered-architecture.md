@@ -123,11 +123,49 @@ and type-hints the result as `RunnableLike` instead of `Agent`. `context/wiki/ba
 
 **Scope of this amendment.** The seam is deliberately narrow: only `egpt.agent.Agent` has a
 row today. `integrations/discord/client.py` still imports `egpt.agent.agent.Agent` /
-`egpt.team.team.Team` directly (a pre-existing violation, not introduced by this ticket) and
-the upcoming channel-adapter move (`os/interfaces/*` → `integrations/channels/*`) will hit the
-same edge for `Team` and for whatever protocol `BaseInterface` needs. Both are explicitly out
-of scope for EGPT-1.7a; the seam is shaped so a `"team"` row and a `BaseInterface`-shaped
-protocol can be added later without redesigning it, but neither is added by this ticket.
+`egpt.team.team.Team` directly (a pre-existing violation, not introduced by this ticket,
+tracked as aicoe-tracker#180) and the upcoming channel-adapter move (`os/interfaces/*` →
+`integrations/channels/*`) will hit a similar edge. Both are explicitly out of scope for
+EGPT-1.7a.
+
+At the time of this amendment, the channel-adapter move (#158) was expected to need a `"team"`
+row in `construct_runnable` and a `BaseInterface`-shaped protocol. EGPT-1.7b found neither
+extension necessary for either move it made: `os/interfaces/whatsapp` and `os/interfaces/slack`,
+both moved into `integrations/channels/*`. In both cases the router/handler modules never
+construct an `Agent`/`Team`/`Workflow` themselves — their composition-root caller (the
+`Whatsapp`/`Slack` `BaseInterface` subclass, which stays in `egpt.os`) always passes one in
+already built — so `construct_runnable`'s seam does not apply here, and `BaseInterface` never
+leaves `egpt.os` either. What EGPT-1.7b added instead is a fourth, narrower protocol,
+`egpt.registry.protocols.AsyncRunnableLike` (`arun` only, no `id`, no `run`, no `deep_copy`):
+`RunnableLike` cannot be reused for this, because `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow`
+(`egpt.remote.base.BaseRemote` subclasses) implement only `arun`, not the sync `run`
+`RunnableLike` also requires, and every channel-adapter call site only ever does
+`await entity.arun(...)` or `async for event in entity.arun(..., stream=True)` -- never reading
+`.id` as an attribute, only via `getattr(entity, "id", None)`, which needs no protocol
+membership.
+
+**Round-2 review addendum (PR #82).** `AsyncRunnableLike` alone turned out to be insufficient for
+Slack's `HITLHandler`, which unconditionally calls `entity.acontinue_run(...)` and
+`await entity.aget_run_output(...)` to resume a paused run after an approval/rejection click.
+`RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` implement `acontinue_run` (via `BaseRemote`) but none
+implement `aget_run_output`, so they satisfy `AsyncRunnableLike` but would raise `AttributeError`
+on the first interactive click -- and `Slack.__init__`'s public signature at the time explicitly
+allowed `Remote*` types, so this wasn't hypothetical. Fixed with a fifth protocol,
+`egpt.registry.protocols.HitlRunnableLike` (extends `AsyncRunnableLike` with `acontinue_run` and
+`aget_run_output`, for `hitl.py`'s own typing) and a `hasattr`/`callable` capability check in
+`attach_routes` that rejects a non-conforming entity at setup time with an actionable error,
+rather than at first use. The setup check deliberately does not use
+`isinstance(entity, HitlRunnableLike)`: for a callable-only `runtime_checkable` `Protocol`,
+`isinstance` resolves per-attribute via `inspect.getattr_static` (CPython's
+`_ProtocolMeta.__instancecheck__`), which bypasses `Mock`/`AsyncMock`'s dynamic `__getattr__` --
+so mock-based test doubles fail the check even though genuine duck-typed objects with real
+instance attributes pass fine. (It also never raises; a non-conforming instance just makes the
+check return `False`.) WhatsApp's router and Slack's own `event_handler.py` never call the two
+HITL-only members, so they keep using plain `AsyncRunnableLike`. A later review round (PR #82
+round-3) found the setup check alone was not enough: HITL is unconditional for every Slack mount,
+so a `Remote*` entity can never satisfy it, and `tests/system/gateway_server.py` was still
+constructing `Slack` with real `RemoteAgent`/`RemoteTeam` instances at module import time -- see
+row 6c.
 
 ### Design decisions
 
@@ -139,6 +177,9 @@ protocol can be added later without redesigning it, but neither is added by this
 | 4 | Keep the existing `Registry` as the resolution seam, extended with **constructors by name** | Instance `get_*` covers pre-wired objects; constructor `construct_*` covers D2 DB-defined runtime hydration without services importing concretes | Instance-only registry (rejected: cannot hydrate arbitrary DB config); services importing `_PROVIDERS` (rejected: breaks matrix) |
 | 5 | Split interface from implementation in `models/`, `db/`, `vectordb/`, `knowledge/`, `tools/`, `utils/`, `tracing/` | Concrete mechanism that decouples core from integrations | Move whole packages wholesale (rejected: drags interfaces out of core) |
 | 6 | (EGPT-1.7a) A narrow `RunnableLike` protocol + `construct_runnable` seam in core, so integrations can run a sub-agent without importing `egpt.agent` | Only option that also resolves the live `integrations/discord/client.py` breach and the upcoming channel-adapter move (#158) with one rule; a provider/backend split (keep the provider, and its `Agent` construction, in orchestration) does not survive #158, where whole adapters including routers must move | Provider/backend split per connector, generalizing the existing `wiki/`/`web/` shape (rejected: fewer files move for this ticket alone, but does not generalize to #158's whole-adapter moves); `ignore_imports` exemption on the layout guard (rejected: writes the violation into the gate EGPT-1.11 exists to enforce) |
+| 6a | (EGPT-1.7b) #158's channel-adapter move is discharged with a fourth protocol, `AsyncRunnableLike` (`arun` only), not by extending `construct_runnable` — verified for both the WhatsApp and Slack moves | The adapters only ever receive an already-built entity from their composition-root caller — they never construct one — so `construct_runnable` does not apply; `RunnableLike` cannot be reused since `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` implement only `arun`, not `RunnableLike`'s required sync `run`; `id` was dropped from the protocol too — no channel-adapter call site reads it as an attribute | Extending `construct_runnable`'s `_ROWS` with a `"team"`/`"workflow"` row, as row 6 anticipated (rejected once implementation showed nothing here constructs an entity — would have added an unused seam); reusing `RunnableLike` as-is (rejected: fails structurally for the `Remote*` classes) |
+| 6b | (EGPT-1.7b, PR #82 round-2 review) Slack's HITL handler needs a fifth, narrower protocol, `HitlRunnableLike` (extends `AsyncRunnableLike` with `acontinue_run`/`aget_run_output`, for static typing), checked at `attach_routes` setup time with an explicit `hasattr`/`callable` capability check, not `isinstance` | `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` satisfy `AsyncRunnableLike` but lack `aget_run_output`, and `Slack.__init__`'s public signature at the time explicitly allowed `Remote*` types — a non-conforming entity would otherwise pass setup and only fail on the first approval/rejection click; `isinstance` against a callable-only `runtime_checkable` protocol resolves per-attribute via `inspect.getattr_static`, which bypasses `Mock`/`AsyncMock`'s dynamic `__getattr__` regardless of the test double's actual instance attributes | Widening `attach_routes`'s `agent`/`team`/`workflow` param types to `HitlRunnableLike` directly (rejected: would statically break `Slack.__init__`'s existing, documented `Optional[Union[X, RemoteX]]` signature — a bigger API decision than this fix calls for at the time); `isinstance(entity, HitlRunnableLike)` (rejected: verified it returns `False` for every `Mock`/`AsyncMock`-based test entity in the existing Slack router test suite, not just genuinely non-conforming ones — it doesn't raise, but the false-negative on mocks is disqualifying on its own); leaving the `# type: ignore` suppressions in place (rejected: exactly what the review flagged — hides a real runtime gap) |
+| 6c | (EGPT-1.7b, PR #82 round-3 review) `Slack.__init__`'s `agent`/`team`/`workflow` type hints are narrowed to plain `Agent`/`Team`/`Workflow`, dropping `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` from the accepted types entirely | Row 6b's setup-time check only fails loudly instead of silently — it doesn't change that a `Remote*` entity can *never* satisfy Slack's now-unconditional HITL requirement, so advertising `Remote*` as accepted input was a stale, misleading API contract; `tests/system/gateway_server.py` was still constructing `Slack(agent=remote_assistant, ...)` and `Slack(team=remote_team, ...)` at module scope, which would have crashed gateway container startup on the next nightly/`workflow_dispatch` system-test run | Keep the wider type hints and rely solely on the row 6b runtime check (rejected: leaves a real API footgun — nothing at the type level tells a caller `Remote*` will always fail here); redesign HITL to work for `Remote*` entities, e.g. by adding a remote `aget_run_output` (rejected: a materially larger feature change than this ticket's scope, and no current caller needs it) |
 
 ## Layer → module mapping
 
@@ -196,7 +237,7 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 
 | Module | Notes |
 |--------|-------|
-| `integrations/` | Existing package; destination for channel and other external adapters (already has `discord/`) |
+| `integrations/` | Existing package; destination for channel and other external adapters — `discord/` (pre-existing, separately tracked as aicoe-tracker#180 debt) and, since EGPT-1.7b, `channels/whatsapp/` and `channels/slack/` |
 | `models/<providers>/` | All concrete providers (`openai/`, `anthropic/`, `ollama/`, …) |
 | `models/utils.py` | Provider construction table (`_PROVIDERS` → concrete module paths). **Must not stay in core.** Becomes the integrations-side source that **registers constructors** into the core Registry seam at startup. |
 | `db/<backends>/` | Concrete DB backends (`postgres/`, `sqlite/`, `mongo/`, …) |

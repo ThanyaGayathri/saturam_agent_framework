@@ -222,7 +222,46 @@ key; the embedder is local and downloads its weights on first run.
 
 ---
 
-### 14_episodic_subgraph.py
+### 14_hybrid_candidates_pgvector.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-V3 hybrid candidate legs on the SM-V1 pgvector memory store,
+against a real Postgres 18 + pgvector with the ADR-ratified Mode A embedder
+(`BAAI/bge-base-en-v1.5` @768). Writes three memories to its own table (`memory_hybrid_demo`, so it
+does not read rows `13_` left in the default one) and runs three queries through
+`search_candidates`, printing both ranked lists per query.
+
+**Result:** Success. `isinstance(store, HybridSearchSubstrate)` is True, so the optional capability
+is detectable, and every query returns two independently-ranked lists with scores in `[0.0, 1.0]`.
+
+The three queries show the legs differing in a different way each time:
+
+- `order ORD-99417-XZ status` -- lexical returns **only** `carrier(0.500)`; vector ranks the whole
+  corpus, `carrier(0.876) decoy(0.666) commute(0.416)`. Precision against proximity.
+- `tram commute to the berlin office` -- lexical returns **nothing**, because Postgres' web-search
+  syntax is conjunctive and one unmatched term empties the leg; vector still answers
+  `commute(0.698)`. This is the case a lexical-only store gets wrong, and it reads as an empty
+  corpus rather than as a miss.
+- `order status` -- both answer and **disagree about the top hit**: vector `carrier(0.764)` first,
+  lexical `decoy(0.714)` first. This is precisely what a blended `similarity_score` destroys.
+
+**Notable:** the ticket's premise -- "assert BM25 surfaces an exact ID while vector may not" --
+**did not reproduce on the production embedder**, and the file says so rather than implying it.
+`bge-base` ranks the identifier-carrying record first as well. The decoy-first behaviour appears
+only under the deterministic bag-of-tokens embedder the integration tests use, and that test's
+docstring now scopes the claim to it. What the legs genuinely differ on is result *shape*, which is
+what the two-list return exists to preserve.
+
+Run **twice in a row and the output is identical**: events carry explicit ids and the substrate
+upserts by id.
+
+**Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
+key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 15_episodic_subgraph.py
 
 **Status:** PASS
 
@@ -250,3 +289,7 @@ edges rather than accumulating a fresh set.
 **Environment note:** run with `.venv`, not `.venvs/demo` -- `demo_setup.sh` does not install the
 `neo4j` driver, so `10_graph_substrate_neo4j.py` has the same constraint. Pre-existing, not
 introduced here.
+
+**Renumbered from `14_episodic_subgraph.py`** to `15_` at merge time: `feat/SM-V3` landed
+`14_hybrid_candidates_pgvector.py` on `main` first. Per this file's own convention, whoever merges
+second renumbers.

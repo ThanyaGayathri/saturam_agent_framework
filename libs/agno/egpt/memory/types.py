@@ -47,6 +47,7 @@ __all__ = [
     "MemorySlice",
     "PartialWriteError",
     "require_scope",
+    "RetrievalCandidates",
     "SCOPE_SLOTS",
     "Scope",
     "Substrate",
@@ -516,6 +517,14 @@ class MemoryQuery:
     filters: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
+        # The one field every read path touches, and the only one this envelope did not check.
+        # `limit`, `as_of`, `tiers`, `substrates` and `filters` are all validated below, so a
+        # non-string `text` was the single way to get past this constructor and die further in --
+        # as `AttributeError: 'int' object has no attribute 'strip'` from inside a backend, which is
+        # the shape every other check here exists to prevent. It also reaches a substrate as a bind
+        # parameter, where the driver's own complaint names neither the field nor the caller.
+        if not isinstance(self.text, str):
+            raise TypeError(f"MemoryQuery.text must be a string, got {self.text!r}.")
         self.as_of = _epoch_or_none(self.as_of)
         # A negative limit is not a smaller result set -- as a bare slice it truncates from the
         # *end*, so `limit=-1` returns everything except the best-ranked record. A caller computing
@@ -591,6 +600,56 @@ class MemoryQuery:
         that looks like a miss.
         """
         return PERSISTENT_TIERS if self.tiers is None else tuple(self.tiers)
+
+
+@dataclass(frozen=True)
+class RetrievalCandidates:
+    """One store's ranked candidate lists, **one list per retrieval leg and deliberately unfused**
+    (SM-V3 #97).
+
+    Why the lists stay apart. Fusing them inside the store would hand the fusion stage a single
+    ranking and no way to reconstruct the per-leg ranks it needs -- which is the whole complaint
+    against ``PgVector.hybrid_search``, whose weighted blend is computed in SQL and returned as one
+    ``similarity_score``. Rank-based fusion cannot be recovered from a blended score, and neither
+    can a *re-weighted* blend, so a caller that wanted either had to re-run both searches.
+
+    Which method fuses these is **not decided here and not decided by the store**. ADR 0003 section
+    A.6 ratifies weighted / relative-score fusion for this two-leg case and holds the three-leg
+    (+graph) choice open, gated on SM-G9 (#107); implementing either is SM-H2's (#132).
+
+    Every record's ``score`` obeys the same contract as ``VectorSubstrate.search`` -- a similarity
+    in ``[0.0, 1.0]``, higher is better. A leg whose native measure is a distance or an unbounded
+    rank converts it, and must do so **monotonically**, so that the conversion cannot reorder its
+    own list: rank-based fusion reads position and score-based fusion reads magnitude, and a
+    non-monotone squash would quietly disagree with itself between the two.
+
+    **``frozen=True`` stops the fields being rebound; it does not make the lists read-only.**
+    Appending to ``candidates.vector`` works, and nothing here prevents it. That is left alone
+    rather than defended: a store builds both lists fresh per call and keeps no reference, so the
+    only object a caller can corrupt is its own -- and copying two ranked pages on every read to
+    protect against that would tax the hot path for no reader's benefit. Stated because ``frozen``
+    otherwise reads as a guarantee this class does not make. A fusion stage that wants to sort or
+    truncate in place is welcome to; SM-H2 (#132) owns that call.
+    """
+
+    vector: List[MemoryRecord] = field(default_factory=list)
+    lexical: List[MemoryRecord] = field(default_factory=list)
+
+    def legs(self) -> Dict[str, List[MemoryRecord]]:
+        """The lists keyed by leg name, so a **consumer** iterates legs rather than field names.
+
+        SM-R8 requires the fusion implementations to be N-leg-capable rather than hardcoded to two
+        (its ``RRFFusion`` / ``WeightedFusion`` already are), and a fusion function written against
+        ``.vector`` and ``.lexical`` by name is hardcoded to two whatever it could otherwise take.
+
+        **This does not make the container extensible, and should not be read as promising a third
+        entry.** ``RetrievalCandidates`` describes what *one store* returned, and this store has two
+        legs; the graph leg (SM-G9 #107) comes from a different substrate entirely, so it arrives as
+        a separate result that the orchestrator (SM-H1 #131) fuses alongside this one -- not as a
+        key that appears here later. What this method buys is that the fusion code consuming it does
+        not have to change when that happens.
+        """
+        return {"vector": self.vector, "lexical": self.lexical}
 
 
 #: Keys every provider must put in ``MemorySlice.fusion``, whatever it does internally.

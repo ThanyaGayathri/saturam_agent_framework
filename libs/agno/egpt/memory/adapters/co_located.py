@@ -660,7 +660,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # `_merged`'s ranked-fusion machinery would need a decision about how the two combine that
         # nobody has made. No ticket currently owns wiring it into the fused read path; a caller
         # that wants it reaches `provider.graph.recall_episodes` directly, as
-        # `cookbook/14_episodic_subgraph.py` does. Stated here rather than left to look like an
+        # `cookbook/15_episodic_subgraph.py` does. Stated here rather than left to look like an
         # oversight, per round-3 review, PR #90.
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
