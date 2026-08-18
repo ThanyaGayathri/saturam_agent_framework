@@ -35,7 +35,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from egpt.memory.graph.passes import select_current_episodes
 from egpt.memory.substrates import GraphSubstrate
@@ -103,10 +103,19 @@ class ExtractedRelation(BaseModel):
     # answering with `source=""` passes validation here and reaches `relation_edge_id_for`
     # three frames deeper -- and if episodic facts already committed before that point, the
     # refusal there surfaces as a `PartialWriteError` with the real cause buried in its chain.
+    # `min_length` alone still admits a whitespace-only string (`" "` has length 1), which
+    # `_strip_and_check` below closes by stripping before the length check runs.
     source: str = Field(description="The relation's source entity, by display name", min_length=1)
     relation: str = Field(description="A short, lowercase, underscored label for the connection", min_length=1)
     target: str = Field(description="The relation's target entity, by display name", min_length=1)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @field_validator("source", "relation", "target", mode="before")
+    @classmethod
+    def _strip_and_check(cls, value: str) -> str:
+        if isinstance(value, str):
+            value = value.strip()
+        return value
 
 
 class ExtractedRelations(BaseModel):
@@ -304,7 +313,11 @@ class RelationExtractionPipeline:
         """One :class:`FactWrite` per relation, with the episode's own scope and provenance."""
         candidates: List[FactWrite] = []
         for item in extracted:
-            source, relation, target = item.source.strip(), item.relation.strip(), item.target.strip()
+            # Already stripped and non-blank: `ExtractedRelation._strip_and_check` runs at
+            # construction, so a redundant strip here would only restate what the schema already
+            # guarantees. `relation_edge_id_for`'s own internal check stays as the boundary's last
+            # line, for a caller that builds a `RelationExtractor` without going through pydantic.
+            source, relation, target = item.source, item.relation, item.target
             edge_id = relation_edge_id_for(episode.scope, source, relation, target)
             record = MemoryRecord(
                 id=edge_id,

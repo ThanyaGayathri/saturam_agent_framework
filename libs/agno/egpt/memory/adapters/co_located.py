@@ -19,7 +19,7 @@ an episode or a fact, which tier consolidation reads and which it writes -- is r
 import asyncio
 import inspect
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar, Union
 from uuid import NAMESPACE_OID, uuid4, uuid5
 
 from egpt.memory.config import (
@@ -118,7 +118,15 @@ def _positive_int(value: Any, option: str) -> int:
     return value
 
 
-def _checked_pipeline(candidate: Any, *, option: str) -> Optional[Any]:
+#: Carries the candidate's own type through to the return type, so ``self.entity_pipeline`` and
+#: ``self.relation_pipeline`` keep their concrete `Optional["EntityExtractionPipeline"]` /
+#: `Optional["RelationExtractionPipeline"]` annotations at the call sites below instead of both
+#: widening to `Optional[Any]` -- which would silence mypy on a wrong argument type or a missing
+#: method on either field.
+_P = TypeVar("_P")
+
+
+def _checked_pipeline(candidate: Optional[_P], *, option: str) -> Optional[_P]:
     """Verify an injected extraction pipeline carries both halves, at construction time.
 
     Shared by ``entity_pipeline`` and ``relation_pipeline`` (SM-G3 #101): the same bargain
@@ -1160,10 +1168,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         else:
-            # No `receipt` exists here to attach -- `facts` is empty, so nothing above committed.
-            # A failure here is a plain refusal, matching `write`'s rule: propagate bare, do not
-            # wrap. Deliberately parallel to the `if facts:` branch above, not an oversight against
-            # it -- see the review-round-3 note in `_entities`'s own docstring.
+            # No `receipt` exists here to attach -- `facts` is empty, so no *semantic fact* was
+            # committed above. `_entities`/`_relations` below can still write graph nodes/edges of
+            # their own, uncounted by this branch's `PartialWriteError` handling -- a pre-existing
+            # gap for `_entities` alone that this ticket does not widen the fix for; tracked as
+            # aicoe-tracker #186. A failure here is a plain refusal, matching
+            # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
+            # branch above, not an oversight against it -- see the review-round-3 note in
+            # `_entities`'s own docstring.
             entities = self._entities(scope, episodes)
             relations = self._relations(scope, episodes)
         return self._report(scope, scanned, episodes, facts, merged, entities, relations)
@@ -1212,10 +1224,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         else:
-            # No `receipt` exists here to attach -- `facts` is empty, so nothing above committed.
-            # A failure here is a plain refusal, matching `write`'s rule: propagate bare, do not
-            # wrap. Deliberately parallel to the `if facts:` branch above, not an oversight against
-            # it -- see the review-round-3 note in `_entities`'s own docstring.
+            # No `receipt` exists here to attach -- `facts` is empty, so no *semantic fact* was
+            # committed above. `_entities`/`_relations` below can still write graph nodes/edges of
+            # their own, uncounted by this branch's `PartialWriteError` handling -- a pre-existing
+            # gap for `_entities` alone that this ticket does not widen the fix for; tracked as
+            # aicoe-tracker #186. A failure here is a plain refusal, matching
+            # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
+            # branch above, not an oversight against it -- see the review-round-3 note in
+            # `_entities`'s own docstring.
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
         return self._report(scope, scanned, episodes, facts, merged, entities, relations)

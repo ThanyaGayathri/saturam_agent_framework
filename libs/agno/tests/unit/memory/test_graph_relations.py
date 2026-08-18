@@ -91,14 +91,18 @@ def edge_for(graph, source="Ada", rel="works_at", target="Acme Corp", scope=ACME
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("blank", ["", "   "])
 @pytest.mark.parametrize("field", ["source", "relation", "target"])
-def test_an_empty_field_is_refused_at_the_schema_boundary(field):
-    """A model answering with an empty string must fail at parse time, not reach
-    ``relation_edge_id_for`` three frames deeper -- where, if episodic facts already committed,
-    the refusal surfaces as a ``PartialWriteError`` with the real cause buried in its chain."""
+def test_an_empty_field_is_refused_at_the_schema_boundary(field, blank):
+    """A model answering with an empty or whitespace-only string must fail at parse time, not
+    reach ``relation_edge_id_for`` three frames deeper -- where, if episodic facts already
+    committed, the refusal surfaces as a ``PartialWriteError`` with the real cause buried in its
+    chain. Whitespace-only is the case ``min_length=1`` alone misses -- ``" "`` has length 1 and
+    passes it, then strips to ``""`` downstream -- which is why ``_strip_and_check`` strips
+    *before* the length check runs rather than leaving the constraint to catch it alone."""
     from pydantic import ValidationError
 
-    fields = {"source": "Ada", "relation": "works_at", "target": "Acme Corp", field: ""}
+    fields = {"source": "Ada", "relation": "works_at", "target": "Acme Corp", field: blank}
 
     with pytest.raises(ValidationError):
         ExtractedRelation(**fields)
@@ -146,6 +150,12 @@ def test_a_second_pass_produces_the_same_edge_id():
     pipe.run(ACME, [episode("Ada works at Acme", "e2")])
 
     assert len({f.record.id for f in graph.facts}) == 1
+    # Replaces, not accumulates: the module docstring states `upsert_facts`'s triple leg overwrites
+    # an edge's properties on re-write (`SET r = row.props`, no union). The second pass's write
+    # carries only its own episode's provenance -- "e1" is not still on it -- and that is correct
+    # per this pipeline's documented contract, not a bug: carrying it forward needs a read of the
+    # edge's current row, which SM-G7 (#105) / SM-G9 (#107) own.
+    assert graph.facts[-1].source_episode_ids == ["e2"]
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +262,50 @@ def test_the_cap_truncates_and_says_so():
     assert report.details["complete"] is False
 
 
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_extractor_failing_mid_pass_writes_nothing(is_async):
+    """All-or-nothing: the extractor raising on the second episode must not leave the first
+    episode's candidate written -- there is no partial-batch write on this pipeline's own port
+    call, so a mid-pass failure propagates before ``upsert_facts``/``aupsert_facts`` runs at all."""
+
+    class RaisesOnSecondCall:
+        def __init__(self):
+            self.calls = 0
+
+        def extract(self, episode):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("model timeout")
+            return [relation()]
+
+        async def aextract(self, episode):
+            return self.extract(episode)
+
+    pipe, graph = pipeline(extractor=RaisesOnSecondCall())
+    episodes = [episode("first", "e1"), episode("second", "e2")]
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(pipe.arun(ACME, episodes)) if is_async else pipe.run(ACME, episodes)
+
+    assert graph.facts == []
+    assert graph.calls == [], "the pipeline must not call upsert_facts before every episode is read"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_pass_over_no_episodes_writes_nothing_and_completes(is_async):
+    """Parity with ``test_graph_entities.py``'s empty-episodes coverage: a pipeline handed an
+    empty list still ran -- it makes no model call and reports a clean, complete pass, which is
+    what a caller needs to tell "nothing to extract" apart from "never wired"."""
+    pipe, graph = pipeline()
+
+    report = asyncio.run(pipe.arun(ACME, [])) if is_async else pipe.run(ACME, [])
+
+    assert report.episodes_read == 0
+    assert report.edges_written == 0
+    assert report.details["complete"] is True
+    assert graph.facts == []
+
+
 def test_a_pass_that_reads_no_episode_is_refused_at_construction():
     with pytest.raises(MemoryOperationError) as excinfo:
         pipeline(max_episodes_per_pass=0)
@@ -319,12 +373,14 @@ class _Response:
 
 
 class _FakeModel:
+    """No call counter: ``LLMRelationExtractor`` calls ``deepcopy(self.model)`` per call, so a
+    counter here would increment on the copy and never be visible on the reference a test holds --
+    silently misleading rather than merely unused."""
+
     def __init__(self, response):
         self._response = response
-        self.calls = 0
 
     def response(self, messages, response_format):
-        self.calls += 1
         return self._response
 
     async def aresponse(self, messages, response_format):
@@ -365,6 +421,26 @@ def test_llm_extractor_refuses_a_missing_model_at_construction():
         LLMRelationExtractor(model=None)
 
     assert excinfo.value.field_name == "model"
+
+
+def test_llm_extractor_appends_instructions_to_the_system_message():
+    """Asserted on ``_messages`` directly rather than through ``extract``: the extractor
+    deep-copies ``self.model`` per call, so a fake model's own recorded state is invisible to a
+    test holding the original reference -- ``_FakeModel``'s docstring above explains why."""
+    extractor = LLMRelationExtractor(model=_FakeModel(_Response()), instructions="Prefer 'reports_to' over 'manages'.")
+
+    system_message = extractor._messages(episode("Ada reports to Sarah"))[0]
+
+    assert "## Additional Instructions" in system_message.content
+    assert "Prefer 'reports_to' over 'manages'." in system_message.content
+
+
+def test_llm_extractor_omits_the_instructions_section_when_none_given():
+    extractor = LLMRelationExtractor(model=_FakeModel(_Response()))
+
+    system_message = extractor._messages(episode("Ada reports to Sarah"))[0]
+
+    assert "## Additional Instructions" not in system_message.content
 
 
 # ---------------------------------------------------------------------------
@@ -412,11 +488,14 @@ def test_consolidate_runs_the_wired_relation_pipeline(is_async):
     assert report.details["relations"]["extractor"] == RELATION_EXTRACTOR_ID
 
 
-def test_an_unwired_provider_reports_relations_as_not_extracted():
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_unwired_provider_reports_relations_as_not_extracted(is_async):
+    """``_relations`` and ``_arelations`` each have their own unwired-branch check -- parametrized
+    so both are exercised, matching the wired counterpart above."""
     memory, _, _ = provider(extractor=None)
     memory.write(ACME, [MemoryEvent(content="Ada works at Acme", scope=ACME)])
 
-    report = memory.consolidate(ACME)
+    report = asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
 
     assert report.details["relations"] == NO_RELATIONS
 
