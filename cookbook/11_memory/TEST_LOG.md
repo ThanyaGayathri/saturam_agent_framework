@@ -269,7 +269,7 @@ key; the embedder is local and downloads its weights on first run.
 `ascore()`, applies the result to each with `dataclasses.replace(episode, importance=score)`, and
 shows the scored value reaching a reader through the existing `EPISODE_KEYS` floor.
 
-**Result:** Verified structurally with a mocked `Agent.arun` (no network) -- the script runs
+**Result:** Verified structurally with a mocked `Model.aresponse` (no network) -- the script runs
 end-to-end, `dataclasses.replace` applies the scored value, `significant.importance >
 mundane.importance` holds, and `episode_to_record(...).metadata["importance"]` carries it through.
 **Not run against a real model**: no `OPENAI_API_KEY` was available in the environment that wrote

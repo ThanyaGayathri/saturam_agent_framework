@@ -15,8 +15,10 @@ Key concepts:
   construction. A caller scores separately, on its own time, and applies the
   result with dataclasses.replace(episode, importance=score), the same idiom
   every other episode field already uses post-construction.
-- One Agent per ImportanceScorer instance, reused across every score()/ascore()
-  call -- never one Agent per episode.
+- One Model call per score()/ascore() invocation, against the same ImportanceScorer
+  instance every time -- talks to Model directly rather than building an
+  egpt.agent.Agent, since egpt.memory (services) may not depend on egpt.agent
+  (orchestration) per ADR 0001.
 - Episode content reaches the model inside an <episode> envelope, read as the
   thing being scored rather than as an instruction.
 - The scored value reaches SM-E7 (composite scoring) and SM-L6 (reflection
