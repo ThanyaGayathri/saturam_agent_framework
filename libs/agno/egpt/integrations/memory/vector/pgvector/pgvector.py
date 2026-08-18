@@ -12,8 +12,12 @@ implements exactly the rejected layout -- one shared table, tenant as a JSONB me
 no way to express partitioning -- so reusing it would ship the arrangement the benchmark ruled out.
 What is reused is pgvector itself, its HNSW index, and the seam's own score normalization.
 
-Deliberately **not** here, each with an owner: the embedder and its model, dimension and
-normalization choices, and the ``HuggingfaceCustomEmbedder`` refusal for Mode A (SM-V2 #96); rank
+The embedder, its model, its dimension and the Mode A air-gap refusal are **not decided here**:
+they come from :mod:`egpt.memory.embedding` (SM-V2 #96), which this store holds as ``pipeline``.
+Both the write and the read path embed through it, so a deployment cannot index with one model and
+query with another.
+
+Deliberately **not** here, each with an owner: rank
 fusion and its knobs (SM-H2 #132); metadata predicates for ``MemoryQuery.filters``, which need a
 contract on the graph port too (see :mod:`egpt.memory.types`); re-syncing this projection when the
 graph invalidates a fact, which has no call site until contradiction *detection* exists (SM-G5
@@ -27,8 +31,8 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from egpt.integrations.memory.vector.pgvector import sql
-from egpt.knowledge.embedder import Embedder
 from egpt.memory.config import MemoryProviderConfigError
+from egpt.memory.embedding import resolve_memory_embedder
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     MemoryOperationError,
@@ -39,6 +43,7 @@ from egpt.memory.types import (
     Substrate,
     require_scope,
 )
+from egpt.providers.model_provider import ProviderMode
 from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_debug, log_warning
 from egpt.vectordb.distance import Distance
@@ -310,6 +315,19 @@ class PgVectorMemorySubstrate:
 
     Sync and async are both native: the async half drives SQLAlchemy's async engine on the same
     psycopg 3 driver, because a thread hop is a sync call wearing an ``async def``.
+
+    **Migration note (SM-V2 #96).** Before this ticket, ``embedder`` was passed straight to a
+    resolver with no offline-capability check, so any injected instance -- a Bedrock wrapper, a
+    fine-tuned in-house client, anything not in :data:`~egpt.memory.embedding.OFFLINE_CAPABLE` --
+    worked regardless of deployment mode. ``mode`` is new, and it **defaults to**
+    ``ProviderMode.LOCAL`` (Mode A, air-gapped), which now enforces ADR 0003 A.3c at construction:
+    an embedder that is neither a recognised offline-capable key nor an instance declaring
+    ``offline_capable = True`` is refused, not silently accepted. A deployment upgrading from a
+    pre-SM-V2 version with such an embedder already injected gets a
+    :class:`~egpt.memory.config.MemoryProviderConfigError` where it previously got nothing --
+    correct for Mode A, but a behaviour change with no runtime warning. Fix by either declaring
+    ``offline_capable = True`` on the embedder class (asserting it is genuinely offline), or by
+    passing ``mode=ProviderMode.FRONTIER`` explicitly if the embedder is meant to reach a provider.
     """
 
     def __init__(
@@ -326,6 +344,7 @@ class PgVectorMemorySubstrate:
         embedding_version: Optional[str] = None,
         text_search_config: str = _DEFAULT_TEXT_SEARCH_CONFIG,
         auto_init_schema: bool = True,
+        mode: ProviderMode = ProviderMode.LOCAL,
     ) -> None:
         resolved_url = db_url or os.getenv("EGPT_MEMORY_PG_URL")
         if not resolved_url:
@@ -340,9 +359,26 @@ class PgVectorMemorySubstrate:
         # is a legal relation but not a legal *base* for one, and it is the derived names that fail
         # -- at construction for the two indexes, and at the first write of each new tenant for a
         # partition, which is far from the setting that caused it.
-        self.embedder = self._resolved_embedder(embedder, embedder_options)
+        # The pipeline decides the model, its dimension and the version tag; this store only holds
+        # the column they imply (SM-V2 #96). It is also where Mode A's air-gap refusal lives, so
+        # resolving it here is what makes `mode` more than a stored attribute.
+        self.mode = mode
+        self.pipeline = resolve_memory_embedder(mode, embedder, embedder_options, dim, dimensions_field="dim")
+        #: The raw embedder, unchanged, so anything reading it sees what it saw before the pipeline
+        #: was interposed. Writes and queries go through `self.pipeline`, which batches.
+        self.embedder = self.pipeline.embedder
         self.ef_search = ef_search
-        self.embedding_version = embedding_version
+        # Derived from the pipeline rather than defaulting to None, so every row is stamped with the
+        # model that actually produced it and a re-embedding migration has a real value to key its
+        # cutover on (SM-R4 section 7, D8). An explicit argument still wins: a deployment mid-
+        # migration needs to pin the tag it writes under.
+        #
+        # `is not None`, not `or`: those differ on exactly the caller who is most deliberate about
+        # this field. A migration tool passing `""` to clear the tag is the one case where the
+        # falsy test silently substitutes the derived value -- writing rows stamped with the current
+        # model under a tool that asked for no stamp at all, which is the opposite of what it
+        # requested and invisible until the cutover query returns the wrong set.
+        self.embedding_version = embedding_version if embedding_version is not None else self.pipeline.embedding_version
         # Every setting is checked here rather than at first use, and all of them inside one
         # wrapper: `ef_search` reaches a statement as a literal and the rest reach DDL, so this is
         # where a bad value is cheap -- and a refusal that arrives as a bare `ValueError` is one a
@@ -351,7 +387,10 @@ class PgVectorMemorySubstrate:
         with self._settings_checked():
             self.schema = sql.identifier(schema, "schema")
             self.table = sql.table_identifier(table)
-            self.dim = self._resolved_dim(dim, self.embedder)
+            #: One dimension authority. Taken from the pipeline rather than re-derived beside it --
+            #: a column width restated next to the model that determines it drifts the first time
+            #: the model changes.
+            self.dim = self.pipeline.dimensions
             self.text_search_config = sql.text_search_config(text_search_config)
             sql.ef_search_statement(ef_search)
             self._schema_statements = sql.schema_statements(
@@ -416,64 +455,6 @@ class PgVectorMemorySubstrate:
                 field_name="db_url",
             )
         return url.set(drivername=_DRIVER)
-
-    @staticmethod
-    def _resolved_embedder(embedder: Optional[Any], options: Optional[Dict[str, Any]]) -> Embedder:
-        """The injected embedder, or one built from a registry name so config alone can construct.
-
-        Which embedder a deployment should use -- and the ADR section A.3c trap that
-        ``HuggingfaceCustomEmbedder`` is a *remote* client despite being listed as self-hostable --
-        is SM-V2's (#96). This only insists that there is one: a vector store with no embedder has
-        nothing to index and would fail at the first write instead of at construction.
-        """
-        if isinstance(embedder, str):
-            from egpt.registry import discovery
-
-            embedder = discovery.construct("embedder", embedder, **(options or {}))
-        elif options:
-            raise MemoryProviderConfigError(
-                "embedder_options applies only when 'embedder' names a registered embedder to build; "
-                "an already-built instance is configured by its own constructor.",
-                field_name="embedder_options",
-            )
-        if embedder is None:
-            raise MemoryProviderConfigError(
-                "PgVectorMemorySubstrate needs an embedder -- an Embedder instance, or the name of a "
-                "registered one. Choosing the model is SM-V2's (#96).",
-                field_name="embedder",
-            )
-        for method in ("get_embedding", "async_get_embedding"):
-            if not callable(getattr(embedder, method, None)):
-                raise MemoryProviderConfigError(
-                    f"{type(embedder).__name__} has no callable {method}(); both halves of this "
-                    "substrate embed, so an embedder missing either one leaves one half broken.",
-                    field_name="embedder",
-                )
-        return embedder
-
-    @staticmethod
-    def _resolved_dim(dim: Optional[int], embedder: Embedder) -> int:
-        """The column width: stated, or taken from the embedder -- and refused when they disagree.
-
-        A mismatch is caught here rather than by Postgres on the first insert, because by then the
-        table exists at the wrong width and every write fails until it is dropped.
-        """
-        declared = getattr(embedder, "dimensions", None)
-        if dim is None:
-            if not isinstance(declared, int) or declared <= 0:
-                raise MemoryProviderConfigError(
-                    f"dim is unset and {type(embedder).__name__}.dimensions is {declared!r}, so the "
-                    "vector column has no width. Pass dim explicitly.",
-                    field_name="dim",
-                )
-            return declared
-        if isinstance(declared, int) and declared > 0 and declared != dim:
-            raise MemoryProviderConfigError(
-                f"dim is {dim} but {type(embedder).__name__}.dimensions is {declared}. One of them is "
-                "wrong, and either way every write would be refused by the column.",
-                field_name="dim",
-            )
-        return dim
 
     # -- plumbing -------------------------------------------------------------
 
@@ -931,7 +912,7 @@ class PgVectorMemorySubstrate:
         if not records:
             return
         checked = self._checked(scope, records)
-        embeddings = [self.embedder.get_embedding(record.content) for record in checked]
+        embeddings = self.pipeline.embed_texts([record.content for record in checked])
         self.ensure_partition(scope.tenant_id)
         rows = [self._row(scope, record, embedding) for record, embedding in zip(checked, embeddings)]
         self._write(sql.upsert_statement(self.schema, self.table), rows)
@@ -941,11 +922,7 @@ class PgVectorMemorySubstrate:
         if not records:
             return
         checked = self._checked(scope, records)
-        # Sequential, like the sync half. Embedding a batch concurrently is a real speed-up and a
-        # different decision -- one this port cannot make for every embedder, since an embedder is
-        # free to be a single local model with no concurrency at all -- so batching belongs with
-        # the embedder pipeline (SM-V2 #96) rather than being taken here on one half only.
-        embeddings = [await self.embedder.async_get_embedding(record.content) for record in checked]
+        embeddings = await self.pipeline.aembed_texts([record.content for record in checked])
         await self.aensure_partition(scope.tenant_id)
         rows = [self._row(scope, record, embedding) for record, embedding in zip(checked, embeddings)]
         await self._awrite(sql.upsert_statement(self.schema, self.table), rows)
@@ -991,7 +968,7 @@ class PgVectorMemorySubstrate:
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
-        embedding = self.embedder.get_embedding(query.text)
+        embedding = self.pipeline.embed_query(query.text)
         rows = self._statements(self._search_call(scope, query, tiers, embedding))[-1]
         return self._ranked(rows, [self._record(row) for row in rows])
 
@@ -1000,7 +977,7 @@ class PgVectorMemorySubstrate:
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
-        embedding = await self.embedder.async_get_embedding(query.text)
+        embedding = await self.pipeline.aembed_query(query.text)
         rows = (await self._astatements(self._search_call(scope, query, tiers, embedding)))[-1]
         return self._ranked(rows, [self._record(row) for row in rows])
 

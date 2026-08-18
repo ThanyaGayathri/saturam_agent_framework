@@ -186,11 +186,14 @@ def test_the_seed_provider_is_a_genuinely_different_shape():
     assert all(build_memory_provider(mode_a_config()).substrates().values())
 
 
-def test_the_mode_is_carried_but_selects_no_adapter_yet():
-    """``FRONTIER`` is accepted and reaches the adapter; nothing branches on it.
+def test_the_mode_is_carried_and_selects_no_adapter():
+    """``FRONTIER`` is accepted and reaches the adapter; no *adapter* branches on it.
 
-    Mode B is SM-X2's (#138). Recording that here keeps a reader from concluding the mode field is
-    dead: it is the seam SM-C5 (#93) resolves per tenant, wired and unused rather than absent.
+    Since SM-V2 (#96) a **backend** does: the vector store picks its embedder per mode and refuses a
+    remote one under Mode A. What stays true is that the provider and its consumers are identical
+    either way -- the mode changes what gets built beneath the seam, never the seam.
+
+    The Mode B *adapter* is still SM-X2's (#138).
     """
     frontier = build_memory_provider(
         MemoryProviderConfig(
@@ -629,3 +632,121 @@ def test_a_backend_that_fails_to_construct_surfaces_as_a_config_error():
             build_memory_provider(config)
     finally:
         discovery.unregister("graphdb", "unreachable-probe")
+
+
+# -- the deployment mode reaches the backends that ask for it (SM-V2 #96) ------
+
+
+def _registered(monkeypatch, kind, name, constructor):
+    """Point ``discovery`` at one throwaway backend, without touching the real registry."""
+    from egpt.registry import discovery
+
+    monkeypatch.setattr(discovery, "names", lambda k: [name] if k == kind else [])
+    monkeypatch.setattr(discovery, "resolve", lambda k, n: constructor)
+    monkeypatch.setattr(discovery, "construct", lambda k, n, **config: constructor(**config))
+
+
+def test_a_backend_that_names_mode_is_given_the_deployments_mode(monkeypatch):
+    """Without this the vector store cannot apply the Mode A air-gap refusal at all: it would build
+    under its own default rather than under the mode the deployment is actually running in."""
+    seen = {}
+
+    def _backend(mode=None, **rest):
+        seen["mode"] = mode
+        return FakeVector()
+
+    _registered(monkeypatch, "vectorstore", "stub", _backend)
+    build_memory_provider(
+        MemoryProviderConfig(
+            provider="co_located",
+            mode=ProviderMode.FRONTIER,
+            vector={"backend": "stub"},
+            options={"graph_substrate": FakeGraph()},
+        )
+    )
+    assert seen["mode"] is ProviderMode.FRONTIER
+
+
+def test_a_backend_that_does_not_name_mode_is_not_given_one(monkeypatch):
+    """Opt-in by signature. Most constructors take no ``**kwargs`` -- the shipped graph backend is
+    one -- so passing ``mode`` to everything is a ``TypeError`` from a frame that names neither the
+    backend nor the setting."""
+
+    def _backend(uri=None):
+        assert uri == "bolt://x"
+        return FakeGraph()
+
+    _registered(monkeypatch, "graphdb", "stub", _backend)
+    provider = build_memory_provider(
+        MemoryProviderConfig(
+            provider="co_located",
+            mode=ProviderMode.LOCAL,
+            graph={"backend": "stub", "uri": "bolt://x"},
+            options={"vector_substrate": FakeVector()},
+        )
+    )
+    assert provider.substrates()[Substrate.GRAPH]
+
+
+def test_the_graph_leg_gets_the_mode_by_the_same_rule_as_the_vector_leg(monkeypatch):
+    """Applied to both legs by one rule, not to the one that needs it today. An external graph
+    engine in Mode B (SM-X2 #138) picks this up without ``resolve_substrate`` changing -- and an
+    invariant applied to one leg and not the adjacent one is this seam's recurring defect."""
+    seen = {}
+
+    def _backend(mode=None, **rest):
+        seen["mode"] = mode
+        return FakeGraph()
+
+    _registered(monkeypatch, "graphdb", "stub", _backend)
+    build_memory_provider(
+        MemoryProviderConfig(
+            provider="co_located",
+            mode=ProviderMode.FRONTIER,
+            graph={"backend": "stub"},
+            options={"vector_substrate": FakeVector()},
+        )
+    )
+    assert seen["mode"] is ProviderMode.FRONTIER
+
+
+def test_a_second_mode_in_the_settings_dict_is_refused(monkeypatch):
+    """One deployment has one mode. A copy inside ``config.vector`` drifts from ``config.mode``, and
+    the backend would then be air-gap-checked against a mode the rest of the deployment is not in --
+    refused rather than ranked, like every other two-sources-of-truth case in this module."""
+
+    def _backend(mode=None, **rest):
+        return FakeVector()
+
+    _registered(monkeypatch, "vectorstore", "stub", _backend)
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        build_memory_provider(
+            MemoryProviderConfig(
+                provider="co_located",
+                mode=ProviderMode.LOCAL,
+                vector={"backend": "stub", "mode": ProviderMode.FRONTIER},
+                options={"graph_substrate": FakeGraph()},
+            )
+        )
+    assert raised.value.field_name == "vector"
+
+
+def test_a_backend_taking_kwargs_absorbs_the_mode(monkeypatch):
+    """A ``**kwargs`` constructor can take it, so it is given it. Treating that as "does not accept"
+    would withhold the mode from a backend that forwards its arguments onward."""
+    seen = {}
+
+    def _backend(**rest):
+        seen.update(rest)
+        return FakeVector()
+
+    _registered(monkeypatch, "vectorstore", "stub", _backend)
+    build_memory_provider(
+        MemoryProviderConfig(
+            provider="co_located",
+            mode=ProviderMode.FRONTIER,
+            vector={"backend": "stub"},
+            options={"graph_substrate": FakeGraph()},
+        )
+    )
+    assert seen["mode"] is ProviderMode.FRONTIER

@@ -113,6 +113,23 @@ _NEW_INTEGRATIONS_REFERENCE_SERVICES = {
     ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.memory.tiers"),
     ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.memory.types"),
     ("egpt.integrations.memory.vector.pgvector.sql", "egpt.memory.types"),
+    # SM-V2 (aicoe-tracker#96) adds two more edges out of the *same* module, for the same reason
+    # the four above exist, and they are listed rather than routed away because the alternative is
+    # worse in both cases:
+    #
+    # `egpt.memory.embedding` is the memory seam's own module -- it decides which embedder a
+    # deployment mode gets, and the substrate implements that seam. It sits beside `memory.config`
+    # / `memory.tiers` / `memory.types` in every respect; routing it through a fifth indirection
+    # would move the edge, not remove it.
+    #
+    # `egpt.providers.model_provider` supplies `ProviderMode`, which is the mode vocabulary
+    # `memory.config` deliberately reuses instead of defining a second `DeploymentMode` (ADR 0003
+    # section B.5, and the rationale is written out in `memory/config.py`'s docstring). The
+    # boundary-shaped dodge is to re-export `ProviderMode` from a module the substrate already
+    # imports -- which satisfies the linter, keeps the identical runtime dependency, and hides it
+    # from exactly the list that exists to show it. Both belong to the seam decision #180 tracks.
+    ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.memory.embedding"),
+    ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.providers.model_provider"),
 }
 
 _KNOWN_VIOLATIONS = (

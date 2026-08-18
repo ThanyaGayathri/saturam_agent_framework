@@ -30,6 +30,7 @@ from egpt.memory.types import (
     Scope,
     Substrate,
 )
+from egpt.providers.model_provider import ProviderMode
 
 DIM = 8
 URL = "postgresql+psycopg://ai:secret@localhost:5532/ai"
@@ -38,9 +39,15 @@ ACME = Scope(tenant_id="acme", user_id="ada")
 
 class StubEmbedder:
     """Deterministic, dimension-declaring, and async-capable -- the three things the substrate asks
-    of an embedder. Which model to use is SM-V2's (#96), so nothing here stands in for one."""
+    of an embedder. Which model to use is SM-V2's (#96), so nothing here stands in for one.
+
+    ``offline_capable`` is the honest answer for an in-process stub that reaches nothing, and it is
+    what lets these tests run under the default Mode A after SM-V2 made offline capability a hard
+    constraint there (ADR 0003 A.3c). A double that quietly bypassed that check would be modelling
+    a deployment the framework refuses."""
 
     dimensions = DIM
+    offline_capable = True
 
     def get_embedding(self, text):
         vector = [0.0] * DIM
@@ -109,10 +116,28 @@ def test_a_plain_postgresql_url_is_accepted_and_pinned_to_the_driver():
     assert PgVectorMemorySubstrate._normalized("postgresql://a:b@h/d").drivername == "postgresql+psycopg"
 
 
-def test_an_absent_embedder_is_refused():
-    """A vector store with no embedder has nothing to index; it would fail at the first write."""
-    with pytest.raises(MemoryProviderConfigError, match="embedder"):
-        PgVectorMemorySubstrate(db_url=URL, embedder=None)
+def test_an_absent_embedder_takes_the_mode_default(monkeypatch):
+    """SM-V1 refused this; SM-V2 (#96) answers it, which is what that refusal said it was waiting for.
+
+    The construction is stubbed rather than run: taking the Mode A default means building
+    ``sentence_transformer``, which downloads a model and needs an SDK the drivers-absent job does
+    not have. What is asserted is the decision -- *which* embedder the mode selects -- not the SDK's
+    ability to load it.
+    """
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    from egpt.memory import embedding
+
+    built = {}
+
+    def _fake_construct(key, options):
+        built["key"], built["options"] = key, options
+        return StubEmbedder()
+
+    monkeypatch.setattr(embedding, "_construct", _fake_construct)
+    store = PgVectorMemorySubstrate(db_url=URL, embedder=None, dim=DIM, auto_init_schema=False)
+    assert built["key"] == embedding.MODE_DEFAULTS[ProviderMode.LOCAL]["backend"]
+    assert built["options"]["id"] == embedding.MODE_DEFAULTS[ProviderMode.LOCAL]["id"]
+    assert store.mode is ProviderMode.LOCAL
 
 
 def test_an_embedder_missing_the_async_half_is_refused():
@@ -121,6 +146,7 @@ def test_an_embedder_missing_the_async_half_is_refused():
 
     class SyncOnly:
         dimensions = DIM
+        offline_capable = True
 
         def get_embedding(self, text):
             return [0.0] * DIM
@@ -141,24 +167,6 @@ def test_a_dimension_disagreeing_with_the_embedder_is_refused():
     the wrong width and every write fails until it is dropped."""
     with pytest.raises(MemoryProviderConfigError, match="dim"):
         PgVectorMemorySubstrate(db_url=URL, embedder=StubEmbedder(), dim=DIM + 1)
-
-
-def test_an_unstated_dimension_is_taken_from_the_embedder():
-    assert PgVectorMemorySubstrate._resolved_dim(None, StubEmbedder()) == DIM
-
-
-def test_an_embedder_declaring_no_dimension_needs_an_explicit_one():
-    class NoDim:
-        dimensions = None
-
-        def get_embedding(self, text):
-            return []
-
-        async def async_get_embedding(self, text):
-            return []
-
-    with pytest.raises(MemoryProviderConfigError, match="dim"):
-        PgVectorMemorySubstrate._resolved_dim(None, NoDim())
 
 
 class _WideEmbedder(StubEmbedder):
@@ -463,6 +471,194 @@ def test_a_ranked_row_without_a_distance_is_refused_rather_than_ranked_first():
     float; refused by name so a future caller finds the contract instead of the misranking."""
     with pytest.raises(MemoryOperationError, match="carries no distance"):
         module._similar({"id": "e1"})
+
+
+# -- the embedding pipeline is what the store embeds through (SM-V2 #96) -------
+
+
+class _BatchStub(StubEmbedder):
+    """Declares batching and records each call, so a per-record loop is visible as a call count."""
+
+    accepts_text_batches = True
+    batch_size = 100
+
+    def __init__(self):
+        self.calls = []
+
+    def get_embedding(self, text):
+        texts = [text] if isinstance(text, str) else list(text)
+        self.calls.append(list(texts))
+        return [StubEmbedder.get_embedding(self, one) for one in texts]
+
+    async def async_get_embedding(self, text):
+        await asyncio.sleep(0)
+        return self.get_embedding(text)
+
+
+@pytest.fixture
+def batching(monkeypatch):
+    """A substrate whose embedder batches and whose round trips are stubbed out.
+
+    Both write verbs and both read verbs are intercepted after the embedding step, so what these
+    tests observe is exactly what the store asked the embedder for.
+    """
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    store = PgVectorMemorySubstrate(db_url=URL, embedder=_BatchStub(), auto_init_schema=False)
+    monkeypatch.setattr(store, "ensure_partition", lambda tenant_id: None)
+    monkeypatch.setattr(store, "aensure_partition", _anoop)
+    monkeypatch.setattr(store, "_write", lambda statement, rows: None)
+    monkeypatch.setattr(store, "_awrite", _anoop2)
+    monkeypatch.setattr(store, "_statements", lambda calls: [[]])
+    monkeypatch.setattr(store, "_astatements", _aempty)
+    return store
+
+
+async def _anoop(tenant_id):
+    await asyncio.sleep(0)
+
+
+async def _anoop2(statement, rows):
+    await asyncio.sleep(0)
+
+
+async def _aempty(calls):
+    await asyncio.sleep(0)
+    return [[]]
+
+
+def test_a_write_embeds_the_batch_in_one_call_not_one_per_record(batching):
+    """This ticket's fourth criterion, asserted at the store rather than only at the pipeline: SM-V1
+    embedded one record per call and named SM-V2 as the owner of fixing it, so the regression to
+    guard is the store bypassing the pipeline it was given.
+
+    Asserted on what the embedder was **asked for**, not on the vectors returned -- those are
+    identical either way, so a result-only assertion passes while every memory costs its own call.
+    """
+    batching.upsert(ACME, [record("e1", "alpha"), record("e2", "beta"), record("e3", "gamma")])
+    assert batching.embedder.calls == [["alpha", "beta", "gamma"]]
+
+
+def test_the_async_write_batches_identically(batching):
+    """The divergence to expect: SM-V1's async upsert embedded sequentially *and said so*, so a
+    batching sync half beside a per-record async half is the shape this ticket would fail in."""
+    asyncio.run(batching.aupsert(ACME, [record("e1", "alpha"), record("e2", "beta"), record("e3", "gamma")]))
+    assert batching.embedder.calls == [["alpha", "beta", "gamma"]]
+
+
+def test_a_query_is_embedded_through_the_pipeline_too(batching):
+    """SM-R4 decision 2: write and query must use the same embedder, or the vectors are not
+    comparable. Going through the pipeline is also what applies the width check to a query -- a
+    query vector of the wrong width otherwise reaches Postgres as a statement error."""
+    from egpt.memory.types import MemoryQuery
+
+    batching.search(ACME, MemoryQuery(text="a question", limit=5))
+    assert batching.embedder.calls == [["a question"]]
+
+
+def test_the_async_query_is_embedded_through_the_pipeline_too(batching):
+    from egpt.memory.types import MemoryQuery
+
+    asyncio.run(batching.asearch(ACME, MemoryQuery(text="a question", limit=5)))
+    assert batching.embedder.calls == [["a question"]]
+
+
+def test_a_query_vector_of_the_wrong_width_is_refused_before_the_round_trip(batching):
+    """The check the raw embedder does not carry. Bypassing the pipeline on the read path leaves a
+    wrong-width query vector to fail inside Postgres, naming the column rather than the model."""
+    from egpt.memory.types import MemoryQuery
+
+    batching.embedder.get_embedding = lambda text: [[0.0, 0.0]]
+    with pytest.raises(MemoryProviderConfigError, match="dimension"):
+        batching.search(ACME, MemoryQuery(text="a question", limit=5))
+
+
+def test_the_column_width_is_the_pipelines_and_is_not_re_derived(batching):
+    """One dimension authority. A width restated beside the model that determines it drifts the
+    first time the model changes, and the column is then built at a width the embedder cannot fill."""
+    assert batching.dim == batching.pipeline.dimensions == DIM
+
+
+def test_every_row_is_stamped_with_the_pipelines_version_tag(batching):
+    """``embedding_version`` is what a re-embedding migration keys its cutover on (SM-R4 section 7,
+    D8). Left unstamped it is ``None`` on every row, and a migration cannot tell converted rows from
+    unconverted ones."""
+    row = batching._row(ACME, record("e1", "alpha"), [0.0] * DIM)
+    assert row["embedding_version"] == batching.pipeline.embedding_version
+    assert row["embedding_version"].endswith(f"|d{DIM}|cos|v1")
+
+
+def test_an_explicit_version_tag_still_wins():
+    """A deployment mid-migration needs to pin the tag it writes under, so the derived value is a
+    default rather than an override."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    store = PgVectorMemorySubstrate(
+        db_url=URL, embedder=StubEmbedder(), embedding_version="pinned/v0", auto_init_schema=False
+    )
+    assert store.embedding_version == "pinned/v0"
+
+
+def test_an_explicitly_empty_version_tag_is_kept_not_replaced_by_the_derived_one():
+    """``""`` is a deliberate instruction to stamp nothing, and the only caller who passes it is a
+    migration tool that is being precise about this field. A falsy test makes it indistinguishable
+    from "not supplied" and silently stamps the current model instead -- so rows the tool asked to
+    leave unmarked come back marked, and its cutover query returns the wrong set."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    store = PgVectorMemorySubstrate(db_url=URL, embedder=StubEmbedder(), embedding_version="", auto_init_schema=False)
+    assert store.embedding_version == ""
+
+
+def test_the_store_defaults_to_mode_A_so_the_air_gap_is_the_default():
+    """Defaulting to Mode B would make the A.3c refusal opt-in, which is how an air gap breaks: the
+    deployment that forgets to set the mode is exactly the one that needed the check."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    assert (
+        PgVectorMemorySubstrate(db_url=URL, embedder=StubEmbedder(), auto_init_schema=False).mode is ProviderMode.LOCAL
+    )
+
+
+def test_a_remote_embedder_is_refused_by_the_store_under_mode_A():
+    """The carried-forward A.3c item, reached through the store's own constructor -- the path a
+    deployment takes. Proved at the pipeline too; asserted here because the store is what a config
+    actually builds, and a store that forgot to pass its mode would pass every pipeline test."""
+    with pytest.raises(MemoryProviderConfigError, match="A.3c"):
+        PgVectorMemorySubstrate(db_url=URL, embedder="huggingface", mode=ProviderMode.LOCAL)
+
+
+def test_a_preupgrade_injected_embedder_with_no_offline_capable_now_needs_it():
+    """The migration this ticket introduces, pinned as a test: before SM-V2, ``mode`` did not exist
+    and any injected embedder worked regardless of what it was. Now ``mode`` defaults to
+    ``ProviderMode.LOCAL``, and an injected instance with no ``offline_capable`` declaration and a
+    module path outside the four in-tree ones is refused at construction where it previously
+    succeeded silently -- a real behaviour change for an upgrading deployment, not a hypothetical
+    one. The fix (per the migration note on the class) is one line: declare
+    ``offline_capable = True``, or pass ``mode=ProviderMode.FRONTIER``."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+
+    class LegacyCustomEmbedder(StubEmbedder):
+        """A pre-upgrade-style injected embedder: no ``offline_capable``, and its module is this
+        test file, not one of :data:`~egpt.memory.embedding.OFFLINE_CAPABLE`."""
+
+        offline_capable = False  # explicit: this is the pre-upgrade shape, not an oversight here
+
+    with pytest.raises(MemoryProviderConfigError, match="A.3c"):
+        PgVectorMemorySubstrate(db_url=URL, embedder=LegacyCustomEmbedder())
+
+    # The two-line fix the migration note gives: declare offline_capable and it passes again.
+    class FixedLegacyEmbedder(LegacyCustomEmbedder):
+        offline_capable = True
+
+    assert (
+        PgVectorMemorySubstrate(db_url=URL, embedder=FixedLegacyEmbedder(), auto_init_schema=False).mode
+        is ProviderMode.LOCAL
+    )
+
+    # Or pass mode=FRONTIER explicitly, the other fix the note gives.
+    assert (
+        PgVectorMemorySubstrate(
+            db_url=URL, embedder=LegacyCustomEmbedder(), mode=ProviderMode.FRONTIER, auto_init_schema=False
+        ).mode
+        is ProviderMode.FRONTIER
+    )
 
 
 # -- the entry guard, and the valid-time window (SM-V4 #98) -------------------
