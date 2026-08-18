@@ -8,7 +8,10 @@ That is deliberate: a stakeholder comment on aicoe-tracker#52 explicitly rejecte
 violations permanently into the gate that exists to catch them.
 
 Instead, this test tracks the exact known set of violating edges, grouped by the ticket that
-owns clearing them. It fails loudly in two directions:
+owns clearing them. After EGPT-1.7c (aicoe-tracker#180, first phase) cleared the toolkit/
+model-provider and guardrails sets, the only remaining family is the memory-substrate one
+below -- deliberately deferred until the in-flight SM epic settles, so the seam decision is
+made once rather than re-litigated under six open PRs. It fails loudly in two directions:
   - a NEW edge appears that isn't in the known set -- catches regressions immediately, as part
     of the required unit-test job (unlike the raw `lint-imports` CI job, which is intentionally
     non-blocking until this set is empty -- see .github/workflows/ci.yml).
@@ -37,62 +40,21 @@ from tests.unit._layer_guards import package_root
 # now guards that boundary directly (shim parity + integrations.channels.* -> egpt.agent/team/
 # workflow, via the AsyncRunnableLike protocol this ticket introduced).
 
-# Newly found while implementing EGPT-1.11 -- not owned by any existing ticket. Filed as
-# aicoe-tracker#180 (EGPT-1.7c: integrations reference orchestration types directly): ~20
-# toolkit/model-provider integrations import egpt.agent/egpt.team at module level (mostly
-# for callback-style human-in-the-loop parameters), which is the same class of problem #157/#158
-# already flag for context connectors and the Slack adapter -- integrations that construct or
-# reference orchestration types can't relocate cleanly until the sub-agent seam those two
-# tickets leave "OPEN" is decided.
-_NEW_INTEGRATIONS_REFERENCE_ORCHESTRATION = {
-    ("egpt.integrations._utils.mcp", "egpt.agent"),
-    ("egpt.integrations._utils.mcp", "egpt.team.team"),
-    ("egpt.integrations._utils.streamlit", "egpt.agent"),
-    ("egpt.integrations.discord.client", "egpt.agent.agent"),
-    ("egpt.integrations.discord.client", "egpt.team.team"),
-    ("egpt.integrations.models._utils.llama", "egpt.agent"),
-    ("egpt.integrations.models.ollama.chat", "egpt.agent"),
-    ("egpt.integrations.tools.antigravity.antigravity", "egpt.agent"),
-    ("egpt.integrations.tools.antigravity.antigravity", "egpt.team"),
-    ("egpt.integrations.tools.brightdata.brightdata", "egpt.agent"),
-    ("egpt.integrations.tools.cartesia.cartesia", "egpt.agent"),
-    ("egpt.integrations.tools.cartesia.cartesia", "egpt.team.team"),
-    ("egpt.integrations.tools.daytona.daytona", "egpt.agent"),
-    ("egpt.integrations.tools.daytona.daytona", "egpt.team"),
-    ("egpt.integrations.tools.desi_vocal.desi_vocal", "egpt.agent"),
-    ("egpt.integrations.tools.desi_vocal.desi_vocal", "egpt.team.team"),
-    ("egpt.integrations.tools.e2b.e2b", "egpt.agent"),
-    ("egpt.integrations.tools.e2b.e2b", "egpt.team.team"),
-    ("egpt.integrations.tools.eleven_labs.eleven_labs", "egpt.agent"),
-    ("egpt.integrations.tools.eleven_labs.eleven_labs", "egpt.team.team"),
-    ("egpt.integrations.tools.fal.fal", "egpt.agent"),
-    ("egpt.integrations.tools.fal.fal", "egpt.team.team"),
-    ("egpt.integrations.tools.giphy.giphy", "egpt.agent"),
-    ("egpt.integrations.tools.giphy.giphy", "egpt.team.team"),
-    ("egpt.integrations.tools.lumalab.lumalab", "egpt.agent"),
-    ("egpt.integrations.tools.mcp.mcp", "egpt.agent"),
-    ("egpt.integrations.tools.mcp.mcp", "egpt.team.team"),
-    ("egpt.integrations.tools.mcp.multi_mcp", "egpt.agent"),
-    ("egpt.integrations.tools.mcp.multi_mcp", "egpt.team.team"),
-    ("egpt.integrations.tools.models.azure_openai", "egpt.agent"),
-    ("egpt.integrations.tools.models.gemini", "egpt.agent"),
-    ("egpt.integrations.tools.models.groq", "egpt.agent"),
-    ("egpt.integrations.tools.models.nebius", "egpt.agent"),
-    ("egpt.integrations.tools.openai.openai", "egpt.agent"),
-    ("egpt.integrations.tools.openai.openai", "egpt.team.team"),
-    ("egpt.integrations.tools.opencv.opencv", "egpt.agent"),
-    ("egpt.integrations.tools.replicate.replicate", "egpt.agent"),
-    ("egpt.integrations.tools.replicate.replicate", "egpt.team.team"),
-}
+# The EGPT-1.7c toolkit/model-provider set (aicoe-tracker#180) is CLEARED: the ~24 modules that
+# imported egpt.agent/egpt.team directly now type their framework-injected handles against the
+# structural protocols that ticket added to egpt.registry.protocols (ToolHandleLike,
+# ChatRunnableLike, SessionAgentLike), and the two modules that only wanted re-exported value
+# types (Message, RunOutput) import them from their canonical core homes
+# (egpt.models.message, egpt.run.agent). Injection is by parameter name
+# (egpt/tools/function.py), so the annotations were free to become structural.
 
-# Newly found while implementing EGPT-1.11 -- also not owned by any existing ticket, filed under
-# the same follow-up as above. The guard's own comment already flags this as ADR 0001 debt: it
-# uses a function-local import specifically because a module-level one would be an even more
-# obvious violation, but import-linter's graph records function-local imports exactly like
-# module-level ones (see the docstring on tests/unit/registry/test_schema_layering.py).
-_NEW_SERVICES_REFERENCE_INTEGRATIONS = {
-    ("egpt.guardrails.openai", "egpt.integrations.models._utils.openai"),
-}
+# The EGPT-1.7c guardrails edge (also aicoe-tracker#180) is CLEARED: the OpenAI image
+# wire-format helpers (process_image/images_to_message and their _process_* closure) moved from
+# egpt.integrations.models._utils.openai to egpt.utils.media -- core, next to
+# resolve_image_mime_type, which they already depended on -- so egpt.guardrails.openai now
+# imports them from core at module level (its old function-local import was recorded by
+# import-linter's graph exactly like a module-level one). The integrations module re-imports
+# them, keeping the provider adapters' and shims' import paths working as integrations -> core.
 
 # Landed on main (feat/SM-G1, the neo4j graph-memory substrate) after aicoe-tracker#180 was
 # filed, while this PR was in flight -- same class of problem (an integrations-layer module
@@ -140,11 +102,7 @@ _NEW_INTEGRATIONS_REFERENCE_SERVICES = {
     ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.providers.model_provider"),
 }
 
-_KNOWN_VIOLATIONS = (
-    _NEW_INTEGRATIONS_REFERENCE_ORCHESTRATION
-    | _NEW_SERVICES_REFERENCE_INTEGRATIONS
-    | _NEW_INTEGRATIONS_REFERENCE_SERVICES
-)
+_KNOWN_VIOLATIONS = _NEW_INTEGRATIONS_REFERENCE_SERVICES
 
 
 def _actual_violations():
@@ -181,9 +139,10 @@ def test_integrations_boundary_violations_match_the_known_set():
         "New import-linter violation(s) of the integrations boundary, not in the known-debt "
         "list tracked by this test:\n"
         + "\n".join(f"  {importer} -> {imported}" for importer, imported in sorted(new_violations))
-        + "\nResolve the import (route it through egpt.tools.utils.construct_toolkit, "
-        "Registry, or an equivalent seam) rather than adding it here -- this list is a tracked "
-        "debt ceiling, not an allowlist to extend."
+        + "\nResolve the import (type against a protocol in egpt.registry.protocols, or route "
+        "construction through egpt.run.utils.construct_runnable / "
+        "egpt.tools.utils.construct_toolkit / Registry) rather than adding it here -- this "
+        "list is a tracked debt ceiling, not an allowlist to extend."
     )
 
     resolved_violations = _KNOWN_VIOLATIONS - actual

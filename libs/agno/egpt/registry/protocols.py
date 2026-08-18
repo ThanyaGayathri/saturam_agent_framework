@@ -60,10 +60,34 @@ check. WhatsApp's
 router and Slack's own ``event_handler.py`` only ever call ``entity.arun(...)`` -- never the two
 HITL-only members -- so they keep using plain ``AsyncRunnableLike``.
 
+``ToolHandleLike`` is the toolkit-side variant (EGPT-1.7c, aicoe-tracker#180): tool functions
+receive the live agent or team as a framework-injected parameter (``egpt/tools/function.py``
+injects and schema-excludes it by parameter *name*, never by annotation, so the annotation is
+free to be structural). Across every toolkit in ``egpt.integrations.tools`` the injected handle
+is either passed through opaquely or used for exactly one thing: reading and lazily
+initializing ``session_state``. That single member is the whole protocol; toolkits that never
+touch the handle still annotate with it so the parameter documents what the framework injects
+without naming ``egpt.agent``.
+
+``ChatRunnableLike`` is the chat-client variant (EGPT-1.7c): ``egpt.integrations.discord``
+drives a conversation loop -- set ``additional_context`` for the turn, ``arun`` it, and
+``acontinue_run`` when a paused run's tools are confirmed. It extends ``AsyncRunnableLike``
+with ``acontinue_run`` (same member ``HitlRunnableLike`` declares, but without
+``aget_run_output``, which Discord never calls -- and ``HitlRunnableLike`` cannot be reused
+whole for exactly that reason) plus the mutable ``additional_context`` attribute.
+
+``SessionAgentLike`` is the session-UI variant (EGPT-1.7c): ``egpt.integrations._utils.streamlit``
+renders session pickers and chat history, so it needs the session surface of an agent --
+``session_id``, ``db``, ``get_session_name``/``set_session_name``, a sync streaming ``run``,
+and the ``run_response``/``knowledge`` attributes its widgets read. The private
+``_agent_session`` reset it also performs stays out of the protocol (a leading-underscore
+member would write privates into a public contract); the call site uses ``hasattr``/``setattr``
+for that one access.
+
 This module must keep importing nothing but ``typing`` -- that is the whole point of it.
 """
 
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -142,5 +166,60 @@ class HitlRunnableLike(AsyncRunnableLike, Protocol):
         """Refetch a run's persisted output. Declared ``async def``, unlike ``arun``/
         ``acontinue_run``: every concrete implementation is a plain coroutine, never a streaming
         iterator, so callers always ``await`` it -- no dual call-shape to preserve.
+        """
+        ...
+
+
+@runtime_checkable
+class ToolHandleLike(Protocol):
+    """The part of a framework-injected agent/team handle a toolkit depends on.
+
+    The only member any toolkit actually consumes is ``session_state``
+    (``egpt.integrations.tools.{daytona,antigravity}`` read it and lazily assign ``{}``);
+    every other toolkit either ignores the handle or forwards it opaquely to a user
+    callback. Injection is by parameter name (see the module docstring), so this
+    annotation is documentation plus static typing, never dispatch.
+    """
+
+    session_state: Optional[Dict[str, Any]]
+
+
+@runtime_checkable
+class ChatRunnableLike(AsyncRunnableLike, Protocol):
+    """The part of an entity a chat client depends on: run a turn with per-turn context,
+    resume a paused run. See the module docstring for why ``HitlRunnableLike`` (which also
+    requires ``aget_run_output``) is not reused here.
+    """
+
+    additional_context: Optional[str]
+
+    def acontinue_run(self, *args: Any, **kwargs: Any) -> Any:
+        """Resume a paused run with resolved approvals; ``*args``/``**kwargs`` for the same
+        reason as ``AsyncRunnableLike.arun`` -- concrete signatures vary by entity type.
+        """
+        ...
+
+
+@runtime_checkable
+class SessionAgentLike(Protocol):
+    """The session surface of an agent that a session-history UI depends on."""
+
+    session_id: Optional[str]
+    db: Any
+    run_response: Any
+    knowledge: Any
+
+    def get_session_name(self) -> Any:
+        """The display name of the current session (``None``/empty when unnamed)."""
+        ...
+
+    def set_session_name(self, *args: Any, **kwargs: Any) -> Any:
+        """Rename the current session."""
+        ...
+
+    def run(self, *args: Any, **kwargs: Any) -> Any:
+        """Sync run; callers iterate the return when ``stream=True`` -- ``*args``/``**kwargs``
+        rather than a named ``input`` for the same overload-matching reason as
+        ``AsyncRunnableLike.arun``.
         """
         ...

@@ -2,9 +2,10 @@ from os import getenv
 from textwrap import dedent
 from typing import Optional, Union
 
-from egpt.agent.agent import Agent, RunOutput
 from egpt.media import Audio, File, Image, Video
-from egpt.team.team import Team, TeamRunOutput
+from egpt.registry.protocols import ChatRunnableLike
+from egpt.run.agent import RunOutput
+from egpt.run.team import TeamRunOutput
 from egpt.utils.log import log_error, log_info, log_warning
 from egpt.utils.message import get_text_from_message
 
@@ -50,7 +51,10 @@ class RequiresConfirmationView(discord.ui.View):
 
 class DiscordClient:
     def __init__(
-        self, agent: Optional[Agent] = None, team: Optional[Team] = None, client: Optional[discord.Client] = None
+        self,
+        agent: Optional[ChatRunnableLike] = None,
+        team: Optional[ChatRunnableLike] = None,
+        client: Optional[discord.Client] = None,
     ):
         self.agent = agent
         self.team = team

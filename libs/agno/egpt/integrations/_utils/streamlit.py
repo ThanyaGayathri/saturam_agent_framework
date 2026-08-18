@@ -2,11 +2,11 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 try:
-    from egpt.agent import Agent
     from egpt.db.base import SessionType
     from egpt.integrations.models.anthropic import Claude
     from egpt.integrations.models.google import Gemini
     from egpt.integrations.models.openai import OpenAIChat
+    from egpt.registry.protocols import SessionAgentLike
     from egpt.utils.log import log_warning, logger
 except ImportError:
     raise ImportError(
@@ -57,7 +57,9 @@ def display_tool_calls(container, tools: List[Any]):
                     st.json(result)
 
 
-def session_selector_widget(agent: Agent, model_id: str, agent_creation_callback: Callable[[str, str], Agent]) -> None:
+def session_selector_widget(
+    agent: SessionAgentLike, model_id: str, agent_creation_callback: Callable[[str, str], SessionAgentLike]
+) -> None:
     """Session selector widget"""
     if not agent.db:
         st.sidebar.info("💡 Database not configured. Sessions will not be saved.")
@@ -183,9 +185,11 @@ def session_selector_widget(agent: Agent, model_id: str, agent_creation_callback
 
                             if result:
                                 logger.info(f"Session renamed to: {new_name.strip()}")
-                                # Clear any cached session data to ensure fresh reload
-                                if hasattr(agent, "_agent_session") and agent._agent_session:
-                                    agent._agent_session = None
+                                # Clear any cached session data to ensure fresh reload.
+                                # getattr/setattr: a private cache slot is not part of
+                                # SessionAgentLike, and not every implementation has one.
+                                if getattr(agent, "_agent_session", None) is not None:
+                                    setattr(agent, "_agent_session", None)
                             st.session_state.session_edit_mode = False
                             st.sidebar.success("Session renamed!")
                             st.rerun()
@@ -201,7 +205,7 @@ def session_selector_widget(agent: Agent, model_id: str, agent_creation_callback
                     st.rerun()
 
 
-def _load_session(session_id: str, model_id: str, agent_creation_callback: Callable[[str, str], Agent]):
+def _load_session(session_id: str, model_id: str, agent_creation_callback: Callable[[str, str], SessionAgentLike]):
     try:
         logger.info(f"Creating agent with session_id: {session_id}")
         new_agent = agent_creation_callback(model_id, session_id)
@@ -267,7 +271,7 @@ def _load_session(session_id: str, model_id: str, agent_creation_callback: Calla
         st.sidebar.error(f"Error loading session: {str(e)}")
 
 
-def display_response(agent: Agent, question: str) -> None:
+def display_response(agent: SessionAgentLike, question: str) -> None:
     """Handle agent response with streaming and tool call display."""
     with st.chat_message("assistant"):
         tool_calls_container = st.empty()
@@ -324,7 +328,9 @@ def display_chat_messages() -> None:
                     st.markdown(content)
 
 
-def initialize_agent(model_id: str, agent_creation_callback: Callable[[str, Optional[str]], Agent]) -> Agent:
+def initialize_agent(
+    model_id: str, agent_creation_callback: Callable[[str, Optional[str]], SessionAgentLike]
+) -> SessionAgentLike:
     """Initialize or get agent with proper session management."""
     if "agent" not in st.session_state or st.session_state["agent"] is None:
         # First time initialization - get existing session_id if any
@@ -338,7 +344,7 @@ def initialize_agent(model_id: str, agent_creation_callback: Callable[[str, Opti
         return st.session_state["agent"]
 
 
-def reset_session_state(agent: Agent) -> None:
+def reset_session_state(agent: SessionAgentLike) -> None:
     """Update session state."""
     print(f"Resetting session state for agent: {agent.session_id}")
     if agent.session_id is not None:
@@ -348,7 +354,7 @@ def reset_session_state(agent: Agent) -> None:
         st.session_state["messages"] = []
 
 
-def knowledge_base_info_widget(agent: Agent) -> None:
+def knowledge_base_info_widget(agent: SessionAgentLike) -> None:
     """Display knowledge base information widget."""
     if not agent.knowledge:
         st.sidebar.info("No knowledge base configured")

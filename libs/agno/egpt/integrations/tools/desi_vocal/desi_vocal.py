@@ -1,12 +1,11 @@
 from os import getenv
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import requests
 
-from egpt.agent import Agent
 from egpt.media import Audio
-from egpt.team.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_error, logger
@@ -70,7 +69,7 @@ class DesiVocalTools(Toolkit):
             logger.exception("Failed to get voices")
             return f"Error: {e}"
 
-    def text_to_speech(self, agent: Union[Agent, Team], prompt: str, voice_id: Optional[str] = None) -> ToolResult:
+    def text_to_speech(self, agent: ToolHandleLike, prompt: str, voice_id: Optional[str] = None) -> ToolResult:
         """
         Use this function to generate audio from text.
         Args:

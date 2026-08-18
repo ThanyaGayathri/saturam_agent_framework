@@ -3,8 +3,8 @@ import uuid
 from os import getenv
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
-from egpt.agent import Agent
 from egpt.media import Video
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_error, log_info, logger
@@ -56,7 +56,7 @@ class LumaLabTools(Toolkit):
 
     def image_to_video(
         self,
-        agent: Agent,
+        agent: ToolHandleLike,
         prompt: str,
         start_image_url: str,
         end_image_url: Optional[str] = None,
@@ -66,7 +66,7 @@ class LumaLabTools(Toolkit):
         """Generate a video from one or two images with a prompt.
 
         Args:
-            agent: The agent instance
+            agent: Framework-injected agent/team handle (unused)
             prompt: Text description of the desired video
             start_image_url: URL of the starting image
             end_image_url: Optional URL of the ending image
@@ -129,7 +129,7 @@ class LumaLabTools(Toolkit):
 
     def generate_video(
         self,
-        agent: Agent,
+        agent: ToolHandleLike,
         prompt: str,
         loop: bool = False,
         aspect_ratio: Literal["1:1", "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"] = "16:9",

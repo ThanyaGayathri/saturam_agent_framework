@@ -14,14 +14,13 @@ except (ImportError, ModuleNotFoundError):
 
 
 from egpt.media import Image
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools.function import ToolResult
 
 if TYPE_CHECKING:
-    from egpt.agent import Agent
     from egpt.integrations.tools.mcp.mcp import MCPTools
     from egpt.integrations.tools.mcp.multi_mcp import MultiMCPTools
     from egpt.run import RunContext
-    from egpt.team.team import Team
 
 
 def get_default_toolkit_name(
@@ -106,8 +105,8 @@ def get_entrypoint_for_tool(
     async def call_tool(
         tool_name: str,
         _agno_run_context: Optional["RunContext"] = None,
-        _agno_agent: Optional["Agent"] = None,
-        _agno_team: Optional["Team"] = None,
+        _agno_agent: Optional[ToolHandleLike] = None,
+        _agno_team: Optional[ToolHandleLike] = None,
         **kwargs,
     ) -> ToolResult:
         # Framework-injected params use the `_agno_` prefix so they cannot

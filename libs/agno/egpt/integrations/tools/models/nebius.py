@@ -3,9 +3,9 @@ from os import getenv
 from typing import Optional
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.integrations.models.nebius import Nebius
 from egpt.media import Image
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_error, log_warning
@@ -66,13 +66,13 @@ class NebiusTools(Toolkit):
 
     def generate_image(
         self,
-        agent: Agent,
+        agent: ToolHandleLike,
         prompt: str,
     ) -> ToolResult:
         """Generate images based on a text prompt using Nebius Token Factory.
 
         Args:
-            agent: The agent instance for adding images
+            agent: Framework-injected agent/team handle (unused)
             prompt: The text prompt to generate images from.
 
         Returns:

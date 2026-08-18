@@ -5,11 +5,11 @@ from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Type, Uni
 
 from pydantic import BaseModel
 
-from egpt.agent import RunOutput
 from egpt.models.base import Model
 from egpt.models.message import Message
 from egpt.models.metrics import MessageMetrics
 from egpt.models.response import ModelResponse
+from egpt.run.agent import RunOutput
 from egpt.utils.log import log_debug, log_warning
 from egpt.utils.reasoning import extract_thinking_content
 

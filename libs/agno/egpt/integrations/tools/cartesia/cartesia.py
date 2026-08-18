@@ -1,11 +1,10 @@
 import json
 from os import getenv
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Audio
-from egpt.team.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_debug, log_error, log_info
@@ -129,7 +128,7 @@ class CartesiaTools(Toolkit):
 
     def text_to_speech(
         self,
-        agent: Union[Agent, Team],
+        agent: ToolHandleLike,
         transcript: str,
         voice_id: Optional[str] = None,
     ) -> ToolResult:

@@ -522,14 +522,15 @@ root_package = "egpt"
 # mapping (provider utils "move with their providers" -- extraction prerequisite #3 -- and
 # `tracing/exporter.py` is listed under the integrations layer).
 #
-# No `ignore_imports` here for the newly-found violations (egpt.guardrails.openai, the
-# toolkit/model files importing Agent/Team directly -- owned by aicoe-tracker#180) -- see
+# No `ignore_imports` here for the remaining known violations (the memory-substrate family,
+# owned by aicoe-tracker#180's follow-up) -- see
 # libs/agno/tests/unit/test_import_linter_contracts.py, which tracks them explicitly instead of
 # masking them here. ignore_imports below is reserved for the ADR-ratified composition-root /
 # extraction-prerequisite carve-outs only. (The A8 context-connector debt this comment used to
-# also cover was cleared by EGPT-1.7a / aicoe-tracker#157, and the A13 Slack channel-adapter
-# debt by EGPT-1.7b / aicoe-tracker#158 -- see the scope note above for why `egpt.context` is
-# excluded from this contract's module lists now, not tracked-and-clean.)
+# also cover was cleared by EGPT-1.7a / aicoe-tracker#157, the A13 Slack channel-adapter
+# debt by EGPT-1.7b / aicoe-tracker#158, and the egpt.guardrails.openai + toolkit/model-file
+# Agent/Team edges by EGPT-1.7c / aicoe-tracker#180 -- see the scope note above for why
+# `egpt.context` is excluded from this contract's module lists now, not tracked-and-clean.)
 #
 # allow_indirect_imports = true: "forbidden" contracts check the whole transitive dependency
 # chain by default, which floods the report with reachability noise unrelated to a real
@@ -686,10 +687,11 @@ ignore_imports = [
     # reads `slack_signing_secret` to verify inbound Slack request signatures.
     "egpt.integrations.channels.slack.security -> egpt.settings",
 ]
-# Otherwise no ignore_imports: 24 distinct modules under egpt.integrations currently violate
-# this contract by importing egpt.agent/egpt.team directly (egpt.integrations.discord.client
-# is one of them, not the only one). Left in scope deliberately -- see
-# libs/agno/tests/unit/test_import_linter_contracts.py.
+# Otherwise no ignore_imports: the toolkit/model-provider modules that used to import
+# egpt.agent/egpt.team directly were retyped against egpt.registry.protocols in EGPT-1.7c
+# (aicoe-tracker#180). The remaining violations are the memory-substrate family
+# (egpt.integrations.memory.* -> egpt.memory/egpt.providers), left in scope deliberately --
+# see libs/agno/tests/unit/test_import_linter_contracts.py.
 
 # --- No import cycles across the integrations boundary (ADR 0001 Rule 7, scoped to this config) ---
 # Not encoded as a separate "independence" contract: that type enforces *mutual* exclusion in
