@@ -54,10 +54,40 @@ def test_half_life_rejects_importance_outside_unit_interval():
     assert exc_info.value.field_name == "importance"
 
 
+def test_half_life_rejects_importance_below_zero():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        half_life_s(-0.1)
+    assert exc_info.value.field_name == "importance"
+
+
 def test_half_life_rejects_non_positive_base():
     with pytest.raises(MemoryOperationError) as exc_info:
         half_life_s(0.5, base_half_life_s=0)
     assert exc_info.value.field_name == "base_half_life_s"
+
+
+def test_half_life_rejects_negative_base():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        half_life_s(0.5, base_half_life_s=-DAY)
+    assert exc_info.value.field_name == "base_half_life_s"
+
+
+def test_half_life_at_zero_imp_factor_ignores_importance():
+    low = half_life_s(0.0, base_half_life_s=DAY, imp_factor=0.0)
+    high = half_life_s(1.0, base_half_life_s=DAY, imp_factor=0.0)
+    assert low == high == DAY
+
+
+def test_half_life_rejects_imp_factor_that_zeroes_the_computed_half_life():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        half_life_s(importance=1.0, imp_factor=-1.0)
+    assert exc_info.value.field_name == "imp_factor"
+
+
+def test_half_life_rejects_imp_factor_that_inverts_the_computed_half_life():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        half_life_s(importance=1.0, imp_factor=-2.0)
+    assert exc_info.value.field_name == "imp_factor"
 
 
 # -- recency_decay --------------------------------------------------------------------------------
@@ -120,6 +150,17 @@ def test_episode_decay_score_old_unaccessed_episode_ranks_below_recent_one():
     assert episode_decay_score(recent, now=DAY * 10) > episode_decay_score(old, now=DAY * 10)
 
 
+def test_episode_decay_score_rejects_an_episode_with_neither_timestamp_set():
+    # TenantScoped.__post_init__ auto-stamps created_at whenever it is None at construction, so
+    # the only way to reach "neither set" is a post-construction mutation -- EpisodicRecord is
+    # not frozen, so a caller can do this.
+    episode = an_episode(last_accessed_at=None)
+    episode.created_at = None
+    with pytest.raises(MemoryOperationError) as exc_info:
+        episode_decay_score(episode, now=DAY)
+    assert exc_info.value.field_name == "created_at"
+
+
 def test_episode_decay_score_reads_the_episodes_own_importance():
     low = an_episode(id="low", created_at=0, importance=0.0)
     high = an_episode(id="high", created_at=0, importance=1.0)
@@ -156,6 +197,13 @@ def test_reinforce_only_changes_last_accessed_at():
     episode = an_episode(created_at=0, last_accessed_at=0, importance=0.7, content="x")
     reinforced = reinforce(episode, at=DAY)
     assert reinforced == replace(episode, last_accessed_at=DAY)
+
+
+def test_reinforce_allows_backward_access_for_out_of_order_replay():
+    """The docstring's own claim: going backward is a replayed access, not a clock bug."""
+    episode = an_episode(created_at=0, last_accessed_at=DAY * 5)
+    reinforced = reinforce(episode, at=DAY * 2)
+    assert reinforced.last_accessed_at == DAY * 2
 
 
 def test_accessing_an_old_episode_reinforces_it_above_a_recent_unaccessed_one():

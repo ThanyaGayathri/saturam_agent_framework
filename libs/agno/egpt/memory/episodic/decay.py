@@ -31,7 +31,7 @@ same construction-only exemption CLAUDE.md gives ``episode_from_event``.
 """
 
 from dataclasses import replace
-from typing import Optional, cast
+from typing import Optional
 
 from egpt.db.schemas.memory import EpisodicRecord
 from egpt.memory.types import MemoryOperationError
@@ -47,7 +47,7 @@ __all__ = [
 ]
 
 #: DECISION.md section 1's provisional default ("SM-R1 to ratify") -- 5 days, at importance = 0.
-DEFAULT_BASE_HALF_LIFE_S: float = 5 * 24 * 3600
+DEFAULT_BASE_HALF_LIFE_S: float = 5.0 * 24 * 3600
 
 #: DECISION.md section 1's provisional default -- importance 1.0 gives a 5x longer half-life.
 DEFAULT_IMP_FACTOR: float = 4.0
@@ -63,6 +63,13 @@ def half_life_s(
     Importance modulates the decay *rate*, not the score -- the measured reason the rejected
     ``exp_recency``/``ebbinghaus`` variants, which add ``+ gamma * importance`` as a second score
     term, are not what this implements (DECISION.md section 1's note to SM-C*).
+
+    ``base_half_life_s`` alone being positive does not make the *computed* half-life positive --
+    SM-E7 (#114) will pass caller-supplied hyperparameters through, and a negative ``imp_factor``
+    at a high enough ``importance`` drives ``(1 + imp_factor * importance)`` to zero or negative.
+    Left unguarded that is a ``ZeroDivisionError`` inside :func:`recency_decay`, or worse, a
+    negative half-life that flips the exponent's sign and produces a score above the documented
+    ``(0.0, 1.0]`` range -- silently wrong rather than visibly refused.
     """
     if not 0.0 <= importance <= 1.0:
         raise MemoryOperationError(
@@ -77,7 +84,15 @@ def half_life_s(
             "exponent and negative flips its sign, so age would increase the score.",
             field_name="base_half_life_s",
         )
-    return base_half_life_s * (1.0 + imp_factor * importance)
+    half_life = base_half_life_s * (1.0 + imp_factor * importance)
+    if half_life <= 0:
+        raise MemoryOperationError(
+            f"imp_factor={imp_factor!r} at importance={importance!r} drives the computed half-life "
+            f"to {half_life!r}: zero divides the decay exponent and negative flips its sign, the "
+            "same failure base_half_life_s is already guarded against above.",
+            field_name="imp_factor",
+        )
+    return half_life
 
 
 def recency_decay(
@@ -116,13 +131,21 @@ def episode_decay_score(
 
     ``last_accessed_at`` falls back to ``created_at`` when unset (DECISION.md section 5:
     "Default: created_at") -- a never-accessed episode decays from when it was written, not from
-    epoch zero, which would floor every fresh episode's score at (near) zero. The cast is safe,
-    not defensive: ``TenantScoped.__post_init__`` always stamps ``created_at`` when it is ``None``
-    at construction, so a constructed ``EpisodicRecord`` never has both fields unset.
+    epoch zero, which would floor every fresh episode's score at (near) zero. Both being unset
+    should not happen -- ``TenantScoped.__post_init__`` stamps ``created_at`` whenever it is
+    ``None`` at construction -- but ``EpisodicRecord`` is not frozen, so a caller mutating
+    ``created_at`` to ``None`` after construction is refused here with a field name rather than
+    reaching ``recency_decay`` and failing there with an unrelated ``TypeError``.
     """
     last_accessed_at = episode.last_accessed_at
     if last_accessed_at is None:
-        last_accessed_at = cast(int, episode.created_at)
+        if episode.created_at is None:
+            raise MemoryOperationError(
+                f"Episode {episode.id!r} has neither last_accessed_at nor created_at set, so its "
+                "age cannot be computed.",
+                field_name="created_at",
+            )
+        last_accessed_at = episode.created_at
     return recency_decay(last_accessed_at, episode.importance, now, base_half_life_s, imp_factor)
 
 
