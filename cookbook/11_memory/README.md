@@ -23,6 +23,10 @@ This section demonstrates how EGPT agents persist and use user memories across r
   scores in `[0.0, 1.0]` against Postgres + pgvector. Needs `./cookbook/scripts/run_pgvector.sh`;
   no API key (the embedder is the offline `bge-base` ADR 0003 ratifies for Mode A, downloaded on
   first run).
+- `14_episodic_decay_scoring.py`: Episodic recency-decay scoring (SM-E4) -- the SM-R5 scorer
+  (`0.5 ** (age / half_life)`, importance widening the half-life), a never-accessed episode
+  defaulting to `created_at`, and reinforcement resetting the clock on confirmed access. Runs with
+  no database and no API key.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

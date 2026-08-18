@@ -8,6 +8,14 @@ from egpt.memory.config import (
     register_provider,
     registered_providers,
 )
+from egpt.memory.episodic.decay import (
+    DEFAULT_BASE_HALF_LIFE_S,
+    DEFAULT_IMP_FACTOR,
+    episode_decay_score,
+    half_life_s,
+    recency_decay,
+    reinforce,
+)
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
@@ -28,12 +36,6 @@ from egpt.memory.strategies import (
     SummarizeStrategy,
 )
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
-from egpt.memory.validation import (
-    MEMORY_DATA_ACCESS_METHODS,
-    assert_scope_isolation,
-    reject_duplicate_ids,
-    reject_foreign_scopes,
-)
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
     CONSOLIDATION_TARGET,
@@ -71,6 +73,12 @@ from egpt.memory.types import (
     escape_key_slot,
     fusion_diagnostics,
     require_scope,
+)
+from egpt.memory.validation import (
+    MEMORY_DATA_ACCESS_METHODS,
+    assert_scope_isolation,
+    reject_duplicate_ids,
+    reject_foreign_scopes,
 )
 
 __all__ = [
@@ -147,4 +155,11 @@ __all__ = [
     "episode_from_event",
     "episode_to_record",
     "graph_node_id_for",
+    # Episodic recency-decay scoring (SM-E4)
+    "DEFAULT_BASE_HALF_LIFE_S",
+    "DEFAULT_IMP_FACTOR",
+    "episode_decay_score",
+    "half_life_s",
+    "recency_decay",
+    "reinforce",
 ]

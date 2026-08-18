@@ -219,3 +219,24 @@ rather than documented.
 
 **Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
 key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 14_episodic_decay_scoring.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-E4 recency-decay scorer with no substrates, because the subject
+is the scoring function rather than a store. Scores an old, never-accessed episode against a recent
+one at equal importance; scores two episodes of equal age at low vs. high importance to show
+importance widening the half-life rather than adding to the score; reinforces the old episode at
+the current instant and shows it now outranks the recent one; and confirms the original episode
+object is untouched by reinforcement.
+
+**Result:** Success. At the provisional defaults (5-day base half-life, `imp_factor=4.0`): the
+10-day-idle episode scores 0.6300 against the 1-day-idle episode's 0.9548 (recent ranks above old).
+At 10 days idle, importance 0.1 scores 0.3715 against importance 0.9's 0.7398 -- both decay, but
+higher importance decays slower, which is the half-life-modulation contract rather than an additive
+importance term. Reinforcing the old episode resets its score to 1.0, above the recent episode's
+0.9548, while `old_episode.last_accessed_at` stays `None` -- `reinforce` returns a detached copy.
+Requires no database, no model, and no API key.
