@@ -727,6 +727,7 @@ class BaseDb(ABC):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
+        include_deleted: bool = False,
         *,
         tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
@@ -735,6 +736,8 @@ class BaseDb(ABC):
         Args:
             component_id: The component ID.
             component_type: Optional filter by type (agent|team|workflow).
+            include_deleted: Include a soft-deleted component. A hard-deleted component has
+                no row left to include -- see ``delete_component``.
             tenant_id: Tenant to scope the lookup to. Required; ``None`` is explicitly
                 unscoped and is refused when the db was built with ``require_tenant_id``.
 

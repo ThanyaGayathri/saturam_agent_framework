@@ -751,29 +751,38 @@ def attach_routes(
         version: Optional[int] = Query(None, description="Filter by config version"),
         page: int = Query(1, ge=1, description="Page number"),
         limit: int = Query(20, ge=1, le=100, description="Items per page"),
+        include_deleted: bool = Query(
+            False, description="See history for a soft- or hard-deleted component too, not just a live one."
+        ),
         tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> PaginatedResponse[ComponentAuditResponse]:
         try:
             start_time_ms = time.time() * 1000
 
-            # The same tenant-scoped 404 gate as every other route here. Note the consequence,
-            # which applies to a *soft* delete as much as a hard one: _require_component 404s
-            # for both, so from the moment a component is deleted this route stops answering
-            # for it -- including the "who deleted this, and when" query -- even though the rows
-            # are still in the table (they deliberately have no FK to components). That is an
-            # accepted trade rather than an oversight: history follows the component's lifetime
-            # over HTTP, and stays reachable at the db layer via db.list_component_audit(...).
-            # Forking the existence rule for this one route would be worse than the limit;
-            # tracker #167 covers adding include_deleted to get_component instead.
-            _require_component(component_id, tenant_id)
-
             if action is not None and action not in COMPONENT_AUDIT_ACTIONS:
                 # Rejected rather than answered with an empty page, so a typo'd filter is not
-                # mistaken for a component that nothing ever happened to.
+                # mistaken for a component that nothing ever happened to. Validated before any
+                # db call, so malformed input never costs a round trip.
                 raise HTTPException(
                     status_code=422,
                     detail=f"Unknown action {action!r}. Valid actions: {sorted(COMPONENT_AUDIT_ACTIONS)}",
                 )
+
+            # Not the shared _require_component gate: a hard delete removes the components row
+            # outright (no tombstone), so no value of include_deleted on get_component can find
+            # it -- unlike a soft delete, where the row survives and include_deleted uncovers it.
+            # When the caller opts in and no row exists either way, existence is proven instead
+            # by the audit trail itself, which is exactly what a hard delete leaves behind. Every
+            # other route still calls _require_component with include_deleted defaulted to
+            # False, so their 404 semantics are unaffected.
+            # include_deleted is passed only when set, so the default call stays byte-identical
+            # to base and no BaseDb implementation is forced to absorb the new kwarg.
+            if include_deleted:
+                component = db.get_component(component_id, tenant_id=tenant_id, include_deleted=True)
+            else:
+                component = db.get_component(component_id, tenant_id=tenant_id)
+            if component is None and not include_deleted:
+                raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
 
             records, total_count = db.list_component_audit(
                 component_id,
@@ -783,6 +792,19 @@ def attach_routes(
                 offset=(page - 1) * limit,
                 tenant_id=tenant_id,
             )
+
+            if component is None and total_count == 0:
+                # No row and no rows on this page's query: either the component never existed
+                # (404) or a valid action/version legitimately matched nothing (empty 200).
+                # Existence must not depend on the caller's filters, which total_count above
+                # already applies -- so when a filter is in play, settle it with an unfiltered
+                # probe. Unfiltered requests already answered the question: total_count == 0
+                # IS the probe result, no second query needed.
+                if action is None and version is None:
+                    raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
+                _, any_history = db.list_component_audit(component_id, limit=1, offset=0, tenant_id=tenant_id)
+                if any_history == 0:
+                    raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
 
             total_pages = (total_count + limit - 1) // limit if limit > 0 else 0
 

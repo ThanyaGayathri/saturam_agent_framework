@@ -10,6 +10,8 @@ The behavioural half -- that the statements do what they say against a real engi
 ``tests/integration/memory/neo4j/test_graph_substrate.py``.
 """
 
+import re
+
 import pytest
 
 pytest.importorskip("neo4j", reason="the Neo4j graph substrate imports its driver at module level")
@@ -19,6 +21,7 @@ from egpt.integrations.memory.graph.neo4j.neo4j import Neo4jGraphSubstrate  # no
 from egpt.memory.substrates import GraphSubstrate  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
 from egpt.memory.types import (  # noqa: E402
+    EntityWrite,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
@@ -43,6 +46,7 @@ def all_statements(scope):
     """
     emitted = [
         ("upsert_episodes", *cypher.upsert_episodes_statement(scope)),
+        ("upsert_entities", *cypher.upsert_entities_statement(scope)),
         *[
             (f"upsert_facts[{shape}]", text, params)
             for shape, (text, params) in cypher.upsert_facts_statements(scope).items()
@@ -56,6 +60,19 @@ def all_statements(scope):
             for i, (text, params) in enumerate(cypher.insert_bounded_copy_statements(scope))
         ],
         ("episode_probe", *cypher.episode_probe_statement(scope)),
+        ("clear_mentions", *cypher.clear_mentions_statement(scope)),
+        ("link_mentions", *cypher.link_mentions_statement(scope)),
+        # Every filter combination, because each one appends its own clause to the predicate and a
+        # scope guard that only held for the fully-filtered form would be the "one wiring" gap.
+        *[
+            (f"recall_episodes[{label}]", *cypher.recall_episodes_statement(scope, **kwargs))
+            for label, kwargs in (
+                ("entities", {"entities": ["berlin"], "since": None, "until": None, "limit": None}),
+                ("window", {"entities": None, "since": 10, "until": 20, "limit": 5}),
+                ("since", {"entities": None, "since": 10, "until": None, "limit": 0}),
+                ("until", {"entities": None, "since": None, "until": 20, "limit": None}),
+            )
+        ],
     ]
     return emitted
 
@@ -90,7 +107,17 @@ def statement_ids(scope):
 #: Statements that carry their scope **on each row** rather than in bound parameters. A write always
 #: has a fully-specified scope, so it matches `scope_key` exactly; a read's unset slot means "any",
 #: which an equality on the composite key could not express.
-WRITE_STATEMENTS = ("upsert_episodes", "upsert_facts[triple]", "upsert_facts[node]")
+#: The two mention statements are here for the same reason: both address the live episode by its
+#: exact ``scope_key``, so an episode written under one scope is unreachable from another whichever
+#: end the statement starts at.
+WRITE_STATEMENTS = (
+    "upsert_episodes",
+    "upsert_entities",
+    "upsert_facts[triple]",
+    "upsert_facts[node]",
+    "clear_mentions",
+    "link_mentions",
+)
 
 
 @pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name not in WRITE_STATEMENTS])
@@ -198,8 +225,89 @@ def test_the_row_builder_writes_nothing_outside_the_declared_properties():
 
 
 def test_the_schema_probe_covers_every_declared_property():
-    for name in cypher.ROW_PROPERTIES:
+    for name in (*cypher.ROW_PROPERTIES, *cypher.ENTITY_PROPERTIES):
         assert f"{name}: " in cypher.SCHEMA_STATEMENTS[0], f"{name} is declared but not registered by the probe"
+
+
+def test_the_entity_key_and_embedding_are_indexed():
+    """Review finding on PR #89, round 2. Without these, SM-G8's (#106) two lookups -- exact-match
+    grouping on ``key`` and similarity matching on ``embedding`` -- are full scans of every
+    ``:Entity`` node across every scope, not just the current one."""
+    statements = " ".join(cypher.SCHEMA_STATEMENTS)
+
+    assert f"INDEX egpt_{cypher.ENTITY.lower()}_key" in statements
+    assert "ON (n.scope_key, n.key)" in statements
+    assert f"VECTOR INDEX egpt_{cypher.ENTITY.lower()}_embedding" in statements
+    assert "ON (n.embedding)" in statements
+
+
+def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties():
+    """The :data:`ROW_PROPERTIES` guard, applied to the other shape (SM-G2 #100).
+
+    An entity node's properties are a different set, so the row guard above could not have covered
+    them -- and an undeclared key warns on every read that names it, which is the same signal a
+    typo raises.
+    """
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    (row,) = substrate._entity_rows(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)])
+
+    written = {key for key in row if key != "props"} | set(row["props"])
+    assert written <= set(cypher.ENTITY_PROPERTIES), f"undeclared: {sorted(written - set(cypher.ENTITY_PROPERTIES))}"
+
+    # The two unioned fields must never be *inside* props (review finding on PR #89, round 2):
+    # `upsert_entities_statement` runs `SET n += row.props` before its two union `SET`s, so a field
+    # that entered `props` would be replaced there and the union that runs after would be unioning
+    # against its own just-replaced value -- silently breaking the SM-R7 provenance guarantee with
+    # no failing test, since the membership check above cannot see *where* a key landed.
+    assert "source_episode_ids" not in row["props"], "union semantics break if this enters props"
+    assert "aliases" not in row["props"], "union semantics break if this enters props"
+
+
+def test_an_entity_node_carries_no_bi_temporal_field():
+    """ADR 0003 section 1 ratifies ``SemanticEntity`` as embeddable but **not** bi-temporal.
+
+    An entity existing is not a claim about the world that can become false, so a node carrying
+    ``t_invalid`` would invite an invalidation the port has no verb for -- and a ``live`` marker
+    would put it under the SCD-2 constraint, where a second sighting is a duplicate current belief.
+    """
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    (row,) = substrate._entity_rows(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)])
+
+    written = {key for key in row if key != "props"} | set(row["props"])
+    assert written.isdisjoint({"t_valid", "t_invalid", "expired_at", "superseded_by", cypher.LIVE, "tier"})
+
+
+def test_the_entity_statement_unions_provenance_rather_than_replacing_it():
+    """SM-R7 section 7's trail. Every other write on this backend replaces by id; this one must
+    not, or the second episode to mention an entity erases the first as its provenance.
+
+    ``coalesce`` matters as much as the union: an ``(:Entity)`` created as the endpoint of a triple
+    write has no list at all, and appending to null in Cypher yields null.
+    """
+    text, _ = cypher.upsert_entities_statement(FULL)
+
+    for name in ("source_episode_ids", "aliases"):
+        assert f"coalesce(n.{name}, [])" in text, f"{name} is not unioned against a possibly-absent list"
+        assert f"WHERE NOT x IN row.{name}] + row.{name}" in text, f"{name} accumulates duplicates on a re-run"
+    assert "SET n += row.props" in text, "everything outside the two lists is last-write"
+
+
+def test_only_an_entitys_first_sighting_sets_created_at():
+    """``created_at`` is when the entity entered the graph; ``updated_at`` is the last mention.
+
+    Both from ``SET n += row.props`` would make the two the same number on every write, and the
+    first-seen ordering SM-G8 (#106) reads would be lost.
+
+    Asserted as ``coalesce``, not literal ``ON CREATE``: review finding on PR #89 -- this MERGE is
+    not always the node's creation, since ``upsert_facts_statements`` merges the same identity as a
+    triple endpoint and sets no ``created_at`` at all. ``ON CREATE`` would then never fire on a node
+    SM-G3 wrote first, leaving ``created_at`` null forever. ``coalesce`` fills a null unconditionally
+    and leaves an already-timestamped node alone, which is what actually holds the invariant.
+    """
+    text, _ = cypher.upsert_entities_statement(FULL)
+
+    assert "SET n.created_at = coalesce(n.created_at, row.created_at)" in text
+    assert text.index("n.created_at = coalesce") < text.index("SET n += row.props")
 
 
 def test_the_live_identity_is_constrained_but_the_logical_id_alone_is_not():
@@ -221,15 +329,84 @@ def test_the_live_identity_is_constrained_but_the_logical_id_alone_is_not():
     assert len(live_identity) == 3, f"every row shape needs the live-identity constraint, got {live_identity}"
 
 
+#: Every ``MERGE`` pattern a statement can contain: a labelled node, or a typed relationship.
+_MERGE_NODE = re.compile(r"MERGE \(\w*:(\w+) \{([^}]*)\}\)")
+_MERGE_REL = re.compile(r"MERGE \(\w+\)-\[\w*:(\w+) \{([^}]*)\}\]->")
+_CONSTRAINT_LABEL = re.compile(r"FOR \(\w*:(\w+)\)|FOR \(\)-\[\w*:(\w+)\]-\(\)")
+_CONSTRAINT_KEY = re.compile(r"REQUIRE \(([^)]*)\) IS UNIQUE")
+
+
+def merged_keys(text):
+    """``(label, {property names})`` for every ``MERGE`` pattern in one statement."""
+    return [
+        (label, frozenset(part.split(":")[0].strip() for part in props.split(",")))
+        for pattern in (_MERGE_NODE, _MERGE_REL)
+        for label, props in pattern.findall(text)
+    ]
+
+
+def constrained_keys():
+    """``(label, {property names})`` for every composite uniqueness constraint the schema creates.
+
+    A single-property constraint counts too, as long as it parenthesizes its key
+    (``REQUIRE (r.link_id) IS UNIQUE``, not the bare ``REQUIRE r.link_id IS UNIQUE`` every
+    surrogate-key (``row_id``) constraint uses) -- ``egpt_mentions_link`` is deliberately spelled
+    that way so this derivation can see it, since ``link_id`` is a real ``MERGE`` key and the
+    ``row_id`` ones are not.
+    """
+    keys = set()
+    for statement in cypher.SCHEMA_STATEMENTS:
+        label_match, key_match = _CONSTRAINT_LABEL.search(statement), _CONSTRAINT_KEY.search(statement)
+        if not label_match or not key_match:
+            continue
+        label = label_match.group(1) or label_match.group(2)
+        keys.add((label, frozenset(part.strip().split(".", 1)[1] for part in key_match.group(1).split(","))))
+    return keys
+
+
 def test_the_merge_key_and_the_constraint_are_the_same_key():
     """A constraint on a different key than ``MERGE`` uses protects nothing.
 
     This is the whole mechanism: Neo4j documents ``MERGE`` as concurrency-safe only when a
     uniqueness constraint backs the pattern it merges on.
+
+    Derived from the statements rather than asserted as a literal key, because the literal one was
+    the live identity and SM-G2's ``(:Entity)`` nodes are deliberately not bi-temporal -- so a
+    literal check could only have been satisfied by exempting the new shape, which is the check
+    not running.
     """
+    constrained = constrained_keys()
+    assert constrained, "the schema must constrain something, or this passes vacuously"
+
+    checked = 0
+    skipped = 0
     for label in WRITE_STATEMENTS:
         text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
-        assert f"id: row.id, {cypher.LIVE}: true" in text, f"{label} does not merge on the live identity"
+        keys = merged_keys(text)
+        if not keys:
+            # `clear_mentions` deletes what it matched; it merges nothing, so there is no key to
+            # back and nothing here to check. Every other write statement must contribute one.
+            assert label == "clear_mentions", f"{label} contains no MERGE pattern this test can read"
+            skipped += 1
+            continue
+        for key in keys:
+            assert key in constrained, f"{label} merges on {key}, which no uniqueness constraint backs"
+            checked += 1
+    assert checked >= len(WRITE_STATEMENTS) - skipped, "every merging write statement must contribute a key"
+
+
+def test_the_entity_merge_is_backed_by_its_own_constraint():
+    """Both statements that ``MERGE`` an entity node key on the same pair, so one constraint covers
+    them -- and a shape that keyed on the tenant instead would share one user's entities with
+    another (entity resolution is SM-G8's call, not a side effect of a merge key)."""
+    for label in ("upsert_facts[triple]", "link_mentions"):
+        text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+        assert "MERGE (n:Entity {scope_key: row.scope_key, name: row." in text or (
+            "MERGE (s:Entity {scope_key: row.scope_key, name: row." in text
+        ), f"{label} does not merge entities on the full scope"
+    assert any("(n.scope_key, n.name) IS UNIQUE" in s for s in cypher.SCHEMA_STATEMENTS), (
+        "nothing constrains the entity identity"
+    )
 
 
 def test_the_substrate_satisfies_the_port_without_connecting():
@@ -252,7 +429,7 @@ def test_a_write_under_a_foreign_scope_is_refused():
     other = Scope(tenant_id="acme", user_id="bob")
 
     with pytest.raises(MemoryOperationError, match="does not match the write scope"):
-        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=other, id="e1")])
+        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=other, id="e1")], 100)
 
     record = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=other)
     with pytest.raises(MemoryOperationError, match="does not match the write scope"):
@@ -266,7 +443,7 @@ def test_an_episode_without_an_id_is_refused_rather_than_given_one():
     substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
 
     with pytest.raises(MemoryOperationError, match="dedup key"):
-        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=FULL)])
+        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=FULL)], 100)
 
 
 def test_a_tripled_fact_becomes_a_relation_and_an_untripled_one_a_node():
@@ -335,7 +512,9 @@ DRIVER_CALLS = {
     "upsert_facts": lambda g: g.upsert_facts(
         FULL, [FactWrite(record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=FULL))]
     ),
+    "upsert_entities": lambda g: g.upsert_entities(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]),
     "traverse": lambda g: g.traverse(FULL, MemoryQuery(text="x")),
+    "recall_episodes": lambda g: g.recall_episodes(FULL, since=10),
     "bounds_for_ids": lambda g: g.bounds_for_ids(FULL, ["f1"]),
     "invalidate": lambda g: g.invalidate(FULL, "f1", t_invalid=300, at=310),
     "init_schema": lambda g: g.init_schema(),
@@ -438,7 +617,11 @@ ASYNC_DRIVER_CALLS = {
     "aupsert_facts": lambda g: g.aupsert_facts(
         FULL, [FactWrite(record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=FULL))]
     ),
+    "aupsert_entities": lambda g: g.aupsert_entities(
+        FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]
+    ),
     "atraverse": lambda g: g.atraverse(FULL, MemoryQuery(text="x")),
+    "arecall_episodes": lambda g: g.arecall_episodes(FULL, since=10),
     "abounds_for_ids": lambda g: g.abounds_for_ids(FULL, ["f1"]),
     "ainvalidate": lambda g: g.ainvalidate(FULL, "f1", t_invalid=300, at=310),
     "ainit_schema": lambda g: g.ainit_schema(),
