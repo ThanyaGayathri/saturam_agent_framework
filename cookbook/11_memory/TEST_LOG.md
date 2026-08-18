@@ -399,3 +399,35 @@ introduced here.
 took `14_` first; then, while this branch was still catching up, `feat/SM-V4`, `feat/SM-V2` and
 `feat/SM-G2` landed `15_`-`17_` between this branch's two merges of `main`. Per this file's own
 convention, whoever merges second renumbers -- twice, this time.
+
+---
+
+### 19_relation_extraction_graph.py
+
+**Status:** PARTIAL
+
+**Description:** Relation/fact edge extraction from episodes into typed graph edges (SM-G3 #101),
+against a real Neo4j 5 Community and a real Postgres 18 + pgvector, wired alongside `17_`'s entity
+pipeline via a second `relation_pipeline` option.
+
+**Result:** The write and read-path legs run clean against the real containers: two episodes are
+written, the pre-consolidate read returns them with no model call, and `provider.consolidate()`
+reaches the entity extraction pass before failing with `ModelAuthenticationError` -- **this
+environment carries no model credentials at all (no `OPENAI_API_KEY`, no Azure key)**, unlike the
+machine `17_` was run from, so the LLM leg of this file is unexercised here.
+
+To still validate the graph write path against the real backend rather than only the in-memory
+double, `RelationExtractionPipeline` was run directly (not through this cookbook) against the same
+Neo4j container with a stub extractor standing in for the model: one `run()` followed by one
+`arun()` over the identical `(Ada, works_at, Acme Corp)` triple left **exactly one** edge in the
+graph, with `r.predicate = "works_at"` and `r.provenance = {"source_episode_ids": ["e1"]}` -- proof
+that `relation_edge_id_for`'s deterministic id upserts the same edge on re-extraction rather than
+accumulating a duplicate one, which the unit suite's `FakeGraph` cannot prove on its own.
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`, `./cookbook/scripts/run_pgvector.sh`, and an
+`OPENAI_API_KEY`. Extraction is **one model call per interaction**, so the cost scales with the
+episode count rather than with the run.
+
+**Note:** the file writes to its own `memory_vectors_sm_g3` table, matching `17_`'s own reasoning:
+`consolidate` reads every episode in the scope, so sharing a table mixes another cookbook's writes
+into this run.
