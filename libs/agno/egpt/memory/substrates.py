@@ -21,9 +21,17 @@ resolved by registry key.
 from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope, TemporalBounds
+from egpt.memory.types import (
+    FactWrite,
+    MemoryEvent,
+    MemoryQuery,
+    MemoryRecord,
+    RetrievalCandidates,
+    Scope,
+    TemporalBounds,
+)
 
-__all__ = ["GraphSubstrate", "VectorSubstrate", "checked_graph", "checked_vector"]
+__all__ = ["GraphSubstrate", "HybridSearchSubstrate", "VectorSubstrate", "checked_graph", "checked_vector"]
 
 
 @runtime_checkable
@@ -165,6 +173,85 @@ class VectorSubstrate(Protocol):
 
     async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
         """Async variant of :meth:`scan`."""
+        ...
+
+
+@runtime_checkable
+class HybridSearchSubstrate(Protocol):
+    """An **optional** extension of :class:`VectorSubstrate`: the same store, two ranked legs
+    (SM-V3 #97).
+
+    Separate from ``VectorSubstrate`` rather than folded into it, because a vector store that
+    cannot rank lexically is a legitimate backend and would otherwise have to grow a method it
+    would only ever raise from. Kept ``runtime_checkable`` so the orchestrator SM-H1 (#131) builds
+    can ask ``isinstance(substrate, HybridSearchSubstrate)`` and run one leg or two accordingly --
+    which is the whole reason this lives in ``egpt/memory/`` beside the ports rather than on the
+    concrete backend. The services layer must not import an integration (ADR 0001, enforced by
+    import-linter in CI), so without a port here the orchestrator could not name the capability at
+    all.
+
+    **That ``isinstance`` check is presence-only, the same limit ``_check`` documents below for**
+    ``VectorSubstrate`` **/** ``GraphSubstrate``. It confirms ``search_candidates`` and
+    ``asearch_candidates`` exist as callables and nothing about their arity or return type -- a
+    backend with the right names and the wrong signature passes the feature-detection and fails
+    inside the call, several frames from whichever branch decided the store was hybrid-capable. Said
+    here rather than only at ``_check`` because SM-H1's orchestrator is the one call site that reads
+    this Protocol as a runtime branch rather than a construction-time gate, so it is the one place
+    the gap actually bites.
+
+    **Every leg answers the same question about which rows exist**: the identical conjunctive scope
+    predicate, the same resolved tier set, current belief only (``expired_at IS NULL``), and
+    ``query.window()`` (SM-V4 #98) -- all exactly as :meth:`VectorSubstrate.search` specifies them.
+    Legs that disagree about eligibility do not produce a ranking discrepancy, they produce a leak,
+    because a row one leg is correctly denied re-enters the merged result through the other.
+    ``query.as_of`` is likewise **not** applied by any leg, for the reason ``VectorSubstrate.search``
+    gives.
+
+    **Stated explicitly because it was not, once.** SM-V4 and this port were written concurrently,
+    and the lexical leg's first implementation built its own predicate from ``scope_predicate``
+    directly rather than composing through the shared one -- correct on every axis this docstring
+    named at the time, and silently un-windowed on the one it did not, because that axis did not
+    exist here yet. Caught only at the seam merging the two, by a test comparing the two legs'
+    ``WHERE`` clauses rather than sampling a behaviour
+    (``test_the_lexical_leg_where_clause_is_exactly_what_search_predicate_builds``). A port stating
+    every eligibility axis a backend must apply, and a backend composing from one shared predicate
+    builder rather than rebuilding it per leg, is what makes the next axis added here inherited
+    rather than forgotten.
+
+    ``require_scope(scope, method=...)`` is the first statement of every method here, exactly as
+    ``VectorSubstrate`` requires it (SM-C4 #92). The rule is not inherited by satisfying that port
+    structurally -- these are separate entry points a caller can reach directly.
+
+    Fusing the lists is **not** part of this port. See :class:`~egpt.memory.types.RetrievalCandidates`.
+    """
+
+    def search_candidates(
+        self,
+        scope: Scope,
+        query: MemoryQuery,
+        tier: Optional[MemoryTier] = None,
+    ) -> RetrievalCandidates:
+        """Rank ``query.text`` on every leg this store has, returning the lists separately.
+
+        ``limit`` bounds **each leg**, not their union: the lists are inputs to a fusion stage that
+        has not run yet, so a shared budget would mean one leg's hits displacing the other's before
+        anything had compared them. A fusion stage wanting deeper legs than the page it will emit
+        over-fetches by raising ``limit`` and truncating after fusing -- that policy is SM-H2's
+        (#132), and it needs both lists to be full-depth to have anything to choose from.
+
+        A leg that cannot match returns an **empty list, not an absent key**: zero lexical hits for
+        a query whose terms appear nowhere is an answer, and one a fusion stage must be able to
+        tell apart from a leg that did not run.
+        """
+        ...
+
+    async def asearch_candidates(
+        self,
+        scope: Scope,
+        query: MemoryQuery,
+        tier: Optional[MemoryTier] = None,
+    ) -> RetrievalCandidates:
+        """Async variant of :meth:`search_candidates`."""
         ...
 
 

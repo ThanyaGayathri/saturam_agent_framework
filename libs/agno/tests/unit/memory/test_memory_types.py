@@ -581,3 +581,15 @@ def test_a_receipt_that_already_satisfies_the_floor_is_left_alone():
     receipt = WriteReceipt(accepted=1, details={"stores": {"user_profile": True}, "rows_written": 3})
 
     assert receipt.details == {"stores": {"user_profile": True}, "rows_written": 3}
+
+
+def test_a_non_string_query_text_is_refused_by_the_envelope():
+    """Every other field on ``MemoryQuery`` is validated; ``text`` was the one way past this
+    constructor. It reaches a substrate as a bind parameter and is ``.strip()``ed on the way, so
+    leaving it unchecked surfaced as ``AttributeError: 'int' object has no attribute 'strip'`` from
+    inside a backend -- the shape the rest of this envelope exists to prevent."""
+    for bad in (None, 5, ["order status"], b"order status"):
+        with pytest.raises(TypeError):
+            MemoryQuery(text=bad)
+    # The valid case must still construct, or the guard rejects every read.
+    assert MemoryQuery(text="order status").text == "order status"

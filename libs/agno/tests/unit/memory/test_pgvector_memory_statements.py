@@ -15,7 +15,7 @@ from dataclasses import fields
 import pytest
 
 from egpt.integrations.memory.vector.pgvector import sql
-from egpt.memory.types import Scope, ValidWindow
+from egpt.memory.types import MemoryScopeRequiredError, Scope, ValidWindow
 
 FULL = Scope(tenant_id="acme", agent_id="ag", user_id="ada", team_id="tm", session_id="se")
 TENANT_ONLY = Scope(tenant_id="acme")
@@ -47,6 +47,11 @@ def row_reading_statements(scope):
         "search_windowed": sql.search_statement("ai", "memory_vectors", scope, WINDOW)[0],
         "search_open_start": sql.search_statement("ai", "memory_vectors", scope, ValidWindow(valid_to=900))[0],
         "search_open_end": sql.search_statement("ai", "memory_vectors", scope, ValidWindow(valid_from=100))[0],
+        "lexical_search": sql.lexical_search_statement("ai", "memory_vectors", scope, "english", None)[0],
+        # The lexical leg is the one place SM-V3 and SM-V4 actually meet: it must inherit the
+        # window exactly as the vector leg does, or a hybrid read leaks an out-of-window row
+        # through whichever leg forgot to filter it.
+        "lexical_search_windowed": sql.lexical_search_statement("ai", "memory_vectors", scope, "english", WINDOW)[0],
         "scan": sql.scan_statement("ai", "memory_vectors", scope, 10)[0],
         "scan_unlimited": sql.scan_statement("ai", "memory_vectors", scope, None)[0],
     }
@@ -61,10 +66,14 @@ def test_every_row_reading_builder_is_covered():
     readers = {name for name in dir(sql) if name.endswith("_statement") and not name.startswith("_")}
     assert readers == {
         "search_statement",
+        "lexical_search_statement",
         "scan_statement",
         "create_partition_statement",
         "upsert_statement",
         "ef_search_statement",
+        # Reads `pg_catalog`, not stored rows, so it carries no scope and is absent from
+        # `row_reading_statements` -- like `ef_search_statement` and `create_partition_statement`.
+        "text_search_config_statement",
     }, readers
 
 
@@ -201,7 +210,7 @@ def test_the_schema_creates_a_list_partitioned_table_with_an_hnsw_index():
     The index is created on the parent, so every future partition inherits one -- an index that has
     to be asked for later is the index that is missing in production (Finding 3).
     """
-    statements = sql.schema_statements("ai", "memory_vectors", 768, 16, 200)
+    statements = sql.schema_statements("ai", "memory_vectors", 768, 16, 200, "english")
     joined = "\n".join(statements)
     assert "CREATE EXTENSION IF NOT EXISTS vector" in joined
     assert "PARTITION BY LIST (tenant_id)" in joined
@@ -215,7 +224,7 @@ def test_the_shared_table_tenant_filter_layout_is_not_what_is_built():
     lives in a metadata JSON blob. This pins that ``tenant_id`` is a real column and the partition
     key, so a future "simplification" back to the rejected shape fails here rather than in a
     benchmark nobody re-runs."""
-    statements = sql.schema_statements("ai", "memory_vectors", 768, 16, 200)
+    statements = sql.schema_statements("ai", "memory_vectors", 768, 16, 200, "english")
     create = next(s for s in statements if "CREATE TABLE" in s)
     assert "tenant_id TEXT NOT NULL" in create
     assert create.rstrip().endswith("PARTITION BY LIST (tenant_id)")
@@ -228,14 +237,14 @@ def test_a_dimension_hnsw_cannot_index_is_refused(dim):
     missing index -- and ``True`` is an ``int`` subclass, so ``vector(True)`` would be ``vector(1)``.
     """
     with pytest.raises(ValueError, match="dim"):
-        sql.schema_statements("ai", "memory_vectors", dim, 16, 200)
+        sql.schema_statements("ai", "memory_vectors", dim, 16, 200, "english")
 
 
 @pytest.mark.parametrize("m,ef", [(0, 200), (16, 0), (-1, 200), (True, 200)])
 def test_non_positive_index_parameters_are_refused(m, ef):
     """These reach DDL as literals, so the range check is what makes the "it is an int" claim true."""
     with pytest.raises(ValueError):
-        sql.schema_statements("ai", "memory_vectors", 768, m, ef)
+        sql.schema_statements("ai", "memory_vectors", 768, m, ef, "english")
 
 
 @pytest.mark.parametrize(
@@ -419,3 +428,143 @@ def test_none_and_an_empty_valid_window_produce_the_same_no_op():
     different branches inside ``window_predicate``, so this is what proves they actually agree
     rather than merely reading as if they should."""
     assert sql.window_predicate(None) == sql.window_predicate(ValidWindow())
+
+
+def test_the_lexical_leg_where_clause_is_exactly_what_search_predicate_builds():
+    """The composition property, on the leg that used to rebuild its predicate by hand.
+
+    Merging SM-V3 and SM-V4 surfaced the exact defect ``search_predicate``'s own docstring warns
+    about: ``lexical_search_statement`` built scope + tier + current belief from ``scope_predicate``
+    directly, so it never inherited the window and would have silently leaked out-of-window rows
+    into a hybrid read through the leg nobody remembered to update. Fixed by routing it through
+    ``search_predicate`` like the vector leg; this is the regression test for that fix, not merely
+    coverage for the window.
+    """
+    predicate, predicate_binds = sql.search_predicate(FULL, WINDOW)
+    statement, binds = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english", WINDOW)
+    where = statement.split("WHERE", 1)[1].split("AND to_tsvector")[0].strip().rstrip("AND").strip()
+    assert where == predicate
+    assert {k: v for k, v in binds.items() if k in predicate_binds} == predicate_binds
+
+
+def test_the_lexical_leg_narrows_to_the_window_inside_the_where_clause():
+    """AC 1's composition proof for the lexical leg, mirroring the vector leg's own test above."""
+    statement, _ = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english", WINDOW)
+    where = statement.split("WHERE", 1)[1]
+    assert "(t_valid IS NULL OR t_valid < :valid_to)" in where
+    assert "(t_invalid IS NULL OR t_invalid > :valid_from)" in where
+
+
+def test_a_lexical_search_with_no_window_binds_nothing_for_it():
+    statement, binds = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english", None)
+    assert ":valid_from" not in statement and ":valid_to" not in statement
+    assert "valid_from" not in binds and "valid_to" not in binds
+
+
+# -- the lexical leg (SM-V3 #97) ----------------------------------------------
+
+
+def test_the_lexical_leg_indexes_and_queries_the_same_expression():
+    """A functional index is only used when the query repeats its expression **exactly**.
+
+    Spelled apart, the DDL and the query drift on the first edit and the symptom is not an error:
+    the GIN index is silently skipped and every lexical read becomes a sequential scan of the
+    partition. So both are built from ``ts_vector_expression`` and this asserts they agree.
+    """
+    expression = sql.ts_vector_expression("english")
+    ddl = [s for s in sql.schema_statements("ai", "memory_vectors", 8, 16, 200, "english") if "gin" in s]
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english", None)[0]
+
+    assert len(ddl) == 1, ddl
+    assert expression in ddl[0]
+    assert expression in statement
+
+
+def test_the_lexical_leg_filters_to_current_belief_like_the_vector_leg():
+    """Two legs that disagree about which rows exist do not produce a ranking discrepancy, they
+    produce a leak: a superseded row the vector leg correctly withholds re-enters the merged
+    result through this one."""
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english", None)[0]
+    assert "expired_at IS NULL" in statement
+
+
+def test_the_lexical_leg_filters_on_the_tier_set_and_bounds_the_page():
+    """The tier filter and the ``LIMIT`` are the other two eligibility rules the vector leg
+    applies; a leg that dropped either would hand fusion a differently-shaped candidate set."""
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english", None)[0]
+    assert "tier = ANY(CAST(:tiers AS text[]))" in statement
+    assert "LIMIT :limit" in statement
+
+
+def test_the_lexical_leg_carries_a_match_predicate_so_the_index_can_answer():
+    """``@@`` is what makes the GIN index usable at all -- without it Postgres computes
+    ``to_tsvector`` per row over the whole partition -- and it removes exactly the rows
+    ``ts_rank_cd`` would score 0.0, which are non-matches occupying a page slot."""
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english", None)[0]
+    assert "@@" in statement
+    assert "ORDER BY rank DESC" in statement
+
+
+def test_the_query_text_is_a_bind_parameter_and_never_statement_text():
+    """Memory query text is whatever a user said to the agent. It reaches the statement as a bind
+    on both of its appearances -- the rank expression and the match predicate -- or one of them is
+    an injection point that the other's parameterisation hides."""
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english", None)[0]
+    assert statement.count(":query_text") == 2
+    # Every `to_tsquery(` is a `websearch_to_tsquery(`. Bare `to_tsquery` raises a syntax error on
+    # ordinary punctuation, so one left anywhere in the statement turns a user typing "what's up?"
+    # into a failed read rather than an empty one.
+    assert statement.count("websearch_to_tsquery(") == 2
+    assert statement.count("to_tsquery(") == statement.count("websearch_to_tsquery(")
+
+
+@pytest.mark.parametrize("bad", ["not a config", "english; DROP TABLE x", "eng'lish", "", "0english", "a" * 64, None])
+def test_a_text_search_config_that_could_break_out_of_its_literal_is_refused(bad):
+    """The value lands as a **literal** inside ``to_tsvector('...', content)``, and this module
+    contains no escaper of its own by design. What makes interpolating it safe is that the
+    identifier rules forbid a quote character -- so the rules are the escaping."""
+    with pytest.raises(sql.SettingError) as raised:
+        sql.text_search_config(bad)
+    assert raised.value.field == "text_search_config"
+
+
+def test_the_text_search_config_probe_resolves_the_way_the_ddl_will():
+    """A bare ``pg_ts_config.cfgname`` lookup answers "some schema has one", which is a different
+    question from "the DDL and the query will resolve it". They disagree exactly when a config is
+    defined outside the connection's ``search_path``."""
+    statement, binds = sql.text_search_config_statement("english")
+    assert "pg_ts_config_is_visible" in statement
+    assert binds == {"ts_config": "english"}
+    # Cast, because a bare bind is `unknown` to the planner and it cannot pick an overload for one.
+    assert "CAST(:ts_config AS text)" in statement
+
+
+@pytest.mark.parametrize("builder", ["search_statement", "lexical_search_statement", "scan_statement"])
+def test_no_row_reading_statement_can_be_built_without_a_scope(builder):
+    """SM-C4 (#92): a forgotten scope must error, never be read as "no predicate". Guarded inside
+    ``scope_predicate`` -- which every row-reading statement here is built from -- so a statement
+    added later inherits it without anyone remembering to."""
+    args = {"search_statement": ("ai", "v"), "lexical_search_statement": ("ai", "v"), "scan_statement": ("ai", "v")}
+    extra = {
+        "search_statement": (None,),
+        "lexical_search_statement": ("english", None),
+        "scan_statement": (10,),
+    }[builder]
+    with pytest.raises(MemoryScopeRequiredError):
+        getattr(sql, builder)(*args[builder], None, *extra)
+
+
+@pytest.mark.parametrize("spelling", ["english", "English", "ENGLISH", "EngLish"])
+def test_a_text_search_config_is_normalised_the_way_postgres_normalises_it(spelling):
+    """``'English'::regconfig`` resolves to ``english``: the regconfig input function parses its
+    argument as an identifier, and an unquoted identifier is down-cased.
+
+    Passing the caller's spelling through broke in two directions at once -- the existence probe
+    matches ``pg_ts_config.cfgname`` exactly and **refused a configuration the server accepts**, and
+    the index renders ``'english'::regconfig`` while the setting still read ``English``, so the
+    drift check would have warned on every clean startup. Normalising once is what makes those two
+    sites agree by construction.
+    """
+    assert sql.text_search_config(spelling) == "english"
+    assert sql.text_search_config_statement(spelling)[1] == {"ts_config": "english"}
+    assert sql.ts_vector_expression(spelling) == "to_tsvector('english', content)"

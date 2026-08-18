@@ -165,10 +165,11 @@ agui_local = AGUI(agent=local_agent, prefix="/agui/local", tags=["AGUI-Local"])
 agui_remote = AGUI(agent=remote_assistant, prefix="/agui/remote", tags=["AGUI-Remote"])
 agui_team = AGUI(team=remote_team, prefix="/agui/team", tags=["AGUI-Team"])
 
-# Slack Interfaces (for local agent, remote agent, team, and workflow)
+# Slack Interfaces (for local agent, team, and workflow only -- Slack's HITL handler requires
+# aget_run_output, which RemoteAgent/RemoteTeam/RemoteWorkflow do not implement, so Slack no
+# longer accepts Remote* entities; see PR #82 round-3 review, aicoe-tracker#158)
 slack_local = Slack(agent=local_agent, prefix="/slack/local", tags=["Slack-Local"])
-slack_remote = Slack(agent=remote_assistant, prefix="/slack/remote", tags=["Slack-Remote"])
-slack_team = Slack(team=remote_team, prefix="/slack/team", tags=["Slack-Team"])
+slack_team = Slack(team=local_team, prefix="/slack/team", tags=["Slack-Team"])
 slack_workflow = Slack(workflow=local_workflow, prefix="/slack/workflow", tags=["Slack-Workflow"])
 
 # Telegram Interfaces (for local agent, remote agent, team, and workflow)
@@ -217,7 +218,6 @@ agent_os = EgptOS(
         agui_remote,
         agui_team,
         slack_local,
-        slack_remote,
         slack_team,
         slack_workflow,
         telegram_local,

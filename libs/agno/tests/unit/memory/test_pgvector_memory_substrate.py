@@ -469,8 +469,20 @@ def test_a_ranked_row_without_a_distance_is_refused_rather_than_ranked_first():
 
 
 #: The port methods that reach stored rows. ``ensure_partition`` takes a tenant id rather than a
-#: ``Scope``, so it is not one of these.
-SCOPED_METHODS = ("upsert", "aupsert", "search", "asearch", "scan", "ascan")
+#: ``Scope``, so it is not one of these. ``search_candidates`` / ``asearch_candidates`` (SM-V3 #97)
+#: joined the list on merge -- they are new data-access methods, and the class this test guards
+#: against is exactly "a method added later without the guard", so it must cover them too rather
+#: than staying frozen at the set this ticket happened to add.
+SCOPED_METHODS = (
+    "upsert",
+    "aupsert",
+    "search",
+    "asearch",
+    "scan",
+    "ascan",
+    "search_candidates",
+    "asearch_candidates",
+)
 
 
 def _invoke(substrate, name, scope):
@@ -555,3 +567,340 @@ def test_an_unwindowed_search_sends_no_window_binds(substrate):
     statement, binds = captured[0][-1]
     assert ":valid_from" not in statement and ":valid_to" not in statement
     assert "valid_from" not in binds and "valid_to" not in binds
+
+
+@pytest.mark.parametrize("half", ["search_candidates", "asearch_candidates"])
+def test_both_hybrid_halves_send_the_window_to_the_lexical_leg_too(substrate, half):
+    """AC 3, and the regression test for the merge-time gap this ticket found: SM-V3's lexical leg
+    built its own predicate rather than composing through ``search_predicate``, so it never
+    inherited the window and a windowed hybrid read would have leaked an out-of-window row through
+    it. Captured at the statement layer and checked against the **lexical** statement specifically
+    -- the vector leg's is already covered by ``test_both_halves_send_the_window_to_the_same_statement``.
+    """
+    captured = []
+    substrate._statements = lambda statements, **kwargs: captured.append(statements) or [[], [], []]
+
+    async def _acapture(statements, **kwargs):
+        captured.append(statements)
+        return [[], [], []]
+
+    substrate._astatements = _acapture
+
+    query = MemoryQuery(text="a memory", valid_from=400, valid_to=600)
+    call = getattr(substrate, half)(ACME, query)
+    asyncio.run(call) if half.startswith("a") else call
+
+    # `_statements` receives the bare `(statement, binds)` tuples -- `_candidate_calls` strips the
+    # leg tag before the call, so index 2 here is the lexical statement directly, not a tagged pair.
+    # Order is [tuning, vector, lexical], per `_candidate_calls`.
+    lexical_statement, lexical_binds = captured[0][2]
+    assert "(t_valid IS NULL OR t_valid < :valid_to)" in lexical_statement
+    assert "(t_invalid IS NULL OR t_invalid > :valid_from)" in lexical_statement
+    assert lexical_binds["valid_from"] == 400 and lexical_binds["valid_to"] == 600
+
+
+# -- the hybrid candidate legs (SM-V3 #97) ------------------------------------
+
+
+def test_the_class_carries_every_method_the_hybrid_port_names():
+    """``HybridSearchSubstrate`` is how SM-H1's (#131) orchestrator will feature-detect two legs
+    from one leg, so a method renamed in a refactor would demote this store to vector-only with
+    nothing raising."""
+    from egpt.memory.substrates import HybridSearchSubstrate
+
+    assert isinstance(PgVectorMemorySubstrate.__new__(PgVectorMemorySubstrate), HybridSearchSubstrate), sorted(
+        name for name in vars(HybridSearchSubstrate) if not name.startswith("_")
+    )
+
+
+@pytest.mark.parametrize("rank", [0.0, 0.001, 0.05, 0.1, 1.0, 12.5, 1e6])
+def test_a_lexical_rank_becomes_a_similarity_in_the_unit_interval(rank):
+    """``ts_rank_cd`` is unbounded and the port requires a similarity in ``[0.0, 1.0]``, higher
+    better. A leg handing over its raw measure would dominate any weighted sum it entered."""
+    assert 0.0 <= module._lexical_similarity(rank) < 1.0
+
+
+def test_the_lexical_normalisation_cannot_reorder_its_own_list():
+    """**The load-bearing property.** Rank-based fusion reads position and weighted fusion reads
+    magnitude, so a non-monotone squash would make the two read different orderings from one list.
+
+    Mutation-checked: replacing ``r / (r + k)`` with anything non-increasing fails here.
+    """
+    ranks = [0.0, 0.0001, 0.01, 0.1, 0.5, 2.0, 40.0, 1e5]
+    scores = [module._lexical_similarity(r) for r in ranks]
+    assert scores == sorted(scores)
+    assert len(set(scores)) == len(scores), "distinct ranks collapsed to one score"
+
+
+def test_a_negative_rank_cannot_divide_by_zero_or_score_below_the_floor():
+    """``ts_rank_cd`` never returns one, so this is the clamp removing a question rather than
+    handling a case: at ``r = -k`` the unclamped form divides by zero."""
+    assert module._lexical_similarity(-module._RANK_SATURATION) == 0.0
+    assert module._lexical_similarity(-5.0) == 0.0
+
+
+def test_both_legs_break_ties_the_same_way(substrate):
+    """Two legs that order equally-scored records differently hand fusion two orderings for one
+    corpus -- and rank-based fusion reads position, so the disagreement becomes a scoring
+    difference rather than a cosmetic one."""
+    records = [record("a", "beta", created_at=2), record("b", "alpha", created_at=1)]
+    by_vector = substrate._ranked([{"distance": 0.5}, {"distance": 0.5}], list(records))
+    by_lexical = substrate._lexically_ranked([{"rank": 0.5}, {"rank": 0.5}], list(records))
+    assert [r.content for r in by_vector] == [r.content for r in by_lexical] == ["alpha", "beta"]
+
+
+def test_the_lexical_page_is_ordered_by_rank_descending(substrate):
+    """Higher ``ts_rank_cd`` is a better match, the opposite direction from cosine distance. A
+    ranker that inherited the vector leg's ascending sort would return the worst matches first."""
+    rows = [{"rank": 0.01}, {"rank": 0.9}, {"rank": 0.2}]
+    records = [record("a", "weak"), record("b", "strong"), record("c", "middling")]
+    assert [r.content for r in substrate._lexically_ranked(rows, records)] == ["strong", "middling", "weak"]
+
+
+def test_each_leg_scores_from_its_own_measure_and_a_scan_row_scores_nothing(substrate):
+    """One of the two is ever selected -- ``distance`` by the vector statement, ``rank`` by the
+    lexical one. ``scan`` selects ``distance`` as NULL and must land on ``None``: ``0.0`` would
+    read as a *perfect* cosine match and lead the page."""
+    assert module._score({"rank": 0.1}) == pytest.approx(0.5)
+    assert module._score({"distance": 0.0}) == pytest.approx(1.0)
+    assert module._score({"distance": None}) is None
+    assert module._score({}) is None
+
+
+def test_a_lexical_row_maps_to_a_record_scored_on_its_rank(substrate):
+    """The end-to-end of the two above: a row off the lexical statement becomes a record carrying
+    a unit-interval score and the vector substrate label."""
+    mapped = substrate._record(
+        {
+            "id": "e1",
+            "tier": "episodic",
+            "content": "shipment ORD-99417-XZ",
+            "tenant_id": "acme",
+            "agent_id": None,
+            "user_id": "ada",
+            "team_id": None,
+            "session_id": None,
+            "topics": None,
+            "provenance": None,
+            "metadata": None,
+            "t_valid": None,
+            "t_invalid": None,
+            "created_at": 1,
+            "expired_at": None,
+            "superseded_by": None,
+            "rank": 0.1,
+        }
+    )
+    assert mapped.score == pytest.approx(0.5)
+    assert mapped.substrate is Substrate.VECTOR
+
+
+def test_an_unanswerable_query_returns_two_empty_legs_and_costs_no_round_trip(substrate):
+    """An empty list is an answer -- "no lexical hits" -- and a fusion stage must be able to tell
+    it from a leg that did not run. The short-circuit is shared with ``search``, so the two cannot
+    come to disagree about which queries are worth a round trip."""
+    from egpt.memory.types import MemoryQuery, RetrievalCandidates
+
+    for query in (MemoryQuery(text="  ", limit=5), MemoryQuery(text="cats", limit=0)):
+        candidates = substrate.search_candidates(ACME, query)
+        assert candidates == RetrievalCandidates(vector=[], lexical=[])
+        assert candidates.legs() == {"vector": [], "lexical": []}
+
+
+def test_the_legs_are_named_rather_than_positional():
+    """SM-R8 requires the fusion implementations to be N-leg-capable rather than hardcoded to two,
+    and a consumer reading ``.vector``/``.lexical`` by name is hardcoded to two whatever the fusion
+    function can take.
+
+    The assertion is that this store reports **exactly** its two legs -- not that the container
+    grows a third. The graph leg (SM-G9 #107) comes from a different substrate and arrives as a
+    separate result the orchestrator fuses alongside this one."""
+    from egpt.memory.types import RetrievalCandidates
+
+    candidates = RetrievalCandidates(vector=[record("a")], lexical=[record("b")])
+    assert list(candidates.legs()) == ["vector", "lexical"]
+    assert [r.id for r in candidates.legs()["lexical"]] == ["b"]
+
+
+@pytest.mark.parametrize(
+    "expression, expected",
+    [
+        ("to_tsvector('english'::regconfig, content)", "english"),
+        ("to_tsvector('simple'::regconfig, content)", "simple"),
+        ("to_tsvector('english', content)", "english"),
+        ("(metadata -> 'tags'::text)", None),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_the_indexed_text_search_config_is_read_by_name_not_by_rendering(expression, expected):
+    """Postgres renders the literal in its own normalized form, so comparing the rendered text
+    warned on **every clean startup** -- an always-on warning is one nobody reads when it finally
+    means something. A non-text GIN index is not this index and is left alone."""
+    assert module._indexed_ts_config(expression) == expected
+
+
+def test_an_unknown_text_search_config_is_a_setting_fault_not_an_operation_one(substrate):
+    """Asserted on the narrow class and its ``field_name``: the ``CREATE INDEX`` this replaces
+    reports an ``undefined_object`` from the middle of schema init, arriving as a
+    ``MemoryOperationError`` that a caller narrowing to ``MemoryProviderConfigError`` never sees."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        substrate._reject_unknown_text_search_config([{"present": False}])
+    assert raised.value.field_name == "text_search_config"
+
+    with pytest.raises(MemoryProviderConfigError):
+        substrate._reject_unknown_text_search_config([])
+    # The clean case must not raise, or the probe rejects every startup.
+    substrate._reject_unknown_text_search_config([{"present": True}])
+
+
+def test_a_text_search_config_that_could_break_out_of_its_literal_is_refused_at_construction():
+    """The construction-time twin of the statement-layer check: it must arrive through
+    ``_settings_checked`` as a config error naming its field, like every sibling setting."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        PgVectorMemorySubstrate(
+            db_url=URL, embedder=StubEmbedder(), text_search_config="eng'lish", auto_init_schema=False
+        )
+    assert raised.value.field_name == "text_search_config"
+
+
+class _CountingEmbedder(StubEmbedder):
+    """Counts embedding calls, so "the guard ran **first**" is observable rather than assumed."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def get_embedding(self, text):
+        self.calls += 1
+        return super().get_embedding(text)
+
+    async def async_get_embedding(self, text):
+        self.calls += 1
+        return await super().async_get_embedding(text)
+
+
+@pytest.mark.parametrize(
+    "method, args",
+    [
+        ("search", (MemoryQuery(text="anything", limit=5),)),
+        ("asearch", (MemoryQuery(text="anything", limit=5),)),
+        ("search_candidates", (MemoryQuery(text="anything", limit=5),)),
+        ("asearch_candidates", (MemoryQuery(text="anything", limit=5),)),
+        ("upsert", ([record()],)),
+        ("aupsert", ([record()],)),
+        ("scan", (MemoryTier.EPISODIC,)),
+        ("ascan", (MemoryTier.EPISODIC,)),
+    ],
+)
+def test_an_unscoped_call_is_refused_before_the_embedder_is_ever_called(method, args):
+    """SM-C4 (#92) says the guard must be **first**, and "first" is the whole content of the rule:
+    a refusal that arrives after the embedding round trip has already spent the API call it exists
+    to prevent, and on a paid embedder that is the cost the guard was for.
+
+    Asserting only that *something* raises does not test this. The statement layer guards inside
+    ``sql.scope_predicate`` as a backstop, so removing the port method's own guard still raises --
+    just several frames and one API call later. Mutation-checked: deleting either guard passes a
+    raises-only test and fails this one.
+
+    Parametrised over **every** data-access method rather than the two this ticket added, because
+    the one without a test is the one that loses its guard.
+    """
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    embedder = _CountingEmbedder()
+    substrate = PgVectorMemorySubstrate(db_url=URL, embedder=embedder, auto_init_schema=False)
+
+    with pytest.raises(MemoryScopeRequiredError):
+        result = getattr(substrate, method)(None, *args)
+        if asyncio.iscoroutine(result):
+            asyncio.run(result)
+    assert embedder.calls == 0, f"{method} embedded before refusing an unscoped call"
+
+
+def test_each_candidate_statement_is_tagged_with_the_leg_it_answers_for(substrate):
+    """The vector page used to be read as ``results[-2]``, counting back from the end.
+
+    That is correct only while ``_search_call`` emits exactly two statements. Its first is
+    ``SET LOCAL hnsw.ef_search``, which returns no rows and which ``_rows`` maps to ``[]`` -- so a
+    third statement added there would not mis-*rank* the vector leg, it would make it come back
+    **empty**, with nothing raising and no way for a caller to tell that from a corpus with no
+    matches.
+    """
+    query = MemoryQuery(text="order status", limit=5)
+    calls = substrate._candidate_calls(ACME, query, ["episodic"], [0.0] * DIM)
+
+    assert [leg for leg, _ in calls] == [None, "vector", "lexical"]
+    # The untagged one is the tuning statement, which returns no rows -- which is exactly why
+    # position is not a safe key for the pages that do.
+    assert calls[0][1][0].startswith("SET LOCAL hnsw.ef_search")
+
+
+def test_a_grown_search_call_fails_loudly_rather_than_emptying_a_leg(substrate, monkeypatch):
+    """The guard for the above: adding a statement to ``_search_call`` must break at the line that
+    has to change, not silently produce an empty vector list two frames later.
+
+    Mutation-checked: with the old ``results[-2]`` indexing this returned
+    ``RetrievalCandidates(vector=[], lexical=[...])`` and raised nothing.
+    """
+    original = substrate._search_call
+
+    def grown(*args, **kwargs):
+        return [("SET LOCAL enable_seqscan = off", {}), *original(*args, **kwargs)]
+
+    monkeypatch.setattr(substrate, "_search_call", grown)
+    with pytest.raises(ValueError):
+        substrate._candidate_calls(ACME, MemoryQuery(text="order status", limit=5), ["episodic"], [0.0] * DIM)
+
+
+def test_the_two_legs_are_assembled_from_labels_not_positions(substrate):
+    """``_candidates`` is shared by both halves, so the sync and async reads cannot come to disagree
+    about which page is which -- the divergence this ticket's own async parity test exists to catch."""
+
+    def row(id_, **measure):
+        stored = {
+            "id": id_,
+            "tier": "episodic",
+            "content": id_,
+            "tenant_id": "acme",
+            "agent_id": None,
+            "user_id": "ada",
+            "team_id": None,
+            "session_id": None,
+            "topics": None,
+            "provenance": None,
+            "metadata": None,
+            "t_valid": None,
+            "t_invalid": None,
+            "created_at": 1,
+            "expired_at": None,
+            "superseded_by": None,
+        }
+        return {**stored, **measure}
+
+    # The labels are deliberately **not** in the order `_candidate_calls` emits them, and the
+    # untagged tuning statement sits between the two legs rather than in front of them. Counting
+    # back from the end (`results[-2]`, `results[-1]`) gets the right answer for the current
+    # arrangement and the wrong one here, which is the whole difference between assembling by label
+    # and assembling by position. With positional indexing this returns `vector=[]`.
+    calls = [("vector", ("...", {})), (None, ("SET LOCAL x = 1", {})), ("lexical", ("...", {}))]
+    candidates = substrate._candidates(calls, [[row("v", distance=0.2)], [], [row("l", rank=0.3)]])
+    assert [r.id for r in candidates.vector] == ["v"]
+    assert [r.id for r in candidates.lexical] == ["l"]
+
+
+def test_a_lexical_row_without_a_rank_is_refused_rather_than_crashing_on_a_bare_subscript():
+    """``_lexically_ranked`` used to read ``pair[0]["rank"]`` directly, a bare ``KeyError`` on a
+    missing key rather than the named refusal ``_score`` gives the same field, and ``_similar``
+    gives its own sibling field (``distance``) on the vector leg. Aligning the read removes the
+    inconsistency; this pins the refusal it now raises."""
+    with pytest.raises(MemoryOperationError, match="carries no rank"):
+        module._rank_of({"id": "l1"})
+
+
+def test_the_two_rankers_agree_on_what_no_measure_means(substrate):
+    """The property the alignment buys: both rankers refuse a row missing their own field, by the
+    same shape of error, rather than one raising ``KeyError`` and the other a named refusal."""
+    with pytest.raises(MemoryOperationError):
+        substrate._ranked([{"id": "v1"}], [record("v1")])
+    with pytest.raises(MemoryOperationError):
+        substrate._lexically_ranked([{"id": "l1"}], [record("l1")])
