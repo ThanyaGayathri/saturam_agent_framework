@@ -22,8 +22,17 @@ This section demonstrates how EGPT agents persist and use user memories across r
   partition and one HNSW index per tenant, scope isolation down to the user slot, and similarity
   scores in `[0.0, 1.0]` against Postgres + pgvector. Needs `./cookbook/scripts/run_pgvector.sh`;
   no API key (the embedder is the offline `bge-base` ADR 0003 ratifies for Mode A, downloaded on
-  first run). It names no embedder at all -- `mode` selects it, per `14_`.
-- `14_memory_embedding_pipeline.py`: What fills the embedder-shaped hole in `13_` (SM-V2) -- which
+  first run). It names no embedder at all -- `mode` selects it, per `16_`.
+- `14_hybrid_candidates_pgvector.py`: Two ranked candidate lists from that one store (SM-V3) --
+  dense cosine and Postgres full-text, returned **unfused** so a fusion stage can still see the
+  per-leg ranks. Shows the legs disagreeing on length, order, and top hit. Fusing them is SM-H2
+  (#132); ADR 0003 section A.6 ratifies weighted fusion for this two-leg case and holds the
+  three-leg choice open. Same setup as `13_`.
+- `15_scoped_and_windowed_recall.py`: Scoped, time-windowed recall over the same store (SM-V4) --
+  tenant, user, tier and a valid-time window all applied **inside** the search rather than to the
+  page it returns, and why a window is not a created-at filter: an open-ended memory keeps
+  answering until something bounds it. Same requirements as `13_`.
+- `16_memory_embedding_pipeline.py`: What fills the embedder-shaped hole in `13_` (SM-V2) -- which
   model each mode selects and at what dimension, why Mode A **refuses** an embedder that reaches
   the network (ADR 0003 A.3c), the version tag stamped on every stored vector, and the single
   embedder shared by the write and query paths. No database and no API key; downloads `bge-base`

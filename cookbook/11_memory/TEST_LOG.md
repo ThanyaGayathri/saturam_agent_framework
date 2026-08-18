@@ -226,7 +226,80 @@ key; the embedder is local and downloads its weights on first run.
 
 ---
 
-### 14_memory_embedding_pipeline.py
+### 14_hybrid_candidates_pgvector.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-V3 hybrid candidate legs on the SM-V1 pgvector memory store,
+against a real Postgres 18 + pgvector with the ADR-ratified Mode A embedder
+(`BAAI/bge-base-en-v1.5` @768). Writes three memories to its own table (`memory_hybrid_demo`, so it
+does not read rows `13_` left in the default one) and runs three queries through
+`search_candidates`, printing both ranked lists per query.
+
+**Result:** Success. `isinstance(store, HybridSearchSubstrate)` is True, so the optional capability
+is detectable, and every query returns two independently-ranked lists with scores in `[0.0, 1.0]`.
+
+The three queries show the legs differing in a different way each time:
+
+- `order ORD-99417-XZ status` -- lexical returns **only** `carrier(0.500)`; vector ranks the whole
+  corpus, `carrier(0.876) decoy(0.666) commute(0.416)`. Precision against proximity.
+- `tram commute to the berlin office` -- lexical returns **nothing**, because Postgres' web-search
+  syntax is conjunctive and one unmatched term empties the leg; vector still answers
+  `commute(0.698)`. This is the case a lexical-only store gets wrong, and it reads as an empty
+  corpus rather than as a miss.
+- `order status` -- both answer and **disagree about the top hit**: vector `carrier(0.764)` first,
+  lexical `decoy(0.714)` first. This is precisely what a blended `similarity_score` destroys.
+
+**Notable:** the ticket's premise -- "assert BM25 surfaces an exact ID while vector may not" --
+**did not reproduce on the production embedder**, and the file says so rather than implying it.
+`bge-base` ranks the identifier-carrying record first as well. The decoy-first behaviour appears
+only under the deterministic bag-of-tokens embedder the integration tests use, and that test's
+docstring now scopes the claim to it. What the legs genuinely differ on is result *shape*, which is
+what the two-list return exists to preserve.
+
+Run **twice in a row and the output is identical**: events carry explicit ids and the substrate
+upserts by id.
+
+**Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
+key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 15_scoped_and_windowed_recall.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-V4 valid-time window through the seam against a real Postgres 18
++ pgvector, on its own table (`cookbook_windowed`) so the reads show this file's five rows rather
+than whatever a shared default table has accumulated. Writes three memories for `acme/ada` and one
+each for `acme/bob` and `globex/ada`, at three different `occurred_at` quarters, then reads the same
+question unwindowed, with an upper bound only, with a lower bound only, and with a full window
+across all three scopes.
+
+**Result:** Success. `valid_to=Q3` returns the two memories that became true before July and
+excludes the Q3 relocation, which starts exactly at the bound -- the window is half-open.
+`valid_from=Q3` returns **all three**, which is the case worth reading: neither earlier memory has
+an end date, so both are open-ended intervals that still overlap the second half of the year. A
+window selects records whose validity *overlaps* it, not records authored inside it, and nothing in
+this file claims the earlier facts ended -- bounding one is the graph's job (SM-G5 #103). The first
+draft of this cookbook framed the same reads as "before and after the move" and was corrected
+rather than documented, because that framing implies a filter the data does not support.
+
+Scope isolation holds under the window: `acme/bob` reads only `bob-q3` and `globex/ada` only
+`other-q3`, though all three rows carry the same relocation content and the same valid time.
+`dropped_outside_window` and `dropped_by_validity` both print 0 for the windowed read, which is the
+design showing through -- the substrate filtered in-search, so the provider had nothing left to
+drop. Setting `as_of` alongside a window is refused with a `ValueError`.
+
+Run **twice in a row and the output is identical**: every event carries an explicit id and the
+substrate upserts by id.
+
+**Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
+key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 16_memory_embedding_pipeline.py
 
 **Status:** PASS
 
@@ -239,7 +312,7 @@ through the same resolved embedder, and finally resolves the real Mode A default
 Mode B `azure_openai` / `text-embedding-3-large` at 1024d, both from SM-R4's `DECISION.md`.
 `huggingface`, `openai` and `cohere` are each **refused** under Mode A with `field_name="embedder"`
 -- the carried-forward ADR 0003 A.3c item, and refused as a class rather than as the one name the
-ADR happens to mention. The real default resolves to `BAAI/bge-base-en-v1.5/d768/cos/v1` and
+ADR happens to mention. The real default resolves to `BAAI/bge-base-en-v1.5|d768|cos|v1` and
 returns a 768-dimension query vector.
 
 **Found by running it:** the first version of the Mode A default recorded 768 but did not pass it to

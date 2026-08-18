@@ -4,8 +4,8 @@ from typing import List, Optional, Union
 from fastapi.routing import APIRouter
 
 from egpt.agent import Agent, RemoteAgent
+from egpt.integrations.channels.whatsapp.router import attach_routes
 from egpt.os.interfaces.base import BaseInterface
-from egpt.os.interfaces.whatsapp.router import attach_routes
 from egpt.team import RemoteTeam, Team
 from egpt.workflow import RemoteWorkflow, Workflow
 

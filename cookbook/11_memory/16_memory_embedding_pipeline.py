@@ -19,7 +19,7 @@ Three things it decides, each shown below:
 
 Run it:
 
-    .venvs/demo/bin/python cookbook/11_memory/14_memory_embedding_pipeline.py
+    .venvs/demo/bin/python cookbook/11_memory/16_memory_embedding_pipeline.py
 
 The Mode A default downloads bge-base (~440 MB) the first time. The stub below is used for the
 behaviour that does not need a real model, so the download happens once, at the end.

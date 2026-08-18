@@ -45,7 +45,7 @@ config = MemoryProviderConfig(
         # No embedder is named: `mode` selects it. SM-V2 (#96) made bge-base-en-v1.5 at 768 the
         # Mode A default, so stating it here would be a second copy of a value that lives in
         # `egpt/memory/embedding.py` -- and the copy is what drifts when the model changes.
-        # `14_memory_embedding_pipeline.py` shows the selection itself.
+        # `16_memory_embedding_pipeline.py` shows the selection itself.
         # The measured default, stated here because it is a per-deployment parameter rather than
         # a constant: 256 reaches recall@10 0.967 at 100k/tenant for a p95 of 7 ms, where the
         # benchmark's old constant of 64 reached 0.889. See benchmarks/memory_vectordb/EF_SWEEP.md.
