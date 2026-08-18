@@ -146,7 +146,7 @@ async def test_one_model_is_reused_across_the_async_lane_too():
 
 
 async def test_ascore_is_safe_to_call_concurrently_with_gather():
-    """The cookbook (``15_episode_importance.py``) scores two episodes with
+    """The cookbook (``19_episode_importance.py``) scores two episodes with
     ``asyncio.gather(scorer.ascore(...), scorer.ascore(...))`` on one shared instance. Safety comes
     from ``Model.aresponse`` building a fresh ``ModelResponse`` per call rather than any mutable
     state on ``ImportanceScorer`` -- pinned here rather than left to inference."""

@@ -17,34 +17,52 @@ Row shapes, per ADR 0003 section 1 and SM-R12:
 
 All three carry the same four timestamps and the same scope columns, so the predicates below apply
 to a node and a relationship alike.
+
+* ``(:Episode)-[:MENTIONS]->(:Entity)`` -- the episodic subgraph's link (SM-G6 #104). Not one of
+  the three above: it is an index of what a live episode names, carrying no belief and no
+  bi-temporal envelope of its own, so it is replaced with the episode rather than expired.
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from egpt.memory.graph.episodic import (
+    MENTIONS,
+    require_recall_filters,
+    require_recall_limit,
+    require_time_window,
+)
 from egpt.memory.types import SCOPE_SLOTS, Scope, require_scope
 
 __all__ = [
+    "ENTITY",
+    "ENTITY_PROPERTIES",
     "EPISODE",
     "FACT",
+    "MENTIONS",
     "REL",
     "SCHEMA_STATEMENTS",
     "ROW_PROPERTIES",
     "SCOPE_SLOTS",
     "bounds_statements",
+    "clear_mentions_statement",
     "episode_probe_statement",
     "expire_statements",
     "insert_bounded_copy_statements",
+    "link_mentions_statement",
     "live_row_statements",
+    "recall_episodes_statement",
     "scope_predicate",
     "scope_props",
     "traverse_statements",
+    "upsert_entities_statement",
     "upsert_episodes_statement",
     "upsert_facts_statements",
 ]
 
-#: Labels. ``REL`` is a relationship type; the other two are node labels.
+#: Labels. ``REL`` is a relationship type; the other three are node labels.
 EPISODE = "Episode"
 FACT = "Fact"
+ENTITY = "Entity"
 REL = "REL"
 
 
@@ -148,6 +166,32 @@ _RETURN = (
     "row.provenance AS provenance, row.metadata AS metadata, score"
 )
 
+#: The same columns without ``score``, plus the episode's own scope slots and its mention names.
+#: Spelled out rather than built from ``_RETURN`` by string surgery -- a ``.replace(", score", "")``
+#: silently produces the wrong text the day ``_RETURN`` gains a second occurrence of that substring
+#: or renames the column, and nothing would catch it.
+#:
+#: ``recall_episodes`` is ordered by time and not ranked, so a score column would be a null the
+#: caller has to know to ignore -- and ``MemoryRecord.score`` left unset says that better than 0.0
+#: does.
+#:
+#: The scope slots are the episode's **own write scope**, not the caller's -- and that distinction
+#: is load-bearing here in a way it is not for ``traverse``: this is the only read whose
+#: ``MemoryRecord`` carries a **derived** field (``entity_ids``) computed from ``scope``. Returning
+#: the call scope under a tenant-wide read produced ids like ``acme/*/*/*/*/entity/berlin`` against a
+#: node actually merged at ``acme/*/ada/*/*/entity/berlin`` -- entity ids that addressed nothing
+#: (round-1 review, PR #90). ``_record`` reconstructs the write ``Scope`` from these columns rather
+#: than parsing it back out of the ``MENTIONS`` edge's ``scope_key`` string, which has no inverse of
+#: :func:`~egpt.memory.types.escape_key_slot` to parse it with.
+_RECALL_RETURN = (
+    "RETURN row.id AS id, row.tier AS tier, row.content AS content, row.topics AS topics, "
+    "row.t_valid AS t_valid, row.t_invalid AS t_invalid, row.created_at AS created_at, "
+    "row.expired_at AS expired_at, row.superseded_by AS superseded_by, "
+    "row.provenance AS provenance, row.metadata AS metadata, "
+    + ", ".join(f"row.{slot} AS {slot}" for slot in SCOPE_SLOTS)
+    + ", mentions"
+)
+
 
 def _traverse(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
     # The tier predicate belongs here, beside the scope and current-belief ones, because `LIMIT` is
@@ -179,7 +223,7 @@ def traverse_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     return [
         _traverse(f"MATCH (e:{EPISODE})", "e", scope, "traverse_statements"),
         _traverse(f"MATCH (f:{FACT})", "f", scope, "traverse_statements"),
-        _traverse(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "traverse_statements"),
+        _traverse(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "traverse_statements"),
     ]
 
 
@@ -201,7 +245,7 @@ def bounds_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     return [
         _bounds(f"MATCH (e:{EPISODE})", "e", scope, "bounds_statements"),
         _bounds(f"MATCH (f:{FACT})", "f", scope, "bounds_statements"),
-        _bounds(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "bounds_statements"),
+        _bounds(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "bounds_statements"),
     ]
 
 
@@ -246,6 +290,116 @@ def upsert_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
     return _upsert_node(EPISODE)
 
 
+def clear_mentions_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    """Detach the live episode's current mention edges, before the new set is linked.
+
+    Runs on the **episode** rows, so it needs no parameter of its own and cannot go looking at an
+    episode the write did not touch. ``upsert_episodes`` replaces by id, so the edges have to be
+    replaced with it: an event re-upserted with a shorter entity list would otherwise keep the ones
+    it dropped, and read as mentioning an entity its current content does not name.
+
+    A ``DELETE`` in an append-only store, which is worth naming. The append-only rule (SM-R10
+    section 6.1) protects **belief** -- a bounded revision must stay reconstructible. A mention edge
+    is not a belief: it is an index of what the live episode names, and the episode row it indexes
+    was itself just overwritten by ``MERGE ... SET n = row``. Keeping the stale edge would preserve
+    a link to content that no longer exists.
+    """
+    require_scope(scope, method="clear_mentions_statement")
+    return (
+        "UNWIND $rows AS row "
+        f"MATCH (e:{EPISODE} {{scope_key: row.scope_key, id: row.id, {LIVE}: true}})"
+        f"-[m:{MENTIONS}]->(:Entity) DELETE m"
+    ), _WRITE_BINDS
+
+
+def link_mentions_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    """Link each live episode to the entities it names, creating entity nodes as needed.
+
+    ``MERGE`` on ``link_id`` rather than on the bare ``(e)-[:MENTIONS]->(n)`` pattern, for
+    :func:`_upsert_node`'s reason: a relationship merge with both endpoints bound is a check-then-act
+    race, and the uniqueness constraint on that key is what makes one-edge-per-(episode, entity) the
+    database's guarantee. The key comes from ``egpt.memory.graph.episodic.mention_link_id``.
+
+    ``MATCH`` on the episode, never ``MERGE``: this statement runs after the node write in the same
+    transaction, so a miss means the episode is not there -- and conjuring an empty ``(:Episode)``
+    to hang an edge off would put a contentless node into every read.
+
+    Entities are merged on ``(scope_key, name)``, the same identity ``upsert_facts_statements``
+    uses, so a mention and a fact about one entity land on one node rather than two.
+    """
+    require_scope(scope, method="link_mentions_statement")
+    return (
+        "UNWIND $mentions AS row "
+        f"MATCH (e:{EPISODE} {{scope_key: row.scope_key, id: row.episode_id, {LIVE}: true}}) "
+        "MERGE (n:Entity {scope_key: row.scope_key, name: row.name}) "
+        "ON CREATE SET n += row.entity "
+        f"MERGE (e)-[r:{MENTIONS} {{link_id: row.props.link_id}}]->(n) SET r = row.props"
+    ), _WRITE_BINDS
+
+
+def recall_episodes_statement(
+    scope: Scope,
+    *,
+    entities: Optional[Sequence[str]] = None,
+    since: Optional[int] = None,
+    until: Optional[int] = None,
+    limit: Optional[int] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """Episodes by half-open valid-time window and by mention link, in the order they happened.
+
+    Every filter is applied in Cypher rather than after the fact, for the reason
+    :func:`_traverse` gives: ``LIMIT`` is applied server-side, so a predicate evaluated afterwards
+    cuts rows the limit already spent and the short page looks like a genuine miss.
+
+    ``since`` / ``until`` compare against ``t_valid``, which is the episode's ``occurred_at``. A
+    ``NULL`` ``t_valid`` fails both comparisons and so is excluded by *either* bound -- which is
+    correct (an episode with no known time is not in any window) but is the kind of three-valued
+    behaviour worth stating rather than discovering.
+
+    The mention filter is an ``EXISTS`` subquery, not a second ``MATCH``: matching the edge in the
+    pattern would return one row per matching entity, and the ``LIMIT`` would then count edges
+    rather than episodes.
+
+    ``LIMIT`` is omitted from the text entirely when unbounded, because ``LIMIT $limit`` with a null
+    parameter is an error rather than "no limit". ``limit=0`` keeps the clause and returns nothing,
+    as :meth:`~egpt.memory.substrates.VectorSubstrate.scan` defines it.
+
+    The mention edges are collected on the way out, ordered by the ``position`` the write recorded,
+    so the names come back as the episode named them and match the row's ``entity_ids`` element for
+    element rather than as a permutation.
+
+    The defaults are all ``None`` so this builder is callable like every other one here, and the
+    port's own guards run **inside** it rather than only in the substrate: an unfiltered
+    ``MATCH (e:Episode)`` is the graph enumeration SM-G9 (#107) owns, and a builder that emitted one
+    when called directly would be a way around the refusal. Scope is checked first, so an unscoped
+    call is refused as unscoped rather than as unfiltered.
+    """
+    predicate, params = _scoped_live("e", scope, "recall_episodes_statement")
+    require_recall_filters(entities, since, until)
+    require_time_window(since, until)
+    require_recall_limit(limit)
+    if since is not None:
+        predicate += " AND e.t_valid >= $since"
+        params["since"] = since
+    if until is not None:
+        predicate += " AND e.t_valid < $until"
+        params["until"] = until
+    if entities is not None:
+        predicate += f" AND EXISTS {{ MATCH (e)-[:{MENTIONS}]->(x:Entity) WHERE x.name IN $entities }}"
+        params["entities"] = list(entities)
+    text = (
+        f"MATCH (e:{EPISODE}) WHERE {predicate} "
+        f"OPTIONAL MATCH (e)-[men:{MENTIONS}]->(ment:Entity) "
+        "WITH e, men, ment ORDER BY men.position ASC "
+        "WITH e AS row, [n IN collect(ment.name) WHERE n IS NOT NULL] AS mentions "
+        f"{_RECALL_RETURN} ORDER BY row.t_valid ASC, row.created_at ASC, row.content ASC, row.id ASC"
+    )
+    if limit is not None:
+        text += " LIMIT $limit"
+        params["limit"] = limit
+    return text, params
+
+
 def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]]]:
     """The two fact shapes, keyed by which one a batch's rows belong to: a tripled fact is a
     relation between entities, an untripled one a node. Both carry the same envelope.
@@ -264,9 +418,9 @@ def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]
     require_scope(scope, method="upsert_facts_statements")
     triple = (
         "UNWIND $rows AS row "
-        "MERGE (s:Entity {scope_key: row.scope_key, name: row.subject}) "
+        f"MERGE (s:{ENTITY} {{scope_key: row.scope_key, name: row.subject}}) "
         "ON CREATE SET s += row.entity "
-        "MERGE (o:Entity {scope_key: row.scope_key, name: row.object}) "
+        f"MERGE (o:{ENTITY} {{scope_key: row.scope_key, name: row.object}}) "
         "ON CREATE SET o += row.entity "
         "WITH row, s, o "
         # The same MERGE-not-check-then-act rule as `_upsert_node`, spelled again here rather than
@@ -275,6 +429,78 @@ def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]
         f"MERGE (s)-[r:{REL} {_IDENTITY}]->(o) SET r = row.props"
     )
     return {"triple": (triple, _WRITE_BINDS), "node": _upsert_node(FACT)}
+
+
+#: The entity node's identity: the scope and the **surface** name, which is the same key the triple
+#: leg above merges its endpoints on. Two spellings of one entity are two nodes; resolving them is
+#: SM-G8's (#106), and a write path that merged on the normalised ``key`` instead would have decided
+#: that policy here -- and would then disagree with every endpoint ``upsert_facts`` creates.
+_ENTITY_IDENTITY = "{scope_key: row.scope_key, name: row.name}"
+
+#: Every property an ``(:Entity)`` node can carry, for the same anti-drift reason as
+#: :data:`ROW_PROPERTIES`. It is a **different** set: an entity is not bi-temporal (ADR 0003
+#: section 1), so none of the four timestamps or the live marker appear here.
+ENTITY_PROPERTIES = (
+    "scope_key",
+    "name",
+    "key",
+    "entity_type",
+    "description",
+    "properties",
+    "aliases",
+    "source_episode_ids",
+    "embedding",
+    "embedding_version",
+    "confidence",
+    "derived_by",
+    "created_at",
+    "updated_at",
+    *SCOPE_SLOTS,
+)
+
+
+def _union_clause(name: str) -> str:
+    """Append what the batch adds to what the node already has, without duplicating.
+
+    ``coalesce`` covers the node an endpoint ``MERGE`` in :func:`upsert_facts_statements` created
+    with no list at all, and the comprehension drops what the incoming batch already carries, so a
+    re-extraction of the same episode is idempotent rather than accumulating copies.
+    """
+    return f"n.{name} = [x IN coalesce(n.{name}, []) WHERE NOT x IN row.{name}] + row.{name}"
+
+
+def upsert_entities_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    """Merge extracted entity nodes, unioning provenance and aliases (SM-G2 #100).
+
+    ``source_episode_ids`` and ``aliases`` accumulate where every other write on this backend
+    replaces by id. Replacing them would make the second episode to mention an entity erase the
+    first as its provenance, which is the fact -> episode audit trail SM-R7 section 7 makes
+    load-bearing. Everything else is last-write: a description is a summary, not a running total.
+
+    ``created_at`` is meant to mark the first sighting -- but ``coalesce``, not ``ON CREATE``,
+    because *this* MERGE is not always the node's creation. ``upsert_facts_statements`` MERGEs the
+    same identity as a triple endpoint and sets no ``created_at`` at all, so a node this method
+    first meets already existing (SM-G3 wrote it first) has a live node with `created_at = null`.
+    ``ON CREATE`` would then never fire again -- the field stays null forever, since nothing else
+    sets it. ``coalesce`` fills a null unconditionally, and leaves an already-timestamped node
+    alone, so first-sighting semantics hold across both write orders.
+
+    **The three ``SET`` clauses' order is readable but not load-bearing** -- checked directly
+    against the engine rather than assumed: reversing them produces an identical result, because
+    ``created_at``, ``props``, and the two unioned fields are disjoint key sets that never write
+    over one another. That disjointness is the actual invariant: ``props`` must never carry
+    ``created_at``, ``source_episode_ids`` or ``aliases`` (``Neo4jGraphSubstrate._entity_rows`` keeps
+    them out, and ``test_the_entity_row_builder_writes_nothing_outside_the_declared_properties`` pins
+    it) -- that is what would make one clause's ``SET`` overwrite what another already wrote.
+    """
+    require_scope(scope, method="upsert_entities_statement")
+    return (
+        "UNWIND $rows AS row "
+        f"MERGE (n:{ENTITY} {_ENTITY_IDENTITY}) "
+        "SET n.created_at = coalesce(n.created_at, row.created_at) "
+        "SET n += row.props "
+        f"SET {_union_clause('source_episode_ids')}, {_union_clause('aliases')}"
+    ), _WRITE_BINDS
 
 
 def live_row_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
@@ -291,7 +517,7 @@ def live_row_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     """
     return [
         _read_live(f"MATCH (f:{FACT})", "f", scope, "live_row_statements"),
-        _read_live(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "live_row_statements"),
+        _read_live(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "live_row_statements"),
     ]
 
 
@@ -334,7 +560,7 @@ def expire_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     """
     return [
         _expire(f"MATCH (f:{FACT})", "f", scope, "expire_statements"),
-        _expire(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "expire_statements"),
+        _expire(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "expire_statements"),
     ]
 
 
@@ -369,7 +595,7 @@ def insert_bounded_copy_statements(scope: Scope) -> List[Tuple[str, Dict[str, An
             f"MATCH (f:{FACT})", "f", f"CREATE (m:{FACT}) SET m = f{overrides}", scope, "insert_bounded_copy_statements"
         ),
         _bounded_copy(
-            f"MATCH (s:Entity)-[r:{REL}]->(o:Entity)",
+            f"MATCH (s:{ENTITY})-[r:{REL}]->(o:{ENTITY})",
             "r",
             f"CREATE (s)-[n:{REL}]->(o) SET n = r{overrides}",
             scope,
@@ -409,6 +635,13 @@ ROW_PROPERTIES = (
     *SCOPE_SLOTS,
 )
 
+#: Every property a ``MENTIONS`` edge carries. ``link_id`` is its identity (see
+#: :func:`link_mentions_statement`); ``position`` is the order the episode named the entity in, kept
+#: so the subgraph returns the same list as ``EpisodicRecord.entity_ids`` rather than a permutation
+#: of it. The scope slots are here for the reason every stored row carries them -- an edge written
+#: under one scope must never be readable through another, whichever end a future query starts from.
+MENTION_PROPERTIES = ("link_id", "episode_id", "name", "position", "created_at", "scope_key", *SCOPE_SLOTS)
+
 #: A node created and deleted at schema init, purely to register the property-key tokens.
 #:
 #: Neo4j warns when a query names a property no row has ever set, which every read here does on a
@@ -416,13 +649,38 @@ ROW_PROPERTIES = (
 #: fix is to silence the ``UNRECOGNIZED`` notification class, but that is the same signal that
 #: catches a **typo** in a property name, where the query silently returns null. Registering the
 #: keys removes the false positives and leaves the true ones. Tokens survive the delete.
+#: Probe values have to be list-typed for these, because a token registered against a scalar still
+#: warns when a query indexes it as a list.
+#:
+#: Extend this when adding any new list-typed property to :data:`ROW_PROPERTIES`,
+#: :data:`ENTITY_PROPERTIES`, or :data:`MENTION_PROPERTIES` -- an omitted one silently loses the
+#: false-positive suppression the probe exists for, on that property alone.
+_LIST_PROPERTIES = frozenset({"topics", "aliases", "source_episode_ids", "embedding"})
+
+#: Same reason as :data:`_LIST_PROPERTIES`, for the one property stored as an integer: ``position``
+#: on a ``MENTIONS`` edge (SM-G6 #104). ``''`` would still suppress ``UNRECOGNIZED``, but it
+#: registers the wrong type, so a later query comparing ``position`` numerically would warn about a
+#: type mismatch that is not real.
+_INT_PROPERTIES = frozenset({"position"})
+
+
+def _probe_value(name: str) -> str:
+    if name in _LIST_PROPERTIES:
+        return "[]"
+    if name in _INT_PROPERTIES:
+        return "0"
+    return "true" if name == LIVE else "''"
+
+
+#: All three row shapes, deduplicated in declaration order: an entity node shares ``scope_key``,
+#: ``name``, ``created_at`` and the scope slots with a row, a mention edge shares ``episode_id`` and
+#: ``scope_key``, and a repeated key is a Cypher syntax error rather than a duplicate.
+_PROBE_PROPERTIES = tuple(dict.fromkeys((*ROW_PROPERTIES, *ENTITY_PROPERTIES, *MENTION_PROPERTIES)))
+
 _PROBE = (
     "CREATE (p:_EgptSchemaProbe {"
-    + ", ".join(
-        f"{name}: []" if name == "topics" else f"{name}: true" if name == LIVE else f"{name}: ''"
-        for name in ROW_PROPERTIES
-    )
-    + ", name: ''}) DELETE p"
+    + ", ".join(f"{name}: {_probe_value(name)}" for name in _PROBE_PROPERTIES)
+    + "}) DELETE p"
 )
 
 #: Idempotent schema. Uniqueness is on ``row_id`` and not on ``id``: under SCD-2 one logical id has
@@ -450,11 +708,39 @@ SCHEMA_STATEMENTS = (
     f"REQUIRE (r.scope_key, r.id, r.{LIVE}) IS UNIQUE",
     f"CREATE CONSTRAINT egpt_rel_row_id IF NOT EXISTS FOR ()-[r:{REL}]-() REQUIRE r.row_id IS UNIQUE",
     # Entities are MERGEd by (scope_key, name) on every triple write, so they need the same backing.
-    "CREATE CONSTRAINT egpt_entity_identity IF NOT EXISTS FOR (n:Entity) REQUIRE (n.scope_key, n.name) IS UNIQUE",
+    f"CREATE CONSTRAINT egpt_{ENTITY.lower()}_identity IF NOT EXISTS FOR (n:{ENTITY}) "
+    "REQUIRE (n.scope_key, n.name) IS UNIQUE",
+    # The mention edge's identity. Same rule as every other MERGE key here: without a constraint,
+    # `MERGE` on the pattern is a check-then-act race and one episode can end up naming one entity
+    # twice.
+    # Parenthesized (`(r.link_id)`) rather than `r.link_id IS UNIQUE` bare: SM-G2's derived
+    # merge-key/constraint conformance check (test_neo4j_graph_statements.py) reads a constraint's
+    # key from `REQUIRE (...)`, and only this constraint's MERGE key -- unlike the other bare
+    # single-property ones, which are surrogate keys nothing ever MERGEs on -- needs to be found.
+    f"CREATE CONSTRAINT egpt_mentions_link IF NOT EXISTS FOR ()-[r:{MENTIONS}]-() REQUIRE (r.link_id) IS UNIQUE",
     f"CREATE CONSTRAINT egpt_{EPISODE.lower()}_row_id IF NOT EXISTS FOR (n:{EPISODE}) REQUIRE n.row_id IS UNIQUE",
     f"CREATE CONSTRAINT egpt_{FACT.lower()}_row_id IF NOT EXISTS FOR (n:{FACT}) REQUIRE n.row_id IS UNIQUE",
     f"CREATE INDEX egpt_{EPISODE.lower()}_scope IF NOT EXISTS FOR (n:{EPISODE}) ON (n.tenant_id, n.id)",
+    # Backs `recall_episodes_statement`'s `t_valid` window predicate. The id-equality index above
+    # does not help it -- that statement never mentions `id` -- so within one tenant a time-window
+    # read was a sequential scan over every episode (round-1 review, PR #90).
+    f"CREATE INDEX egpt_{EPISODE.lower()}_t_valid IF NOT EXISTS FOR (n:{EPISODE}) ON (n.tenant_id, n.t_valid)",
     f"CREATE INDEX egpt_{FACT.lower()}_scope IF NOT EXISTS FOR (n:{FACT}) ON (n.tenant_id, n.id)",
     f"CREATE INDEX egpt_rel_scope IF NOT EXISTS FOR ()-[r:{REL}]-() ON (r.tenant_id, r.id)",
-    "CREATE INDEX egpt_entity_scope IF NOT EXISTS FOR (n:Entity) ON (n.scope_key, n.name)",
+    f"CREATE INDEX egpt_{ENTITY.lower()}_scope IF NOT EXISTS FOR (n:{ENTITY}) ON (n.scope_key, n.name)",
+    # SM-G8's (#106) first pass groups exact-match candidates on the normalised `key`, which the
+    # identity index above -- keyed on the surface `name` -- does not back; without this, that pass
+    # is a full scope scan. Review finding on PR #89, round 2.
+    f"CREATE INDEX egpt_{ENTITY.lower()}_key IF NOT EXISTS FOR (n:{ENTITY}) ON (n.scope_key, n.key)",
+    # SM-G8's embedding match over this index; without it, matching one new candidate against a
+    # scope's existing entities is a full scan of every `:Entity` node across every scope. Review
+    # finding on PR #89, round 2.
+    #
+    # `768` is Mode A's dimension (ADR 0003 A.3, `bge-base-en-v1.5`), hardcoded here as the same v1
+    # tradeoff `ddl/schema.sql` makes for `vector(768)` (ADR 0003 section B.4: "blessed for v1, with
+    # a named follow-up" to make it a migration parameter) -- a mixed-dimension deployment needs a
+    # second index under Mode B, which is that same follow-up's to make config-driven rather than a
+    # reason to leave this one unindexed.
+    f"CREATE VECTOR INDEX egpt_{ENTITY.lower()}_embedding IF NOT EXISTS FOR (n:{ENTITY}) ON (n.embedding) "
+    "OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}}",
 )

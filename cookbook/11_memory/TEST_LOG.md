@@ -217,6 +217,10 @@ upserts by id, so a re-run replaces the same three rows instead of accumulating 
 first version of this file left the ids unset, and each run added three more rows -- corrected here
 rather than documented.
 
+**Re-verified after SM-V2 (#96)** with the embedder no longer named in the file: `mode` now selects
+it, and the same query returns the same top score of **0.799**, confirming the Mode A default
+resolves to the model this entry was originally recorded against.
+
 **Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
 key; the embedder is local and downloads its weights on first run.
 
@@ -261,7 +265,144 @@ key; the embedder is local and downloads its weights on first run.
 
 ---
 
-### 15_episode_importance.py
+### 15_scoped_and_windowed_recall.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-V4 valid-time window through the seam against a real Postgres 18
++ pgvector, on its own table (`cookbook_windowed`) so the reads show this file's five rows rather
+than whatever a shared default table has accumulated. Writes three memories for `acme/ada` and one
+each for `acme/bob` and `globex/ada`, at three different `occurred_at` quarters, then reads the same
+question unwindowed, with an upper bound only, with a lower bound only, and with a full window
+across all three scopes.
+
+**Result:** Success. `valid_to=Q3` returns the two memories that became true before July and
+excludes the Q3 relocation, which starts exactly at the bound -- the window is half-open.
+`valid_from=Q3` returns **all three**, which is the case worth reading: neither earlier memory has
+an end date, so both are open-ended intervals that still overlap the second half of the year. A
+window selects records whose validity *overlaps* it, not records authored inside it, and nothing in
+this file claims the earlier facts ended -- bounding one is the graph's job (SM-G5 #103). The first
+draft of this cookbook framed the same reads as "before and after the move" and was corrected
+rather than documented, because that framing implies a filter the data does not support.
+
+Scope isolation holds under the window: `acme/bob` reads only `bob-q3` and `globex/ada` only
+`other-q3`, though all three rows carry the same relocation content and the same valid time.
+`dropped_outside_window` and `dropped_by_validity` both print 0 for the windowed read, which is the
+design showing through -- the substrate filtered in-search, so the provider had nothing left to
+drop. Setting `as_of` alongside a window is refused with a `ValueError`.
+
+Run **twice in a row and the output is identical**: every event carries an explicit id and the
+substrate upserts by id.
+
+**Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
+key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 16_memory_embedding_pipeline.py
+
+**Status:** PASS
+
+**Description:** The memory embedding pipeline (SM-V2 #96). Prints what each deployment mode
+selects, exercises the Mode A air-gap refusal against three remote embedders, shows the version tag
+stamped on every stored vector, embeds a batch on the write path and one query on the read path
+through the same resolved embedder, and finally resolves the real Mode A default.
+
+**Result:** Success. Mode A selects `sentence_transformer` / `BAAI/bge-base-en-v1.5` at 768d and
+Mode B `azure_openai` / `text-embedding-3-large` at 1024d, both from SM-R4's `DECISION.md`.
+`huggingface`, `openai` and `cohere` are each **refused** under Mode A with `field_name="embedder"`
+-- the carried-forward ADR 0003 A.3c item, and refused as a class rather than as the one name the
+ADR happens to mention. The real default resolves to `BAAI/bge-base-en-v1.5|d768|cos|v1` and
+returns a 768-dimension query vector.
+
+**Found by running it:** the first version of the Mode A default recorded 768 but did not pass it to
+the constructor, and `SentenceTransformerEmbedder.dimensions` is 384 whatever model it loads -- so
+the pipeline refused its own default. No unit test could have caught it, because every test double
+declares the width it actually returns, which is the one thing the real class does not do. Fixed by
+passing `dimensions` as a constructor argument, and pinned by
+`test_the_mode_default_tells_its_embedder_the_dimension`.
+
+**Requires:** no database and no API key. Downloads `bge-base` (~440 MB) on first run.
+
+---
+
+### 17_entity_extraction_graph.py
+
+**Status:** PASS
+
+**Description:** Entity extraction from episodes into temporal-graph nodes (SM-G2 #100), against a
+real Neo4j 5 Community and a real Postgres 18 + pgvector, with the ADR-ratified Mode A embedder
+(`BAAI/bge-base-en-v1.5` @768). Writes three episodes across two users in one tenant, reads once to
+show the read path costs no model call, then drives `provider.consolidate()` for each user and
+prints the entity nodes with their type, normalised key, vector width and source episodes.
+
+**Result:** Success. Extraction runs only on the consolidation lane -- the read before it returns
+its two episodes without a model call, and `details["entities"]` reports the extractor and the
+embedding version only after `consolidate`. Provenance unions across interactions: `NorthStar
+Analytics` and `Sarah Chen` each come back with **both** of ada's episode ids, having been mentioned
+in each. Every node carries `dims=768`, so the candidates are dedup-ready for SM-G8 (#106).
+
+The SM-G8 boundary shows up in the output rather than only in a docstring: ada's `NorthStar
+Analytics` and bob's `NorthStar` are **two nodes**, and they are also under two scopes, which is two
+separate reasons this ticket does not merge them. That is the intended state -- entity resolution is
+#106's.
+
+**Model note:** the file uses `OpenAIResponses(id="gpt-5.5")` per CLAUDE.md. This machine carries
+only Azure credentials, so the run above was performed with the model swapped for
+`AzureOpenAI(id="gpt-5.4")` and everything else identical; the OpenAI path itself is unexercised
+here and reaches a `ModelAuthenticationError` without a key, as expected.
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`, `./cookbook/scripts/run_pgvector.sh`, and an
+`OPENAI_API_KEY`. Extraction is **one model call per interaction**, so the cost scales with the
+episode count rather than with the run.
+
+**Note:** the file writes to its own `memory_vectors_sm_g2` table. `consolidate` reads every episode
+in the scope, so on the shared default table it extracted entities from
+`13_vector_substrate_pgvector.py`'s memories and printed a node list that matched none of its own
+writes -- corrected here rather than documented.
+
+**Renumbered from `14_` to `17_` at merge time** (review-toolkit skill guidance): SM-V3 (#86) and
+SM-V4/SM-V2 claimed `14_`-`16_` on `main` after this file branched. Whoever merges second renumbers.
+
+---
+
+### 18_episodic_subgraph.py
+
+**Status:** PASS
+
+**Description:** Exercises SM-G6's episodic subgraph against a real Neo4j 5 Community. Writes four
+episodes across two users of one tenant, each carrying the entity names it mentions, then reads them
+back three ways: by mention link, by half-open valid-time window, and by both together.
+
+**Result:** Success, and all three acceptance criteria are visible in the output. The link read
+returns the two berlin episodes oldest-first and skips the scheduler one; the window read
+`[MARCH, JUNE)` returns march and april and excludes june, which is the half-open bound; the two
+filters together narrow to the single march episode, so they conjoin rather than union. "Store an
+episode, traverse to its entities" prints the three entity node ids read off the `MENTIONS` edges --
+`acme/*/ada/*/*/entity/{ada,berlin,platform team}` -- in the order the episode named them. Ada's
+`berlin` and bob's `berlin` print as different node ids and bob's link read returns only his own
+episode, so entities are keyed on the full scope rather than the tenant. The unfiltered recall is
+**refused** naming SM-G9 (#107) rather than answered, because every episode in scope is an
+enumeration and what that means over a temporal graph is not this ticket's to define.
+
+Run **twice in a row and the output is identical**: the four events carry explicit ids and
+`upsert_episodes` replaces by id, so a re-run replaces the same four episodes and their mention
+edges rather than accumulating a fresh set.
+
+**Requires:** a running Neo4j (`./cookbook/scripts/run_neo4j.sh`). No model API key.
+
+**Environment note:** run with `.venv`, not `.venvs/demo` -- `demo_setup.sh` does not install the
+`neo4j` driver, so `10_graph_substrate_neo4j.py` has the same constraint. Pre-existing, not
+introduced here.
+
+**Renumbered from `14_episodic_subgraph.py` to `15_`, then to `18_`, across two merges**: `feat/SM-V3`
+took `14_` first; then, while this branch was still catching up, `feat/SM-V4`, `feat/SM-V2` and
+`feat/SM-G2` landed `15_`-`17_` between this branch's two merges of `main`. Per this file's own
+convention, whoever merges second renumbers -- twice, this time.
+
+---
+
+### 19_episode_importance.py
 
 **Status:** PARTIAL
 
@@ -279,3 +420,7 @@ unverified against a live provider. Re-run with a real key before relying on thi
 PASS.
 
 **Requires:** `OPENAI_API_KEY` (or your configured provider's credentials). No database.
+
+**Renumbered from `15_` to `19_` at merge time**: `feat/SM-V4`, `feat/SM-V2`, `feat/SM-G2` and
+`feat/SM-G6` claimed `15_`-`18_` on `main` after this file branched. Per this file's own
+convention, whoever merges second renumbers.

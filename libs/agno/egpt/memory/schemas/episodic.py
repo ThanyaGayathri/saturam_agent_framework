@@ -19,6 +19,7 @@ one from a run is SM-E2's (#109).
 from typing import Any, Dict, List, Optional, Tuple
 
 from egpt.db.schemas.memory import EpisodicRecord
+from egpt.memory.graph.episodic import entity_node_id_for, entity_node_id_prefix, normalized_mentions
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     MemoryEvent,
@@ -34,6 +35,7 @@ __all__ = [
     "PROVENANCE_KEYS",
     "TOPICS_KEY",
     "EpisodicRecord",
+    "entity_node_id_for",
     "episode_details",
     "episode_from_event",
     "episode_to_record",
@@ -189,6 +191,10 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
     role field, so keeping it would mean inventing a metadata convention on behalf of SM-E2 (#109),
     which owns the capture path and is the only caller with a role to place. Pinned by
     ``test_role_is_not_preserved_here`` so the choice is made there rather than inherited from here.
+
+    ``entity_ids`` is filled from ``MemoryEvent.entities`` (SM-G6 #104), through the same
+    :func:`~egpt.memory.graph.episodic.entity_node_id_for` the graph's ``MENTIONS`` edges are built
+    with -- so the row's list and the subgraph's edges name one set of entity nodes rather than two.
     """
     if event.tier is not MemoryTier.EPISODIC:
         raise MemoryOperationError(
@@ -228,6 +234,9 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
         content=event.content,
         occurred_at=occurred_at,
         t_valid=occurred_at,
+        entity_ids=[
+            entity_node_id_for(scope, name) for name in normalized_mentions(event.entities, episode_id=event.id)
+        ],
         graph_node_id=graph_node_id_for(scope, event.id),
     )
 
@@ -254,8 +263,9 @@ def episode_to_record(episode: EpisodicRecord) -> MemoryRecord:
     raw_topics = metadata.pop(TOPICS_KEY, None)
     topics: Optional[List[str]] = None if raw_topics is None else _require_list(raw_topics, TOPICS_KEY, episode.id)
     _reject_reserved_metadata(metadata, f"Episode {episode.id!r}")
+    scope = _scope_of(episode)
     if episode.graph_node_id is not None:
-        expected = graph_node_id_for(_scope_of(episode), episode.id)
+        expected = graph_node_id_for(scope, episode.id)
         if episode.graph_node_id != expected:
             raise MemoryOperationError(
                 f"Episode {episode.id!r} carries a graph_node_id that does not address its own "
@@ -263,6 +273,18 @@ def episode_to_record(episode: EpisodicRecord) -> MemoryRecord:
                 "(graph_node_id_for), so a different value points at another episode's node.",
                 field_name="graph_node_id",
             )
+    entity_ids = _require_list(episode.entity_ids, "entity_ids", episode.id)
+    # The same check as `graph_node_id` above, one link over: an entity id is derived from the
+    # scope, so one built elsewhere addresses another tenant's entity node. Only the prefix is
+    # checkable -- the name half is escaped and carries no independent identity to re-derive from.
+    foreign = [value for value in entity_ids if not value.startswith(entity_node_id_prefix(scope))]
+    if foreign:
+        raise MemoryOperationError(
+            f"Episode {episode.id!r} carries {len(foreign)} entity_id(s) built under another scope, "
+            "so they address another scope's entity nodes. The ids are derived from the scope and "
+            "the entity name (entity_node_id_for).",
+            field_name="entity_ids",
+        )
 
     metadata.update(
         episode_details(
@@ -284,10 +306,10 @@ def episode_to_record(episode: EpisodicRecord) -> MemoryRecord:
         id=episode.id,
         tier=MemoryTier.EPISODIC,
         content=episode.content,
-        scope=_scope_of(episode),
+        scope=scope,
         topics=topics,
         provenance={
-            "entity_ids": _require_list(episode.entity_ids, "entity_ids", episode.id),
+            "entity_ids": entity_ids,
             "graph_node_id": episode.graph_node_id,
             "supersedes": _require_list(episode.supersedes, "supersedes", episode.id),
             "superseded_by": superseded_by,

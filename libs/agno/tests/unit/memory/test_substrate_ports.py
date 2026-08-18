@@ -12,7 +12,15 @@ import pytest
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope, TemporalBounds
+from egpt.memory.types import (
+    EntityWrite,
+    FactWrite,
+    MemoryEvent,
+    MemoryQuery,
+    MemoryRecord,
+    Scope,
+    TemporalBounds,
+)
 
 SCOPE = Scope(tenant_id="acme", user_id="u1")
 
@@ -49,10 +57,32 @@ class CompleteGraph:
 
     async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None: ...
 
+    def upsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None: ...
+
+    async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None: ...
+
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]: ...
 
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
+    ) -> List[MemoryRecord]: ...
+
+    def recall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]: ...
+
+    async def arecall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
     ) -> List[MemoryRecord]: ...
 
     def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]: ...
@@ -98,8 +128,12 @@ def test_a_vector_backend_missing_any_method_fails_the_port(missing):
         "aupsert_episodes",
         "upsert_facts",
         "aupsert_facts",
+        "upsert_entities",
+        "aupsert_entities",
         "traverse",
         "atraverse",
+        "recall_episodes",
+        "arecall_episodes",
         "bounds_for_ids",
         "abounds_for_ids",
         "invalidate",
