@@ -70,15 +70,33 @@ def test_a_zero_vector_scores_zero_rather_than_raising():
     assert cosine_relevance([1.0, 0.0], [0.0, 0.0]) == pytest.approx(0.0)
 
 
-def test_mismatched_dimensions_are_refused():
+def test_mismatched_dimensions_blame_the_episode_side_by_convention():
+    """Neither side is objectively wrong in a width mismatch -- ``episode_embedding`` is named
+    because the query is treated as the caller's held-fixed reference (see the code comment)."""
     with pytest.raises(MemoryOperationError, match="dimensions") as raised:
         cosine_relevance([1.0, 0.0], [1.0, 0.0, 0.0])
     assert raised.value.field_name == "episode_embedding"
 
 
-def test_empty_embeddings_are_refused():
-    with pytest.raises(MemoryOperationError, match="non-empty"):
-        cosine_relevance([], [])
+def test_an_empty_query_embedding_blames_the_query_side():
+    with pytest.raises(MemoryOperationError, match="non-empty query embedding") as raised:
+        cosine_relevance([], [1.0, 0.0])
+    assert raised.value.field_name == "query_embedding"
+
+
+def test_an_empty_episode_embedding_blames_the_episode_side():
+    with pytest.raises(MemoryOperationError, match="non-empty episode embedding") as raised:
+        cosine_relevance([1.0, 0.0], [])
+    assert raised.value.field_name == "episode_embedding"
+
+
+def test_a_none_embedding_is_refused_rather_than_crashing_on_len():
+    """A regression guard: ``len(None)`` inside the message would raise a bare ``TypeError``
+    before ``MemoryOperationError`` is ever constructed -- an embedder returning ``None`` on
+    failure must still surface the named refusal, not an unrelated crash."""
+    with pytest.raises(MemoryOperationError, match="non-empty query embedding") as raised:
+        cosine_relevance(None, [1.0, 0.0])
+    assert raised.value.field_name == "query_embedding"
 
 
 # -- episode_relevance / aepisode_relevance: the embedder-driven entry points --------------------
@@ -99,7 +117,6 @@ def test_episode_relevance_is_in_unit_range():
     assert 0.0 <= score <= 1.0
 
 
-@pytest.mark.asyncio
 async def test_aepisode_relevance_agrees_with_the_sync_path():
     embedder = StubEmbedder()
     query, content = "deploy the payments service", "shipped the payments service"
@@ -108,10 +125,43 @@ async def test_aepisode_relevance_agrees_with_the_sync_path():
     assert async_score == pytest.approx(sync_score)
 
 
-@pytest.mark.asyncio
 async def test_aepisode_relevance_matches_the_matching_non_matching_property():
     embedder = StubEmbedder()
     query = "deploy the payments service to production"
     matching = await aepisode_relevance(embedder, query, "shipped the payments service to prod")
     unrelated = await aepisode_relevance(embedder, query, "the office coffee machine is broken again")
     assert matching > unrelated
+
+
+class _ConcurrencyProbeEmbedder(StubEmbedder):
+    """Records the largest number of calls simultaneously in flight.
+
+    Increments on entry, yields (so a concurrently-scheduled second call gets a chance to run),
+    then decrements on exit. Sequential ``await``s never overlap -- the first call always finishes
+    (decrementing back to 0) before the second starts -- so ``max_active`` stays 1 unless the two
+    calls are genuinely concurrent. An earlier version of this probe only counted total entries,
+    which reached 2 regardless of ordering (the second call still eventually starts) and did not
+    actually distinguish sequential from concurrent -- caught by mutation-testing this file, not by
+    inspection.
+
+    Mutation check: reverting ``aepisode_relevance`` to two plain ``await``s (instead of
+    ``asyncio.gather``) makes ``max_active`` stay at 1.
+    """
+
+    def __init__(self):
+        self.active = 0
+        self.max_active = 0
+
+    async def async_get_embedding(self, text):
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        await asyncio.sleep(0)
+        result = super().get_embedding(text)
+        self.active -= 1
+        return result
+
+
+async def test_aepisode_relevance_runs_the_two_embedding_calls_concurrently():
+    embedder = _ConcurrencyProbeEmbedder()
+    await aepisode_relevance(embedder, "deploy the payments service", "shipped the payments service")
+    assert embedder.max_active == 2
