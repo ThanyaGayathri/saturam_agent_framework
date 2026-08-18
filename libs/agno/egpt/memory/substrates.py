@@ -464,12 +464,12 @@ class GraphSubstrate(Protocol):
         **Not required to be atomic**, exactly as :meth:`upsert_episodes` describes: the canonical
         write, the re-point, and the delete are each idempotent (``MERGE``-keyed, or a no-op on a
         node already gone), so a caller that retries the whole batch after a partial failure reaches
-        the same end state rather than a different one. That non-atomicity has a concrete edge: a
-        backend that reads which episodes currently mention a duplicate and only then deletes it
-        (the shipped Neo4j backend does) has a window between the two where a concurrent write can
-        add a new mention to that duplicate -- and lose it silently, since the read already happened
-        and the delete does not re-check. Low-write-concurrency deployments accept this; a caller
-        needing the window closed serialises merges against concurrent mention writes itself.
+        the same end state rather than a different one. That non-atomicity has a concrete edge for a
+        backend that reads which episodes currently mention a duplicate and only then deletes it in
+        a *separate* operation: a concurrent write adding a new mention to that duplicate between
+        the two is lost silently, since the read already happened and the delete does not re-check.
+        The shipped Neo4j backend closes this window by running the read and every write inside one
+        transaction; a future backend that cannot must document the residual window here.
 
         Batched, and empty-is-a-no-op like every other write on this port. A merge whose
         ``duplicate_names`` names a node this scope does not have is not an error -- resolution runs

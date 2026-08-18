@@ -21,7 +21,7 @@ They are deliberately faithful on the two behaviours the provider depends on:
 
 import asyncio
 from dataclasses import replace
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from uuid import uuid4
 
 from egpt.memory.graph.episodic import (
@@ -384,6 +384,19 @@ class FakeGraph:
         # A fresh instance rather than a mutation: the caller keeps its own ``EntityWrite``, and a
         # double that stored the object handed to it would let a later mutation rewrite history --
         # the "return copies" rule, applied on the write side where the aliasing starts.
+        # Review finding on PR #96 (round 3): an incoming entity with no embedding must not erase
+        # one the node already has -- matching `Neo4jGraphSubstrate._entity_rows`'s conditional
+        # omit, which round 1's finding on this same PR fixed on the real backend. A double that
+        # still erased it here would model a backend weaker than the one it stands in for, which
+        # is the one thing this module's own docstring says a double must never do. Reachable both
+        # through a plain `upsert_entities` re-write and through `merge_entities`' canonical write
+        # (whose `EntityWrite` never carries an embedding when it came from `_merge_for`'s match
+        # leg -- see `EntityResolutionPipeline._canonical`).
+        stored_embedding = list(stored.embedding) if stored and stored.embedding is not None else None
+        embedding = list(entity.embedding) if entity.embedding is not None else stored_embedding
+        embedding_version = (
+            entity.embedding_version if entity.embedding is not None else (stored.embedding_version if stored else None)
+        )
         self.entities[(scope.key(), entity.name)] = EntityWrite(
             name=entity.name,
             entity_type=entity.entity_type,
@@ -392,8 +405,8 @@ class FakeGraph:
             aliases=stored_aliases + new_aliases,
             properties=dict(entity.properties),
             source_episode_ids=stored_episode_ids + new_episode_ids,
-            embedding=list(entity.embedding) if entity.embedding is not None else None,
-            embedding_version=entity.embedding_version,
+            embedding=embedding,
+            embedding_version=embedding_version,
             confidence=entity.confidence,
             derived_by=entity.derived_by,
         )
@@ -439,7 +452,12 @@ class FakeGraph:
             if score is not None and score > best.get(name, -1.0):
                 best[name] = score
         ordered = sorted(best, key=lambda name: (-best[name], name))[:limit]
-        return [(self.entities[(scope.key(), name)], best[name]) for name in ordered]
+        # Copies, not the stored objects themselves: `Neo4jGraphSubstrate._entity_from_row` always
+        # constructs a fresh `EntityWrite` from what the engine returned, so a caller mutating a
+        # match result (via `dataclasses.replace`, say) can never reach this dict's own values --
+        # the "return copies" rule this module states in its own docstring, applied on the read
+        # side where a match is the first place a caller gets to hold one.
+        return [(replace(self.entities[(scope.key(), name)]), best[name]) for name in ordered]
 
     def match_entities(
         self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
@@ -456,7 +474,38 @@ class FakeGraph:
         self.calls.append("amatch_entities")
         return self._match_entities(scope, candidate, limit, min_score)
 
+    @staticmethod
+    def _reject_overlapping_merges(merges: Sequence[EntityMerge]) -> None:
+        """Refuse a batch where one merge's canonical is another's duplicate, or the same
+        duplicate name appears in two merges -- matching ``Neo4jGraphSubstrate``'s guard exactly
+        (review finding on PR #96, round 3: this double had neither check, so a batch Neo4j
+        refuses was silently accepted here, corrupting state a caller relying on the double for
+        tests would never see coming)."""
+        canonical_names = {merge.canonical.name for merge in merges}
+        duplicate_names = {name for merge in merges for name in merge.duplicate_names}
+        overlap = canonical_names & duplicate_names
+        if overlap:
+            raise MemoryOperationError(
+                f"merge_entities was given a batch where {sorted(overlap)} names both a canonical "
+                "entity in one merge and a duplicate in another. Resolving that requires deciding "
+                "an order between the two merges, which this batch does not state -- split it into "
+                "two calls, ordered.",
+                field_name="merges",
+            )
+        seen_duplicates: Set[str] = set()
+        for merge in merges:
+            for name in merge.duplicate_names:
+                if name in seen_duplicates:
+                    raise MemoryOperationError(
+                        f"merge_entities was given a batch where {name!r} is a duplicate in more "
+                        "than one merge. Each name can fold into exactly one canonical per batch; "
+                        "split it into two calls, ordered.",
+                        field_name="merges",
+                    )
+                seen_duplicates.add(name)
+
     def _merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        self._reject_overlapping_merges(merges)
         canonical_by_duplicate: Dict[str, str] = {}
         for merge in merges:
             if merge.canonical.scope != scope:

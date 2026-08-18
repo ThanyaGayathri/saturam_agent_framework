@@ -366,3 +366,93 @@ def test_arun_also_refuses_an_unembedded_candidate():
     seeded(graph, ew("Acme"))
     with pytest.raises(MemoryOperationError, match="embedding"):
         asyncio.run(pipe.arun(ACME, [ew("Acme", vec=None)]))
+
+
+# ---------------------------------------------------------------------------
+# FakeGraph conformance with Neo4jGraphSubstrate (review findings on PR #96, round 3)
+# ---------------------------------------------------------------------------
+
+
+def test_fakegraph_merge_entities_refuses_a_canonical_that_is_also_a_duplicate_elsewhere():
+    graph = FakeGraph()
+    graph.upsert_entities(ACME, [ew("Acme"), ew("Acme Corp"), ew("Acme Ltd")])
+
+    with pytest.raises(MemoryOperationError, match="merges"):
+        graph.merge_entities(
+            ACME,
+            [
+                EntityMerge(canonical=ew("Acme"), duplicate_names=["Acme Corp"]),
+                EntityMerge(canonical=ew("Acme Corp"), duplicate_names=["Acme Ltd"]),
+            ],
+        )
+
+
+def test_fakegraph_merge_entities_refuses_the_same_duplicate_name_in_two_merges():
+    graph = FakeGraph()
+    graph.upsert_entities(ACME, [ew("Acme"), ew("ACME Inc"), ew("shared")])
+
+    with pytest.raises(MemoryOperationError, match="duplicate in more than one merge"):
+        graph.merge_entities(
+            ACME,
+            [
+                EntityMerge(canonical=ew("Acme"), duplicate_names=["shared"]),
+                EntityMerge(canonical=ew("ACME Inc"), duplicate_names=["shared"]),
+            ],
+        )
+
+
+def test_fakegraph_merge_entities_never_erases_the_survivors_stored_embedding():
+    """The canonical a merge writes never carries an embedding of its own -- it comes from
+    ``EntityResolutionPipeline._canonical``, whose head can be a ``match_entities`` result, and
+    ``match_entities`` never returns one. ``_upsert_entity`` (shared with plain ``upsert_entities``)
+    must preserve what the node already has rather than overwrite it with ``None``."""
+    graph = FakeGraph()
+    graph.upsert_entities(ACME, [ew("Acme", vec=(1.0, 0.0, 0.0))])
+    graph.upsert_entities(ACME, [ew("Acme Corp", vec=(0.99, 0.01, 0.0))])
+
+    graph.merge_entities(ACME, [EntityMerge(canonical=ew("Acme", vec=None), duplicate_names=["Acme Corp"])])
+
+    assert graph.entities[(ACME.key(), "Acme")].embedding == [1.0, 0.0, 0.0]
+
+
+def test_fakegraph_upsert_entities_never_erases_an_existing_embedding_on_a_description_only_write():
+    graph = FakeGraph()
+    graph.upsert_entities(ACME, [ew("Acme", vec=(1.0, 0.0, 0.0))])
+
+    graph.upsert_entities(ACME, [ew("Acme", vec=None, description="later")])
+
+    stored = graph.entities[(ACME.key(), "Acme")]
+    assert stored.embedding == [1.0, 0.0, 0.0]
+    assert stored.description == "later"
+
+
+def test_fakegraph_match_entities_returns_copies_not_live_references():
+    graph = FakeGraph()
+    graph.upsert_entities(ACME, [ew("Acme"), ew("Acme Corp", vec=(0.99, 0.01, 0.0))])
+
+    ((match, _score),) = graph.match_entities(ACME, ew("Acme"), min_score=0.9)
+    match.aliases.append("mutated")
+
+    assert graph.entities[(ACME.key(), "Acme Corp")].aliases == []
+
+
+def test_report_candidates_counts_only_the_names_actually_attempted():
+    """Review finding on PR #96 (round 3): a repeated literal name skipped by the ``folded`` guard
+    must not inflate ``report.candidates`` beyond what was actually offered for matching. Four
+    literal candidates go in; "Acme" resolves against "Acme Corp" on the first attempt, which
+    folds both names -- so the second "Acme" and the literal "Acme Corp" are both skipped, and
+    only "Acme" (once) and "Nimbus" are actually attempted."""
+    pipe, graph = resolver(min_score=0.9)
+    seeded(graph, ew("Acme"), ew("Acme Corp", vec=(0.99, 0.01, 0.0)), ew("Nimbus", vec=(0.0, 1.0, 0.0)))
+
+    report = pipe.run(
+        ACME,
+        [
+            ew("Acme"),
+            ew("Acme"),
+            ew("Acme Corp", vec=(0.99, 0.01, 0.0)),
+            ew("Nimbus", vec=(0.0, 1.0, 0.0)),
+        ],
+    )
+
+    assert report.candidates == 2

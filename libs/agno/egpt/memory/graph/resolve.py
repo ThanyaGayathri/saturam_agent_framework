@@ -76,11 +76,14 @@ def resolution_details(
 class EntityResolutionReport:
     """What one resolution pass read and wrote.
 
-    ``candidates`` is how many entities were offered for resolution; ``merged`` is how many of
-    them were folded into another node as a result (a candidate with no match is counted in the
-    first and not the second, the same "candidates in, survivors out" shape
-    ``EntityExtractionReport`` uses); ``groups`` is how many separate merge operations that took --
-    fewer than ``merged`` whenever one canonical absorbed more than one duplicate.
+    ``candidates`` is how many entities were actually offered for resolution -- not
+    ``len(candidates)`` on the call, but excluding one already folded away by an earlier
+    candidate's merge in the same pass (see :meth:`EntityResolutionPipeline.run`), which was never
+    matched against and would inflate this count for a batch with a repeated name. ``merged`` is
+    how many of the attempted candidates were folded into another node as a result (a candidate
+    with no match is counted in the first and not the second, the same "candidates in, survivors
+    out" shape ``EntityExtractionReport`` uses); ``groups`` is how many separate merge operations
+    that took -- fewer than ``merged`` whenever one canonical absorbed more than one duplicate.
     """
 
     scope: Scope
@@ -122,8 +125,10 @@ class EntityResolutionPipeline:
             )
         if not 0.0 <= float(min_score) <= 1.0:
             raise MemoryOperationError(
-                f"min_score is {min_score}, outside [0.0, 1.0]. It is compared directly against a "
-                "cosine similarity, which the port guarantees is in that range.",
+                f"min_score is {min_score}, outside [0.0, 1.0]. It is compared directly against "
+                "GraphSubstrate.match_entities' score, which the port guarantees is in that range "
+                "-- but which a backend need not report as raw cosine (Neo4j reports (1 + cosine) "
+                "/ 2, so its min_score=0.92 admits a raw cosine no lower than 0.84).",
                 field_name="min_score",
             )
         if not isinstance(match_limit, int) or isinstance(match_limit, bool) or match_limit < 1:
@@ -216,10 +221,12 @@ class EntityResolutionPipeline:
         require_scope(scope, method="run")
         merges: List[EntityMerge] = []
         folded: Set[str] = set()
+        attempted = 0
         for candidate in candidates:
             self._require_own_scope(scope, candidate)
             if candidate.name in folded:
                 continue
+            attempted += 1
             matches = self.graph.match_entities(scope, candidate, limit=self.match_limit, min_score=self.min_score)
             if not matches:
                 continue
@@ -232,17 +239,19 @@ class EntityResolutionPipeline:
             # redundant `match_entities` round trip and counts as a second "offered" candidate.
             folded.add(candidate.name)
             folded.update(merge.duplicate_names)
-        return self._report(scope, len(candidates), merges)
+        return self._report(scope, attempted, merges)
 
     async def arun(self, scope: Scope, candidates: Sequence[EntityWrite]) -> EntityResolutionReport:
         """Async variant of :meth:`run`, making the same decisions through the same helpers."""
         require_scope(scope, method="arun")
         merges: List[EntityMerge] = []
         folded: Set[str] = set()
+        attempted = 0
         for candidate in candidates:
             self._require_own_scope(scope, candidate)
             if candidate.name in folded:
                 continue
+            attempted += 1
             matches = await self.graph.amatch_entities(
                 scope, candidate, limit=self.match_limit, min_score=self.min_score
             )
@@ -253,4 +262,4 @@ class EntityResolutionPipeline:
             merges.append(merge)
             folded.add(candidate.name)
             folded.update(merge.duplicate_names)
-        return self._report(scope, len(candidates), merges)
+        return self._report(scope, attempted, merges)

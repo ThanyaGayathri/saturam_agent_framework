@@ -6,7 +6,7 @@ implementing the sync half and forgetting the async twin, which is the exact sha
 sync+async rule exists to prevent.
 """
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import pytest
 
@@ -62,11 +62,13 @@ class CompleteGraph:
 
     async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None: ...
 
-    def match_entities(self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92) -> List: ...
+    def match_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]: ...
 
     async def amatch_entities(
         self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
-    ) -> List: ...
+    ) -> List[Tuple[EntityWrite, float]]: ...
 
     def merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None: ...
 

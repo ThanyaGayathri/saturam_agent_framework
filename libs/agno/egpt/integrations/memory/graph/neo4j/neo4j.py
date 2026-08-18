@@ -32,7 +32,7 @@ import json
 import os
 from contextlib import contextmanager
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 from uuid import uuid4
 
 from egpt.integrations.memory.graph.neo4j import cypher
@@ -733,15 +733,19 @@ class Neo4jGraphSubstrate:
 
     @staticmethod
     def _reject_overlapping_merges(merges: Sequence[EntityMerge]) -> None:
-        """Refuse a batch where one merge's canonical is another's duplicate.
+        """Refuse a batch where one merge's canonical is another's duplicate, or the same
+        duplicate name appears in two merges.
 
         Each :class:`EntityMerge` alone already refuses a canonical naming itself as a duplicate
         (``EntityMerge.__post_init__``), but that check has no visibility across merges in the same
-        batch. Without this, merge B naming merge A's ``canonical.name`` as a duplicate would have
-        A's just-upserted node ``DETACH DELETE``d by B's write, in the same call -- silent graph
-        corruption rather than a caller error. ``EntityResolutionPipeline`` never constructs a
-        batch wider than one merge (see :meth:`EntityResolutionPipeline.run`), so this is unreached
-        through the pipeline; ``merge_entities`` is a public port verb any caller can reach directly.
+        batch. Without the first guard, merge B naming merge A's ``canonical.name`` as a duplicate
+        would have A's just-upserted node ``DETACH DELETE``d by B's write, in the same call --
+        silent graph corruption rather than a caller error. Without the second (review finding on
+        PR #96, round 3), the same duplicate name in two merges is a silent last-write-wins on
+        ``canonical_by_duplicate`` -- one merge's intent for that name is discarded with no error
+        and no log. ``EntityResolutionPipeline`` never constructs a batch wider than one merge (see
+        :meth:`EntityResolutionPipeline.run`), so neither is reached through the pipeline;
+        ``merge_entities`` is a public port verb any caller can reach directly.
         """
         canonical_names = {merge.canonical.name for merge in merges}
         duplicate_names = {name for merge in merges for name in merge.duplicate_names}
@@ -754,6 +758,17 @@ class Neo4jGraphSubstrate:
                 "two calls, ordered.",
                 field_name="merges",
             )
+        seen_duplicates: Set[str] = set()
+        for merge in merges:
+            for name in merge.duplicate_names:
+                if name in seen_duplicates:
+                    raise MemoryOperationError(
+                        f"merge_entities was given a batch where {name!r} is a duplicate in more "
+                        "than one merge. Each name can fold into exactly one canonical per batch; "
+                        "split it into two calls, ordered.",
+                        field_name="merges",
+                    )
+                seen_duplicates.add(name)
 
     @staticmethod
     def _merge_lookup_names(merges: Sequence[EntityMerge]) -> List[str]:

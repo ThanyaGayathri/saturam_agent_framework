@@ -280,6 +280,22 @@ def test_merge_entities_refuses_a_batch_where_one_merges_canonical_is_anothers_d
         )
 
 
+def test_merge_entities_refuses_the_same_duplicate_name_in_two_merges(graph):
+    """Review finding on PR #96 (round 3): without this guard, the same duplicate name in two
+    merges is a silent last-write-wins on ``canonical_by_duplicate`` -- one merge's intent for
+    that name is discarded with no error and no log."""
+    graph.upsert_entities(ACME, [entity_write("Acme"), entity_write("ACME Inc"), entity_write("shared")])
+
+    with pytest.raises(MemoryOperationError, match="duplicate in more than one merge"):
+        graph.merge_entities(
+            ACME,
+            [
+                EntityMerge(canonical=entity_write("Acme"), duplicate_names=["shared"]),
+                EntityMerge(canonical=entity_write("ACME Inc"), duplicate_names=["shared"]),
+            ],
+        )
+
+
 def test_a_merge_never_overwrites_the_canonicals_own_mention_position(graph):
     """Review finding on PR #96 (round 2): an episode mentioning both the canonical and a
     duplicate must keep the canonical's own edge -- and its ``position`` -- untouched. Re-pointing
