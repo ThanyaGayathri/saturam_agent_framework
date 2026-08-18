@@ -82,16 +82,21 @@ RELATION_KEYS: Tuple[str, ...] = ("extractor", "complete")
 #: (``episodic._ENTITY_SEGMENT``) under the same scope key prefix.
 _RELATION_SEGMENT = "relation"
 
+#: `## How to answer` names a section ``ENTITY_EXTRACTION_INSTRUCTIONS`` does not itself use --
+#: verified by inspection, not enforced -- so two identical headings never actually meet in the
+#: combined prompt. If that seed prompt ever grows one of its own, this guard note is the reminder
+#: to rename this section rather than let two headings of the same name reach one model call.
 _RESPONSE_INSTRUCTION = (
     "\n## How to answer\n\n"
     "Return the relationships you extracted as structured data -- source/relation/target triples --"
-    " rather than calling the add_relationship tool. Return an empty list when the interaction names"
-    " no relationship worth remembering; that is a valid answer, not a failure.\n\n"
+    " not as a tool call. Return an empty list when the interaction names no relationship worth"
+    " remembering; that is a valid answer, not a failure.\n\n"
     "`source` and `target` are entity display names as written in the interaction (e.g. "
     "'Sarah Chen'), matching what an entity extraction pass over the same interaction would call "
-    "`name` -- not a slug and not the seed's `entity_id`. `relation` is a short, lowercase, "
-    "underscored label for the connection (e.g. 'works_at'), matching this prompt's own "
-    "`sarah_chen --[works_at]--> northstar_analytics` convention.\n"
+    "`name` -- not a slug and not the seed's `entity_id`. For example: Sarah Chen "
+    "--[works_at]--> NorthStar Analytics, both endpoints exactly as the interaction names them, "
+    "not lowercased or underscored. `relation` is the one part of the triple that IS a short, "
+    "lowercase, underscored label for the connection (e.g. 'works_at').\n"
 )
 
 
@@ -164,6 +169,10 @@ class LLMRelationExtractor:
         from egpt.learn.stores.entity_memory import ENTITY_EXTRACTION_INSTRUCTIONS
         from egpt.models.message import Message
 
+        # Not a bug: the seed's entity prompt already documents relationships as part of one
+        # extraction pass (its own `sarah_chen --[works_at]--> northstar_analytics` example) -- see
+        # the module docstring. `_RESPONSE_INSTRUCTION` redirects the *output shape* to a triple
+        # list instead of the seed's CRUD tools.
         system = ENTITY_EXTRACTION_INSTRUCTIONS + _RESPONSE_INSTRUCTION
         if self.instructions:
             system += f"\n## Additional Instructions\n\n{self.instructions}\n"
@@ -218,6 +227,13 @@ def relation_edge_id_for(scope: Scope, source: str, relation: str, target: str) 
     pass. Mirrors :func:`~egpt.memory.graph.episodic.entity_node_id_for`'s reasoning, with three
     escaped slots instead of one so the source, relation, and target segments cannot collide across
     each other the way an unescaped join would.
+
+    **All three arguments are stripped of leading/trailing whitespace before the id is derived.**
+    ``relation_edge_id_for(scope, " Ada ", ...)`` and ``relation_edge_id_for(scope, "Ada", ...)``
+    return the same id -- a caller that stores the un-stripped string and later queries by it would
+    get a mismatch. ``ExtractedRelation._strip_and_check`` normalises on the LLM path; a caller
+    building a :class:`RelationExtractor` by hand and calling this function directly must normalise
+    the same way itself.
     """
     for name, value in (("source", source), ("relation", relation), ("target", target)):
         if not isinstance(value, str) or not value.strip():
@@ -311,6 +327,16 @@ class RelationExtractionPipeline:
     @staticmethod
     def _candidates(episode: MemoryRecord, extracted: Sequence[ExtractedRelation]) -> List[FactWrite]:
         """One :class:`FactWrite` per relation, with the episode's own scope and provenance."""
+        if extracted is None:
+            # The Protocol docstring says "an episode naming none returns empty, not None" -- a
+            # contract, not a runtime guard. Without this, a custom extractor returning None hits
+            # `for item in extracted` and raises a bare TypeError several frames from here, with
+            # nothing pointing back at the extractor that violated the contract.
+            raise MemoryOperationError(
+                f"The extractor returned None for episode {episode.id!r}; return an empty "
+                "sequence for an episode with no relations, not None.",
+                field_name="extractor",
+            )
         candidates: List[FactWrite] = []
         for item in extracted:
             # Already stripped and non-blank: `ExtractedRelation._strip_and_check` runs at

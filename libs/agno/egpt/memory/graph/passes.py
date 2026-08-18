@@ -3,6 +3,11 @@
 ``EntityExtractionPipeline`` (SM-G2 #100) and ``RelationExtractionPipeline`` (SM-G3 #101) both read
 the same episodic slice under the same two rules -- current tier, current belief -- capped
 identically. One helper, so the rule cannot drift between the two pipelines that apply it.
+
+Import directly from this module (``egpt.memory.graph.passes``) when building a pipeline --
+``select_current_episodes`` is deliberately absent from ``graph/__init__``'s re-exports to keep
+that package's public surface to the shapes a pipeline *consumer* needs, not the internals a
+pipeline *author* shares with its siblings.
 """
 
 from typing import List, Sequence, Tuple

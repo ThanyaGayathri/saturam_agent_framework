@@ -64,7 +64,9 @@ provider = build_memory_provider(
         mode=ProviderMode.LOCAL,
         vector={
             "backend": "pgvector",
-            "db_url": os.getenv("EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"),
+            "db_url": os.getenv(
+                "EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"
+            ),
             "embedder": embedder,
             # Its own table, matching `17_`'s own note: `consolidate` reads **every** episode in
             # the scope, so sharing a table with another cookbook mixes their writes into this run.
@@ -100,7 +102,9 @@ provider.write(
 )
 
 print("A read costs no model call -- extraction is not on this path:")
-slice_ = provider.read(ACME_ADA, MemoryQuery(text="northstar", tiers=[MemoryTier.EPISODIC]))
+slice_ = provider.read(
+    ACME_ADA, MemoryQuery(text="northstar", tiers=[MemoryTier.EPISODIC])
+)
 print(f"  {len(slice_.records)} episode(s) for acme/ada")
 
 print("\nConsolidating acme/ada -- this is where both extraction passes run:")
@@ -121,6 +125,8 @@ def relation_edges(scope: Scope) -> list[dict]:
         return [
             dict(row)
             for row in session.run(
+                # `:REL` matches `cypher.REL`, the edge label `upsert_facts_statements`'s triple
+                # leg hardcodes -- update here if that constant ever changes.
                 "MATCH (s:Entity {scope_key: $scope_key})-[r:REL]->(o:Entity {scope_key: $scope_key}) "
                 "RETURN s.name AS source, r.predicate AS relation, o.name AS target, "
                 # Nested values are JSON on a Neo4j property (`Neo4jGraphSubstrate._row`'s own
@@ -134,7 +140,9 @@ def relation_edges(scope: Scope) -> list[dict]:
 print("\nRelation edges for acme/ada:")
 for edge in relation_edges(ACME_ADA):
     episodes = json.loads(edge["provenance"])["source_episode_ids"]
-    print(f"  {edge['source']} --[{edge['relation']}]--> {edge['target']}  from={episodes}")
+    print(
+        f"  {edge['source']} --[{edge['relation']}]--> {edge['target']}  from={episodes}"
+    )
 
 print(
     "\nWhat SM-G8 (#106) inherits: edges whose endpoints a human would still merge across a corpus,"

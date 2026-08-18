@@ -1171,7 +1171,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # No `receipt` exists here to attach -- `facts` is empty, so no *semantic fact* was
             # committed above. `_entities`/`_relations` below can still write graph nodes/edges of
             # their own, uncounted by this branch's `PartialWriteError` handling -- a pre-existing
-            # gap for `_entities` alone that this ticket does not widen the fix for; tracked as
+            # gap, pre-existing for `_entities` alone and now also covering `_relations`'s
+            # write below -- this ticket does not widen the fix for either; tracked as
             # aicoe-tracker #186. A failure here is a plain refusal, matching
             # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
             # branch above, not an oversight against it -- see the review-round-3 note in
@@ -1227,7 +1228,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # No `receipt` exists here to attach -- `facts` is empty, so no *semantic fact* was
             # committed above. `_entities`/`_relations` below can still write graph nodes/edges of
             # their own, uncounted by this branch's `PartialWriteError` handling -- a pre-existing
-            # gap for `_entities` alone that this ticket does not widen the fix for; tracked as
+            # gap, pre-existing for `_entities` alone and now also covering `_relations`'s
+            # write below -- this ticket does not widen the fix for either; tracked as
             # aicoe-tracker #186. A failure here is a plain refusal, matching
             # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
             # branch above, not an oversight against it -- see the review-round-3 note in

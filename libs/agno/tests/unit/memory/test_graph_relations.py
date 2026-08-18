@@ -140,10 +140,36 @@ def test_the_edge_id_is_deterministic_in_the_triple():
     assert first != relation_edge_id_for(BOB, "Ada", "works_at", "Acme Corp")
 
 
-def test_a_second_pass_produces_the_same_edge_id():
-    """Proves id determinism, not graph-level dedup: ``FakeGraph.facts`` appends on every write, so
-    this asserts both writes carry the *same* id, not that only one row exists. The dedup claim
-    itself is proven against a real backend -- see `TEST_LOG.md`'s Neo4j run for this cookbook."""
+@pytest.mark.parametrize("field", ["source", "relation", "target"])
+def test_relation_edge_id_for_refuses_a_whitespace_only_argument(field):
+    """A direct caller that bypasses ``ExtractedRelation``'s validator is unprotected against a
+    blank argument until this function's own check -- pinned separately from the schema-boundary
+    tests above, which exercise the pydantic path, not this one."""
+    fields = {"source": "Ada", "relation": "works_at", "target": "Acme Corp", field: "   "}
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        relation_edge_id_for(ACME, **fields)
+
+    assert excinfo.value.field_name == field
+
+
+def test_relation_edge_id_for_normalizes_whitespace_before_deriving_the_id():
+    """Documented in the function's own docstring: a caller storing ``" Ada "`` and one storing
+    ``"Ada"`` must address the same edge, or a query built from the un-stripped form silently
+    misses the row this function's own caller wrote."""
+    assert relation_edge_id_for(ACME, " Ada ", "works_at", "Acme Corp") == relation_edge_id_for(
+        ACME, "Ada", "works_at", "Acme Corp"
+    )
+
+
+def test_provenance_is_replaced_not_accumulated_on_a_second_pass():
+    """The dominant assertion is the second one below (provenance replacement), not the first
+    (id determinism) -- named for it after a review round noted the previous name buried it.
+
+    Id determinism alone proves less than it looks like: ``FakeGraph.facts`` appends on every
+    write, so the first assertion only shows both writes carry the *same* id, not that only one
+    row exists in a real graph. That dedup claim is proven against a real backend instead -- see
+    `TEST_LOG.md`'s Neo4j run for this cookbook."""
     pipe, graph = pipeline()
 
     pipe.run(ACME, [episode("Ada works at Acme", "e1")])
@@ -321,6 +347,26 @@ def test_a_collaborator_missing_either_half_is_refused_at_construction(name, bro
     assert excinfo.value.field_name == name
 
 
+def test_an_extractor_returning_none_is_refused_naming_the_extractor():
+    """The Protocol contract ("return empty, not None") is documented, not enforced by the type
+    system -- a custom extractor violating it must raise a named error, not a bare TypeError from
+    iterating None several frames from the call site."""
+
+    class ReturnsNone:
+        def extract(self, episode):
+            return None
+
+        async def aextract(self, episode):
+            return None
+
+    pipe, _ = pipeline(extractor=ReturnsNone())
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        pipe.run(ACME, [episode("x")])
+
+    assert excinfo.value.field_name == "extractor"
+
+
 def test_the_pipeline_refuses_an_unscoped_pass():
     pipe, _ = pipeline()
 
@@ -395,6 +441,34 @@ def test_llm_extractor_reads_the_parsed_schema():
     got = extractor.extract(episode("Ada works at Acme"))
 
     assert [r.source for r in got] == ["Ada"]
+
+
+def test_llm_extractor_reads_the_parsed_schema_async():
+    """``extract``/``aextract`` call ``model.response``/``.aresponse`` respectively -- nothing
+    else in this file drives ``aextract`` through ``LLMRelationExtractor`` itself (the pipeline
+    tests exercise it only via ``StubExtractor``), so a typo swapping the two verbs would not be
+    caught without this."""
+    model = _FakeModel(_Response(parsed=ExtractedRelations(relations=[relation()])))
+    extractor = LLMRelationExtractor(model=model)
+
+    got = asyncio.run(extractor.aextract(episode("Ada works at Acme")))
+
+    assert [r.source for r in got] == ["Ada"]
+
+
+def test_llm_extractor_raises_when_no_content_and_parsed_is_a_plain_dict():
+    """A provider that returns structured output as a plain ``dict`` rather than a typed
+    ``ExtractedRelations`` matches neither ``_parse`` branch and falls through to
+    ``response.content`` -- ``None`` here, so this is the "no content" refusal, not the
+    unparseable-JSON one. OpenAI's strict JSON mode never produces this shape, so it is otherwise
+    reachable only via a future non-OpenAI provider."""
+    model = _FakeModel(_Response(parsed={"relations": []}))
+    extractor = LLMRelationExtractor(model=model)
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        extractor.extract(episode("x"))
+
+    assert excinfo.value.field_name == "response"
 
 
 def test_llm_extractor_reads_raw_json_content_when_parsed_is_unset():
