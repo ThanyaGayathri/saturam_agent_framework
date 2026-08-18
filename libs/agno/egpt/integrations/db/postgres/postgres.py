@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, ComponentType, SessionType
+from egpt.db.cas_retry import run_cas_retry
 from egpt.db.component_audit import (
     ComponentAuditAction,
     audit_config_upsert,
@@ -4131,8 +4132,9 @@ class PostgresDb(BaseDb):
 
         Raises:
             ValueError: If component doesn't exist, version not found, label conflict,
-                        attempting to update a published config, or concurrent writers
-                        exhaust the version-assignment or publish retries.
+                        or attempting to update a published config.
+            egpt.db.cas_retry.RetriesExhausted: If concurrent writers exhaust the
+                        version-assignment or publish retries. Subclasses ``ValueError``.
         """
         tenant_id = self._require_tenant_scope(tenant_id, "upsert_config")
 
@@ -4209,13 +4211,17 @@ class PostgresDb(BaseDb):
                     # collision on the (component_id, version) primary key into rowcount 0
                     # instead of an IntegrityError that would poison the open transaction;
                     # the loser re-reads (a fresh READ COMMITTED statement snapshot sees the
-                    # winner's committed row) and retries. RETURNING is the success signal --
-                    # no row back means the conflict fired -- because psycopg reports INSERT
-                    # rowcount as -1. Each consumed attempt means another writer landed a
-                    # version, so the bound is wider than the publish CAS's: N simultaneous
-                    # creators herd and the last needs up to N-1 attempts.
-                    max_attempts = 10
-                    for _ in range(max_attempts):
+                    # winner's committed row) and retries. RETURNING is the success signal, not
+                    # rowcount: SQLAlchemy Core reports rowcount as 0 uniformly on both outcomes
+                    # for this on_conflict_do_nothing().returning() shape, so it cannot tell a
+                    # landed insert from a lost race either way. Each consumed attempt means
+                    # another writer landed a version, so the bound is wider than the publish
+                    # CAS's: N simultaneous creators herd and the last needs up to N-1 attempts
+                    # -- empirically validated against real Postgres up to N=11 (see
+                    # test_upsert_config_concurrency.py). That guarantee holds only for
+                    # co-scheduled writers within max_attempts; it is a bound sized to the
+                    # tested contention level, not a scale-independent ceiling.
+                    def _attempt_create_version() -> Optional[int]:
                         max_version = sess.execute(
                             select(configs_table.c.version)
                             .where(configs_table.c.component_id == component_id)
@@ -4223,13 +4229,13 @@ class PostgresDb(BaseDb):
                             .limit(1)
                         ).scalar()
 
-                        final_version = (max_version or 0) + 1
+                        candidate_version = (max_version or 0) + 1
 
-                        landed = sess.execute(
+                        return sess.execute(
                             postgresql.insert(configs_table)
                             .values(
                                 component_id=component_id,
-                                version=final_version,
+                                version=candidate_version,
                                 tenant_id=tenant_id,
                                 label=label,
                                 stage=stage,
@@ -4241,13 +4247,15 @@ class PostgresDb(BaseDb):
                             .returning(configs_table.c.version)
                         ).scalar()
 
-                        if landed is not None:
-                            break
-                    else:
-                        raise ValueError(
+                    max_attempts = 10
+                    final_version = run_cas_retry(
+                        _attempt_create_version,
+                        max_attempts=max_attempts,
+                        exhausted_message=(
                             f"Could not create a new version for {component_id}: the next version "
                             f"number kept being claimed by concurrent writers after {max_attempts} attempts"
-                        )
+                        ),
+                    )
                 else:
                     existing_stmt = select(configs_table.c.version, configs_table.c.stage).where(
                         configs_table.c.component_id == component_id,
@@ -4321,8 +4329,8 @@ class PostgresDb(BaseDb):
                     # publishers, two rows both claiming they replaced the same version, no
                     # errors raised to signal it. A losing attempt re-reads and retries rather
                     # than recording a version that was never current (EGPT-2.6 review).
-                    max_attempts = 5
-                    for _ in range(max_attempts):
+                    def _attempt_publish() -> Optional[bool]:
+                        nonlocal previous_current_version
                         current_stmt = select(components_table.c.current_version).where(
                             components_table.c.component_id == component_id,
                             components_table.c.deleted_at.is_(None),
@@ -4342,13 +4350,17 @@ class PostgresDb(BaseDb):
                             publish_stmt.values(current_version=final_version, updated_at=int(time.time()))
                         )
 
-                        if result.rowcount > 0:
-                            break
-                    else:
-                        raise ValueError(
+                        return True if result.rowcount > 0 else None
+
+                    max_attempts = 5
+                    run_cas_retry(
+                        _attempt_publish,
+                        max_attempts=max_attempts,
+                        exhausted_message=(
                             f"Could not publish {component_id} v{final_version}: current_version kept "
                             f"changing under concurrent writers after {max_attempts} attempts"
-                        )
+                        ),
+                    )
 
                 # Publishing has no method of its own, so the action is derived from what the
                 # transaction actually did -- a stage transition into published -- rather than
@@ -4599,6 +4611,8 @@ class PostgresDb(BaseDb):
 
         Raises:
             ValueError: If attempting to set a draft config as current.
+            egpt.db.cas_retry.RetriesExhausted: If concurrent writers exhaust the
+                        rollback-pointer retries. Subclasses ``ValueError``.
         """
         tenant_id = self._require_tenant_scope(tenant_id, "set_current_version")
 
@@ -4640,8 +4654,12 @@ class PostgresDb(BaseDb):
                 # attempt re-reads and retries rather than recording that fabricated transition
                 # (EGPT-2.6 review). tenant_id also comes along on the read so the audit row can
                 # carry the component's actual tenant rather than the filter argument.
-                max_attempts = 5
-                for attempt in range(max_attempts):
+                # Each attempt returns a ("not_found" | "noop" | "moved", tenant_id,
+                # previous_current_version) tuple rather than returning from the method
+                # directly: run_cas_retry only owns the retry envelope, so the two outcomes
+                # that end the method early -- component gone, already current -- are decided
+                # here, after the loop, from what the last attempt reported.
+                def _attempt_set_current():
                     component_stmt = select(
                         components_table.c.component_id,
                         components_table.c.current_version,
@@ -4656,33 +4674,45 @@ class PostgresDb(BaseDb):
                     component_row = sess.execute(component_stmt).mappings().one_or_none()
 
                     if component_row is None:
-                        return False
-                    previous_current_version = component_row["current_version"]
-                    component_tenant_id = component_row["tenant_id"]
+                        return ("not_found", None, None)
 
-                    if previous_current_version == version:
-                        # Already current: nothing moved, so nothing is recorded. Writing here
-                        # would put {"from_version": N, "to_version": N} into an append-only
-                        # trail -- a transition that did not happen, and the exact signature
-                        # used to identify the concurrent-rollback corruption. Keeping real
-                        # self-rollbacks out of the history keeps that signal usable.
-                        return True
+                    row_previous_current_version = component_row["current_version"]
+                    row_tenant_id = component_row["tenant_id"]
+
+                    if row_previous_current_version == version:
+                        return ("noop", row_tenant_id, row_previous_current_version)
 
                     update_stmt = components_table.update().where(
                         components_table.c.component_id == component_id,
-                        components_table.c.current_version == previous_current_version,
+                        components_table.c.current_version == row_previous_current_version,
                     )
                     if tenant_id is not None:
                         update_stmt = update_stmt.where(components_table.c.tenant_id == tenant_id)
                     result = sess.execute(update_stmt.values(current_version=version, updated_at=int(time.time())))
 
                     if result.rowcount > 0:
-                        break
-                else:
-                    raise ValueError(
+                        return ("moved", row_tenant_id, row_previous_current_version)
+                    return None  # Lost the race; re-read and retry.
+
+                max_attempts = 5
+                outcome, component_tenant_id, previous_current_version = run_cas_retry(
+                    _attempt_set_current,
+                    max_attempts=max_attempts,
+                    exhausted_message=(
                         f"Could not set {component_id} to v{version}: current_version kept "
                         f"changing under concurrent writers after {max_attempts} attempts"
-                    )
+                    ),
+                )
+
+                if outcome == "not_found":
+                    return False
+                if outcome == "noop":
+                    # Already current: nothing moved, so nothing is recorded. Writing here
+                    # would put {"from_version": N, "to_version": N} into an append-only
+                    # trail -- a transition that did not happen, and the exact signature
+                    # used to identify the concurrent-rollback corruption. Keeping real
+                    # self-rollbacks out of the history keeps that signal usable.
+                    return True
 
                 write_audit_row(
                     sess,

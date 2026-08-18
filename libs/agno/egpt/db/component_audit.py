@@ -50,6 +50,12 @@ unguarded, two concurrent creators computed the same next version and the loser 
 ``IntegrityError`` off the primary key. A sequence key needs no equivalent guard, because
 nothing reads it before writing to it.
 
+All three share their retry envelope -- attempt, check for a lost race, re-read and try again,
+raise once the attempt budget is spent -- through :func:`egpt.db.cas_retry.run_cas_retry`
+rather than each inlining its own bounded loop. Each call site still owns what makes it
+different: its own read/write statements, and its own definition of "landed" (a returned
+``RETURNING`` row for the version insert, ``rowcount > 0`` for the two pointer swaps).
+
 The column is ``Integer`` on both backends, and that is load-bearing rather than stylistic:
 Postgres turns an ``Integer`` primary key into ``SERIAL`` and SQLite only aliases its implicit
 ``rowid`` for a column declared exactly ``INTEGER``. A ``BigInteger`` primary key raises

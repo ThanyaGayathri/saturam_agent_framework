@@ -8,7 +8,8 @@ succeeding. The fix is a conflict-tolerant insert (``ON CONFLICT DO NOTHING``) r
 fresh read, mirrored across Postgres and SQLite.
 
 The race is between real connections, so the threads here are released through a barrier to
-maximize the collision window, following ``test_trace_upsert.py``.
+maximize the collision window, following the barrier technique used in ``test_trace_upsert.py``
+(a reproduction script, not a pytest-collected test).
 """
 
 import uuid
