@@ -51,8 +51,8 @@ def agent_os_with_slack_and_key():
     slack = Slack(agent=agent, token="xoxb-test", signing_secret=SIGNING_SECRET, streaming=False)
 
     with (
-        patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack_tools),
-        patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_async_web_client),
+        patch("egpt.integrations.channels.slack.router.SlackTools", return_value=mock_slack_tools),
+        patch("egpt.integrations.channels.slack.event_handler.AsyncWebClient", return_value=mock_async_web_client),
     ):
         agent_os = EgptOS(agents=[agent], interfaces=[slack], settings=settings, telemetry=False)
         app = agent_os.get_app()
@@ -142,8 +142,8 @@ def test_env_var_os_security_key_does_not_block_slack(monkeypatch):
     slack = Slack(agent=agent, token="xoxb-test", signing_secret=SIGNING_SECRET, streaming=False)
 
     with (
-        patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack_tools),
-        patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_async_web_client),
+        patch("egpt.integrations.channels.slack.router.SlackTools", return_value=mock_slack_tools),
+        patch("egpt.integrations.channels.slack.event_handler.AsyncWebClient", return_value=mock_async_web_client),
     ):
         agent_os = EgptOS(agents=[agent], interfaces=[slack], telemetry=False)
         assert agent_os.settings.os_security_key == OS_KEY, "Env var should have been picked up by AgnoAPISettings"

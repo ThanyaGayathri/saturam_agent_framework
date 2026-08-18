@@ -53,10 +53,12 @@ __all__ = [
     "normalize_entity_name",
     "PartialWriteError",
     "require_scope",
+    "RetrievalCandidates",
     "SCOPE_SLOTS",
     "Scope",
     "Substrate",
     "TemporalBounds",
+    "ValidWindow",
     "WRITE_KEYS",
     "write_details",
     "WriteReceipt",
@@ -355,6 +357,67 @@ class TemporalBounds:
     superseded_by: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class ValidWindow:
+    """A half-open valid-time window ``[valid_from, valid_to)``, and the overlap rule for it.
+
+    The rule lives here, once, because SM-V4 (#98) applies it in two encodings: the vector
+    substrate pushes it into SQL so it narrows *before* ``LIMIT``, and the provider re-applies it
+    to the merged set after the graph's authoritative bounds land. Two encodings of one rule is
+    how a filter comes to mean different things per leg, so
+    ``tests/unit/memory/test_valid_window.py`` drives both over the same case table.
+
+    ``None`` is open at that end, on the window and on the record alike -- the same convention the
+    point predicate already used, so a point read is the degenerate window ``[at, at + 1)`` rather
+    than a second rule that happens to agree.
+    """
+
+    valid_from: Optional[int] = None
+    valid_to: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        # `int`, like every other epoch-seconds field in this module (`_epoch_or_none` enforces it
+        # for `MemoryQuery`'s bounds and every `MemoryRecord` timestamp) -- and `bool` excluded for
+        # the same reason it is there: `bool` is an `int` subclass, so `ValidWindow(True, ...)`
+        # would silently become `ValidWindow(1, ...)`. Constructed directly rather than through
+        # `MemoryQuery`, this type gets none of that module's coercion, so a caller assembling one
+        # for SM-V3's legs from a float timestamp -- a `time.time()` result is the obvious source --
+        # would bind a float into the SQL predicate. `t_invalid > 100.5` and `t_invalid > 100` agree
+        # everywhere except a record stamped exactly `100`, which is precisely the boundary
+        # `test_valid_window.py` exists to get right, and silently disagree only there.
+        for name, value in (("valid_from", self.valid_from), ("valid_to", self.valid_to)):
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+                raise TypeError(f"ValidWindow.{name} must be an int epoch second, got {value!r}.")
+        # `MemoryQuery` rejects the same shape, but this type is exported and constructed directly
+        # -- by the tests here, and by whatever assembles a window for SM-V3's legs. An inverted
+        # window does not merely match nothing, which would at least be uniform: `overlaps` checks
+        # each end independently, so `[200, 50)` still admits a record with unset bounds and
+        # rejects its neighbours. That is a wrong answer, not an empty one.
+        if self.valid_from is not None and self.valid_to is not None and self.valid_from >= self.valid_to:
+            raise ValueError(
+                f"ValidWindow [{self.valid_from}, {self.valid_to}) is empty or inverted. The window "
+                "is half-open, so valid_to must be strictly greater than valid_from."
+            )
+
+    @classmethod
+    def at(cls, instant: int) -> "ValidWindow":
+        """The window a point-in-time read is: ``[instant, instant + 1)``."""
+        return cls(valid_from=instant, valid_to=instant + 1)
+
+    def overlaps(self, t_valid: Optional[int], t_invalid: Optional[int]) -> bool:
+        """Whether record interval ``[t_valid, t_invalid)`` intersects this window.
+
+        Both ends are checked. Testing only ``t_invalid`` lets a future-dated record answer about
+        the past, which is the defect the point predicate carried a comment about before this
+        generalised it.
+        """
+        if self.valid_to is not None and t_valid is not None and t_valid >= self.valid_to:
+            return False
+        if self.valid_from is not None and t_invalid is not None and t_invalid <= self.valid_from:
+            return False
+        return True
+
+
 @dataclass
 class MemoryRecord:
     """One memory item as the seam returns it -- a read-projection, not a schema.
@@ -647,6 +710,13 @@ class MemoryQuery:
     has wired. ``as_of`` requests a point-in-time read and is enforced on the **fused** result set,
     not per-substrate -- the vector substrate has no notion of validity, so filtering it there
     lets an invalidated fact leak back in through the other leg (finding F2).
+
+    ``valid_from`` / ``valid_to`` narrow to records whose valid time **overlaps** the half-open
+    window (SM-V4 #98), and are a different question from ``as_of``. ``as_of`` asks what was
+    believed true at one instant and is answered on the merged set because only the graph is
+    authoritative about it; a window asks which records are candidates at all, so a substrate
+    applies it in its own ``WHERE`` clause. Applying it after ``limit`` would return a short page
+    for the same reason over-fetching cannot fix the ``as_of`` residual -- SM-V4 decision D1.
     """
 
     text: str
@@ -654,10 +724,26 @@ class MemoryQuery:
     substrates: Optional[Sequence[Substrate]] = None
     limit: int = 10
     as_of: Optional[int] = None  # point-in-time read (epoch s, SM-R10)
+    valid_from: Optional[int] = None  # inclusive epoch s, SM-V4
+    valid_to: Optional[int] = None  # exclusive epoch s, SM-V4
     #: Reserved. See ``__post_init__`` -- a non-empty value is refused rather than ignored.
     filters: Optional[Dict[str, Any]] = None
 
+    def window(self) -> Optional["ValidWindow"]:
+        """The requested valid-time window, or ``None`` when neither bound is set."""
+        if self.valid_from is None and self.valid_to is None:
+            return None
+        return ValidWindow(valid_from=self.valid_from, valid_to=self.valid_to)
+
     def __post_init__(self) -> None:
+        # The one field every read path touches, and the only one this envelope did not check.
+        # `limit`, `as_of`, `tiers`, `substrates` and `filters` are all validated below, so a
+        # non-string `text` was the single way to get past this constructor and die further in --
+        # as `AttributeError: 'int' object has no attribute 'strip'` from inside a backend, which is
+        # the shape every other check here exists to prevent. It also reaches a substrate as a bind
+        # parameter, where the driver's own complaint names neither the field nor the caller.
+        if not isinstance(self.text, str):
+            raise TypeError(f"MemoryQuery.text must be a string, got {self.text!r}.")
         self.as_of = _epoch_or_none(self.as_of)
         # A negative limit is not a smaller result set -- as a bare slice it truncates from the
         # *end*, so `limit=-1` returns everything except the best-ranked record. A caller computing
@@ -679,6 +765,34 @@ class MemoryQuery:
         # question, it is one no record can satisfy, so the read returns empty and looks like a miss.
         if self.as_of is not None and self.as_of < 0:
             raise ValueError(f"MemoryQuery.as_of must be a non-negative epoch second, got {self.as_of!r}.")
+
+        self.valid_from = _epoch_or_none(self.valid_from)
+        self.valid_to = _epoch_or_none(self.valid_to)
+        for bound_name, bound in (("valid_from", self.valid_from), ("valid_to", self.valid_to)):
+            if bound is not None and bound < 0:
+                raise ValueError(f"MemoryQuery.{bound_name} must be a non-negative epoch second, got {bound!r}.")
+        # Half-open, so an empty window is `valid_from == valid_to` and not merely `>`. A caller
+        # computing both ends from one timestamp lands on it, and an empty window overlaps nothing:
+        # unrefused, the read *would* come back empty and read as "no such memories" rather than as
+        # the bad request it is. Hence the raise below.
+        if self.valid_from is not None and self.valid_to is not None and self.valid_from >= self.valid_to:
+            raise ValueError(
+                f"MemoryQuery valid-time window [{self.valid_from}, {self.valid_to}) is empty, so no "
+                "record can overlap it and the read would return nothing rather than fail. The "
+                "window is half-open: valid_to must be strictly greater than valid_from."
+            )
+        # One valid-time question per read. A provider applies whichever is set as *the* valid-time
+        # filter, so accepting both would mean intersecting them -- and a caller who wanted the
+        # intersection can write it as one window. Refused rather than intersected because the two
+        # read as independent knobs: `as_of=<last year>` with a window around today looks like two
+        # narrowings and is in fact empty, which would come back as a plain miss.
+        if self.as_of is not None and (self.valid_from is not None or self.valid_to is not None):
+            raise ValueError(
+                f"MemoryQuery sets both as_of ({self.as_of}) and a valid-time window "
+                f"[{self.valid_from}, {self.valid_to}). Both filter valid time, so a provider would "
+                "have to intersect them and an empty intersection returns a plain miss. Ask one "
+                "question: as_of for a point in time, valid_from/valid_to for a range."
+            )
 
         # Element types, for the same reason `MemoryRecord` checks `tier` and `scope`: a bad member
         # otherwise dies three frames down, and the two collections failed *differently* --
@@ -735,6 +849,56 @@ class MemoryQuery:
         return PERSISTENT_TIERS if self.tiers is None else tuple(self.tiers)
 
 
+@dataclass(frozen=True)
+class RetrievalCandidates:
+    """One store's ranked candidate lists, **one list per retrieval leg and deliberately unfused**
+    (SM-V3 #97).
+
+    Why the lists stay apart. Fusing them inside the store would hand the fusion stage a single
+    ranking and no way to reconstruct the per-leg ranks it needs -- which is the whole complaint
+    against ``PgVector.hybrid_search``, whose weighted blend is computed in SQL and returned as one
+    ``similarity_score``. Rank-based fusion cannot be recovered from a blended score, and neither
+    can a *re-weighted* blend, so a caller that wanted either had to re-run both searches.
+
+    Which method fuses these is **not decided here and not decided by the store**. ADR 0003 section
+    A.6 ratifies weighted / relative-score fusion for this two-leg case and holds the three-leg
+    (+graph) choice open, gated on SM-G9 (#107); implementing either is SM-H2's (#132).
+
+    Every record's ``score`` obeys the same contract as ``VectorSubstrate.search`` -- a similarity
+    in ``[0.0, 1.0]``, higher is better. A leg whose native measure is a distance or an unbounded
+    rank converts it, and must do so **monotonically**, so that the conversion cannot reorder its
+    own list: rank-based fusion reads position and score-based fusion reads magnitude, and a
+    non-monotone squash would quietly disagree with itself between the two.
+
+    **``frozen=True`` stops the fields being rebound; it does not make the lists read-only.**
+    Appending to ``candidates.vector`` works, and nothing here prevents it. That is left alone
+    rather than defended: a store builds both lists fresh per call and keeps no reference, so the
+    only object a caller can corrupt is its own -- and copying two ranked pages on every read to
+    protect against that would tax the hot path for no reader's benefit. Stated because ``frozen``
+    otherwise reads as a guarantee this class does not make. A fusion stage that wants to sort or
+    truncate in place is welcome to; SM-H2 (#132) owns that call.
+    """
+
+    vector: List[MemoryRecord] = field(default_factory=list)
+    lexical: List[MemoryRecord] = field(default_factory=list)
+
+    def legs(self) -> Dict[str, List[MemoryRecord]]:
+        """The lists keyed by leg name, so a **consumer** iterates legs rather than field names.
+
+        SM-R8 requires the fusion implementations to be N-leg-capable rather than hardcoded to two
+        (its ``RRFFusion`` / ``WeightedFusion`` already are), and a fusion function written against
+        ``.vector`` and ``.lexical`` by name is hardcoded to two whatever it could otherwise take.
+
+        **This does not make the container extensible, and should not be read as promising a third
+        entry.** ``RetrievalCandidates`` describes what *one store* returned, and this store has two
+        legs; the graph leg (SM-G9 #107) comes from a different substrate entirely, so it arrives as
+        a separate result that the orchestrator (SM-H1 #131) fuses alongside this one -- not as a
+        key that appears here later. What this method buys is that the fusion code consuming it does
+        not have to change when that happens.
+        """
+        return {"vector": self.vector, "lexical": self.lexical}
+
+
 #: Keys every provider must put in ``MemorySlice.fusion``, whatever it does internally.
 #:
 #: Without a floor the adapters diverge on key names and a provider-agnostic consumer -- the swap
@@ -749,6 +913,7 @@ FUSION_KEYS = (
     "returned",
     "dropped_by_validity",
     "dropped_as_superseded",
+    "dropped_outside_window",
     "bounds_reconciled",
 )
 
@@ -761,6 +926,7 @@ def fusion_diagnostics(
     returned: int = 0,
     dropped_by_validity: int = 0,
     dropped_as_superseded: int = 0,
+    dropped_outside_window: int = 0,
     bounds_reconciled: bool = False,
     **extra: Any,
 ) -> Dict[str, Any]:
@@ -784,6 +950,9 @@ def fusion_diagnostics(
         # vector projection had. A provider with no graph reports False and zeros, which is honest.
         "dropped_by_validity": dropped_by_validity,
         "dropped_as_superseded": dropped_as_superseded,
+        # In the floor for the same reason as its two neighbours: a provider that cannot honour a
+        # valid-time window refuses the read, so a zero here is a real zero and never "unknown".
+        "dropped_outside_window": dropped_outside_window,
         "bounds_reconciled": bounds_reconciled,
     }
     diagnostics.update(extra)

@@ -652,6 +652,51 @@ def test_a_point_in_time_read_is_refused_rather_than_answered_from_present_day_m
         bridge.read(ACME, MemoryQuery(text="q", as_of=100))
 
 
+@pytest.mark.parametrize(
+    ("bounds", "field"),
+    [
+        # Both set names both. Naming only the lower bound sends a caller who got the *upper* one
+        # wrong to inspect the argument that was fine -- and the first version of this test froze
+        # that behaviour by asserting it.
+        ({"valid_from": 100, "valid_to": 200}, "valid_from/valid_to"),
+        ({"valid_from": 100}, "valid_from"),
+        ({"valid_to": 200}, "valid_to"),
+    ],
+)
+def test_a_valid_time_window_is_refused_rather_than_ignored(bounds, field):
+    """SM-V4 (#98): no valid-time columns here, so an ignored window returns the whole store as if
+    every row fell inside it.
+
+    ``field_name`` must name the bound the caller actually set -- a message about ``as_of``, or
+    about ``valid_from`` when only ``valid_to`` was given, sends a reader to the wrong argument.
+    """
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="valid-time window") as excinfo:
+        bridge.read(ACME, MemoryQuery(text="q", **bounds))
+    assert excinfo.value.field_name == field
+
+
+def test_the_async_read_refuses_a_valid_time_window_identically():
+    """The guard lives in ``_guard_read``, called from both ``read`` and ``aread`` -- covered here
+    rather than assumed, since a future split into per-verb guards would otherwise drop async
+    coverage with no test going red to say so."""
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="valid-time window") as excinfo:
+        asyncio.run(bridge.aread(ACME, MemoryQuery(text="q", valid_from=100, valid_to=200)))
+    assert excinfo.value.field_name == "valid_from/valid_to"
+
+
+def test_the_window_refusal_applies_to_a_tier_the_seed_does_not_serve():
+    """The guard sits in ``_guard_read``, not inside a tier branch: a read naming an unserved tier
+    used to skip every guard and return ``[]`` with no error."""
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="valid-time window"):
+        bridge.read(ACME, MemoryQuery(text="q", tiers=[MemoryTier.PROCEDURAL], valid_from=999))
+
+
 def test_the_fusion_payload_carries_every_contract_key():
     """Major 13. A provider-agnostic consumer KeyError'd on `seed` because keys diverged."""
     from egpt.memory.types import FUSION_KEYS

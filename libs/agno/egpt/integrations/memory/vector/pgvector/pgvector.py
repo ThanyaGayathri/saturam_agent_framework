@@ -12,8 +12,12 @@ implements exactly the rejected layout -- one shared table, tenant as a JSONB me
 no way to express partitioning -- so reusing it would ship the arrangement the benchmark ruled out.
 What is reused is pgvector itself, its HNSW index, and the seam's own score normalization.
 
-Deliberately **not** here, each with an owner: the embedder and its model, dimension and
-normalization choices, and the ``HuggingfaceCustomEmbedder`` refusal for Mode A (SM-V2 #96); rank
+The embedder, its model, its dimension and the Mode A air-gap refusal are **not decided here**:
+they come from :mod:`egpt.memory.embedding` (SM-V2 #96), which this store holds as ``pipeline``.
+Both the write and the read path embed through it, so a deployment cannot index with one model and
+query with another.
+
+Deliberately **not** here, each with an owner: rank
 fusion and its knobs (SM-H2 #132); metadata predicates for ``MemoryQuery.filters``, which need a
 contract on the graph port too (see :mod:`egpt.memory.types`); re-syncing this projection when the
 graph invalidates a fact, which has no call site until contradiction *detection* exists (SM-G5
@@ -22,14 +26,24 @@ graph invalidates a fact, which has no call site until contradiction *detection*
 
 import json
 import os
+import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from egpt.integrations.memory.vector.pgvector import sql
-from egpt.knowledge.embedder import Embedder
 from egpt.memory.config import MemoryProviderConfigError
+from egpt.memory.embedding import resolve_memory_embedder
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryOperationError, MemoryQuery, MemoryRecord, Scope, Substrate
+from egpt.memory.types import (
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    RetrievalCandidates,
+    Scope,
+    Substrate,
+    require_scope,
+)
+from egpt.providers.model_provider import ProviderMode
 from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_debug, log_warning
 from egpt.vectordb.distance import Distance
@@ -61,6 +75,40 @@ _DRIVER = "postgresql+psycopg"
 #: inside the 50 ms budget. So 256 is the default, and it stays a per-deployment parameter because
 #: the trade it sits on moves with corpus, dimension and hardware.
 _DEFAULT_EF_SEARCH = 256
+
+#: The Postgres text-search configuration the lexical leg indexes and queries with (SM-V3 #97).
+#: ``english`` rather than ``simple`` because stemming is what makes a lexical leg answer a
+#: paraphrase at all, and the exact-identifier case the ticket is written around survives it: the
+#: default parser emits a hyphenated token *and* its parts, so ``ORD-99417-XZ`` is findable whole
+#: and by fragment. Per-deployment, because the right answer is the corpus' language.
+_DEFAULT_TEXT_SEARCH_CONFIG = "english"
+
+#: Saturation constant turning ``ts_rank_cd``'s unbounded output into the ``[0.0, 1.0]`` similarity
+#: the port requires, as ``r / (r + k)``.
+#:
+#: **Strictly increasing in ``r``, which is the load-bearing property** -- it cannot reorder the
+#: list it is applied to, so the ranks a rank-based fusion reads and the magnitudes a weighted one
+#: reads describe the same ordering. ``0.1`` matches the existing convention in
+#: ``PgVector.hybrid_search`` and puts a typical short-document ``ts_rank_cd`` near the middle of
+#: the range. It is **not** a fusion weight: what a fused ranking does with these magnitudes,
+#: including whether they need recalibrating away from a real BM25 leg's distribution, is
+#: SM-H2's (#132).
+_RANK_SATURATION = 0.1
+
+#: Isolation level for a read whose several statements must describe **one** corpus (SM-V3 #97).
+#:
+#: Postgres defaults to READ COMMITTED, under which each *statement* takes a fresh snapshot even
+#: inside one transaction -- so a row committed between the vector leg and the lexical leg is
+#: invisible to the first and visible to the second. Measured, driving ``search_candidates`` with a
+#: concurrent commit landing between them: one leg returned one row, the other two. The port
+#: requires every leg to answer the same question about which rows exist, because legs that disagree
+#: do not produce a ranking discrepancy, they produce a leak.
+#:
+#: Free here, and that is worth stating because REPEATABLE READ usually is not: its serialization
+#: failures are raised on **write** conflicts, and nothing that reaches this level writes. A
+#: read-only snapshot simply holds, so the cost is the snapshot's lifetime -- microseconds, for two
+#: indexed statements.
+_ONE_SNAPSHOT = "REPEATABLE READ"
 
 #: Deterministic, server-side failures: the same statement fails the same way on every retry, so
 #: the layers above should stop rather than retry. Transient and transport errors -- a dropped
@@ -138,6 +186,25 @@ def _topics(value: Any, record_id: Any) -> Optional[List[str]]:
         ) from exc
 
 
+def _rank_of(row: Dict[str, Any]) -> float:
+    """A lexical row's ``ts_rank_cd``, read the same defensive way :func:`_score` reads it.
+
+    **A row with no rank is refused, not passed through**, exactly as :func:`_similar` refuses a
+    ranked row with no distance -- the same contract on the lexical leg's own field, so the two
+    rankers cannot come to disagree about what "no rank" means. Unreachable while the lexical
+    statement's ``@@`` predicate stands, since a matched row cannot carry a NULL rank; stated because
+    the guard, not the reachability, is what keeps this aligned with its sibling as either changes.
+    """
+    rank = row.get("rank")
+    if rank is None:
+        raise MemoryOperationError(
+            "A lexical row carries no rank. Only rows the `@@` predicate matched should reach "
+            "here, and a match always has a rank.",
+            field_name="rank",
+        )
+    return float(rank)
+
+
 def _similar(row: Dict[str, Any]) -> bool:
     """Whether a hit is a match at all -- cosine distance strictly under 1.0.
 
@@ -158,6 +225,71 @@ def _similar(row: Dict[str, Any]) -> bool:
             field_name="distance",
         )
     return float(distance) < 1.0
+
+
+#: The text-search configuration inside a stored ``to_tsvector(...)`` index expression.
+#:
+#: Postgres renders the literal in its own normalized form -- ``to_tsvector('english'::regconfig,
+#: content)`` for the ``to_tsvector('english', content)`` this module submitted -- so the config is
+#: parsed out and compared by **name**. Comparing the rendered text instead warned on every clean
+#: startup, which is worse than not checking: an always-on warning is one nobody reads when it
+#: finally means something.
+_INDEXED_TS_CONFIG = re.compile(r"to_tsvector\(\s*'([^']*)'")
+
+
+def _indexed_ts_config(expression: Optional[str]) -> Optional[str]:
+    """The configuration a GIN index's expression uses, or ``None`` when it is not a text index.
+
+    ``None`` for anything that is not a ``to_tsvector`` expression, because a deployment is free to
+    have other GIN indexes on this table -- one on a ``jsonb`` column, say -- and warning that a
+    ``metadata`` index does not use the configured text-search config would be noise about
+    something working exactly as intended.
+    """
+    if not expression:
+        return None
+    found = _INDEXED_TS_CONFIG.search(expression)
+    return found.group(1) if found else None
+
+
+def _lexical_similarity(rank: float) -> float:
+    """``ts_rank_cd``'s unbounded output as the ``[0.0, 1.0]`` similarity the port requires.
+
+    ``r / (r + k)`` is **strictly increasing**, so it cannot reorder the list it is applied to --
+    see :data:`_RANK_SATURATION`. A negative rank would break that (it maps below zero and, at
+    ``r = -k``, divides by zero), and ``ts_rank_cd`` never returns one, so the clamp costs a
+    comparison and removes the question.
+    """
+    bounded = max(0.0, rank)
+    return bounded / (bounded + _RANK_SATURATION)
+
+
+def _score(row: Dict[str, Any]) -> Optional[float]:
+    """The port's similarity for whichever leg's raw measure this row carries.
+
+    Exactly one of the two is ever selected -- ``distance`` by the vector statement, ``rank`` by the
+    lexical one -- so this is a dispatch, not a merge. ``scan`` selects ``distance`` as ``NULL`` and
+    lands on ``None``, which is the honest answer for an unranked read rather than the ``0.0`` that
+    would read as a perfect match.
+    """
+    rank = row.get("rank")
+    if rank is not None:
+        return _lexical_similarity(float(rank))
+    distance = row.get("distance")
+    return None if distance is None else normalize_score(float(distance), Distance.cosine)
+
+
+def _tiebreak(record: MemoryRecord) -> Tuple[int, str, str]:
+    """How **either** leg orders records its primary measure scores equally.
+
+    One function rather than the same tuple in each ranker, because two legs that break ties
+    differently hand the fusion stage two orderings for one corpus -- and a rank-based fusion reads
+    position, so the disagreement becomes a scoring difference rather than a cosmetic one.
+
+    Never on a UUID: record ids are minted with ``uuid4``, so ordering on one makes two
+    equally-matching memories rank differently per process. ``id`` is last only as the final
+    total-order guarantee, after two content-derived keys have almost always decided it.
+    """
+    return (record.created_at or 0, record.content, record.id)
 
 
 def _vector_literal(embedding: Sequence[float], dim: int, record_id: str) -> str:
@@ -183,6 +315,19 @@ class PgVectorMemorySubstrate:
 
     Sync and async are both native: the async half drives SQLAlchemy's async engine on the same
     psycopg 3 driver, because a thread hop is a sync call wearing an ``async def``.
+
+    **Migration note (SM-V2 #96).** Before this ticket, ``embedder`` was passed straight to a
+    resolver with no offline-capability check, so any injected instance -- a Bedrock wrapper, a
+    fine-tuned in-house client, anything not in :data:`~egpt.memory.embedding.OFFLINE_CAPABLE` --
+    worked regardless of deployment mode. ``mode`` is new, and it **defaults to**
+    ``ProviderMode.LOCAL`` (Mode A, air-gapped), which now enforces ADR 0003 A.3c at construction:
+    an embedder that is neither a recognised offline-capable key nor an instance declaring
+    ``offline_capable = True`` is refused, not silently accepted. A deployment upgrading from a
+    pre-SM-V2 version with such an embedder already injected gets a
+    :class:`~egpt.memory.config.MemoryProviderConfigError` where it previously got nothing --
+    correct for Mode A, but a behaviour change with no runtime warning. Fix by either declaring
+    ``offline_capable = True`` on the embedder class (asserting it is genuinely offline), or by
+    passing ``mode=ProviderMode.FRONTIER`` explicitly if the embedder is meant to reach a provider.
     """
 
     def __init__(
@@ -197,7 +342,9 @@ class PgVectorMemorySubstrate:
         ef_construction: int = 200,
         ef_search: int = _DEFAULT_EF_SEARCH,
         embedding_version: Optional[str] = None,
+        text_search_config: str = _DEFAULT_TEXT_SEARCH_CONFIG,
         auto_init_schema: bool = True,
+        mode: ProviderMode = ProviderMode.LOCAL,
     ) -> None:
         resolved_url = db_url or os.getenv("EGPT_MEMORY_PG_URL")
         if not resolved_url:
@@ -212,9 +359,26 @@ class PgVectorMemorySubstrate:
         # is a legal relation but not a legal *base* for one, and it is the derived names that fail
         # -- at construction for the two indexes, and at the first write of each new tenant for a
         # partition, which is far from the setting that caused it.
-        self.embedder = self._resolved_embedder(embedder, embedder_options)
+        # The pipeline decides the model, its dimension and the version tag; this store only holds
+        # the column they imply (SM-V2 #96). It is also where Mode A's air-gap refusal lives, so
+        # resolving it here is what makes `mode` more than a stored attribute.
+        self.mode = mode
+        self.pipeline = resolve_memory_embedder(mode, embedder, embedder_options, dim, dimensions_field="dim")
+        #: The raw embedder, unchanged, so anything reading it sees what it saw before the pipeline
+        #: was interposed. Writes and queries go through `self.pipeline`, which batches.
+        self.embedder = self.pipeline.embedder
         self.ef_search = ef_search
-        self.embedding_version = embedding_version
+        # Derived from the pipeline rather than defaulting to None, so every row is stamped with the
+        # model that actually produced it and a re-embedding migration has a real value to key its
+        # cutover on (SM-R4 section 7, D8). An explicit argument still wins: a deployment mid-
+        # migration needs to pin the tag it writes under.
+        #
+        # `is not None`, not `or`: those differ on exactly the caller who is most deliberate about
+        # this field. A migration tool passing `""` to clear the tag is the one case where the
+        # falsy test silently substitutes the derived value -- writing rows stamped with the current
+        # model under a tool that asked for no stamp at all, which is the opposite of what it
+        # requested and invisible until the cutover query returns the wrong set.
+        self.embedding_version = embedding_version if embedding_version is not None else self.pipeline.embedding_version
         # Every setting is checked here rather than at first use, and all of them inside one
         # wrapper: `ef_search` reaches a statement as a literal and the rest reach DDL, so this is
         # where a bad value is cheap -- and a refusal that arrives as a bare `ValueError` is one a
@@ -223,10 +387,17 @@ class PgVectorMemorySubstrate:
         with self._settings_checked():
             self.schema = sql.identifier(schema, "schema")
             self.table = sql.table_identifier(table)
-            self.dim = self._resolved_dim(dim, self.embedder)
+            #: One dimension authority. Taken from the pipeline rather than re-derived beside it --
+            #: a column width restated next to the model that determines it drifts the first time
+            #: the model changes.
+            self.dim = self.pipeline.dimensions
+            self.text_search_config = sql.text_search_config(text_search_config)
             sql.ef_search_statement(ef_search)
-            self._schema_statements = sql.schema_statements(self.schema, self.table, self.dim, m, ef_construction)
+            self._schema_statements = sql.schema_statements(
+                self.schema, self.table, self.dim, m, ef_construction, self.text_search_config
+            )
             self._live_schema = sql.live_schema_statements(self.schema, self.table)
+            self._ts_config_probe = sql.text_search_config_statement(self.text_search_config)
         self._engine: Engine = create_engine(self.db_url, pool_pre_ping=True, pool_recycle=3600)
         self._aengine: Optional["AsyncEngine"] = None
         #: Tenants whose partition this process has already created. A cache, never an authority:
@@ -285,64 +456,6 @@ class PgVectorMemorySubstrate:
             )
         return url.set(drivername=_DRIVER)
 
-    @staticmethod
-    def _resolved_embedder(embedder: Optional[Any], options: Optional[Dict[str, Any]]) -> Embedder:
-        """The injected embedder, or one built from a registry name so config alone can construct.
-
-        Which embedder a deployment should use -- and the ADR section A.3c trap that
-        ``HuggingfaceCustomEmbedder`` is a *remote* client despite being listed as self-hostable --
-        is SM-V2's (#96). This only insists that there is one: a vector store with no embedder has
-        nothing to index and would fail at the first write instead of at construction.
-        """
-        if isinstance(embedder, str):
-            from egpt.registry import discovery
-
-            embedder = discovery.construct("embedder", embedder, **(options or {}))
-        elif options:
-            raise MemoryProviderConfigError(
-                "embedder_options applies only when 'embedder' names a registered embedder to build; "
-                "an already-built instance is configured by its own constructor.",
-                field_name="embedder_options",
-            )
-        if embedder is None:
-            raise MemoryProviderConfigError(
-                "PgVectorMemorySubstrate needs an embedder -- an Embedder instance, or the name of a "
-                "registered one. Choosing the model is SM-V2's (#96).",
-                field_name="embedder",
-            )
-        for method in ("get_embedding", "async_get_embedding"):
-            if not callable(getattr(embedder, method, None)):
-                raise MemoryProviderConfigError(
-                    f"{type(embedder).__name__} has no callable {method}(); both halves of this "
-                    "substrate embed, so an embedder missing either one leaves one half broken.",
-                    field_name="embedder",
-                )
-        return embedder
-
-    @staticmethod
-    def _resolved_dim(dim: Optional[int], embedder: Embedder) -> int:
-        """The column width: stated, or taken from the embedder -- and refused when they disagree.
-
-        A mismatch is caught here rather than by Postgres on the first insert, because by then the
-        table exists at the wrong width and every write fails until it is dropped.
-        """
-        declared = getattr(embedder, "dimensions", None)
-        if dim is None:
-            if not isinstance(declared, int) or declared <= 0:
-                raise MemoryProviderConfigError(
-                    f"dim is unset and {type(embedder).__name__}.dimensions is {declared!r}, so the "
-                    "vector column has no width. Pass dim explicitly.",
-                    field_name="dim",
-                )
-            return declared
-        if isinstance(declared, int) and declared > 0 and declared != dim:
-            raise MemoryProviderConfigError(
-                f"dim is {dim} but {type(embedder).__name__}.dimensions is {declared}. One of them is "
-                "wrong, and either way every write would be refused by the column.",
-                field_name="dim",
-            )
-        return dim
-
     # -- plumbing -------------------------------------------------------------
 
     def _async_engine(self) -> "AsyncEngine":
@@ -375,20 +488,52 @@ class PgVectorMemorySubstrate:
         except _DETERMINISTIC as exc:
             raise MemoryOperationError(f"The vector backend refused {operation}: {exc}", field_name=operation) from exc
 
-    def _statements(self, statements: Sequence[Tuple[str, Dict[str, Any]]]) -> List[List[Dict[str, Any]]]:
+    def _statements(
+        self, statements: Sequence[Tuple[str, Dict[str, Any]]], isolation: Optional[str] = None
+    ) -> List[List[Dict[str, Any]]]:
         """Run statements in **one** transaction, returning each one's rows.
 
         One transaction rather than one per statement, so the ``SET LOCAL hnsw.ef_search`` that
         precedes a search is still in force when the search runs, and cannot leak into another.
+
+        ``isolation`` pins the snapshot when more than one statement here has to describe the *same*
+        corpus -- see :data:`_ONE_SNAPSHOT`. It is a parameter rather than a blanket setting because
+        only the multi-leg read needs it: a single row-returning statement is atomic against its own
+        snapshot whatever the level, so raising it there would buy nothing and hold a snapshot open
+        for longer than the read needs.
         """
-        with self._translated("read/write"), self._engine.begin() as connection:
+        with self._translated("read/write"), self._read_transaction(isolation) as connection:
             return [_rows(connection.execute(text(body), binds)) for body, binds in statements]
 
-    async def _astatements(self, statements: Sequence[Tuple[str, Dict[str, Any]]]) -> List[List[Dict[str, Any]]]:
-        """Async twin of :meth:`_statements`, with the same one-transaction rule."""
+    @contextmanager
+    def _read_transaction(self, isolation: Optional[str]) -> Iterator[Any]:
+        """One transaction, at the default isolation or an explicit one."""
+        if isolation is None:
+            with self._engine.begin() as connection:
+                yield connection
+            return
+        with self._engine.connect().execution_options(isolation_level=isolation) as connection:
+            with connection.begin():
+                yield connection
+
+    async def _astatements(
+        self, statements: Sequence[Tuple[str, Dict[str, Any]]], isolation: Optional[str] = None
+    ) -> List[List[Dict[str, Any]]]:
+        """Async twin of :meth:`_statements`, with the same one-transaction and snapshot rules."""
         with self._translated("read/write"):
-            async with self._async_engine().begin() as connection:
-                return [_rows(await connection.execute(text(body), binds)) for body, binds in statements]
+            if isolation is None:
+                async with self._async_engine().begin() as connection:
+                    return [_rows(await connection.execute(text(body), binds)) for body, binds in statements]
+            async with self._async_engine().connect() as connection:
+                # The returned connection is what must be used, not the one bound above: SQLAlchemy
+                # 2.x's `AsyncConnection.execution_options` mutates in place *today*, but nothing in
+                # its signature (`(self, **opt) -> AsyncConnection`) promises that -- it is free to
+                # return a wrapper instead, the way the sync `Connection.execution_options` already
+                # does. Discarding the return value is correct only by an implementation detail this
+                # module does not control.
+                connection = await connection.execution_options(isolation_level=isolation)
+                async with connection.begin():
+                    return [_rows(await connection.execute(text(body), binds)) for body, binds in statements]
 
     def _write(self, statement: str, rows: List[Dict[str, Any]]) -> None:
         """Apply one statement to every row, in **one** transaction and one round trip.
@@ -446,10 +591,45 @@ class PgVectorMemorySubstrate:
                     "settings apply only when the index is first created, and rebuilding one is a "
                     "locking operation this backend does not perform."
                 )
+        # Reported, not refused, for the reason the docstring gives: a stale text-search config
+        # still answers correctly, because `to_tsvector` is evaluated at query time either way. What
+        # it stops doing is *matching the index expression*, so the GIN index is skipped and every
+        # lexical read becomes a sequential scan -- a latency cliff with no error anywhere, which is
+        # exactly the kind of silence a readback exists to break.
+        for row in read_back[2]:
+            indexed = _indexed_ts_config(row["expression"])
+            if indexed is not None and indexed != self.text_search_config:
+                log_warning(
+                    f"{row['name']} indexes text_search_config={indexed!r} and this substrate is "
+                    f"configured for {self.text_search_config!r}. Lexical reads stay correct but "
+                    "fall back to a sequential scan, because a functional index is only used when "
+                    "the query repeats its expression exactly. Rebuilding it is a locking "
+                    "operation this backend does not perform."
+                )
+
+    def _reject_unknown_text_search_config(self, probe: List[Dict[str, Any]]) -> None:
+        """Refuse a text-search configuration Postgres does not resolve, **before** the DDL uses it.
+
+        Asked as its own question rather than left to ``CREATE INDEX`` because the two failures are
+        different kinds. This one is a deployment **setting** fault and says so, naming the option;
+        the index creation it would otherwise break reports an ``undefined_object`` from the middle
+        of schema init, mentioning a text-search configuration but not which argument supplied it --
+        and arriving as a ``MemoryOperationError``, which a caller narrowing to
+        ``MemoryProviderConfigError`` for ``field_name`` never sees.
+        """
+        if not probe or not probe[0].get("present"):
+            raise MemoryProviderConfigError(
+                f"text_search_config={self.text_search_config!r} is not a text-search configuration "
+                "this server resolves. 'english' and 'simple' ship with Postgres; a custom one must "
+                "exist and be reachable on the connection's search_path before it can be indexed.",
+                field_name="text_search_config",
+            )
 
     def init_schema(self) -> None:
         """Create the extension, the partitioned parent and its indexes, idempotently."""
+        probe_body, probe_binds = self._ts_config_probe
         with self._translated("schema init"), self._engine.begin() as connection:
+            self._reject_unknown_text_search_config(_rows(connection.execute(text(probe_body), probe_binds)))
             for statement in self._schema_statements:
                 connection.execute(text(statement))
             read_back = [_rows(connection.execute(text(body), binds)) for body, binds in self._live_schema]
@@ -458,8 +638,10 @@ class PgVectorMemorySubstrate:
 
     async def ainit_schema(self) -> None:
         """Async twin of :meth:`init_schema`."""
+        probe_body, probe_binds = self._ts_config_probe
         with self._translated("schema init"):
             async with self._async_engine().begin() as connection:
+                self._reject_unknown_text_search_config(_rows(await connection.execute(text(probe_body), probe_binds)))
                 for statement in self._schema_statements:
                     await connection.execute(text(statement))
                 read_back = [_rows(await connection.execute(text(body), binds)) for body, binds in self._live_schema]
@@ -641,7 +823,6 @@ class PgVectorMemorySubstrate:
         }
 
     def _record(self, row: Dict[str, Any]) -> MemoryRecord:
-        distance = row.get("distance")
         return MemoryRecord(
             id=row["id"],
             tier=MemoryTier(row["tier"]),
@@ -656,8 +837,9 @@ class PgVectorMemorySubstrate:
             # The port's contract is a similarity in [0.0, 1.0], higher better, because the provider
             # *adds* the legs' scores: pgvector's `<=>` is a cosine **distance** where lower is
             # better, so handing it over raw would invert this leg's contribution to the ranking.
-            # `scan` does not rank, and reports no score rather than a fabricated one.
-            score=None if distance is None else normalize_score(float(distance), Distance.cosine),
+            # `_score` dispatches on which leg produced the row; `scan` does not rank, and reports
+            # no score rather than a fabricated one.
+            score=_score(row),
             substrate=Substrate.VECTOR,
             topics=_topics(row.get("topics"), row.get("id")),
             provenance=_from_json(row.get("provenance"), "provenance", row.get("id")),
@@ -689,13 +871,31 @@ class PgVectorMemorySubstrate:
         """
         paired = sorted(
             (pair for pair in zip(rows, records) if _similar(pair[0])),
-            key=lambda pair: (
-                float(pair[0]["distance"]),
-                pair[1].created_at or 0,
-                pair[1].content,
-                pair[1].id,
-            ),
+            key=lambda pair: (float(pair[0]["distance"]), *_tiebreak(pair[1])),
         )
+        return [record for _, record in paired]
+
+    @staticmethod
+    def _lexically_ranked(rows: List[Dict[str, Any]], records: List[MemoryRecord]) -> List[MemoryRecord]:
+        """Order the lexical page deterministically, highest rank first (SM-V3 #97).
+
+        The server already ordered by ``ts_rank_cd`` and applied the ``LIMIT``; this settles ties
+        *inside* the returned page through the same :func:`_tiebreak` the vector leg uses, so the
+        two lists a fusion stage receives cannot disagree about the order of two records neither
+        leg distinguishes.
+
+        **There is no zero-rank cut here, unlike** :meth:`_ranked`. The lexical statement's ``@@``
+        predicate has already removed every non-match -- it has to, because that predicate is what
+        makes the GIN index usable -- so the rows that arrive are matches by construction and a
+        second filter would only be able to remove ones the server said matched.
+
+        Reads ``rank`` the same defensive way :func:`_score` does -- ``.get`` plus an explicit
+        ``None`` check, rather than a bare subscript -- so the two agree on what "no rank" means
+        instead of one raising and the other returning ``None``. The row is unreachable while the
+        ``@@`` predicate stands, since a matched row cannot carry a NULL rank; this is about not
+        leaving one caller's contract implicit next to the other's stated one.
+        """
+        paired = sorted(zip(rows, records), key=lambda pair: (-_rank_of(pair[0]), *_tiebreak(pair[1])))
         return [record for _, record in paired]
 
     # -- writes ---------------------------------------------------------------
@@ -708,23 +908,21 @@ class PgVectorMemorySubstrate:
         return checked
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="upsert")
         if not records:
             return
         checked = self._checked(scope, records)
-        embeddings = [self.embedder.get_embedding(record.content) for record in checked]
+        embeddings = self.pipeline.embed_texts([record.content for record in checked])
         self.ensure_partition(scope.tenant_id)
         rows = [self._row(scope, record, embedding) for record, embedding in zip(checked, embeddings)]
         self._write(sql.upsert_statement(self.schema, self.table), rows)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="aupsert")
         if not records:
             return
         checked = self._checked(scope, records)
-        # Sequential, like the sync half. Embedding a batch concurrently is a real speed-up and a
-        # different decision -- one this port cannot make for every embedder, since an embedder is
-        # free to be a single local model with no concurrency at all -- so batching belongs with
-        # the embedder pipeline (SM-V2 #96) rather than being taken here on one half only.
-        embeddings = [await self.embedder.async_get_embedding(record.content) for record in checked]
+        embeddings = await self.pipeline.aembed_texts([record.content for record in checked])
         await self.aensure_partition(scope.tenant_id)
         rows = [self._row(scope, record, embedding) for record, embedding in zip(checked, embeddings)]
         await self._awrite(sql.upsert_statement(self.schema, self.table), rows)
@@ -755,7 +953,7 @@ class PgVectorMemorySubstrate:
         reporting recall and p95 together, because SM-R3 shows only that a higher ``ef`` narrows
         the gap at some latency cost -- not that it closes.
         """
-        statement, binds = sql.search_statement(self.schema, self.table, scope)
+        statement, binds = sql.search_statement(self.schema, self.table, scope, query.window())
         binds.update(
             {
                 "tiers": tiers,
@@ -766,20 +964,114 @@ class PgVectorMemorySubstrate:
         return [(sql.ef_search_statement(self.ef_search), {}), (statement, binds)]
 
     def search(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="search")
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
-        embedding = self.embedder.get_embedding(query.text)
+        embedding = self.pipeline.embed_query(query.text)
         rows = self._statements(self._search_call(scope, query, tiers, embedding))[-1]
         return self._ranked(rows, [self._record(row) for row in rows])
 
     async def asearch(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="asearch")
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
-        embedding = await self.embedder.async_get_embedding(query.text)
+        embedding = await self.pipeline.aembed_query(query.text)
         rows = (await self._astatements(self._search_call(scope, query, tiers, embedding)))[-1]
         return self._ranked(rows, [self._record(row) for row in rows])
+
+    # -- hybrid candidates (SM-V3 #97) ----------------------------------------
+
+    def _lexical_call(self, scope: Scope, query: MemoryQuery, tiers: List[str]) -> Tuple[str, Dict[str, Any]]:
+        """The lexical statement and its binds. No ``SET LOCAL`` precedes it -- ``hnsw.ef_search``
+        tunes the vector index and means nothing to GIN."""
+        statement, binds = sql.lexical_search_statement(
+            self.schema, self.table, scope, self.text_search_config, query.window()
+        )
+        binds.update({"tiers": tiers, "limit": query.limit, "query_text": query.text})
+        return statement, binds
+
+    def _lexical(self, rows: List[Dict[str, Any]]) -> List[MemoryRecord]:
+        return self._lexically_ranked(rows, [self._record(row) for row in rows])
+
+    def _candidate_calls(
+        self, scope: Scope, query: MemoryQuery, tiers: List[str], embedding: Sequence[float]
+    ) -> List[Tuple[Optional[str], Tuple[str, Dict[str, Any]]]]:
+        """Every statement one candidate read issues, each **tagged with the leg it answers for**.
+
+        Tagged rather than indexed. Reading the vector page as ``results[-2]`` counted back from the
+        end, which is correct only while :meth:`_search_call` emits exactly two statements. Its first
+        is ``SET LOCAL hnsw.ef_search``, which returns no rows and which ``_rows`` maps to ``[]`` --
+        so a third statement added there would not mis-*rank* the vector leg, it would make it come
+        back **empty**, with nothing raising and no way for a caller to tell that from a corpus with
+        no matches.
+
+        The unpacking below is the guard that makes the failure loud: ``_search_call`` growing a
+        statement raises here, at the line that has to change, instead of silently emptying a leg.
+        """
+        tuning, vector = self._search_call(scope, query, tiers, embedding)
+        return [(None, tuning), ("vector", vector), ("lexical", self._lexical_call(scope, query, tiers))]
+
+    def _candidates(
+        self,
+        calls: Sequence[Tuple[Optional[str], Tuple[str, Dict[str, Any]]]],
+        results: Sequence[List[Dict[str, Any]]],
+    ) -> RetrievalCandidates:
+        """Assemble the two lists from labelled results, so neither half indexes by position.
+
+        Shared by both halves rather than written twice: the sync and async candidate reads drifting
+        is precisely the defect this ticket's own tests exist to catch.
+        """
+        pages = {leg: page for (leg, _), page in zip(calls, results) if leg is not None}
+        return RetrievalCandidates(
+            vector=self._ranked(pages["vector"], [self._record(row) for row in pages["vector"]]),
+            lexical=self._lexical(pages["lexical"]),
+        )
+
+    def search_candidates(
+        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
+    ) -> RetrievalCandidates:
+        """Both ranked legs, unfused -- :class:`~egpt.memory.substrates.HybridSearchSubstrate`.
+
+        The legs are issued as **separate statements in one transaction**, not as a single query
+        with two ranking expressions. A combined statement would have to pick one ``ORDER BY``, and
+        whichever it picked would make the other leg's ``LIMIT`` mean "the top N by the wrong
+        measure" -- which is how a hybrid query silently becomes a filtered version of one leg.
+
+        **One transaction is not enough to make the legs agree, so the snapshot is pinned.** Postgres
+        defaults to READ COMMITTED, under which every *statement* takes a fresh snapshot even inside
+        one transaction -- so a row committed between the two legs is invisible to the first and
+        visible to the second. Measured, driving this method with a concurrent commit landing between
+        them: the vector leg returned one row and the lexical leg two, from a single call. The port
+        requires every leg to answer the same question about which rows exist, because legs that
+        disagree do not produce a ranking discrepancy, they produce a leak.
+
+        ``query.limit`` bounds each leg independently; over-fetching to give fusion more depth is
+        SM-H2's (#132) policy, not this store's.
+        """
+        require_scope(scope, method="search_candidates")
+        tiers = self._searchable(query, tier)
+        if tiers is None:
+            return RetrievalCandidates()
+        embedding = self.embedder.get_embedding(query.text)
+        calls = self._candidate_calls(scope, query, tiers, embedding)
+        results = self._statements([call for _, call in calls], isolation=_ONE_SNAPSHOT)
+        return self._candidates(calls, results)
+
+    async def asearch_candidates(
+        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
+    ) -> RetrievalCandidates:
+        """Async twin of :meth:`search_candidates`, making the same decisions in the same order --
+        including the pinned snapshot, which is the half a sync-only test cannot observe."""
+        require_scope(scope, method="asearch_candidates")
+        tiers = self._searchable(query, tier)
+        if tiers is None:
+            return RetrievalCandidates()
+        embedding = await self.embedder.async_get_embedding(query.text)
+        calls = self._candidate_calls(scope, query, tiers, embedding)
+        results = await self._astatements([call for _, call in calls], isolation=_ONE_SNAPSHOT)
+        return self._candidates(calls, results)
 
     @staticmethod
     def _scan_call(
@@ -797,12 +1089,14 @@ class PgVectorMemorySubstrate:
         return statement, binds
 
     def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="scan")
         call = self._scan_call(self.schema, self.table, scope, tier, limit)
         if call is None:
             return []
         return [self._record(row) for row in self._statements([call])[0]]
 
     async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="ascan")
         call = self._scan_call(self.schema, self.table, scope, tier, limit)
         if call is None:
             return []

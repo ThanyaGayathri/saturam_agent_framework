@@ -524,6 +524,35 @@ class SeedMemoryProvider(MemoryProvider):
                 field_name="as_of",
             )
 
+    def _reject_window(self, query: MemoryQuery) -> None:
+        """Refuse a valid-time window: no store behind this bridge carries valid time (SM-V4 #98).
+
+        Neither ``UserMemory`` nor the learn stores has a ``t_valid`` / ``t_invalid`` column, so
+        the window could only be dropped -- and a dropped window returns the whole store as if
+        every row fell inside it.
+
+        Separate from :meth:`_reject_as_of` rather than folded into it, and the reasons are not the
+        same one: ``as_of`` asks which revision was believed at an instant, which needs a graph
+        this bridge does not have; a window asks about columns that do not exist. Splitting them is
+        also what lets the error name the field the caller actually set.
+        """
+        if query.window() is None:
+            return
+        # Both set is its own case. Naming only `valid_from` sends a caller who got the *other*
+        # bound wrong to inspect the argument that was fine.
+        if query.valid_from is not None and query.valid_to is not None:
+            field = "valid_from/valid_to"
+        elif query.valid_from is not None:
+            field = "valid_from"
+        else:
+            field = "valid_to"
+        raise MemoryOperationError(
+            "The seed provider cannot narrow a read to a valid-time window: UserMemory and the "
+            "learn stores carry no valid-time columns, so the window would be ignored and the "
+            "whole store returned as if it fell inside. Bi-temporal storage is SM-C3's (#91).",
+            field_name=field,
+        )
+
     def _guard_read(self, scope: Scope, query: MemoryQuery) -> None:
         """Every read guard, up front -- so they apply even when no tier is served.
 
@@ -532,6 +561,7 @@ class SeedMemoryProvider(MemoryProvider):
         """
         self._guard_tenant(scope)
         self._reject_as_of(query)
+        self._reject_window(query)
         self._reject_unservable_substrates(query)
 
     def _reject_unserved(self, tier: MemoryTier) -> None:

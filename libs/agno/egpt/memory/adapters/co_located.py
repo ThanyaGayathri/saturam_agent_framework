@@ -52,6 +52,7 @@ from egpt.memory.types import (
     PartialWriteError,
     Scope,
     Substrate,
+    ValidWindow,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
@@ -138,15 +139,8 @@ def _jaccard(left: Set[str], right: Set[str]) -> float:
 
 
 def _valid_at(record: MemoryRecord, at: int) -> bool:
-    """``t_valid <= at < t_invalid``, with ``None`` open at either end.
-
-    Both bounds: checking only ``t_invalid`` lets a future-dated record answer about the past.
-    """
-    if record.t_valid is not None and record.t_valid > at:
-        return False
-    if record.t_invalid is not None and record.t_invalid <= at:
-        return False
-    return True
+    """``t_valid <= at < t_invalid``, with ``None`` open at either end."""
+    return ValidWindow.at(at).overlaps(record.t_valid, record.t_invalid)
 
 
 def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
@@ -620,7 +614,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # the successor row carries a past `t_invalid` with `expired_at = None` -- so checking only
         # current belief let `read()` and `read(as_of=now)` disagree at the same instant.
         current = [r for r in merged if r.is_current_belief()]
-        visible = [r for r in current if _valid_at(r, instant)]
+        # A window **replaces** the point predicate rather than stacking with it: they are two
+        # spellings of one axis, and intersecting them empties every read about the past, since
+        # `instant` is the present whenever `as_of` is unset. `MemoryQuery` refuses both at once,
+        # so this is a choice between two given filters and never a merge of them (SM-V4 #98).
+        #
+        # The rule runs again here even though the substrate already narrowed, because the
+        # substrate filtered its own **stale** projection: `_reconcile_bounds` has just overwritten
+        # these bounds from the graph, which is the authority, and a window decided before that was
+        # decided on the wrong ones. The substrate's pass is what makes this a full page rather
+        # than the remains of one; this pass is what makes it correct.
+        requested_window = query.window()
+        window = requested_window or ValidWindow.at(instant)
+        visible = [r for r in current if window.overlaps(r.t_valid, r.t_invalid)]
         records = visible[: query.limit] if query.limit else []
 
         by_tier: Dict[MemoryTier, List[MemoryRecord]] = {}
@@ -646,8 +652,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # conflated "the world moved on" with "a newer revision exists", which are
                 # different diagnoses -- and `bounds_for_ids` is explicitly allowed to report
                 # expired rows, so a conforming backend makes the difference observable.
-                dropped_by_validity=len(current) - len(visible),
+                dropped_by_validity=0 if requested_window else len(current) - len(visible),
                 dropped_as_superseded=len(merged) - len(current),
+                # The same drop, attributed to the question that was actually asked. One filter
+                # runs, so one of these two is always zero -- reporting the count under both would
+                # double it, and reporting it only under `dropped_by_validity` would say "the world
+                # moved on" about rows the caller deliberately excluded. Non-zero here after the
+                # substrate already narrowed means reconciliation tightened a bound.
+                #
+                # Pre-limit, like `dropped_by_validity` above -- so neither key accounts for rows
+                # `visible[:query.limit]` truncated. `returned + dropped_as_superseded +
+                # dropped_outside_window` need not sum to `fused`; the remainder passed every
+                # filter and lost only to the page size. A `dropped_by_limit` key would close that,
+                # and does not exist because nothing here needed it yet.
+                dropped_outside_window=len(current) - len(visible) if requested_window else 0,
                 # Reported by the reconciliation itself, not inferred from the wiring. Inferring
                 # it claimed `True` for a procedural slice, where `_graph_backed` correctly makes
                 # no call at all -- the flag would have said a graph vouched for bounds no graph
@@ -1156,9 +1174,16 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
             config.options.get("vector_substrate"),
             "vector_substrate",
             checked_vector,
+            config.mode,
         ),
         graph=resolve_substrate(
-            "graph", "graphdb", config.graph, config.options.get("graph_substrate"), "graph_substrate", checked_graph
+            "graph",
+            "graphdb",
+            config.graph,
+            config.options.get("graph_substrate"),
+            "graph_substrate",
+            checked_graph,
+            config.mode,
         ),
         config=config,
         max_episodes_per_pass=config.options.get("max_episodes_per_pass", _MAX_EPISODES_PER_PASS),

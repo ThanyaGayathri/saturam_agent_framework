@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
-from egpt.os.interfaces.whatsapp.security import validate_webhook_signature
+from egpt.integrations.channels.whatsapp.security import validate_webhook_signature
 
 APP_SECRET = "test-app-secret"
 

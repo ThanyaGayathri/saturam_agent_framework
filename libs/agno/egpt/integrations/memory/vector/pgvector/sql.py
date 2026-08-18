@@ -23,7 +23,7 @@ interpolated unescaped; hand-rolled quoting is one review round from being right
 from hashlib import md5
 from typing import Any, Dict, List, Optional, Tuple
 
-from egpt.memory.types import Scope
+from egpt.memory.types import Scope, ValidWindow, require_scope
 
 __all__ = [
     "COLUMNS",
@@ -33,6 +33,7 @@ __all__ = [
     "create_partition_statement",
     "ef_search_statement",
     "identifier",
+    "lexical_search_statement",
     "live_schema_statements",
     "partition_name",
     "qualified",
@@ -40,9 +41,14 @@ __all__ = [
     "scan_statement",
     "schema_statements",
     "scope_predicate",
+    "search_predicate",
     "SettingError",
     "search_statement",
+    "text_search_config",
+    "text_search_config_statement",
+    "ts_vector_expression",
     "upsert_statement",
+    "window_predicate",
 ]
 
 
@@ -207,6 +213,69 @@ def qualified(schema: str, table: str) -> str:
     return f"{identifier(schema, 'schema')}.{identifier(table, 'table')}"
 
 
+def text_search_config(name: str, field: str = "text_search_config") -> str:
+    """A Postgres text-search configuration name (``english``, ``simple``, a custom one), **lowered**.
+
+    Held to :func:`identifier`'s rules even though the value lands as a **literal** rather than an
+    identifier -- ``to_tsvector('english', content)``. That is deliberate: the rules forbid a quote
+    character, which is what makes interpolating the result into a literal safe without an escaper
+    of this module's own. Whether the config exists is a database fact, checked at schema init
+    (:func:`text_search_config_statement`) rather than guessed at here.
+
+    **Lower-cased because that is what Postgres does with it**, not as a convenience.
+    ``'English'::regconfig`` resolves to ``english`` -- the regconfig input function parses its
+    argument as an identifier, and an unquoted identifier is down-cased. Passing the caller's
+    spelling through unchanged therefore broke in two directions at once: the existence probe
+    matched ``pg_ts_config.cfgname`` exactly and **refused a configuration the server accepts**, and
+    had it got past that, the index renders ``'english'::regconfig`` while the setting still read
+    ``English``, so the drift check would have warned on every clean startup.
+
+    Normalising here rather than at each of those two sites is what makes them agree by
+    construction. A configuration that would need quoting to be found is unreachable through this
+    API anyway, since :func:`identifier` rejects a quote.
+    """
+    return identifier(name, field).lower()
+
+
+def ts_vector_expression(ts_config: str) -> str:
+    """The indexed document expression, written **once**.
+
+    A functional index is only used when the query repeats its expression exactly, so the DDL in
+    :func:`schema_statements` and the predicate in :func:`lexical_search_statement` must be the same
+    text. Spelled apart they drift on the first edit, and the symptom is not an error -- the GIN
+    index is silently skipped and every lexical read becomes a sequential scan of the partition.
+    """
+    return f"to_tsvector('{text_search_config(ts_config)}', content)"
+
+
+def text_search_config_statement(ts_config: str) -> Tuple[str, Dict[str, Any]]:
+    """Ask Postgres whether this configuration resolves, before any DDL uses it.
+
+    ``pg_ts_config_is_visible`` is what makes this match how the name will actually be used: a bare
+    ``pg_ts_config.cfgname`` lookup answers "some schema has one", which is a different question
+    from "the DDL and the query will resolve it", and the two disagree exactly when a config is
+    defined outside the connection's ``search_path``. Postgres has no ``to_regconfig``, so the
+    visibility function is the resolution semantics spelled out rather than borrowed.
+
+    Asked as a boolean rather than by casting ``:cfg::regconfig``, which resolves identically but
+    **raises** ``undefined_object`` when it fails -- landing in ``_translated`` as a
+    ``MemoryOperationError``, which is the shape this probe exists to avoid.
+
+    Probed rather than left to the DDL because the two failures are different kinds: an
+    unrecognised config is a **deployment setting** fault that should name the setting, while the
+    ``CREATE INDEX`` it would otherwise break reports an ``undefined_object`` from the middle of
+    schema init with no mention of which option caused it.
+    """
+    # Cast to text for the same reason `create_partition_statement` casts every `format()` argument:
+    # a bare bind is `unknown` to the planner, which cannot pick an overload for it. Caught against
+    # the real engine, not by any double.
+    return (
+        "SELECT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = "
+        f"{cast_param('ts_config', 'text')} AND pg_ts_config_is_visible(oid)) AS present",
+        {"ts_config": text_search_config(ts_config)},
+    )
+
+
 def partition_name(table: str, tenant_id: str) -> str:
     """The partition holding ``tenant_id``, named by digest rather than by the tenant itself.
 
@@ -226,7 +295,15 @@ def scope_predicate(scope: Scope, alias: str = "") -> Tuple[str, Dict[str, Any]]
     ``tenant_id`` always, plus every other slot the scope **sets**; an unset slot means "any" and
     contributes no predicate. Returned as a fragment plus binds rather than as formatted SQL, so a
     slot value can never reach the statement text.
+
+    The SM-C4 (#92) guard runs here as well as at the port methods, and the redundancy is the
+    point: the port methods guard *early*, before an embedding call is spent, while this one is
+    what a **statement added later** inherits without anyone remembering. Every row-reading
+    statement in this module is built from this function -- that is the module docstring's stated
+    invariant -- so a guard here cannot be routed around by a new one. ``require_scope`` returns
+    the same object and is idempotent, so paying for it twice costs a type check.
     """
+    require_scope(scope, method="scope_predicate")
     prefix = f"{alias}." if alias else ""
     clauses = [f"{prefix}tenant_id = :tenant_id"]
     binds: Dict[str, Any] = {"tenant_id": scope.tenant_id}
@@ -238,7 +315,63 @@ def scope_predicate(scope: Scope, alias: str = "") -> Tuple[str, Dict[str, Any]]
     return " AND ".join(clauses), binds
 
 
-def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction: int) -> List[str]:
+def window_predicate(window: Optional[ValidWindow], alias: str = "") -> Tuple[str, Dict[str, Any]]:
+    """The valid-time overlap filter and its binds -- ``("", {})`` when no window is asked for.
+
+    The SQL half of :meth:`ValidWindow.overlaps`, and it must stay the same rule: a window that
+    means one thing in the ``WHERE`` clause and another on the merged set drops a record on one
+    path and keeps it on the other, which reads as a flaky search rather than as a bug.
+    ``test_valid_window.py`` drives this against the Python form over one case table.
+
+    An unset **record** bound is open at that end, so ``NULL`` passes. Excluding those instead
+    would silently drop every record whose valid time was never stamped -- which the write path
+    only guarantees for episodes.
+
+    ``None`` and ``ValidWindow()`` (both bounds unset) both return ``("", {})`` -- the first by the
+    early return below, the second because the loop appends no clause for either. Contract, not
+    coincidence: a caller may treat the two as interchangeable "no window" spellings. What it must
+    not do is skip the ``if window_clause:`` guard in :func:`search_predicate` and join this
+    result in unconditionally -- ``" AND ".join([scope_clause, ""])`` leaves a dangling ``AND`` with
+    nothing after it.
+    """
+    if window is None:
+        return "", {}
+    prefix = f"{alias}." if alias else ""
+    clauses: List[str] = []
+    binds: Dict[str, Any] = {}
+    if window.valid_from is not None:
+        clauses.append(f"({prefix}t_invalid IS NULL OR {prefix}t_invalid > :valid_from)")
+        binds["valid_from"] = window.valid_from
+    if window.valid_to is not None:
+        clauses.append(f"({prefix}t_valid IS NULL OR {prefix}t_valid < :valid_to)")
+        binds["valid_to"] = window.valid_to
+    return " AND ".join(clauses), binds
+
+
+def search_predicate(scope: Scope, window: Optional[ValidWindow], alias: str = "") -> Tuple[str, Dict[str, Any]]:
+    """Every predicate a **ranked** read must apply, as one fragment.
+
+    Scope, tier, current belief and the valid-time window, assembled here rather than at each
+    statement, because ranked reads are about to stop being one statement: SM-V3 (#97) adds a BM25
+    leg and a fused one. A statement that built its own ``WHERE`` would be filtered correctly on
+    the day it was written and one slot short the next time a slot was added -- which is how the
+    tenant predicate gets left off exactly one of three legs. Composing instead of copying is what
+    makes a new leg inherit the filters rather than have to remember them.
+
+    ``:tiers`` and ``:limit`` are bound by the caller: the tier list is resolved from the query and
+    the limit is not a predicate.
+    """
+    scope_clause, binds = scope_predicate(scope, alias)
+    prefix = f"{alias}." if alias else ""
+    clauses = [scope_clause, f"{prefix}tier = ANY({cast_param('tiers', 'text[]')})", f"{prefix}{_CURRENT_BELIEF}"]
+    window_clause, window_binds = window_predicate(window, alias)
+    if window_clause:
+        clauses.append(window_clause)
+        binds.update(window_binds)
+    return " AND ".join(clauses), binds
+
+
+def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction: int, ts_config: str) -> List[str]:
     """Create the extension, the partitioned parent, and the indexes every partition inherits.
 
     Idempotent, so a repeat costs latency and not correctness.
@@ -293,6 +426,18 @@ def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction
         # `scan` is ordered by `(created_at, id)` and filtered by tier, and it is the read
         # consolidation drains a tier with -- an unindexed one is a full partition scan per pass.
         f"CREATE INDEX IF NOT EXISTS {identifier(f'{table}_scan', 'index')} ON {parent} (tier, created_at, id)",
+        # The lexical leg (SM-V3 #97). Partitioned like the HNSW index above, so a tenant created
+        # later inherits it; GIN is what makes `@@` an index lookup rather than a per-row
+        # `to_tsvector` over the partition.
+        f"CREATE INDEX IF NOT EXISTS {identifier(f'{table}_fts', 'index')} ON {parent} "
+        f"USING gin ({ts_vector_expression(ts_config)})",
+        # No index on `t_valid` / `t_invalid` (SM-V4 #98), and that is deliberate rather than an
+        # oversight this predates. `search_predicate`'s window clause reaches these columns only as
+        # a `Filter:` above the HNSW scan, the same place `_CURRENT_BELIEF` already sits -- adding
+        # one here is not adding a plain B-tree, either: the table is partitioned, so it would have
+        # to be a partitioned index, built and measured like the two above it. Nothing has, because
+        # the window predicate has no benchmark yet to say whether the ANN scan's own selectivity
+        # already makes it cheap. Revisit in `benchmarks/memory_vectordb/` before adding one.
     ]
 
 
@@ -319,6 +464,25 @@ def live_schema_statements(schema: str, table: str) -> List[Tuple[str, Dict[str,
             "JOIN pg_index i ON i.indexrelid = c.oid "
             "WHERE i.indrelid = to_regclass(:qualified) "
             "AND c.relam = (SELECT oid FROM pg_am WHERE amname = 'hnsw')",
+            qualified_name,
+        ),
+        # The GIN index's indexed **expression**, because the text-search configuration is baked
+        # into it and `CREATE INDEX IF NOT EXISTS` will not rebuild it for a changed setting.
+        # Reported rather than refused, matching the HNSW options above and for the same reason: a
+        # stale config still answers *correctly* -- `to_tsvector` is evaluated at query time either
+        # way -- it just stops matching the index expression, so every lexical read silently drops
+        # to a sequential scan.
+        #
+        # `pg_get_expr` rather than `pg_get_indexdef` so the answer is the expression alone, with no
+        # index or table name around it for a config name to be mistaken for. Postgres renders the
+        # literal in its own normalized form -- `'english'::regconfig`, not the `'english'` this
+        # module wrote -- which is why the caller parses the config *name* out rather than comparing
+        # the rendered text: a substring comparison warns on every clean startup.
+        (
+            "SELECT c.relname AS name, pg_get_expr(i.indexprs, i.indrelid) AS expression FROM pg_class c "
+            "JOIN pg_index i ON i.indexrelid = c.oid "
+            "WHERE i.indrelid = to_regclass(:qualified) "
+            "AND c.relam = (SELECT oid FROM pg_am WHERE amname = 'gin')",
             qualified_name,
         ),
     ]
@@ -362,7 +526,9 @@ def upsert_statement(schema: str, table: str) -> str:
     )
 
 
-def search_statement(schema: str, table: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
+def search_statement(
+    schema: str, table: str, scope: Scope, window: Optional[ValidWindow]
+) -> Tuple[str, Dict[str, Any]]:
     """Rank by cosine distance, scoped, current-belief, tier-filtered, limited server-side.
 
     ``ORDER BY`` is the bare distance operator with no secondary key. Adding a tiebreak column
@@ -381,13 +547,67 @@ def search_statement(schema: str, table: str, scope: Scope) -> Tuple[str, Dict[s
 
     ``as_of`` is **not** applied here and no parameter carries it: valid time is enforced once, on
     the merged set, because it needs the graph's bounds as well (finding F2).
+
+    ``window`` **is** applied here, and the two are not in tension. ``as_of`` asks which of two
+    revisions the graph currently believes, so only the graph can answer it; a window asks which
+    rows are candidates, which every row answers about itself. Deferring it to the merged set would
+    spend the whole ``LIMIT`` on out-of-window rows -- the recall loss SM-V4 decision D1 rejects,
+    and the same shape as the superseded-page argument for ``_CURRENT_BELIEF`` above. The provider
+    re-applies it after reconciliation, because these bounds are a projection and may be stale.
     """
-    predicate, binds = scope_predicate(scope)
+    predicate, binds = search_predicate(scope, window)
     statement = (
         f"SELECT {_READ_COLUMNS}, embedding <=> {_QUERY_VECTOR} AS distance "
         f"FROM {qualified(schema, table)} "
-        f"WHERE {predicate} AND tier = ANY({cast_param('tiers', 'text[]')}) AND {_CURRENT_BELIEF} "
+        f"WHERE {predicate} "
         f"ORDER BY embedding <=> {_QUERY_VECTOR} "
+        "LIMIT :limit"
+    )
+    return statement, binds
+
+
+def lexical_search_statement(
+    schema: str, table: str, scope: Scope, ts_config: str, window: Optional[ValidWindow]
+) -> Tuple[str, Dict[str, Any]]:
+    """Rank by full-text relevance -- the lexical leg SM-H2's fusion consumes (SM-V3 #97).
+
+    **Composed from** :func:`search_predicate`, **not rebuilt** -- scope, tier, current belief and
+    the valid-time window (SM-V4 #98), identically to :func:`search_statement`. That function's own
+    docstring names the failure this averts: a leg that built its own ``WHERE`` was filtered
+    correctly the day it was written and one slot short the next time a slot was added. This leg
+    *was* that slot, merged in without the window it should have inherited -- caught only because
+    :func:`test_the_lexical_leg_inherits_the_search_predicate_exactly` compares the two statements'
+    ``WHERE`` text rather than sampling a behaviour. Two retrieval legs that disagree about which
+    rows exist do not produce a fusion problem, they produce a leak: a row the vector leg correctly
+    excludes -- by tenant, by tier, by validity, or now by window -- would re-enter the merged result
+    through this one.
+
+    ``websearch_to_tsquery`` rather than ``to_tsquery``: the query text is whatever a user said to
+    the agent, and ``to_tsquery`` raises a syntax error on ordinary punctuation. ``websearch_``
+    never raises -- an unparseable query yields an empty tsquery, which matches nothing, which is
+    the honest answer.
+
+    **The match predicate is in the ``WHERE`` clause here, and that is the opposite of the vector
+    leg's decision** -- see :func:`search_statement`, where the zero-similarity cut is deliberately
+    kept out of it. The reason they differ: ``@@`` is what makes the GIN index usable at all, so
+    here the predicate *is* the index lookup rather than a second computation layered over one. It
+    also removes exactly the rows ``ts_rank_cd`` would score 0.0, which are non-matches occupying a
+    page slot.
+
+    ``ts_rank_cd`` is a coverage-density rank, **not Okapi BM25** -- Postgres has no native BM25.
+    It ranks lexically, which is what the leg is for, but SM-R8 calibrated
+    ``vector_weight ~ 0.4-0.5`` against a real ``rank_bm25`` leg, so that weight does not transfer
+    unexamined. Recalibrating it is SM-H2's (#132), which owns the fusion.
+    """
+    predicate, binds = search_predicate(scope, window)
+    document = ts_vector_expression(ts_config)
+    query = f"websearch_to_tsquery('{text_search_config(ts_config)}', :query_text)"
+    statement = (
+        f"SELECT {_READ_COLUMNS}, ts_rank_cd({document}, {query}) AS rank "
+        f"FROM {qualified(schema, table)} "
+        f"WHERE {predicate} "
+        f"AND {document} @@ {query} "
+        f"ORDER BY rank DESC "
         "LIMIT :limit"
     )
     return statement, binds

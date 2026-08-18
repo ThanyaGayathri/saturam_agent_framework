@@ -62,6 +62,7 @@ from egpt.memory.types import (
     Scope,
     Substrate,
     TemporalBounds,
+    ValidWindow,
     WriteReceipt,
     consolidation_details,
     entity_extraction_complete,
@@ -114,6 +115,7 @@ __all__ = [
     "Scope",
     "Substrate",
     "TemporalBounds",
+    "ValidWindow",
     "WriteReceipt",
     # Substrate ports and the helpers a third-party adapter needs (SM-C1, SM-C4)
     "GraphSubstrate",
