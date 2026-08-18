@@ -60,6 +60,19 @@ def all_statements(scope):
             for i, (text, params) in enumerate(cypher.insert_bounded_copy_statements(scope))
         ],
         ("episode_probe", *cypher.episode_probe_statement(scope)),
+        ("clear_mentions", *cypher.clear_mentions_statement(scope)),
+        ("link_mentions", *cypher.link_mentions_statement(scope)),
+        # Every filter combination, because each one appends its own clause to the predicate and a
+        # scope guard that only held for the fully-filtered form would be the "one wiring" gap.
+        *[
+            (f"recall_episodes[{label}]", *cypher.recall_episodes_statement(scope, **kwargs))
+            for label, kwargs in (
+                ("entities", {"entities": ["berlin"], "since": None, "until": None, "limit": None}),
+                ("window", {"entities": None, "since": 10, "until": 20, "limit": 5}),
+                ("since", {"entities": None, "since": 10, "until": None, "limit": 0}),
+                ("until", {"entities": None, "since": None, "until": 20, "limit": None}),
+            )
+        ],
     ]
     return emitted
 
@@ -94,7 +107,17 @@ def statement_ids(scope):
 #: Statements that carry their scope **on each row** rather than in bound parameters. A write always
 #: has a fully-specified scope, so it matches `scope_key` exactly; a read's unset slot means "any",
 #: which an equality on the composite key could not express.
-WRITE_STATEMENTS = ("upsert_episodes", "upsert_entities", "upsert_facts[triple]", "upsert_facts[node]")
+#: The two mention statements are here for the same reason: both address the live episode by its
+#: exact ``scope_key``, so an episode written under one scope is unreachable from another whichever
+#: end the statement starts at.
+WRITE_STATEMENTS = (
+    "upsert_episodes",
+    "upsert_entities",
+    "upsert_facts[triple]",
+    "upsert_facts[node]",
+    "clear_mentions",
+    "link_mentions",
+)
 
 
 @pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name not in WRITE_STATEMENTS])
@@ -323,7 +346,14 @@ def merged_keys(text):
 
 
 def constrained_keys():
-    """``(label, {property names})`` for every composite uniqueness constraint the schema creates."""
+    """``(label, {property names})`` for every composite uniqueness constraint the schema creates.
+
+    A single-property constraint counts too, as long as it parenthesizes its key
+    (``REQUIRE (r.link_id) IS UNIQUE``, not the bare ``REQUIRE r.link_id IS UNIQUE`` every
+    surrogate-key (``row_id``) constraint uses) -- ``egpt_mentions_link`` is deliberately spelled
+    that way so this derivation can see it, since ``link_id`` is a real ``MERGE`` key and the
+    ``row_id`` ones are not.
+    """
     keys = set()
     for statement in cypher.SCHEMA_STATEMENTS:
         label_match, key_match = _CONSTRAINT_LABEL.search(statement), _CONSTRAINT_KEY.search(statement)
@@ -349,14 +379,34 @@ def test_the_merge_key_and_the_constraint_are_the_same_key():
     assert constrained, "the schema must constrain something, or this passes vacuously"
 
     checked = 0
+    skipped = 0
     for label in WRITE_STATEMENTS:
         text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
         keys = merged_keys(text)
-        assert keys, f"{label} contains no MERGE pattern this test can read"
+        if not keys:
+            # `clear_mentions` deletes what it matched; it merges nothing, so there is no key to
+            # back and nothing here to check. Every other write statement must contribute one.
+            assert label == "clear_mentions", f"{label} contains no MERGE pattern this test can read"
+            skipped += 1
+            continue
         for key in keys:
             assert key in constrained, f"{label} merges on {key}, which no uniqueness constraint backs"
             checked += 1
-    assert checked >= len(WRITE_STATEMENTS), "every write statement must contribute at least one key"
+    assert checked >= len(WRITE_STATEMENTS) - skipped, "every merging write statement must contribute a key"
+
+
+def test_the_entity_merge_is_backed_by_its_own_constraint():
+    """Both statements that ``MERGE`` an entity node key on the same pair, so one constraint covers
+    them -- and a shape that keyed on the tenant instead would share one user's entities with
+    another (entity resolution is SM-G8's call, not a side effect of a merge key)."""
+    for label in ("upsert_facts[triple]", "link_mentions"):
+        text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+        assert "MERGE (n:Entity {scope_key: row.scope_key, name: row." in text or (
+            "MERGE (s:Entity {scope_key: row.scope_key, name: row." in text
+        ), f"{label} does not merge entities on the full scope"
+    assert any("(n.scope_key, n.name) IS UNIQUE" in s for s in cypher.SCHEMA_STATEMENTS), (
+        "nothing constrains the entity identity"
+    )
 
 
 def test_the_substrate_satisfies_the_port_without_connecting():
@@ -379,7 +429,7 @@ def test_a_write_under_a_foreign_scope_is_refused():
     other = Scope(tenant_id="acme", user_id="bob")
 
     with pytest.raises(MemoryOperationError, match="does not match the write scope"):
-        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=other, id="e1")])
+        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=other, id="e1")], 100)
 
     record = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=other)
     with pytest.raises(MemoryOperationError, match="does not match the write scope"):
@@ -393,7 +443,7 @@ def test_an_episode_without_an_id_is_refused_rather_than_given_one():
     substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
 
     with pytest.raises(MemoryOperationError, match="dedup key"):
-        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=FULL)])
+        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=FULL)], 100)
 
 
 def test_a_tripled_fact_becomes_a_relation_and_an_untripled_one_a_node():
@@ -464,6 +514,7 @@ DRIVER_CALLS = {
     ),
     "upsert_entities": lambda g: g.upsert_entities(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]),
     "traverse": lambda g: g.traverse(FULL, MemoryQuery(text="x")),
+    "recall_episodes": lambda g: g.recall_episodes(FULL, since=10),
     "bounds_for_ids": lambda g: g.bounds_for_ids(FULL, ["f1"]),
     "invalidate": lambda g: g.invalidate(FULL, "f1", t_invalid=300, at=310),
     "init_schema": lambda g: g.init_schema(),
@@ -570,6 +621,7 @@ ASYNC_DRIVER_CALLS = {
         FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]
     ),
     "atraverse": lambda g: g.atraverse(FULL, MemoryQuery(text="x")),
+    "arecall_episodes": lambda g: g.arecall_episodes(FULL, since=10),
     "abounds_for_ids": lambda g: g.abounds_for_ids(FULL, ["f1"]),
     "ainvalidate": lambda g: g.ainvalidate(FULL, "f1", t_invalid=300, at=310),
     "ainit_schema": lambda g: g.ainit_schema(),

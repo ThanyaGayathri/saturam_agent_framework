@@ -21,9 +21,16 @@ They are deliberately faithful on the two behaviours the provider depends on:
 
 import asyncio
 from dataclasses import replace
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
+from egpt.memory.graph.episodic import (
+    entity_node_id_for,
+    normalized_mentions,
+    require_recall_filters,
+    require_recall_limit,
+    require_time_window,
+)
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -225,6 +232,10 @@ class FakeGraph:
         #: from `len(events)` of them, which is the property the batched verbs exist for.
         self.episode_batch_sizes: List[int] = []
         self.fact_batch_sizes: List[int] = []
+        #: Every recall the substrate was *asked* for. With `limit=0` the result is empty whatever
+        #: the filters were, so a result-only assertion cannot tell a honoured filter from a
+        #: dropped one.
+        self.recall_requests: List[Dict[str, Any]] = []
         self.entity_batch_sizes: List[int] = []
         #: Keyed on ``(scope.key(), name)``, which is the identity the Neo4j backend MERGEs on --
         #: keying on the normalised ``key`` instead would model a backend that had already done
@@ -246,23 +257,40 @@ class FakeGraph:
             self._upsert_episode(scope, event)
 
     def _upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
+        # Never `event.id or ""`: `types.py` rejects an empty id precisely because it is the
+        # dedup key, and this file is copied as reference by anyone building a double. The
+        # provider always stamps one, so this branch is unreachable in production -- which is
+        # exactly why it has to be right here rather than relied on there.
+        episode_id = event.id or str(uuid4())
         row = MemoryRecord(
-            # Never `event.id or ""`: `types.py` rejects an empty id precisely because it is the
-            # dedup key, and this file is copied as reference by anyone building a double. The
-            # provider always stamps one, so this branch is unreachable in production -- which is
-            # exactly why it has to be right here rather than relied on there.
-            id=event.id or str(uuid4()),
+            id=episode_id,
             tier=event.tier,
             content=event.content,
             scope=scope,
             substrate=Substrate.GRAPH,
             topics=list(event.topics) if event.topics is not None else None,
+            # Replaced with the episode, never unioned into it: the real backend clears the
+            # `MENTIONS` edges before relinking, so a double that accumulated them would let a
+            # dropped entity keep passing every mention filter.
+            provenance={
+                "entity_ids": [
+                    entity_node_id_for(scope, name)
+                    for name in normalized_mentions(event.entities, episode_id=episode_id)
+                ]
+            },
             t_valid=event.occurred_at,
             created_at=event.occurred_at,
         )
         bucket = self._bucket(scope)
         for index, existing in enumerate(bucket):
-            if existing.id == row.id and existing.is_current_belief():
+            # `existing.scope`, not only `existing.id`: `_bucket` keys on `tenant_id` alone, so two
+            # users of one tenant share a bucket, and an id collision between them (unlikely with
+            # uuid4 stamping, but valid per the port -- `upsert_episodes` is by id, not by (id,
+            # scope)) silently overwrote the first with the second. Neo4j's MERGE key is
+            # `(scope_key, id, LIVE)`; a double weaker than that is a double every provider test
+            # written against it would pass on a bug the engine does not have (round-1 review, PR
+            # #90).
+            if existing.id == row.id and existing.scope == row.scope and existing.is_current_belief():
                 bucket[index] = row
                 return
         bucket.append(row)
@@ -290,7 +318,10 @@ class FakeGraph:
         bucket = self._bucket(scope)
         row = replace(fact.record, substrate=Substrate.GRAPH)
         for index, existing in enumerate(bucket):
-            if existing.id == row.id and existing.is_current_belief():
+            # Same class of defect as `_upsert_episode`'s dedup, and the same fix: `existing.scope`
+            # must join `existing.id`, or two users' facts sharing an id collapse into one inside
+            # the shared per-tenant bucket.
+            if existing.id == row.id and existing.scope == row.scope and existing.is_current_belief():
                 bucket[index] = row
                 return
         bucket.append(row)
@@ -380,6 +411,70 @@ class FakeGraph:
         await _yield()
         self.calls.append("atraverse")
         return self.traverse(scope, query, tier)
+
+    def recall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        """Episodes by half-open valid-time window and mention link, oldest first (SM-G6 #104).
+
+        The guards come from ``memory.graph.episodic``, not from a copy here: a double that refused
+        a different set of requests from the real backend is a double the provider tests would agree
+        with and the engine would not.
+
+        Two things this deliberately does the awkward way, because the loose version passes:
+
+        * an entity is matched by deriving its id under **the row's own scope**, not the call
+          scope. A read that leaves ``user_id`` unset spans several write scopes, and deriving under
+          the caller's would match none of them -- while the real backend, which reaches the entity
+          through the episode's edge, matches all of them.
+        * a ``None`` ``t_valid`` fails **either** bound, matching Cypher's three-valued comparison.
+          Treating it as 0 or as unbounded would make the double agree with a backend that does not
+          exist.
+        """
+        require_scope(scope, method="recall_episodes")
+        require_recall_filters(entities, since, until)
+        require_time_window(since, until)
+        require_recall_limit(limit)
+        self.calls.append("recall_episodes")
+        self.recall_requests.append({"entities": entities, "since": since, "until": until, "limit": limit})
+
+        wanted = None if entities is None else set(entities)
+        hits = []
+        for row in self._matching(scope):
+            if row.tier is not MemoryTier.EPISODIC or not current_belief(row):
+                continue
+            if since is not None and (row.t_valid is None or row.t_valid < since):
+                continue
+            if until is not None and (row.t_valid is None or row.t_valid >= until):
+                continue
+            if wanted is not None:
+                linked = set(row.provenance.get("entity_ids") or [])
+                if not any(entity_node_id_for(row.scope, name) in linked for name in wanted):
+                    continue
+            hits.append(replace(row))
+        # `t_valid is None` last, as Neo4j orders NULL last on ASC. Never a uuid tiebreak before
+        # content, so identical episodes do not reorder between runs.
+        hits.sort(key=lambda r: (r.t_valid is None, r.t_valid or 0, r.created_at or 0, r.content, r.id))
+        # `limit=0` means zero rows, not "unlimited" -- the distinction every real backend makes.
+        return hits if limit is None else hits[:limit]
+
+    async def arecall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        require_scope(scope, method="arecall_episodes")
+        await _yield()
+        self.calls.append("arecall_episodes")
+        return self.recall_episodes(scope, entities, since, until, limit)
 
     def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
         """Unranked, unlimited lookup by id -- the whole point is to see what ranking hid.

@@ -828,7 +828,9 @@ def test_a_returned_record_does_not_alias_the_substrates_stored_row():
 
     stored = vector.rows["acme"][receipt.event_ids[0]]
     assert stored.metadata == {}
-    assert stored.provenance == {}
+    # `entity_ids` is the floor the write path always fills (SM-G6 #104); `touched` is the write-back
+    # this test exists to catch.
+    assert stored.provenance == {"entity_ids": []}
 
 
 def test_a_returned_record_does_not_alias_the_stores_nested_values():

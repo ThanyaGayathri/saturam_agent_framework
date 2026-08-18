@@ -42,6 +42,11 @@ This section demonstrates how EGPT agents persist and use user memories across r
   to the interaction, a 768-d vector), and which duplicates are deliberately left for SM-G8's entity
   resolution. Needs `./cookbook/scripts/run_neo4j.sh`, `./cookbook/scripts/run_pgvector.sh`, and an
   `OPENAI_API_KEY` -- extraction is one model call per interaction.
+- `18_episodic_subgraph.py`: The episodic subgraph (SM-G6) -- raw non-lossy episodes as graph nodes
+  linked to the entities they mention, recalled by valid-time window and by mention link. Needs
+  `./cookbook/scripts/run_neo4j.sh`; no API key. The entity names are supplied on the event:
+  extracting them from content is SM-G2's (see `17_`). Requires `.venv`, not `.venvs/demo` --
+  `demo_setup.sh` does not install the `neo4j` driver.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

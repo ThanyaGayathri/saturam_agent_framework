@@ -307,6 +307,13 @@ class GraphSubstrate(Protocol):
         raises, and the caller retries the whole batch with the same ids -- which is idempotent
         precisely because this method is by id. A backend whose engine gives it atomicity per batch
         is welcome to it; nothing above depends on that being true.
+
+        **``MemoryEvent.entities`` become mention edges from the episode to each entity** (SM-G6
+        #104), built through ``egpt.memory.graph.episodic.mention_rows`` so every backend links the
+        same set. Because this method replaces by id, so do the edges: an event re-upserted with a
+        different entity set must not leave the previous set attached, or the episode reads as
+        mentioning entities its current content does not. The episode itself stays **non-lossy** --
+        nothing about the mentions is distilled out of the node.
         """
         ...
 
@@ -420,6 +427,68 @@ class GraphSubstrate(Protocol):
         tier: Optional[MemoryTier] = None,
     ) -> List[MemoryRecord]:
         """Async variant of :meth:`traverse`."""
+        ...
+
+    def recall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        """Raw episodes by **valid time** and by **mention link** -- the episodic subgraph's read
+        (SM-G6 #104).
+
+        Not a ranked query and deliberately not :meth:`traverse`: episodic recall is temporal-order
+        retrieval (research doc section 3), so this returns the episodes a window and an anchor set
+        select, in the order they happened, with **no score**. Ranking them by recency or importance
+        is SM-E4 (#111) / SM-E5 (#112); this is the retrieval those score over.
+
+        * ``entities`` -- return only episodes carrying a ``MENTIONS`` edge to **any** of these
+          entity names (a disjunction, matching how an anchor set is used). ``None`` applies no
+          mention filter. An **empty** sequence is refused, because it reads equally as "any" and
+          "none" and both give a page a caller cannot tell from a miss.
+        * ``since`` / ``until`` -- a **half-open** valid-time window, ``since <= t_valid < until``,
+          matching the point-in-time predicate everywhere else at this seam. Either may be ``None``
+          for an open end; ``until <= since`` is refused, as it selects no instant.
+        * ``limit`` -- a bound, not a page, exactly as :meth:`VectorSubstrate.scan` defines it:
+          ``limit=0`` returns zero rows and ``None`` means unlimited. There is no cursor, for that
+          method's reasons.
+
+        **At least one of ``entities`` / ``since`` / ``until`` is required.** With none of them this
+        enumerates every episode in scope, and what enumeration means over a temporal graph is
+        SM-G9's (#107) to define -- a verb that backed into it by accepting three ``None``s would
+        settle that question by accident. Both refusals come from
+        ``egpt.memory.graph.episodic.require_recall_filters``, so every backend refuses identically.
+
+        Ordering is **ascending ``t_valid``, then ``created_at``, then ``content``, then ``id``** --
+        a total order that never breaks a tie on a uuid, so two episodes with identical content and
+        times do not reorder between runs.
+
+        **Current belief only** (``expired_at IS NULL``), applied before ``limit``, as everywhere
+        else on this port. ``query.as_of`` has no analogue here: the window *is* the valid-time
+        predicate, and it is asked for directly rather than reconciled across two legs.
+
+        Each returned record carries ``provenance["entity_ids"]`` -- the entity nodes this episode
+        mentions, read **from the edges** and derived through
+        ``egpt.memory.graph.episodic.entity_node_id_for``, so it is the same list
+        ``EpisodicRecord.entity_ids`` holds rather than a second answer to the same question. That
+        is what makes "store an episode, traverse to its entities" one round trip and one verb;
+        a second port method for the reverse direction would be a second place the derivation could
+        drift.
+        """
+        ...
+
+    async def arecall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        """Async variant of :meth:`recall_episodes`."""
         ...
 
     def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:

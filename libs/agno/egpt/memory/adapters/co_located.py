@@ -28,6 +28,7 @@ from egpt.memory.config import (
     register_provider,
     resolve_substrate,
 )
+from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
@@ -424,12 +425,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
             self._require_writable(target)
             occurred_at = event.occurred_at if event.occurred_at is not None else now
             event_id = event.id or str(uuid4())
+            # Validated here rather than only in the graph leg (SM-G6 #104): a vector-only tenant
+            # (SM-C5 #93) would otherwise accept a malformed `entities` in silence, and the same
+            # batch would be refused or not depending on which substrates happen to be wired.
+            entities = normalized_mentions(event.entities, episode_id=event_id)
             prepared = replace(
                 event,
                 id=event_id,
                 tier=target,
                 occurred_at=occurred_at,
                 topics=list(event.topics) if event.topics is not None else None,
+                entities=entities if event.entities is not None else None,
                 metadata=dict(event.metadata),
             )
             stamped.append(prepared)
@@ -440,6 +446,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     content=prepared.content,
                     scope=scope,
                     topics=list(prepared.topics) if prepared.topics is not None else None,
+                    # The same derivation the graph's `MENTIONS` edges use, so the vector row does
+                    # not drop the caller's entities on a deployment with no graph leg. Whether the
+                    # two stay in step as the graph changes is SM-E10's (#117).
+                    provenance={"entity_ids": [entity_node_id_for(scope, name) for name in entities]},
                     t_valid=occurred_at,
                     created_at=now,
                     metadata=dict(prepared.metadata),
@@ -705,6 +715,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
         the verb the caller used. Threading it is what keeps the entry guard and the post-condition
         from disagreeing about which method is running.
         """
+        # `GraphSubstrate.recall_episodes` (SM-G6 #104) is deliberately absent from this fan-out.
+        # It answers a different question -- episodes by valid-time window and mention link,
+        # unranked -- than `traverse`'s relevance-ranked search, and merging an unranked leg into
+        # `_merged`'s ranked-fusion machinery would need a decision about how the two combine that
+        # nobody has made. No ticket currently owns wiring it into the fused read path; a caller
+        # that wants it reaches `provider.graph.recall_episodes` directly, as
+        # `cookbook/18_episodic_subgraph.py` does. Stated here rather than left to look like an
+        # oversight, per round-3 review, PR #90.
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         vector_hits: List[MemoryRecord] = []

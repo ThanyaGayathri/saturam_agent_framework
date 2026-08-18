@@ -67,6 +67,24 @@ class CompleteGraph:
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]: ...
 
+    def recall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]: ...
+
+    async def arecall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]: ...
+
     def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]: ...
 
     async def abounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]: ...
@@ -114,6 +132,8 @@ def test_a_vector_backend_missing_any_method_fails_the_port(missing):
         "aupsert_entities",
         "traverse",
         "atraverse",
+        "recall_episodes",
+        "arecall_episodes",
         "bounds_for_ids",
         "abounds_for_ids",
         "invalidate",

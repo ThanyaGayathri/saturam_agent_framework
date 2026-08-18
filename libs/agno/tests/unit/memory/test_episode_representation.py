@@ -13,6 +13,7 @@ import pytest
 
 import egpt.memory as memory_package
 from egpt.db.schemas.memory import EpisodicRecord as PersistedEpisodicRecord
+from egpt.memory.graph.episodic import entity_node_id_for
 from egpt.memory.schemas.episodic import (
     EPISODE_KEYS,
     PROVENANCE_KEYS,
@@ -53,7 +54,7 @@ def a_full_episode() -> EpisodicRecord:
         cause="merge to main",
         importance=0.9,
         last_accessed_at=1_700_000_500,
-        entity_ids=["entity-1"],
+        entity_ids=[entity_node_id_for(SCOPE, "entity-1")],
         revision=2,
         supersedes=["ep-0"],
         boundary_method="surprise",
@@ -344,7 +345,7 @@ def test_the_projection_hands_out_copies():
     record.provenance["supersedes"].append("ep-9")
     record.provenance["superseded_by"].append("ep-9")
 
-    assert episode.entity_ids == ["entity-1"]
+    assert episode.entity_ids == [entity_node_id_for(SCOPE, "entity-1")]
     assert episode.supersedes == ["ep-0"]
     assert episode.superseded_by == ["ep-2"]
 
@@ -405,10 +406,18 @@ def test_no_boundary_metadata_is_assigned_here():
 
 
 def test_the_graph_link_is_derived_and_not_resolved():
-    """Pins SM-E10 (#117) and SM-G6 (#104). The link addresses the node SM-G1 would write; nothing
-    here writes it, reads it back, or propagates valid time to it. Delete this test when SM-E10 /
-    SM-G6 lands."""
-    episode = episode_from_event(an_event())
+    """Pins SM-E10 (#117). Both links are *derived*: they address the nodes the graph substrate
+    writes, and nothing here writes one, reads one back, or propagates valid time to it. Keeping the
+    two views in step over time is SM-E10's -- delete this test when it lands.
+
+    SM-G6 (#104) filled the ``entity_ids`` half, which is why it is asserted rather than empty."""
+    episode = episode_from_event(an_event(entities=["Berlin", "Ada"]))
 
     assert episode.graph_node_id == graph_node_id_for(episode_to_record(episode).scope, episode.id)
-    assert episode.entity_ids == []  # linking an episode to the entities it mentions is SM-G6's
+    assert episode.entity_ids == [entity_node_id_for(SCOPE, "Berlin"), entity_node_id_for(SCOPE, "Ada")]
+
+
+def test_an_episode_that_mentions_nothing_carries_an_empty_link_list():
+    """``None`` entities and no entities are the same row, so a reader never branches on absence."""
+    assert episode_from_event(an_event()).entity_ids == []
+    assert episode_to_record(episode_from_event(an_event())).provenance["entity_ids"] == []

@@ -20,8 +20,9 @@ Deliberately **not** here, each with an owner: entity and relation extraction (S
 SM-G3 #101), contradiction *detection* (SM-G5 #103 -- this ships the primitive, not the decision to
 call it), valid-time extraction from content (SM-G4 #102), append-only enforcement via APOC trigger
 or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), multi-hop traversal and graph
-enumeration (SM-G9 #107), PPR over a GDS projection (SM-H4 #134), episode-to-entity mention links
-(SM-G6 #104), and entity resolution (SM-G8 #106).
+enumeration (SM-G9 #107), PPR over a GDS projection (SM-H4 #134), and entity resolution (SM-G8
+#106). Episode-to-entity mention links arrived with SM-G6 (#104); the entity names they link are
+supplied on the event, not extracted here.
 """
 
 import json
@@ -33,6 +34,7 @@ from uuid import uuid4
 
 from egpt.integrations.memory.graph.neo4j import cypher
 from egpt.memory.config import MemoryProviderConfigError
+from egpt.memory.graph.episodic import entity_node_id_for, mention_rows
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     EntityWrite,
@@ -373,15 +375,43 @@ class Neo4jGraphSubstrate:
             ) from exc
 
     def _record(self, row: Dict[str, Any], scope: Scope) -> MemoryRecord:
+        # `scope` is the call scope every caller passes -- load-bearing for `traverse`'s Fact/REL
+        # rows, which carry no scope columns of their own and so use it as-is. It is overwritten
+        # below for a `recall_episodes` row (one that carries `"mentions"`), which is why it looks
+        # unused from `recall_episodes`'s own call site: that reconstruction is what round-1 review
+        # asked for, not a sign the parameter is dead on the shared signature.
+        provenance = self._from_json(row.get("provenance"), "provenance", row.get("id"))
+        record_scope = scope
+        if "mentions" in row:
+            # `recall_episodes` rows carry the episode's own **write** scope in the columns
+            # `_RECALL_RETURN` selects -- not the call scope `traverse` uses `scope` for. The
+            # distinction matters here specifically because `entity_ids` is *derived* from scope:
+            # under a tenant-wide call (`Scope(tenant_id="acme")`), deriving it from the call scope
+            # produced an id like `acme/*/*/*/*/entity/berlin` against a node actually merged at
+            # `acme/*/ada/*/*/entity/berlin` -- pointing at nothing (round-1 review, PR #90). The
+            # entity node was `MERGE`d under the episode's write scope (`link_mentions_statement`),
+            # so reconstructing that same scope here is what makes the two agree.
+            #
+            # `record.scope` is set from the same reconstructed value, not left as the call scope:
+            # a caller deriving further ids from `record.scope` after this call would reproduce the
+            # identical bug the entity_ids fix above closes.
+            record_scope = Scope(
+                tenant_id=row["tenant_id"],
+                agent_id=row.get("agent_id"),
+                user_id=row.get("user_id"),
+                team_id=row.get("team_id"),
+                session_id=row.get("session_id"),
+            )
+            provenance["entity_ids"] = [entity_node_id_for(record_scope, name) for name in row["mentions"]]
         return MemoryRecord(
             id=row["id"],
             tier=MemoryTier(row["tier"]),
             content=row["content"],
-            scope=scope,
+            scope=record_scope,
             score=row.get("score"),
             substrate=Substrate.GRAPH,
             topics=list(row["topics"]) if row.get("topics") is not None else None,
-            provenance=self._from_json(row.get("provenance"), "provenance", row.get("id")),
+            provenance=provenance,
             t_valid=row.get("t_valid"),
             t_invalid=row.get("t_invalid"),
             created_at=row.get("created_at"),
@@ -392,39 +422,94 @@ class Neo4jGraphSubstrate:
 
     # -- writes ---------------------------------------------------------------
 
-    def _episode_rows(self, scope: Scope, events: Sequence[MemoryEvent]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _require_event_id(event: MemoryEvent) -> str:
+        """The episode id, or a refusal naming it.
+
+        One helper rather than a check in the row builder, because the mention rows address the
+        episode by the same id: a guard that only the node write ran would let a batch with a
+        missing id build a mention edge keyed on the empty string, which is one edge shared by
+        every such episode.
+        """
+        if not event.id:
+            raise MemoryOperationError(
+                "MemoryEvent.id is required here: it is the cross-substrate dedup key, and "
+                "upsert is by id. The provider stamps one before the call.",
+                field_name="id",
+            )
+        return event.id
+
+    def _episode_rows(self, scope: Scope, events: Sequence[MemoryEvent], created_at: int) -> List[Dict[str, Any]]:
         rows = []
         for event in events:
             self._reject_foreign_scope(scope, event.scope)
-            if not event.id:
-                raise MemoryOperationError(
-                    "MemoryEvent.id is required here: it is the cross-substrate dedup key, and "
-                    "upsert is by id. The provider stamps one before the call.",
-                    field_name="id",
-                )
             rows.append(
                 self._row(
                     scope,
-                    event.id,
+                    self._require_event_id(event),
                     event.tier,
                     event.content,
                     topics=event.topics,
                     t_valid=event.occurred_at,
-                    created_at=now_epoch_s(),
+                    created_at=created_at,
                     metadata=event.metadata,
                 )
             )
         return rows
 
+    def _mention_rows(self, scope: Scope, events: Sequence[MemoryEvent], created_at: int) -> List[Dict[str, Any]]:
+        """The ``MENTIONS`` edges for a batch, in the shape :func:`cypher.link_mentions_statement`
+        binds. What each episode mentions is decided by ``memory.graph.episodic.mention_rows`` and
+        not here, so a second backend links the same set.
+        """
+        rows = [row for event in events for row in mention_rows(scope, self._require_event_id(event), event.entities)]
+        if not rows:
+            return []
+        entity = cypher.scope_props(scope)
+        return [
+            {
+                "scope_key": row["scope_key"],
+                "episode_id": row["episode_id"],
+                "name": row["name"],
+                "entity": entity,
+                "props": {**row, **entity, "created_at": created_at},
+            }
+            for row in rows
+        ]
+
+    def _episode_statements(self, scope: Scope, events: Sequence[MemoryEvent]) -> List[Tuple[str, Dict[str, Any]]]:
+        """The node write and its mention edges, as one ordered unit.
+
+        Three statements in **one** transaction (:meth:`_run`), and the order is load-bearing:
+        ``link`` matches the live episode the first statement just merged, and ``clear`` has to run
+        before it or a re-upsert would union the old mention set with the new one instead of
+        replacing it. The link statement is omitted when the batch mentions nothing, because
+        ``UNWIND []`` ends the pipeline and would make it a round trip that cannot match.
+        """
+        # One shared timestamp, not one per call: the node and its mention edges are written in
+        # the same transaction, so they should carry the same `created_at` rather than one that
+        # happens to be a microsecond ahead of the other (round-2 review, PR #90).
+        now = now_epoch_s()
+        rows = self._episode_rows(scope, events, now)
+        mentions = self._mention_rows(scope, events, now)
+        statements = [
+            (text, {**bound, "rows": rows})
+            for text, bound in (cypher.upsert_episodes_statement(scope), cypher.clear_mentions_statement(scope))
+        ]
+        if mentions:
+            text, bound = cypher.link_mentions_statement(scope)
+            statements.append((text, {**bound, "mentions": mentions}))
+        return statements
+
     def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
         if not events:
             return
-        self._run([cypher.upsert_episodes_statement(scope)], rows=self._episode_rows(scope, events))
+        self._run(self._episode_statements(scope, events))
 
     async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
         if not events:
             return
-        await self._arun([cypher.upsert_episodes_statement(scope)], rows=self._episode_rows(scope, events))
+        await self._arun(self._episode_statements(scope, events))
 
     def _fact_batches(self, scope: Scope, facts: Sequence[FactWrite]) -> Dict[str, List[Dict[str, Any]]]:
         """Split facts by shape: a full triple is a relation, anything else is a node."""
@@ -588,6 +673,30 @@ class Neo4jGraphSubstrate:
             cypher.traverse_statements(scope), terms=_terms(query.text), limit=query.limit, tiers=_tiers(query)
         )
         return self._merge_hits(rows, scope, query)
+
+    def recall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        # The port's refusals -- unscoped, unfiltered, inverted window -- are the statement
+        # builder's, so both halves here get them from one place and so does a direct caller.
+        statement = cypher.recall_episodes_statement(scope, entities=entities, since=since, until=until, limit=limit)
+        return [self._record(row, scope) for row in self._run([statement])[0]]
+
+    async def arecall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        statement = cypher.recall_episodes_statement(scope, entities=entities, since=since, until=until, limit=limit)
+        return [self._record(row, scope) for row in (await self._arun([statement]))[0]]
 
     @staticmethod
     def _fold_bounds(rows: List[List[Dict[str, Any]]]) -> Dict[str, TemporalBounds]:
