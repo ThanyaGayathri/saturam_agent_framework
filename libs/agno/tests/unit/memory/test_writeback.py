@@ -7,7 +7,7 @@ into, are both out of scope -- there is nothing to assert about a run loop or a 
 module does not have.
 """
 
-import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
@@ -20,6 +20,7 @@ from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import PartialWriteError, Scope
 from egpt.memory.writeback import (
     ROLE_KEY,
+    TOOL_CALL_ERROR_KEY,
     TOOL_CALL_ID_KEY,
     TOOL_NAME_KEY,
     event_from_message,
@@ -114,26 +115,75 @@ def test_event_from_tool_execution_carries_whichever_identifier_is_set(tool_name
 
 @pytest.mark.parametrize("result", [None, "", "  "])
 def test_event_from_tool_execution_is_none_without_a_result(result):
-    """Covers the error / paused / not-yet-returned states, which all leave `result` unset --
-    there is nothing yet to remember as an episode, whichever of those it is."""
+    """Covers the paused / not-yet-returned states, which leave `result` unset -- there is
+    nothing yet to remember as an episode, whichever of those it is. An *errored* call with a
+    result is covered separately below: it is not content-free."""
     execution = ToolExecution(tool_call_id="call-1", tool_name="search", result=result)
     assert event_from_tool_execution(execution, SCOPE) is None
+
+
+def test_event_from_tool_execution_captures_an_error_result_and_flags_it():
+    """Write-back is non-lossy (ADR 0003): an errored tool call still becomes an episode, since
+    "the tool failed" is part of what happened in the turn. TOOL_CALL_ERROR_KEY is what lets a
+    reader tell it apart from an ordinary successful result carrying the same shape of content."""
+    execution = ToolExecution(tool_call_id="call-1", tool_name="search", result="rate limited", tool_call_error=True)
+    event = event_from_tool_execution(execution, SCOPE)
+
+    assert event is not None
+    assert event.content == "rate limited"
+    assert event.metadata[TOOL_CALL_ERROR_KEY] is True
+
+
+def test_event_from_tool_execution_omits_the_error_key_on_success():
+    execution = ToolExecution(tool_call_id="call-1", tool_name="search", result="3 hits")
+    event = event_from_tool_execution(execution, SCOPE)
+
+    assert event is not None
+    assert TOOL_CALL_ERROR_KEY not in event.metadata
+
+
+def test_event_from_message_and_event_from_tool_execution_copy_topics():
+    """`topics` must not be shared by reference: a caller batching several events from one list
+    (see `events_from_run`) and then mutating that list after the call must not corrupt every
+    already-built event's topics."""
+    shared_topics = ["deploy"]
+
+    message_event = event_from_message(Message(role="user", content="hi"), SCOPE, topics=shared_topics)
+    tool_event = event_from_tool_execution(
+        ToolExecution(tool_call_id="c1", tool_name="search", result="ok"), SCOPE, topics=shared_topics
+    )
+    assert message_event is not None
+    assert tool_event is not None
+
+    shared_topics.append("mutated-after-the-fact")
+
+    assert message_event.topics == ["deploy"]
+    assert tool_event.topics == ["deploy"]
 
 
 def test_writeback_metadata_does_not_collide_with_the_episode_projection():
     """`episode_from_event` (SM-E1) refuses caller metadata that collides with a reserved episode
     key. If ROLE_KEY or TOOL_NAME_KEY / TOOL_CALL_ID_KEY ever drifted onto one of those, every
     write-back event would fail at the seam instead of here -- this pins the two modules staying
-    disjoint."""
+    disjoint.
+
+    Not raising is necessary but not sufficient: a projection that silently stripped unknown
+    metadata keys would also pass a no-raise-only check while dropping every role/tool-identity
+    annotation this module writes. Asserting the keys survive into the stored episode is what
+    actually pins that they made it through.
+    """
     message_event = event_from_message(Message(role="user", content="hi"), SCOPE, occurred_at=1_700_000_000)
     assert message_event is not None
-    episode_from_event(replace(message_event, id="ep-msg"))  # must not raise
+    message_episode = episode_from_event(replace(message_event, id="ep-msg"))
+    assert message_episode.metadata[ROLE_KEY] == "user"
 
     tool_event = event_from_tool_execution(
         ToolExecution(tool_call_id="c1", tool_name="search", result="ok"), SCOPE, occurred_at=1_700_000_000
     )
     assert tool_event is not None
-    episode_from_event(replace(tool_event, id="ep-tool"))  # must not raise
+    tool_episode = episode_from_event(replace(tool_event, id="ep-tool"))
+    assert tool_episode.metadata[TOOL_NAME_KEY] == "search"
+    assert tool_episode.metadata[TOOL_CALL_ID_KEY] == "c1"
 
 
 def test_events_from_run_orders_messages_before_tool_executions_and_drops_blanks():
@@ -192,27 +242,34 @@ async def test_start_writeback_task_returns_none_for_an_empty_batch():
 
 
 def test_start_writeback_future_does_not_block_the_caller():
-    """The regression this pins: a caller synchronously invoking `provider.write` would block for
-    as long as the substrate takes. Mutate `start_writeback_future` to call `_write_and_log`
-    directly instead of `executor.submit(...)` and this fails -- the elapsed time on the calling
-    thread crosses the artificial delay below."""
+    """The regression this pins: a caller synchronously invoking `provider.write` would run the
+    write on its own thread. Mutate `start_writeback_future` to call `_write_and_log` directly
+    instead of `executor.submit(...)` and this fails -- the write then runs on the calling
+    thread instead of the executor's.
+
+    Asserted by thread identity rather than elapsed wall-clock time, so this does not flake on a
+    loaded CI runner the way a tight timing margin would."""
     memory_provider, vector, _ = provider()
     real_upsert = vector.upsert
+    write_ran = threading.Event()
+    write_thread_ident: dict = {}
 
-    def slow_upsert(scope, records):
-        time.sleep(0.2)
-        return real_upsert(scope, records)
+    def recording_upsert(scope, records):
+        write_thread_ident["ident"] = threading.current_thread().ident
+        result = real_upsert(scope, records)
+        write_ran.set()
+        return result
 
-    vector.upsert = slow_upsert
-    events = events_from_run(SCOPE, messages=[Message(role="user", content="slow write")])
+    vector.upsert = recording_upsert
+    events = events_from_run(SCOPE, messages=[Message(role="user", content="write")])
+    calling_thread_ident = threading.current_thread().ident
 
     with ThreadPoolExecutor(max_workers=1) as executor:
-        started = time.monotonic()
         future = start_writeback_future(memory_provider, SCOPE, events, executor=executor)
-        elapsed = time.monotonic() - started
-
-        assert elapsed < 0.1, f"start_writeback_future blocked the caller for {elapsed:.3f}s"
         assert future is not None
+        assert write_ran.wait(timeout=2), "the background write never ran"
+        assert write_thread_ident["ident"] != calling_thread_ident
+
         receipt = future.result(timeout=2)
         assert receipt.accepted == 1
 
@@ -233,7 +290,7 @@ async def test_start_writeback_task_does_not_block_before_the_next_await():
     assert len(vector.rows["acme"]) == 1
 
 
-def test_start_writeback_future_surfaces_a_failed_write_rather_than_swallowing_it():
+def test_start_writeback_future_surfaces_a_failed_write_rather_than_swallowing_it(caplog):
     memory_provider, vector, _ = provider()
 
     def failing_upsert(scope, records):
@@ -247,10 +304,20 @@ def test_start_writeback_future_surfaces_a_failed_write_rather_than_swallowing_i
         assert future is not None
         with pytest.raises(PartialWriteError) as excinfo:
             future.result(timeout=2)
+        # `CoLocatedMemoryProvider.write` stamps an id and hands the record to the vector leg
+        # before that leg raises, so the one event this batch carries was accepted before the
+        # substrate failed -- accepted=1 alongside a raised PartialWriteError is the correct
+        # reading here, not a contradiction (see `PartialWriteError`'s own docstring).
         assert excinfo.value.receipt.accepted == 1
 
+    assert "Write-back capture failed" in caplog.text, (
+        "the failure must be logged even though nothing here calls Future.result() to observe it "
+        "as part of normal control flow -- removing `log_warning` from `_write_and_log` would "
+        "leave this test green"
+    )
 
-async def test_start_writeback_task_surfaces_a_failed_write_rather_than_swallowing_it():
+
+async def test_start_writeback_task_surfaces_a_failed_write_rather_than_swallowing_it(caplog):
     memory_provider, vector, _ = provider()
 
     async def failing_aupsert(scope, records):
@@ -263,4 +330,8 @@ async def test_start_writeback_task_surfaces_a_failed_write_rather_than_swallowi
     assert task is not None
     with pytest.raises(PartialWriteError) as excinfo:
         await task
-    assert excinfo.value.receipt.accepted == 1
+    assert excinfo.value.receipt.accepted == 1  # see the comment on the sync twin above
+
+    assert "Write-back capture failed" in caplog.text, (
+        "removing `log_warning` from `_awrite_and_log` would leave this test green"
+    )

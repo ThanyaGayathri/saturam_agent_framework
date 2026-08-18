@@ -72,8 +72,11 @@ from egpt.memory.validation import (
     reject_duplicate_ids,
     reject_foreign_scopes,
 )
+
+# Write-back capture (SM-E2)
 from egpt.memory.writeback import (
     ROLE_KEY,
+    TOOL_CALL_ERROR_KEY,
     TOOL_CALL_ID_KEY,
     TOOL_NAME_KEY,
     event_from_message,
@@ -159,6 +162,7 @@ __all__ = [
     "graph_node_id_for",
     # Write-back capture (SM-E2)
     "ROLE_KEY",
+    "TOOL_CALL_ERROR_KEY",
     "TOOL_CALL_ID_KEY",
     "TOOL_NAME_KEY",
     "event_from_message",

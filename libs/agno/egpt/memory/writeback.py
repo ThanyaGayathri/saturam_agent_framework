@@ -41,6 +41,7 @@ from egpt.utils.log import log_debug, log_warning
 
 __all__ = [
     "ROLE_KEY",
+    "TOOL_CALL_ERROR_KEY",
     "TOOL_CALL_ID_KEY",
     "TOOL_NAME_KEY",
     "event_from_message",
@@ -64,6 +65,15 @@ ROLE_KEY = "role"
 #: metadata keys rather than overloading :data:`ROLE_KEY` with a non-role value.
 TOOL_NAME_KEY = "tool_name"
 TOOL_CALL_ID_KEY = "tool_call_id"
+
+#: Set to ``True`` in metadata when :func:`event_from_tool_execution` captures a tool call that
+#: errored. Write-back does not filter errored tool results out -- ADR 0003 requires ``write`` to
+#: be non-lossy, and a tool call failing is itself something that happened in the turn, worth
+#: remembering as an episode (e.g. "search API rate limited") rather than dropped. This key is
+#: what lets a reader distinguish that episode's content from an ordinary successful result,
+#: since ``ToolExecution.result`` carries the error message in both cases (``models/base.py``:
+#: ``content=output if success else function_call.error``).
+TOOL_CALL_ERROR_KEY = "tool_call_error"
 
 
 def _content_or_none(value: Optional[str]) -> Optional[str]:
@@ -90,6 +100,13 @@ def event_from_message(
     ``None`` rather than raising: a tool-call-only assistant message or a system message with no
     text is routine, and a caller batching many messages (see :func:`events_from_run`) wants to
     drop those, not stop on them.
+
+    ``occurred_at`` is epoch seconds, matching ``MemoryEvent.occurred_at`` -- a caller holding a
+    ``datetime`` converts with :func:`egpt.utils.dttm.to_epoch_s` first.
+
+    Caller ``metadata`` carrying :data:`ROLE_KEY` is overwritten unconditionally by
+    ``message.role``: the message's own role is authoritative here, not whatever a caller happened
+    to put under the same key.
     """
     content = _content_or_none(message.get_content_string())
     if content is None:
@@ -101,7 +118,7 @@ def event_from_message(
         scope=scope,
         tier=MemoryTier.EPISODIC,
         role=message.role,
-        topics=topics,
+        topics=list(topics) if topics is not None else None,
         occurred_at=occurred_at,
         metadata=event_metadata,
     )
@@ -117,9 +134,21 @@ def event_from_tool_execution(
 ) -> Optional[MemoryEvent]:
     """Build an episodic event from one tool result, or ``None`` if it carries no result text.
 
-    A tool call that errored, was paused for confirmation, or has not returned yet has nothing
-    worth remembering as an episode -- ``execution.result`` is ``None`` in each of those cases, so
-    the same content-free check :func:`event_from_message` uses covers them.
+    A tool call that was paused for confirmation or has not returned yet has nothing worth
+    remembering as an episode -- ``execution.result`` is ``None`` in both cases, so the same
+    content-free check :func:`event_from_message` uses covers them. An *errored* call is
+    different: ``result`` legitimately carries the error message (``models/base.py`` sets
+    ``content=... if success else function_call.error``), and write-back does not drop it -- ADR
+    0003 requires ``write`` to be non-lossy, and "the tool failed" is itself part of the turn.
+    :data:`TOOL_CALL_ERROR_KEY` is set so a reader can tell the two apart without re-deriving it
+    from the content.
+
+    ``occurred_at`` is epoch seconds, matching ``MemoryEvent.occurred_at`` -- a caller holding a
+    ``datetime`` converts with :func:`egpt.utils.dttm.to_epoch_s` first.
+
+    Caller ``metadata`` carrying :data:`TOOL_NAME_KEY` / :data:`TOOL_CALL_ID_KEY` /
+    :data:`TOOL_CALL_ERROR_KEY` is overwritten unconditionally by the execution's own fields, for
+    the same reason :func:`event_from_message` overwrites :data:`ROLE_KEY`.
     """
     content = _content_or_none(execution.result)
     if content is None:
@@ -129,11 +158,13 @@ def event_from_tool_execution(
         event_metadata[TOOL_NAME_KEY] = execution.tool_name
     if execution.tool_call_id is not None:
         event_metadata[TOOL_CALL_ID_KEY] = execution.tool_call_id
+    if execution.tool_call_error:
+        event_metadata[TOOL_CALL_ERROR_KEY] = True
     return MemoryEvent(
         content=content,
         scope=scope,
         tier=MemoryTier.EPISODIC,
-        topics=topics,
+        topics=list(topics) if topics is not None else None,
         occurred_at=occurred_at,
         metadata=event_metadata,
     )
@@ -172,9 +203,11 @@ def events_from_run(
 
 
 def _write_and_log(provider: MemoryProvider, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
-    """The body run in the background thread. A background write that raises into an unchecked
-    ``Future`` is a silently dropped episode -- the exception is logged here rather than left for
-    whoever eventually (or never) calls ``Future.result()``.
+    """The body run in the background thread.
+
+    Logs at the point of failure and re-raises into the ``Future`` -- a caller who checks
+    ``Future.result()`` still sees the exception, and the log fires even if they never do, which
+    is what keeps a background write failure from being a silently dropped episode.
     """
     try:
         return provider.write(scope, events)
@@ -216,6 +249,8 @@ def start_writeback_future(
     if not events:
         return None
     log_debug(f"Enqueuing {len(events)} write-back event(s) for scope {scope.key()}")
+    # Defensive copy: the background thread reads `events` at its own pace, after this function
+    # has already returned control to a caller who may go on to mutate the sequence it passed in.
     return executor.submit(_write_and_log, provider, scope, list(events))
 
 
@@ -229,11 +264,20 @@ def start_writeback_task(
     Requires a running event loop, same as every other ``create_task`` background dispatch in this
     codebase (``agent/_managers.py``, ``agent/_run.py``) -- the caller is already inside one, since
     this is only ever reached from an async run.
+
+    A caller that discards the returned ``Task`` without awaiting it still gets the failure
+    logged by :func:`_awrite_and_log` -- but asyncio separately logs "Task exception was never
+    retrieved" at garbage-collection time for any task whose exception nobody read. The
+    ``add_done_callback`` below reads it first, so a discarded task produces the one meaningful
+    log line instead of two.
     """
     if not events:
         return None
     log_debug(f"Enqueuing {len(events)} write-back event(s) for scope {scope.key()}")
-    return create_task(
+    # Defensive copy: see the matching comment in `start_writeback_future`.
+    task = create_task(
         _awrite_and_log(provider, scope, list(events)),
         name=f"writeback:{scope.key()}",
     )
+    task.add_done_callback(lambda t: None if t.cancelled() else t.exception())
+    return task
