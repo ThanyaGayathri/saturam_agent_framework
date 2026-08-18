@@ -191,10 +191,13 @@ scope, which is tracked in aicoe-tracker #170.
 | `page`, `limit` | `limit` capped at 100 |
 | `action` | Must be one of the vocabulary above |
 | `version` | Filter to one config version |
+| `include_deleted` | See history for a soft- or hard-deleted component too (default `false`) |
 
 | Situation | Code |
 |---|---|
-| Component absent, soft-deleted, **or owned by another tenant** | 404, byte-identical |
+| Component absent, **or owned by another tenant** | 404, byte-identical |
+| Component soft- or hard-deleted, `include_deleted` unset | 404, byte-identical |
+| Component soft- or hard-deleted, `include_deleted=true`, history exists | 200, full history |
 | Unknown `action` filter | 422 |
 | Missing `components:read` | 403 |
 
@@ -203,18 +206,21 @@ never mistaken for a component that nothing ever happened to.
 
 The response never includes `tenant_id`, matching every other component response model.
 
-### Known limit
+### Reading past a delete
 
-After a delete — **soft or hard** — the rows are still in the table but this route stops
-answering for them: it runs the same tenant-scoped existence check as every sibling route, and
-that check 404s for a deleted component either way. So *history follows the component's lifetime
-over HTTP*, and "who deleted this agent, and when" is not answerable through the API for the
-window in which a deletion is most likely to be investigated.
+`include_deleted=true` opts into seeing a deleted component's history, under the same
+`components:read` scope as the rest of this route — no dedicated scope (that split is still
+tracked separately in aicoe-tracker #170).
 
-This is an accepted trade, not an oversight. The history remains readable at the DB layer via
-`db.list_component_audit(...)`, and forking the existence rule for one route would be worse than
-the limit. Tracker #167 covers the fix in the shape that keeps the rule shared: add
-`include_deleted` to `get_component`.
+Soft and hard delete need different proof of existence, because they leave different things
+behind. A soft delete leaves the `components` row in place (`deleted_at` set), so
+`include_deleted` uncovers it the same way the db layer's `list_components(include_deleted=True)`
+already does. A hard delete removes the row outright — the audit trail carries no foreign key to
+`components` specifically so this can happen without taking the history with it — so there is no
+row for `include_deleted` to uncover. In that case existence is instead proven by the audit trail
+itself: if any row exists for the component in-tenant, that is enough. A `component_id` with no
+row and no history either way (never existed, or belongs to another tenant) still 404s regardless
+of `include_deleted`.
 
 ---
 

@@ -194,6 +194,71 @@ class TestTheWholeLifecycleIsAudited:
 
 
 # =============================================================================
+# READING PAST A DELETE (aicoe-tracker#167)
+# =============================================================================
+
+
+class TestReadingPastADelete:
+    def test_the_default_still_404s_after_a_soft_delete(self, client):
+        create_component(client)
+        assert client.delete("/components/agent-a", headers=auth()).status_code == 204
+
+        assert client.get("/components/agent-a/audit", headers=auth()).status_code == 404
+
+    def test_include_deleted_reaches_history_after_a_soft_delete(self, client):
+        create_component(client)
+        assert client.delete("/components/agent-a", headers=auth()).status_code == 204
+
+        assert actions(client, query="&include_deleted=true")[-1] == ComponentAuditAction.COMPONENT_DELETE.value
+
+    def test_the_default_still_404s_after_a_hard_delete(self, client, audit_db):
+        create_component(client)
+        audit_db.delete_component("agent-a", hard_delete=True, tenant_id=TENANT_A, actor="alice")
+
+        assert client.get("/components/agent-a/audit", headers=auth()).status_code == 404
+
+    def test_include_deleted_reaches_history_after_a_hard_delete(self, client, audit_db):
+        """No components row survives a hard delete, unlike a soft delete -- so this proves
+        existence through the audit trail rather than through get_component."""
+        create_component(client)
+        audit_db.delete_component("agent-a", hard_delete=True, tenant_id=TENANT_A, actor="alice")
+
+        rows = history(client, query="&include_deleted=true")
+        assert rows[-1]["action"] == ComponentAuditAction.COMPONENT_DELETE.value
+        assert rows[-1]["details"] == {"hard": True}
+
+    def test_include_deleted_with_a_filter_matching_nothing_is_a_200_not_a_404(self, client, audit_db):
+        """Existence must not depend on the caller's filters: a hard-deleted component with real
+        history still 200s an empty page for a valid action that legitimately matches nothing,
+        rather than reading as "never existed" -- exactly like a live component would."""
+        create_component(client)
+        audit_db.delete_component("agent-a", hard_delete=True, tenant_id=TENANT_A, actor="alice")
+
+        response = client.get(
+            f"/components/agent-a/audit?include_deleted=true&action={ComponentAuditAction.CONFIG_ROLLBACK.value}",
+            headers=auth(),
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["data"] == []
+        assert body["meta"]["total_count"] == 0
+
+    def test_include_deleted_does_not_cross_tenants(self, client, audit_db):
+        create_component(client, tenant=TENANT_A)
+        audit_db.delete_component("agent-a", hard_delete=True, tenant_id=TENANT_A, actor="alice")
+
+        response = client.get("/components/agent-a/audit?include_deleted=true", headers=auth(tenant=TENANT_B))
+
+        assert response.status_code == 404
+
+    def test_include_deleted_404s_for_a_component_that_never_existed(self, client):
+        response = client.get("/components/nonexistent/audit?include_deleted=true", headers=auth())
+
+        assert response.status_code == 404
+
+
+# =============================================================================
 # THE ACTOR IS THE AUTHENTICATED PRINCIPAL
 # =============================================================================
 

@@ -20,11 +20,11 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
-from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
 )
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.utils import (
     deserialize_session,
     deserialize_session_json_fields,
@@ -3387,6 +3387,7 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
+        include_deleted: bool = False,
         *,
         tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
@@ -3395,6 +3396,8 @@ class SqliteDb(BaseDb):
         Args:
             component_id: The component ID.
             component_type: Optional type filter (agent|team|workflow).
+            include_deleted: Include a soft-deleted component. A hard-deleted component has
+                no row left to include -- see ``delete_component``.
             tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
@@ -3408,10 +3411,9 @@ class SqliteDb(BaseDb):
                 return None
 
             with self.Session() as sess:
-                stmt = select(table).where(
-                    table.c.component_id == component_id,
-                    table.c.deleted_at.is_(None),
-                )
+                stmt = select(table).where(table.c.component_id == component_id)
+                if not include_deleted:
+                    stmt = stmt.where(table.c.deleted_at.is_(None))
                 if component_type is not None:
                     stmt = stmt.where(table.c.component_type == component_type.value)
                 if tenant_id is not None:

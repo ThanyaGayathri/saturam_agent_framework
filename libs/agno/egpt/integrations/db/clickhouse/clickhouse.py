@@ -802,6 +802,7 @@ class ClickhouseDb(BaseDb):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
+        include_deleted: bool = False,
         *,
         tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
