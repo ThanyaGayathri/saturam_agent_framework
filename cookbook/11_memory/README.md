@@ -23,6 +23,11 @@ This section demonstrates how EGPT agents persist and use user memories across r
   scores in `[0.0, 1.0]` against Postgres + pgvector. Needs `./cookbook/scripts/run_pgvector.sh`;
   no API key (the embedder is the offline `bge-base` ADR 0003 ratifies for Mode A, downloaded on
   first run).
+- `14_hybrid_candidates_pgvector.py`: Two ranked candidate lists from that one store (SM-V3) --
+  dense cosine and Postgres full-text, returned **unfused** so a fusion stage can still see the
+  per-leg ranks. Shows the legs disagreeing on length, order, and top hit. Fusing them is SM-H2
+  (#132); ADR 0003 section A.6 ratifies weighted fusion for this two-leg case and holds the
+  three-leg choice open. Same setup as `13_`.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
