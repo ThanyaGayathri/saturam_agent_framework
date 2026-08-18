@@ -796,3 +796,48 @@ def test_concurrent_publishes_never_claim_a_previous_current_version_that_was_no
 
     final = sqlite_db.get_component("agent-1", tenant_id=TENANT_A)
     assert final["current_version"] == rows[-1]["version"]
+
+
+# ============================================================================
+# CONCURRENT VERSION CREATION DOES NOT COLLIDE ON A VERSION NUMBER
+# ============================================================================
+
+
+def test_concurrent_version_creates_get_distinct_contiguous_versions(sqlite_db):
+    """The version-number race deferred out of the EGPT-2.6 review (aicoe-tracker#168):
+    ``upsert_config`` with no explicit ``version`` read ``max(version)`` unlocked and inserted
+    ``max + 1``, so two concurrent creators could compute the same next version -- the loser
+    surfaced a raw ``IntegrityError`` off the ``(component_id, version)`` primary key instead
+    of succeeding.
+
+    The fix is a conflict-tolerant insert (``ON CONFLICT DO NOTHING``) retried with a fresh
+    read: a losing creator takes the next number instead of failing. The properties asserted
+    here are the ones that were false before it: every concurrent creator succeeds, and the
+    landed version numbers are distinct and contiguous.
+    """
+    _create_component(sqlite_db, "agent-1", TENANT_A)  # v1
+
+    errors = []
+    versions = []
+
+    def worker(i):
+        try:
+            created = sqlite_db.upsert_config("agent-1", config={"model": f"thread-{i}"}, tenant_id=TENANT_A)
+            versions.append(created["version"])
+        except Exception as e:  # pragma: no cover - asserted via `errors`, not raised in-thread
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert sorted(versions) == list(range(2, 10))
+
+    rows, _ = sqlite_db.list_component_audit(
+        "agent-1", tenant_id=TENANT_A, action=ComponentAuditAction.CONFIG_CREATE.value, limit=100
+    )
+    # One create row per landed version: v1 from the component create, v2..v9 from the threads.
+    assert sorted(row["version"] for row in rows) == list(range(1, 10))
