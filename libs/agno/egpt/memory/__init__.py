@@ -28,6 +28,16 @@ from egpt.memory.strategies import (
     SummarizeStrategy,
 )
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
+from egpt.memory.writeback import (
+    ROLE_KEY,
+    TOOL_CALL_ID_KEY,
+    TOOL_NAME_KEY,
+    event_from_message,
+    event_from_tool_execution,
+    events_from_run,
+    start_writeback_future,
+    start_writeback_task,
+)
 from egpt.memory.validation import (
     MEMORY_DATA_ACCESS_METHODS,
     assert_scope_isolation,
@@ -147,4 +157,13 @@ __all__ = [
     "episode_from_event",
     "episode_to_record",
     "graph_node_id_for",
+    # Write-back capture (SM-E2)
+    "ROLE_KEY",
+    "TOOL_CALL_ID_KEY",
+    "TOOL_NAME_KEY",
+    "event_from_message",
+    "event_from_tool_execution",
+    "events_from_run",
+    "start_writeback_future",
+    "start_writeback_task",
 ]
