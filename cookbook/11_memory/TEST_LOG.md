@@ -404,17 +404,18 @@ convention, whoever merges second renumbers -- twice, this time.
 
 ### 19_relation_extraction_graph.py
 
-**Status:** PARTIAL
+**Status:** FAIL
 
 **Description:** Relation/fact edge extraction from episodes into typed graph edges (SM-G3 #101),
 against a real Neo4j 5 Community and a real Postgres 18 + pgvector, wired alongside `17_`'s entity
 pipeline via a second `relation_pipeline` option.
 
-**Result:** The write and read-path legs run clean against the real containers: two episodes are
-written, the pre-consolidate read returns them with no model call, and `provider.consolidate()`
-reaches the entity extraction pass before failing with `ModelAuthenticationError` -- **this
-environment carries no model credentials at all (no `OPENAI_API_KEY`, no Azure key)**, unlike the
-machine `17_` was run from, so the LLM leg of this file is unexercised here.
+**Result:** The file does not run to completion in this environment: the write and read-path legs
+run clean against the real containers (two episodes written, the pre-consolidate read returns them
+with no model call), but `provider.consolidate()` reaches the entity extraction pass and raises
+`ModelAuthenticationError` -- **this environment carries no model credentials at all (no
+`OPENAI_API_KEY`, no Azure key)**, unlike the machine `17_` was run from, so the LLM leg of this
+file, and therefore this file's own pass/fail, is unexercised here.
 
 To still validate the graph write path against the real backend rather than only the in-memory
 double, `RelationExtractionPipeline` was run directly (not through this cookbook) against the same

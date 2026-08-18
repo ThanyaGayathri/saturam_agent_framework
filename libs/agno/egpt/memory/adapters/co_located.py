@@ -43,6 +43,7 @@ from egpt.memory.tiers import (
 )
 from egpt.memory.types import (
     NO_ENTITIES,
+    NO_RELATIONS,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
@@ -90,16 +91,14 @@ _MAX_EPISODES_PER_PASS = 5_000
 EntitySummary = Union[Dict[str, Any], str]
 
 #: The ``details["relations"]`` counterpart to :data:`EntitySummary` (SM-G3 #101), same two shapes
-#: for the same reason: a ``relation_details`` payload from a wired pipeline, or the sentinel below
-#: from an unwired one.
+#: for the same reason: a ``relation_details`` payload from a wired pipeline, or
+#: :data:`~egpt.memory.types.NO_RELATIONS` from an unwired one.
+#:
+#: ``details["relations"]`` itself is carried as a free extra key on ``consolidation_details``
+#: (explicitly documented as allowed), not promoted to the ``types.CONSOLIDATION_KEYS`` floor --
+#: that floor is shared by every provider this seam will ever grow, and widening it is a
+#: deliberate, separately-reviewable decision this ticket does not make.
 RelationSummary = Union[Dict[str, Any], str]
-
-#: Mirrors :data:`~egpt.memory.types.NO_ENTITIES`. Kept local rather than promoted to
-#: ``types.CONSOLIDATION_KEYS`` -- that floor is shared by every provider this seam will ever grow,
-#: and widening it is a deliberate, separately-reviewable decision this ticket does not make.
-#: ``details["relations"]`` is carried as a free extra key (``consolidation_details`` explicitly
-#: allows them), not a new floor member.
-NO_RELATIONS = "not extracted -- no relation pipeline wired (SM-G3 #101)"
 
 
 def _positive_int(value: Any, option: str) -> int:

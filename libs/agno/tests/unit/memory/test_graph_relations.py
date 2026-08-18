@@ -25,6 +25,7 @@ from egpt.memory.graph.relations import (
 )
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    NO_RELATIONS,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
@@ -86,6 +87,24 @@ def edge_for(graph, source="Ada", rel="works_at", target="Acme Corp", scope=ACME
 
 
 # ---------------------------------------------------------------------------
+# Schema boundary -- an empty field is refused at parse, not three frames deep
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["source", "relation", "target"])
+def test_an_empty_field_is_refused_at_the_schema_boundary(field):
+    """A model answering with an empty string must fail at parse time, not reach
+    ``relation_edge_id_for`` three frames deeper -- where, if episodic facts already committed,
+    the refusal surfaces as a ``PartialWriteError`` with the real cause buried in its chain."""
+    from pydantic import ValidationError
+
+    fields = {"source": "Ada", "relation": "works_at", "target": "Acme Corp", field: ""}
+
+    with pytest.raises(ValidationError):
+        ExtractedRelation(**fields)
+
+
+# ---------------------------------------------------------------------------
 # AC 1 -- typed edges created between entities
 # ---------------------------------------------------------------------------
 
@@ -117,7 +136,10 @@ def test_the_edge_id_is_deterministic_in_the_triple():
     assert first != relation_edge_id_for(BOB, "Ada", "works_at", "Acme Corp")
 
 
-def test_a_second_pass_upserts_the_same_edge_rather_than_duplicating_it():
+def test_a_second_pass_produces_the_same_edge_id():
+    """Proves id determinism, not graph-level dedup: ``FakeGraph.facts`` appends on every write, so
+    this asserts both writes carry the *same* id, not that only one row exists. The dedup claim
+    itself is proven against a real backend -- see `TEST_LOG.md`'s Neo4j run for this cookbook."""
     pipe, graph = pipeline()
 
     pipe.run(ACME, [episode("Ada works at Acme", "e1")])
@@ -153,16 +175,24 @@ def test_provenance_is_deduplicated_when_the_same_edge_repeats_within_one_episod
     assert fact.source_episode_ids == ["e1"]
 
 
-def test_a_relation_is_filed_under_its_own_episodes_scope_not_the_passs():
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_relation_is_filed_under_its_own_episodes_scope_not_the_passs(is_async):
     """A pass scoped to a tenant legitimately scans every user's episodes.
 
     Filing Bob's relation under the tenant would let Ada read it -- the cross-user leak
-    ``_by_scope`` prevents one tier up.
+    ``_by_scope`` prevents one tier up. Parametrized because ``arun`` calls
+    ``graph.aupsert_facts``, a different double method than ``run``'s ``graph.upsert_facts``, and
+    this is the only multi-scope coverage of it -- ``test_both_consolidate_halves_write_the_same_edges``
+    uses a single scope throughout.
     """
     pipe, graph = pipeline()
     tenant_wide = Scope(tenant_id="acme")
+    episodes = [episode("x", "e1", scope=ACME), episode("y", "e2", scope=BOB)]
 
-    pipe.run(tenant_wide, [episode("x", "e1", scope=ACME), episode("y", "e2", scope=BOB)])
+    if is_async:
+        asyncio.run(pipe.arun(tenant_wide, episodes))
+    else:
+        pipe.run(tenant_wide, episodes)
 
     filed = {f.record.scope for f in graph.facts}
     assert filed == {ACME, BOB}
@@ -377,7 +407,7 @@ def test_consolidate_runs_the_wired_relation_pipeline(is_async):
 
     report = asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
 
-    assert report.details["relations"] != "not extracted -- no relation pipeline wired (SM-G3 #101)"
+    assert report.details["relations"] != NO_RELATIONS
     assert isinstance(report.details["relations"], dict)
     assert report.details["relations"]["extractor"] == RELATION_EXTRACTOR_ID
 
@@ -388,7 +418,7 @@ def test_an_unwired_provider_reports_relations_as_not_extracted():
 
     report = memory.consolidate(ACME)
 
-    assert report.details["relations"] == "not extracted -- no relation pipeline wired (SM-G3 #101)"
+    assert report.details["relations"] == NO_RELATIONS
 
 
 def test_both_consolidate_halves_write_the_same_edges():
@@ -417,26 +447,36 @@ def test_a_pipeline_missing_a_half_is_refused_when_the_provider_is_built():
     assert excinfo.value.field_name == "options.relation_pipeline"
 
 
-def test_a_relation_extraction_failure_after_commit_is_a_partial_write():
-    """Facts committed before a failing relation pass must be retriable, not silently lost."""
+class _BoomPipeline:
+    """Raises after being asked, so a test can put a failure *after* the fact write commits."""
 
-    class Boom:
-        def run(self, scope, episodes):
-            raise RuntimeError("model timeout")
+    def run(self, scope, episodes):
+        raise RuntimeError("model timeout")
 
-        async def arun(self, scope, episodes):
-            raise RuntimeError("model timeout")
+    async def arun(self, scope, episodes):
+        raise RuntimeError("model timeout")
 
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_relation_extraction_failure_after_commit_is_a_partial_write(is_async):
+    """Facts committed before a failing relation pass must be retriable, not silently lost.
+
+    Parametrized because ``consolidate`` and ``aconsolidate`` each wrap the relation-extraction
+    call in their own ``try``/``except`` (``co_located.py``'s two loops) -- an unparametrized test
+    here only exercises one of the two, matching ``test_graph_entities.py``'s own convention for
+    this exact failure shape.
+    """
     vector, graph = FakeVector(), FakeGraph()
     memory = CoLocatedMemoryProvider(
         vector=vector,
         graph=graph,
         config=MemoryProviderConfig(provider="co_located"),
-        relation_pipeline=Boom(),
+        relation_pipeline=_BoomPipeline(),
     )
     memory.write(ACME, [MemoryEvent(content="Ada works at Acme", scope=ACME)])
 
     with pytest.raises(PartialWriteError) as excinfo:
-        memory.consolidate(ACME)
+        asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
 
     assert excinfo.value.receipt.accepted >= 1
+    assert excinfo.value.receipt.event_ids

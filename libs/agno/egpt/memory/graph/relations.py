@@ -99,9 +99,13 @@ class ExtractedRelation(BaseModel):
     """One relation as the model reports it. Scope and provenance are the pipeline's to attach,
     matching :class:`~egpt.memory.graph.entities.ExtractedEntity`'s split."""
 
-    source: str = Field(description="The relation's source entity, by display name")
-    relation: str = Field(description="A short, lowercase, underscored label for the connection")
-    target: str = Field(description="The relation's target entity, by display name")
+    # `min_length=1` rejects an empty string at the schema boundary. Without it, a model
+    # answering with `source=""` passes validation here and reaches `relation_edge_id_for`
+    # three frames deeper -- and if episodic facts already committed before that point, the
+    # refusal there surfaces as a `PartialWriteError` with the real cause buried in its chain.
+    source: str = Field(description="The relation's source entity, by display name", min_length=1)
+    relation: str = Field(description="A short, lowercase, underscored label for the connection", min_length=1)
+    target: str = Field(description="The relation's target entity, by display name", min_length=1)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
