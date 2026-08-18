@@ -22,6 +22,24 @@ class ModelType(str, Enum):
     FOLLOWUP_MODEL = "followup_model"
 
 
+class ProviderMode(str, Enum):
+    """Which family of backends a request is served from.
+
+    ``str`` mixin so a config value ("local") validates by construction and a serialized run
+    record round-trips without a custom encoder -- the same choice ``ModelType`` above makes.
+
+    Moved here from ``egpt.providers.model_provider`` (EGPT-1.7c follow-up, aicoe-tracker#180):
+    the mode vocabulary is shared by services (``egpt.providers``, ``egpt.memory.config``/
+    ``embedding``) and by integrations-layer memory substrates, and integrations may only
+    import core -- so the vocabulary lives in core and ``egpt.providers.model_provider``
+    re-exports it, keeping every existing import site working. ADR 0003 section B.5's rule
+    stands: there is one deployment-mode vocabulary, not a per-package copy.
+    """
+
+    LOCAL = "local"  # Mode A: in-VPC vLLM / Ollama / any OpenAI-compatible endpoint
+    FRONTIER = "frontier"  # Mode B: hosted frontier providers, optionally via a gateway
+
+
 if TYPE_CHECKING:
     from egpt.models.base import Model
     from egpt.models.response import ModelResponse
