@@ -23,11 +23,11 @@ from egpt.memory.writeback import (
     TOOL_CALL_ERROR_KEY,
     TOOL_CALL_ID_KEY,
     TOOL_NAME_KEY,
+    astart_writeback_task,
     event_from_message,
     event_from_tool_execution,
     events_from_run,
     start_writeback_future,
-    start_writeback_task,
 )
 from egpt.models.message import Message
 from egpt.models.response import ToolExecution
@@ -79,6 +79,15 @@ def test_event_from_message_with_list_content_is_not_treated_as_blank():
     assert event.content != ""
 
 
+def test_event_from_message_with_empty_list_content_is_treated_as_blank():
+    """The `[]` case is the opposite of the non-empty list above and needs its own guard:
+    `Message.get_content_string()` serialises `[]` as the string `"[]"` -- non-blank by a plain
+    string check -- so without an explicit check on the raw `list` this would build a spurious
+    episode for a message that carries nothing at all."""
+    message = Message(role="assistant", content=[])
+    assert event_from_message(message, SCOPE) is None
+
+
 def test_event_from_tool_execution_is_episodic_and_carries_tool_identity():
     execution = ToolExecution(tool_call_id="call-1", tool_name="search", result="3 hits")
     event = event_from_tool_execution(execution, SCOPE)
@@ -86,6 +95,7 @@ def test_event_from_tool_execution_is_episodic_and_carries_tool_identity():
     assert event is not None
     assert event.tier is MemoryTier.EPISODIC
     assert event.content == "3 hits"
+    assert event.role == "tool"
     assert event.metadata[TOOL_NAME_KEY] == "search"
     assert event.metadata[TOOL_CALL_ID_KEY] == "call-1"
 
@@ -111,6 +121,28 @@ def test_event_from_tool_execution_carries_whichever_identifier_is_set(tool_name
         assert TOOL_CALL_ID_KEY not in event.metadata
     else:
         assert event.metadata[TOOL_CALL_ID_KEY] == tool_call_id
+
+
+def test_event_from_tool_execution_clears_spoofed_reserved_metadata_when_the_field_is_unset():
+    """The three reserved keys are cleared unconditionally before being conditionally
+    repopulated from `execution`'s own fields -- a caller cannot make a spoofed identifier or
+    error flag survive by pre-populating one of these keys on an execution that never set the
+    real thing."""
+    execution = ToolExecution(tool_call_id=None, tool_name=None, result="ok", tool_call_error=None)
+    event = event_from_tool_execution(
+        execution,
+        SCOPE,
+        metadata={
+            TOOL_NAME_KEY: "spoofed",
+            TOOL_CALL_ID_KEY: "spoofed-id",
+            TOOL_CALL_ERROR_KEY: "spoofed-flag",
+        },
+    )
+
+    assert event is not None
+    assert TOOL_NAME_KEY not in event.metadata
+    assert TOOL_CALL_ID_KEY not in event.metadata
+    assert TOOL_CALL_ERROR_KEY not in event.metadata
 
 
 @pytest.mark.parametrize("result", [None, "", "  "])
@@ -161,6 +193,26 @@ def test_event_from_message_and_event_from_tool_execution_copy_topics():
     assert tool_event.topics == ["deploy"]
 
 
+def test_event_from_message_and_event_from_tool_execution_deep_copy_metadata():
+    """A nested mutable value in caller `metadata` (e.g. `{"context": {"channel": "slack"}}`) must
+    not be aliased into the built event -- a shallow `dict(metadata)` copies the outer dict but
+    leaves inner dicts/lists shared, the same hazard `MemoryRecord.detached()` deep-copies against
+    (`memory/types.py`)."""
+    shared_metadata = {"context": {"channel": "slack"}}
+
+    message_event = event_from_message(Message(role="user", content="hi"), SCOPE, metadata=shared_metadata)
+    tool_event = event_from_tool_execution(
+        ToolExecution(tool_call_id="c1", tool_name="search", result="ok"), SCOPE, metadata=shared_metadata
+    )
+    assert message_event is not None
+    assert tool_event is not None
+
+    shared_metadata["context"]["channel"] = "mutated-after-the-fact"
+
+    assert message_event.metadata["context"] == {"channel": "slack"}
+    assert tool_event.metadata["context"] == {"channel": "slack"}
+
+
 def test_writeback_metadata_does_not_collide_with_the_episode_projection():
     """`episode_from_event` (SM-E1) refuses caller metadata that collides with a reserved episode
     key. If ROLE_KEY or TOOL_NAME_KEY / TOOL_CALL_ID_KEY ever drifted onto one of those, every
@@ -184,6 +236,15 @@ def test_writeback_metadata_does_not_collide_with_the_episode_projection():
     tool_episode = episode_from_event(replace(tool_event, id="ep-tool"))
     assert tool_episode.metadata[TOOL_NAME_KEY] == "search"
     assert tool_episode.metadata[TOOL_CALL_ID_KEY] == "c1"
+
+    error_event = event_from_tool_execution(
+        ToolExecution(tool_call_id="c2", tool_name="search", result="rate limited", tool_call_error=True),
+        SCOPE,
+        occurred_at=1_700_000_000,
+    )
+    assert error_event is not None
+    error_episode = episode_from_event(replace(error_event, id="ep-error"))
+    assert error_episode.metadata[TOOL_CALL_ERROR_KEY] is True
 
 
 def test_events_from_run_orders_messages_before_tool_executions_and_drops_blanks():
@@ -236,9 +297,9 @@ def test_start_writeback_future_returns_none_for_an_empty_batch():
         assert start_writeback_future(memory_provider, SCOPE, [], executor=executor) is None
 
 
-async def test_start_writeback_task_returns_none_for_an_empty_batch():
+async def test_astart_writeback_task_returns_none_for_an_empty_batch():
     memory_provider, _, _ = provider()
-    assert start_writeback_task(memory_provider, SCOPE, []) is None
+    assert astart_writeback_task(memory_provider, SCOPE, []) is None
 
 
 def test_start_writeback_future_does_not_block_the_caller():
@@ -274,14 +335,14 @@ def test_start_writeback_future_does_not_block_the_caller():
         assert receipt.accepted == 1
 
 
-async def test_start_writeback_task_does_not_block_before_the_next_await():
+async def test_astart_writeback_task_does_not_block_before_the_next_await():
     """The async-side regression: a caller awaiting `provider.awrite` directly would suspend on it
     immediately. `create_task` schedules the coroutine without running it, so nothing is written
     until this test itself yields control -- checked below before and after that yield."""
     memory_provider, vector, _ = provider()
     events = events_from_run(SCOPE, messages=[Message(role="user", content="async write")])
 
-    task = start_writeback_task(memory_provider, SCOPE, events)
+    task = astart_writeback_task(memory_provider, SCOPE, events)
     assert task is not None
     assert vector.rows == {}, "the write ran before the caller yielded control"
 
@@ -317,7 +378,7 @@ def test_start_writeback_future_surfaces_a_failed_write_rather_than_swallowing_i
     )
 
 
-async def test_start_writeback_task_surfaces_a_failed_write_rather_than_swallowing_it(caplog):
+async def test_astart_writeback_task_surfaces_a_failed_write_rather_than_swallowing_it(caplog):
     memory_provider, vector, _ = provider()
 
     async def failing_aupsert(scope, records):
@@ -326,7 +387,7 @@ async def test_start_writeback_task_surfaces_a_failed_write_rather_than_swallowi
     vector.aupsert = failing_aupsert
     events = events_from_run(SCOPE, messages=[Message(role="user", content="will fail")])
 
-    task = start_writeback_task(memory_provider, SCOPE, events)
+    task = astart_writeback_task(memory_provider, SCOPE, events)
     assert task is not None
     with pytest.raises(PartialWriteError) as excinfo:
         await task

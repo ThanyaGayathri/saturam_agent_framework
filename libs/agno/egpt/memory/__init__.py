@@ -79,11 +79,11 @@ from egpt.memory.writeback import (
     TOOL_CALL_ERROR_KEY,
     TOOL_CALL_ID_KEY,
     TOOL_NAME_KEY,
+    astart_writeback_task,
     event_from_message,
     event_from_tool_execution,
     events_from_run,
     start_writeback_future,
-    start_writeback_task,
 )
 
 __all__ = [
@@ -169,5 +169,5 @@ __all__ = [
     "event_from_tool_execution",
     "events_from_run",
     "start_writeback_future",
-    "start_writeback_task",
+    "astart_writeback_task",
 ]

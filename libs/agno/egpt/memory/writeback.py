@@ -9,7 +9,7 @@ Two halves, matching the seam's own append/consolidate split:
 * :func:`event_from_message` / :func:`event_from_tool_execution` build **episodic** events. Pure
   construction -- no I/O, no model call -- so there is one sync form each, per CLAUDE.md's
   exemption for methods with nothing to await.
-* :func:`start_writeback_future` / :func:`start_writeback_task` dispatch the write. ``write`` /
+* :func:`start_writeback_future` / :func:`astart_writeback_task` dispatch the write. ``write`` /
   ``awrite`` reach a real substrate (SM-C1's docstring calls it "cheap", not "free"), so calling
   either inline still blocks the turn on network I/O. These mirror the
   ``start_memory_future`` / ``astart_memory_task`` pair in :mod:`egpt.agent._managers` --
@@ -30,6 +30,7 @@ future consolidation pass reads.
 
 from asyncio import Task, create_task
 from concurrent.futures import Executor, Future
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Sequence
 
 from egpt.memory.provider import MemoryProvider
@@ -48,7 +49,7 @@ __all__ = [
     "event_from_tool_execution",
     "events_from_run",
     "start_writeback_future",
-    "start_writeback_task",
+    "astart_writeback_task",
 ]
 
 #: Where :func:`event_from_message` puts ``Message.role`` *in addition to* the typed
@@ -99,19 +100,26 @@ def event_from_message(
 
     ``None`` rather than raising: a tool-call-only assistant message or a system message with no
     text is routine, and a caller batching many messages (see :func:`events_from_run`) wants to
-    drop those, not stop on them.
+    drop those, not stop on them. This includes an *empty* list content (``message.content ==
+    []``): ``Message.get_content_string()`` falls through to ``json.dumps([])`` for that shape,
+    which is the non-blank string ``"[]"`` and would otherwise slip past the blank-string check
+    below as if it were real content.
 
     ``occurred_at`` is epoch seconds, matching ``MemoryEvent.occurred_at`` -- a caller holding a
     ``datetime`` converts with :func:`egpt.utils.dttm.to_epoch_s` first.
 
     Caller ``metadata`` carrying :data:`ROLE_KEY` is overwritten unconditionally by
     ``message.role``: the message's own role is authoritative here, not whatever a caller happened
-    to put under the same key.
+    to put under the same key. ``metadata`` is deep-copied, not shallow-copied, so a nested mutable
+    value a caller passed in (or reuses across a batch) is never aliased into the built event --
+    the same hazard :meth:`~egpt.memory.types.MemoryRecord.detached` guards against.
     """
+    if isinstance(message.content, list) and not message.content:
+        return None
     content = _content_or_none(message.get_content_string())
     if content is None:
         return None
-    event_metadata: Dict[str, Any] = dict(metadata or {})
+    event_metadata: Dict[str, Any] = deepcopy(metadata) if metadata else {}
     event_metadata[ROLE_KEY] = message.role
     return MemoryEvent(
         content=content,
@@ -147,13 +155,26 @@ def event_from_tool_execution(
     ``datetime`` converts with :func:`egpt.utils.dttm.to_epoch_s` first.
 
     Caller ``metadata`` carrying :data:`TOOL_NAME_KEY` / :data:`TOOL_CALL_ID_KEY` /
-    :data:`TOOL_CALL_ERROR_KEY` is overwritten unconditionally by the execution's own fields, for
-    the same reason :func:`event_from_message` overwrites :data:`ROLE_KEY`.
+    :data:`TOOL_CALL_ERROR_KEY` is overwritten unconditionally by the execution's own fields --
+    including cleared to *absent* when the execution's own field is unset, so a caller cannot get
+    a spoofed identifier or error flag into the event by pre-populating one of these keys and
+    handing an execution that never set the real thing. The same reason :func:`event_from_message`
+    overwrites :data:`ROLE_KEY` unconditionally. ``metadata`` is deep-copied for the reason given
+    there too.
+
+    ``role`` is set to ``"tool"`` on the built event -- unlike a run message, ``ToolExecution``
+    carries no role of its own, but leaving the typed field unset would have
+    ``SeedMemoryProvider._as_messages`` (``adapters/seed.py``: ``event.role or "user"``) record a
+    tool result as if the user had said it. ``"tool"`` matches this codebase's own default
+    (``Model.tool_message_role``), which is the closest thing to a canonical role for the shape.
     """
     content = _content_or_none(execution.result)
     if content is None:
         return None
-    event_metadata: Dict[str, Any] = dict(metadata or {})
+    event_metadata: Dict[str, Any] = deepcopy(metadata) if metadata else {}
+    event_metadata.pop(TOOL_NAME_KEY, None)
+    event_metadata.pop(TOOL_CALL_ID_KEY, None)
+    event_metadata.pop(TOOL_CALL_ERROR_KEY, None)
     if execution.tool_name is not None:
         event_metadata[TOOL_NAME_KEY] = execution.tool_name
     if execution.tool_call_id is not None:
@@ -164,6 +185,7 @@ def event_from_tool_execution(
         content=content,
         scope=scope,
         tier=MemoryTier.EPISODIC,
+        role="tool",
         topics=list(topics) if topics is not None else None,
         occurred_at=occurred_at,
         metadata=event_metadata,
@@ -240,7 +262,7 @@ def start_writeback_future(
     ``None`` for an empty batch -- nothing to submit, and a caller checking "did this queue
     anything" gets a real answer instead of a completed future for zero events.
 
-    The sync half of the pair; :func:`start_writeback_task` is the async one. Both exist because
+    The sync half of the pair; :func:`astart_writeback_task` is the async one. Both exist because
     an agent run is sometimes sync and sometimes async, and calling ``provider.write`` inline on
     either path is the hot-path I/O this ticket's acceptance criteria rule out -- ``write`` reaches
     a real vector/graph substrate (SM-C1), so it is cheap relative to consolidation's LLM calls but
@@ -254,7 +276,7 @@ def start_writeback_future(
     return executor.submit(_write_and_log, provider, scope, list(events))
 
 
-def start_writeback_task(
+def astart_writeback_task(
     provider: MemoryProvider,
     scope: Scope,
     events: Sequence[MemoryEvent],
