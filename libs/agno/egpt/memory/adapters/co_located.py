@@ -914,14 +914,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
         this class's default 5000) can cut further inside ``EntityExtractionPipeline._selected``.
         A scheduler reading only the top-level ``details["complete"]`` would miss a truncated
         extraction -- ``details["entities"]["complete"]`` is the one that says so.
+
+        ``NO_ENTITIES`` only when no pipeline is wired -- **not** also when ``episodes`` happens to
+        be empty (review finding on PR #89, round 3). A wired pipeline handed an empty list still
+        ran: ``EntityExtractionPipeline.run([])`` makes no model call and returns a proper
+        ``entity_details(complete=True, ...)`` dict, which is what a caller needs to tell "nothing
+        to extract this pass" apart from "extraction was never configured" -- the two read
+        identically as ``NO_ENTITIES`` otherwise, and a scheduler retrying the second case would
+        wait forever for a pipeline that was never going to run.
         """
-        if self.entity_pipeline is None or not episodes:
+        if self.entity_pipeline is None:
             return NO_ENTITIES
         return self.entity_pipeline.run(scope, episodes).details
 
     async def _aentities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntitySummary:
         """Async variant of :meth:`_entities`, making the same decisions."""
-        if self.entity_pipeline is None or not episodes:
+        if self.entity_pipeline is None:
             return NO_ENTITIES
         return (await self.entity_pipeline.arun(scope, episodes)).details
 
@@ -1070,6 +1078,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         else:
+            # No `receipt` exists here to attach -- `facts` is empty, so nothing above committed.
+            # A failure here is a plain refusal, matching `write`'s rule: propagate bare, do not
+            # wrap. Deliberately parallel to the `if facts:` branch above, not an oversight against
+            # it -- see the review-round-3 note in `_entities`'s own docstring.
             entities = self._entities(scope, episodes)
         return self._report(scope, scanned, episodes, facts, merged, entities)
 
@@ -1116,6 +1128,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         else:
+            # No `receipt` exists here to attach -- `facts` is empty, so nothing above committed.
+            # A failure here is a plain refusal, matching `write`'s rule: propagate bare, do not
+            # wrap. Deliberately parallel to the `if facts:` branch above, not an oversight against
+            # it -- see the review-round-3 note in `_entities`'s own docstring.
             entities = await self._aentities(scope, episodes)
         return self._report(scope, scanned, episodes, facts, merged, entities)
 

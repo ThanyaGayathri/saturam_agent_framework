@@ -39,6 +39,9 @@ from egpt.memory.types import (
     MemoryScopeRequiredError,
     PartialWriteError,
     Scope,
+    consolidation_details,
+    entity_extraction_complete,
+    entity_extraction_ran,
     normalize_entity_name,
 )
 from egpt.utils.dttm import now_epoch_s
@@ -346,6 +349,32 @@ def test_the_double_does_not_store_an_entitys_own_name_as_its_alias():
     assert graph.entities[(ACME.key(), "Acme Corp")].aliases == ["Acme"]
 
 
+def test_the_double_records_exactly_one_verb_per_async_entity_write():
+    """Review finding on PR #89, round 3: ``aupsert_entities`` used to delegate to
+    ``self.upsert_entities``, which appends its own name too -- one async call left both
+    ``"aupsert_entities"`` and ``"upsert_entities"`` in ``self.calls``, unlike every other verb's
+    single-name-per-call contract.
+    """
+    graph = FakeGraph()
+
+    asyncio.run(graph.aupsert_entities(ACME, [EntityWrite(name="Acme", entity_type="company", scope=ACME)]))
+
+    assert graph.calls == ["aupsert_entities"]
+
+
+def test_the_doubles_two_entity_halves_agree():
+    """Sync/async parity on the double itself, not only against the real backend: both verbs must
+    leave identical stored state and identical batch-size bookkeping."""
+    sync_graph, async_graph = FakeGraph(), FakeGraph()
+    entity = EntityWrite(name="Acme", entity_type="company", scope=ACME, source_episode_ids=["e1"])
+
+    sync_graph.upsert_entities(ACME, [entity])
+    asyncio.run(async_graph.aupsert_entities(ACME, [entity]))
+
+    assert sync_graph.entities == async_graph.entities
+    assert sync_graph.entity_batch_sizes == async_graph.entity_batch_sizes == [1]
+
+
 def test_two_spellings_stay_two_candidates():
     """The SM-G8 (#106) boundary, pinned so it is noticed when it moves.
 
@@ -574,19 +603,23 @@ def test_an_extraction_failure_after_facts_commit_is_a_partial_write(is_async):
 
 
 def test_an_extraction_failure_on_an_empty_tier_never_reaches_the_extractor():
-    """The other half of the guard's shape, not a second failure mode.
+    """In this scenario (empty tier scan), ``episodes`` is empty, so ``_selected`` never iterates
+    and the extractor is never called -- so an empty-tier ``consolidate`` cannot actually reach a
+    failing extractor. Asserted on the extractor never being called (a call would raise and fail
+    this test), so this stays true regardless of how ``_entities`` decides to run the pipeline.
 
-    ``facts`` is empty only when ``episodes`` is, and ``_entities`` short-circuits on an empty
-    episode list before calling the pipeline -- so an empty-tier ``consolidate`` cannot actually
-    reach a failing extractor. Asserted on the extractor never being called, so this stays true if
-    that short-circuit is ever removed rather than passing by accident.
+    ``_entities`` still runs the pipeline here (review finding on PR #89, round 3: it no longer
+    short-circuits on empty ``episodes``, only on an unwired pipeline), so the report is the
+    pipeline's own dict, not the ``NO_ENTITIES`` sentinel -- that sentinel means "never configured",
+    which is not this case.
     """
     extractor = BoomExtractor()
     memory, _, _ = provider(extractor=extractor)
 
     report = memory.consolidate(ACME)  # nothing written; must not raise
 
-    assert report.details["entities"] == NO_ENTITIES
+    assert isinstance(report.details["entities"], dict)
+    assert report.details["entities"]["complete"] is True
 
 
 def test_consolidate_extracts_from_what_it_kept_rather_than_from_what_it_scanned():
@@ -608,6 +641,9 @@ def test_consolidate_extracts_from_what_it_kept_rather_than_from_what_it_scanned
 
     assert report.episodic_scanned == 1
     assert extractor.seen == [], "an episode not yet valid is not an interaction to extract from"
+    # The pipeline still ran (on zero episodes) -- a wired pipeline handed nothing to extract from
+    # is not "never configured", so the report is the pipeline's dict, not NO_ENTITIES.
+    assert isinstance(report.details["entities"], dict)
 
 
 @pytest.mark.parametrize("is_async", [False, True])
@@ -649,6 +685,26 @@ def test_a_provider_with_no_pipeline_says_so_rather_than_omitting_the_key():
     for report in (memory.consolidate(ACME), asyncio.run(memory.aconsolidate(ACME))):
         assert set(report.details) >= set(CONSOLIDATION_KEYS)
         assert report.details["entities"] == NO_ENTITIES
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_wired_pipeline_with_nothing_to_extract_is_not_no_entities(is_async):
+    """The two cases ``NO_ENTITIES`` used to collapse (review finding on PR #89, round 3):
+
+    * no pipeline configured -- wiring one would enable extraction
+    * a pipeline **is** wired, but this pass's episode set is empty -- a scheduler retrying later
+      (once an episode exists to extract from) is exactly the right move, and it cannot tell that
+      apart from "never configured" if both read as the same sentinel string.
+
+    Nothing is written, so the tier ``consolidate`` scans is empty and ``episodes`` is ``[]`` --
+    the case the fix is about.
+    """
+    memory, _, _ = provider(extractor=StubExtractor())
+
+    report = asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+    assert report.details["entities"] != NO_ENTITIES
+    assert isinstance(report.details["entities"], dict)
 
 
 def test_both_consolidate_halves_write_the_same_nodes():
@@ -756,3 +812,42 @@ def test_entity_write_reaches_the_top_level_package():
     assert TopLevelEntityWrite is EntityWrite
     assert TopLevelNoEntities is NO_ENTITIES
     assert top_level_normalize is normalize_entity_name
+
+
+# ---------------------------------------------------------------------------
+# The two-cap discriminant (review finding on PR #89, round 3)
+# ---------------------------------------------------------------------------
+
+
+def test_entity_extraction_ran_tells_unwired_from_wired_but_empty():
+    """The discriminant the ``NO_ENTITIES``-collapse fix above needs a public name for."""
+    assert entity_extraction_ran(consolidation_details(derived_by=None, entities=NO_ENTITIES)) is False
+    assert entity_extraction_ran(consolidation_details(derived_by="x", entities={"complete": True})) is True
+
+
+def test_entity_extraction_complete_is_true_when_no_pipeline_is_wired():
+    """No pipeline means no tail to be incomplete -- a wiring fact, not a retry signal."""
+    details = consolidation_details(derived_by=None, entities=NO_ENTITIES)
+
+    assert entity_extraction_complete(details) is True
+
+
+def test_entity_extraction_complete_sees_the_two_cap_hazard():
+    """The scenario the finding named directly: the provider's own episode cap (5000 default) was
+    not hit, so the top-level ``ConsolidationReport.details["complete"]`` is ``True`` -- but the
+    pipeline's independent, much lower cap (200 default) was, so a caller reading only the
+    top-level key would report a clean pass with entities silently left unextracted.
+    """
+    details = consolidation_details(
+        derived_by="co_located.deterministic_dedup", complete=True, entities={"complete": False}
+    )
+
+    assert details["complete"] is True  # the trap: this alone looks clean
+    assert entity_extraction_ran(details) is True
+    assert entity_extraction_complete(details) is False
+
+
+def test_entity_extraction_complete_is_true_when_the_pipeline_drained_its_own_cap():
+    details = consolidation_details(derived_by="x", entities={"complete": True})
+
+    assert entity_extraction_complete(details) is True

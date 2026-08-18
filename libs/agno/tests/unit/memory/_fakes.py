@@ -344,7 +344,12 @@ class FakeGraph:
         require_scope(scope, method="aupsert_entities")
         await _yield()
         self.calls.append("aupsert_entities")
-        self.upsert_entities(scope, entities)
+        # Not `self.upsert_entities(...)`: that appends `"upsert_entities"` too, so one async call
+        # would leave both verbs in `self.calls` (review finding on PR #89, round 3). The per-entity
+        # write logic is called directly instead, matching what the sync method does internally.
+        self.entity_batch_sizes.append(len(entities))
+        for entity in entities:
+            self._upsert_entity(scope, entity)
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         require_scope(scope, method="traverse")

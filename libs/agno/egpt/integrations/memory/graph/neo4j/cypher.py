@@ -494,6 +494,10 @@ ROW_PROPERTIES = (
 #: keys removes the false positives and leaves the true ones. Tokens survive the delete.
 #: Probe values have to be list-typed for these, because a token registered against a scalar still
 #: warns when a query indexes it as a list.
+#:
+#: Extend this when adding any new list-typed property to :data:`ROW_PROPERTIES` or
+#: :data:`ENTITY_PROPERTIES` -- an omitted one silently loses the false-positive suppression the
+#: probe exists for, on that property alone.
 _LIST_PROPERTIES = frozenset({"topics", "aliases", "source_episode_ids", "embedding"})
 
 

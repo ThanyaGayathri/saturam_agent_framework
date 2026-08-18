@@ -37,6 +37,8 @@ __all__ = [
     "NO_SUPERSEDE",
     "consolidation_details",
     "ConsolidationReport",
+    "entity_extraction_complete",
+    "entity_extraction_ran",
     "EntityWrite",
     "escape_key_slot",
     "FactWrite",
@@ -800,6 +802,12 @@ NO_ENTITIES = "not extracted -- no entity pipeline wired (SM-G2 #100)"
 
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
+#:
+#: ``entities`` needs its own discriminant beyond presence: it is one field carrying two shapes
+#: (:data:`NO_ENTITIES` or a pipeline's dict), and the top-level ``complete`` cannot answer whether
+#: extraction specifically drained -- SM-L1 (#122) must read ``details["entities"]`` through
+#: :func:`entity_extraction_ran` / :func:`entity_extraction_complete`, not ``details["complete"]``
+#: alone, or a truncated extraction pass under a clean episode scan reads as fully complete.
 CONSOLIDATION_KEYS = ("derived_by", "complete", "supersede", "entities")
 
 
@@ -829,6 +837,32 @@ def consolidation_details(
     }
     details.update(extra)
     return details
+
+
+def entity_extraction_ran(details: Dict[str, Any]) -> bool:
+    """Whether ``details["entities"]`` is a pipeline result rather than the ``NO_ENTITIES`` sentinel.
+
+    The floor's ``entities`` key is one field carrying two shapes -- a dict when a pipeline ran
+    (including on zero episodes), the ``NO_ENTITIES`` string when none is wired -- and SM-L1 (#122)
+    needs the discriminant as a named function, not an ``isinstance`` check re-derived at each call
+    site (review finding on PR #89, round 3).
+    """
+    return isinstance(details.get("entities"), dict)
+
+
+def entity_extraction_complete(details: Dict[str, Any]) -> bool:
+    """Whether this pass left no known entity-extraction tail.
+
+    ``True`` when no pipeline is wired -- there is no tail to be incomplete, and that is a wiring
+    decision for :func:`entity_extraction_ran` to answer, not a retry signal for a scheduler.
+    ``False`` only when a pipeline ran **and** its own ``complete`` is ``False`` -- SM-L1's
+    (#122) two-cap hazard (:meth:`CoLocatedMemoryProvider._entities`'s docstring): a pass that
+    stayed under the provider's episode cap but hit the pipeline's own can report the top-level
+    ``ConsolidationReport`` complete while a tail of un-extracted episodes remains.
+    """
+    if not entity_extraction_ran(details):
+        return True
+    return bool(details["entities"].get("complete", True))
 
 
 @dataclass
