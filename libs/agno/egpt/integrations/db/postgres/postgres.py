@@ -3480,6 +3480,7 @@ class PostgresDb(BaseDb):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
+        include_deleted: bool = False,
         *,
         tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
@@ -3491,10 +3492,9 @@ class PostgresDb(BaseDb):
                 return None
 
             with self.Session() as sess:
-                stmt = select(table).where(
-                    table.c.component_id == component_id,
-                    table.c.deleted_at.is_(None),
-                )
+                stmt = select(table).where(table.c.component_id == component_id)
+                if not include_deleted:
+                    stmt = stmt.where(table.c.deleted_at.is_(None))
 
                 if component_type is not None:
                     stmt = stmt.where(table.c.component_type == component_type.value)

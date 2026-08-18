@@ -34,12 +34,11 @@ from egpt.exceptions import (
 )
 from egpt.filters import FilterExpr
 from egpt.media import Audio, File, Image, Video
-from egpt.models.base import Model
 from egpt.models.fallback import acall_model_with_fallback, call_model_with_fallback
 from egpt.models.message import Message
 from egpt.models.metrics import RunMetrics, merge_background_metrics
 from egpt.models.response import ModelResponse, ToolExecution
-from egpt.run import RunContext, RunStatus
+from egpt.run import RunContext, RunStatus, run_model
 from egpt.run.agent import (
     RunCancelledEvent as AgentRunCancelledEvent,
 )
@@ -240,7 +239,11 @@ def _recompute_response_format(
 
     from egpt.team._response import get_response_format
 
-    return get_response_format(team, run_context=run_context)
+    # Explicitly the run's model, not the component's: `get_response_format` falls back to
+    # `team.model`, which since aicoe-tracker#166 is the caller's configuration rather than what this run
+    # resolved. Deriving against it would reintroduce the exact bug this function exists to
+    # prevent -- a schema shaped for the primary sent to the escalation target.
+    return get_response_format(team, model=run_model(team, run_context), run_context=run_context)
 
 
 def _run_tasks(
@@ -284,7 +287,6 @@ def _run_tasks(
     run_messages: Optional[RunMessages] = None
     try:
         run_input = cast(TeamRunInput, run_response.input)
-        team.model = cast(Model, team.model)
         raise_if_cancelled(run_response.run_id)  # type: ignore
 
         # 1. Execute pre-hooks
@@ -306,7 +308,7 @@ def _run_tasks(
         # 2. Determine tools for model (includes task management tools)
         team_run_context: Dict[str, Any] = {}
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -319,10 +321,12 @@ def _run_tasks(
             images=run_input.images,
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
         _tools = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context,
@@ -408,7 +412,7 @@ def _run_tasks(
 
             # Get model response
             model_response = call_model_with_fallback(
-                team.model,
+                _run_model,
                 team.fallback_config,
                 messages=accumulated_messages,
                 response_format=response_format,
@@ -630,7 +634,6 @@ def _run_tasks_stream(
     run_messages: Optional[RunMessages] = None
     try:
         run_input = cast(TeamRunInput, run_response.input)
-        team.model = cast(Model, team.model)
         raise_if_cancelled(run_response.run_id)  # type: ignore
 
         # 1. Execute pre-hooks
@@ -654,7 +657,7 @@ def _run_tasks_stream(
         # 2. Determine tools for model (includes task management tools)
         team_run_context: Dict[str, Any] = {}
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -667,10 +670,12 @@ def _run_tasks_stream(
             images=run_input.images,
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
         _tools = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context,
@@ -1167,7 +1172,6 @@ def _run(
                 raise_if_cancelled(run_response.run_id)  # type: ignore
                 # 1. Execute pre-hooks
                 run_input = cast(TeamRunInput, run_response.input)
-                team.model = cast(Model, team.model)
                 if team.pre_hooks is not None:
                     # Can modify the run input
                     pre_hook_iterator = _execute_pre_hooks(
@@ -1192,7 +1196,7 @@ def _run(
                 # is called in _arun/_arun_stream). Sync paths do not support MCP tools.
 
                 # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-                # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+                # Before _determine_tools_for_model, which binds tools against the run's resolved model:
                 # escalating after it would leave the tool set bound to the pre-escalation model.
                 from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -1205,12 +1209,14 @@ def _run(
                     images=run_input.images,
                     estimated_tool_count=estimate_component_tool_count(team),
                 )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(team, run_context)
                 response_format = _recompute_response_format(
                     team, run_context, response_format, model_changed=_model_changed
                 )
                 _tools = _determine_tools_for_model(
                     team,
-                    model=team.model,
+                    model=_run_model,
                     run_response=run_response,
                     run_context=run_context,
                     team_run_context=team_run_context,
@@ -1275,9 +1281,8 @@ def _run(
                 raise_if_cancelled(run_response.run_id)  # type: ignore
 
                 # 6. Get the model response for the team leader
-                team.model = cast(Model, team.model)
                 model_response: ModelResponse = call_model_with_fallback(
-                    team.model,
+                    _run_model,
                     team.fallback_config,
                     messages=run_messages.messages,
                     response_format=response_format,
@@ -1545,7 +1550,6 @@ def _run_stream(
                 raise_if_cancelled(run_response.run_id)  # type: ignore
                 # 1. Execute pre-hooks
                 run_input = cast(TeamRunInput, run_response.input)
-                team.model = cast(Model, team.model)
                 if team.pre_hooks is not None:
                     # Can modify the run input
                     pre_hook_iterator = _execute_pre_hooks(
@@ -1571,7 +1575,7 @@ def _run_stream(
                 # is called in _arun/_arun_stream). Sync paths do not support MCP tools.
 
                 # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-                # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+                # Before _determine_tools_for_model, which binds tools against the run's resolved model:
                 # escalating after it would leave the tool set bound to the pre-escalation model.
                 from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -1584,12 +1588,14 @@ def _run_stream(
                     images=run_input.images,
                     estimated_tool_count=estimate_component_tool_count(team),
                 )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(team, run_context)
                 response_format = _recompute_response_format(
                     team, run_context, response_format, model_changed=_model_changed
                 )
                 _tools = _determine_tools_for_model(
                     team,
-                    model=team.model,
+                    model=_run_model,
                     run_response=run_response,
                     run_context=run_context,
                     team_run_context=team_run_context,
@@ -2055,8 +2061,6 @@ def run_dispatch(
         knowledge_filters_provided = knowledge_filters is not None
         metadata_provided = metadata is not None
 
-        team.model = cast(Model, team.model)
-
         # Initialize run context
         run_context = run_context or RunContext(
             run_id=run_id,
@@ -2099,8 +2103,11 @@ def run_dispatch(
             input=run_input,
         )
 
-        run_response.model = team.model.id if team.model is not None else None
-        run_response.model_provider = team.model.provider if team.model is not None else None
+        # Attribution must name the model that served the run, not the configured one --
+        # the point of re-stamping (aicoe-tracker#166). run_model falls back to team.model.
+        _served = run_model(team, run_context)
+        run_response.model = _served.id if _served is not None else None
+        run_response.model_provider = _served.provider if _served is not None else None
 
         # Start the run metrics timer, to calculate the run duration
         run_response.metrics = RunMetrics()
@@ -2199,7 +2206,6 @@ async def _arun_tasks(
         )
 
         run_input = cast(TeamRunInput, run_response.input)
-        team.model = cast(Model, team.model)
         await araise_if_cancelled(run_response.run_id)  # type: ignore
 
         # 1. Execute pre-hooks
@@ -2224,7 +2230,7 @@ async def _arun_tasks(
         await _check_and_refresh_mcp_tools(team)
         learning_tools = await _aget_learning_tools(team, user_id, team_session)
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import aapply_run_model, estimate_component_tool_count
 
@@ -2237,10 +2243,12 @@ async def _arun_tasks(
             images=run_input.images,
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
         _tools = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context,
@@ -2325,7 +2333,7 @@ async def _arun_tasks(
 
             # Get model response
             model_response = await acall_model_with_fallback(
-                team.model,
+                _run_model,
                 team.fallback_config,
                 messages=accumulated_messages,
                 response_format=response_format,
@@ -2579,7 +2587,6 @@ async def _arun_tasks_stream(
         )
 
         run_input = cast(TeamRunInput, run_response.input)
-        team.model = cast(Model, team.model)
         await araise_if_cancelled(run_response.run_id)  # type: ignore
 
         # 1. Execute pre-hooks
@@ -2605,7 +2612,7 @@ async def _arun_tasks_stream(
         await _check_and_refresh_mcp_tools(team)
         learning_tools = await _aget_learning_tools(team, user_id, team_session)
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import aapply_run_model, estimate_component_tool_count
 
@@ -2618,10 +2625,12 @@ async def _arun_tasks_stream(
             images=run_input.images,
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
         _tools = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context,
@@ -3186,7 +3195,6 @@ async def _arun(
 
                 # 2. Resolve callable factories and determine tools for model
                 team_run_context: Dict[str, Any] = {}
-                team.model = cast(Model, team.model)
 
                 # Resolve callable factories (tools, knowledge, members) before tool determination
                 from egpt.team._tools import _aresolve_callable_resources
@@ -3198,7 +3206,7 @@ async def _arun(
                 )
                 learning_tools = await _aget_learning_tools(team, user_id, team_session)
                 # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-                # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+                # Before _determine_tools_for_model, which binds tools against the run's resolved model:
                 # escalating after it would leave the tool set bound to the pre-escalation model.
                 from egpt.agent._run import aapply_run_model, estimate_component_tool_count
 
@@ -3211,12 +3219,14 @@ async def _arun(
                     images=run_input.images,
                     estimated_tool_count=estimate_component_tool_count(team),
                 )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(team, run_context)
                 response_format = _recompute_response_format(
                     team, run_context, response_format, model_changed=_model_changed
                 )
                 _tools = _determine_tools_for_model(
                     team,
-                    model=team.model,
+                    model=_run_model,
                     run_response=run_response,
                     run_context=run_context,
                     team_run_context=team_run_context,
@@ -3256,8 +3266,6 @@ async def _arun(
                     **kwargs,
                 )
 
-                team.model = cast(Model, team.model)
-
                 # 4. Start memory creation in background task
                 memory_task = await _astart_memory_task(
                     team,
@@ -3284,7 +3292,7 @@ async def _arun(
 
                 # 6. Get the model response for the team leader
                 model_response = await acall_model_with_fallback(
-                    team.model,
+                    _run_model,
                     team.fallback_config,
                     messages=run_messages.messages,
                     tools=_tools,
@@ -3812,7 +3820,6 @@ async def _arun_stream(
                 await araise_if_cancelled(run_response.run_id)  # type: ignore
                 # 1. Execute pre-hooks
                 run_input = cast(TeamRunInput, run_response.input)
-                team.model = cast(Model, team.model)
                 if team.pre_hooks is not None:
                     pre_hook_iterator = _aexecute_pre_hooks(
                         team,
@@ -3832,7 +3839,6 @@ async def _arun_stream(
 
                 # 2. Resolve callable factories and determine tools for model
                 team_run_context: Dict[str, Any] = {}
-                team.model = cast(Model, team.model)
 
                 # Resolve callable factories (tools, knowledge, members) before tool determination
                 from egpt.team._tools import _aresolve_callable_resources
@@ -3844,7 +3850,7 @@ async def _arun_stream(
                 )
                 learning_tools = await _aget_learning_tools(team, user_id, team_session)
                 # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-                # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+                # Before _determine_tools_for_model, which binds tools against the run's resolved model:
                 # escalating after it would leave the tool set bound to the pre-escalation model.
                 from egpt.agent._run import aapply_run_model, estimate_component_tool_count
 
@@ -3857,12 +3863,14 @@ async def _arun_stream(
                     images=run_input.images,
                     estimated_tool_count=estimate_component_tool_count(team),
                 )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(team, run_context)
                 response_format = _recompute_response_format(
                     team, run_context, response_format, model_changed=_model_changed
                 )
                 _tools = _determine_tools_for_model(
                     team,
-                    model=team.model,
+                    model=_run_model,
                     run_response=run_response,
                     run_context=run_context,
                     team_run_context=team_run_context,
@@ -4339,8 +4347,6 @@ def arun_dispatch(  # type: ignore
         files=file_artifacts,
     )
 
-    team.model = cast(Model, team.model)
-
     # Initialize run context
     run_context = run_context or RunContext(
         run_id=run_id,
@@ -4379,8 +4385,11 @@ def arun_dispatch(  # type: ignore
         input=run_input,
     )
 
-    run_response.model = team.model.id if team.model is not None else None
-    run_response.model_provider = team.model.provider if team.model is not None else None
+    # Attribution must name the model that served the run, not the configured one --
+    # the point of re-stamping (aicoe-tracker#166). run_model falls back to team.model.
+    _served = run_model(team, run_context)
+    run_response.model = _served.id if _served is not None else None
+    run_response.model_provider = _served.provider if _served is not None else None
 
     # Start the run metrics timer, to calculate the run duration
     run_response.metrics = RunMetrics()
@@ -5170,7 +5179,6 @@ def _handle_team_tool_call_updates(
         run_tool,
     )
 
-    team.model = cast(Model, team.model)
     _functions = {tool.name: tool for tool in tools if isinstance(tool, Function)}
 
     for _t in run_response.tools or []:
@@ -5230,7 +5238,6 @@ def _handle_team_tool_call_updates_stream(
         run_tool,
     )
 
-    team.model = cast(Model, team.model)
     _functions = {tool.name: tool for tool in tools if isinstance(tool, Function)}
 
     for _t in run_response.tools or []:
@@ -5304,7 +5311,6 @@ async def _ahandle_team_tool_call_updates(
         reject_tool_call,
     )
 
-    team.model = cast(Model, team.model)
     _functions = {tool.name: tool for tool in tools if isinstance(tool, Function)}
 
     for _t in run_response.tools or []:
@@ -5363,7 +5369,6 @@ async def _ahandle_team_tool_call_updates_stream(
         reject_tool_call,
     )
 
-    team.model = cast(Model, team.model)
     _functions = {tool.name: tool for tool in tools if isinstance(tool, Function)}
 
     for _t in run_response.tools or []:
@@ -6099,9 +6104,9 @@ async def _ahandle_model_response_for_continue(
         aparse_response_with_parser_model,
     )
 
-    team.model = cast(Model, team.model)
+    _run_model = run_model(team, run_context)
     model_response: ModelResponse = await acall_model_with_fallback(
-        team.model,
+        _run_model,
         team.fallback_config,
         messages=run_messages.messages,
         response_format=response_format,
@@ -6684,12 +6689,11 @@ def continue_run_dispatch(
         run_response.content = None
 
         response_format = get_response_format(team, run_context=run_context) if team.parser_model is None else None
-        team.model = cast(Model, team.model)
 
         team_run_context_local: Dict[str, Any] = {}
 
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -6702,11 +6706,13 @@ def continue_run_dispatch(
             images=getattr(getattr(run_response, "input", None), "images", None),
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
 
         _tools_fork = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context_local,
@@ -6909,12 +6915,11 @@ def continue_run_dispatch(
                 )
 
         response_format = get_response_format(team, run_context=run_context) if team.parser_model is None else None
-        team.model = cast(Model, team.model)
 
         # Prepare tools
         team_run_context: Dict[str, Any] = {}
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -6927,10 +6932,12 @@ def continue_run_dispatch(
             images=getattr(getattr(run_response, "input", None), "images", None),
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
         _tools = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context,
@@ -6996,12 +7003,11 @@ def continue_run_dispatch(
     # Member-only case: continue the same run with member results
     if member_results and not has_team_level:
         response_format = get_response_format(team, run_context=run_context) if team.parser_model is None else None
-        team.model = cast(Model, team.model)
 
         # Prepare tools for the continuation
         team_run_context: Dict[str, Any] = {}  # type: ignore[no-redef]
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -7014,10 +7020,12 @@ def continue_run_dispatch(
             images=getattr(getattr(run_response, "input", None), "images", None),
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
         _tools = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context,
@@ -7164,11 +7172,10 @@ def _continue_run_dispatch_stream_with_member_events(
             return
 
         response_format = get_response_format(team, run_context=run_context) if team.parser_model is None else None
-        team.model = cast(Model, team.model)
 
         team_run_context: Dict[str, Any] = {}
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -7181,10 +7188,12 @@ def _continue_run_dispatch_stream_with_member_events(
             images=getattr(getattr(run_response, "input", None), "images", None),
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
         _tools = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context,
@@ -7230,11 +7239,10 @@ def _continue_run_dispatch_stream_with_member_events(
 
     if member_results:
         response_format = get_response_format(team, run_context=run_context) if team.parser_model is None else None
-        team.model = cast(Model, team.model)
 
         team_run_context_2: Dict[str, Any] = {}
         # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-        # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+        # Before _determine_tools_for_model, which binds tools against the run's resolved model:
         # escalating after it would leave the tool set bound to the pre-escalation model.
         from egpt.agent._run import apply_run_model, estimate_component_tool_count
 
@@ -7247,10 +7255,12 @@ def _continue_run_dispatch_stream_with_member_events(
             images=getattr(getattr(run_response, "input", None), "images", None),
             estimated_tool_count=estimate_component_tool_count(team),
         )
+        # The hook is what may change the model, so rebind after it rather than before.
+        _run_model = run_model(team, run_context)
         response_format = _recompute_response_format(team, run_context, response_format, model_changed=_model_changed)
         _tools = _determine_tools_for_model(
             team,
-            model=team.model,
+            model=_run_model,
             run_response=run_response,
             run_context=run_context,
             team_run_context=team_run_context_2,
@@ -7342,7 +7352,7 @@ def _continue_run(
         store_events=team.store_events,
     )
 
-    team.model = cast(Model, team.model)
+    _run_model = run_model(team, run_context)
 
     try:
         num_attempts = team.retries + 1
@@ -7352,7 +7362,7 @@ def _continue_run(
 
                 # Generate model response
                 model_response: ModelResponse = call_model_with_fallback(
-                    team.model,
+                    _run_model,
                     team.fallback_config,
                     messages=run_messages.messages,
                     response_format=response_format,
@@ -8336,13 +8346,12 @@ async def _acontinue_run(
                             team, run_response=run_response, session=team_session, run_context=run_context
                         )
 
-                    team.model = cast(Model, team.model)
                     await _check_and_refresh_mcp_tools(team)
 
                     team_run_context: Dict[str, Any] = {}
                     learning_tools = await _aget_learning_tools(team, user_id, team_session)
                     # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-                    # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+                    # Before _determine_tools_for_model, which binds tools against the run's resolved model:
                     # escalating after it would leave the tool set bound to the pre-escalation model.
                     from egpt.agent._run import aapply_run_model, estimate_component_tool_count
 
@@ -8355,12 +8364,14 @@ async def _acontinue_run(
                         images=getattr(getattr(run_response, "input", None), "images", None),
                         estimated_tool_count=estimate_component_tool_count(team),
                     )
+                    # The hook is what may change the model, so rebind after it rather than before.
+                    _run_model = run_model(team, run_context)
                     response_format = _recompute_response_format(
                         team, run_context, response_format, model_changed=_model_changed
                     )
                     _tools = _determine_tools_for_model(
                         team,
-                        model=team.model,
+                        model=_run_model,
                         run_response=run_response,
                         run_context=run_context,
                         team_run_context=team_run_context,
@@ -8401,13 +8412,12 @@ async def _acontinue_run(
 
                 elif member_results:
                     # Member-only: continue the same run with results
-                    team.model = cast(Model, team.model)
                     await _check_and_refresh_mcp_tools(team)
 
                     team_run_context: Dict[str, Any] = {}  # type: ignore[no-redef]
                     learning_tools = await _aget_learning_tools(team, user_id, team_session)
                     # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-                    # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+                    # Before _determine_tools_for_model, which binds tools against the run's resolved model:
                     # escalating after it would leave the tool set bound to the pre-escalation model.
                     from egpt.agent._run import aapply_run_model, estimate_component_tool_count
 
@@ -8420,12 +8430,14 @@ async def _acontinue_run(
                         images=getattr(getattr(run_response, "input", None), "images", None),
                         estimated_tool_count=estimate_component_tool_count(team),
                     )
+                    # The hook is what may change the model, so rebind after it rather than before.
+                    _run_model = run_model(team, run_context)
                     response_format = _recompute_response_format(
                         team, run_context, response_format, model_changed=_model_changed
                     )
                     _tools = _determine_tools_for_model(
                         team,
-                        model=team.model,
+                        model=_run_model,
                         run_response=run_response,
                         run_context=run_context,
                         team_run_context=team_run_context,
@@ -8807,13 +8819,12 @@ async def _acontinue_run_stream(
                             yield run_response
                         return
 
-                    team.model = cast(Model, team.model)
                     await _check_and_refresh_mcp_tools(team)
 
                     team_run_context: Dict[str, Any] = {}
                     learning_tools = await _aget_learning_tools(team, user_id, team_session)
                     # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-                    # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+                    # Before _determine_tools_for_model, which binds tools against the run's resolved model:
                     # escalating after it would leave the tool set bound to the pre-escalation model.
                     from egpt.agent._run import aapply_run_model, estimate_component_tool_count
 
@@ -8826,12 +8837,14 @@ async def _acontinue_run_stream(
                         images=getattr(getattr(run_response, "input", None), "images", None),
                         estimated_tool_count=estimate_component_tool_count(team),
                     )
+                    # The hook is what may change the model, so rebind after it rather than before.
+                    _run_model = run_model(team, run_context)
                     response_format = _recompute_response_format(
                         team, run_context, response_format, model_changed=_model_changed
                     )
                     _tools = _determine_tools_for_model(
                         team,
-                        model=team.model,
+                        model=_run_model,
                         run_response=run_response,
                         run_context=run_context,
                         team_run_context=team_run_context,
@@ -8952,13 +8965,12 @@ async def _acontinue_run_stream(
 
                 elif member_results:
                     # Member-only: continue the same run with member results
-                    team.model = cast(Model, team.model)
                     await _check_and_refresh_mcp_tools(team)
 
                     team_run_context: Dict[str, Any] = {}  # type: ignore[no-redef]
                     learning_tools = await _aget_learning_tools(team, user_id, team_session)
                     # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
-                    # Before _determine_tools_for_model, which binds tools against `model=team.model`:
+                    # Before _determine_tools_for_model, which binds tools against the run's resolved model:
                     # escalating after it would leave the tool set bound to the pre-escalation model.
                     from egpt.agent._run import aapply_run_model, estimate_component_tool_count
 
@@ -8971,12 +8983,14 @@ async def _acontinue_run_stream(
                         images=getattr(getattr(run_response, "input", None), "images", None),
                         estimated_tool_count=estimate_component_tool_count(team),
                     )
+                    # The hook is what may change the model, so rebind after it rather than before.
+                    _run_model = run_model(team, run_context)
                     response_format = _recompute_response_format(
                         team, run_context, response_format, model_changed=_model_changed
                     )
                     _tools = _determine_tools_for_model(
                         team,
-                        model=team.model,
+                        model=_run_model,
                         run_response=run_response,
                         run_context=run_context,
                         team_run_context=team_run_context,

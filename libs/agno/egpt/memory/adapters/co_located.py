@@ -19,7 +19,7 @@ an episode or a fact, which tier consolidation reads and which it writes -- is r
 import asyncio
 import inspect
 from dataclasses import replace
-from typing import Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, Union
 from uuid import NAMESPACE_OID, uuid4, uuid5
 
 from egpt.memory.config import (
@@ -28,6 +28,7 @@ from egpt.memory.config import (
     register_provider,
     resolve_substrate,
 )
+from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
@@ -41,6 +42,7 @@ from egpt.memory.tiers import (
     substrates_for_tier,
 )
 from egpt.memory.types import (
+    NO_ENTITIES,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
@@ -50,14 +52,18 @@ from egpt.memory.types import (
     MemorySlice,
     PartialWriteError,
     Scope,
-    require_scope,
     Substrate,
+    ValidWindow,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
+    require_scope,
 )
 from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
 from egpt.utils.dttm import now_epoch_s
+
+if TYPE_CHECKING:
+    from egpt.memory.graph.entities import EntityExtractionPipeline
 
 __all__ = ["CoLocatedMemoryProvider"]
 
@@ -75,6 +81,12 @@ _MAX_CONCURRENT_WRITES = 16
 #: Safety cap on one consolidation pass. Not a resumption protocol -- when the cap is hit the
 #: report says ``complete=False``, and draining the rest is SM-L1's (#122).
 _MAX_EPISODES_PER_PASS = 5_000
+
+#: What ``ConsolidationReport.details["entities"]`` holds: an ``entity_details`` payload from a
+#: wired pipeline, or the ``NO_ENTITIES`` sentinel string from an unwired one. Named rather than
+#: left ``Any`` (review finding on PR #89) -- ``Any`` suppresses static analysis on every caller and
+#: hides the ``isinstance(..., dict)`` branch a consumer needs before reading a pipeline field.
+EntitySummary = Union[Dict[str, Any], str]
 
 
 def _positive_int(value: Any, option: str) -> int:
@@ -94,6 +106,31 @@ def _positive_int(value: Any, option: str) -> int:
     return value
 
 
+def _checked_pipeline(candidate: Any) -> Optional["EntityExtractionPipeline"]:
+    """Verify an injected entity pipeline carries both halves, at construction time.
+
+    The same bargain :func:`egpt.memory.substrates.checked_graph` strikes: names only, but it turns
+    "consolidate mysteriously stopped extracting" or an ``AttributeError`` deep inside a pass into a
+    build-time error. ``None`` passes through -- a provider without entity extraction is the
+    default, not a misconfiguration.
+
+    Method presence only, like that same bargain -- a candidate with the right names and wrong
+    behaviour (a bad model, a broken embedder passed through) still passes here and fails at the
+    first ``consolidate``/``aconsolidate`` call, not at construction.
+    """
+    if candidate is None:
+        return None
+    missing = [verb for verb in ("run", "arun") if not callable(getattr(candidate, verb, None))]
+    if missing:
+        raise MemoryProviderConfigError(
+            f"options['entity_pipeline'] is a {type(candidate).__name__}, which is missing "
+            f"{missing}. consolidate and aconsolidate each drive one half; a pipeline with only "
+            "the sync verb blocks the async lane's event loop.",
+            field_name="options.entity_pipeline",
+        )
+    return candidate
+
+
 def _tokens(text: str) -> Set[str]:
     return set(text.lower().split())
 
@@ -103,15 +140,8 @@ def _jaccard(left: Set[str], right: Set[str]) -> float:
 
 
 def _valid_at(record: MemoryRecord, at: int) -> bool:
-    """``t_valid <= at < t_invalid``, with ``None`` open at either end.
-
-    Both bounds: checking only ``t_invalid`` lets a future-dated record answer about the past.
-    """
-    if record.t_valid is not None and record.t_valid > at:
-        return False
-    if record.t_invalid is not None and record.t_invalid <= at:
-        return False
-    return True
+    """``t_valid <= at < t_invalid``, with ``None`` open at either end."""
+    return ValidWindow.at(at).overlaps(record.t_valid, record.t_invalid)
 
 
 def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
@@ -160,6 +190,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         config: Optional[MemoryProviderConfig] = None,
         max_episodes_per_pass: int = _MAX_EPISODES_PER_PASS,
         max_concurrent_writes: int = _MAX_CONCURRENT_WRITES,
+        entity_pipeline: Optional["EntityExtractionPipeline"] = None,
     ) -> None:
         if vector is None and graph is None:
             raise MemoryProviderConfigError(
@@ -168,6 +199,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
         self.vector = vector
         self.graph = graph
+        #: SM-G2's (#100) entity extraction, run by ``consolidate`` and by nothing on the read path.
+        #: ``None`` by default: extraction is an LLM pass per episode, so a provider must be asked
+        #: for it rather than start paying for it on an upgrade.
+        #:
+        #: Duck-typed for the same reason ``close`` is -- the type lives in ``memory.graph``, which
+        #: pulls in the model and learn stacks, and every ``import egpt.memory`` would pay for it.
+        self.entity_pipeline = _checked_pipeline(entity_pipeline)
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         #: Ceiling on one consolidation pass. Adjustable because the default is a safety bound, not
         #: a policy: a tier larger than this has its tail consolidated *never*, not later.
@@ -387,12 +425,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
             self._require_writable(target)
             occurred_at = event.occurred_at if event.occurred_at is not None else now
             event_id = event.id or str(uuid4())
+            # Validated here rather than only in the graph leg (SM-G6 #104): a vector-only tenant
+            # (SM-C5 #93) would otherwise accept a malformed `entities` in silence, and the same
+            # batch would be refused or not depending on which substrates happen to be wired.
+            entities = normalized_mentions(event.entities, episode_id=event_id)
             prepared = replace(
                 event,
                 id=event_id,
                 tier=target,
                 occurred_at=occurred_at,
                 topics=list(event.topics) if event.topics is not None else None,
+                entities=entities if event.entities is not None else None,
                 metadata=dict(event.metadata),
             )
             stamped.append(prepared)
@@ -403,6 +446,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     content=prepared.content,
                     scope=scope,
                     topics=list(prepared.topics) if prepared.topics is not None else None,
+                    # The same derivation the graph's `MENTIONS` edges use, so the vector row does
+                    # not drop the caller's entities on a deployment with no graph leg. Whether the
+                    # two stay in step as the graph changes is SM-E10's (#117).
+                    provenance={"entity_ids": [entity_node_id_for(scope, name) for name in entities]},
                     t_valid=occurred_at,
                     created_at=now,
                     metadata=dict(prepared.metadata),
@@ -577,7 +624,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # the successor row carries a past `t_invalid` with `expired_at = None` -- so checking only
         # current belief let `read()` and `read(as_of=now)` disagree at the same instant.
         current = [r for r in merged if r.is_current_belief()]
-        visible = [r for r in current if _valid_at(r, instant)]
+        # A window **replaces** the point predicate rather than stacking with it: they are two
+        # spellings of one axis, and intersecting them empties every read about the past, since
+        # `instant` is the present whenever `as_of` is unset. `MemoryQuery` refuses both at once,
+        # so this is a choice between two given filters and never a merge of them (SM-V4 #98).
+        #
+        # The rule runs again here even though the substrate already narrowed, because the
+        # substrate filtered its own **stale** projection: `_reconcile_bounds` has just overwritten
+        # these bounds from the graph, which is the authority, and a window decided before that was
+        # decided on the wrong ones. The substrate's pass is what makes this a full page rather
+        # than the remains of one; this pass is what makes it correct.
+        requested_window = query.window()
+        window = requested_window or ValidWindow.at(instant)
+        visible = [r for r in current if window.overlaps(r.t_valid, r.t_invalid)]
         records = visible[: query.limit] if query.limit else []
 
         by_tier: Dict[MemoryTier, List[MemoryRecord]] = {}
@@ -603,8 +662,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # conflated "the world moved on" with "a newer revision exists", which are
                 # different diagnoses -- and `bounds_for_ids` is explicitly allowed to report
                 # expired rows, so a conforming backend makes the difference observable.
-                dropped_by_validity=len(current) - len(visible),
+                dropped_by_validity=0 if requested_window else len(current) - len(visible),
                 dropped_as_superseded=len(merged) - len(current),
+                # The same drop, attributed to the question that was actually asked. One filter
+                # runs, so one of these two is always zero -- reporting the count under both would
+                # double it, and reporting it only under `dropped_by_validity` would say "the world
+                # moved on" about rows the caller deliberately excluded. Non-zero here after the
+                # substrate already narrowed means reconciliation tightened a bound.
+                #
+                # Pre-limit, like `dropped_by_validity` above -- so neither key accounts for rows
+                # `visible[:query.limit]` truncated. `returned + dropped_as_superseded +
+                # dropped_outside_window` need not sum to `fused`; the remainder passed every
+                # filter and lost only to the page size. A `dropped_by_limit` key would close that,
+                # and does not exist because nothing here needed it yet.
+                dropped_outside_window=len(current) - len(visible) if requested_window else 0,
                 # Reported by the reconciliation itself, not inferred from the wiring. Inferring
                 # it claimed `True` for a procedural slice, where `_graph_backed` correctly makes
                 # no call at all -- the flag would have said a graph vouched for bounds no graph
@@ -644,6 +715,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
         the verb the caller used. Threading it is what keeps the entry guard and the post-condition
         from disagreeing about which method is running.
         """
+        # `GraphSubstrate.recall_episodes` (SM-G6 #104) is deliberately absent from this fan-out.
+        # It answers a different question -- episodes by valid-time window and mention link,
+        # unranked -- than `traverse`'s relevance-ranked search, and merging an unranked leg into
+        # `_merged`'s ranked-fusion machinery would need a decision about how the two combine that
+        # nobody has made. No ticket currently owns wiring it into the fused read path; a caller
+        # that wants it reaches `provider.graph.recall_episodes` directly, as
+        # `cookbook/18_episodic_subgraph.py` does. Stated here rather than left to look like an
+        # oversight, per round-3 review, PR #90.
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         vector_hits: List[MemoryRecord] = []
@@ -824,6 +903,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         episodes: Sequence[MemoryRecord],
         facts: Sequence[FactWrite],
         merged: int,
+        entities: EntitySummary,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
         return ConsolidationReport(
@@ -847,10 +927,47 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # cap is reported as truncated when it was drained -- the false positive costs one
                 # unnecessary cap increase, the false negative costs silent loss of the tail.
                 complete=not hit_cap,
+                entities=entities,
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
                 tail_unreachable=hit_cap,
             ),
         )
+
+    def _entities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntitySummary:
+        """Run SM-G2's (#100) entity extraction over the episodes this pass kept.
+
+        Over ``episodes`` rather than ``scanned``: an episode the graph has recorded as false is one
+        ``_visible_episodes`` already dropped from distillation, and extracting entities from it
+        would put nodes in the graph sourced from a row no read returns.
+
+        **After** the fact write, deliberately. Extraction is an LLM pass and the flakiest step in
+        the lane; running it first would let a provider timeout cost the deterministic dedup that
+        had nothing to do with it. A failure here still propagates -- it is not swallowed into a
+        report that claims a clean run.
+
+        **Two independent caps, not one.** ``self.max_episodes_per_pass`` bounds what ``scan``
+        reads into this pass; the pipeline's own ``max_episodes_per_pass`` (default 200, well below
+        this class's default 5000) can cut further inside ``EntityExtractionPipeline._selected``.
+        A scheduler reading only the top-level ``details["complete"]`` would miss a truncated
+        extraction -- ``details["entities"]["complete"]`` is the one that says so.
+
+        ``NO_ENTITIES`` only when no pipeline is wired -- **not** also when ``episodes`` happens to
+        be empty (review finding on PR #89, round 3). A wired pipeline handed an empty list still
+        ran: ``EntityExtractionPipeline.run([])`` makes no model call and returns a proper
+        ``entity_details(complete=True, ...)`` dict, which is what a caller needs to tell "nothing
+        to extract this pass" apart from "extraction was never configured" -- the two read
+        identically as ``NO_ENTITIES`` otherwise, and a scheduler retrying the second case would
+        wait forever for a pipeline that was never going to run.
+        """
+        if self.entity_pipeline is None:
+            return NO_ENTITIES
+        return self.entity_pipeline.run(scope, episodes).details
+
+    async def _aentities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntitySummary:
+        """Async variant of :meth:`_entities`, making the same decisions."""
+        if self.entity_pipeline is None:
+            return NO_ENTITIES
+        return (await self.entity_pipeline.arun(scope, episodes)).details
 
     @staticmethod
     def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
@@ -986,7 +1103,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, episodes, facts, merged)
+            # Extraction runs after the fact writes, not inside their `try`: it is not a fact write
+            # and must not be counted as one in `committed_any`. But once facts landed, a failure
+            # here is exactly as much a partial write as a failure in the loop above -- the caller
+            # still needs `receipt` to retry the ids that committed. `receipt` exists only inside
+            # this `if facts:` branch, which is why the guard is here rather than wrapping the
+            # `return` unconditionally.
+            try:
+                entities = self._entities(scope, episodes)
+            except Exception as exc:
+                raise PartialWriteError(receipt) from exc
+        else:
+            # No `receipt` exists here to attach -- `facts` is empty, so nothing above committed.
+            # A failure here is a plain refusal, matching `write`'s rule: propagate bare, do not
+            # wrap. Deliberately parallel to the `if facts:` branch above, not an oversight against
+            # it -- see the review-round-3 note in `_entities`'s own docstring.
+            entities = self._entities(scope, episodes)
+        return self._report(scope, scanned, episodes, facts, merged, entities)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1026,7 +1159,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, episodes, facts, merged)
+            try:
+                entities = await self._aentities(scope, episodes)
+            except Exception as exc:
+                raise PartialWriteError(receipt) from exc
+        else:
+            # No `receipt` exists here to attach -- `facts` is empty, so nothing above committed.
+            # A failure here is a plain refusal, matching `write`'s rule: propagate bare, do not
+            # wrap. Deliberately parallel to the `if facts:` branch above, not an oversight against
+            # it -- see the review-round-3 note in `_entities`'s own docstring.
+            entities = await self._aentities(scope, episodes)
+        return self._report(scope, scanned, episodes, facts, merged, entities)
 
 
 @register_provider("co_located")
@@ -1049,11 +1192,21 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
             config.options.get("vector_substrate"),
             "vector_substrate",
             checked_vector,
+            config.mode,
         ),
         graph=resolve_substrate(
-            "graph", "graphdb", config.graph, config.options.get("graph_substrate"), "graph_substrate", checked_graph
+            "graph",
+            "graphdb",
+            config.graph,
+            config.options.get("graph_substrate"),
+            "graph_substrate",
+            checked_graph,
+            config.mode,
         ),
         config=config,
         max_episodes_per_pass=config.options.get("max_episodes_per_pass", _MAX_EPISODES_PER_PASS),
         max_concurrent_writes=config.options.get("max_concurrent_writes", _MAX_CONCURRENT_WRITES),
+        # Injected, not resolved by registry key: the pipeline needs a model and an embedder, and
+        # naming those in provider config would put SM-V2's (#96) embedder selection here.
+        entity_pipeline=config.options.get("entity_pipeline"),
     )

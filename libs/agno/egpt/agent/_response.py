@@ -30,7 +30,7 @@ from egpt.models.fallback import acall_model_stream_with_fallback, call_model_st
 from egpt.models.message import Message
 from egpt.models.response import ModelResponse, ModelResponseEvent
 from egpt.reasoning.step import NextAction, ReasoningStep, ReasoningSteps
-from egpt.run import RunContext
+from egpt.run import RunContext, run_model
 from egpt.run.agent import Followups, RunEvent, RunOutput, RunOutputEvent
 from egpt.run.messages import RunMessages
 from egpt.run.requirement import RunRequirement
@@ -268,7 +268,7 @@ def reason(
     if reasoning_model is None and agent.model is not None:
         from copy import deepcopy
 
-        reasoning_model = deepcopy(agent.model)
+        reasoning_model = deepcopy(run_model(agent, run_context))
 
     # Create reasoning manager with config
     manager = ReasoningManager(
@@ -315,7 +315,7 @@ async def areason(
     if reasoning_model is None and agent.model is not None:
         from copy import deepcopy
 
-        reasoning_model = deepcopy(agent.model)
+        reasoning_model = deepcopy(run_model(agent, run_context))
 
     # Create reasoning manager with config
     manager = ReasoningManager(
@@ -865,9 +865,11 @@ def model_should_return_structured_output(agent: Agent, run_context: Optional[Ru
     # Get output_schema from run_context
     output_schema = run_context.output_schema if run_context else None
 
-    agent.model = cast(Model, agent.model)
+    # The serving model's capabilities, not the configured one's: an escalated run may support
+    # native structured outputs where the primary does not (aicoe-tracker#166).
+    _model = cast(Model, run_model(agent, run_context))
     return bool(
-        agent.model.supports_native_structured_outputs
+        _model.supports_native_structured_outputs
         and output_schema is not None
         and (not agent.use_json_mode or agent.structured_outputs)
     )
@@ -1076,7 +1078,7 @@ def handle_model_response_stream(
     from egpt.agent._run import build_after_tool_results_callback
 
     for model_response_event in call_model_stream_with_fallback(
-        agent.model,
+        run_model(agent, run_context),
         agent.fallback_config,
         messages=run_messages.messages,
         response_format=response_format,
@@ -1236,7 +1238,7 @@ async def ahandle_model_response_stream(
     from egpt.agent._run import abuild_after_tool_results_callback
 
     model_response_stream = acall_model_stream_with_fallback(
-        agent.model,
+        run_model(agent, run_context),
         agent.fallback_config,
         messages=run_messages.messages,
         response_format=response_format,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 import warnings
+import weakref as _weakref
 from collections import deque
 from time import time as unix_time
 from typing import (
@@ -41,12 +42,11 @@ from egpt.exceptions import (
 )
 from egpt.filters import FilterExpr
 from egpt.media import Audio, File, Image, Video
-from egpt.models.base import Model
 from egpt.models.fallback import acall_model_with_fallback, call_model_with_fallback
 from egpt.models.message import Message
 from egpt.models.metrics import RunMetrics, merge_background_metrics
 from egpt.models.response import ModelResponse, ToolExecution
-from egpt.run import RunContext, RunStatus
+from egpt.run import RunContext, RunStatus, run_model
 from egpt.run.agent import (
     RunCancelledEvent,
     RunCompletedEvent,
@@ -248,8 +248,8 @@ def estimate_request_input_tokens(agent: Any, run_input: Any) -> Optional[int]:
         return None
 
 
-def _stamp_resolved_model(agent: Any, run_response: Any, resolved: Any) -> bool:
-    """Assign the resolved model, re-stamp the run's attribution, and report whether it changed.
+def _stamp_resolved_model(agent: Any, run_context: Optional[RunContext], run_response: Any, resolved: Any) -> bool:
+    """Record the resolved model for this run, re-stamp attribution, and report whether it changed.
 
     `run_response.model`/`model_provider` are written before the run body is entered, so a run
     that escalates otherwise reported the *pre*-escalation model: cost dashboards under-counted
@@ -281,7 +281,11 @@ def _stamp_resolved_model(agent: Any, run_response: Any, resolved: Any) -> bool:
     # (`mode_a` and `mode_b` both go through `_construct`), so a pure `is not` check reported a
     # change on essentially every run and this gate never saved the work it was added to save.
     _FORMAT_FLAGS = ("supports_native_structured_outputs", "supports_json_schema_outputs")
-    current = agent.model
+    # Compare against what this run would otherwise have served, not against `agent.model`. On a
+    # re-resolve within one run (the continue-run paths call the hook again) the run's own
+    # previously-resolved model is the baseline; falling back to the component here would report
+    # `changed=True` on every such call and rebuild the schema for nothing.
+    current = run_model(agent, run_context)
     changed = not (
         resolved is current
         or (
@@ -291,7 +295,19 @@ def _stamp_resolved_model(agent: Any, run_response: Any, resolved: Any) -> bool:
             and all(getattr(resolved, flag, None) == getattr(current, flag, None) for flag in _FORMAT_FLAGS)
         )
     )
-    agent.model = resolved
+    # The run's model, not the component's: `agent.model` stays the caller's configuration for the
+    # lifetime of the object. See `RunContext.resolved_model` and aicoe-tracker#166.
+    if run_context is not None:
+        run_context.resolved_model = resolved
+        # Stamp who resolved it: a workflow shares one RunContext across steps, so an unkeyed
+        # value would serve the next, provider-less component too. See RunContext.resolved_model.
+        try:
+            run_context.resolved_model_owner = _weakref.ref(agent)
+        except TypeError:
+            # A component that cannot be weak-referenced (an exotic __slots__ type, or a test
+            # double) still gets correct behaviour: no owner means run_model falls back to
+            # component.model rather than serving someone else's resolution.
+            run_context.resolved_model_owner = None
     if run_response is not None:
         run_response.model = getattr(resolved, "id", None)
         run_response.model_provider = getattr(resolved, "provider", None)
@@ -396,7 +412,34 @@ def recompute_response_format(
 
     from egpt.agent._response import get_response_format
 
-    return get_response_format(agent, run_context=run_context)
+    # Explicitly the run's model, not the component's: `get_response_format` falls back to
+    # `agent.model`, which since aicoe-tracker#166 is the caller's configuration rather than what this run
+    # resolved. Deriving against it would reintroduce the exact bug this function exists to
+    # prevent -- a schema shaped for the primary sent to the escalation target.
+    return get_response_format(agent, model=run_model(agent, run_context), run_context=run_context)
+
+
+def _clear_own_resolution(agent: Any, run_context: Optional[RunContext]) -> None:
+    """Drop this component's previous resolution before it resolves again.
+
+    A component can be re-entered on the *same* shared `RunContext` -- a workflow `Loop` or
+    `Router` runs the same step repeatedly, and every iteration is handed the one context. Without
+    this, iteration 1's escalation outlives its own iteration: iteration 2's provider can answer
+    "the primary suffices" (`resolve_run_model` returns None, so `apply_run_model` returns False
+    without writing anything) and `run_model` would still serve iteration 1's frontier model --
+    against the provider's explicit verdict. That is aicoe-tracker#166's second consequence, an
+    escalation outliving its run, reincarnated one level up.
+
+    Only this component's own stamp is cleared. A sibling's in-flight resolution on a shared
+    context is left alone, which is exactly what the owner key exists to protect: two components
+    can be mid-run on one context, and clearing indiscriminately would clobber the other's.
+    """
+    if run_context is None:
+        return
+    owner = getattr(run_context, "resolved_model_owner", None)
+    if owner is not None and owner() is agent:
+        run_context.resolved_model = None
+        run_context.resolved_model_owner = None
 
 
 def apply_run_model(
@@ -425,19 +468,17 @@ def apply_run_model(
     routing signals -- how many tools are bound, whether a schema is required, whether the
     input carries images -- are only knowable once tools and messages exist.
 
-    A no-op when no provider is configured: ``resolve_run_model`` returns None and
-    ``agent.model`` is left exactly as it was, which is the pre-Epic-3 path byte for byte.
+    A no-op when no provider is configured: ``resolve_run_model`` returns None,
+    ``run_context.resolved_model`` stays ``None`` and every read site falls back to
+    ``component.model`` -- the pre-Epic-3 path byte for byte.
 
-    **Known limit -- per-object storage for per-run state.** The resolved model is written back
-    onto ``component.model``, which a reused component shares across runs. Two consequences worth
-    knowing about: under ``asyncio.gather(agent.arun(a), agent.arun(b))`` a run that escalates
-    changes the model the other run's in-flight call will use; and the escalation outlives the run,
-    so a later resolution that fails keeps the *escalated* model rather than the original. Fixing
-    it properly means threading a per-run model through to the model call instead of assigning it
-    here -- roughly 105 read sites across ``agent/_run.py`` and ``team/_run.py`` -- which is a
-    refactor of the run path rather than a change to this seam. Tracked as aicoe-tracker#166; until then a
-    deployment that escalates should construct per-request components (the ``AgentFactory`` path
-    already does) rather than sharing one across concurrent runs.
+    The resolved model is recorded on ``run_context``, **not** on ``component.model`` (aicoe-tracker#166).
+    A component is shared -- CLAUDE.md tells users to reuse agents rather than build one per
+    request -- so assigning here meant a run that escalated wrote to state every other run reads:
+    under ``asyncio.gather(agent.arun(a), agent.arun(b))`` one run's escalation changed the model
+    the other's in-flight call used, and the escalation outlived the run, so a later resolution
+    failure kept the escalated model rather than the configured one. Read the result with
+    ``run_model(component, run_context)``.
 
     A configuration or policy error propagates; a transient one does not. The original blanket
     ``except`` downgraded every failure to a warning, which meant a Mode A provider whose policy
@@ -446,6 +487,9 @@ def apply_run_model(
     request the provider was configured to prevent, and returns success. ``_resolve_via_provider``
     raises on the init path for this reason; the per-run seam now matches it.
     """
+    # Re-entry on a shared context must re-resolve from a clean slate -- see the helper.
+    _clear_own_resolution(agent, run_context)
+
     request = _run_model_request(
         agent, run_context, tools, response_format, images, estimated_input_tokens, estimated_tool_count
     )
@@ -468,7 +512,7 @@ def apply_run_model(
 
     if resolved is None:
         return False
-    return _stamp_resolved_model(agent, run_response, resolved)
+    return _stamp_resolved_model(agent, run_context, run_response, resolved)
 
 
 async def aapply_run_model(
@@ -491,6 +535,9 @@ async def aapply_run_model(
     ``aresolve`` never had it called. ``aresolve_run_model`` routes through ``aresolve_via``,
     which is what picks the async path when the provider offers one.
     """
+    # Re-entry on a shared context must re-resolve from a clean slate -- see the helper.
+    _clear_own_resolution(agent, run_context)
+
     request = _run_model_request(
         agent, run_context, tools, response_format, images, estimated_input_tokens, estimated_tool_count
     )
@@ -510,7 +557,7 @@ async def aapply_run_model(
 
     if resolved is None:
         return False
-    return _stamp_resolved_model(agent, run_response, resolved)
+    return _stamp_resolved_model(agent, run_context, run_response, resolved)
 
 
 # ---------------------------------------------------------------------------
@@ -823,7 +870,6 @@ def _run(
 
                 # 4. Execute pre-hooks
                 run_input = cast(RunInput, run_response.input)
-                agent.model = cast(Model, agent.model)
                 if agent.pre_hooks is not None:
                     # Can modify the run input
                     pre_hook_iterator = execute_pre_hooks(
@@ -871,6 +917,8 @@ def _run(
                     images=run_input.images,
                     estimated_input_tokens=estimate_request_input_tokens(agent, run_input),
                 )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(agent, run_context)
                 # `response_format` was derived from the pre-resolution model; re-derive it only
                 # if the model actually moved.
                 response_format = recompute_response_format(
@@ -879,7 +927,7 @@ def _run(
 
                 _tools = determine_tools_for_model(
                     agent,
-                    model=agent.model,
+                    model=_run_model,
                     processed_tools=processed_tools,
                     run_response=run_response,
                     session=agent_session,
@@ -942,10 +990,9 @@ def _run(
                 raise_if_cancelled(run_response.run_id)  # type: ignore
 
                 # 6. Generate a response from the Model (includes running function calls)
-                agent.model = cast(Model, agent.model)
 
                 model_response: ModelResponse = call_model_with_fallback(
-                    agent.model,
+                    _run_model,
                     agent.fallback_config,
                     messages=run_messages.messages,
                     tools=_tools,
@@ -1263,7 +1310,6 @@ def _run_stream(
 
                 # 4. Execute pre-hooks
                 run_input = cast(RunInput, run_response.input)
-                agent.model = cast(Model, agent.model)
                 if agent.pre_hooks is not None:
                     # Can modify the run input
                     pre_hook_iterator = execute_pre_hooks(
@@ -1312,6 +1358,8 @@ def _run_stream(
                     images=run_input.images,
                     estimated_input_tokens=estimate_request_input_tokens(agent, run_input),
                 )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(agent, run_context)
                 # `response_format` was derived from the pre-resolution model; re-derive it only
                 # if the model actually moved.
                 response_format = recompute_response_format(
@@ -1320,7 +1368,7 @@ def _run_stream(
 
                 _tools = determine_tools_for_model(
                     agent,
-                    model=agent.model,
+                    model=_run_model,
                     processed_tools=processed_tools,
                     run_response=run_response,
                     session=agent_session,
@@ -1834,7 +1882,7 @@ def run_dispatch(
         output_schema=output_schema,
     )
 
-    agent.model = cast(Model, agent.model)
+    _run_model = run_model(agent, run_context)
 
     # Initialize run context
     run_context = run_context or RunContext(
@@ -1872,8 +1920,8 @@ def run_dispatch(
         input=run_input,
     )
 
-    run_response.model = agent.model.id if agent.model is not None else None
-    run_response.model_provider = agent.model.provider if agent.model is not None else None
+    run_response.model = _run_model.id if _run_model is not None else None
+    run_response.model_provider = _run_model.provider if _run_model is not None else None
 
     # Start the run metrics timer, to calculate the run duration
     run_response.metrics = RunMetrics()
@@ -2018,7 +2066,6 @@ async def _arun(
 
                 # 4. Execute pre-hooks
                 run_input = cast(RunInput, run_response.input)
-                agent.model = cast(Model, agent.model)
                 if agent.pre_hooks is not None:
                     # Can modify the run input
                     pre_hook_iterator = aexecute_pre_hooks(
@@ -2038,7 +2085,6 @@ async def _arun(
                         pass
 
                 # 5. Determine tools for model
-                agent.model = cast(Model, agent.model)
                 processed_tools = await agent.aget_tools(
                     run_response=run_response,
                     run_context=run_context,
@@ -2058,6 +2104,8 @@ async def _arun(
                     images=run_input.images,
                     estimated_input_tokens=estimate_request_input_tokens(agent, run_input),
                 )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(agent, run_context)
                 # `response_format` was derived from the pre-resolution model; re-derive it only
                 # if the model actually moved.
                 response_format = recompute_response_format(
@@ -2066,7 +2114,7 @@ async def _arun(
 
                 _tools = determine_tools_for_model(
                     agent,
-                    model=agent.model,
+                    model=_run_model,
                     processed_tools=processed_tools,
                     run_response=run_response,
                     run_context=run_context,
@@ -2134,7 +2182,7 @@ async def _arun(
 
                 # 9. Generate a response from the Model (includes running function calls)
                 model_response: ModelResponse = await acall_model_with_fallback(
-                    agent.model,
+                    _run_model,
                     agent.fallback_config,
                     messages=run_messages.messages,
                     tools=_tools,
@@ -2717,7 +2765,6 @@ async def _arun_stream(
 
                 # 4. Execute pre-hooks
                 run_input = cast(RunInput, run_response.input)
-                agent.model = cast(Model, agent.model)
                 if agent.pre_hooks is not None:
                     pre_hook_iterator = aexecute_pre_hooks(
                         agent,
@@ -2738,7 +2785,6 @@ async def _arun_stream(
                         yield event
 
                 # 5. Determine tools for model
-                agent.model = cast(Model, agent.model)
                 processed_tools = await agent.aget_tools(
                     run_response=run_response,
                     run_context=run_context,
@@ -2758,6 +2804,8 @@ async def _arun_stream(
                     images=run_input.images,
                     estimated_input_tokens=estimate_request_input_tokens(agent, run_input),
                 )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(agent, run_context)
                 # `response_format` was derived from the pre-resolution model; re-derive it only
                 # if the model actually moved.
                 response_format = recompute_response_format(
@@ -2766,7 +2814,7 @@ async def _arun_stream(
 
                 _tools = determine_tools_for_model(
                     agent,
-                    model=agent.model,
+                    model=_run_model,
                     processed_tools=processed_tools,
                     run_response=run_response,
                     run_context=run_context,
@@ -3324,7 +3372,7 @@ def arun_dispatch(  # type: ignore
         output_schema=output_schema,
     )
 
-    agent.model = cast(Model, agent.model)
+    _run_model = run_model(agent, run_context)
 
     # Initialize run context
     run_context = run_context or RunContext(
@@ -3362,8 +3410,8 @@ def arun_dispatch(  # type: ignore
         input=run_input,
     )
 
-    run_response.model = agent.model.id if agent.model is not None else None
-    run_response.model_provider = agent.model.provider if agent.model is not None else None
+    run_response.model = _run_model.id if _run_model is not None else None
+    run_response.model_provider = _run_model.provider if _run_model is not None else None
 
     # Start the run metrics timer, to calculate the run duration
     run_response.metrics = RunMetrics()
@@ -4002,7 +4050,6 @@ def continue_run_dispatch(
     # Prepare arguments for the model
     set_default_model(agent)
     response_format = get_response_format(agent, run_context=run_context) if agent.parser_model is None else None
-    agent.model = cast(Model, agent.model)
 
     processed_tools = agent.get_tools(
         run_response=run_response,
@@ -4010,10 +4057,29 @@ def continue_run_dispatch(
         session=agent_session,
         user_id=user_id,
     )
+    # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
+    #
+    # Without this, a paused-then-resumed run silently drops back to `agent.model`: the mutation
+    # this PR removed used to carry a same-process escalation forward by accident (aicoe-tracker#166),
+    # and nothing here replaced that for the continue path. BEFORE `determine_tools_for_model`, for
+    # the same reason `_run` orders it that way -- see the comment there.
+    _model_changed = apply_run_model(
+        agent,
+        run_context,
+        processed_tools,
+        response_format,
+        run_response=run_response,
+        images=getattr(getattr(run_response, "input", None), "images", None),
+    )
+    # The hook is what may change the model, so rebind after it rather than before.
+    _run_model = run_model(agent, run_context)
+    # `response_format` was derived from the pre-resolution model; re-derive it only if the model
+    # actually moved.
+    response_format = recompute_response_format(agent, run_context, response_format, model_changed=_model_changed)
 
     _tools = determine_tools_for_model(
         agent,
-        model=agent.model,
+        model=_run_model,
         processed_tools=processed_tools,
         run_response=run_response,
         run_context=run_context,
@@ -4110,8 +4176,6 @@ def _continue_run(
 
     register_run(run_response.run_id)  # type: ignore
 
-    agent.model = cast(Model, agent.model)
-
     # 1. Handle the updated tools
     handle_tool_call_updates(agent, run_response=run_response, run_messages=run_messages, tools=tools)
 
@@ -4123,9 +4187,9 @@ def _continue_run(
                 raise_if_cancelled(run_response.run_id)  # type: ignore
 
                 # 2. Generate a response from the Model (includes running function calls)
-                agent.model = cast(Model, agent.model)
+                _run_model = run_model(agent, run_context)
                 model_response: ModelResponse = call_model_with_fallback(
-                    agent.model,
+                    _run_model,
                     agent.fallback_config,
                     messages=run_messages.messages,
                     response_format=response_format,
@@ -4711,7 +4775,6 @@ def acontinue_run_dispatch(  # type: ignore
     )
 
     # Prepare arguments for the model
-    agent.model = cast(Model, agent.model)
 
     # Initialize run context before computing response_format (needs run_context)
     run_context = run_context or RunContext(
@@ -5185,17 +5248,36 @@ async def _acontinue_run(
                 run_response = cast(RunOutput, run_response)
 
                 # 5. Determine tools for model
-                agent.model = cast(Model, agent.model)
                 processed_tools = await agent.aget_tools(
                     run_response=run_response,
                     run_context=run_context,
                     session=agent_session,
                     user_id=user_id,
                 )
+                # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
+                #
+                # Without this, a paused-then-resumed run silently drops back to `agent.model`: the
+                # mutation this PR removed used to carry a same-process escalation forward by
+                # accident (aicoe-tracker#166), and nothing here replaced that for the continue path.
+                _model_changed = await aapply_run_model(
+                    agent,
+                    run_context,
+                    processed_tools,
+                    response_format,
+                    run_response=run_response,
+                    images=getattr(getattr(run_response, "input", None), "images", None),
+                )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(agent, run_context)
+                # `response_format` was derived from the pre-resolution model; re-derive it only if
+                # the model actually moved.
+                response_format = recompute_response_format(
+                    agent, run_context, response_format, model_changed=_model_changed
+                )
 
                 _tools = determine_tools_for_model(
                     agent,
-                    model=agent.model,
+                    model=_run_model,
                     processed_tools=processed_tools,
                     run_response=run_response,
                     run_context=run_context,
@@ -5224,7 +5306,7 @@ async def _acontinue_run(
 
                 # 8. Get model response
                 model_response: ModelResponse = await acall_model_with_fallback(
-                    agent.model,
+                    _run_model,
                     agent.fallback_config,
                     messages=run_messages.messages,
                     response_format=response_format,
@@ -5676,17 +5758,36 @@ async def _acontinue_run_stream(
                 run_response = cast(RunOutput, run_response)
 
                 # 5. Determine tools for model
-                agent.model = cast(Model, agent.model)
                 processed_tools = await agent.aget_tools(
                     run_response=run_response,
                     run_context=run_context,
                     session=agent_session,
                     user_id=user_id,
                 )
+                # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
+                #
+                # Without this, a paused-then-resumed run silently drops back to `agent.model`: the
+                # mutation this PR removed used to carry a same-process escalation forward by
+                # accident (aicoe-tracker#166), and nothing here replaced that for the continue path.
+                _model_changed = await aapply_run_model(
+                    agent,
+                    run_context,
+                    processed_tools,
+                    response_format,
+                    run_response=run_response,
+                    images=getattr(getattr(run_response, "input", None), "images", None),
+                )
+                # The hook is what may change the model, so rebind after it rather than before.
+                _run_model = run_model(agent, run_context)
+                # `response_format` was derived from the pre-resolution model; re-derive it only if
+                # the model actually moved.
+                response_format = recompute_response_format(
+                    agent, run_context, response_format, model_changed=_model_changed
+                )
 
                 _tools = determine_tools_for_model(
                     agent,
-                    model=agent.model,
+                    model=_run_model,
                     processed_tools=processed_tools,
                     run_response=run_response,
                     run_context=run_context,

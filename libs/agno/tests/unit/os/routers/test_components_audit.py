@@ -163,6 +163,8 @@ class TestAuditEndpoint:
         response = client.get("/components/agent-1/audit?action=config.publishh")
 
         assert response.status_code == 422
+        # Malformed input is rejected before any db work, not after.
+        mock_db.get_component.assert_not_called()
         mock_db.list_component_audit.assert_not_called()
 
     def test_a_missing_component_is_a_404(self, client, mock_db):
@@ -172,6 +174,61 @@ class TestAuditEndpoint:
 
         assert response.status_code == 404
         mock_db.list_component_audit.assert_not_called()
+
+    def test_include_deleted_reaches_history_with_no_row_left(self, client, mock_db):
+        """A hard delete leaves no components row at all -- unlike a soft delete, no value of
+        include_deleted on get_component can uncover it. Existence is proven by the audit trail
+        itself instead: get_component still returns None, but the history is there."""
+        mock_db.get_component.return_value = None
+
+        response = client.get("/components/agent-1/audit?include_deleted=true")
+
+        assert response.status_code == 200
+        assert response.json()["data"][0]["action"] == ComponentAuditAction.CONFIG_PUBLISH.value
+        assert mock_db.get_component.call_args.kwargs["include_deleted"] is True
+        # The page query itself proves existence -- no separate probe on the common path.
+        assert mock_db.list_component_audit.call_count == 1
+
+    def test_include_deleted_still_404s_with_no_history_either(self, client, mock_db):
+        """Opting in does not widen a component that never existed -- or belongs to another
+        tenant -- into a 200."""
+        mock_db.get_component.return_value = None
+        mock_db.list_component_audit.return_value = ([], 0)
+
+        response = client.get("/components/agent-1/audit?include_deleted=true")
+
+        assert response.status_code == 404
+        # The old (pre-include_deleted) existence gate 404s on this input too, so without this
+        # the assertion above would pass against the unfixed route as well. Asserting the route
+        # reached the audit query is what proves it decided 404 *because* there was no history,
+        # rather than 404ing at the gate without ever looking.
+        mock_db.list_component_audit.assert_called_once()
+
+    def test_include_deleted_with_a_filter_matching_nothing_is_a_200_not_a_404(self, client, mock_db):
+        """Existence must not depend on the caller's filters. A hard-deleted component with real
+        history still 200s an empty page for a valid action/version that legitimately matches
+        nothing -- exactly like a live component would -- rather than reading as "never
+        existed"."""
+        mock_db.get_component.return_value = None
+        mock_db.list_component_audit.side_effect = [
+            ([], 0),  # the actual filtered page runs first: this action matches nothing
+            ([AUDIT_ROW], 1),  # the unfiltered existence probe, only reached as a fallback
+        ]
+
+        response = client.get(
+            f"/components/agent-1/audit?include_deleted=true&action={ComponentAuditAction.CONFIG_UPDATE.value}"
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["data"] == []
+        assert body["meta"]["total_count"] == 0
+
+        assert mock_db.list_component_audit.call_count == 2
+        probe_kwargs = mock_db.list_component_audit.call_args_list[1].kwargs
+        assert probe_kwargs["limit"] == 1
+        assert probe_kwargs["offset"] == 0
+        assert "action" not in probe_kwargs
 
     def test_the_component_lookup_is_tenant_scoped(self, client, mock_db):
         """The 404 gate is what makes another tenant's component indistinguishable from an
