@@ -940,7 +940,8 @@ class BaseDb(ABC):
 
         Raises:
             ValueError: If component doesn't exist, version not found, label conflict,
-                        or attempting to update a published config.
+                        attempting to update a published config, or concurrent writers
+                        exhaust the version-assignment or publish retries.
         """
         raise NotImplementedError
 

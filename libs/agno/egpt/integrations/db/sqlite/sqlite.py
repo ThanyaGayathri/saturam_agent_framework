@@ -4046,7 +4046,8 @@ class SqliteDb(BaseDb):
 
         Raises:
             ValueError: If component doesn't exist, version not found, label conflict,
-                        or attempting to update a published config.
+                        attempting to update a published config, or concurrent writers
+                        exhaust the version-assignment or publish retries.
         """
         tenant_id = self._require_tenant_scope(tenant_id, "upsert_config")
 
@@ -4116,27 +4117,53 @@ class SqliteDb(BaseDb):
 
                     # Not tenant-scoped: version numbers must be unique per component_id,
                     # which is the primary key alongside version.
-                    max_version = sess.execute(
-                        select(configs_table.c.version)
-                        .where(configs_table.c.component_id == component_id)
-                        .order_by(configs_table.c.version.desc())
-                        .limit(1)
-                    ).scalar()
+                    #
+                    # Version assignment is a retried conflict-tolerant insert, not a plain
+                    # read-modify-write: two concurrent creators can read the same max and
+                    # compute the same next version. ON CONFLICT DO NOTHING turns the loser's
+                    # collision on the (component_id, version) primary key into rowcount 0
+                    # instead of an IntegrityError that would poison the open transaction;
+                    # the loser re-reads (pysqlite runs the SELECT in autocommit, so it sees
+                    # the winner's committed row) and retries. RETURNING is the success signal --
+                    # no row back means the conflict fired -- because psycopg reports INSERT
+                    # rowcount as -1 on the Postgres twin of this loop. Each consumed attempt
+                    # means another writer landed a version, so the bound is wider than the
+                    # publish CAS's: N simultaneous creators herd and the last needs up to N-1
+                    # attempts.
+                    max_attempts = 10
+                    for _ in range(max_attempts):
+                        max_version = sess.execute(
+                            select(configs_table.c.version)
+                            .where(configs_table.c.component_id == component_id)
+                            .order_by(configs_table.c.version.desc())
+                            .limit(1)
+                        ).scalar()
 
-                    final_version = (max_version or 0) + 1
+                        final_version = (max_version or 0) + 1
 
-                    sess.execute(
-                        configs_table.insert().values(
-                            component_id=component_id,
-                            version=final_version,
-                            tenant_id=tenant_id,
-                            label=label,
-                            stage=stage,
-                            config=config,
-                            notes=notes,
-                            created_at=int(time.time()),
+                        landed = sess.execute(
+                            sqlite.insert(configs_table)
+                            .values(
+                                component_id=component_id,
+                                version=final_version,
+                                tenant_id=tenant_id,
+                                label=label,
+                                stage=stage,
+                                config=config,
+                                notes=notes,
+                                created_at=int(time.time()),
+                            )
+                            .on_conflict_do_nothing(index_elements=["component_id", "version"])
+                            .returning(configs_table.c.version)
+                        ).scalar()
+
+                        if landed is not None:
+                            break
+                    else:
+                        raise ValueError(
+                            f"Could not create a new version for {component_id}: the next version "
+                            f"number kept being claimed by concurrent writers after {max_attempts} attempts"
                         )
-                    )
                 else:
                     existing_stmt = select(configs_table.c.version, configs_table.c.stage).where(
                         configs_table.c.component_id == component_id,
