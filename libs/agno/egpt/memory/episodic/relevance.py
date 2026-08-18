@@ -19,7 +19,7 @@ an :class:`EmbedderLike`, which is I/O, so it gets the seam's ``a``-prefixed twi
 
 import asyncio
 import math
-from typing import List, Optional, Protocol, Sequence, runtime_checkable
+from typing import List, Protocol, Sequence, runtime_checkable
 
 from egpt.memory.errors import MemoryOperationError
 from egpt.vectordb.distance import Distance
@@ -45,7 +45,7 @@ class EmbedderLike(Protocol):
     async def async_get_embedding(self, text: str) -> List[float]: ...
 
 
-def _cosine_distance(query_embedding: Optional[Sequence[float]], episode_embedding: Optional[Sequence[float]]) -> float:
+def _cosine_distance(query_embedding: Sequence[float], episode_embedding: Sequence[float]) -> float:
     """Cosine distance in ``[0, 2]`` (0=identical, 1=orthogonal, 2=opposite).
 
     Matches ``normalize_score``'s contract for ``Distance.cosine`` exactly, so relevance lands on
@@ -53,17 +53,20 @@ def _cosine_distance(query_embedding: Optional[Sequence[float]], episode_embeddi
     SM-E7 blends this signal with recency/importance and an inconsistent scale would let whichever
     signal happens to be larger decide the ranking.
 
-    ``None`` is accepted, not just an empty sequence, as a defensive guard rather than an observed
-    case: nothing in this tree's ``Embedder`` implementations returns ``None`` today, but nothing
-    in :class:`EmbedderLike` forbids a future or external one from doing so on failure, and a
-    caller forwarding that result here should get the named refusal below, not a ``TypeError``
-    from whatever this function happened to do with an unchecked ``None``.
+    The signature states the contract -- a non-empty ``Sequence[float]`` on both sides -- rather
+    than widening to ``Optional`` for the guard below. Every call with a ``None`` or empty side
+    still raises, never returns a score, so ``Optional`` would claim ``None`` is a valid input when
+    it never is. Same choice this package already makes for ``MemoryRecord.metadata``: typed
+    ``Dict[str, Any]``, not ``Optional``, even though ``__post_init__`` defends against a caller
+    passing ``None`` anyway. :class:`EmbedderLike`'s own return type is ``List[float]``, so nothing
+    here is a *supported* path for ``None`` -- the check below is a defense against a caller (or a
+    badly-behaved embedder) violating that contract, not a second accepted input shape.
     """
     # Checked and raised separately per side, not as one combined condition: a caller routes on
     # `field_name`, and a combined check named `episode_embedding` even when only the *query*
-    # side was empty would blame the side that was actually fine. `is None` first because a `None`
-    # embedding (an embedder's own failure mode) is not just falsy -- `len(None)` inside an f-string
-    # would raise a bare TypeError before this error is ever constructed.
+    # side was empty would blame the side that was actually fine. `is None` checked first because
+    # a `None` embedding is not just falsy -- `len(None)` inside an f-string would raise a bare
+    # TypeError before this error is ever constructed.
     if query_embedding is None or not query_embedding:
         raise MemoryOperationError(
             "Relevance needs a non-empty query embedding; got "
@@ -99,12 +102,17 @@ def _cosine_distance(query_embedding: Optional[Sequence[float]], episode_embeddi
     return 1.0 - dot / (query_norm * episode_norm)
 
 
-def cosine_relevance(query_embedding: Optional[Sequence[float]], episode_embedding: Optional[Sequence[float]]) -> float:
+def cosine_relevance(query_embedding: Sequence[float], episode_embedding: Sequence[float]) -> float:
     """The relevance signal, given two embeddings: a similarity in ``[0.0, 1.0]``, higher is better.
 
     Reuses ``vectordb.score.normalize_score`` rather than re-deriving the clamp -- the pgvector
     substrate's own cosine normalization lives there, and a second copy here is exactly the kind of
     invariant that drifts when only one of the two is fixed later.
+
+    Raises:
+        MemoryOperationError: either embedding is empty or ``None`` (``field_name`` names the
+            offending side), or the two have different lengths (``field_name="episode_embedding"``
+            by convention -- see :func:`_cosine_distance`).
     """
     return normalize_score(_cosine_distance(query_embedding, episode_embedding), Distance.cosine)
 

@@ -60,13 +60,16 @@ def test_opposite_vectors_score_zero():
     assert cosine_relevance([1.0, 0.0], [-1.0, 0.0]) == pytest.approx(0.0)
 
 
-def test_a_zero_vector_scores_zero_rather_than_raising():
+def test_a_zero_query_vector_scores_zero_rather_than_raising():
     """A zero vector has no direction -- treated as maximally distant, not as a crash or a NaN.
 
     Mutation check: a version that instead special-cased this to ``1.0`` (treating "no signal" as
     a perfect match) would also pass every other test here, so it is pinned on its own.
     """
     assert cosine_relevance([0.0, 0.0], [1.0, 0.0]) == pytest.approx(0.0)
+
+
+def test_a_zero_episode_vector_scores_zero_rather_than_raising():
     assert cosine_relevance([1.0, 0.0], [0.0, 0.0]) == pytest.approx(0.0)
 
 
@@ -90,13 +93,19 @@ def test_an_empty_episode_embedding_blames_the_episode_side():
     assert raised.value.field_name == "episode_embedding"
 
 
-def test_a_none_embedding_is_refused_rather_than_crashing_on_len():
+def test_a_none_query_embedding_is_refused_rather_than_crashing_on_len():
     """A regression guard: ``len(None)`` inside the message would raise a bare ``TypeError``
     before ``MemoryOperationError`` is ever constructed -- an embedder returning ``None`` on
     failure must still surface the named refusal, not an unrelated crash."""
     with pytest.raises(MemoryOperationError, match="non-empty query embedding") as raised:
         cosine_relevance(None, [1.0, 0.0])
     assert raised.value.field_name == "query_embedding"
+
+
+def test_a_none_episode_embedding_is_refused_rather_than_crashing_on_len():
+    with pytest.raises(MemoryOperationError, match="non-empty episode embedding") as raised:
+        cosine_relevance([1.0, 0.0], None)
+    assert raised.value.field_name == "episode_embedding"
 
 
 # -- episode_relevance / aepisode_relevance: the embedder-driven entry points --------------------
@@ -115,6 +124,42 @@ def test_episode_relevance_is_in_unit_range():
     embedder = StubEmbedder()
     score = episode_relevance(embedder, "deploy to production", "shipped v2 to prod")
     assert 0.0 <= score <= 1.0
+
+
+def test_an_empty_query_text_embeds_to_a_zero_vector_and_scores_zero():
+    """Documents the real behavior through the full call chain, not just at ``cosine_relevance``:
+    ``StubEmbedder`` (like the bag-of-hashed-tokens shape generally) embeds an empty string to an
+    all-zero vector, which the zero-vector branch scores as maximally distant rather than raising."""
+    embedder = StubEmbedder()
+    assert episode_relevance(embedder, "", "shipped v2 to prod") == pytest.approx(0.0)
+
+
+class _NoneEmbedder:
+    """A misbehaving embedder: returns ``None`` instead of raising or returning a vector.
+
+    Exercises the guard through the full ``episode_relevance``/``aepisode_relevance`` call chain,
+    not just a direct ``cosine_relevance(None, ...)`` call -- the two are different code paths
+    (embedder call -> cosine_relevance vs. a value constructed directly by the test).
+    """
+
+    def get_embedding(self, text):
+        return None
+
+    async def async_get_embedding(self, text):
+        await asyncio.sleep(0)
+        return None
+
+
+def test_episode_relevance_refuses_a_none_returning_embedder():
+    with pytest.raises(MemoryOperationError, match="non-empty query embedding") as raised:
+        episode_relevance(_NoneEmbedder(), "q", "c")
+    assert raised.value.field_name == "query_embedding"
+
+
+async def test_aepisode_relevance_refuses_a_none_returning_embedder():
+    with pytest.raises(MemoryOperationError, match="non-empty query embedding") as raised:
+        await aepisode_relevance(_NoneEmbedder(), "q", "c")
+    assert raised.value.field_name == "query_embedding"
 
 
 async def test_aepisode_relevance_agrees_with_the_sync_path():
