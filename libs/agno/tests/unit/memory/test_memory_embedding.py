@@ -343,6 +343,7 @@ def test_the_mode_a_default_embedder_declares_the_capability_so_criterion_4_is_r
     Mode A deployment actually gets declares the capability the pipeline reads. Asserted on the
     shipped class rather than on a double, because a double declaring it proves nothing about what
     a deployment runs -- which is exactly how this shipped unreachable."""
+    pytest.importorskip("sentence_transformers", reason="importing the real Mode A default embedder")
     from egpt.integrations.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
 
     assert SentenceTransformerEmbedder.accepts_text_batches is True
