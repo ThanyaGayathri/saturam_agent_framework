@@ -28,6 +28,11 @@ This section demonstrates how EGPT agents persist and use user memories across r
   per-leg ranks. Shows the legs disagreeing on length, order, and top hit. Fusing them is SM-H2
   (#132); ADR 0003 section A.6 ratifies weighted fusion for this two-leg case and holds the
   three-leg choice open. Same setup as `13_`.
+- `15_episode_importance.py`: Episode salience scoring (SM-E5) -- an episode's content scored
+  1-10 (Generative Agents' poignancy scale) and normalized to the `[0, 1]` range
+  `Decaying.importance` already validates, then applied to an already-built episode with
+  `dataclasses.replace`. Needs a real model (`OPENAI_API_KEY`); there is no offline path for
+  LLM-assigned salience.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
