@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from egpt.components.io import import_component as import_bundle
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.base import ComponentType as DbComponentType
+from egpt.db.cas_retry import RetriesExhausted
 from egpt.db.component_audit import COMPONENT_AUDIT_ACTIONS
 from egpt.db.utils import resolve_db_reference
 from egpt.os.actor import get_actor
@@ -544,6 +545,11 @@ def attach_routes(
         # Must precede `except ValueError` -- see the note in create_component.
         except ConfigValidationError as e:
             return config_validation_response(e)
+        # Also must precede `except ValueError`: RetriesExhausted subclasses it. Concurrent
+        # writers exhausting the version-assignment retry is a conflict the caller can retry,
+        # not a malformed request -- 409, not 400.
+        except RetriesExhausted as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -608,6 +614,9 @@ def attach_routes(
         # Must precede `except ValueError` -- see the note in create_component.
         except ConfigValidationError as e:
             return config_validation_response(e)
+        # Also must precede `except ValueError` -- see the note in create_config.
+        except RetriesExhausted as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -730,6 +739,9 @@ def attach_routes(
             return ComponentResponse(**component)
         except HTTPException:
             raise
+        # Must precede `except ValueError` -- see the note in create_config.
+        except RetriesExhausted as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:

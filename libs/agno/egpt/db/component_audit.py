@@ -28,30 +28,33 @@ orders the history. ``created_at`` has second resolution, so an update followed 
 a publish shares a timestamp and could come back in either order; the read endpoint has to
 return the two in the order they happened.
 
-It is deliberately *not* a per-component ``max(seq) + 1`` counter. ``upsert_config`` already
-uses that technique for config version numbers -- but only as a name for the pattern being
-avoided, not as an endorsement: that counter has the identical unlocked read-modify-write, and
-is only saved from corrupting data by the primary key turning a lost race into an
-``IntegrityError`` instead. It is not safe prior art to copy from, and this module does not
-copy it. Borrowing it here would put an unguarded read-modify-write race into
-``upsert_component`` and ``delete_component``, which have none today: two concurrent changes to
-one component would compute the same counter and one would fail on the primary key. Since the
-audit write is fail-closed, that failure would take a legitimate mutation down with it. A
-sequence has no such contention.
+It is deliberately *not* a per-component ``max(seq) + 1`` counter. ``upsert_config`` uses that
+technique for config version numbers, guarded by a conflict-tolerant insert (``ON CONFLICT DO
+NOTHING`` plus a re-read-and-retry loop) so a lost race retries with a fresh number instead of
+failing. Borrowing the counter here would import that read-modify-write contention into
+``upsert_component`` and ``delete_component``, which have none today, for no benefit -- the
+guard exists to serve user-visible version numbers, not ordering. A sequence has no such
+contention and needs no guard at all.
 
-Two methods do already have a read-modify-write of their own, and both for the same reason:
-they read ``current_version`` in order to report what the pointer moved away from --
-``set_current_version`` as ``from_version`` on a rollback, ``upsert_config`` as
-``previous_current_version`` on a publish. A ``max(seq)+1`` counter would have piled a second,
-unrelated race onto those reads rather than adding a first one.
+Three methods do have a guarded read-modify-write of their own. Two read ``current_version``
+in order to report what the pointer moved away from -- ``set_current_version`` as
+``from_version`` on a rollback, ``upsert_config`` as ``previous_current_version`` on a
+publish. Both are guarded the same way: a compare-and-swap on the pointer update, so the write
+only lands if ``current_version`` still matches what was just read, and a losing attempt
+re-reads and retries instead of recording a version that was never actually current. Neither
+guard is optional -- unguarded, concurrent writers produced impossible self-rollbacks like
+``(3, 3)`` on one path and several publish rows all claiming to have replaced the same version
+on the other, in both cases with nothing raised to signal it. The third is ``upsert_config``'s
+version-number assignment itself, guarded by the conflict-tolerant insert described above --
+unguarded, two concurrent creators computed the same next version and the loser surfaced a raw
+``IntegrityError`` off the primary key. A sequence key needs no equivalent guard, because
+nothing reads it before writing to it.
 
-Both are guarded the same way: a compare-and-swap on the pointer update, so the write only lands
-if ``current_version`` still matches what was just read, and a losing attempt re-reads and
-retries instead of recording a version that was never actually current. Neither guard is
-optional -- unguarded, concurrent writers produced impossible self-rollbacks like ``(3, 3)`` on
-one path and several publish rows all claiming to have replaced the same version on the other,
-in both cases with nothing raised to signal it. A sequence key needs no equivalent guard,
-because nothing reads it before writing to it.
+All three share their retry envelope -- attempt, check for a lost race, re-read and try again,
+raise once the attempt budget is spent -- through :func:`egpt.db.cas_retry.run_cas_retry`
+rather than each inlining its own bounded loop. Each call site still owns what makes it
+different: its own read/write statements, and its own definition of "landed" (a returned
+``RETURNING`` row for the version insert, ``rowcount > 0`` for the two pointer swaps).
 
 The column is ``Integer`` on both backends, and that is load-bearing rather than stylistic:
 Postgres turns an ``Integer`` primary key into ``SERIAL`` and SQLite only aliases its implicit

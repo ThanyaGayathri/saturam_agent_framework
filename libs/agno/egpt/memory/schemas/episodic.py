@@ -2,8 +2,9 @@
 
 The persisted shape is SM-C3's :class:`~egpt.db.schemas.memory.EpisodicRecord`, re-exported here
 rather than redefined -- two episode dataclasses is the divergence SM-C3 (#91) avoided when it
-promoted SM-R12's model, and SM-E5 (#112) and SM-G6 (#104) both name this module as where they add
-to the episode.
+promoted SM-R12's model. SM-G6 (#104) named this module as where it adds to the episode, and did
+(``graph_node_id_for``); SM-E5 (#112) scores a field this module already carries instead, from
+:mod:`egpt.memory.episodic.importance`, since scoring is I/O and this module stays I/O-free.
 
 Net-new is the pair of projections between that row and the seam envelope
 (:mod:`egpt.memory.types`), plus the referent of ``EpisodicRecord.graph_node_id``: ADR 0003
@@ -182,8 +183,9 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
     too rather than differently: ``occurred_at`` is valid time and defaults to now when the caller
     did not say when it happened, and ``created_at`` is the transaction time of this write.
 
-    ``importance`` is left at the row default. Scoring it is SM-E5's (#112), and a value invented
-    here would rank episodes against each other on nothing.
+    ``importance`` is left at the row default. Scoring is I/O (:class:`~egpt.memory.episodic.ImportanceScorer`,
+    SM-E5 #112), so it happens on the async lane, not inside this pure-construction function; a
+    caller that has scored applies the result with ``dataclasses.replace(episode, importance=...)``.
 
     ``MemoryEvent.role`` is **not carried**. Neither ``EpisodicRecord`` nor ``MemoryRecord`` has a
     role field, so keeping it would mean inventing a metadata convention on behalf of SM-E2 (#109),

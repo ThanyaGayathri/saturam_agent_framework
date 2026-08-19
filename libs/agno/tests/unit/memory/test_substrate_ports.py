@@ -6,13 +6,14 @@ implementing the sync half and forgetting the async twin, which is the exact sha
 sync+async rule exists to prevent.
 """
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import pytest
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    EntityMerge,
     EntityWrite,
     FactWrite,
     MemoryEvent,
@@ -60,6 +61,18 @@ class CompleteGraph:
     def upsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None: ...
 
     async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None: ...
+
+    def match_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]: ...
+
+    async def amatch_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]: ...
+
+    def merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None: ...
+
+    async def amerge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None: ...
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]: ...
 
@@ -130,6 +143,10 @@ def test_a_vector_backend_missing_any_method_fails_the_port(missing):
         "aupsert_facts",
         "upsert_entities",
         "aupsert_entities",
+        "match_entities",
+        "amatch_entities",
+        "merge_entities",
+        "amerge_entities",
         "traverse",
         "atraverse",
         "recall_episodes",

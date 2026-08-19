@@ -20,13 +20,14 @@ import pytest
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
 from egpt.agent import _init, _response, _run, _storage, _tools
+from egpt.agent import _messages as _messages_mod
 from egpt.agent._run import _fork_run, _truncate_run_to_checkpoint
 from egpt.agent.agent import Agent
 from egpt.exceptions import RunNotContinuableError, RunNotFoundError
 from egpt.models.message import Message
 from egpt.models.response import ToolExecution
 from egpt.run.agent import RunOutput
-from egpt.run.base import RunStatus
+from egpt.run.base import RunContext, RunStatus
 from egpt.run.requirement import RunRequirement
 from egpt.session import AgentSession
 from egpt.utils.message import safe_truncation_index
@@ -2159,3 +2160,211 @@ class TestContinueErrorTypes:
         # SDK callers that catch the standard bases still work.
         assert issubclass(RunNotFoundError, RuntimeError)
         assert issubclass(RunNotContinuableError, ValueError)
+
+
+class TestContinueRunAppliesPerRunModel:
+    """A paused/resumed run must resolve its model the same way a fresh run does
+    (aicoe-tracker#166 follow-up). Before this fix, ``continue_run_dispatch`` /
+    ``_acontinue_run`` / ``_acontinue_run_stream`` never called ``apply_run_model`` /
+    ``aapply_run_model``, so a run that escalated on its first turn silently fell back
+    to ``agent.model`` on resume -- the escalation had nowhere to be recorded once the
+    old mutation-based carry-forward was removed.
+    """
+
+    def _escalating_agent(self, primary, frontier, runs, monkeypatch):
+        from egpt.agent import _init, _storage
+        from egpt.providers.escalation import EscalatingModelProvider
+        from tests.unit.providers.test_escalation import FakeModel
+
+        agent = Agent(name="test-agent", model=FakeModel(id="configured"))
+        agent.model_provider = EscalatingModelProvider(primary=primary, escalation_target=frontier)
+        monkeypatch.setattr(_init, "has_async_db", lambda agent: False)
+        monkeypatch.setattr(_storage, "update_metadata", lambda agent, session=None: None)
+        monkeypatch.setattr(
+            _storage, "load_session_state", lambda agent, session=None, session_state=None: session_state
+        )
+        monkeypatch.setattr(_run, "resolve_run_dependencies", lambda agent, run_context: None)
+        monkeypatch.setattr(
+            _storage,
+            "read_or_create_session",
+            lambda agent, session_id=None, user_id=None: AgentSession(
+                session_id=session_id, user_id=user_id, runs=runs
+            ),
+        )
+        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
+        monkeypatch.setattr(agent, "get_tools", lambda **kw: [])
+        return agent
+
+    async def _async_escalating_agent(self, primary, frontier, runs, monkeypatch):
+        agent = self._escalating_agent(primary, frontier, runs, monkeypatch)
+
+        async def _aget_tools(**kw):
+            return []
+
+        monkeypatch.setattr(agent, "aget_tools", _aget_tools)
+        return agent
+
+    def test_sync_dispatch_resolves_the_escalated_model(self, monkeypatch: pytest.MonkeyPatch):
+        from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider
+
+        primary = FakeDetailedProvider("mode-a", SMALL)
+        frontier = FakeDetailedProvider("mode-b", FRONTIER)
+        paused = RunOutput(
+            run_id="run-1",
+            session_id="s-1",
+            status=RunStatus.running,
+            tools=[],
+            requirements=None,
+            messages=[],
+        )
+        agent = self._escalating_agent(primary, frontier, [paused], monkeypatch)
+        # explicit_policy_flag is the reliable escalation trigger here: the too-many-tools rule
+        # depends on `agent.get_tools()`, which this class stubs to `[]` so dispatch does not
+        # need a working tool pipeline -- that stub would make a tool-count trigger silently not
+        # fire, which is a property of the test double, not of the fix under test.
+        run_context = RunContext(run_id="run-1", session_id="s-1", metadata={"escalate": True})
+
+        captured: dict = {}
+
+        def fake_continue_run(agent, run_response, run_messages, run_context, session, tools, **kw):
+            captured["run_context"] = run_context
+            run_response.status = RunStatus.completed
+            return run_response
+
+        monkeypatch.setattr(_run, "_continue_run", fake_continue_run)
+
+        _run.continue_run_dispatch(agent=agent, run_id="run-1", session_id="s-1", run_context=run_context, stream=False)
+
+        run_context = captured["run_context"]
+        assert run_context.resolved_model is not None, (
+            "a paused run that resumes must re-resolve through the provider, not stay unresolved"
+        )
+        assert run_context.resolved_model.id == "mode-b-model", (
+            "an explicit escalation request must be honoured on resume, same as on a fresh run"
+        )
+        assert agent.model.id == "configured", "the shared component must not be mutated by the resume"
+
+    @pytest.mark.asyncio
+    async def test_async_dispatch_resolves_the_escalated_model(self, monkeypatch: pytest.MonkeyPatch):
+        """Unlike the sync test above, the fix here lives inside ``_acontinue_run`` itself, not
+        in ``acontinue_run_dispatch`` (a thin wrapper that only computes ``response_format``
+        once and delegates). So this drives the real ``_acontinue_run`` -- faking it the way the
+        sync test fakes ``_continue_run`` would bypass the very code under test."""
+        from egpt.providers.escalation import EscalatingModelProvider
+        from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider, FakeModel
+
+        primary = FakeDetailedProvider("mode-a", SMALL)
+        frontier = FakeDetailedProvider("mode-b", FRONTIER)
+        paused = RunOutput(
+            run_id="run-1",
+            session_id="s-1",
+            status=RunStatus.running,
+            tools=[],
+            requirements=None,
+            messages=[],
+        )
+        agent = Agent(name="test-agent", model=FakeModel(id="configured"))
+        agent.model_provider = EscalatingModelProvider(primary=primary, escalation_target=frontier)
+        _patch_async_dispatch_dependencies(agent, monkeypatch, runs=[paused])
+        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
+
+        async def _aget_tools(**kw):
+            return []
+
+        monkeypatch.setattr(agent, "aget_tools", _aget_tools)
+        monkeypatch.setattr(_tools, "determine_tools_for_model", lambda *a, **kw: [])
+
+        class _StopAfterResolution(Exception):
+            pass
+
+        def fake_get_continue_run_messages(*a, **kw):
+            raise _StopAfterResolution
+
+        monkeypatch.setattr(_messages_mod, "get_continue_run_messages", fake_get_continue_run_messages)
+
+        run_context = RunContext(run_id="run-1", session_id="s-1", metadata={"escalate": True})
+
+        # `agent.retries` defaults to 0, so `_acontinue_run` does not retry or re-raise the
+        # sentinel above -- it catches it, marks the run errored, and returns normally. What
+        # matters for this test happened before that: `run_context` is mutated in place by
+        # `aapply_run_model`, so the resolution is observable on the object we still hold even
+        # though the run itself ends in RunStatus.error.
+        result = await _run.acontinue_run_dispatch(
+            agent=agent, run_id="run-1", session_id="s-1", run_context=run_context, stream=False
+        )
+        assert result.status == RunStatus.error, "sanity check: the sentinel should have aborted the run"
+
+        assert run_context.resolved_model is not None, (
+            "a paused run that resumes must re-resolve through the provider, not stay unresolved"
+        )
+        assert run_context.resolved_model.id == "mode-b-model"
+        assert agent.model.id == "configured", "the shared component must not be mutated by the resume"
+
+    def test_response_format_is_rederived_against_the_resolved_model(self, monkeypatch: pytest.MonkeyPatch):
+        """A schema-carrying run whose model escalates must have its response_format
+        re-derived against the escalation target, not the pre-resolution primary
+        (the sibling to the model-resolution gap above -- Team's continue paths
+        already do this via ``_recompute_response_format``)."""
+        from pydantic import BaseModel as PydanticBaseModel
+
+        from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider, FakeModel
+
+        class Schema(PydanticBaseModel):
+            answer: str
+
+        primary = FakeDetailedProvider("mode-a", SMALL)
+        frontier = FakeDetailedProvider("mode-b", FRONTIER)
+        paused = RunOutput(
+            run_id="run-1",
+            session_id="s-1",
+            status=RunStatus.running,
+            tools=[],
+            requirements=None,
+            messages=[],
+        )
+        agent = self._escalating_agent(primary, frontier, [paused], monkeypatch)
+        agent.model = FakeModel(id="configured", supports_native_structured_outputs=False)
+        # `RunOptions.apply_to_context` always overwrites `run_context.output_schema` from the
+        # resolved options (`_run_options.py`: "must always be updated because the same
+        # run_context may be reused across workflow steps with different agents"), so the schema
+        # has to live on the Agent, not on a caller-supplied RunContext -- setting it there only
+        # would be silently clobbered back to None before `continue_run_dispatch` ever reads it.
+        agent.output_schema = Schema
+        # `metadata={"escalate": True}` is the reliable escalation trigger here for the same
+        # reason the sync/async resolution tests above use it rather than a tool-count signal.
+        run_context = RunContext(run_id="run-1", session_id="s-1", metadata={"escalate": True})
+
+        # The escalation-target FakeModel this provider hands back on resolve() is built with
+        # default capability flags (see FakeDetailedProvider.resolve); patch native structured
+        # output support onto it so response_format has something to distinguish, mirroring how
+        # a real frontier model's capabilities differ from a real primary's.
+        from egpt.providers.escalation import EscalatingModelProvider
+
+        real_resolve_detailed = EscalatingModelProvider.resolve_detailed
+
+        def resolve_detailed_with_capable_frontier(self, request):
+            result = real_resolve_detailed(self, request)
+            if result.model.id == "mode-b-model":
+                result.model.supports_native_structured_outputs = True
+            return result
+
+        monkeypatch.setattr(EscalatingModelProvider, "resolve_detailed", resolve_detailed_with_capable_frontier)
+
+        captured: dict = {}
+
+        def fake_continue_run(
+            agent, run_response, run_messages, run_context, session, tools, response_format=None, **kw
+        ):
+            captured["response_format"] = response_format
+            run_response.status = RunStatus.completed
+            return run_response
+
+        monkeypatch.setattr(_run, "_continue_run", fake_continue_run)
+
+        _run.continue_run_dispatch(agent=agent, run_id="run-1", session_id="s-1", run_context=run_context, stream=False)
+
+        assert captured["response_format"] is Schema, (
+            "the escalation target supports native structured outputs, so response_format must "
+            "be re-derived to the raw schema once the model actually resolves -- not left at "
+            "whatever the pre-resolution primary would have produced"
+        )

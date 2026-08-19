@@ -19,24 +19,28 @@ emit.
 Deliberately **not** here, each with an owner: entity and relation extraction (SM-G2 #100 /
 SM-G3 #101), contradiction *detection* (SM-G5 #103 -- this ships the primitive, not the decision to
 call it), valid-time extraction from content (SM-G4 #102), append-only enforcement via APOC trigger
-or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), multi-hop traversal and graph
-enumeration (SM-G9 #107), PPR over a GDS projection (SM-H4 #134), and entity resolution (SM-G8
-#106). Episode-to-entity mention links arrived with SM-G6 (#104); the entity names they link are
-supplied on the event, not extracted here.
+or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), and multi-hop traversal and graph
+enumeration beyond ``match_entities``' two targeted lookups (SM-G9 #107), PPR over a GDS projection
+(SM-H4 #134). Episode-to-entity mention links arrived with SM-G6 (#104); the entity names they link
+are supplied on the event, not extracted here. **Entity resolution's mechanism, not its policy**
+(SM-G8 #106): ``match_entities`` and ``merge_entities`` are the primitives -- lookup and fold --
+this backend can support; *which* candidates should merge and at what threshold is
+``egpt.memory.graph.resolve.EntityResolutionPipeline``'s decision, not this module's.
 """
 
 import json
 import os
 from contextlib import contextmanager
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 from uuid import uuid4
 
 from egpt.integrations.memory.graph.neo4j import cypher
 from egpt.memory.errors import MemoryProviderConfigError
-from egpt.memory.graph.episodic import entity_node_id_for, mention_rows
+from egpt.memory.graph.episodic import entity_node_id_for, mention_link_id, mention_rows
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    EntityMerge,
     EntityWrite,
     FactWrite,
     MemoryEvent,
@@ -612,8 +616,19 @@ class Neo4jGraphSubstrate:
                         "entity_type": entity.entity_type,
                         "description": entity.description,
                         "properties": _as_json(entity.properties, "properties"),
-                        "embedding": entity.embedding,
-                        "embedding_version": entity.embedding_version,
+                        # Omitted entirely, not set to `None`, when the entity carries no embedding.
+                        # `SET n += row.props` merges by key: a key present with a `null` value
+                        # **deletes** that property in Neo4j 5.x, while an absent key leaves
+                        # whatever the node already has untouched. A candidate written once with an
+                        # embedding and updated later with `embedding=None` (a description-only
+                        # re-write, or `_canonical`'s output before SM-G8's `resolve.py` review
+                        # fix) would otherwise erase the node's vector on every such write, silently
+                        # taking it out of every future embedding-similarity match.
+                        **(
+                            {"embedding": entity.embedding, "embedding_version": entity.embedding_version}
+                            if entity.embedding is not None
+                            else {}
+                        ),
                         "confidence": entity.confidence,
                         "derived_by": entity.derived_by,
                         "updated_at": now,
@@ -631,6 +646,256 @@ class Neo4jGraphSubstrate:
         if not entities:
             return
         await self._arun([cypher.upsert_entities_statement(scope)], rows=self._entity_rows(scope, entities))
+
+    # -- entity resolution (SM-G8 #106) ----------------------------------------
+
+    @staticmethod
+    def _entity_from_row(row: Dict[str, Any], scope: Scope) -> EntityWrite:
+        """Rebuild an :class:`EntityWrite` from a matched node's row.
+
+        No ``embedding``: :meth:`match_entities` never returns it, because nothing downstream of a
+        match needs to re-embed the entity it found -- carrying a 768-float list through every
+        matched row would be the one field the caller cannot use, on every row it gets back.
+        """
+        return EntityWrite(
+            name=row["name"],
+            entity_type=row["entity_type"],
+            scope=scope,
+            description=row.get("description"),
+            aliases=list(row.get("aliases") or []),
+            properties=Neo4jGraphSubstrate._from_json(row.get("properties"), "properties", row["name"]),
+            source_episode_ids=list(row.get("source_episode_ids") or []),
+            confidence=row.get("confidence", 1.0),
+            derived_by=row.get("derived_by"),
+        )
+
+    def _matched(self, rows: List[Dict[str, Any]], scope: Scope, limit: int) -> List[Tuple[EntityWrite, float]]:
+        """Union the key and embedding legs, keep the best score per name, rank, and cap at ``limit``."""
+        best: Dict[str, float] = {}
+        by_name: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            name = row["name"]
+            score = float(row["score"])
+            if name not in best or score > best[name]:
+                best[name] = score
+                by_name[name] = row
+        ordered = sorted(by_name, key=lambda name: (-best[name], name))
+        return [(self._entity_from_row(by_name[name], scope), best[name]) for name in ordered[:limit]]
+
+    @staticmethod
+    def _require_embedded(candidate: EntityWrite, method: str) -> None:
+        if candidate.embedding is None:
+            raise MemoryOperationError(
+                f"{method} was given {candidate.name!r} with no embedding. The similarity leg has "
+                "nothing to compare against, and skipping it silently would report a resolution "
+                "pass that checked nothing as one that checked everything.",
+                field_name="embedding",
+            )
+
+    @staticmethod
+    def _match_entities_statements(
+        scope: Scope, candidate: EntityWrite, limit: int, min_score: float
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        # Narrows for mypy; the caller has already refused a `None` embedding via `_require_embedded`.
+        assert candidate.embedding is not None
+        key_text, key_params = cypher.match_entities_by_key_statement(scope)
+        vector_text, vector_params = cypher.match_entities_by_embedding_statement(
+            scope, k=limit + cypher.EMBEDDING_OVERFETCH, limit=limit
+        )
+        return [
+            (key_text, {**key_params, "name": candidate.name, "key": candidate.key}),
+            (
+                vector_text,
+                {
+                    **vector_params,
+                    "name": candidate.name,
+                    "embedding": list(candidate.embedding),
+                    "min_score": min_score,
+                },
+            ),
+        ]
+
+    def match_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]:
+        self._reject_foreign_scope(scope, candidate.scope)
+        self._require_embedded(candidate, "match_entities")
+        key_rows, vector_rows = self._run(self._match_entities_statements(scope, candidate, limit, min_score))
+        return self._matched([*key_rows, *vector_rows], scope, limit)
+
+    async def amatch_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]:
+        self._reject_foreign_scope(scope, candidate.scope)
+        self._require_embedded(candidate, "amatch_entities")
+        key_rows, vector_rows = await self._arun(self._match_entities_statements(scope, candidate, limit, min_score))
+        return self._matched([*key_rows, *vector_rows], scope, limit)
+
+    @staticmethod
+    def _reject_overlapping_merges(merges: Sequence[EntityMerge]) -> None:
+        """Refuse a batch where one merge's canonical is another's duplicate, or the same
+        duplicate name appears in two merges.
+
+        Each :class:`EntityMerge` alone already refuses a canonical naming itself as a duplicate
+        (``EntityMerge.__post_init__``), but that check has no visibility across merges in the same
+        batch. Without the first guard, merge B naming merge A's ``canonical.name`` as a duplicate
+        would have A's just-upserted node ``DETACH DELETE``d by B's write, in the same call --
+        silent graph corruption rather than a caller error. Without the second (review finding on
+        PR #96, round 3), the same duplicate name in two merges is a silent last-write-wins on
+        ``canonical_by_duplicate`` -- one merge's intent for that name is discarded with no error
+        and no log. ``EntityResolutionPipeline`` never constructs a batch wider than one merge (see
+        :meth:`EntityResolutionPipeline.run`), so neither is reached through the pipeline;
+        ``merge_entities`` is a public port verb any caller can reach directly.
+        """
+        canonical_names = {merge.canonical.name for merge in merges}
+        duplicate_names = {name for merge in merges for name in merge.duplicate_names}
+        overlap = canonical_names & duplicate_names
+        if overlap:
+            raise MemoryOperationError(
+                f"merge_entities was given a batch where {sorted(overlap)} names both a canonical "
+                "entity in one merge and a duplicate in another. Resolving that requires deciding "
+                "an order between the two merges, which this batch does not state -- split it into "
+                "two calls, ordered.",
+                field_name="merges",
+            )
+        seen_duplicates: Set[str] = set()
+        for merge in merges:
+            for name in merge.duplicate_names:
+                if name in seen_duplicates:
+                    raise MemoryOperationError(
+                        f"merge_entities was given a batch where {name!r} is a duplicate in more "
+                        "than one merge. Each name can fold into exactly one canonical per batch; "
+                        "split it into two calls, ordered.",
+                        field_name="merges",
+                    )
+                seen_duplicates.add(name)
+
+    @staticmethod
+    def _merge_lookup_names(merges: Sequence[EntityMerge]) -> List[str]:
+        """Every name the mentioning-episodes read needs: canonicals too, not only duplicates --
+        see :meth:`_merge_mention_rows` for why the canonicals' own edges have to be visible."""
+        names = {merge.canonical.name for merge in merges}
+        names.update(name for merge in merges for name in merge.duplicate_names)
+        return list(names)
+
+    def _merge_mention_rows(
+        self, scope: Scope, mentions: List[Dict[str, Any]], canonical_by_duplicate: Dict[str, str]
+    ) -> List[Dict[str, Any]]:
+        """The re-pointed edges, in :func:`cypher.link_mentions_statement`'s row shape.
+
+        ``mentions`` carries the canonicals' own live edges alongside the duplicates' -- read by
+        :meth:`_merge_lookup_names`'s wider name set -- so this can tell the two apart:
+
+        * A row naming a canonical directly is **not** re-pointed; it is not a duplicate. It exists
+          in ``mentions`` only so the next bullet can see it.
+        * A row naming a duplicate is skipped, not re-pointed, when the *same episode* already has
+          a live edge to that duplicate's canonical. Re-pointing it anyway would ``MERGE`` onto the
+          canonical's own edge (both compute the same ``link_id``) and ``SET r = row.props``
+          overwrite its ``position`` with the duplicate mention's -- corrupting the order
+          ``recall_episodes_statement`` already returns correctly for that edge.
+        * Otherwise the duplicate's own ``position`` carries over, defaulting to ``0`` rather than
+          ``None`` -- a live edge predating SM-G6's ``position`` field returns ``null`` from Neo4j,
+          and ``SET r = row.props`` is a full overwrite: a ``null`` here would propagate onto the
+          re-created edge and sort last under ``recall_episodes_statement``'s ``ORDER BY position``.
+
+        Deduplicated on ``link_id`` on top of both: two duplicates folding into one canonical, both
+        mentioned by the same episode, must not produce two rows for the edge that survives.
+        """
+        entity = cypher.scope_props(scope)
+        now = now_epoch_s()
+        canonical_names = set(canonical_by_duplicate.values())
+        already_linked = {(row["episode_id"], row["name"]) for row in mentions if row["name"] in canonical_names}
+        seen = set()
+        rows = []
+        for row in mentions:
+            duplicate_name = row["name"]
+            if duplicate_name not in canonical_by_duplicate:
+                continue  # a canonical's own row -- present only to populate `already_linked`
+            canonical_name = canonical_by_duplicate[duplicate_name]
+            if (row["episode_id"], canonical_name) in already_linked:
+                continue  # the canonical already has a live edge here; its position is authoritative
+            link_id = mention_link_id(scope, row["episode_id"], canonical_name)
+            if link_id in seen:
+                continue
+            seen.add(link_id)
+            position = row["position"] if row["position"] is not None else 0
+            props = {
+                "link_id": link_id,
+                "episode_id": row["episode_id"],
+                "name": canonical_name,
+                "position": position,
+                **entity,  # carries `scope_key` and every other scope slot
+                "created_at": now,
+            }
+            rows.append(
+                {
+                    "scope_key": entity["scope_key"],
+                    "episode_id": row["episode_id"],
+                    "name": canonical_name,
+                    "entity": entity,
+                    "props": props,
+                }
+            )
+        return rows
+
+    def _merge_write_statements(
+        self, scope: Scope, merges: Sequence[EntityMerge], mentions: List[Dict[str, Any]]
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        """The write half of a merge, once the mentioning episodes have already been read."""
+        canonical_by_duplicate = {name: merge.canonical.name for merge in merges for name in merge.duplicate_names}
+        upsert_text, upsert_bound = cypher.upsert_entities_statement(scope)
+        canonical_rows = self._entity_rows(scope, [merge.canonical for merge in merges])
+        statements: List[Tuple[str, Dict[str, Any]]] = [(upsert_text, {**upsert_bound, "rows": canonical_rows})]
+        mention_rows_ = self._merge_mention_rows(scope, mentions, canonical_by_duplicate)
+        if mention_rows_:
+            text, bound = cypher.link_mentions_statement(scope)
+            statements.append((text, {**bound, "mentions": mention_rows_}))
+        names = list(canonical_by_duplicate)
+        text, params = cypher.delete_entities_statement(scope)
+        statements.append((text, {**params, "names": names}))
+        return statements
+
+    def merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        """One transaction, unlike every other write on this port: the mentioning-episodes read
+        that :meth:`_merge_mention_rows` depends on has to observe the same state the write
+        commits against, or a concurrent write adding a mention to a duplicate between the two
+        would have that edge silently lost -- see the port docstring's TOCTOU note.
+        """
+        if not merges:
+            return
+        for merge in merges:
+            self._reject_foreign_scope(scope, merge.canonical.scope)
+        self._reject_overlapping_merges(merges)
+        mention_text, mention_params = cypher.mentioning_episodes_statement(scope)
+        names = self._merge_lookup_names(merges)
+        with self._translated("merge_entities"), self._driver.session(database=self.database) as session:
+            with session.begin_transaction() as tx:
+                mentions = [dict(record) for record in tx.run(mention_text, **{**mention_params, "names": names})]
+                for text, params in self._merge_write_statements(scope, merges, mentions):
+                    tx.run(text, **params)
+                tx.commit()
+
+    async def amerge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        """Async twin of :meth:`merge_entities`, with the same one-transaction rule."""
+        if not merges:
+            return
+        for merge in merges:
+            self._reject_foreign_scope(scope, merge.canonical.scope)
+        self._reject_overlapping_merges(merges)
+        mention_text, mention_params = cypher.mentioning_episodes_statement(scope)
+        names = self._merge_lookup_names(merges)
+        with self._translated("merge_entities"):
+            async with self._async_driver().session(database=self.database) as session:
+                tx = await session.begin_transaction()
+                try:
+                    result = await tx.run(mention_text, **{**mention_params, "names": names})
+                    mentions = [dict(record) async for record in result]
+                    for text, params in self._merge_write_statements(scope, merges, mentions):
+                        await tx.run(text, **params)
+                    await tx.commit()
+                except BaseException:
+                    await tx.rollback()
+                    raise
 
     # -- reads ----------------------------------------------------------------
 
