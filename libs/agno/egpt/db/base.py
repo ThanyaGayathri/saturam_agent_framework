@@ -941,6 +941,8 @@ class BaseDb(ABC):
         Raises:
             ValueError: If component doesn't exist, version not found, label conflict,
                         or attempting to update a published config.
+            egpt.db.cas_retry.RetriesExhausted: If concurrent writers exhaust the
+                        version-assignment or publish retries. Subclasses ``ValueError``.
         """
         raise NotImplementedError
 
@@ -1023,6 +1025,8 @@ class BaseDb(ABC):
 
         Raises:
             ValueError: If attempting to set a draft config as current.
+            egpt.db.cas_retry.RetriesExhausted: If concurrent writers exhaust the
+                        rollback-pointer retries. Subclasses ``ValueError``.
         """
         raise NotImplementedError
 
