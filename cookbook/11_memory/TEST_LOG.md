@@ -594,7 +594,35 @@ vector-only provider.
 
 ---
 
-### 24_semantic_subgraph.py
+### 24_episodic_segmentation.py
+
+**Status:** PASS
+
+**Description:** Exercises SM-E3's inline segmentation prior end to end through
+`episodes_from_events`: a two-topic session (launch planning, then an unrelated backup check after
+a 2-hour idle gap) segmented in one call; the same session split across two write-back calls with
+`SegmentState` threaded between them; a hard `max_turns_per_episode` cap firing with no idle gap at
+all; and the full boundary-metadata field set (`boundary_method`/`boundary_trigger`/
+`boundary_confidence`/`segmenter_version`/`revision`/`refined`) on one opening episode.
+
+**Result:** Success. The two-topic session segments into exactly 2 episodes (the acceptance
+criterion). `SegmentState` carried across the two-call run reproduces the same boundary the
+single-call run found, with `boundary_trigger` reporting the measured idle gap in seconds
+(7140.0s = 2 hours - 60s, the interval between the last event of call 1 and the first of call 2).
+The turn cap (`max_turns=3`) opens a new episode at the 4th message despite each message being 1
+second apart -- well inside the default 900s gap window -- confirming the cap fires independently
+of the gap rule. `segmenter_version` on the stamped row matches `segmenter_version()` called with
+the same parameters used to build it.
+
+**Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `23_` to `24_`: SM-L1 (#122) merged to `main` first and took `23_` for
+`23_consolidation_worker.py`.** Per this file's own convention, whoever merges second renumbers --
+now the fourth time this file's lineage has moved (see `22_`'s own note above for the earlier two).
+
+---
+
+### 25_semantic_subgraph.py
 
 **Status:** PASS
 
@@ -614,7 +642,8 @@ unfiltered call raised the expected refusal naming SM-G9 (#107).
 
 **Requires:** `./cookbook/scripts/run_neo4j.sh`; no API key.
 
-**Renumbered from `20_semantic_subgraph.py` to `23_` to `24_` across two merges**: `feat/SM-G8`
-landed `20_` on `main` first, `feat/SM-E5`/`feat/SM-E6` claimed `21_`/`22_` while this branch was
-still catching up, then `feat/SM-L1` claimed `23_consolidation_worker.py`. Per this file's own
-convention, whoever merges second renumbers -- twice, this time.
+**Renumbered from `20_semantic_subgraph.py` to `23_` to `24_` to `25_` across three merges**:
+`feat/SM-G8` landed `20_` on `main` first, `feat/SM-E5`/`feat/SM-E6` claimed `21_`/`22_` while this
+branch was still catching up, then `feat/SM-L1` claimed `23_consolidation_worker.py`, then
+`feat/SM-E3` claimed `24_episodic_segmentation.py`. Per this file's own convention, whoever merges
+second renumbers -- three times, this time.

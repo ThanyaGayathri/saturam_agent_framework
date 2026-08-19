@@ -20,24 +20,54 @@ Two halves, matching the seam's own append/consolidate split:
 importable and testable without ``agent/_run.py``: SM-X3 owns calling these functions from the
 run loop and choosing which executor to pass. Nothing here reads ``Agent`` or ``RunMessages``.
 
-**Not built here:** inline segmentation (time-gap / turn-count boundaries into distinct episodes)
-is SM-E3's (#110) -- ADR 0003 lists it under write-back but as its own ticket, and one event in is
-one event out here. Scoring ``importance`` is SM-E5's (#112); the events this module builds carry
-the schema default. Draining the resulting queue -- i.e. actually running ``consolidate`` on a
-schedule -- is SM-L1's (#122); this module only gets episodes durably written, which is what a
-future consolidation pass reads.
+**Segmentation:** :func:`events_from_run` still returns one flat, unsegmented event list -- SM-E2
+never grouped events into episodes, and changing that return shape now would break every existing
+caller of the builders above for no reason internal to them. :func:`episodes_from_events` is the
+new step SM-E3 (#110) adds on top: it applies the SM-R6 v1 inline prior
+(:mod:`egpt.memory.episodic.segment` -- time-gap + turn cap, deterministic, no model call) to a
+batch built by :func:`events_from_run` and projects the result into boundary-stamped
+:class:`~egpt.db.schemas.memory.EpisodicRecord` rows, per ADR 0003's write flow: *"Inline
+segmentation prior only... no model call."* The async re-segmentation lane
+(``embedding_drift``/``em_llm``/``llm``) is SM-R7's, not built here. Scoring ``importance`` is
+SM-E5's (#112); the events this module builds carry the schema default. Draining the resulting
+queue -- i.e. actually running ``consolidate`` on a schedule -- is SM-L1's (#122); this module only
+gets episodes durably written, which is what a future consolidation pass reads.
+
+**:func:`episodes_from_events` has no current write path.** It returns
+``List[EpisodicRecord]``, but :class:`~egpt.memory.provider.MemoryProvider` (``write`` /
+``write_tier`` and their async twins) only accepts ``Sequence[MemoryEvent]`` -- there is no
+``write_episodic`` (or equivalent) seam method that takes an already-segmented row. This is **not**
+SM-V1's (#95): that ticket wired the pgvector *vector substrate* backend behind the existing
+``write``/``VectorSubstrate.upsert`` path, not a new provider method for a pre-segmented row (a
+stale cross-reference in ``egpt.memory.schemas.episodic``'s module docstring says otherwise; it
+predates SM-V1 actually shipping and is wrong as of this ticket). Which ticket adds the missing
+write method is not yet assigned -- flagged here rather than guessed at, so an SM-X3 implementer
+calling this function does not chase a reference that resolves to the wrong PR.
 """
 
 from asyncio import Task, create_task
 from concurrent.futures import Executor, Future
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Sequence
+from dataclasses import replace
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+from uuid import uuid4
 
+from egpt.memory.episodic.segment import (
+    DEFAULT_MAX_TURNS_PER_EPISODE,
+    DEFAULT_MIN_TURNS_PER_EPISODE,
+    DEFAULT_TIME_GAP_S,
+    SegmentState,
+    segment_events,
+    segmenter_version,
+    stamp_boundaries,
+)
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.schemas.episodic import EpisodicRecord, episode_from_event
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryEvent, Scope, WriteReceipt
+from egpt.memory.types import MemoryEvent, MemoryOperationError, Scope, WriteReceipt
 from egpt.models.message import Message
 from egpt.models.response import ToolExecution
+from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_debug, log_warning
 
 __all__ = [
@@ -48,6 +78,7 @@ __all__ = [
     "event_from_message",
     "event_from_tool_execution",
     "events_from_run",
+    "episodes_from_events",
     "start_writeback_future",
     "astart_writeback_task",
 ]
@@ -222,6 +253,86 @@ def events_from_run(
         if event is not None:
             events.append(event)
     return events
+
+
+def episodes_from_events(
+    events: Sequence[MemoryEvent],
+    *,
+    state: Optional[SegmentState] = None,
+    gap_s: float = DEFAULT_TIME_GAP_S,
+    max_turns: int = DEFAULT_MAX_TURNS_PER_EPISODE,
+    min_turns: int = DEFAULT_MIN_TURNS_PER_EPISODE,
+) -> Tuple[List[EpisodicRecord], SegmentState]:
+    """Segment a write-back batch and project it into boundary-stamped episode rows.
+
+    Non-episodic events (a caller routing some events to another tier) are dropped here rather
+    than segmented or projected -- :func:`~egpt.memory.schemas.episodic.episode_from_event` only
+    accepts ``MemoryTier.EPISODIC``, and a boundary decision about a semantic-tier event is not
+    something SM-R6 defines.
+
+    Every event's ``id`` is stamped here if the caller left it unset, the same
+    ``event.id or str(uuid4())`` :meth:`~egpt.memory.adapters.co_located.CoLocatedMemoryProvider._prepare`
+    uses -- this function does not depend on that provider running first. ``occurred_at`` is
+    resolved to one shared "now" for every unstamped event in the batch, computed once rather than
+    once per event: :func:`~egpt.memory.episodic.segment.segment_events` needs every timestamp
+    resolved before it can measure a gap, and resolving one per event would make the gap between
+    two events built back-to-back in one batch depend on wall-clock jitter neither event actually
+    has.
+
+    ``events`` must already be in non-decreasing ``occurred_at`` order and share one scope --
+    :func:`~egpt.memory.episodic.segment.segment_events` enforces both; see its docstring. Note
+    that an event with ``occurred_at=None`` is resolved to the current wall-clock time (above), so
+    a caller mixing ``None`` events with events carrying an explicit, older timestamp gets an
+    out-of-order rejection from :func:`~egpt.memory.episodic.segment.segment_events` naming an
+    event index -- the null resolving to "now" is the root cause, not something that message says
+    directly.
+
+    Returns the stamped rows and the :class:`~egpt.memory.episodic.segment.SegmentState` the next
+    call for this scope should pass back in as ``state``. A caller with nowhere to keep that state
+    between write-back calls gets one boundary per batch by construction (``state=None`` always
+    reads as "nothing preceded this"), which is a safe default, not silently wrong -- worst case it
+    under-merges, never merges two unrelated scopes.
+
+    Managing that state is entirely the caller's responsibility -- this function does not persist
+    it anywhere. Concretely: ``SegmentState`` carries ``last_occurred_at`` (epoch seconds,
+    ``int | None``) and ``turns_since_boundary`` (``int``); both must be stored and restored
+    *together*, keyed by :meth:`~egpt.memory.types.Scope.key` -- keying by anything coarser (e.g.
+    ``user_id`` alone across several sessions) silently merges two independent episode streams into
+    one, and keying by anything finer than the batch's own scope loses state the next batch for the
+    same scope needed.
+    """
+    episodic = [event for event in events if event.tier is MemoryTier.EPISODIC]
+    if not episodic:
+        # Still validates gap_s/max_turns/min_turns via segment_events' own empty-batch path,
+        # rather than silently accepting a bad parameter just because this particular batch
+        # happened to carry nothing episodic -- a caller passing gap_s=-1.0 gets the same refusal
+        # whether or not any event in the batch reached the segmenter.
+        segment_events([], gap_s=gap_s, max_turns=max_turns, min_turns=min_turns)
+        return [], state if state is not None else SegmentState()
+
+    now = now_epoch_s()
+    resolved_indices = {index for index, event in enumerate(episodic) if event.occurred_at is None}
+    resolved = [event if event.occurred_at is not None else replace(event, occurred_at=now) for event in episodic]
+    stamped = [event if (event.id and event.id.strip()) else replace(event, id=str(uuid4())) for event in resolved]
+
+    try:
+        decisions, next_state = segment_events(
+            stamped, state=state, gap_s=gap_s, max_turns=max_turns, min_turns=min_turns
+        )
+    except MemoryOperationError as exc:
+        if exc.field_name == "occurred_at" and resolved_indices:
+            raise MemoryOperationError(
+                f"{exc}. This batch resolved occurred_at=None to the current wall-clock time "
+                f"({now!r}) on event index(es) {sorted(resolved_indices)} -- if the rejection "
+                'above names one of those indices, the null resolving to "now" is why the '
+                "sequence went out of order against an explicit, older timestamp elsewhere in "
+                "the same batch.",
+                field_name="occurred_at",
+            ) from exc
+        raise
+    episodes = [episode_from_event(event) for event in stamped]
+    version = segmenter_version(gap_s, max_turns, min_turns)
+    return stamp_boundaries(episodes, decisions, version=version), next_state
 
 
 def _write_and_log(provider: MemoryProvider, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
