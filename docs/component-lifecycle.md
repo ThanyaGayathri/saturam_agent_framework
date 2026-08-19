@@ -189,6 +189,11 @@ dedicated `components:audit` scope instead, and a `components:read`-only token i
 setting defaults to `False`, so existing `components:read`-only tokens keep working until a
 deployment opts in.
 
+Rolling back is not symmetric: disabling the flag after `components:audit`-only tokens have been
+minted locks those tokens out of the audit route (403, since scope checks are AND-only and there
+is no fallback to `components:read`). Coordinate a rollback with token holders, or re-mint their
+tokens with `components:read` first.
+
 | Parameter | Notes |
 |---|---|
 | `page`, `limit` | `limit` capped at 100 |

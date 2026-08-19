@@ -159,15 +159,15 @@ def _scoped_read_user_id(caller_user_id: Optional[str]) -> Optional[str]:
     return scoped if scoped is not None else caller_user_id
 
 
-@functools.lru_cache(maxsize=1)
-def _tool_scope_mappings() -> Dict[str, List[str]]:
-    """The default route→scope mappings, built once (they are static data)."""
+@functools.lru_cache(maxsize=2)
+def _tool_scope_mappings(components_audit_scope_enabled: bool = False) -> Dict[str, List[str]]:
+    """The default route→scope mappings, built once per flag value (they are static data)."""
     from egpt.os.scopes import get_default_scope_mappings
 
-    return get_default_scope_mappings()
+    return get_default_scope_mappings(components_audit_scope_enabled=components_audit_scope_enabled)
 
 
-def _require_tool_scopes(method: str, path: str) -> None:
+def _require_tool_scopes(method: str, path: str, components_audit_scope_enabled: bool = False) -> None:
     """Enforce the caller's scopes against the REST route this tool call is equivalent to.
 
     The MCP tools are an alternate transport for the REST surface, so authorization
@@ -201,7 +201,7 @@ def _require_tool_scopes(method: str, path: str) -> None:
     admin_scope = admin_scope_raw if isinstance(admin_scope_raw, str) else None
     scope_check = check_route_scopes(
         list(getattr(state, "scopes", None) or []),
-        _tool_scope_mappings(),
+        _tool_scope_mappings(components_audit_scope_enabled=components_audit_scope_enabled),
         method,
         path,
         admin_scope=admin_scope,
@@ -593,6 +593,9 @@ def build_mcp_server(
     by an in-memory MCP client in tests, without the HTTP/JWT layer.
     """
     mcp_config: "Optional[MCPServerConfig]" = getattr(os, "mcp_config", None)
+    components_audit_scope_enabled = bool(
+        getattr(getattr(os, "settings", None), "components_audit_scope_enabled", False)
+    )
 
     # Create an MCP server
     from egpt.brand import DEFAULT_OS_ID, PRODUCT_OS_NAME
@@ -622,7 +625,7 @@ def build_mcp_server(
         annotations={"readOnlyHint": True, "idempotentHint": True},
     )  # type: ignore
     async def config() -> Dict[str, Any]:
-        _require_tool_scopes("GET", "/config")
+        _require_tool_scopes("GET", "/config", components_audit_scope_enabled=components_audit_scope_enabled)
         from egpt.db.base import BaseDb
 
         request = _http_request_or_none()
@@ -714,7 +717,9 @@ def build_mcp_server(
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> ToolResult:
-        _require_tool_scopes("POST", f"/agents/{agent_id}/runs")
+        _require_tool_scopes(
+            "POST", f"/agents/{agent_id}/runs", components_audit_scope_enabled=components_audit_scope_enabled
+        )
         user_id = _resolve_user_id(user_id)
         agent = await _resolve_run_component(os, "agents", agent_id, user_id=user_id, session_id=session_id)
         # Mint a fresh session per call when omitted (matches REST), never the sticky default.
@@ -740,7 +745,9 @@ def build_mcp_server(
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> ToolResult:
-        _require_tool_scopes("POST", f"/teams/{team_id}/runs")
+        _require_tool_scopes(
+            "POST", f"/teams/{team_id}/runs", components_audit_scope_enabled=components_audit_scope_enabled
+        )
         user_id = _resolve_user_id(user_id)
         team = await _resolve_run_component(os, "teams", team_id, user_id=user_id, session_id=session_id)
         # Mint a fresh session per call when omitted (matches REST), never the sticky default.
@@ -769,7 +776,9 @@ def build_mcp_server(
     ) -> ToolResult:
         from egpt.workflow.remote import RemoteWorkflow
 
-        _require_tool_scopes("POST", f"/workflows/{workflow_id}/runs")
+        _require_tool_scopes(
+            "POST", f"/workflows/{workflow_id}/runs", components_audit_scope_enabled=components_audit_scope_enabled
+        )
         user_id = _resolve_user_id(user_id)
         workflow = await _resolve_run_component(os, "workflows", workflow_id, user_id=user_id, session_id=session_id)
         # Mint a fresh session per call when omitted (matches REST), never the sticky default.
@@ -816,7 +825,11 @@ def build_mcp_server(
         user_id: Optional[str] = None,
     ) -> ToolResult:
         component_type, component_id = _classify_lifecycle_target(agent_id, team_id, workflow_id)
-        _require_tool_scopes("POST", f"/{component_type}/{component_id}/runs/{run_id}/continue")
+        _require_tool_scopes(
+            "POST",
+            f"/{component_type}/{component_id}/runs/{run_id}/continue",
+            components_audit_scope_enabled=components_audit_scope_enabled,
+        )
         user_id = _resolve_user_id(user_id)
         component = await _resolve_run_component(
             os, component_type, component_id, user_id=user_id, session_id=session_id
@@ -858,7 +871,11 @@ def build_mcp_server(
         workflow_id: Optional[str] = None,
     ) -> str:
         component_type, component_id = _classify_lifecycle_target(agent_id, team_id, workflow_id)
-        _require_tool_scopes("POST", f"/{component_type}/{component_id}/runs/{run_id}/cancel")
+        _require_tool_scopes(
+            "POST",
+            f"/{component_type}/{component_id}/runs/{run_id}/cancel",
+            components_audit_scope_enabled=components_audit_scope_enabled,
+        )
         component = await _resolve_run_component(os, component_type, component_id, user_id=None, session_id=session_id)
         await _verify_run_ownership(component, component_type, component_id, session_id, run_id)
         await run_service.cancel_component_run(component, run_id)
@@ -890,7 +907,7 @@ def build_mcp_server(
         sort_order: Literal["asc", "desc"] = "desc",
         db_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        _require_tool_scopes("GET", "/sessions")
+        _require_tool_scopes("GET", "/sessions", components_audit_scope_enabled=components_audit_scope_enabled)
         user_id = _scoped_read_user_id(user_id)
         db = await get_db(os.dbs, db_id)
         session_type_enum = SessionType(session_type)
@@ -948,7 +965,9 @@ def build_mcp_server(
         user_id: Optional[str] = None,
         db_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        _require_tool_scopes("GET", f"/sessions/{session_id}/runs")
+        _require_tool_scopes(
+            "GET", f"/sessions/{session_id}/runs", components_audit_scope_enabled=components_audit_scope_enabled
+        )
         user_id = _scoped_read_user_id(user_id)
         db = await get_db(os.dbs, db_id)
         session_type_enum = SessionType(session_type) if session_type else None

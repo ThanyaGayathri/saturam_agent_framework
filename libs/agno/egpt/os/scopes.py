@@ -579,12 +579,11 @@ def get_default_scope_mappings(*, components_audit_scope_enabled: bool = False) 
         # Component endpoints (Studio)
         "GET /components": ["components:read"],
         # Literal component routes (EGPT-2.8 portability, EGPT-2.9 dry-run validation, EGPT-2.6
-        # audit scope split). These sit ABOVE the wildcards on purpose: the fallback below takes
-        # the first pattern that fnmatches, in insertion order, so "GET /components/*" would
-        # otherwise swallow the export/audit routes and decide their scope by accident rather
-        # than by decision. No "POST /components/*" entry exists today, so the two POSTs here are
-        # not yet at risk -- keeping them in this block is what makes that survive the day one is
-        # added. Reordering this dict silently changes authorization.
+        # audit scope split). get_required_scopes_for_route() resolves these by specificity
+        # (longest path first), not by dict order, so a wildcard like "GET /components/*" can no
+        # longer accidentally swallow a more specific route regardless of where either is
+        # declared. They're still grouped above the wildcards here as a readability convention --
+        # keeping every literal route in one place -- not because ordering is load-bearing.
         "GET /components/*/export": ["components:read"],
         "GET /components/*/audit": ["components:audit"] if components_audit_scope_enabled else ["components:read"],
         "POST /components/import": ["components:write"],
@@ -629,8 +628,12 @@ def get_required_scopes_for_route(scope_mappings: Dict[str, List[str]], method: 
     if route_key in scope_mappings:
         return scope_mappings[route_key]
 
-    # Then try pattern matching
-    for pattern, scopes in scope_mappings.items():
+    # Then try pattern matching, most specific pattern first. A shorter wildcard (e.g.
+    # "/components/*") and a longer literal route (e.g. "/components/*/audit") can both
+    # fnmatch the same request path; resolving by specificity rather than dict insertion
+    # order means the mapping's declaration order no longer decides authorization.
+    candidates = sorted(scope_mappings.items(), key=lambda item: len(item[0].split(" ", 1)[1]), reverse=True)
+    for pattern, scopes in candidates:
         pattern_method, pattern_path = pattern.split(" ", 1)
 
         if pattern_method != method:

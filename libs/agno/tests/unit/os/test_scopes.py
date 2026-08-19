@@ -5,6 +5,7 @@ from egpt.os.scopes import (
     check_route_scopes,
     get_accessible_resource_ids,
     get_default_scope_mappings,
+    get_required_scopes_for_route,
     get_resource_context_from_path,
     has_required_scopes,
     parse_scope,
@@ -193,6 +194,40 @@ class TestDefaultScopeMappings:
         assert mappings["POST /learnings"] == ["learnings:write"]
         assert mappings["PATCH /learnings/*"] == ["learnings:write"]
         assert mappings["DELETE /learnings/*"] == ["learnings:delete"]
+
+
+class TestGetRequiredScopesForRoute:
+    """get_required_scopes_for_route is what AuthMiddleware and the service-account paths
+    actually call at request time -- asserting the mapping dict's contents (as
+    TestDefaultScopeMappings does) is not the same as asserting this function resolves a
+    concrete request path correctly. aicoe-tracker#170: pin the audit route's resolution
+    directly, not just its dict entry."""
+
+    def test_audit_route_resolves_to_components_read_by_default(self):
+        mappings = get_default_scope_mappings()
+        assert get_required_scopes_for_route(mappings, "GET", "/components/abc-123/audit") == ["components:read"]
+
+    def test_audit_route_resolves_to_components_audit_when_split_enabled(self):
+        mappings = get_default_scope_mappings(components_audit_scope_enabled=True)
+        assert get_required_scopes_for_route(mappings, "GET", "/components/abc-123/audit") == ["components:audit"]
+
+    def test_specific_route_resolves_correctly_even_when_declared_below_its_wildcard(self):
+        """Pins the fnmatch structural fix: resolution is by specificity, not dict insertion
+        order, so a mapping dict with the specific route declared AFTER its wildcard (the
+        exact shape of the bug this PR's audit-route fix and its own predecessor addressed)
+        still resolves to the specific route's scope, not the wildcard's."""
+        mis_ordered_mappings = {
+            "GET /components/*": ["components:read"],
+            "GET /components/*/audit": ["components:audit"],
+            "PATCH /components/*": ["components:write"],
+            "PATCH /components/*/configs/*": ["components:configs:write"],
+        }
+        assert get_required_scopes_for_route(mis_ordered_mappings, "GET", "/components/abc-123/audit") == [
+            "components:audit"
+        ]
+        assert get_required_scopes_for_route(mis_ordered_mappings, "PATCH", "/components/abc-123/configs/v1") == [
+            "components:configs:write"
+        ]
 
 
 class TestLearningsRouteScopeResolution:

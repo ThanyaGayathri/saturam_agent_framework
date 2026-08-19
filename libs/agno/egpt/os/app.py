@@ -1417,6 +1417,12 @@ class EgptOS:
             excluded_route_paths = DEFAULT_EXCLUDED_ROUTE_PATHS + extra_excluded_route_paths
 
         middleware_kwargs["excluded_route_paths"] = excluded_route_paths
+        # This is read once, at construction. resync() -> _reprovision_routers() rebuilds the
+        # router-level scope backstop (require_route_scopes) from self.settings on every call,
+        # but AuthMiddleware's scope maps built here are frozen for the process's lifetime --
+        # nothing today mutates components_audit_scope_enabled post-construction, so this is
+        # inert, but a future settings hot-reload would need to also rebuild the middleware to
+        # avoid the two enforcement surfaces disagreeing until a restart.
         middleware_kwargs["components_audit_scope_enabled"] = self.settings.components_audit_scope_enabled
 
         # Interface routes are authorization-gated by the scope entries each interface
