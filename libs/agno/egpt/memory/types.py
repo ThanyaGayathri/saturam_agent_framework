@@ -56,6 +56,7 @@ __all__ = [
     "require_scope",
     "RetrievalCandidates",
     "SCOPE_SLOTS",
+    "ScanCursor",
     "Scope",
     "Substrate",
     "TemporalBounds",

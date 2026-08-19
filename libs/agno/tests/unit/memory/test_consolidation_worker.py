@@ -12,7 +12,7 @@ import pytest
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
-from egpt.memory.consolidation import ConsolidationWorker
+from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import ConsolidationReport, MemoryEvent, Scope
 from tests.unit.memory._fakes import FakeGraph, FakeVector
@@ -102,6 +102,22 @@ async def test_a_second_tick_continues_where_the_first_left_off():
         if fact.tier is MemoryTier.SEMANTIC:
             seen.update(fact.provenance.get("source_episode_ids", []))
     assert {f"e{i}" for i in range(10)} == seen
+
+
+def test_drained_reads_as_false_rather_than_raising_when_complete_is_missing():
+    """`ConsolidationWorker` takes a `MemoryProvider` by protocol, not by concrete type, so a
+    third-party provider that omits `details["complete"]` (CONSOLIDATION_KEYS requires it, but
+    nothing here enforces that on a caller-supplied provider) must not crash the tick with a
+    `KeyError` -- it should just read as "not drained, worth another pass".
+
+    Mutation guard: replacing `details.get("complete", False)` with a bare `details["complete"]`
+    makes this raise instead of returning `False`.
+    """
+    outcome = ConsolidationOutcome(
+        scope=ACME,
+        reports=[ConsolidationReport(scope=ACME, details={"entities": "not extracted"})],
+    )
+    assert outcome.drained is False
 
 
 async def test_an_incomplete_entity_extraction_tail_keeps_the_scope_undrained():
@@ -219,7 +235,7 @@ async def test_start_returns_before_the_first_tick_completes():
     provider.aconsolidate = slow_aconsolidate
     worker = ConsolidationWorker(provider, [ACME], poll_interval=10, retry_delay=0.001)
 
-    await worker.start()
+    worker.start()
     try:
         assert not started.is_set(), "start() must return before the tick it scheduled has run"
         await asyncio.wait_for(started.wait(), timeout=1)
@@ -230,13 +246,56 @@ async def test_start_returns_before_the_first_tick_completes():
 async def test_stop_waits_for_the_in_flight_tick_then_returns():
     provider, _, _ = make_provider()
     provider.write(ACME, [event("the deploy failed on friday")])
+    tick_ran = asyncio.Event()
+    real_aconsolidate = provider.aconsolidate
+
+    async def observed(scope, tiers=None):
+        report = await real_aconsolidate(scope, tiers)
+        tick_ran.set()
+        return report
+
+    provider.aconsolidate = observed
     worker = ConsolidationWorker(provider, [ACME], poll_interval=10, retry_delay=0.001)
 
-    await worker.start()
-    await asyncio.sleep(0.05)  # let the first tick actually run
+    worker.start()
+    await asyncio.wait_for(tick_ran.wait(), timeout=1)  # observable side effect, not a time budget
     await worker.stop()
 
     assert worker._task is None
+
+
+async def test_a_cancelled_loop_reports_itself_cancelled_not_a_clean_return():
+    """`_loop`'s `CancelledError` handler must re-raise, not swallow -- a caller inspecting the
+    task after cancellation should see the true outcome, matching ordinary asyncio convention.
+
+    Cancelled while genuinely suspended inside ``run_once`` (not merely before the task has had a
+    chance to start), so the cancellation actually passes through the handler under test rather
+    than short-circuiting a task that never began.
+
+    Mutation guard: replacing the `raise` in `_loop`'s `except asyncio.CancelledError` clause with
+    `break` (SM-L1's original shape, before this round's fix) makes `task.cancelled()` come back
+    `False` here instead of `True`.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    inside_run_once = asyncio.Event()
+
+    async def slow_aconsolidate(scope, tiers=None):
+        inside_run_once.set()
+        await asyncio.sleep(10)
+        raise AssertionError("should have been cancelled first")
+
+    provider.aconsolidate = slow_aconsolidate
+    worker = ConsolidationWorker(provider, [ACME], poll_interval=10, retry_delay=0.001)
+
+    worker.start()
+    task = worker._task
+    await asyncio.wait_for(inside_run_once.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert task.cancelled() is True
 
 
 async def test_scopes_callable_is_re_resolved_every_tick():
@@ -268,3 +327,28 @@ def test_construction_refuses_a_non_positive_bound(option, value):
     provider, _, _ = make_provider()
     with pytest.raises(ValueError, match=option):
         ConsolidationWorker(provider, [ACME], **{option: value})
+
+
+def test_max_retries_zero_is_accepted_as_fail_fast():
+    """0 is "no retry", a real setting -- not a bound violation like the negative case above."""
+    provider, _, _ = make_provider()
+    worker = ConsolidationWorker(provider, [ACME], max_retries=0)
+    assert worker.max_retries == 0
+
+
+async def test_max_retries_zero_raises_on_the_first_failure_with_no_retry():
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    calls = {"n": 0}
+
+    async def always_fails(scope, tiers=None):
+        calls["n"] += 1
+        raise RuntimeError("down")
+
+    provider.aconsolidate = always_fails
+    worker = ConsolidationWorker(provider, [ACME], max_retries=0, retry_delay=0.001)
+
+    outcome = (await worker.run_once())[0]
+
+    assert calls["n"] == 1
+    assert outcome.error is not None

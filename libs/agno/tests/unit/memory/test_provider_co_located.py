@@ -791,6 +791,35 @@ def test_a_failed_write_does_not_advance_the_cursor():
     assert retry.episodic_scanned == 3
 
 
+async def test_a_failed_awrite_does_not_advance_the_async_cursor():
+    """The async mirror of :func:`test_a_failed_write_does_not_advance_the_cursor` -- pinned
+    separately because `ConsolidationWorker` calls only `aconsolidate`, never the sync half, so
+    that is the code path whose cursor-on-failure behaviour actually matters in production.
+
+    Mutation guard: moving `_advance_cursor` before `aconsolidate`'s write `try` makes this pass
+    with the retry's `episodic_scanned` at 0 instead of 3, exactly as the sync version's does.
+    """
+
+    class OnceFailingGraph(FakeGraph):
+        fail = True
+
+        async def aupsert_facts(self, scope, facts):
+            if self.fail:
+                raise MemoryOperationError("backend unavailable", field_name="tier")
+            await super().aupsert_facts(scope, facts)
+
+    vector, graph = FakeVector(), OnceFailingGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph, max_episodes_per_pass=3)
+    await p.awrite(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(3)])
+
+    with pytest.raises(PartialWriteError):
+        await p.aconsolidate(ACME)
+
+    graph.fail = False
+    retry = await p.aconsolidate(ACME)
+    assert retry.episodic_scanned == 3
+
+
 async def test_async_consolidation_covers_the_same_episodes():
     p, _, _ = provider()
     for i in range(5):

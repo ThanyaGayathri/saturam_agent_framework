@@ -46,6 +46,14 @@ def _positive_int(value: int, option: str) -> int:
     return value
 
 
+def _non_negative_int(value: int, option: str) -> int:
+    """For ``max_retries``, where 0 is a legitimate "fail fast, no retry" -- the retry loop
+    already handles it correctly (``attempt=1 > 0`` raises on the first failure)."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{option} must be an integer >= 0, got {value!r}.")
+    return value
+
+
 @dataclass
 class ConsolidationOutcome:
     """What one scope's drain attempt did, in one tick.
@@ -59,16 +67,22 @@ class ConsolidationOutcome:
 
     scope: Scope
     reports: List[ConsolidationReport] = field(default_factory=list)
-    error: Optional[BaseException] = None
+    error: Optional[Exception] = None
 
     @property
     def drained(self) -> bool:
         """Whether the last pass this tick ran left nothing pending -- both the top-level pass
-        and, per the interface's own warning, any entity-extraction tail inside it."""
+        and, per the interface's own warning, any entity-extraction tail inside it.
+
+        ``details.get("complete", False)``, not a bare subscript: ``CONSOLIDATION_KEYS`` requires
+        every provider to carry the key, but this worker takes a ``MemoryProvider`` by protocol,
+        not by concrete type, and a third-party implementation that omits it should read as "not
+        drained" -- worth another pass -- rather than crash the whole tick with a ``KeyError``.
+        """
         if self.error is not None or not self.reports:
             return False
         details = self.reports[-1].details
-        return bool(details["complete"]) and entity_extraction_complete(details)
+        return bool(details.get("complete", False)) and entity_extraction_complete(details)
 
 
 class ConsolidationWorker:
@@ -105,7 +119,7 @@ class ConsolidationWorker:
         #: A per-tick safety valve, not a policy: one huge tenant's tail rolls into the next tick
         #: rather than blocking every other scope's drain in this one.
         self.max_passes_per_scope = _positive_int(max_passes_per_scope, "max_passes_per_scope")
-        self.max_retries = _positive_int(max_retries, "max_retries")
+        self.max_retries = _non_negative_int(max_retries, "max_retries")
         self.retry_delay = _positive(retry_delay, "retry_delay")
         self.stop_timeout = _positive(stop_timeout, "stop_timeout")
         self._task: Optional["asyncio.Task[None]"] = None
@@ -118,6 +132,13 @@ class ConsolidationWorker:
         One scope's exhausted retries do not stop the others -- each scope's failure is caught
         inside :meth:`_drain_scope`, never propagated through ``gather``, which is what "one
         tenant's backend is down" must not mean "no tenant gets consolidated this tick".
+
+        **Async-only, no sync twin, deliberately** (CLAUDE.md's sync+async rule): concurrency
+        here is real ``await`` via ``gather`` over ``provider.aconsolidate``, not a wrapper around
+        sync work, so a sync twin would need its own event loop -- which conflicts with a caller
+        that already has one running, the same reason ``SchedulePoller`` (``egpt/scheduler/``)
+        carries no sync twin either. A caller with no loop of its own can run one tick via
+        ``asyncio.run(worker.run_once())``.
         """
         scopes = _resolve_scopes(self.scopes)
         return list(await asyncio.gather(*(self._drain_scope(scope) for scope in scopes)))
@@ -156,9 +177,11 @@ class ConsolidationWorker:
                 )
                 await asyncio.sleep(self.retry_delay)
 
-    async def start(self) -> None:
-        """Start the background loop. Returns immediately -- the first tick runs on the task,
-        not before this call returns, which is the "does not block the hot path" contract."""
+    def start(self) -> None:
+        """Start the background loop. Returns immediately, synchronously -- ``asyncio.create_task``
+        schedules ``_loop`` but does not run it, so the first tick never runs before this call
+        returns, which is the "does not block the hot path" contract. No ``await`` here means no
+        sync/async split to maintain: this **is** the sync form, and the only form."""
         if self._running:
             return
         self._running = True
@@ -172,11 +195,19 @@ class ConsolidationWorker:
         if self._wake is not None:
             self._wake.set()
         if self._task is not None:
+            task = self._task
             try:
-                await asyncio.wait_for(self._task, timeout=self.stop_timeout)
+                await asyncio.wait_for(task, timeout=self.stop_timeout)
             except asyncio.TimeoutError:
-                self._task.cancel()
+                # `wait_for`'s own cancel-on-timeout is not guaranteed to have finished delivering
+                # `CancelledError` to the task before it raises here (pre-3.11) -- an explicit
+                # cancel-and-await closes that gap on every version rather than only the newer one.
+                task.cancel()
                 log_warning(f"Consolidation worker did not stop within {self.stop_timeout}s; cancelled")
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
             self._task = None
         log_info("Consolidation worker stopped")
 
@@ -186,7 +217,10 @@ class ConsolidationWorker:
             try:
                 await self.run_once()
             except asyncio.CancelledError:
-                break
+                # Re-raised, not swallowed: `stop()` now awaits this task after cancelling it, and
+                # a caller checking `task.cancelled()` should see the true outcome rather than a
+                # plain `None` result masquerading as a clean stop.
+                raise
             except Exception as exc:
                 # _drain_scope already catches per-scope failures; reaching here means run_once's
                 # own machinery (scope resolution, gather) broke, which is worth surfacing loudly
