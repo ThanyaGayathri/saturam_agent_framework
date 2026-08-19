@@ -569,3 +569,31 @@ failing independently of this ticket -- their local `InMemoryGraph` demo double 
 ticket). Confirmed pre-existing at this branch's base commit (`9d9268d2`), not introduced by SM-L1.
 Flagged separately rather than fixed here to stay in scope. This file sidesteps it by wiring a
 vector-only provider.
+
+---
+
+### 24_episodic_segmentation.py
+
+**Status:** PASS
+
+**Description:** Exercises SM-E3's inline segmentation prior end to end through
+`episodes_from_events`: a two-topic session (launch planning, then an unrelated backup check after
+a 2-hour idle gap) segmented in one call; the same session split across two write-back calls with
+`SegmentState` threaded between them; a hard `max_turns_per_episode` cap firing with no idle gap at
+all; and the full boundary-metadata field set (`boundary_method`/`boundary_trigger`/
+`boundary_confidence`/`segmenter_version`/`revision`/`refined`) on one opening episode.
+
+**Result:** Success. The two-topic session segments into exactly 2 episodes (the acceptance
+criterion). `SegmentState` carried across the two-call run reproduces the same boundary the
+single-call run found, with `boundary_trigger` reporting the measured idle gap in seconds
+(7140.0s = 2 hours - 60s, the interval between the last event of call 1 and the first of call 2).
+The turn cap (`max_turns=3`) opens a new episode at the 4th message despite each message being 1
+second apart -- well inside the default 900s gap window -- confirming the cap fires independently
+of the gap rule. `segmenter_version` on the stamped row matches `segmenter_version()` called with
+the same parameters used to build it.
+
+**Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `23_` to `24_`: SM-L1 (#122) merged to `main` first and took `23_` for
+`23_consolidation_worker.py`.** Per this file's own convention, whoever merges second renumbers --
+now the fourth time this file's lineage has moved (see `22_`'s own note above for the earlier two).

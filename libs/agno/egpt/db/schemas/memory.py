@@ -213,6 +213,8 @@ class EpisodicRecord(TenantScoped, BiTemporal, Embeddable, Decaying):
     # variance mypy flags on the override, not a defect.
     superseded_by: List[str] = field(default_factory=list)  # type: ignore[assignment]
     boundary_method: Optional[str] = None
+    # Unit depends on boundary_method: idle-gap seconds for "time_gap", turn count for
+    # "turn_cap" (egpt.memory.episodic.segment.BoundaryDecision docstring has the full table).
     boundary_trigger: Optional[float] = None
     boundary_confidence: Optional[float] = None
     refined: bool = False

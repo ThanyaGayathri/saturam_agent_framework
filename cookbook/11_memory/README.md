@@ -67,6 +67,13 @@ This section demonstrates how EGPT agents persist and use user memories across r
   can still be scored. `cosine_relevance` on precomputed embeddings and `episode_relevance` on raw
   text; recency/importance/composite weighting are SM-E4/SM-E5/SM-E7's. Runs with no database and
   no API key -- a tiny deterministic bag-of-hashed-tokens embedder, not a real model.
+- `23_episodic_segmentation.py`: The SM-R6 v1 inline segmentation prior at write-back (SM-E3) --
+  the deterministic `time_gap` + `max_turns_per_episode` cut, suppressed below
+  `min_turns_per_episode`, that tags each write-back event with which boundary rule (if any)
+  opened a new episode. Shows a two-topic session segmenting in one call and across two write-back
+  calls via `SegmentState`, and the hard turn cap firing with no idle gap. The async
+  re-segmentation lane (embedding-similarity drift, EM-LLM, LLM) is SM-R7's, not shown here. Runs
+  with no database and no API key.
 
 - `23_consolidation_worker.py`: The async consolidation worker (SM-L1) -- draining `consolidate`
   off the hot path across a tier larger than one bounded pass, via the provider's internal

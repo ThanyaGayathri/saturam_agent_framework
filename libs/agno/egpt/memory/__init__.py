@@ -22,6 +22,18 @@ from egpt.memory.episodic import (
     reinforce,
 )
 from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
+from egpt.memory.episodic.segment import (
+    DEFAULT_MAX_TURNS_PER_EPISODE,
+    DEFAULT_MIN_TURNS_PER_EPISODE,
+    DEFAULT_TIME_GAP_S,
+    TIME_GAP_METHOD,
+    TURN_CAP_METHOD,
+    BoundaryDecision,
+    SegmentState,
+    segment_events,
+    segmenter_version,
+    stamp_boundaries,
+)
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
@@ -102,6 +114,7 @@ from egpt.memory.writeback import (
     TOOL_CALL_ID_KEY,
     TOOL_NAME_KEY,
     astart_writeback_task,
+    episodes_from_events,
     event_from_message,
     event_from_tool_execution,
     events_from_run,
@@ -200,6 +213,17 @@ __all__ = [
     # Episode salience scoring (SM-E5)
     "ImportanceScore",
     "ImportanceScorer",
+    # Inline event segmentation -- the SM-R6 v1 prior (SM-E3)
+    "DEFAULT_MAX_TURNS_PER_EPISODE",
+    "DEFAULT_MIN_TURNS_PER_EPISODE",
+    "DEFAULT_TIME_GAP_S",
+    "TIME_GAP_METHOD",
+    "TURN_CAP_METHOD",
+    "BoundaryDecision",
+    "SegmentState",
+    "segment_events",
+    "segmenter_version",
+    "stamp_boundaries",
     # Write-back capture (SM-E2)
     "ROLE_KEY",
     "TOOL_CALL_ERROR_KEY",
@@ -208,6 +232,7 @@ __all__ = [
     "event_from_message",
     "event_from_tool_execution",
     "events_from_run",
+    "episodes_from_events",
     "start_writeback_future",
     "astart_writeback_task",
     # Episodic relevance scoring (SM-E6)
