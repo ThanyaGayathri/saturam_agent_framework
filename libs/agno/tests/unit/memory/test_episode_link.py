@@ -86,10 +86,63 @@ def test_an_update_that_changes_time_and_entities_keeps_the_two_views_in_step():
     assert link.entity_ids == frozenset(updated_episode.entity_ids)
     assert episode_link_drift(updated_episode, link) == []
 
-    # The entity set was *replaced*, not unioned -- resolving against the pre-update row's own
-    # entity_ids must show the drift the stale mention would otherwise hide.
+
+def test_resolving_with_a_stale_snapshot_still_finds_the_current_entities():
+    """The regression this pins: a caller holding the *pre-update* row (the one
+    ``episode_from_event`` would have built before the second write landed) windows at the stale
+    ``t_valid`` first, finds nothing there, and must retry at the graph's own ``t_valid`` rather
+    than reporting the entity half as agreeing by silently skipping it. Drives
+    ``resolve_episode_link`` itself with the stale row -- not just ``episode_link_drift`` against
+    an already-resolved link -- so it exercises the windowed-query path the masking lived in."""
+    graph = FakeGraph()
+    graph.upsert_episodes(ACME, [an_event()])
+    graph.upsert_episodes(ACME, [an_event(content="ada moved to paris", occurred_at=200, entities=["Paris"])])
+
+    stale_episode = episode_from_event(an_event())  # t_valid=100, entities=["Berlin"]
+    link = resolve_episode_link(ACME, stale_episode, graph)
+
+    # Found via the fallback window, not left `None` -- the graph's *current* mentions, which
+    # disagree with the stale row's own, same as `t_valid` does.
+    assert link.entity_ids is not None
+    assert set(episode_link_drift(stale_episode, link)) == {"t_valid", "entity_ids"}
+
+
+async def test_the_async_fallback_agrees_with_the_sync_one():
+    graph = FakeGraph()
+    await graph.aupsert_episodes(ACME, [an_event()])
+    await graph.aupsert_episodes(ACME, [an_event(content="ada moved to paris", occurred_at=200, entities=["Paris"])])
     stale_episode = episode_from_event(an_event())
-    assert episode_link_drift(stale_episode, link) == ["t_valid", "entity_ids"]
+
+    link = await aresolve_episode_link(ACME, stale_episode, graph)
+
+    assert link == resolve_episode_link(ACME, stale_episode, graph)
+
+
+def test_a_graph_side_invalidation_is_reported_as_drift():
+    """AC: consistency maintained on updates, for the invalidation path -- not only content
+    re-upsert. ``t_invalid`` is populated on ``EpisodeLink`` (from ``bounds_for_ids``) precisely so
+    this is checkable; before this test it was populated but never compared."""
+    graph = FakeGraph()
+    graph.upsert_episodes(ACME, [an_event()])
+    episode = episode_from_event(an_event())  # t_invalid=None
+
+    graph.invalidate(ACME, episode.id, t_invalid=500)
+    link = resolve_episode_link(ACME, episode, graph)
+
+    assert link.t_invalid == 500
+    assert "t_invalid" in episode_link_drift(episode, link)
+
+
+def test_another_tenants_episode_with_the_same_id_does_not_resolve():
+    """Isolation for the resolve seam itself, not only for the substrate it calls: a tenant-scoped
+    id collision must not read as a match."""
+    graph = FakeGraph()
+    other_scope = Scope(tenant_id="other-tenant", user_id="ada")
+    graph.upsert_episodes(other_scope, [an_event()])
+
+    link = resolve_episode_link(ACME, episode_from_event(an_event()), graph)
+
+    assert link.exists is False
 
 
 def test_an_absent_link_is_not_reported_as_drift():

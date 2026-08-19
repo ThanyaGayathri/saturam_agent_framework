@@ -21,7 +21,7 @@ by entity name, because ``EpisodicRecord`` only carries the derived ids
 """
 
 from dataclasses import dataclass
-from typing import FrozenSet, List, Optional
+from typing import FrozenSet, List, Optional, Tuple
 
 from egpt.memory.schemas.episodic import EpisodicRecord, graph_node_id_for
 from egpt.memory.substrates import GraphSubstrate
@@ -37,7 +37,7 @@ class EpisodeLink:
     ``entity_ids`` is ``None`` rather than empty when it could not be determined -- an episode
     with no ``t_valid`` cannot be windowed, and reporting an empty set there would read as "names
     nothing" for a case that is actually "not checked", the same false-empty :func:`_require_list`
-    guards on the write side.
+    guards on the write side. See :func:`resolve_episode_link` for the other ways this happens.
     """
 
     graph_node_id: str
@@ -47,11 +47,48 @@ class EpisodeLink:
     entity_ids: Optional[FrozenSet[str]] = None
 
 
+def _window(t_valid: int) -> Tuple[int, int]:
+    """The half-open one-second window that finds the row at exactly this instant.
+
+    ``t_valid`` is epoch-seconds, so ``t_valid + 1`` is the smallest ``[since, until)`` that
+    still contains it. Centralised because a caller windowing at sub-second precision later needs
+    to widen this, not hunt down every ``+ 1`` this module wrote separately.
+    """
+    return t_valid, t_valid + 1
+
+
 def _entity_ids_of(episode_id: str, hits: List[MemoryRecord]) -> Optional[FrozenSet[str]]:
+    """Linear scan over one instant's worth of episodes -- fine, since a one-second window over
+    episodic data returns O(1) rows in any realistic corpus; this is not a hot path over a page."""
     for record in hits:
         if record.id == episode_id:
+            # `or []` folds two shapes into one: a key absent from `provenance` (`None`) and a key
+            # present but genuinely empty. Replacing this with `.get("entity_ids", [])` would still
+            # pass every test here, but would stop distinguishing "no key" from "key is `None`" --
+            # a distinction `_entity_ids_of` itself does not need today but a future caller reading
+            # `provenance` directly might.
             return frozenset(record.provenance.get("entity_ids") or [])
     return None
+
+
+def _fallback_window(
+    entity_ids: Optional[FrozenSet[str]], hit_t_valid: Optional[int], episode_t_valid: int
+) -> Optional[Tuple[int, int]]:
+    """A second window to try, or ``None`` when the first attempt is trusted as final.
+
+    The first window is built from the *caller's* ``episode.t_valid`` -- correct when the two
+    views agree, but blind exactly when they do not: if the graph has since moved the row to a
+    new ``t_valid`` (an update, not an absence), that window looks at the wrong instant and finds
+    nothing, so :func:`_entity_ids_of` returns ``None`` -- which :func:`episode_link_drift` then
+    reads as "not checked" and silently skips, masking real entity drift behind the reported
+    ``t_valid`` drift instead of alongside it. Retrying at the graph's own ``hit_t_valid`` closes
+    that gap without touching the case this is not about: ``entity_ids is not None`` (found first
+    try) or ``hit_t_valid is None`` (nothing to retry at, matching the row's own unwindowable
+    case) both return ``None`` here, same as the two views agreeing.
+    """
+    if entity_ids is not None or hit_t_valid is None or hit_t_valid == episode_t_valid:
+        return None
+    return hit_t_valid, hit_t_valid + 1
 
 
 def resolve_episode_link(scope: Scope, episode: EpisodicRecord, graph: GraphSubstrate) -> EpisodeLink:
@@ -61,17 +98,23 @@ def resolve_episode_link(scope: Scope, episode: EpisodicRecord, graph: GraphSubs
     shared with facts and relations, neither of which have any), so the entity half needs
     :meth:`GraphSubstrate.recall_episodes` regardless. The second call is skipped when the first
     finds nothing live-or-expired to resolve, since a window query for an id the graph has never
-    seen only spends a round trip to learn what ``bounds_for_ids`` already said.
+    seen only spends a round trip to learn what ``bounds_for_ids`` already said. A third,
+    conditional call retries the entity half at the graph's own ``t_valid`` when the row's own
+    window missed it because the graph had already moved on -- see :func:`_fallback_window`.
     """
-    node_id = graph_node_id_for(scope, episode.id)
+    node_id = episode.graph_node_id or graph_node_id_for(scope, episode.id)
     bounds = graph.bounds_for_ids(scope, [episode.id])
     hit = bounds.get(episode.id)
     if hit is None:
         return EpisodeLink(graph_node_id=node_id, exists=False)
     entity_ids: Optional[FrozenSet[str]] = None
     if episode.t_valid is not None:
-        window = graph.recall_episodes(scope, since=episode.t_valid, until=episode.t_valid + 1)
-        entity_ids = _entity_ids_of(episode.id, window)
+        since, until = _window(episode.t_valid)
+        entity_ids = _entity_ids_of(episode.id, graph.recall_episodes(scope, since=since, until=until))
+        fallback = _fallback_window(entity_ids, hit.t_valid, episode.t_valid)
+        if fallback is not None:
+            since, until = fallback
+            entity_ids = _entity_ids_of(episode.id, graph.recall_episodes(scope, since=since, until=until))
     return EpisodeLink(
         graph_node_id=node_id,
         exists=True,
@@ -83,15 +126,19 @@ def resolve_episode_link(scope: Scope, episode: EpisodicRecord, graph: GraphSubs
 
 async def aresolve_episode_link(scope: Scope, episode: EpisodicRecord, graph: GraphSubstrate) -> EpisodeLink:
     """Async variant of :func:`resolve_episode_link`."""
-    node_id = graph_node_id_for(scope, episode.id)
+    node_id = episode.graph_node_id or graph_node_id_for(scope, episode.id)
     bounds = await graph.abounds_for_ids(scope, [episode.id])
     hit = bounds.get(episode.id)
     if hit is None:
         return EpisodeLink(graph_node_id=node_id, exists=False)
     entity_ids: Optional[FrozenSet[str]] = None
     if episode.t_valid is not None:
-        window = await graph.arecall_episodes(scope, since=episode.t_valid, until=episode.t_valid + 1)
-        entity_ids = _entity_ids_of(episode.id, window)
+        since, until = _window(episode.t_valid)
+        entity_ids = _entity_ids_of(episode.id, await graph.arecall_episodes(scope, since=since, until=until))
+        fallback = _fallback_window(entity_ids, hit.t_valid, episode.t_valid)
+        if fallback is not None:
+            since, until = fallback
+            entity_ids = _entity_ids_of(episode.id, await graph.arecall_episodes(scope, since=since, until=until))
     return EpisodeLink(
         graph_node_id=node_id,
         exists=True,
@@ -106,12 +153,20 @@ def episode_link_drift(episode: EpisodicRecord, link: EpisodeLink) -> List[str]:
 
     An absent link is not drift (see the module docstring); it is reported as ``exists`` on
     ``link`` itself, for a caller who wants to distinguish "not there yet" from "there and wrong".
+
+    ``entity_ids is None`` on an *existing* link is not read as agreement -- it means the check
+    was skipped, not passed, and there is no drift entry for it. Two cases remain even after
+    :func:`_fallback_window` closes the "graph moved on" one: the episode itself carries no
+    ``t_valid`` (nothing to window at all), or the episode has since been expired in the graph, so
+    ``recall_episodes``'s current-belief filter has nothing left to return at any instant.
     """
     if not link.exists:
         return []
     drift = []
     if link.t_valid != episode.t_valid:
         drift.append("t_valid")
+    if link.t_invalid != episode.t_invalid:
+        drift.append("t_invalid")
     if link.entity_ids is not None and link.entity_ids != frozenset(episode.entity_ids):
         drift.append("entity_ids")
     return drift
