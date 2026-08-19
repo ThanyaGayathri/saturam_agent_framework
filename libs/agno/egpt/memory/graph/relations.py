@@ -27,6 +27,14 @@ provenance forward across passes needs a read of the edge's current row. SM-G7 (
 read (``GraphSubstrate.recall_facts``); wiring this pipeline to fold against it before writing is
 not this ticket's to add, and nothing here does.
 
+**Bi-temporal valid-time (SM-G4 #102).** Every candidate's ``t_valid``/``t_invalid`` come from
+:class:`~egpt.memory.graph.temporal.ValidTimeExtractor`, run once per episode against its content
+and reused across every relation that episode produced (they share the content they were dated
+from). The four-timestamp envelope and its point-in-time query semantics are not this module's;
+SM-G1 (#99) built both generically on :class:`~egpt.memory.types.MemoryRecord` and the Neo4j
+substrate, which also stamps ``created_at``/``expired_at`` (the transaction axis) at write time --
+this module's job is only ``t_valid``/``t_invalid`` (the valid-time axis), left unset before it.
+
 The prompt is the seed's, imported from ``learn/stores/entity_memory.py`` -- the same one SM-G2
 reuses -- because it already documents relationships as part of what one extraction pass reads for
 (the ``sarah_chen --[works_at]--> northstar_analytics`` example in its own text).
@@ -39,6 +47,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence,
 from pydantic import BaseModel, Field, field_validator
 
 from egpt.memory.graph.passes import select_current_episodes
+from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor, ValidTimeExtractor, ValidTimeSpan
 from egpt.memory.substrates import GraphSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -292,10 +301,23 @@ class RelationExtractionPipeline:
         graph: GraphSubstrate,
         extractor: RelationExtractor,
         max_episodes_per_pass: int = DEFAULT_MAX_EPISODES_PER_PASS,
+        valid_time_extractor: Optional[ValidTimeExtractor] = None,
     ) -> None:
+        valid_time_extractor = (
+            valid_time_extractor if valid_time_extractor is not None else RuleBasedValidTimeExtractor()
+        )
+        # Method-presence, not `isinstance(candidate, <Protocol>)`, deliberately: `GraphSubstrate`,
+        # `RelationExtractor` and `ValidTimeExtractor` are all `@runtime_checkable`, but that only
+        # verifies method *names* are present, not signatures -- `RelationExtractor` and
+        # `ValidTimeExtractor` both declare `extract`/`aextract`, so an `isinstance` check against
+        # either would pass for an instance of the other exactly as readily as this check does
+        # (round-2 review, PR #101). Checking all three collaborators the same way keeps the loop's
+        # symmetry meaningful; switching only one entry to `isinstance` would buy no additional
+        # protection while making that entry's validation inconsistent with its two siblings here.
         for name, candidate, verbs in (
             ("graph", graph, ("upsert_facts", "aupsert_facts")),
             ("extractor", extractor, ("extract", "aextract")),
+            ("valid_time_extractor", valid_time_extractor, ("extract", "aextract")),
         ):
             missing = [verb for verb in verbs if not callable(getattr(candidate, verb, None))]
             if missing:
@@ -319,6 +341,7 @@ class RelationExtractionPipeline:
         self.graph = graph
         self.extractor = extractor
         self.max_episodes_per_pass = max_episodes_per_pass
+        self.valid_time_extractor = valid_time_extractor
 
     # -- shared decisions -----------------------------------------------------
 
@@ -326,8 +349,24 @@ class RelationExtractionPipeline:
         return select_current_episodes(episodes, max_episodes_per_pass=self.max_episodes_per_pass, purpose="Relations")
 
     @staticmethod
-    def _candidates(episode: MemoryRecord, extracted: Sequence[ExtractedRelation]) -> List[FactWrite]:
-        """One :class:`FactWrite` per relation, with the episode's own scope and provenance."""
+    def _ingest_time(episode: MemoryRecord) -> Optional[int]:
+        """The instant a fallback span anchors on when its episode states no date of its own.
+
+        ``episode.t_valid`` first -- when the episode is the seed's own occurrence time, that is
+        the closest available answer to "when did this become true", closer than the pass's own
+        wall clock, which drifts from it under async/batched consolidation (SM-L1 #122). Falls back
+        to ``episode.created_at`` (when the episode was recorded) and then to ``None``, which
+        :class:`~egpt.memory.graph.temporal.ValidTimeExtractor` reads as "use the current instant".
+        """
+        return episode.t_valid if episode.t_valid is not None else episode.created_at
+
+    @staticmethod
+    def _candidates(
+        episode: MemoryRecord, extracted: Sequence[ExtractedRelation], span: ValidTimeSpan
+    ) -> List[FactWrite]:
+        """One :class:`FactWrite` per relation, with the episode's own scope, provenance, and
+        valid-time span. ``span`` is shared across every relation in ``extracted`` -- they were all
+        read from the same episode content, so they cannot disagree about when it dates them."""
         if extracted is None:
             # The Protocol docstring says "an episode naming none returns empty, not None" -- a
             # contract, not a runtime guard. Without this, a custom extractor returning None hits
@@ -351,6 +390,8 @@ class RelationExtractionPipeline:
                 tier=MemoryTier.SEMANTIC,
                 content=f"{source} {relation} {target}",
                 scope=episode.scope,
+                t_valid=span.t_valid,
+                t_invalid=span.t_invalid,
             )
             candidates.append(
                 FactWrite(
@@ -432,7 +473,8 @@ class RelationExtractionPipeline:
         selected, truncated = self._selected(episodes)
         candidates: List[FactWrite] = []
         for episode in selected:
-            candidates.extend(self._candidates(episode, self.extractor.extract(episode)))
+            span = self.valid_time_extractor.extract(episode.content, ingest_time=self._ingest_time(episode))
+            candidates.extend(self._candidates(episode, self.extractor.extract(episode), span))
         merged = self._merged(candidates)
         for batch_scope, batch in self._batches(merged):
             self.graph.upsert_facts(batch_scope, batch)
@@ -449,7 +491,8 @@ class RelationExtractionPipeline:
         selected, truncated = self._selected(episodes)
         candidates: List[FactWrite] = []
         for episode in selected:
-            candidates.extend(self._candidates(episode, await self.extractor.aextract(episode)))
+            span = await self.valid_time_extractor.aextract(episode.content, ingest_time=self._ingest_time(episode))
+            candidates.extend(self._candidates(episode, await self.extractor.aextract(episode), span))
         merged = self._merged(candidates)
         for batch_scope, batch in self._batches(merged):
             await self.graph.aupsert_facts(batch_scope, batch)

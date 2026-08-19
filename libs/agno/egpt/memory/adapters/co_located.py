@@ -474,8 +474,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     scope=scope,
                     topics=list(prepared.topics) if prepared.topics is not None else None,
                     # The same derivation the graph's `MENTIONS` edges use, so the vector row does
-                    # not drop the caller's entities on a deployment with no graph leg. Whether the
-                    # two stay in step as the graph changes is SM-E10's (#117).
+                    # not drop the caller's entities on a deployment with no graph leg. Checking the
+                    # two stay in step as the graph changes is `episodic.link.resolve_episode_link`
+                    # (SM-E10 #117); this write path stays the single source both sides fan out from.
                     provenance={"entity_ids": [entity_node_id_for(scope, name) for name in entities]},
                     t_valid=occurred_at,
                     created_at=now,

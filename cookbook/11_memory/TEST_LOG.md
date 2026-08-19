@@ -385,6 +385,10 @@ episode, so entities are keyed on the full scope rather than the tenant. The unf
 **refused** naming SM-G9 (#107) rather than answered, because every episode in scope is an
 enumeration and what that means over a temporal graph is not this ticket's to define.
 
+**SM-E10 (#117) addition:** `resolve_episode_link` reads the march episode's derived
+`graph_node_id` / `entity_ids` back against the graph this cookbook just wrote to, printing
+`exists=True  t_valid=1600000000  drift=[]` -- the vector-side projection and the graph node agree.
+
 Run **twice in a row and the output is identical**: the four events carry explicit ids and
 `upsert_episodes` replaces by id, so a re-run replaces the same four episodes and their mention
 edges rather than accumulating a fresh set.
