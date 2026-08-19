@@ -85,11 +85,22 @@ class ValidTimeSpan:
 
     t_valid: int
     t_invalid: Optional[int] = None
-    confidence: float = 0.0
+    # Defaults to `_FALLBACK_CONFIDENCE`, not `0.0` (round-3 review, PR #101): a caller building a
+    # span without naming `confidence` -- a test stub, most concretely -- gets the honest floor for
+    # an unlabelled span rather than a value below every real one `RuleBasedValidTimeExtractor`
+    # produces, which would silently mislead a consumer branching on `confidence < _FALLBACK_CONFIDENCE`.
+    confidence: float = _FALLBACK_CONFIDENCE
     source: Literal["explicit", "ingest_fallback"] = "ingest_fallback"
     matched_text: Optional[str] = None
 
     def __post_init__(self) -> None:
+        # `t_valid` is the one field every other decision in this module assumes is present --
+        # `co_located._valid_at` and `MemoryRecord.__post_init__` both read it unconditionally.
+        # The protocol's own docstring promises "never None"; a misbehaving custom
+        # `ValidTimeExtractor` is the only way that promise breaks, so it is enforced here rather
+        # than trusted (round-3 review, PR #101).
+        if self.t_valid is None:
+            raise ValueError("ValidTimeSpan.t_valid must not be None; see the protocol's own docstring.")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"ValidTimeSpan.confidence must be within [0.0, 1.0], got {self.confidence!r}.")
 
@@ -191,16 +202,34 @@ class RuleBasedValidTimeExtractor:
         return b is not None and a[0] < b[1] and b[0] < a[1]
 
     def _first_resolvable(
-        self, pattern: "re.Pattern[str]", content: str, ref_year: int
-    ) -> Tuple[Optional[int], Optional["re.Match[str]"]]:
+        self,
+        pattern: re.Pattern[str],
+        content: str,
+        ref_year: int,
+        exclude_span: Optional[Tuple[int, int]] = None,
+    ) -> Tuple[Optional[int], Optional[re.Match[str]]]:
         """The first match of ``pattern`` whose captured token actually resolves, skipping any
         earlier match that does not -- ``re.search`` alone stops at the first *syntactic* match,
         which is wrong when a trigger word's own object isn't a date (round-2 review, PR #101):
         "moved from New York to LA since 2022" has ``_SINCE`` match "from New" before "since 2022",
         and "New" resolves to nothing, so a plain ``.search()`` never reaches the real date later in
-        the sentence. Returns ``(None, None)`` when no match resolves, same as no match at all."""
+        the sentence. Returns ``(None, None)`` when no match resolves, same as no match at all.
+
+        Shared across all four patterns (``_UNTIL``, ``_ISO``, ``_SINCE``, ``_IN_YEAR``) since
+        round 3 -- ``_ISO`` and ``_IN_YEAR`` only had one capture group before, so this reads a
+        year token from the second one **only when the pattern has one** (``match.re.groups``),
+        rather than requiring every caller's pattern to declare a group it does not use.
+
+        ``exclude_span`` skips any match overlapping it -- used to keep a standalone ``_ISO`` match
+        already consumed by an ``_UNTIL`` clause from also being read as an unrelated start date
+        (round 1 finding #4), now applied match-by-match rather than only to the first one (round 3
+        finding #1: a *second*, unconsumed ISO date elsewhere in the content used to be silently
+        dropped when the first one happened to overlap the until-span)."""
         for match in pattern.finditer(content):
-            resolved = self._resolve(match.group(1), match.group(2), ref_year)
+            if exclude_span is not None and self._overlaps(match.span(), exclude_span):
+                continue
+            year_token = match.group(2) if match.re.groups >= 2 else None
+            resolved = self._resolve(match.group(1), year_token, ref_year)
             if resolved is not None:
                 return resolved, match
         return None, None
@@ -213,30 +242,26 @@ class RuleBasedValidTimeExtractor:
         t_invalid: Optional[int] = None
         matched: Optional[str] = None
 
-        # "until"/"till"/etc. resolved first, and its own match span recorded, so a standalone ISO
-        # check below can tell an end-date consumed here apart from an unrelated start-date
-        # elsewhere in the same sentence ("valid until 2024-09-01" must not also read as a
-        # standalone ISO start date -- that was finding #4 on PR #101 round 1). The span used for
-        # that check is the *resolved* until-match's, not necessarily the first syntactic one.
+        # "until"/"till"/etc. resolved first, and its own match span recorded, so the ISO check
+        # below can tell an end-date consumed here apart from an unrelated start-date elsewhere in
+        # the same sentence ("valid until 2024-09-01" must not also read as a standalone ISO start
+        # date -- round 1 finding #4). The span used for that check is the *resolved* until-match's,
+        # not necessarily the first syntactic one.
         t_invalid, m_until = self._first_resolvable(self._UNTIL, content, ref_year)
         until_span = m_until.span() if m_until else None
 
-        m_iso = self._ISO.search(content)
-        if m_iso and not self._overlaps(m_iso.span(), until_span):
-            t_valid = self._resolve(m_iso.group(1), None, ref_year)
-            if t_valid is not None:
-                matched = m_iso.group(0)
+        t_valid, m_iso = self._first_resolvable(self._ISO, content, ref_year, exclude_span=until_span)
+        if m_iso is not None:
+            matched = m_iso.group(0)
 
         if t_valid is None:
             t_valid, m_since = self._first_resolvable(self._SINCE, content, ref_year)
             if m_since is not None:
                 matched = m_since.group(0)
 
-        m_in = self._IN_YEAR.search(content)
-        if m_in and t_valid is None:
-            resolved = self._resolve(m_in.group(1), None, ref_year)
-            if resolved is not None:
-                t_valid = resolved
+        if t_valid is None:
+            t_valid, m_in = self._first_resolvable(self._IN_YEAR, content, ref_year)
+            if m_in is not None:
                 matched = m_in.group(0)
 
         # Explicit whenever content stated *either* bound, not only the start -- content like
@@ -245,6 +270,14 @@ class RuleBasedValidTimeExtractor:
         # branching on `span.source` as "nothing was extracted here".
         explicit = t_valid is not None or t_invalid is not None
         resolved_t_valid: int = t_valid if t_valid is not None else ingest
+        # `matched` only ever gets set from a start-date match above, so an until-only extraction
+        # (no start date stated at all) reached `source="explicit"` via `t_invalid` alone but
+        # carried `matched_text=None` -- a real match existed and was simply never recorded
+        # (round-3 review, PR #101 finding #2). Falls back to the until-match's own text only when
+        # nothing else already claimed `matched`, so a sentence with both a start and an end date
+        # keeps reporting the start's text, matching every existing case.
+        if matched is None and m_until is not None:
+            matched = m_until.group(0)
 
         # Half-open valid time (t_valid <= at < t_invalid, per MemoryRecord's own guard) admits no
         # instant when inverted or degenerate -- reached not only through a self-contradictory

@@ -211,14 +211,22 @@ def test_a_relation_edge_carries_the_valid_time_the_extractor_returns(is_async):
     assert fact.record.t_invalid == 1717200000
 
 
-def test_the_extractor_is_called_once_per_episode_content_not_once_per_relation():
+@pytest.mark.parametrize("is_async", [False, True])
+def test_the_extractor_is_called_once_per_episode_content_not_once_per_relation(is_async):
     """Two relations from one episode share one span -- they were dated by the same sentence, so
-    extracting per-relation would let two edges from one episode disagree about validity."""
+    extracting per-relation would let two edges from one episode disagree about validity.
+
+    Parametrized on ``is_async`` (round-3 review, PR #101): every other test in this file covering
+    both halves does; this one didn't, leaving the async "once per episode" invariant untested even
+    though ``StubValidTimeExtractor.aextract`` delegates to ``extract`` and records the same
+    ``seen`` list."""
     vt = StubValidTimeExtractor(ValidTimeSpan(t_valid=100, source="ingest_fallback"))
     extractor = StubExtractor(default=[relation(relation="works_at"), relation(relation="reports_to")])
     pipe, graph = pipeline(extractor=extractor, valid_time_extractor=vt)
+    episodes = [episode("Ada works at and reports to Acme", episode_id="e1")]
 
-    pipe.run(ACME, [episode("Ada works at and reports to Acme", episode_id="e1")])
+    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
+    asyncio.run(call) if is_async else call
 
     assert vt.seen == [("Ada works at and reports to Acme", None)]
     assert len(graph.facts) == 2

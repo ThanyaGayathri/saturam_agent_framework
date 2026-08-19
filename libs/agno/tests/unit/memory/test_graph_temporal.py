@@ -5,6 +5,7 @@ and falls back to an ingest time (not left ``None``) where it is not. ``relation
 pipeline wiring and the point-in-time read composed on top; this file is the extractor alone.
 """
 
+import dataclasses
 from datetime import datetime, timezone
 
 import pytest
@@ -12,7 +13,7 @@ import pytest
 from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor, ValidTimeSpan
 
 
-def epoch(year, month, day=1):
+def epoch(year: int, month: int, day: int = 1) -> int:
     return int(datetime(year, month, day, tzinfo=timezone.utc).timestamp())
 
 
@@ -137,10 +138,11 @@ def test_extract_returns_a_valid_time_span():
 def test_the_span_is_frozen():
     span = RuleBasedValidTimeExtractor().extract("Moved in 2019", ingest_time=epoch(2024, 1, 1))
 
-    # dataclasses.FrozenInstanceError, a subclass of AttributeError -- asserting the narrow class
-    # (round-2 review, PR #101) so a removed `frozen=True` fails this test rather than passing on
-    # some unrelated Exception a broken frozen guard happens to also raise.
-    with pytest.raises(AttributeError):
+    # The narrow class, not its `AttributeError` base (round-3 review, PR #101 -- round 2's
+    # comment claimed "the narrow class" while the assertion still used the wide one, which this
+    # closes): a removed `frozen=True` should fail this test even if the attribute happened to
+    # raise some other `AttributeError` for an unrelated reason.
+    with pytest.raises(dataclasses.FrozenInstanceError):
         span.t_valid = 0
 
 
@@ -304,3 +306,67 @@ def test_confidence_outside_the_unit_interval_is_refused(confidence):
 @pytest.mark.parametrize("confidence", [0.0, 1.0, 0.5])
 def test_confidence_at_or_inside_the_unit_interval_boundaries_is_accepted(confidence):
     ValidTimeSpan(t_valid=epoch(2024, 1, 1), confidence=confidence)
+
+
+def test_t_valid_none_is_refused():
+    """Round-3 finding #3: the protocol's own docstring promises ``t_valid`` is never ``None``;
+    nothing enforced that promise at the boundary before this, so a misbehaving custom
+    :class:`~egpt.memory.graph.temporal.ValidTimeExtractor` could construct a span that violates
+    it silently and pass it straight into a ``MemoryRecord`` write."""
+    with pytest.raises(ValueError):
+        ValidTimeSpan(t_valid=None)  # type: ignore[arg-type]
+
+
+def test_confidence_omitted_defaults_to_the_fallback_floor_not_zero():
+    """Round-3 finding #6: a span built without naming ``confidence`` -- most concretely a test
+    stub -- must not land below every real fallback span's confidence, or a consumer branching on
+    ``confidence < _FALLBACK_CONFIDENCE`` sees a stub-constructed span as *worse than* a genuine
+    fallback rather than equal to one."""
+    span = ValidTimeSpan(t_valid=epoch(2024, 1, 1))
+
+    assert span.confidence == pytest.approx(0.3)
+
+
+# ---------------------------------------------------------------------------
+# Hardening (round-3 review, PR #101)
+# ---------------------------------------------------------------------------
+
+
+def test_an_iso_start_date_after_an_unrelated_until_clauses_own_iso_date_is_not_dropped():
+    """Round-3 finding #1 (Critical): the round-1 fix for finding #4 skipped an ISO match
+    overlapping the until-clause's span, but only checked the *first* ``_ISO`` match -- when that
+    first match happened to be the one consumed by "until", a second, unconsumed ISO date later in
+    the content was silently never reached. "Contract valid until 2024-09-01, effective
+    2023-04-10" must still read 2023-04-10 as the start date, not fall back to ingest time."""
+    span = RuleBasedValidTimeExtractor().extract(
+        "Contract valid until 2024-09-01, effective 2023-04-10", ingest_time=epoch(2024, 1, 1)
+    )
+
+    assert span.t_valid == epoch(2023, 4, 10)
+    assert span.t_invalid == epoch(2024, 9, 1)
+
+
+def test_an_in_year_match_that_fails_to_resolve_does_not_block_a_later_one():
+    """Round-3 finding #4: ``_IN_YEAR`` had the same first-match-only bug as ``_ISO`` (finding #1)
+    and ``_SINCE``/``_UNTIL`` (round 2 finding #3), just never independently reproduced. "in 0000"
+    resolves to nothing (year 0 is out of ``datetime``'s range); "in 2019" later in the same
+    content must still be reached."""
+    span = RuleBasedValidTimeExtractor().extract("Valid in 0000, started in 2019", ingest_time=epoch(2024, 1, 1))
+
+    assert span.t_valid == epoch(2019, 1)
+    assert span.source == "explicit"
+
+
+def test_an_until_only_extraction_carries_the_until_clauses_matched_text():
+    """Round-3 finding #2: an until-only extraction (no start date stated) reached
+    ``source="explicit"`` via ``t_invalid`` alone, but ``matched_text`` stayed ``None`` -- the
+    match that produced ``t_invalid`` was never recorded anywhere. A sentence with *both* a start
+    and an end date must keep reporting the start's text (asserted by the second case below), so
+    the fix is a fallback onto the until-match's text, not a replacement of the existing rule."""
+    until_only = RuleBasedValidTimeExtractor().extract("Contract valid until Sep 2024", ingest_time=epoch(2024, 1, 1))
+    both = RuleBasedValidTimeExtractor().extract(
+        "Relationship valid from Jun until Sep", ingest_time=epoch(2024, 7, 15)
+    )
+
+    assert until_only.matched_text == "until Sep 2024"
+    assert both.matched_text == "from Jun"
