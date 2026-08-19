@@ -469,3 +469,29 @@ merge had just deleted -- both runs start from the same two-node state and print
 **Renumbered from `19_entity_resolution_graph.py` to `20_`**: `feat/SM-G3` landed `19_` on `main`
 while this branch was still in review. Per this file's own convention, whoever merges second
 renumbers.
+
+---
+
+### 21_episode_importance.py
+
+**Status:** PARTIAL
+
+**Description:** Demonstrates `ImportanceScorer` (SM-E5): scores two contrasting episodes with
+`ascore()`, applies the result to each with `dataclasses.replace(episode, importance=score)`, and
+shows the scored value reaching a reader through the existing `EPISODE_KEYS` floor.
+
+**Result:** Verified structurally with a mocked `Model.aresponse` (no network) -- the script runs
+end-to-end, `dataclasses.replace` applies the scored value, `significant.importance >
+mundane.importance` holds, and `episode_to_record(...).metadata["importance"]` carries it through.
+**Not run against a real model**: no `OPENAI_API_KEY` was available in the environment that wrote
+this cookbook. `ImportanceScorer` itself is covered against a mocked model by
+`libs/agno/tests/unit/memory/test_episodic_importance.py`; this file is the only thing left
+unverified against a live provider. Re-run with a real key before relying on this entry as a full
+PASS.
+
+**Requires:** `OPENAI_API_KEY` (or your configured provider's credentials). No database.
+
+**Renumbered from `15_` to `19_` to `20_` to `21_` across three merges**: `feat/SM-V4`,
+`feat/SM-V2`, `feat/SM-G2` and `feat/SM-G6` claimed `15_`-`18_` on `main` between this branch's
+first two merges of `main`; then `feat/SM-G3` claimed `19_`; then `feat/SM-G8` claimed `20_`. Per
+this file's own convention, whoever merges second renumbers -- four times, this time.

@@ -8,9 +8,11 @@ from egpt.memory.config import (
     register_provider,
     registered_providers,
 )
-from egpt.memory.episodic.decay import (
+from egpt.memory.episodic import (
     DEFAULT_BASE_HALF_LIFE_S,
     DEFAULT_IMP_FACTOR,
+    ImportanceScore,
+    ImportanceScorer,
     episode_decay_score,
     half_life_s,
     recency_decay,
@@ -189,6 +191,9 @@ __all__ = [
     "half_life_s",
     "recency_decay",
     "reinforce",
+    # Episode salience scoring (SM-E5)
+    "ImportanceScore",
+    "ImportanceScorer",
     # Write-back capture (SM-E2)
     "ROLE_KEY",
     "TOOL_CALL_ERROR_KEY",
