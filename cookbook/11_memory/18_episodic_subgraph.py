@@ -1,4 +1,4 @@
-"""Raw episodes as graph nodes, linked to the entities they mention (SM-G6 #104).
+"""Raw episodes as graph nodes, linked to the entities they mention (SM-G6 #104, SM-E10 #117).
 
 Like `10_graph_substrate_neo4j.py`, this talks to a real Neo4j:
 
@@ -20,7 +20,10 @@ Two things this deliberately does not do, because they belong to other tickets:
 import os
 
 from egpt.memory.config import MemoryProviderConfig, build_memory_provider
+from egpt.memory.episodic.link import episode_link_drift, resolve_episode_link
 from egpt.memory.graph.episodic import entity_node_id_for
+from egpt.memory.schemas.episodic import episode_from_event
+from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, Scope
 from egpt.providers.model_provider import ProviderMode
 
@@ -125,6 +128,26 @@ print(f"  ada's berlin: {entity_node_id_for(ACME_ADA, 'berlin')}")
 print(f"  bob's berlin: {entity_node_id_for(ACME_BOB, 'berlin')}")
 print(
     f"  bob's episodes about berlin: {[r.id for r in graph.recall_episodes(ACME_BOB, entities=['berlin'])]}"
+)
+
+print()
+print("--- resolving the vector-side link back against the graph (SM-E10 #117) ---")
+# `episode_from_event` is the same projection `write` uses internally to build the vector row --
+# the derived `graph_node_id` / `entity_ids` it carries are what `resolve_episode_link` checks the
+# graph still agrees with.
+episode = episode_from_event(
+    MemoryEvent(
+        content="ada moved to berlin and joined the platform team",
+        scope=ACME_ADA,
+        id="ep-ada-march",
+        tier=MemoryTier.EPISODIC,
+        entities=["ada", "berlin", "platform team"],
+        occurred_at=MARCH,
+    )
+)
+link = resolve_episode_link(ACME_ADA, episode, graph)
+print(
+    f"  exists={link.exists}  t_valid={link.t_valid}  drift={episode_link_drift(episode, link)}"
 )
 
 print()
