@@ -89,8 +89,9 @@ def graph_node_id_for(scope: Scope, episode_id: str) -> str:
     Derived, never free-form: the vector row and the graph node cannot disagree about which node an
     episode is if neither side gets to choose. Whether the node *exists* is a different question --
     a deployment with no graph substrate has none, and SM-R12 section 9 makes cross-tier references
-    advisory, so a reader tolerates a missing target. Keeping the two views consistent over time is
-    SM-E10's (#117).
+    advisory, so a reader tolerates a missing target. Resolving this id against the graph and
+    checking the two views still agree is ``egpt.memory.episodic.link.resolve_episode_link``
+    (SM-E10 #117).
     """
     if not isinstance(episode_id, str) or not episode_id.strip():
         raise MemoryOperationError(

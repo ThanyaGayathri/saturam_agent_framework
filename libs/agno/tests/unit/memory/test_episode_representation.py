@@ -406,9 +406,11 @@ def test_no_boundary_metadata_is_assigned_here():
 
 
 def test_the_graph_link_is_derived_and_not_resolved():
-    """Pins SM-E10 (#117). Both links are *derived*: they address the nodes the graph substrate
-    writes, and nothing here writes one, reads one back, or propagates valid time to it. Keeping the
-    two views in step over time is SM-E10's -- delete this test when it lands.
+    """Both links are *derived*: they address the nodes the graph substrate writes, and this
+    module -- a pure projection, per its own module docstring -- never writes one, reads one back,
+    or propagates valid time to it. Reading the derived link back against a live substrate is
+    ``egpt.memory.episodic.link.resolve_episode_link`` (SM-E10 #117); that division is what this
+    test pins, not merely the current absence of a resolve.
 
     SM-G6 (#104) filled the ``entity_ids`` half, which is why it is asserted rather than empty."""
     episode = episode_from_event(an_event(entities=["Berlin", "Ada"]))
