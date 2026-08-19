@@ -849,6 +849,21 @@ def test_the_first_sighting_keeps_created_at_while_updated_at_moves(graph):
     assert second["description"] == "later", "everything outside the two unioned lists is last-write"
 
 
+def test_a_description_only_re_upsert_never_erases_an_existing_embedding(graph):
+    """Review finding on PR #96 (SM-G8): a caller re-upserting an entity to update one field --
+    here, ``description``, with ``embedding`` left at its default ``None`` -- must not erase the
+    vector a previous write already stored. ``SET n += row.props`` deletes a property whose row
+    value is ``null``, so ``_entity_rows`` has to omit the key rather than pass it through.
+    """
+    graph.upsert_entities(ACME, [entity_write(embedding=[0.1, 0.2])])
+
+    graph.upsert_entities(ACME, [entity_write(description="later")])
+
+    props = read_entity(graph, "acme corp")
+    assert props["embedding"] == [0.1, 0.2]
+    assert props["description"] == "later"
+
+
 def test_created_at_is_set_when_a_triple_endpoint_created_the_node_first(graph):
     """Review finding on PR #89: ``upsert_facts`` MERGEs an entity's endpoint node with no
     ``created_at`` at all. The literal ``ON CREATE SET n.created_at = row.created_at`` this method

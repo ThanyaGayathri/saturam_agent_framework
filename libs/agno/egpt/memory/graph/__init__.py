@@ -1,9 +1,9 @@
 """The temporal graph's shared shapes and write-side pipelines (SM-G group).
 
-Episode-to-entity mention links are SM-G6 (#104); entity extraction is SM-G2 (#100);
-relation/fact edges are SM-G3 (#101), the semantic subgraph SM-G7 (#105), and entity resolution
-SM-G8 (#106). The graph *backend* is an integration (``egpt/integrations/memory/graph/``);
-nothing here imports one.
+Episode-to-entity mention links are SM-G6 (#104); entity extraction is SM-G2 (#100); entity
+resolution is SM-G8 (#106); relation/fact edges are SM-G3 (#101) and the semantic subgraph SM-G7
+(#105). The graph *backend* is an integration (``egpt/integrations/memory/graph/``); nothing here
+imports one.
 """
 
 from egpt.memory.graph.entities import (
@@ -41,8 +41,19 @@ from egpt.memory.graph.relations import (
     relation_details,
     relation_edge_id_for,
 )
+from egpt.memory.graph.resolve import (
+    DEFAULT_MATCH_LIMIT,
+    DEFAULT_MIN_SCORE,
+    RESOLUTION_KEYS,
+    RESOLVER_ID,
+    EntityResolutionPipeline,
+    EntityResolutionReport,
+    resolution_details,
+)
 
 __all__ = [
+    "DEFAULT_MATCH_LIMIT",
+    "DEFAULT_MIN_SCORE",
     "ENTITY_KEYS",
     "EXTRACTOR_ID",
     "RELATION_EXTRACTOR_ID",
@@ -50,6 +61,8 @@ __all__ = [
     "EntityExtractionPipeline",
     "EntityExtractionReport",
     "EntityExtractor",
+    "EntityResolutionPipeline",
+    "EntityResolutionReport",
     "ExtractedEntities",
     "ExtractedEntity",
     "ExtractedRelation",
@@ -57,6 +70,8 @@ __all__ = [
     "LLMEntityExtractor",
     "LLMRelationExtractor",
     "MENTIONS",
+    "RESOLUTION_KEYS",
+    "RESOLVER_ID",
     "RelationExtractionPipeline",
     "RelationExtractionReport",
     "RelationExtractor",
@@ -72,4 +87,5 @@ __all__ = [
     "require_recall_filters",
     "require_recall_limit",
     "require_time_window",
+    "resolution_details",
 ]

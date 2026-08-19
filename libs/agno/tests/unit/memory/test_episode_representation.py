@@ -375,10 +375,17 @@ def test_valid_time_is_when_it_happened_not_when_it_was_recorded():
 # -- pinned limitations ------------------------------------------------------------------------
 
 
-def test_importance_is_not_scored_here():
-    """Pins SM-E5 (#112). Salience is LLM-assigned on the async lane; a value invented at build
-    time would rank episodes against each other on nothing. Delete this test when SM-E5 lands."""
-    assert episode_from_event(an_event()).importance == 0.5
+def test_importance_stays_at_default_until_scored():
+    """SM-E5 (#112) scores on the async lane, not inside this pure-construction function: a value
+    invented at build time would rank episodes against each other on nothing. A caller applies a
+    scored value afterwards with ``dataclasses.replace``, the same idiom every other episode field
+    already uses post-construction (see ``a_full_episode``)."""
+    episode = episode_from_event(an_event())
+
+    assert episode.importance == 0.5
+
+    scored = replace(episode, importance=0.9)
+    assert episode_to_record(scored).metadata["importance"] == 0.9
 
 
 def test_role_is_not_preserved_here():

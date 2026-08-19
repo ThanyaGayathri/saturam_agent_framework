@@ -32,6 +32,8 @@ from egpt.memory.provider import MemoryProvider
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     SCOPE_SLOTS,
+    EntityMerge,
+    EntityWrite,
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
@@ -72,7 +74,7 @@ def cypher_module() -> Any:
 #: How many public builders in ``cypher`` take a scope. Exact rather than a floor: the point of
 #: the discovery below is that a builder added later is covered, and a floor would equally pass
 #: when one is removed or renamed out of the sweep.
-SCOPE_TAKING_BUILDERS = 14
+SCOPE_TAKING_BUILDERS = 18
 
 
 def build(config_name: str) -> MemoryProvider:
@@ -464,6 +466,15 @@ def test_no_substrate_double_answers_an_unscoped_call(double, shape):
         "upsert_episodes": ([],),
         "upsert_facts": ([],),
         "upsert_entities": ([],),
+        "match_entities": (EntityWrite(name="Acme", entity_type="company", scope=ACME, embedding=[0.1, 0.2]),),
+        "merge_entities": (
+            [
+                EntityMerge(
+                    canonical=EntityWrite(name="Acme", entity_type="company", scope=ACME),
+                    duplicate_names=["Acme Corp"],
+                )
+            ],
+        ),
         "traverse": (query,),
         # Filtered, because an unfiltered recall is refused for being an enumeration -- and a
         # refusal for the wrong reason would let an unscoped call pass this test on the wrong error.

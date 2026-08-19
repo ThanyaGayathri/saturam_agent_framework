@@ -39,6 +39,7 @@ __all__ = [
     "ConsolidationReport",
     "entity_extraction_complete",
     "entity_extraction_ran",
+    "EntityMerge",
     "EntityWrite",
     "escape_key_slot",
     "FactWrite",
@@ -708,6 +709,61 @@ class EntityWrite:
         similarity can read, surfacing at SM-G8's (#106) match rather than at this write.
         """
         return replace(self, embedding=list(vector), embedding_version=version)
+
+
+@dataclass
+class EntityMerge:
+    """One resolution decision, as :meth:`GraphSubstrate.merge_entities` takes it (SM-G8 #106).
+
+    ``canonical`` is the surviving node's write -- name, type and the fields entity resolution
+    folded together (aliases, ``source_episode_ids``). It is written through the same union rule
+    :meth:`GraphSubstrate.upsert_entities` already uses, so a canonical name that happens to match
+    an existing node merges into it rather than overwriting it.
+
+    ``duplicate_names`` are the *other* surface forms being folded into ``canonical`` -- **not**
+    ``canonical.aliases``, which records what a merge already decided; this is the instruction to
+    decide it. Every edge into a duplicate node (``MENTIONS`` today; a relation edge once SM-G3
+    #101 ships) is re-pointed at the canonical node, and the duplicate node is then removed -- so a
+    name appearing here must never also be ``canonical.name``, or the canonical node would be asked
+    to absorb itself.
+    """
+
+    canonical: EntityWrite
+    duplicate_names: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.canonical, EntityWrite):
+            raise MemoryOperationError(
+                f"EntityMerge.canonical must be an EntityWrite; the merge writes it through the "
+                f"same union rule as upsert_entities. Got {self.canonical!r}.",
+                field_name="canonical",
+            )
+        if not self.duplicate_names:
+            raise MemoryOperationError(
+                "EntityMerge.duplicate_names is empty. A merge with nothing to fold in is not a "
+                "merge -- omit it, or the canonical node is asked to absorb itself for nothing.",
+                field_name="duplicate_names",
+            )
+        cleaned: List[str] = []
+        seen = set()
+        for name in self.duplicate_names:
+            if not isinstance(name, str) or not name.strip():
+                raise MemoryOperationError(
+                    f"EntityMerge.duplicate_names contains {name!r}, which is not a non-empty "
+                    "string. A blank name addresses no node.",
+                    field_name="duplicate_names",
+                )
+            stripped = name.strip()
+            if stripped == self.canonical.name:
+                raise MemoryOperationError(
+                    f"EntityMerge.duplicate_names names {stripped!r}, which is also "
+                    "canonical.name -- the canonical node cannot be a duplicate of itself.",
+                    field_name="duplicate_names",
+                )
+            if stripped not in seen:
+                seen.add(stripped)
+                cleaned.append(stripped)
+        self.duplicate_names = cleaned
 
 
 @dataclass
