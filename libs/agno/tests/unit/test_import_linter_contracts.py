@@ -121,6 +121,13 @@ _NEW_INTEGRATIONS_REFERENCE_SERVICES = {
     # the same debt as the four rows above rather than a new one.
     ("egpt.integrations.memory.graph.neo4j.cypher", "egpt.memory.graph.episodic"),
     ("egpt.integrations.memory.graph.neo4j.neo4j", "egpt.memory.graph.episodic"),
+    # SM-G7 (aicoe-tracker#105), the semantic subgraph: the same decision a third time, one
+    # module over. `egpt.memory.graph.semantic` holds `require_fact_filters` -- the refusal rules
+    # a fact-edge recall has to satisfy -- for the identical reason `episodic` holds its own set
+    # two rows up: one copy, shared by every graph backend, rather than a rule reimplemented per
+    # backend and drifting. `neo4j.py` itself needs no direct edge; `cypher.py`'s
+    # `recall_facts_statement` is the only caller.
+    ("egpt.integrations.memory.graph.neo4j.cypher", "egpt.memory.graph.semantic"),
     # SM-V2 (aicoe-tracker#96) adds two more edges out of the *same* module, for the same reason
     # the four above exist, and they are listed rather than routed away because the alternative is
     # worse in both cases:
