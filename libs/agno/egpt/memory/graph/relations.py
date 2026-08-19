@@ -29,9 +29,10 @@ expose (SM-G7 #105 / SM-G9 #107) and is not this ticket's to add.
 **Bi-temporal valid-time (SM-G4 #102).** Every candidate's ``t_valid``/``t_invalid`` come from
 :class:`~egpt.memory.graph.temporal.ValidTimeExtractor`, run once per episode against its content
 and reused across every relation that episode produced (they share the content they were dated
-from). The four-timestamp envelope and its point-in-time query semantics are not this module's --
+from). The four-timestamp envelope and its point-in-time query semantics are not this module's;
 SM-G1 (#99) built both generically on :class:`~egpt.memory.types.MemoryRecord` and the Neo4j
-substrate; this module's job is only to stop leaving ``t_valid`` unset on the records it builds.
+substrate, which also stamps ``created_at``/``expired_at`` (the transaction axis) at write time --
+this module's job is only ``t_valid``/``t_invalid`` (the valid-time axis), left unset before it.
 
 The prompt is the seed's, imported from ``learn/stores/entity_memory.py`` -- the same one SM-G2
 reuses -- because it already documents relationships as part of what one extraction pass reads for
@@ -304,6 +305,14 @@ class RelationExtractionPipeline:
         valid_time_extractor = (
             valid_time_extractor if valid_time_extractor is not None else RuleBasedValidTimeExtractor()
         )
+        # Method-presence, not `isinstance(candidate, <Protocol>)`, deliberately: `GraphSubstrate`,
+        # `RelationExtractor` and `ValidTimeExtractor` are all `@runtime_checkable`, but that only
+        # verifies method *names* are present, not signatures -- `RelationExtractor` and
+        # `ValidTimeExtractor` both declare `extract`/`aextract`, so an `isinstance` check against
+        # either would pass for an instance of the other exactly as readily as this check does
+        # (round-2 review, PR #101). Checking all three collaborators the same way keeps the loop's
+        # symmetry meaningful; switching only one entry to `isinstance` would buy no additional
+        # protection while making that entry's validation inconsistent with its two siblings here.
         for name, candidate, verbs in (
             ("graph", graph, ("upsert_facts", "aupsert_facts")),
             ("extractor", extractor, ("extract", "aextract")),

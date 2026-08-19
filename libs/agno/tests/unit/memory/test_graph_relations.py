@@ -197,7 +197,9 @@ def test_the_default_valid_time_extractor_is_rule_based():
 def test_a_relation_edge_carries_the_valid_time_the_extractor_returns(is_async):
     """The criterion itself: what the extractor reports lands on the written edge's
     ``t_valid``/``t_invalid``, not left ``None`` the way every edge was before this ticket."""
-    vt = StubValidTimeExtractor(ValidTimeSpan(t_valid=1704067200, t_invalid=1717200000, source="explicit"))
+    vt = StubValidTimeExtractor(
+        ValidTimeSpan(t_valid=1704067200, t_invalid=1717200000, confidence=0.9, source="explicit")
+    )
     pipe, graph = pipeline(valid_time_extractor=vt)
     episodes = [episode("Ada works at Acme since Jan 2024")]
 
@@ -270,11 +272,16 @@ def test_the_rule_based_extractor_reads_explicit_dates_out_of_episode_content(
 @pytest.mark.parametrize(
     "at,visible", [(1704067100, False), (1704067200, True), (1717199999, True), (1717200000, False)]
 )
-def test_true_at_t_returns_the_correct_edge_state_for_an_extracted_relation(at, visible):
+@pytest.mark.parametrize("is_async", [False, True])
+def test_true_at_t_returns_the_correct_edge_state_for_an_extracted_relation(is_async, at, visible):
     """AC 3, end-to-end: extraction through the consolidation lane, then a point-in-time read over
     the fused set. ``co_located``'s ``as_of`` filter and the Neo4j double's bi-temporal envelope
     predate this ticket (SM-G1 #99) -- this proves they compose correctly with what this ticket
-    actually adds, the extracted ``t_valid``/``t_invalid`` on a relation edge."""
+    actually adds, the extracted ``t_valid``/``t_invalid`` on a relation edge.
+
+    Parametrized on ``is_async`` (round-2 review, PR #101): the sync-only version left the full
+    ``arun`` + ``aconsolidate`` + ``aread`` chain unexercised even though the pipeline's own
+    ``is_async`` parametrization elsewhere covers ``arun`` in isolation."""
     extractor = StubExtractor(default=[relation()])
     graph = FakeGraph()
     pipe = RelationExtractionPipeline(
@@ -286,11 +293,21 @@ def test_true_at_t_returns_the_correct_edge_state_for_an_extracted_relation(at, 
         config=MemoryProviderConfig(provider="co_located"),
         relation_pipeline=pipe,
     )
-    memory.write(ACME, [MemoryEvent(content="Ada works at Acme from Jan 2024 until Jun 2024", scope=ACME)])
+    events = [MemoryEvent(content="Ada works at Acme from Jan 2024 until Jun 2024", scope=ACME)]
 
-    memory.consolidate(ACME)
+    if is_async:
 
-    found = memory.read(ACME, MemoryQuery(text="ada acme corp", as_of=at)).records
+        async def run():
+            await memory.awrite(ACME, events)
+            await memory.aconsolidate(ACME)
+            return (await memory.aread(ACME, MemoryQuery(text="ada acme corp", as_of=at))).records
+
+        found = asyncio.run(run())
+    else:
+        memory.write(ACME, events)
+        memory.consolidate(ACME)
+        found = memory.read(ACME, MemoryQuery(text="ada acme corp", as_of=at)).records
+
     assert bool(found) is visible
 
 

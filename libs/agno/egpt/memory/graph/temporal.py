@@ -32,6 +32,12 @@ __all__ = [
     "ValidTimeSpan",
 ]
 
+#: Confidence assigned when at least one bound came from content vs. neither did. Named rather than
+#: inlined at both :meth:`RuleBasedValidTimeExtractor.extract` return points (round-2 review,
+#: PR #101) -- keeps their 3x relationship visible and makes future tuning a single-site change.
+_EXPLICIT_CONFIDENCE = 0.9
+_FALLBACK_CONFIDENCE = 0.3
+
 _MONTHS = {
     "jan": 1,
     "january": 1,
@@ -66,11 +72,11 @@ class ValidTimeSpan:
     :class:`~egpt.memory.types.MemoryRecord` already carries -- a caller assigns ``t_valid``/
     ``t_invalid`` straight from this without renaming anything.
 
-    ``source`` names how the span was derived: ``"explicit"`` when the content stated a date,
-    ``"ingest_fallback"`` when it did not and ``t_valid`` is the caller-supplied ingest time
-    instead (spec section 5's "extracted valid-time, else ingest time"). Never ``None``: a span
-    with nothing to report is still a decision (fell back), worth keeping on the row it produced
-    rather than losing at the call site.
+    ``source`` names how the span was derived: ``"explicit"`` when the content stated **either**
+    bound, ``"ingest_fallback"`` when it stated neither and ``t_valid`` is the caller-supplied
+    ingest time instead (spec section 5's "extracted valid-time, else ingest time"). Never
+    ``None``: a span with nothing to report is still a decision (fell back), worth keeping on the
+    row it produced rather than losing at the call site.
 
     Frozen: one span is shared across every relation extracted from one episode (see
     :class:`ValidTimeExtractor`'s docstring), and a caller mutating its copy would silently affect
@@ -82,6 +88,10 @@ class ValidTimeSpan:
     confidence: float = 0.0
     source: Literal["explicit", "ingest_fallback"] = "ingest_fallback"
     matched_text: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"ValidTimeSpan.confidence must be within [0.0, 1.0], got {self.confidence!r}.")
 
 
 @runtime_checkable
@@ -112,15 +122,25 @@ class RuleBasedValidTimeExtractor:
     """The default :class:`ValidTimeExtractor`: regex + month-name lookup over explicit temporal
     cues, deterministic and offline. Ported from the SM-R10 spec prototype
     (``benchmarks/memory_bitemporal/extraction.py``, measured 6/6 on its committed cases), then
-    hardened past three defects that prototype's narrower corpus never exercised (round-1 review on
-    PR #101): an out-of-range calendar date crashing instead of falling through, a bare "until"
-    clause with no matching start losing its bound in the fallback return, and an ISO date inside
-    an "until" clause being mis-scoped as the start rather than the end.
+    hardened past defects that prototype's narrower corpus never exercised across two review
+    rounds on PR #101: an out-of-range calendar date crashing instead of falling through, a bare
+    "until" clause with no matching start losing its bound in the fallback return, an ISO date
+    inside an "until" clause being mis-scoped as the start rather than the end (round 1); a span
+    with only an end date mislabelled as a fallback rather than explicit, and an unresolvable
+    first trigger-word match (e.g. "from New" in "...from New York... since 2022") blocking a
+    resolvable one later in the same sentence (round 2).
 
     Handles ``since <Month|Year|ISO date>``, ``from ... until ...``, ``in <Year>``, and standalone
     ISO dates (``YYYY-MM-DD``). A bare month with no year resolves against ``ingest_time``'s year,
     so "since Jan" means the most recent January relative to when the fact was recorded, not an
     absolute one.
+
+    **Bare-month resolution is not idempotent across re-extraction.** Re-running this extractor
+    over one archived episode's content at two different ``ingest_time``\\ s can produce two
+    different ``t_valid`` values for a bare month with no year ("since Jan" resolved in 2024 vs.
+    resolved again in 2025) -- documented rather than silently relied on (round-2 review, PR #101);
+    whether that is the intended disambiguation for a *re*-extraction (vs. the first, live one,
+    where it is unambiguously correct) is a question for SM-R10 to confirm, not settled here.
 
     **Not exhaustive prose coverage.** Content phrased outside these four patterns falls back to
     ingest time rather than misparsing -- a deliberate simplification for a rule-based default, not
@@ -129,6 +149,10 @@ class RuleBasedValidTimeExtractor:
 
     _ISO_TOKEN = r"\d{4}-\d{2}-\d{2}"
     _ISO = re.compile(r"\b(" + _ISO_TOKEN + r")\b")
+    #: The same shape as ``_ISO_TOKEN``, anchored for :func:`re.fullmatch` on an already-isolated
+    #: token in :meth:`_resolve` -- a named constant rather than an inline literal there, so the
+    #: two patterns' shared ancestry is explicit instead of duplicated by hand.
+    _ISO_FULL = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
     _SINCE = re.compile(
         r"\b(?:since|from|as of|starting)\s+([A-Za-z]+\b|" + _ISO_TOKEN + r"|\d{4}\b)(?:\s+(\d{4})\b)?", re.I
     )
@@ -140,15 +164,14 @@ class RuleBasedValidTimeExtractor:
     )
     _IN_YEAR = re.compile(r"\bin\s+(\d{4})\b", re.I)
 
-    @staticmethod
-    def _resolve(token: str, year_token: Optional[str], ref_year: int) -> Optional[int]:
+    def _resolve(self, token: str, year_token: Optional[str], ref_year: int) -> Optional[int]:
         """A month name, a bare year, or an ISO date -> epoch seconds, or ``None`` for a token this
         extractor does not recognise **or** one that names a calendar date that does not exist
         (e.g. ``2024-13-45``) -- ``None`` either way, so a caller cannot tell "unrecognised" from
         "invalid" and does not need to: both mean "not a usable cue", handled identically by
         :meth:`extract` falling through to the next pattern or the ingest-time fallback."""
         token = token.strip().lower()
-        iso_match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", token)
+        iso_match = self._ISO_FULL.fullmatch(token)
         try:
             if iso_match:
                 return _epoch(*(int(group) for group in iso_match.groups()))
@@ -167,6 +190,21 @@ class RuleBasedValidTimeExtractor:
     def _overlaps(a: Tuple[int, int], b: Optional[Tuple[int, int]]) -> bool:
         return b is not None and a[0] < b[1] and b[0] < a[1]
 
+    def _first_resolvable(
+        self, pattern: "re.Pattern[str]", content: str, ref_year: int
+    ) -> Tuple[Optional[int], Optional["re.Match[str]"]]:
+        """The first match of ``pattern`` whose captured token actually resolves, skipping any
+        earlier match that does not -- ``re.search`` alone stops at the first *syntactic* match,
+        which is wrong when a trigger word's own object isn't a date (round-2 review, PR #101):
+        "moved from New York to LA since 2022" has ``_SINCE`` match "from New" before "since 2022",
+        and "New" resolves to nothing, so a plain ``.search()`` never reaches the real date later in
+        the sentence. Returns ``(None, None)`` when no match resolves, same as no match at all."""
+        for match in pattern.finditer(content):
+            resolved = self._resolve(match.group(1), match.group(2), ref_year)
+            if resolved is not None:
+                return resolved, match
+        return None, None
+
     def extract(self, content: str, ingest_time: Optional[int] = None) -> ValidTimeSpan:
         ingest = now_epoch_s() if ingest_time is None else ingest_time
         ref_year = datetime.fromtimestamp(ingest, tz=timezone.utc).year
@@ -178,11 +216,10 @@ class RuleBasedValidTimeExtractor:
         # "until"/"till"/etc. resolved first, and its own match span recorded, so a standalone ISO
         # check below can tell an end-date consumed here apart from an unrelated start-date
         # elsewhere in the same sentence ("valid until 2024-09-01" must not also read as a
-        # standalone ISO start date -- that was finding #4 on PR #101 round 1).
-        m_until = self._UNTIL.search(content)
+        # standalone ISO start date -- that was finding #4 on PR #101 round 1). The span used for
+        # that check is the *resolved* until-match's, not necessarily the first syntactic one.
+        t_invalid, m_until = self._first_resolvable(self._UNTIL, content, ref_year)
         until_span = m_until.span() if m_until else None
-        if m_until:
-            t_invalid = self._resolve(m_until.group(1), m_until.group(2), ref_year)
 
         m_iso = self._ISO.search(content)
         if m_iso and not self._overlaps(m_iso.span(), until_span):
@@ -190,10 +227,9 @@ class RuleBasedValidTimeExtractor:
             if t_valid is not None:
                 matched = m_iso.group(0)
 
-        m_since = self._SINCE.search(content)
-        if m_since and t_valid is None:
-            t_valid = self._resolve(m_since.group(1), m_since.group(2), ref_year)
-            if t_valid is not None:
+        if t_valid is None:
+            t_valid, m_since = self._first_resolvable(self._SINCE, content, ref_year)
+            if m_since is not None:
                 matched = m_since.group(0)
 
         m_in = self._IN_YEAR.search(content)
@@ -203,7 +239,11 @@ class RuleBasedValidTimeExtractor:
                 t_valid = resolved
                 matched = m_in.group(0)
 
-        explicit = t_valid is not None
+        # Explicit whenever content stated *either* bound, not only the start -- content like
+        # "contract valid until Sep 2024" states a real end date with no start, and labelling that
+        # `source="ingest_fallback"` (round-2 review finding #2) misrepresents it to any consumer
+        # branching on `span.source` as "nothing was extracted here".
+        explicit = t_valid is not None or t_invalid is not None
         resolved_t_valid: int = t_valid if t_valid is not None else ingest
 
         # Half-open valid time (t_valid <= at < t_invalid, per MemoryRecord's own guard) admits no
@@ -220,11 +260,13 @@ class RuleBasedValidTimeExtractor:
             return ValidTimeSpan(
                 t_valid=resolved_t_valid,
                 t_invalid=t_invalid,
-                confidence=0.9,
+                confidence=_EXPLICIT_CONFIDENCE,
                 source="explicit",
                 matched_text=matched,
             )
-        return ValidTimeSpan(t_valid=resolved_t_valid, t_invalid=t_invalid, confidence=0.3, source="ingest_fallback")
+        return ValidTimeSpan(
+            t_valid=resolved_t_valid, t_invalid=t_invalid, confidence=_FALLBACK_CONFIDENCE, source="ingest_fallback"
+        )
 
     async def aextract(self, content: str, ingest_time: Optional[int] = None) -> ValidTimeSpan:
         """Async variant of :meth:`extract`. The rule-based path does no I/O, so this is a

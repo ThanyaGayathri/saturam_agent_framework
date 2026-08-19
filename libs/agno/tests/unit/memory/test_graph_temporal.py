@@ -29,7 +29,10 @@ def extractor():
 @pytest.mark.parametrize(
     "content, expected_t_valid",
     [
-        ("User lives in LA since Jan", None),  # resolved against ingest year -- see below
+        # "since Jan" names no year, so the expected value here matches the fixture's own
+        # ingest_time below (2024-07-15) -- see test_a_bare_month_resolves_against_the_ingest_years_january
+        # for the year-varies-with-ingest-time behavior this value is *not* asserting.
+        ("User lives in LA since Jan", epoch(2024, 1)),
         ("Works at Acme since March 2022", epoch(2022, 3)),
         ("Moved in 2019", epoch(2019, 1)),
         ("Contract effective 2023-04-10", epoch(2023, 4, 10)),
@@ -38,8 +41,7 @@ def extractor():
 def test_an_explicit_date_is_extracted(extractor, content, expected_t_valid):
     span = extractor.extract(content, ingest_time=epoch(2024, 7, 15))
 
-    if expected_t_valid is not None:
-        assert span.t_valid == expected_t_valid
+    assert span.t_valid == expected_t_valid
     assert span.source == "explicit"
     assert span.confidence > 0.3  # strictly above the fallback confidence
 
@@ -135,7 +137,10 @@ def test_extract_returns_a_valid_time_span():
 def test_the_span_is_frozen():
     span = RuleBasedValidTimeExtractor().extract("Moved in 2019", ingest_time=epoch(2024, 1, 1))
 
-    with pytest.raises(Exception):  # dataclasses.FrozenInstanceError, a subclass of AttributeError
+    # dataclasses.FrozenInstanceError, a subclass of AttributeError -- asserting the narrow class
+    # (round-2 review, PR #101) so a removed `frozen=True` fails this test rather than passing on
+    # some unrelated Exception a broken frozen guard happens to also raise.
+    with pytest.raises(AttributeError):
         span.t_valid = 0
 
 
@@ -165,11 +170,18 @@ def test_an_out_of_range_month_name_date_does_not_crash(extractor):
 
 def test_an_until_only_clause_keeps_its_t_invalid_in_the_fallback_span():
     """Round-1 finding #2: with no start date stated, ``t_valid`` falls back to ingest time, but
-    the extracted end date must still reach the span -- the earlier code dropped it entirely."""
+    the extracted end date must still reach the span -- the earlier code dropped it entirely.
+
+    ``source`` asserted here too (round-2 review, PR #101): the round-1 fix passed ``t_invalid``
+    through but still labelled the span ``"ingest_fallback"`` even though an end date *was*
+    extracted -- this test's own name says "keeps its t_invalid" and did not check the field that
+    contradicted it, which is exactly the gap the round-2 finding named."""
     span = RuleBasedValidTimeExtractor().extract("Contract valid until Sep 2024", ingest_time=epoch(2024, 1, 1))
 
     assert span.t_valid == epoch(2024, 1, 1)
     assert span.t_invalid == epoch(2024, 9)
+    assert span.source == "explicit"
+    assert span.confidence > 0.3
 
 
 @pytest.mark.parametrize(
@@ -220,3 +232,75 @@ def test_an_iso_start_date_outside_an_until_clause_still_sets_t_valid():
 
     assert span.t_valid == epoch(2023, 4, 10)
     assert span.t_invalid == epoch(2024, 9)
+
+
+# ---------------------------------------------------------------------------
+# Hardening (round-2 review, PR #101)
+# ---------------------------------------------------------------------------
+
+
+def test_a_span_with_only_an_end_date_is_labelled_explicit_not_fallback():
+    """Round-2 finding #2's direct reproduction, independent of the until-only test above: a span
+    carrying a real extracted ``t_invalid`` and no ``t_valid`` must not read as "nothing was
+    extracted here" to a consumer branching on ``span.source``."""
+    span = RuleBasedValidTimeExtractor().extract("Contract valid until Sep 2024", ingest_time=epoch(2024, 1, 1))
+
+    assert span.source == "explicit"
+    assert span.confidence == pytest.approx(0.9)
+
+
+def test_an_unresolvable_since_match_does_not_block_a_resolvable_one_later_in_the_sentence():
+    """Round-2 finding #3's exact reproduction: "from New" (the first ``_SINCE`` match) resolves
+    to nothing, so ``.search()`` alone stopped there and never reached "since 2022" -- a real,
+    common biographical phrasing, not a constructed edge case."""
+    span = RuleBasedValidTimeExtractor().extract("Moved from New York to LA since 2022", ingest_time=epoch(2024, 1, 1))
+
+    assert span.t_valid == epoch(2022, 1)
+    assert span.source == "explicit"
+
+
+def test_an_unresolvable_until_match_does_not_block_a_resolvable_one_later_in_the_sentence():
+    """The ``_UNTIL`` twin of the finding above -- the review named it as "the same bug applies"
+    rather than reproducing it, so this pins it directly rather than by inference from ``_SINCE``'s
+    fix. "Until Friday" is the first ``_UNTIL`` match and resolves to nothing (not a month, year,
+    or ISO date); "until Sep 2024" later in the sentence must still be reached.
+
+    ("No longer valid tomorrow, ended until Sep 2024" -- an earlier version of this test -- turned
+    out to have only *one* ``_UNTIL`` match, "no longer...after" requiring the literal word "after"
+    that content never supplied, so it silently didn't exercise the retry at all; verified by
+    ``_UNTIL.finditer`` before writing this replacement, not by inspection alone.)"""
+    span = RuleBasedValidTimeExtractor().extract(
+        "Valid until Friday, ended until Sep 2024", ingest_time=epoch(2024, 1, 1)
+    )
+
+    assert span.t_invalid == epoch(2024, 9)
+
+
+def test_the_first_resolvable_cue_wins_not_the_first_syntactic_one():
+    """Round-2 finding #6: content with two *resolvable* temporal cues must pick the first one a
+    left-to-right scan reaches, once the finding-3 fix is in place -- not silently prefer a later
+    one, and not raise. This is a regression guard for that fix, not a new capability: nothing here
+    claims the extractor merges or disambiguates between the two, only that it is deterministic and
+    does not regress to "first syntactic match, even if unresolvable" (finding 3's original bug)."""
+    span = RuleBasedValidTimeExtractor().extract(
+        "Works at Acme since Jan 2024, formerly at Beta since Mar 2022", ingest_time=epoch(2024, 7, 15)
+    )
+
+    assert span.t_valid == epoch(2024, 1)
+    assert span.source == "explicit"
+
+
+# ---------------------------------------------------------------------------
+# ValidTimeSpan's own invariant
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("confidence", [-0.01, 1.01, -5.0, 100.0])
+def test_confidence_outside_the_unit_interval_is_refused(confidence):
+    with pytest.raises(ValueError):
+        ValidTimeSpan(t_valid=epoch(2024, 1, 1), confidence=confidence)
+
+
+@pytest.mark.parametrize("confidence", [0.0, 1.0, 0.5])
+def test_confidence_at_or_inside_the_unit_interval_boundaries_is_accepted(confidence):
+    ValidTimeSpan(t_valid=epoch(2024, 1, 1), confidence=confidence)
