@@ -114,6 +114,20 @@ def test_turn_cap_fires_even_inside_the_gap_window():
     assert state.turns_since_boundary == 2
 
 
+def test_segment_state_rejects_a_turn_count_with_no_last_occurred_at():
+    """The inconsistent combination SegmentState's docstring names: with no previous timestamp,
+    segment_events would take the "no prior state" branch and silently discard the carried
+    count. Refused at construction rather than left to mis-segment silently."""
+    with pytest.raises(MemoryOperationError) as excinfo:
+        SegmentState(last_occurred_at=None, turns_since_boundary=5)
+    assert excinfo.value.field_name == "turns_since_boundary"
+
+
+def test_segment_state_default_is_consistent():
+    # Both fields at their zero value -- must not be rejected by the same guard.
+    SegmentState()
+
+
 def test_state_carries_a_boundary_decision_across_batches():
     first_batch = [an_event(BASE_T), an_event(BASE_T + 10)]
     decisions_1, state_1 = segment_events(first_batch, gap_s=900.0, min_turns=1)
@@ -219,6 +233,22 @@ def test_boundary_decision_allows_none_confidence():
     BoundaryDecision(is_boundary=False, method=None, trigger=None, confidence=None)
 
 
+def test_boundary_decision_rejects_a_boundary_with_no_method():
+    with pytest.raises(MemoryOperationError) as excinfo:
+        BoundaryDecision(is_boundary=True, method=None, trigger=None, confidence=1.0)
+    assert excinfo.value.field_name == "method"
+
+
+def test_boundary_decision_rejects_a_continuation_with_a_method():
+    """The inverse of the above: is_boundary=False with a method set would stamp
+    boundary_method onto a row that never opened an episode -- silent corruption every
+    downstream reader would trust, since a non-None boundary_method is exactly how a reader
+    tells an episode-opener from a continuation."""
+    with pytest.raises(MemoryOperationError) as excinfo:
+        BoundaryDecision(is_boundary=False, method=TIME_GAP_METHOD, trigger=3940.0, confidence=1.0)
+    assert excinfo.value.field_name == "method"
+
+
 def test_defaults_match_the_sm_r6_ratified_values():
     """ADR 0003's ratified defaults table: time_gap 900s, max_turns 40, min_turns 3."""
     assert DEFAULT_TIME_GAP_S == 900.0
@@ -276,9 +306,34 @@ def test_stamp_boundaries_overwrites_a_preexisting_refined_row():
     assert stamped[0].boundary_method == TIME_GAP_METHOD
 
 
+def _bypass_construction(**fields):
+    """A BoundaryDecision with fields BoundaryDecision.__post_init__ would refuse.
+
+    Bypasses __init__ (and therefore __post_init__) via object.__new__, then sets each frozen
+    field with object.__setattr__ -- the only way to reach stamp_boundaries' own defense-in-depth
+    checks, since normal construction refuses these combinations before stamp_boundaries ever
+    sees them. Exercises the "reachable by bypassing normal construction" case the checks'
+    docstrings name explicitly (e.g. a future non-validating constructor, or a deserializer that
+    populates fields directly).
+    """
+    decision = object.__new__(BoundaryDecision)
+    for name, value in fields.items():
+        object.__setattr__(decision, name, value)
+    return decision
+
+
 def test_stamp_boundaries_refuses_a_boundary_decision_with_no_method():
     episodes = [_episode("ep-1", BASE_T)]
-    decisions = [BoundaryDecision(is_boundary=True, method=None, trigger=None, confidence=1.0)]
+    decisions = [_bypass_construction(is_boundary=True, method=None, trigger=None, confidence=1.0)]
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        stamp_boundaries(episodes, decisions, version=segmenter_version())
+    assert excinfo.value.field_name == "decisions"
+
+
+def test_stamp_boundaries_refuses_a_continuation_with_a_method():
+    episodes = [_episode("ep-1", BASE_T)]
+    decisions = [_bypass_construction(is_boundary=False, method=TIME_GAP_METHOD, trigger=3940.0, confidence=1.0)]
 
     with pytest.raises(MemoryOperationError) as excinfo:
         stamp_boundaries(episodes, decisions, version=segmenter_version())
@@ -405,6 +460,16 @@ def test_episodes_from_events_all_non_episodic_returns_empty_list():
 
     assert episodes == []
     assert state_out == SegmentState()
+
+
+def test_episodes_from_events_all_non_episodic_passes_explicit_state_through():
+    state_in = SegmentState(last_occurred_at=BASE_T, turns_since_boundary=3)
+    events = [an_event(BASE_T, tier=MemoryTier.SEMANTIC, id="sem-1")]
+
+    episodes, state_out = episodes_from_events(events, state=state_in)
+
+    assert episodes == []
+    assert state_out is state_in
 
 
 def test_episodes_from_events_threads_state_across_two_write_back_calls():

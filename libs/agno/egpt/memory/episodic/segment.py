@@ -86,6 +86,22 @@ class BoundaryDecision:
     confidence: Optional[float]
 
     def __post_init__(self) -> None:
+        if self.is_boundary and self.method is None:
+            raise MemoryOperationError(
+                "BoundaryDecision with is_boundary=True must carry a method: stamp_boundaries "
+                "writes `method` straight onto boundary_method, so an unlabelled boundary would "
+                "be stamped as a silent continuation.",
+                field_name="method",
+            )
+        if not self.is_boundary and self.method is not None:
+            raise MemoryOperationError(
+                f"BoundaryDecision with is_boundary=False must have method=None, got "
+                f"{self.method!r}. A continuation with a method set would stamp boundary_method "
+                "onto a row that never opened an episode -- silent data corruption every "
+                "downstream reader would trust, since a non-None boundary_method is exactly how "
+                "a reader tells an episode-opening row apart from a continuation.",
+                field_name="method",
+            )
         if self.confidence is not None and not (0.0 <= self.confidence <= 1.0):
             raise MemoryOperationError(
                 f"BoundaryDecision.confidence must be within [0.0, 1.0], got {self.confidence!r}. "
@@ -107,16 +123,28 @@ class SegmentState:
     events written since the last boundary (inclusive of the boundary event itself), which is what
     ``max_turns_per_episode`` compares against.
 
-    ``last_occurred_at=None`` together with ``turns_since_boundary > 0`` is a state
-    :func:`segment_events` never produces but does not reject either: with no previous timestamp to
-    compare against, the next event always takes the "no prior state" branch (a fresh boundary),
-    which silently discards the carried count rather than using it. The default ``SegmentState()``
-    (both fields at their zero value) is always consistent; a hand-built or deserialized state
-    should keep the two fields in step with each other.
+    ``last_occurred_at=None`` together with ``turns_since_boundary > 0`` is refused at
+    construction: :func:`segment_events` never produces it, but the caller contract
+    :func:`~egpt.memory.writeback.episodes_from_events` documents -- store and restore both
+    fields together, keyed by scope -- makes a deserialization bug a real way to construct one.
+    With no previous timestamp to compare against, the next event would take the "no prior
+    state" branch (a fresh boundary) and silently discard the carried count, mis-segmenting every
+    event in the batch as its own episode with no error and no attribution. The default
+    ``SegmentState()`` (both fields at their zero value) is always consistent.
     """
 
     last_occurred_at: Optional[int] = None
     turns_since_boundary: int = 0
+
+    def __post_init__(self) -> None:
+        if self.last_occurred_at is None and self.turns_since_boundary > 0:
+            raise MemoryOperationError(
+                f"SegmentState with last_occurred_at=None and turns_since_boundary="
+                f"{self.turns_since_boundary!r} is inconsistent: segment_events never produces "
+                "this state. A hand-built or deserialized state must keep both fields in step -- "
+                "restore both together, keyed by scope, rather than one at a time.",
+                field_name="turns_since_boundary",
+            )
 
 
 def segmenter_version(
@@ -202,15 +230,19 @@ def segment_events(
     if not events:
         return [], state if state is not None else SegmentState()
 
-    scope_keys = {events[0].scope.key()}
+    # A plain equality check against the first event's key, not a set: the common case is one
+    # scope, and building a set unconditionally would allocate on every call just to check
+    # len() == 1. The set is only built (for the error message's sorted list) once a mismatch is
+    # actually found.
+    first_scope_key = events[0].scope.key()
     for event in events[1:]:
-        scope_keys.add(event.scope.key())
-        if len(scope_keys) > 1:
+        if event.scope.key() != first_scope_key:
+            scope_keys = {e.scope.key() for e in events}
             raise MemoryOperationError(
-                f"segment_events received at least {len(scope_keys)} distinct scopes in one "
-                f"batch: {sorted(scope_keys)}. Segment each scope's events separately -- "
-                "comparing idle gaps across conversations is not a boundary decision this "
-                "function can make for you.",
+                f"segment_events received {len(scope_keys)} distinct scopes in one batch: "
+                f"{sorted(scope_keys)}. Segment each scope's events separately -- comparing idle "
+                "gaps across conversations is not a boundary decision this function can make for "
+                "you.",
                 field_name="events",
             )
 
@@ -310,6 +342,18 @@ def stamp_boundaries(
                 "boundary_method, so an unlabelled boundary would be stamped as a silent "
                 "continuation (boundary_method=None) -- the caller building BoundaryDecision "
                 "has a bug, not this function.",
+                field_name="decisions",
+            )
+        if not decision.is_boundary and decision.method is not None:
+            raise MemoryOperationError(
+                f"Episode {episode.id!r} carries a BoundaryDecision with is_boundary=False but "
+                f"method={decision.method!r}. stamp_boundaries writes `method` as the "
+                "authoritative boundary_method, so a continuation with a method set would be "
+                "stamped as a silent episode-opener -- the caller building BoundaryDecision has "
+                "a bug, not this function. BoundaryDecision.__post_init__ already refuses this "
+                "combination at construction; this is defense in depth for a decision built by "
+                "bypassing normal construction (e.g. object.__new__ or a future non-validating "
+                "constructor).",
                 field_name="decisions",
             )
         stamped.append(

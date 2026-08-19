@@ -35,7 +35,6 @@ from egpt.memory.writeback import episodes_from_events
 
 scope = Scope(tenant_id="acme", agent_id="assistant", user_id="ada", session_id="s1")
 
-MINUTE = 60
 HOUR = 3600
 
 # ---------------------------------------------------------------------------
