@@ -38,6 +38,10 @@ class EpisodeLink:
     determined -- an empty frozenset would read as "checked and names nothing", which is a
     different claim from "could not be checked". See :func:`resolve_episode_link` for the cases
     that produce it.
+
+    ``t_invalid`` is ``TemporalBounds.t_invalid`` from :meth:`GraphSubstrate.bounds_for_ids` --
+    the *tightest* invalidation bound across every revision of this id, not a field the live row
+    carries on its own. ``None`` means no revision has been closed yet.
     """
 
     graph_node_id: str
@@ -66,6 +70,8 @@ def _entity_ids_of(episode_id: str, hits: List[MemoryRecord]) -> Optional[Frozen
             # present but set to None" -- `or []` folds both into an empty list rather than
             # propagating None into `frozenset(...)`, which would raise. `.get("entity_ids", [])`
             # would NOT catch the second case: a present-but-None value passes straight through.
+            # (`.get()` itself is safe to call unconditionally because `MemoryRecord.__post_init__`
+            # always coerces `provenance` to a `dict`; a raw `None` provenance never reaches here.)
             return frozenset(record.provenance.get("entity_ids") or [])
     return None
 
@@ -123,6 +129,10 @@ def resolve_episode_link(scope: Scope, episode: EpisodicRecord, graph: GraphSubs
         if fallback is not None:
             since, until = fallback
             entity_ids = _entity_ids_of(episode.id, graph.recall_episodes(scope, since=since, until=until))
+            # `entity_ids` can still be None here: `_fallback_window` only returns a window when
+            # it has reason to think one exists (`hit.t_valid != episode.t_valid`); the same
+            # window, still nothing is the residual race `_fallback_window`'s own docstring names,
+            # not a bug in this call.
     return EpisodeLink(
         graph_node_id=node_id,
         exists=True,
@@ -147,6 +157,10 @@ async def aresolve_episode_link(scope: Scope, episode: EpisodicRecord, graph: Gr
         if fallback is not None:
             since, until = fallback
             entity_ids = _entity_ids_of(episode.id, await graph.arecall_episodes(scope, since=since, until=until))
+            # `entity_ids` can still be None here: `_fallback_window` only returns a window when
+            # it has reason to think one exists (`hit.t_valid != episode.t_valid`); the same
+            # window, still nothing is the residual race `_fallback_window`'s own docstring names,
+            # not a bug in this call.
     return EpisodeLink(
         graph_node_id=node_id,
         exists=True,

@@ -145,6 +145,23 @@ def test_another_tenants_episode_with_the_same_id_does_not_resolve():
     assert link.exists is False
 
 
+def test_entity_drift_is_reported_even_when_t_valid_agrees():
+    """The public protocol has no way to change mentions without also moving ``t_valid`` (a
+    re-upsert always sets both), so this hand-builds an ``EpisodeLink`` to pin the contract
+    directly: ``episode_link_drift`` must not lean on ``t_valid`` disagreeing as a proxy for
+    "something changed" -- a future partial-update backend that can move mentions alone must not
+    find its drift silently absorbed here."""
+    episode = episode_from_event(an_event())
+    link = EpisodeLink(
+        graph_node_id=episode.graph_node_id,
+        exists=True,
+        t_valid=episode.t_valid,
+        entity_ids=frozenset({"acme/*/ada/*/*/entity/Paris"}),
+    )
+
+    assert episode_link_drift(episode, link) == ["entity_ids"]
+
+
 def test_an_absent_link_is_not_reported_as_drift():
     """SM-R12 section 9: the cross-tier reference is advisory, so a vector-only deployment (no
     graph leg) is not a defect ``episode_link_drift`` should flag."""
