@@ -404,6 +404,19 @@ class Neo4jGraphSubstrate:
             )
             provenance["entity_ids"] = [entity_node_id_for(record_scope, name) for name in row["mentions"]]
         if "subject" in row:
+            # `recall_facts` rows carry the edge's own **write** scope in the columns
+            # `_RECALL_FACTS_RETURN` selects -- not the call scope `traverse` uses `scope` for,
+            # mirroring the `"mentions"` branch above for the identical reason: under a tenant-wide
+            # call (`Scope(tenant_id="acme")`), leaving `record.scope` as the call scope disagreed
+            # with `FakeGraph`, which returns each row under its own write scope (round-1 review,
+            # PR #102).
+            record_scope = Scope(
+                tenant_id=row["tenant_id"],
+                agent_id=row.get("agent_id"),
+                user_id=row.get("user_id"),
+                team_id=row.get("team_id"),
+                session_id=row.get("session_id"),
+            )
             # `recall_facts` rows carry the edge's SPO read from the edge and its two endpoint
             # nodes -- not reconstructed by splitting `content`, which `GraphSubstrate.recall_facts`
             # documents is ambiguous for an entity name containing a space.

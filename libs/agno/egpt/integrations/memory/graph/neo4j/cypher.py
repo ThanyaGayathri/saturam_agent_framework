@@ -403,14 +403,19 @@ def recall_episodes_statement(
 
 
 #: The fact-edge columns :func:`recall_facts_statement` selects: the same envelope
-#: ``_RECALL_RETURN`` uses, plus the three SPO fields read from the edge and its endpoints rather
-#: than parsed out of ``content`` -- see ``GraphSubstrate.recall_facts`` for why that split matters.
+#: ``_RECALL_RETURN`` uses, **plus** the edge's own scope slots -- for the reason
+#: ``_RECALL_RETURN``'s own comment gives for episodes: under a tenant-wide call the edge's write
+#: scope and the call scope disagree, and a caller reading ``record.scope`` afterwards needs the
+#: former, not the latter (round-1 review, PR #102). Plus the three SPO fields read from the edge
+#: and its endpoints rather than parsed out of ``content`` -- see ``GraphSubstrate.recall_facts``
+#: for why that split matters.
 _RECALL_FACTS_RETURN = (
     "RETURN row.id AS id, row.tier AS tier, row.content AS content, row.topics AS topics, "
     "row.t_valid AS t_valid, row.t_invalid AS t_invalid, row.created_at AS created_at, "
     "row.expired_at AS expired_at, row.superseded_by AS superseded_by, "
     "row.provenance AS provenance, row.metadata AS metadata, "
-    "subject, row.predicate AS relation, object"
+    + ", ".join(f"row.{slot} AS {slot}" for slot in SCOPE_SLOTS)
+    + ", subject, row.predicate AS relation, object"
 )
 
 
@@ -801,6 +806,11 @@ SCHEMA_STATEMENTS = (
     f"CREATE INDEX egpt_{EPISODE.lower()}_t_valid IF NOT EXISTS FOR (n:{EPISODE}) ON (n.tenant_id, n.t_valid)",
     f"CREATE INDEX egpt_{FACT.lower()}_scope IF NOT EXISTS FOR (n:{FACT}) ON (n.tenant_id, n.id)",
     f"CREATE INDEX egpt_rel_scope IF NOT EXISTS FOR ()-[r:{REL}]-() ON (r.tenant_id, r.id)",
+    # Backs `recall_facts_statement`'s `t_valid` window predicate, for the same reason
+    # `egpt_episode_t_valid` backs `recall_episodes_statement`'s: the id-equality index above never
+    # helps it, since that statement never mentions `id` -- within one tenant a time-window
+    # `recall_facts` read was a sequential scan over every REL edge (round-1 review, PR #102).
+    f"CREATE INDEX egpt_rel_t_valid IF NOT EXISTS FOR ()-[r:{REL}]-() ON (r.tenant_id, r.t_valid)",
     f"CREATE INDEX egpt_{ENTITY.lower()}_scope IF NOT EXISTS FOR (n:{ENTITY}) ON (n.scope_key, n.name)",
     # SM-G8's (#106) first pass groups exact-match candidates on the normalised `key`, which the
     # identity index above -- keyed on the surface `name` -- does not back; without this, that pass

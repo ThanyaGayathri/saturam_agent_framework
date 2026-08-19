@@ -252,6 +252,17 @@ def test_the_entity_key_and_embedding_are_indexed():
     assert "ON (n.embedding)" in statements
 
 
+def test_the_rel_edges_t_valid_predicate_is_indexed():
+    """Review finding on PR #102, round 1. The id-equality index (`egpt_rel_scope`) never helps
+    `recall_facts_statement`'s `t_valid` window predicate, which never mentions `id` -- without a
+    dedicated index, a `since`/`until` bound `recall_facts` read is a sequential scan over every REL
+    edge in the tenant. Mirrors `egpt_episode_t_valid`'s reason on the episodic side."""
+    statements = " ".join(cypher.SCHEMA_STATEMENTS)
+
+    assert "INDEX egpt_rel_t_valid" in statements
+    assert "ON (r.tenant_id, r.t_valid)" in statements
+
+
 def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties():
     """The :data:`ROW_PROPERTIES` guard, applied to the other shape (SM-G2 #100).
 

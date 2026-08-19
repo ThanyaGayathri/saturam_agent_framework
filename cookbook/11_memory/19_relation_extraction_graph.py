@@ -118,7 +118,7 @@ print("\nRelation edges for acme/ada, read through the semantic subgraph (SM-G7 
 # unranked, distinct from `traverse`'s relevance-ranked search over every tier at once. `since=0`
 # asks for the whole history rather than narrowing by entity or relation.
 for edge in graph.recall_facts(ACME_ADA, since=0):
-    episodes = edge.provenance["source_episode_ids"]
+    episodes = edge.provenance.get("source_episode_ids", [])
     print(
         f"  {edge.provenance['subject']} --[{edge.provenance['predicate']}]--> "
         f"{edge.provenance['object']}  from={episodes}"

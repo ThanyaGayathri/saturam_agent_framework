@@ -179,7 +179,13 @@ def test_a_tenant_wide_read_sees_every_users_edges(any_graph):
     any_graph.upsert_facts(ACME_BOB, [edge("f2", "Ada", "works_at", "Acme Corp", scope=ACME_BOB)])
 
     tenant_wide = Scope(tenant_id="acme")
-    assert set(ids(any_graph.recall_facts(tenant_wide, entities=["Ada"]))) == {"f1", "f2"}
+    hits = any_graph.recall_facts(tenant_wide, entities=["Ada"])
+
+    assert set(ids(hits)) == {"f1", "f2"}
+    # Each row's own write scope, not the tenant-wide call scope -- round-1 review, PR #102. A
+    # caller deriving further ids from `record.scope` under the call scope would reproduce the
+    # `recall_episodes` bug PR #90 already fixed for the episodic side.
+    assert {r.id: r.scope for r in hits} == {"f1": ACME, "f2": ACME_BOB}
 
 
 # -- refusals ---------------------------------------------------------------------------------------
