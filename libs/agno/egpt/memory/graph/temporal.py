@@ -22,7 +22,7 @@ wants one can supply any object satisfying the protocol.
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Protocol, runtime_checkable
+from typing import Literal, Optional, Protocol, Tuple, runtime_checkable
 
 from egpt.utils.dttm import now_epoch_s
 
@@ -60,7 +60,7 @@ _MONTHS = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class ValidTimeSpan:
     """The world-validity a piece of content implies, in the field names
     :class:`~egpt.memory.types.MemoryRecord` already carries -- a caller assigns ``t_valid``/
@@ -71,12 +71,16 @@ class ValidTimeSpan:
     instead (spec section 5's "extracted valid-time, else ingest time"). Never ``None``: a span
     with nothing to report is still a decision (fell back), worth keeping on the row it produced
     rather than losing at the call site.
+
+    Frozen: one span is shared across every relation extracted from one episode (see
+    :class:`ValidTimeExtractor`'s docstring), and a caller mutating its copy would silently affect
+    every relation still pointing at that instance.
     """
 
     t_valid: int
     t_invalid: Optional[int] = None
     confidence: float = 0.0
-    source: str = "ingest_fallback"
+    source: Literal["explicit", "ingest_fallback"] = "ingest_fallback"
     matched_text: Optional[str] = None
 
 
@@ -107,29 +111,61 @@ def _epoch(year: int, month: int, day: int) -> int:
 class RuleBasedValidTimeExtractor:
     """The default :class:`ValidTimeExtractor`: regex + month-name lookup over explicit temporal
     cues, deterministic and offline. Ported from the SM-R10 spec prototype
-    (``benchmarks/memory_bitemporal/extraction.py``, measured 6/6 on its committed cases); this is
-    the same rule, not a re-derivation of it.
+    (``benchmarks/memory_bitemporal/extraction.py``, measured 6/6 on its committed cases), then
+    hardened past three defects that prototype's narrower corpus never exercised (round-1 review on
+    PR #101): an out-of-range calendar date crashing instead of falling through, a bare "until"
+    clause with no matching start losing its bound in the fallback return, and an ISO date inside
+    an "until" clause being mis-scoped as the start rather than the end.
 
-    Handles ``since <Month>``, ``since <Month> <Year>``, ``from ... until ...``, ``in <Year>``, and
+    Handles ``since <Month|Year|ISO date>``, ``from ... until ...``, ``in <Year>``, and standalone
     ISO dates (``YYYY-MM-DD``). A bare month with no year resolves against ``ingest_time``'s year,
     so "since Jan" means the most recent January relative to when the fact was recorded, not an
     absolute one.
+
+    **Not exhaustive prose coverage.** Content phrased outside these four patterns falls back to
+    ingest time rather than misparsing -- a deliberate simplification for a rule-based default, not
+    a bug (an LLM-backed extractor is the documented escape hatch, see the module docstring).
     """
 
-    _ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
-    _SINCE = re.compile(r"\b(?:since|from|as of|starting)\s+([A-Za-z]+|\d{4})(?:\s+(\d{4}))?", re.I)
-    _UNTIL = re.compile(r"\b(?:until|till|through|no longer\s+\w+\s+after)\s+([A-Za-z]+|\d{4})(?:\s+(\d{4}))?", re.I)
+    _ISO_TOKEN = r"\d{4}-\d{2}-\d{2}"
+    _ISO = re.compile(r"\b(" + _ISO_TOKEN + r")\b")
+    _SINCE = re.compile(
+        r"\b(?:since|from|as of|starting)\s+([A-Za-z]+\b|" + _ISO_TOKEN + r"|\d{4}\b)(?:\s+(\d{4})\b)?", re.I
+    )
+    _UNTIL = re.compile(
+        r"\b(?:until|till|through|no longer\s+\w+\s+after)\s+([A-Za-z]+\b|"
+        + _ISO_TOKEN
+        + r"|\d{4}\b)(?:\s+(\d{4})\b)?",
+        re.I,
+    )
     _IN_YEAR = re.compile(r"\bin\s+(\d{4})\b", re.I)
 
     @staticmethod
     def _resolve(token: str, year_token: Optional[str], ref_year: int) -> Optional[int]:
+        """A month name, a bare year, or an ISO date -> epoch seconds, or ``None`` for a token this
+        extractor does not recognise **or** one that names a calendar date that does not exist
+        (e.g. ``2024-13-45``) -- ``None`` either way, so a caller cannot tell "unrecognised" from
+        "invalid" and does not need to: both mean "not a usable cue", handled identically by
+        :meth:`extract` falling through to the next pattern or the ingest-time fallback."""
         token = token.strip().lower()
-        if token.isdigit() and len(token) == 4:
-            return _epoch(int(token), 1, 1)
-        if token in _MONTHS:
-            year = int(year_token) if year_token else ref_year
-            return _epoch(year, _MONTHS[token], 1)
+        iso_match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", token)
+        try:
+            if iso_match:
+                return _epoch(*(int(group) for group in iso_match.groups()))
+            if token.isdigit() and len(token) == 4:
+                return _epoch(int(token), 1, 1)
+            if token in _MONTHS:
+                year = int(year_token) if year_token else ref_year
+                return _epoch(year, _MONTHS[token], 1)
+        except ValueError:
+            # A regex-shaped token that is not a real calendar date -- "2024-13-45", or a bare
+            # "0000" (year 0 is out of `datetime`'s range) -- not a usable cue, same as no match.
+            return None
         return None
+
+    @staticmethod
+    def _overlaps(a: Tuple[int, int], b: Optional[Tuple[int, int]]) -> bool:
+        return b is not None and a[0] < b[1] and b[0] < a[1]
 
     def extract(self, content: str, ingest_time: Optional[int] = None) -> ValidTimeSpan:
         ingest = now_epoch_s() if ingest_time is None else ingest_time
@@ -139,11 +175,20 @@ class RuleBasedValidTimeExtractor:
         t_invalid: Optional[int] = None
         matched: Optional[str] = None
 
+        # "until"/"till"/etc. resolved first, and its own match span recorded, so a standalone ISO
+        # check below can tell an end-date consumed here apart from an unrelated start-date
+        # elsewhere in the same sentence ("valid until 2024-09-01" must not also read as a
+        # standalone ISO start date -- that was finding #4 on PR #101 round 1).
+        m_until = self._UNTIL.search(content)
+        until_span = m_until.span() if m_until else None
+        if m_until:
+            t_invalid = self._resolve(m_until.group(1), m_until.group(2), ref_year)
+
         m_iso = self._ISO.search(content)
-        if m_iso:
-            year, month, day = (int(group) for group in m_iso.groups())
-            t_valid = _epoch(year, month, day)
-            matched = m_iso.group(0)
+        if m_iso and not self._overlaps(m_iso.span(), until_span):
+            t_valid = self._resolve(m_iso.group(1), None, ref_year)
+            if t_valid is not None:
+                matched = m_iso.group(0)
 
         m_since = self._SINCE.search(content)
         if m_since and t_valid is None:
@@ -151,20 +196,35 @@ class RuleBasedValidTimeExtractor:
             if t_valid is not None:
                 matched = m_since.group(0)
 
-        m_until = self._UNTIL.search(content)
-        if m_until:
-            t_invalid = self._resolve(m_until.group(1), m_until.group(2), ref_year)
-
         m_in = self._IN_YEAR.search(content)
         if m_in and t_valid is None:
-            t_valid = _epoch(int(m_in.group(1)), 1, 1)
-            matched = m_in.group(0)
+            resolved = self._resolve(m_in.group(1), None, ref_year)
+            if resolved is not None:
+                t_valid = resolved
+                matched = m_in.group(0)
 
-        if t_valid is None:
-            return ValidTimeSpan(t_valid=ingest, confidence=0.3, source="ingest_fallback")
-        return ValidTimeSpan(
-            t_valid=t_valid, t_invalid=t_invalid, confidence=0.9, source="explicit", matched_text=matched
-        )
+        explicit = t_valid is not None
+        resolved_t_valid: int = t_valid if t_valid is not None else ingest
+
+        # Half-open valid time (t_valid <= at < t_invalid, per MemoryRecord's own guard) admits no
+        # instant when inverted or degenerate -- reached not only through a self-contradictory
+        # "since X until Y" with Y before X, but also through the fallback branch just above: an
+        # extracted end date that predates the ingest-time start it just fell back to inverts the
+        # same way. Dropping the unusable bound here, once, after both t_valid paths have run,
+        # is what keeps one badly-dated episode from crashing the whole extraction pass instead of
+        # degrading to "no end date extracted" for that one edge (finding #3, PR #101 round 1).
+        if t_invalid is not None and t_invalid <= resolved_t_valid:
+            t_invalid = None
+
+        if explicit:
+            return ValidTimeSpan(
+                t_valid=resolved_t_valid,
+                t_invalid=t_invalid,
+                confidence=0.9,
+                source="explicit",
+                matched_text=matched,
+            )
+        return ValidTimeSpan(t_valid=resolved_t_valid, t_invalid=t_invalid, confidence=0.3, source="ingest_fallback")
 
     async def aextract(self, content: str, ingest_time: Optional[int] = None) -> ValidTimeSpan:
         """Async variant of :meth:`extract`. The rule-based path does no I/O, so this is a

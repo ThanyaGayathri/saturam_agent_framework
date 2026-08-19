@@ -10,6 +10,7 @@ be asserting SM-G8's (#106) work.
 """
 
 import asyncio
+from typing import List, Optional, Tuple
 
 import pytest
 
@@ -173,15 +174,15 @@ class StubValidTimeExtractor:
     """Returns a fixed span regardless of content, so a test can assert the pipeline *uses* what
     the extractor returns without depending on the rule-based regex."""
 
-    def __init__(self, span):
+    def __init__(self, span: ValidTimeSpan) -> None:
         self.span = span
-        self.seen = []
+        self.seen: List[Tuple[str, Optional[int]]] = []
 
-    def extract(self, content, ingest_time=None):
+    def extract(self, content: str, ingest_time: Optional[int] = None) -> ValidTimeSpan:
         self.seen.append((content, ingest_time))
         return self.span
 
-    async def aextract(self, content, ingest_time=None):
+    async def aextract(self, content: str, ingest_time: Optional[int] = None) -> ValidTimeSpan:
         await asyncio.sleep(0)
         return self.extract(content, ingest_time)
 
@@ -198,12 +199,10 @@ def test_a_relation_edge_carries_the_valid_time_the_extractor_returns(is_async):
     ``t_valid``/``t_invalid``, not left ``None`` the way every edge was before this ticket."""
     vt = StubValidTimeExtractor(ValidTimeSpan(t_valid=1704067200, t_invalid=1717200000, source="explicit"))
     pipe, graph = pipeline(valid_time_extractor=vt)
+    episodes = [episode("Ada works at Acme since Jan 2024")]
 
-    call = pipe.arun(ACME, [episode("Ada works at Acme since Jan 2024")]) if is_async else None
-    if is_async:
-        asyncio.run(call)
-    else:
-        pipe.run(ACME, [episode("Ada works at Acme since Jan 2024")])
+    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
+    asyncio.run(call) if is_async else call
 
     fact = edge_for(graph)
     assert fact.record.t_valid == 1704067200
