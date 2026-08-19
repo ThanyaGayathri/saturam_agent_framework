@@ -73,6 +73,17 @@ def all_statements(scope):
                 ("until", {"entities": None, "since": None, "until": 20, "limit": None}),
             )
         ],
+        # Same reasoning as `recall_episodes` above, over `recall_facts`'s extra `relation` axis.
+        *[
+            (f"recall_facts[{label}]", *cypher.recall_facts_statement(scope, **kwargs))
+            for label, kwargs in (
+                ("entities", {"entities": ["berlin"], "relation": None, "since": None, "until": None, "limit": None}),
+                ("relation", {"entities": None, "relation": "lives_in", "since": None, "until": None, "limit": None}),
+                ("window", {"entities": None, "relation": None, "since": 10, "until": 20, "limit": 5}),
+                ("since", {"entities": None, "relation": None, "since": 10, "until": None, "limit": 0}),
+                ("until", {"entities": None, "relation": None, "since": None, "until": 20, "limit": None}),
+            )
+        ],
     ]
     return emitted
 
@@ -515,6 +526,7 @@ DRIVER_CALLS = {
     "upsert_entities": lambda g: g.upsert_entities(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]),
     "traverse": lambda g: g.traverse(FULL, MemoryQuery(text="x")),
     "recall_episodes": lambda g: g.recall_episodes(FULL, since=10),
+    "recall_facts": lambda g: g.recall_facts(FULL, since=10),
     "bounds_for_ids": lambda g: g.bounds_for_ids(FULL, ["f1"]),
     "invalidate": lambda g: g.invalidate(FULL, "f1", t_invalid=300, at=310),
     "init_schema": lambda g: g.init_schema(),
@@ -622,6 +634,7 @@ ASYNC_DRIVER_CALLS = {
     ),
     "atraverse": lambda g: g.atraverse(FULL, MemoryQuery(text="x")),
     "arecall_episodes": lambda g: g.arecall_episodes(FULL, since=10),
+    "arecall_facts": lambda g: g.arecall_facts(FULL, since=10),
     "abounds_for_ids": lambda g: g.abounds_for_ids(FULL, ["f1"]),
     "ainvalidate": lambda g: g.ainvalidate(FULL, "f1", t_invalid=300, at=310),
     "ainit_schema": lambda g: g.ainit_schema(),

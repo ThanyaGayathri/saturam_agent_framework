@@ -403,6 +403,13 @@ class Neo4jGraphSubstrate:
                 session_id=row.get("session_id"),
             )
             provenance["entity_ids"] = [entity_node_id_for(record_scope, name) for name in row["mentions"]]
+        if "subject" in row:
+            # `recall_facts` rows carry the edge's SPO read from the edge and its two endpoint
+            # nodes -- not reconstructed by splitting `content`, which `GraphSubstrate.recall_facts`
+            # documents is ambiguous for an entity name containing a space.
+            provenance["subject"] = row["subject"]
+            provenance["predicate"] = row["relation"]
+            provenance["object"] = row["object"]
         return MemoryRecord(
             id=row["id"],
             tier=MemoryTier(row["tier"]),
@@ -696,6 +703,36 @@ class Neo4jGraphSubstrate:
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
         statement = cypher.recall_episodes_statement(scope, entities=entities, since=since, until=until, limit=limit)
+        return [self._record(row, scope) for row in (await self._arun([statement]))[0]]
+
+    def recall_facts(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        relation: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        # The port's refusals live in the statement builder, exactly as `recall_episodes` reuses
+        # them, so both halves here and a direct caller all refuse identically.
+        statement = cypher.recall_facts_statement(
+            scope, entities=entities, relation=relation, since=since, until=until, limit=limit
+        )
+        return [self._record(row, scope) for row in self._run([statement])[0]]
+
+    async def arecall_facts(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        relation: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        statement = cypher.recall_facts_statement(
+            scope, entities=entities, relation=relation, since=since, until=until, limit=limit
+        )
         return [self._record(row, scope) for row in (await self._arun([statement]))[0]]
 
     @staticmethod

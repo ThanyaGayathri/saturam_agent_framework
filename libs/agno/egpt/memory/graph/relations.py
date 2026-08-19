@@ -23,8 +23,9 @@ SM-L1's (#122) worker later, matching every other extraction pipeline in this pa
 no analogue of ``upsert_entities``'s ``source_episode_ids`` union) -- stated in that method's own
 docstring as "upsert replaces; only invalidate preserves a predecessor." A single pass folds
 ``source_episode_ids`` across every episode *in that pass* that names the same edge; carrying
-provenance forward across passes needs a read of the edge's current row, which this port does not
-expose (SM-G7 #105 / SM-G9 #107) and is not this ticket's to add.
+provenance forward across passes needs a read of the edge's current row. SM-G7 (#105) added that
+read (``GraphSubstrate.recall_facts``); wiring this pipeline to fold against it before writing is
+not this ticket's to add, and nothing here does.
 
 The prompt is the seed's, imported from ``learn/stores/entity_memory.py`` -- the same one SM-G2
 reuses -- because it already documents relationships as part of what one extraction pass reads for

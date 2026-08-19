@@ -31,6 +31,7 @@ from egpt.memory.graph.episodic import (
     require_recall_limit,
     require_time_window,
 )
+from egpt.memory.graph.semantic import require_fact_filters
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -236,6 +237,8 @@ class FakeGraph:
         #: the filters were, so a result-only assertion cannot tell a honoured filter from a
         #: dropped one.
         self.recall_requests: List[Dict[str, Any]] = []
+        #: The same idea as `recall_requests`, for `recall_facts` (SM-G7 #105).
+        self.fact_recall_requests: List[Dict[str, Any]] = []
         self.entity_batch_sizes: List[int] = []
         #: Keyed on ``(scope.key(), name)``, which is the identity the Neo4j backend MERGEs on --
         #: keying on the normalised ``key`` instead would model a backend that had already done
@@ -317,6 +320,18 @@ class FakeGraph:
         self.facts.append(fact)
         bucket = self._bucket(scope)
         row = replace(fact.record, substrate=Substrate.GRAPH)
+        if fact.is_triple():
+            # Mirrors `Neo4jGraphSubstrate._record`'s `recall_facts` handling: SPO is read from the
+            # edge shape, surfaced on `provenance` rather than reconstructed by splitting `content`.
+            row = replace(
+                row,
+                provenance={
+                    **row.provenance,
+                    "subject": fact.subject,
+                    "predicate": fact.predicate,
+                    "object": fact.object,
+                },
+            )
         for index, existing in enumerate(bucket):
             # Same class of defect as `_upsert_episode`'s dedup, and the same fix: `existing.scope`
             # must join `existing.id`, or two users' facts sharing an id collapse into one inside
@@ -475,6 +490,66 @@ class FakeGraph:
         await _yield()
         self.calls.append("arecall_episodes")
         return self.recall_episodes(scope, entities, since, until, limit)
+
+    def recall_facts(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        relation: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        """Fact edges by entity, relation label and half-open valid-time window (SM-G7 #105).
+
+        The guards come from ``memory.graph.semantic``, not from a copy here -- the same reason
+        ``recall_episodes`` reuses ``memory.graph.episodic``'s.
+
+        Only rows a triple write marked with SPO (``provenance`` carries ``subject``): the untripled
+        ``(:Fact)`` node shape has none to filter on, matching what the real backend's edge-only
+        ``MATCH`` returns.
+        """
+        require_scope(scope, method="recall_facts")
+        require_fact_filters(entities, relation, since, until)
+        require_time_window(since, until)
+        require_recall_limit(limit)
+        self.calls.append("recall_facts")
+        self.fact_recall_requests.append(
+            {"entities": entities, "relation": relation, "since": since, "until": until, "limit": limit}
+        )
+
+        wanted = None if entities is None else set(entities)
+        hits = []
+        for row in self._matching(scope):
+            if row.tier is not MemoryTier.SEMANTIC or not current_belief(row):
+                continue
+            if "subject" not in row.provenance:
+                continue
+            if since is not None and (row.t_valid is None or row.t_valid < since):
+                continue
+            if until is not None and (row.t_valid is None or row.t_valid >= until):
+                continue
+            if relation is not None and row.provenance.get("predicate") != relation:
+                continue
+            if wanted is not None and not ({row.provenance.get("subject"), row.provenance.get("object")} & wanted):
+                continue
+            hits.append(replace(row))
+        hits.sort(key=lambda r: (r.t_valid is None, r.t_valid or 0, r.created_at or 0, r.content, r.id))
+        return hits if limit is None else hits[:limit]
+
+    async def arecall_facts(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        relation: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        require_scope(scope, method="arecall_facts")
+        await _yield()
+        self.calls.append("arecall_facts")
+        return self.recall_facts(scope, entities, relation, since, until, limit)
 
     def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
         """Unranked, unlimited lookup by id -- the whole point is to see what ranking hid.

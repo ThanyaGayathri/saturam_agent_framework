@@ -41,6 +41,7 @@ from egpt.memory.graph.relations import (
     relation_details,
     relation_edge_id_for,
 )
+from egpt.memory.graph.semantic import require_fact_filters
 
 __all__ = [
     "ENTITY_KEYS",
@@ -69,6 +70,7 @@ __all__ = [
     "normalized_mentions",
     "relation_details",
     "relation_edge_id_for",
+    "require_fact_filters",
     "require_recall_filters",
     "require_recall_limit",
     "require_time_window",

@@ -51,7 +51,14 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `(source)-[relation]->(target)` between the entity nodes `17_`'s pass creates, provenanced back to
   the interaction. Same consolidation-lane placement as `17_`, wired alongside it with a second
   `relation_pipeline` option. Needs `./cookbook/scripts/run_neo4j.sh`,
-  `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY`.
+  `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY`. Reads the edges back through
+  `graph.recall_facts` (SM-G7), the read `19_` used to reach `graph._driver` directly for.
+- `20_semantic_subgraph.py`: The semantic subgraph (SM-G7) -- resolved `(:Entity)` nodes and the
+  `(:Entity)-[:REL]->(:Entity)` fact edges between them, recalled by entity, by relation label, and
+  by valid time, and shown as a subgraph distinct from `18_`'s episodic one over the same scope.
+  Needs `./cookbook/scripts/run_neo4j.sh`; no API key -- entities and fact edges are written
+  directly, the same way `18_` writes episodes without SM-G2's extraction pass. Requires `.venv`,
+  not `.venvs/demo`, for the same reason `18_` does.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
