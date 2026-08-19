@@ -71,12 +71,30 @@ class BoundaryDecision:
     nothing opened, so there is nothing to attribute the non-event to. :func:`stamp_boundaries`
     writes this pair straight onto ``EpisodicRecord.boundary_*``, which is nullable for exactly
     this reason.
+
+    ``trigger``'s unit depends on ``method``, not on the type: for a ``time_gap`` boundary it is
+    the idle gap in seconds; for a ``turn_cap`` boundary it is the turn count the cap fired at
+    (an int stored as ``float``); it is ``None`` for both a continuation and the first-ever
+    boundary of a scope (there is no prior gap to report). A reader must consult ``method``
+    alongside ``trigger`` to interpret the number -- the same is true of the persisted
+    ``EpisodicRecord.boundary_trigger`` this gets stamped onto.
     """
 
     is_boundary: bool
     method: Optional[str]
     trigger: Optional[float]
     confidence: Optional[float]
+
+    def __post_init__(self) -> None:
+        if self.confidence is not None and not (0.0 <= self.confidence <= 1.0):
+            raise MemoryOperationError(
+                f"BoundaryDecision.confidence must be within [0.0, 1.0], got {self.confidence!r}. "
+                "EpisodicRecord.boundary_confidence enforces the same range, but only when "
+                "stamp_boundaries later calls dataclasses.replace() on the row -- several frames "
+                "from where the bad value was actually set. Catching it here names the real "
+                "source.",
+                field_name="confidence",
+            )
 
 
 @dataclass(frozen=True)
@@ -182,16 +200,19 @@ def segment_events(
     """
     _validate_params(gap_s, max_turns, min_turns)
     if not events:
-        return [], state or SegmentState()
+        return [], state if state is not None else SegmentState()
 
-    scope_keys = {event.scope.key() for event in events}
-    if len(scope_keys) > 1:
-        raise MemoryOperationError(
-            f"segment_events received {len(scope_keys)} distinct scopes in one batch: "
-            f"{sorted(scope_keys)}. Segment each scope's events separately -- comparing idle gaps "
-            "across conversations is not a boundary decision this function can make for you.",
-            field_name="events",
-        )
+    scope_keys = {events[0].scope.key()}
+    for event in events[1:]:
+        scope_keys.add(event.scope.key())
+        if len(scope_keys) > 1:
+            raise MemoryOperationError(
+                f"segment_events received at least {len(scope_keys)} distinct scopes in one "
+                f"batch: {sorted(scope_keys)}. Segment each scope's events separately -- "
+                "comparing idle gaps across conversations is not a boundary decision this "
+                "function can make for you.",
+                field_name="events",
+            )
 
     last_occurred_at = state.last_occurred_at if state is not None else None
     turns_since_boundary = state.turns_since_boundary if state is not None else 0
@@ -264,12 +285,20 @@ def stamp_boundaries(
     hand-built or future ``BoundaryDecision`` (e.g. a boundary with no label) reaching this
     function and being stamped as a silent continuation.
     """
+    if not version or not version.strip():
+        raise MemoryOperationError(
+            f"stamp_boundaries received version={version!r}, which is blank. Every stamped row "
+            "would carry provenance nobody can trace back to the segmenter that decided it -- "
+            "use segmenter_version() rather than a hand-written string.",
+            field_name="version",
+        )
     if len(episodes) != len(decisions):
         raise MemoryOperationError(
             f"stamp_boundaries received {len(episodes)} episode(s) but {len(decisions)} "
             "decision(s). Both must come from the same ordered event sequence -- build "
             "`decisions` with segment_events over the same events episode_from_event built "
-            "`episodes` from.",
+            "`episodes` from, and do not sort one list without the other: stamp_boundaries pairs "
+            "them positionally (index 0 of `decisions` stamps index 0 of `episodes`).",
             field_name="decisions",
         )
     stamped = []

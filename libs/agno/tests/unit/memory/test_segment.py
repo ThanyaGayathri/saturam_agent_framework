@@ -192,6 +192,33 @@ def test_invalid_parameters_are_refused(kwargs):
         segment_events([an_event(BASE_T)], **kwargs)
 
 
+def test_min_turns_equal_to_max_turns_lets_the_cap_fire_first():
+    """When min_turns == max_turns, turns_since_boundary hits the cap at the same event a
+    suppressed gap boundary would have first become allowed -- the cap wins because it is checked
+    first, so the opening method is turn_cap, not time_gap."""
+    events = [
+        an_event(BASE_T),
+        an_event(BASE_T + 10),
+        an_event(BASE_T + 4000),  # well past gap_s, and turns_since_boundary is now 2 == min==max
+    ]
+    decisions, _ = segment_events(events, gap_s=900.0, max_turns=2, min_turns=2)
+
+    assert [d.is_boundary for d in decisions] == [True, False, True]
+    assert decisions[2].method == TURN_CAP_METHOD
+
+
+def test_boundary_decision_rejects_out_of_range_confidence():
+    with pytest.raises(MemoryOperationError) as excinfo:
+        BoundaryDecision(is_boundary=True, method=TIME_GAP_METHOD, trigger=None, confidence=2.0)
+    assert excinfo.value.field_name == "confidence"
+
+
+def test_boundary_decision_allows_none_confidence():
+    # None means "no decision made a confidence claim" (a continuation) -- must not be rejected
+    # as out of range.
+    BoundaryDecision(is_boundary=False, method=None, trigger=None, confidence=None)
+
+
 def test_defaults_match_the_sm_r6_ratified_values():
     """ADR 0003's ratified defaults table: time_gap 900s, max_turns 40, min_turns 3."""
     assert DEFAULT_TIME_GAP_S == 900.0
@@ -267,6 +294,16 @@ def test_stamp_boundaries_length_mismatch_is_refused():
     assert excinfo.value.field_name == "decisions"
 
 
+@pytest.mark.parametrize("version", ["", "   "])
+def test_stamp_boundaries_refuses_a_blank_version(version):
+    episodes = [_episode("ep-1", BASE_T)]
+    decisions = [BoundaryDecision(is_boundary=True, method=TIME_GAP_METHOD, trigger=None, confidence=1.0)]
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        stamp_boundaries(episodes, decisions, version=version)
+    assert excinfo.value.field_name == "version"
+
+
 def test_segmenter_version_reflects_its_parameters():
     assert segmenter_version(gap_s=900.0, max_turns=40, min_turns=3) != segmenter_version(
         gap_s=600.0, max_turns=40, min_turns=3
@@ -320,6 +357,28 @@ def test_episodes_from_events_resolves_missing_occurred_at_to_one_shared_now():
     assert episodes[0].occurred_at == episodes[1].occurred_at
     # Same shared "now" also means no manufactured gap between them.
     assert episodes[1].boundary_method is None
+
+
+def test_episodes_from_events_mixing_none_and_older_explicit_timestamp_is_out_of_order():
+    """The footgun the docstring warns about: a None-timestamped event resolves to "now", which
+    is after an explicit, older timestamp elsewhere in the same batch -- an out-of-order rejection
+    the message now attributes to the null resolution, not just to "index 1 precedes index 0"."""
+    old_explicit = an_event(BASE_T, id="old")  # far in the past relative to "now"
+    unstamped = an_event(None, id="unstamped")
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        episodes_from_events([unstamped, old_explicit], min_turns=1)
+
+    assert excinfo.value.field_name == "occurred_at"
+    assert "resolved occurred_at=None" in str(excinfo.value)
+
+
+def test_episodes_from_events_validates_params_even_with_an_all_non_episodic_batch():
+    semantic_event = an_event(BASE_T, tier=MemoryTier.SEMANTIC, id="sem-1")
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        episodes_from_events([semantic_event], gap_s=-1.0)
+    assert excinfo.value.field_name == "gap_s"
 
 
 def test_episodes_from_events_drops_non_episodic_events():
