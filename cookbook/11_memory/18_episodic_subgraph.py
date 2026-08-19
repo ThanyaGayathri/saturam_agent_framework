@@ -23,6 +23,7 @@ from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.episodic.link import episode_link_drift, resolve_episode_link
 from egpt.memory.graph.episodic import entity_node_id_for
 from egpt.memory.schemas.episodic import episode_from_event
+from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, Scope
 from egpt.providers.model_provider import ProviderMode
 
@@ -139,6 +140,7 @@ episode = episode_from_event(
         content="ada moved to berlin and joined the platform team",
         scope=ACME_ADA,
         id="ep-ada-march",
+        tier=MemoryTier.EPISODIC,
         entities=["ada", "berlin", "platform team"],
         occurred_at=MARCH,
     )

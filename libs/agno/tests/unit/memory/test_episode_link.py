@@ -9,7 +9,7 @@ seam a caller actually uses: write an episode, then ask whether the graph agrees
 from dataclasses import replace
 
 from egpt.memory.episodic.link import EpisodeLink, aresolve_episode_link, episode_link_drift, resolve_episode_link
-from egpt.memory.schemas.episodic import episode_from_event
+from egpt.memory.schemas.episodic import episode_from_event, graph_node_id_for
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, Scope
 from tests.unit.memory._fakes import FakeGraph
@@ -168,3 +168,29 @@ def test_entity_ids_is_none_rather_than_empty_when_t_valid_is_unset():
     # The graph still reports its own t_valid (100, from the written event) -- comparing it
     # against the row's cleared field is a real drift, not something the None short-circuit hides.
     assert episode_link_drift(episode, link) == ["t_valid"]
+
+
+def test_a_zero_entity_episode_resolves_with_an_empty_not_a_none_entity_set():
+    """The window *did* run and found the row -- `entity_ids=frozenset()` ("checked, names
+    nothing") must not collapse into the `None` ("not checked") every other case here guards."""
+    event = an_event(entities=[])
+    episode = episode_from_event(event)
+    graph = FakeGraph()
+    graph.upsert_episodes(ACME, [event])
+
+    link = resolve_episode_link(ACME, episode, graph)
+
+    assert link.entity_ids == frozenset()
+    assert episode_link_drift(episode, link) == []
+
+
+def test_resolve_falls_back_to_the_derived_graph_node_id_when_the_row_carries_none():
+    """A row predating SM-E1, or built by hand without going through `episode_from_event`, can
+    carry `graph_node_id=None` -- the `or graph_node_id_for(...)` fallback must still label the
+    link with the address the graph actually uses, not leave it `None`."""
+    episode = replace(episode_from_event(an_event()), graph_node_id=None)
+    graph = FakeGraph()
+
+    link = resolve_episode_link(ACME, episode, graph)
+
+    assert link.graph_node_id == graph_node_id_for(ACME, episode.id)

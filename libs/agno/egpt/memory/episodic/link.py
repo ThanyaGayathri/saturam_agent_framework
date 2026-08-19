@@ -34,10 +34,10 @@ __all__ = ["EpisodeLink", "aresolve_episode_link", "episode_link_drift", "resolv
 class EpisodeLink:
     """What the graph currently reports for one episode id, next to nothing yet from the row.
 
-    ``entity_ids`` is ``None`` rather than empty when it could not be determined -- an episode
-    with no ``t_valid`` cannot be windowed, and reporting an empty set there would read as "names
-    nothing" for a case that is actually "not checked", the same false-empty :func:`_require_list`
-    guards on the write side. See :func:`resolve_episode_link` for the other ways this happens.
+    ``None`` is used rather than ``frozenset()`` for ``entity_ids`` when it could not be
+    determined -- an empty frozenset would read as "checked and names nothing", which is a
+    different claim from "could not be checked". See :func:`resolve_episode_link` for the cases
+    that produce it.
     """
 
     graph_node_id: str
@@ -62,11 +62,10 @@ def _entity_ids_of(episode_id: str, hits: List[MemoryRecord]) -> Optional[Frozen
     episodic data returns O(1) rows in any realistic corpus; this is not a hot path over a page."""
     for record in hits:
         if record.id == episode_id:
-            # `or []` folds two shapes into one: a key absent from `provenance` (`None`) and a key
-            # present but genuinely empty. Replacing this with `.get("entity_ids", [])` would still
-            # pass every test here, but would stop distinguishing "no key" from "key is `None`" --
-            # a distinction `_entity_ids_of` itself does not need today but a future caller reading
-            # `provenance` directly might.
+            # `.get("entity_ids")` (no default) returns None for both "no such key" and "key
+            # present but set to None" -- `or []` folds both into an empty list rather than
+            # propagating None into `frozenset(...)`, which would raise. `.get("entity_ids", [])`
+            # would NOT catch the second case: a present-but-None value passes straight through.
             return frozenset(record.provenance.get("entity_ids") or [])
     return None
 
@@ -85,10 +84,19 @@ def _fallback_window(
     that gap without touching the case this is not about: ``entity_ids is not None`` (found first
     try) or ``hit_t_valid is None`` (nothing to retry at, matching the row's own unwindowable
     case) both return ``None`` here, same as the two views agreeing.
+
+    **Does not close every case.** ``hit_t_valid`` is itself a snapshot from the ``bounds_for_ids``
+    call moments earlier in :func:`resolve_episode_link`; if a second writer lands between that
+    call and this one such that the row's *new* ``t_valid`` happens to equal ``episode_t_valid``
+    again, this guard reads "no drift" and returns ``None``, and the entity check is skipped for
+    that resolve. There is no snapshot isolation across the two round trips this module makes, so
+    a caller needing a stronger guarantee than "usually closes the gap, cannot close a race between
+    its own two reads" must treat ``entity_ids is None`` on an existing link as "undetermined", not
+    "agreed" -- exactly as :func:`episode_link_drift` already does.
     """
     if entity_ids is not None or hit_t_valid is None or hit_t_valid == episode_t_valid:
         return None
-    return hit_t_valid, hit_t_valid + 1
+    return _window(hit_t_valid)
 
 
 def resolve_episode_link(scope: Scope, episode: EpisodicRecord, graph: GraphSubstrate) -> EpisodeLink:
