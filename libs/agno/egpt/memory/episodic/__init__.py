@@ -1,9 +1,11 @@
-"""Episodic-tier scoring and segmentation (SM-E3 #110, SM-E4 #111).
+"""Episodic-tier scoring and segmentation (SM-E3 #110, SM-E4 #111, SM-E5 #112, SM-E6 #113).
 
-Re-exports :mod:`egpt.memory.episodic.decay`'s public API -- the SM-R5-ratified recency-decay
-scorer and its reinforcement function -- and :mod:`egpt.memory.episodic.segment`'s SM-R6 v1 inline
-segmenter. Siblings scoring the same tier (importance, SM-E5 #112; relevance, SM-E6 #113) and the
-module composing them (SM-E7 #114) land here alongside them.
+Re-exports the tier's scorers -- SM-E4's recency-decay module
+(:mod:`egpt.memory.episodic.decay`), SM-E5's salience scorer
+(:mod:`egpt.memory.episodic.importance`), SM-E6's relevance module
+(:mod:`egpt.memory.episodic.relevance`) -- and SM-E3's SM-R6 v1 inline segmenter
+(:mod:`egpt.memory.episodic.segment`). The module composing all three scorers (SM-E7 #114) lands
+here alongside them.
 """
 
 from egpt.memory.episodic.decay import (
@@ -14,6 +16,8 @@ from egpt.memory.episodic.decay import (
     recency_decay,
     reinforce,
 )
+from egpt.memory.episodic.importance import ImportanceScore, ImportanceScorer
+from egpt.memory.episodic.relevance import EmbedderLike, aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.episodic.segment import (
     DEFAULT_MAX_TURNS_PER_EPISODE,
     DEFAULT_MIN_TURNS_PER_EPISODE,
@@ -36,8 +40,14 @@ __all__ = [
     "TIME_GAP_METHOD",
     "TURN_CAP_METHOD",
     "BoundaryDecision",
+    "EmbedderLike",
+    "ImportanceScore",
+    "ImportanceScorer",
     "SegmentState",
+    "aepisode_relevance",
+    "cosine_relevance",
     "episode_decay_score",
+    "episode_relevance",
     "half_life_s",
     "recency_decay",
     "reinforce",

@@ -8,14 +8,17 @@ from egpt.memory.config import (
     register_provider,
     registered_providers,
 )
-from egpt.memory.episodic.decay import (
+from egpt.memory.episodic import (
     DEFAULT_BASE_HALF_LIFE_S,
     DEFAULT_IMP_FACTOR,
+    ImportanceScore,
+    ImportanceScorer,
     episode_decay_score,
     half_life_s,
     recency_decay,
     reinforce,
 )
+from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.episodic.segment import (
     DEFAULT_MAX_TURNS_PER_EPISODE,
     DEFAULT_MIN_TURNS_PER_EPISODE,
@@ -202,6 +205,9 @@ __all__ = [
     "half_life_s",
     "recency_decay",
     "reinforce",
+    # Episode salience scoring (SM-E5)
+    "ImportanceScore",
+    "ImportanceScorer",
     # Inline event segmentation -- the SM-R6 v1 prior (SM-E3)
     "DEFAULT_MAX_TURNS_PER_EPISODE",
     "DEFAULT_MIN_TURNS_PER_EPISODE",
@@ -224,4 +230,8 @@ __all__ = [
     "episodes_from_events",
     "start_writeback_future",
     "astart_writeback_task",
+    # Episodic relevance scoring (SM-E6)
+    "aepisode_relevance",
+    "cosine_relevance",
+    "episode_relevance",
 ]
