@@ -90,6 +90,19 @@ from egpt.memory.validation import (
     reject_foreign_scopes,
 )
 
+# Write-back capture (SM-E2)
+from egpt.memory.writeback import (
+    ROLE_KEY,
+    TOOL_CALL_ERROR_KEY,
+    TOOL_CALL_ID_KEY,
+    TOOL_NAME_KEY,
+    astart_writeback_task,
+    event_from_message,
+    event_from_tool_execution,
+    events_from_run,
+    start_writeback_future,
+)
+
 __all__ = [
     "MemoryManager",
     "UserMemory",
@@ -181,4 +194,14 @@ __all__ = [
     # Episode salience scoring (SM-E5)
     "ImportanceScore",
     "ImportanceScorer",
+    # Write-back capture (SM-E2)
+    "ROLE_KEY",
+    "TOOL_CALL_ERROR_KEY",
+    "TOOL_CALL_ID_KEY",
+    "TOOL_NAME_KEY",
+    "event_from_message",
+    "event_from_tool_execution",
+    "events_from_run",
+    "start_writeback_future",
+    "astart_writeback_task",
 ]
