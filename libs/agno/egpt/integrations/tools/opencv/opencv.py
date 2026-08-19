@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Callable, List
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Image, Video
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_debug, log_error, log_info
@@ -42,7 +42,7 @@ class OpenCVTools(Toolkit):
 
     def capture_image(
         self,
-        agent: Agent,
+        agent: ToolHandleLike,
         prompt: str = "Webcam capture",
     ) -> ToolResult:
         """Capture an image from the webcam.
@@ -146,7 +146,7 @@ class OpenCVTools(Toolkit):
 
     def capture_video(
         self,
-        agent: Agent,
+        agent: ToolHandleLike,
         duration: int = 10,
         prompt: str = "Webcam video capture",
     ) -> ToolResult:

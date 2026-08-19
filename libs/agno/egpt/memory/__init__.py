@@ -8,6 +8,9 @@ from egpt.memory.config import (
     register_provider,
     registered_providers,
 )
+
+# The consolidation scheduler (SM-L1)
+from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker
 from egpt.memory.episodic import (
     DEFAULT_BASE_HALF_LIFE_S,
     DEFAULT_IMP_FACTOR,
@@ -83,6 +86,7 @@ from egpt.memory.types import (
     MemoryScopeRequiredError,
     MemorySlice,
     PartialWriteError,
+    ScanCursor,
     Scope,
     Substrate,
     TemporalBounds,
@@ -150,6 +154,7 @@ __all__ = [
     "MemorySlice",
     "MemoryTier",
     "SCOPE_SLOTS",
+    "ScanCursor",
     "Scope",
     "Substrate",
     "TemporalBounds",
@@ -234,4 +239,7 @@ __all__ = [
     "aepisode_relevance",
     "cosine_relevance",
     "episode_relevance",
+    # The consolidation scheduler (SM-L1)
+    "ConsolidationOutcome",
+    "ConsolidationWorker",
 ]

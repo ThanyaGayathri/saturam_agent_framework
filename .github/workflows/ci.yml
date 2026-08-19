@@ -238,20 +238,16 @@ jobs:
   import-linter:
     # EGPT-1.11 (aicoe-tracker#52): encodes the integrations-boundary cells of ADR 0001's
     # allowed-import matrix (docs/adr/0001-layered-architecture.md) as import-linter contracts
-    # in libs/agno/pyproject.toml. Deliberately NOT in ci-success's `needs` (and not required by
-    # branch protection) yet: the contracts have no `ignore_imports` for the known debt tracked
-    # in libs/agno/tests/unit/test_import_linter_contracts.py (aicoe-tracker#157, #158, #180),
-    # so `lint-imports` genuinely fails against `main` today.
-    # That test IS part of the required `test-and-build` job and fails on any violation outside
-    # the tracked set, so regressions are still caught; this job exists to make the raw contract
-    # state visible on every PR. Once the tracked set is empty, promote this to ci-success's
-    # `needs` list -- at that point `lint-imports` and the tracked-set test both go green
-    # together and this job becomes the literal "CI fails on any cross-layer import violation"
-    # gate the issue's acceptance criteria ask for.
-    name: import-linter (informational)
+    # in libs/agno/pyproject.toml. Promoted from informational to required (in ci-success's
+    # `needs`) by EGPT-1.7c (aicoe-tracker#180), which cleared the last of the known debt this
+    # job used to fail on -- the contracts carry no `ignore_imports` for layering debt, and the
+    # retired ledger's terminal guard (libs/agno/tests/unit/test_import_linter_contracts.py)
+    # plus the per-tree AST guards (context/channels/memory layout tests) keep the module-level
+    # precision the contracts cannot express. This is the "CI fails on any cross-layer import
+    # violation" gate #52's acceptance criteria ask for.
+    name: import-linter
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -364,6 +360,7 @@ jobs:
       - validate-egpt-infra
       - test-and-build
       - unit-drivers-absent
+      - import-linter
     # always() is intentional: without it, this job is skipped when an upstream
     # job fails, and GitHub branch protection treats "skipped" as "passed".
     # The shell checks below enforce the real result.
@@ -385,5 +382,9 @@ jobs:
           fi
           if [[ "${{ needs.unit-drivers-absent.result }}" != "success" ]]; then
             echo "unit-drivers-absent failed: ${{ needs.unit-drivers-absent.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.import-linter.result }}" != "success" ]]; then
+            echo "import-linter failed: ${{ needs.import-linter.result }}"
             exit 1
           fi

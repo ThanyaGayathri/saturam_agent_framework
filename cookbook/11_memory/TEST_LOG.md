@@ -385,6 +385,10 @@ episode, so entities are keyed on the full scope rather than the tenant. The unf
 **refused** naming SM-G9 (#107) rather than answered, because every episode in scope is an
 enumeration and what that means over a temporal graph is not this ticket's to define.
 
+**SM-E10 (#117) addition:** `resolve_episode_link` reads the march episode's derived
+`graph_node_id` / `entity_ids` back against the graph this cookbook just wrote to, printing
+`exists=True  t_valid=1600000000  drift=[]` -- the vector-side projection and the graph node agree.
+
 Run **twice in a row and the output is identical**: the four events carry explicit ids and
 `upsert_episodes` replaces by id, so a re-run replaces the same four episodes and their mention
 edges rather than accumulating a fresh set.
@@ -527,7 +531,48 @@ convention, whoever merges second (now third) renumbers.
 
 ---
 
-### 23_episodic_segmentation.py
+### 23_consolidation_worker.py
+
+**Status:** PASS
+
+**Description:** The async consolidation worker (SM-L1 #122) draining `MemoryProvider.consolidate`
+off the hot path: 7 episodes against a pass cap of 3, one `ConsolidationWorker.run_once()` tick
+running 3 passes (`[3, 3, 1]` episodes scanned) and fully draining the tier via the provider's
+internal resumption cursor -- no page token passed by the caller. Then a simulated transient
+`aconsolidate` failure is retried once and recovers, landing exactly one new semantic fact (no
+duplicate, since the fact id is derived from its source episode). A third tick with nothing new
+written confirms the cursor holds: zero episodes scanned, one pass.
+
+**Result:** Ran clean, vector-only (no graph substrate needed -- SM-C5), no database, no API key:
+
+```
+Draining a tier larger than one bounded pass
+=============================================
+episodic rows written: 7, pass cap: 3
+one worker tick ran 3 pass(es): [3, 3, 1]
+fully drained: True
+semantic facts now: 7
+
+A transient failure is retried, and the retry is safe because
+consolidate upserts by a content-derived id -- never a duplicate:
+attempts made: 2, recovered: True
+semantic facts now: 8
+
+Re-running the same tick again finds nothing new -- the cursor
+already sits past every episode written so far:
+passes this tick: 1, episodes scanned: 0
+```
+
+**Note:** at the time this ran, `09_memory_provider_seam.py` and `11_memory_tiers.py` were both
+failing independently of this ticket -- their local `InMemoryGraph` demo double no longer satisfies
+`GraphSubstrate` (missing `upsert_entities`/`aupsert_entities`, added by an already-merged sibling
+ticket). Confirmed pre-existing at this branch's base commit (`9d9268d2`), not introduced by SM-L1.
+Flagged separately rather than fixed here to stay in scope. This file sidesteps it by wiring a
+vector-only provider.
+
+---
+
+### 24_episodic_segmentation.py
 
 **Status:** PASS
 
@@ -549,6 +594,6 @@ the same parameters used to build it.
 
 **Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
 
-**Renumbered to `23_` to avoid the `21_`/`22_` collision this branch inherited from SM-E5/SM-E6
-merging first** (see `22_`'s own note above for the earlier two renumberings this file's
-predecessors went through).
+**Renumbered from `23_` to `24_`: SM-L1 (#122) merged to `main` first and took `23_` for
+`23_consolidation_worker.py`.** Per this file's own convention, whoever merges second renumbers --
+now the fourth time this file's lineage has moved (see `22_`'s own note above for the earlier two).

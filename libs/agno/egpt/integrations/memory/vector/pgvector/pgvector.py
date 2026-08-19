@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from egpt.integrations.memory.vector.pgvector import sql
-from egpt.memory.config import MemoryProviderConfigError
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.embedding import resolve_memory_embedder
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -39,11 +39,12 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     RetrievalCandidates,
+    ScanCursor,
     Scope,
     Substrate,
     require_scope,
 )
-from egpt.providers.model_provider import ProviderMode
+from egpt.metrics import ProviderMode
 from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_debug, log_warning
 from egpt.vectordb.distance import Distance
@@ -1075,7 +1076,12 @@ class PgVectorMemorySubstrate:
 
     @staticmethod
     def _scan_call(
-        schema: str, table: str, scope: Scope, tier: MemoryTier, limit: Optional[int]
+        schema: str,
+        table: str,
+        scope: Scope,
+        tier: MemoryTier,
+        limit: Optional[int],
+        after: Optional[ScanCursor] = None,
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """The scan statement, or ``None`` for ``limit=0`` -- a bound of zero rows, not "unlimited".
 
@@ -1084,20 +1090,24 @@ class PgVectorMemorySubstrate:
         """
         if limit == 0:
             return None
-        statement, binds = sql.scan_statement(schema, table, scope, limit)
+        statement, binds = sql.scan_statement(schema, table, scope, limit, after)
         binds["tier"] = tier.value
         return statement, binds
 
-    def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+    def scan(
+        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None, after: Optional[ScanCursor] = None
+    ) -> List[MemoryRecord]:
         require_scope(scope, method="scan")
-        call = self._scan_call(self.schema, self.table, scope, tier, limit)
+        call = self._scan_call(self.schema, self.table, scope, tier, limit, after)
         if call is None:
             return []
         return [self._record(row) for row in self._statements([call])[0]]
 
-    async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+    async def ascan(
+        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None, after: Optional[ScanCursor] = None
+    ) -> List[MemoryRecord]:
         require_scope(scope, method="ascan")
-        call = self._scan_call(self.schema, self.table, scope, tier, limit)
+        call = self._scan_call(self.schema, self.table, scope, tier, limit, after)
         if call is None:
             return []
         return [self._record(row) for row in (await self._astatements([call]))[0]]

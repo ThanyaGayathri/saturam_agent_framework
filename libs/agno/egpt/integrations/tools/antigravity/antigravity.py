@@ -1,12 +1,11 @@
 import json
 from os import getenv
 from textwrap import dedent
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from egpt.agent import Agent
-from egpt.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.utils.log import log_debug, log_error, log_warning
 
@@ -251,7 +250,7 @@ class AntigravityTools(Toolkit):
         return sources
 
     @staticmethod
-    def _session_state(agent: Optional[Union[Agent, Team]]) -> Optional[Dict[str, Any]]:
+    def _session_state(agent: Optional[ToolHandleLike]) -> Optional[Dict[str, Any]]:
         if agent is None or not hasattr(agent, "session_state"):
             return None
         if agent.session_state is None:
@@ -280,7 +279,7 @@ class AntigravityTools(Toolkit):
     # Agent-callable tools
     # ---------------------------------------------------------------------------
 
-    def run_antigravity_task(self, agent: Union[Agent, Team], task: str) -> str:
+    def run_antigravity_task(self, agent: ToolHandleLike, task: str) -> str:
         """Delegate a task to an Antigravity sandbox and return its final response.
 
         The sandbox is created on first use and reused across calls within the
@@ -332,7 +331,7 @@ class AntigravityTools(Toolkit):
             log_error(f"Antigravity run_antigravity_task failed: {e}")
             return json.dumps({"status": "error", "message": str(e)})
 
-    def run_custom_antigravity_agent(self, agent: Union[Agent, Team], custom_agent_name: str, task: str) -> str:
+    def run_custom_antigravity_agent(self, agent: ToolHandleLike, custom_agent_name: str, task: str) -> str:
         """Invoke a named custom Antigravity agent (created via /agents) and return its response.
 
         Use this when the user has already registered a custom agent definition and wants
@@ -482,7 +481,7 @@ class AntigravityTools(Toolkit):
             return json.dumps({"status": "error", "message": str(e)})
 
     def download_antigravity_environment_snapshot(
-        self, environment_id: str, output_path: str, agent: Optional[Union[Agent, Team]] = None
+        self, environment_id: str, output_path: str, agent: Optional[ToolHandleLike] = None
     ) -> str:
         """Download a sandbox environment snapshot as a tar file.
 

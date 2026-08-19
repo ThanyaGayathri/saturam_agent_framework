@@ -1,10 +1,10 @@
 from os import getenv
-from textwrap import dedent
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 
-from egpt.agent.agent import Agent, RunOutput
 from egpt.media import Audio, File, Image, Video
-from egpt.team.team import Team, TeamRunOutput
+from egpt.registry.protocols import ChatRunnableLike
+from egpt.run.agent import RunOutput
+from egpt.run.team import TeamRunOutput
 from egpt.utils.log import log_error, log_info, log_warning
 from egpt.utils.message import get_text_from_message
 
@@ -48,9 +48,30 @@ class RequiresConfirmationView(discord.ui.View):
         log_warning("Agent Timeout Error")
 
 
+def _context_kwargs(entity: ChatRunnableLike, dependencies: Dict[str, Any]) -> Dict[str, Any]:
+    """Per-call kwargs carrying this message's Discord identity into the run.
+
+    Forcing ``add_dependencies_to_context=True`` is only safe when the entity has no
+    ``dependencies`` of its own: ``arun`` merges call-site dependencies over the entity's
+    (call-site keys win, the entity's own keys otherwise pass through unchanged), so an
+    entity built with ``dependencies={...}, add_dependencies_to_context=False`` --
+    deliberately keeping those values available to tools but out of the model context --
+    would have them exposed to the model by an unconditional override. When the entity has
+    no dependencies of its own, forcing the flag is safe: nothing but this call's Discord
+    keys can appear.
+    """
+    kwargs: Dict[str, Any] = {"dependencies": dependencies}
+    if not getattr(entity, "dependencies", None):
+        kwargs["add_dependencies_to_context"] = True
+    return kwargs
+
+
 class DiscordClient:
     def __init__(
-        self, agent: Optional[Agent] = None, team: Optional[Team] = None, client: Optional[discord.Client] = None
+        self,
+        agent: Optional[ChatRunnableLike] = None,
+        team: Optional[ChatRunnableLike] = None,
+        client: Optional[discord.Client] = None,
     ):
         self.agent = agent
         self.team = team
@@ -104,13 +125,15 @@ class DiscordClient:
 
             async with thread.typing():
                 # TODO Unhappy with the duplication here but it keeps MyPy from complaining
-                additional_context = dedent(f"""
-                    Discord username: {message_user}
-                    Discord userid: {message_user_id} 
-                    Discord url: {message_url}
-                    """)
+                # Per-call kwargs, never `self.agent.additional_context = ...`: discord.py
+                # dispatches each on_message as its own task, so mutating the shared entity
+                # lets concurrent messages read each other's context.
+                dependencies = {
+                    "discord_username": message_user,
+                    "discord_userid": message_user_id,
+                    "discord_url": message_url,
+                }
                 if self.agent:
-                    self.agent.additional_context = additional_context
                     agent_response: RunOutput = await self.agent.arun(  # type: ignore[misc]
                         input=message_text,
                         user_id=message_user_id,
@@ -119,15 +142,15 @@ class DiscordClient:
                         videos=[Video(content=message_video)] if message_video else None,
                         audio=[Audio(url=message_audio)] if message_audio else None,
                         files=[File(content=message_file)] if message_file else None,
+                        **_context_kwargs(self.agent, dependencies),
                     )
                     if agent_response.status == "ERROR":
                         log_error(agent_response.content)
                         agent_response.content = (
                             "Sorry, there was an error processing your message. Please try again later."
                         )
-                    await self._handle_response_in_thread(agent_response, thread)
+                    await self._handle_response_in_thread(agent_response, thread, dependencies)
                 elif self.team:
-                    self.team.additional_context = additional_context
                     team_response: TeamRunOutput = await self.team.arun(  # type: ignore[misc]
                         input=message_text,
                         user_id=message_user_id,
@@ -136,6 +159,7 @@ class DiscordClient:
                         videos=[Video(content=message_video)] if message_video else None,
                         audio=[Audio(url=message_audio)] if message_audio else None,
                         files=[File(content=message_file)] if message_file else None,
+                        **_context_kwargs(self.team, dependencies),
                     )
                     if team_response.status == "ERROR":
                         log_error(team_response.content)
@@ -143,10 +167,13 @@ class DiscordClient:
                             "Sorry, there was an error processing your message. Please try again later."
                         )
 
-                    await self._handle_response_in_thread(team_response, thread)
+                    await self._handle_response_in_thread(team_response, thread, dependencies)
 
     async def handle_hitl(
-        self, run_response: RunOutput, thread: Union[discord.Thread, discord.TextChannel]
+        self,
+        run_response: RunOutput,
+        thread: Union[discord.Thread, discord.TextChannel],
+        dependencies: Dict[str, Any],
     ) -> RunOutput:
         """Handles optional Human-In-The-Loop interaction."""
         if run_response.is_paused:
@@ -157,17 +184,25 @@ class DiscordClient:
                 tool.confirmed = view.value if view.value is not None else False
 
             if self.agent:
+                # dependencies carries this message's Discord identity forward so the
+                # resumed run isn't composed without it (acontinue_run has no
+                # add_dependencies_to_context kwarg to override with, so this is
+                # only ever additive to whatever the agent's own config already shows).
                 run_response = await self.agent.acontinue_run(  # type: ignore[misc]
                     run_response=run_response,
+                    dependencies=dependencies,
                 )
 
         return run_response
 
     async def _handle_response_in_thread(
-        self, response: Union[RunOutput, TeamRunOutput], thread: Union[discord.TextChannel, discord.Thread]
+        self,
+        response: Union[RunOutput, TeamRunOutput],
+        thread: Union[discord.TextChannel, discord.Thread],
+        dependencies: Dict[str, Any],
     ):
         if isinstance(response, RunOutput):
-            response = await self.handle_hitl(response, thread)
+            response = await self.handle_hitl(response, thread, dependencies)
 
         if response.reasoning_content:
             await self._send_discord_messages(

@@ -181,13 +181,35 @@ def import_sites(path):
     was routinely function-local -- ``db_from_dict`` imported ``PostgresDb`` inside an
     if/elif -- and a guard that only reads the header waves the next one through.
 
-    Relative imports are skipped. ``from . import x`` names no absolute module, and a guard
-    asking "does this reach into another layer" can only answer that about absolute paths.
+    Relative imports are resolved to absolute names from the importing module's own dotted
+    path: ``from .config import x`` inside ``egpt.memory.embedding`` reports
+    ``egpt.memory.config``, and ``from . import config`` reports the same. Skipping them
+    (as this helper once did) let a one-character rewrite of an absolute import walk a real
+    edge straight past every guard built on this function.
     """
     sites = []
+    package_parts = None
     for node in ast.walk(_parse(path)):
-        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            sites.append((node.lineno, node.module))
+        if isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                if node.module:
+                    sites.append((node.lineno, node.module))
+                continue
+            if package_parts is None:
+                parts = module_name(path).split(".")
+                # A package __init__'s dotted name IS its package; a regular module's
+                # package is its parent.
+                package_parts = parts if path.name == "__init__.py" else parts[:-1]
+            base = package_parts[: len(package_parts) - (node.level - 1)]
+            if not base:
+                continue  # would climb above the scanned tree; Python itself rejects this at runtime
+            if node.module:
+                sites.append((node.lineno, ".".join(base + node.module.split("."))))
+            else:
+                # `from . import x`: each alias names a submodule (or attribute) of the base
+                # package -- either way `<base>.<alias>` is the dotted path a layer check
+                # must see.
+                sites.extend((node.lineno, ".".join(base + [alias.name])) for alias in node.names)
         elif isinstance(node, ast.Import):
             sites.extend((node.lineno, alias.name) for alias in node.names)
     return sites

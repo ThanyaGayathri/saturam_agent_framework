@@ -122,8 +122,13 @@ class MemoryProvider(ABC):
         **One bounded pass, and the caller does not resume it.** An implementation may cap how much
         it reads; ``details["complete"]`` says whether the tier was drained. There is deliberately
         no cursor in this signature -- it would put the termination condition in the caller's hands,
-        where ignoring it silently skips episodes. Draining a tier larger than one pass, and
-        scheduling passes at all, are SM-L1's (#122).
+        where ignoring it silently skips episodes. An implementation MAY track a resumption cursor
+        of its own, internally, so that repeated calls jointly drain a tier larger than one pass --
+        ``CoLocatedMemoryProvider`` does (SM-L1 #122) -- but that state is never exposed here: a
+        caller that never calls again has lost nothing it was ever given, and one that does call
+        again makes progress without having to pass anything back. Scheduling passes at all --
+        which scopes, how often, retrying a failed one -- is :mod:`egpt.memory.consolidation`'s
+        (SM-L1 #122).
 
         **It distils and writes; it does not retire.** A provider derives a fact id from the
         episodes it came from, so a group whose membership changes mints a *new* id and the
@@ -142,6 +147,16 @@ class MemoryProvider(ABC):
         The async variant is the primary lane; this sync one exists for tests and manual triggers.
         Ordering constraint from SM-R5 section 6: decay-pruning runs **after** this pass, never
         before, or an episode can be pruned before its knowledge reaches the semantic tier.
+
+        **Concurrent calls on the same scope and tier are safe, not free.** Idempotent upsert
+        (by content-derived fact id) means two overlapping passes cannot corrupt state or produce
+        duplicate rows, but an implementation that tracks a resumption cursor internally (the
+        previous paragraph) reads it once per call, before either has advanced it -- so both scan
+        and distil the same window, redoing one pass's work rather than splitting it.
+        ``ConsolidationWorker`` never does this to itself (one call in flight per scope at a
+        time); a caller driving ``consolidate``/``aconsolidate`` directly, outside that worker,
+        is responsible for serializing calls to the same scope if avoiding the redundant work
+        matters to it.
         """
         raise NotImplementedError
 
