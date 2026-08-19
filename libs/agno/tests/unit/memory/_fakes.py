@@ -21,7 +21,7 @@ They are deliberately faithful on the two behaviours the provider depends on:
 
 import asyncio
 from dataclasses import replace
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from uuid import uuid4
 
 from egpt.memory.graph.episodic import (
@@ -36,6 +36,7 @@ from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     SCOPE_SLOTS,
+    EntityMerge,
     EntityWrite,
     FactWrite,
     MemoryEvent,
@@ -48,6 +49,22 @@ from egpt.memory.types import (
     ValidWindow,
     require_scope,
 )
+
+
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    """Raw cosine similarity in ``[-1.0, 1.0]``.
+
+    A pure function rather than a numpy dependency: the double's whole point is to be readable
+    without one, and two 768-float lists compared per candidate is not where a test suite's time
+    goes. Callers matching Neo4j's own vector index must normalise the result themselves -- see
+    ``FakeGraph._match_entities``, which does not use this raw value directly.
+    """
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(y * y for y in b) ** 0.5
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 async def _yield() -> None:
@@ -382,6 +399,19 @@ class FakeGraph:
         # A fresh instance rather than a mutation: the caller keeps its own ``EntityWrite``, and a
         # double that stored the object handed to it would let a later mutation rewrite history --
         # the "return copies" rule, applied on the write side where the aliasing starts.
+        # Review finding on PR #96 (round 3): an incoming entity with no embedding must not erase
+        # one the node already has -- matching `Neo4jGraphSubstrate._entity_rows`'s conditional
+        # omit, which round 1's finding on this same PR fixed on the real backend. A double that
+        # still erased it here would model a backend weaker than the one it stands in for, which
+        # is the one thing this module's own docstring says a double must never do. Reachable both
+        # through a plain `upsert_entities` re-write and through `merge_entities`' canonical write
+        # (whose `EntityWrite` never carries an embedding when it came from `_merge_for`'s match
+        # leg -- see `EntityResolutionPipeline._canonical`).
+        stored_embedding = list(stored.embedding) if stored and stored.embedding is not None else None
+        embedding = list(entity.embedding) if entity.embedding is not None else stored_embedding
+        embedding_version = (
+            entity.embedding_version if entity.embedding is not None else (stored.embedding_version if stored else None)
+        )
         self.entities[(scope.key(), entity.name)] = EntityWrite(
             name=entity.name,
             entity_type=entity.entity_type,
@@ -390,8 +420,8 @@ class FakeGraph:
             aliases=stored_aliases + new_aliases,
             properties=dict(entity.properties),
             source_episode_ids=stored_episode_ids + new_episode_ids,
-            embedding=list(entity.embedding) if entity.embedding is not None else None,
-            embedding_version=entity.embedding_version,
+            embedding=embedding,
+            embedding_version=embedding_version,
             confidence=entity.confidence,
             derived_by=entity.derived_by,
         )
@@ -406,6 +436,147 @@ class FakeGraph:
         self.entity_batch_sizes.append(len(entities))
         for entity in entities:
             self._upsert_entity(scope, entity)
+
+    # -- entity resolution (SM-G8 #106) ----------------------------------------
+
+    def _match_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int, min_score: float
+    ) -> List[Tuple[EntityWrite, float]]:
+        if candidate.embedding is None:
+            raise MemoryOperationError(
+                f"match_entities was given {candidate.name!r} with no embedding. The similarity leg "
+                "has nothing to compare against, and skipping it silently would report a resolution "
+                "pass that checked nothing as one that checked everything.",
+                field_name="embedding",
+            )
+        best: Dict[str, float] = {}
+        for (scope_key, name), stored in self.entities.items():
+            if scope_key != scope.key() or name == candidate.name:
+                continue
+            score = None
+            if stored.key == candidate.key:
+                score = 1.0
+            elif stored.embedding is not None:
+                # `(1 + cosine) / 2`, matching Neo4j's own vector index normalisation exactly --
+                # not a clamp of raw cosine. A double scoring orthogonal vectors 0.0 where the real
+                # backend scores them 0.5 would accept and refuse a different set of candidates than
+                # the engine it stands in for, which is the one thing a double must never do.
+                similarity = (1.0 + _cosine(candidate.embedding, stored.embedding)) / 2.0
+                if similarity >= min_score:
+                    score = similarity
+            if score is not None and score > best.get(name, -1.0):
+                best[name] = score
+        ordered = sorted(best, key=lambda name: (-best[name], name))[:limit]
+        # Copies, not the stored objects themselves: `Neo4jGraphSubstrate._entity_from_row` always
+        # constructs a fresh `EntityWrite` from what the engine returned, so a caller mutating a
+        # match result (via `dataclasses.replace`, say) can never reach this dict's own values --
+        # the "return copies" rule this module states in its own docstring, applied on the read
+        # side where a match is the first place a caller gets to hold one.
+        return [(replace(self.entities[(scope.key(), name)]), best[name]) for name in ordered]
+
+    def match_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]:
+        require_scope(scope, method="match_entities")
+        self.calls.append("match_entities")
+        return self._match_entities(scope, candidate, limit, min_score)
+
+    async def amatch_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]:
+        require_scope(scope, method="amatch_entities")
+        await _yield()
+        self.calls.append("amatch_entities")
+        return self._match_entities(scope, candidate, limit, min_score)
+
+    @staticmethod
+    def _reject_overlapping_merges(merges: Sequence[EntityMerge]) -> None:
+        """Refuse a batch where one merge's canonical is another's duplicate, or the same
+        duplicate name appears in two merges -- matching ``Neo4jGraphSubstrate``'s guard exactly
+        (review finding on PR #96, round 3: this double had neither check, so a batch Neo4j
+        refuses was silently accepted here, corrupting state a caller relying on the double for
+        tests would never see coming)."""
+        canonical_names = {merge.canonical.name for merge in merges}
+        duplicate_names = {name for merge in merges for name in merge.duplicate_names}
+        overlap = canonical_names & duplicate_names
+        if overlap:
+            raise MemoryOperationError(
+                f"merge_entities was given a batch where {sorted(overlap)} names both a canonical "
+                "entity in one merge and a duplicate in another. Resolving that requires deciding "
+                "an order between the two merges, which this batch does not state -- split it into "
+                "two calls, ordered.",
+                field_name="merges",
+            )
+        seen_duplicates: Set[str] = set()
+        for merge in merges:
+            for name in merge.duplicate_names:
+                if name in seen_duplicates:
+                    raise MemoryOperationError(
+                        f"merge_entities was given a batch where {name!r} is a duplicate in more "
+                        "than one merge. Each name can fold into exactly one canonical per batch; "
+                        "split it into two calls, ordered.",
+                        field_name="merges",
+                    )
+                seen_duplicates.add(name)
+
+    def _merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        self._reject_overlapping_merges(merges)
+        canonical_by_duplicate: Dict[str, str] = {}
+        for merge in merges:
+            if merge.canonical.scope != scope:
+                raise MemoryOperationError(
+                    f"EntityMerge.canonical {merge.canonical.name!r} carries scope "
+                    f"{merge.canonical.scope.key()} but is being merged under {scope.key()}. Batch "
+                    "per scope; the two must agree.",
+                    field_name="scope",
+                )
+            self._upsert_entity(scope, merge.canonical)
+            for name in merge.duplicate_names:
+                canonical_by_duplicate[name] = merge.canonical.name
+        if not canonical_by_duplicate:
+            return
+        # Node-id lookup built once, not re-derived per linked id per row: `entity_node_id_for` is
+        # pure in `(scope, name)`, so computing it |duplicate_names| times up front makes the
+        # re-point below O(ids) instead of O(ids * duplicates).
+        id_for_duplicate = {
+            entity_node_id_for(scope, duplicate_name): entity_node_id_for(scope, canonical_name)
+            for duplicate_name, canonical_name in canonical_by_duplicate.items()
+        }
+        # Re-point every episode's mention edges from a duplicate's node id to the canonical's,
+        # matching `link_mentions_statement`'s MERGE semantics: a row already mentioning the
+        # canonical is not duplicated.
+        for row in self._bucket(scope):
+            if row.scope != scope or row.tier is not MemoryTier.EPISODIC:
+                continue
+            linked = list(row.provenance.get("entity_ids") or [])
+            if not linked:
+                continue
+            repointed = []
+            seen = set()
+            for entity_id in linked:
+                new_id = id_for_duplicate.get(entity_id, entity_id)
+                if new_id not in seen:
+                    seen.add(new_id)
+                    repointed.append(new_id)
+            if repointed != linked:
+                row.provenance = {**row.provenance, "entity_ids": repointed}
+        for duplicate_name in canonical_by_duplicate:
+            self.entities.pop((scope.key(), duplicate_name), None)
+
+    def merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        require_scope(scope, method="merge_entities")
+        self.calls.append("merge_entities")
+        if not merges:
+            return
+        self._merge_entities(scope, merges)
+
+    async def amerge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        require_scope(scope, method="amerge_entities")
+        await _yield()
+        self.calls.append("amerge_entities")
+        if not merges:
+            return
+        self._merge_entities(scope, merges)
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         require_scope(scope, method="traverse")

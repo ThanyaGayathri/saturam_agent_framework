@@ -53,12 +53,30 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `relation_pipeline` option. Needs `./cookbook/scripts/run_neo4j.sh`,
   `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY`. Reads the edges back through
   `graph.recall_facts` (SM-G7), the read `19_` used to reach `graph._driver` directly for.
-- `20_semantic_subgraph.py`: The semantic subgraph (SM-G7) -- resolved `(:Entity)` nodes and the
+- `20_entity_resolution_graph.py`: Entity resolution (SM-G8) -- folding "Acme" and "Acme
+  Corporation" into one node via `EntityResolutionPipeline`, re-pointing their `MENTIONS` edges and
+  keeping the losing name as an alias. No API key; needs `./cookbook/scripts/run_neo4j.sh` and a
+  local embedder (`sentence-transformers`, installed by `.venvs/demo`).
+- `21_episode_importance.py`: Episode salience scoring (SM-E5) -- an episode's content scored
+  1-10 (Generative Agents' poignancy scale) and normalized to the `[0, 1]` range
+  `Decaying.importance` already validates, then applied to an already-built episode with
+  `dataclasses.replace`. Needs a real model (`OPENAI_API_KEY`); there is no offline path for
+  LLM-assigned salience.
+- `22_episodic_relevance_scoring.py`: Episodic relevance scoring (SM-E6) -- query-vs-episode
+  cosine similarity as its own signal, computed independently of a live `VectorSubstrate.search`
+  round trip so a candidate reaching composite scoring by another path (graph traversal, a scan)
+  can still be scored. `cosine_relevance` on precomputed embeddings and `episode_relevance` on raw
+  text; recency/importance/composite weighting are SM-E4/SM-E5/SM-E7's. Runs with no database and
+  no API key -- a tiny deterministic bag-of-hashed-tokens embedder, not a real model.
+- `23_semantic_subgraph.py`: The semantic subgraph (SM-G7) -- resolved `(:Entity)` nodes and the
   `(:Entity)-[:REL]->(:Entity)` fact edges between them, recalled by entity, by relation label, and
   by valid time, and shown as a subgraph distinct from `18_`'s episodic one over the same scope.
   Needs `./cookbook/scripts/run_neo4j.sh`; no API key -- entities and fact edges are written
   directly, the same way `18_` writes episodes without SM-G2's extraction pass. Requires `.venv`,
   not `.venvs/demo`, for the same reason `18_` does.
+  **Renumbered from `20_` to `23_`** -- `feat/SM-G8` took `20_entity_resolution_graph.py` first, and
+  `feat/SM-E5`/`feat/SM-E6` took `21_`/`22_` while this branch was still catching up. Per this
+  file's own convention, whoever merges second renumbers.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
