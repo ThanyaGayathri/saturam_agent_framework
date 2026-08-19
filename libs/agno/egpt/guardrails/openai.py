@@ -6,6 +6,7 @@ from egpt.guardrails.base import BaseGuardrail
 from egpt.run.agent import RunInput
 from egpt.run.team import TeamRunInput
 from egpt.utils.log import log_debug
+from egpt.utils.media import images_to_message
 
 
 class OpenAIModerationGuardrail(BaseGuardrail):
@@ -66,10 +67,6 @@ class OpenAIModerationGuardrail(BaseGuardrail):
         model_input: Union[str, List[Dict[str, Any]]] = content
 
         if images is not None:
-            # Deferred: this helper is integrations-layer provider infra, and services
-            # must not statically import it (ADR 0001 allowed-import matrix).
-            from egpt.integrations.models._utils.openai import images_to_message
-
             model_input = [{"type": "text", "text": content}, *images_to_message(images=images)]
 
         # Prepare input based on content type
@@ -116,10 +113,6 @@ class OpenAIModerationGuardrail(BaseGuardrail):
         model_input: Union[str, List[Dict[str, Any]]] = content
 
         if images is not None:
-            # Deferred: this helper is integrations-layer provider infra, and services
-            # must not statically import it (ADR 0001 allowed-import matrix).
-            from egpt.integrations.models._utils.openai import images_to_message
-
             model_input = [{"type": "text", "text": content}, *images_to_message(images=images)]
 
         # Prepare input based on content type

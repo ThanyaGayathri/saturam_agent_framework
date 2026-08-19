@@ -460,11 +460,17 @@ class Function(BaseModel):
             # even if the parameter name differs (e.g. my_agent: Agent). See issue #6344.
             try:
                 from egpt.agent.agent import Agent
+                from egpt.registry.protocols import ToolHandleLike
                 from egpt.team.team import Team
 
                 framework_types = (Agent, Team, RunContext, Image, Video, Audio, File)
                 for param_name, hint in list(type_hints.items()):
-                    if isinstance(hint, type) and issubclass(hint, framework_types):
+                    # ToolHandleLike is a Protocol with a data member (session_state), so it
+                    # can't join framework_types -- issubclass() against a data-member
+                    # Protocol raises TypeError. Identity check instead: the
+                    # framework-injected handle is always annotated with the protocol
+                    # itself, never a subclass of it.
+                    if hint is ToolHandleLike or (isinstance(hint, type) and issubclass(hint, framework_types)):
                         del type_hints[param_name]
                         excluded_params.append(param_name)
             except Exception:
@@ -620,11 +626,12 @@ class Function(BaseModel):
         try:
             hints = get_type_hints(func)
             from egpt.agent.agent import Agent
+            from egpt.registry.protocols import ToolHandleLike
             from egpt.team.team import Team
 
             framework_types = (Agent, Team)
             for hint in hints.values():
-                if isinstance(hint, type) and issubclass(hint, framework_types):
+                if hint is ToolHandleLike or (isinstance(hint, type) and issubclass(hint, framework_types)):
                     return func
         except Exception:
             pass

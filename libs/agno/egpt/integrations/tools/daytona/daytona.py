@@ -4,10 +4,9 @@ import shlex
 from os import getenv
 from pathlib import Path
 from textwrap import dedent
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from egpt.agent import Agent
-from egpt.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.utils.code_execution import prepare_python_code
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
@@ -147,7 +146,7 @@ class DaytonaTools(Toolkit):
         except ImportError as e:
             log_warning(f"Could not import daytona_api_client.Configuration for SSL patching: {str(e)}")
 
-    def _get_working_directory(self, agent: Union[Agent, Team]) -> str:
+    def _get_working_directory(self, agent: ToolHandleLike) -> str:
         """Get the current working directory from agent session state."""
         if agent and hasattr(agent, "session_state"):
             if agent.session_state is None:
@@ -155,7 +154,7 @@ class DaytonaTools(Toolkit):
             return agent.session_state.get("working_directory", "/home/daytona")
         return "/home/daytona"
 
-    def _set_working_directory(self, agent: Union[Agent, Team], directory: str) -> None:
+    def _set_working_directory(self, agent: ToolHandleLike, directory: str) -> None:
         """Set the working directory in agent session state."""
         if agent and hasattr(agent, "session_state"):
             if agent.session_state is None:
@@ -163,7 +162,7 @@ class DaytonaTools(Toolkit):
             agent.session_state["working_directory"] = directory
             log_info(f"Updated working directory to: {directory}")
 
-    def _get_or_create_sandbox(self, agent: Union[Agent, Team]) -> Sandbox:
+    def _get_or_create_sandbox(self, agent: ToolHandleLike) -> Sandbox:
         """Get existing sandbox or create new one"""
         try:
             sandbox = None
@@ -213,7 +212,7 @@ class DaytonaTools(Toolkit):
             else:
                 raise e
 
-    def _create_new_sandbox(self, agent: Optional[Union[Agent, Team]] = None) -> Sandbox:
+    def _create_new_sandbox(self, agent: Optional[ToolHandleLike] = None) -> Sandbox:
         """Create a new sandbox with the configured parameters."""
         try:
             labels = self.sandbox_labels.copy()
@@ -246,7 +245,7 @@ class DaytonaTools(Toolkit):
             raise e
 
     # Tools
-    def run_code(self, agent: Union[Agent, Team], code: str) -> str:
+    def run_code(self, agent: ToolHandleLike, code: str) -> str:
         """Execute Python code in the Daytona sandbox.
 
         Args:
@@ -268,7 +267,7 @@ class DaytonaTools(Toolkit):
         except Exception as e:
             return json.dumps({"status": "error", "message": f"Error executing code: {str(e)}"})
 
-    def run_shell_command(self, agent: Union[Agent, Team], command: str) -> str:
+    def run_shell_command(self, agent: ToolHandleLike, command: str) -> str:
         """Execute a shell command in the sandbox.
 
         Args:
@@ -315,7 +314,7 @@ class DaytonaTools(Toolkit):
         except Exception as e:
             return json.dumps({"status": "error", "message": f"Error executing command: {str(e)}"})
 
-    def create_file(self, agent: Union[Agent, Team], file_path: str, content: str) -> str:
+    def create_file(self, agent: ToolHandleLike, file_path: str, content: str) -> str:
         """Create or update a file in the sandbox.
 
         Args:
@@ -358,7 +357,7 @@ class DaytonaTools(Toolkit):
         except Exception as e:
             return json.dumps({"status": "error", "message": f"Error creating file: {str(e)}"})
 
-    def read_file(self, agent: Union[Agent, Team], file_path: str) -> str:
+    def read_file(self, agent: ToolHandleLike, file_path: str) -> str:
         """Read a file from the sandbox.
 
         Args:
@@ -389,7 +388,7 @@ class DaytonaTools(Toolkit):
         except Exception as e:
             return json.dumps({"status": "error", "message": f"Error reading file: {str(e)}"})
 
-    def list_files(self, agent: Union[Agent, Team], directory: Optional[str] = None) -> str:
+    def list_files(self, agent: ToolHandleLike, directory: Optional[str] = None) -> str:
         """List files in a directory.
 
         Args:
@@ -422,7 +421,7 @@ class DaytonaTools(Toolkit):
         except Exception as e:
             return json.dumps({"status": "error", "message": f"Error listing files: {str(e)}"})
 
-    def delete_file(self, agent: Union[Agent, Team], file_path: str) -> str:
+    def delete_file(self, agent: ToolHandleLike, file_path: str) -> str:
         """Delete a file or directory from the sandbox.
 
         Args:
@@ -462,7 +461,7 @@ class DaytonaTools(Toolkit):
         except Exception as e:
             return json.dumps({"status": "error", "message": f"Error deleting file: {str(e)}"})
 
-    def change_directory(self, agent: Union[Agent, Team], directory: str) -> str:
+    def change_directory(self, agent: ToolHandleLike, directory: str) -> str:
         """Change the current working directory.
 
         Args:

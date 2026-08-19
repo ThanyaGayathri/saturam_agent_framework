@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Any, List, Optional
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Audio
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_debug, log_error
@@ -117,7 +117,7 @@ class GroqTools(Toolkit):
 
     def generate_speech(
         self,
-        agent: Agent,
+        agent: ToolHandleLike,
         text_input: str,
     ) -> ToolResult:
         """Generate speech from text using Groq's Text-to-Speech API.

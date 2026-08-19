@@ -30,6 +30,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.provider import MemoryProvider
 from egpt.providers.model_provider import ProviderMode
 
@@ -41,22 +42,6 @@ __all__ = [
     "register_provider",
     "registered_providers",
 ]
-
-
-class MemoryProviderConfigError(ValueError):
-    """A memory provider's configuration is invalid or incomplete.
-
-    ``ValueError`` for the same reason ``ModelProviderConfigError`` is one: a deployment mistake
-    caught at configuration time should land on the type callers already assert against.
-
-    Deliberately distinct from ``ModelProviderConfigError`` -- that one is about resolving a
-    *model*, and collapsing the two would make a bad memory DSN look like a bad model policy in
-    every log and every ``except`` clause.
-    """
-
-    def __init__(self, message: str, *, field_name: Optional[str] = None) -> None:
-        super().__init__(message)
-        self.field_name = field_name
 
 
 @dataclass

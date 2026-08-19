@@ -247,10 +247,11 @@ def test_seam_imports_only_the_model_base_at_module_scope():
     }
     egpt_imports = sorted(name for name in module_scope_imports if name.startswith("egpt."))
 
-    assert egpt_imports == ["egpt.models.base"], (
+    assert egpt_imports == ["egpt.metrics", "egpt.models.base"], (
         f"egpt/providers/model_provider.py imports {egpt_imports} at module scope; expected only "
-        "egpt.models.base. Everything else -- registry.discovery included -- must be imported "
-        "inside the function that uses it."
+        "egpt.models.base (the Model return type) and egpt.metrics (ProviderMode's core home "
+        "since the EGPT-1.7c follow-up, re-exported here). Everything else -- "
+        "registry.discovery included -- must be imported inside the function that uses it."
     )
 
 

@@ -4,8 +4,8 @@ from uuid import uuid4
 
 from requests import post
 
-from egpt.agent import Agent
 from egpt.media import Image
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_debug, log_error, logger
@@ -99,7 +99,7 @@ class AzureOpenAITools(Toolkit):
 
     def generate_image(
         self,
-        agent: Agent,
+        agent: ToolHandleLike,
         prompt: str,
         n: int = 1,
         size: Optional[Literal["256x256", "512x512", "1024x1024", "1792x1024", "1024x1792"]] = "1024x1024",
@@ -108,7 +108,7 @@ class AzureOpenAITools(Toolkit):
         """Generate an image using Azure OpenAI image generation.
 
         Args:
-            agent: The agent instance for adding images
+            agent: Framework-injected agent/team handle (unused)
             prompt: Text description of the desired image
             n: Number of images to generate (default: 1).
                 Note: dall-e-3 only supports n=1, while dall-e-2 supports multiple images.

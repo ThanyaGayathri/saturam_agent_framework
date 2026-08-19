@@ -9,14 +9,13 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Literal, Optiona
 
 from egpt.integrations._utils.mcp import get_default_toolkit_name, get_entrypoint_for_tool, prepare_command
 from egpt.integrations.tools.mcp.params import SSEClientParams, StreamableHTTPClientParams
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import Function
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
 
 if TYPE_CHECKING:
-    from egpt.agent import Agent
     from egpt.run import RunContext
-    from egpt.team.team import Team
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -217,15 +216,15 @@ class MCPTools(Toolkit):
     def _call_header_provider(
         self,
         run_context: Optional["RunContext"] = None,
-        agent: Optional["Agent"] = None,
-        team: Optional["Team"] = None,
+        agent: Optional[ToolHandleLike] = None,
+        team: Optional[ToolHandleLike] = None,
     ) -> dict[str, Any]:
         """Call the header_provider with run_context, agent, and/or team based on its signature.
 
         Args:
             run_context: The RunContext for the current agent run
-            agent: The Agent instance (if running within an agent)
-            team: The Team instance (if running within a team)
+            agent: The agent handle (if running within an agent)
+            team: The team handle (if running within a team)
 
         Returns:
             dict[str, Any]: The headers returned by the header_provider
@@ -303,8 +302,8 @@ class MCPTools(Toolkit):
     async def get_temporary_session_for_run(
         self,
         run_context: Optional["RunContext"] = None,
-        agent: Optional["Agent"] = None,
-        team: Optional["Team"] = None,
+        agent: Optional[ToolHandleLike] = None,
+        team: Optional[ToolHandleLike] = None,
     ) -> AsyncIterator[ClientSession]:
         """
         Create a dynamic-header session for one tool call and close it in the
@@ -372,8 +371,8 @@ class MCPTools(Toolkit):
     async def get_session_for_run(
         self,
         run_context: Optional["RunContext"] = None,
-        agent: Optional["Agent"] = None,
-        team: Optional["Team"] = None,
+        agent: Optional[ToolHandleLike] = None,
+        team: Optional[ToolHandleLike] = None,
     ) -> ClientSession:
         """
         Get or create a session for the given run context.
@@ -383,8 +382,8 @@ class MCPTools(Toolkit):
 
         Args:
             run_context: The RunContext for the current agent run
-            agent: The Agent instance (if running within an agent)
-            team: The Team instance (if running within a team)
+            agent: The agent handle (if running within an agent)
+            team: The team handle (if running within a team)
 
         Returns:
             ClientSession for the run

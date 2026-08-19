@@ -167,6 +167,42 @@ so a `Remote*` entity can never satisfy it, and `tests/system/gateway_server.py`
 constructing `Slack` with real `RemoteAgent`/`RemoteTeam` instances at module import time -- see
 row 6c.
 
+#### Structural typing for toolkit, chat-client, and session-UI consumers — normative, added EGPT-1.7c
+
+EGPT-1.7c ([aicoe-tracker#180](https://github.com/Saturam-Inc/aicoe-tracker/issues/180), first
+phase) discharges the toolkit/model-provider half of the #180 debt with the same mechanism rows
+6–6b ratified, extended by three protocols in `egpt/registry/protocols.py`, each carrying
+exactly the surface its consumers use:
+
+- **`ToolHandleLike`** (`session_state` only) — the framework-injected `agent`/`team` parameter
+  on tool functions. `egpt/tools/function.py` injects and schema-excludes that parameter by
+  *name*, never by annotation, so the annotation is free to become structural. A usage survey
+  of all 24 violating modules found the handle is either entirely unused (15 toolkits whose old
+  `agent.add_image(...)` call sites had already been replaced by `ToolResult` returns), passed
+  through opaquely to user callbacks (the three MCP modules, whose `TYPE_CHECKING` imports
+  import-linter's graph records exactly like module-level ones), or used for one thing:
+  reading/lazily-initializing `session_state` (daytona, antigravity).
+- **`ChatRunnableLike`** (`AsyncRunnableLike` + `acontinue_run` + mutable
+  `additional_context`) — `integrations/discord/client.py`'s conversation loop.
+  `HitlRunnableLike` is deliberately not reused: Discord never calls `aget_run_output`.
+- **`SessionAgentLike`** (`session_id`/`db`/`get_session_name`/`set_session_name`/`run`/
+  `run_response`/`knowledge`) — `integrations/_utils/streamlit.py`'s session widgets. Its one
+  private-attribute touch (`_agent_session` cache reset) stays out of the protocol and goes
+  through `getattr`/`setattr` at the call site.
+
+Two modules needed no protocol at all: they imported re-exported value types through the
+`egpt.agent` façade and now import them from their canonical core homes
+(`egpt.models.message.Message`, `egpt.run.agent.RunOutput`/`egpt.run.team.TeamRunOutput`).
+
+The same phase clears the one services→integrations edge: the OpenAI image wire-format helpers
+(`process_image`/`images_to_message` and their `_process_*` closure) moved from
+`egpt/integrations/models/_utils/openai.py` to core's `egpt/utils/media.py`, next to
+`resolve_image_mime_type`, which was already their only non-trivial dependency — so
+`egpt.guardrails.openai` imports them from core at module level (its old function-local import
+never avoided the violation; import-linter records deferred imports identically). The
+integrations module re-imports them, keeping every provider adapter's and shim's import path
+working as a legal integrations→core edge.
+
 ### Design decisions
 
 | # | Decision | Rationale | Alternatives considered |
@@ -180,6 +216,8 @@ row 6c.
 | 6a | (EGPT-1.7b) #158's channel-adapter move is discharged with a fourth protocol, `AsyncRunnableLike` (`arun` only), not by extending `construct_runnable` — verified for both the WhatsApp and Slack moves | The adapters only ever receive an already-built entity from their composition-root caller — they never construct one — so `construct_runnable` does not apply; `RunnableLike` cannot be reused since `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` implement only `arun`, not `RunnableLike`'s required sync `run`; `id` was dropped from the protocol too — no channel-adapter call site reads it as an attribute | Extending `construct_runnable`'s `_ROWS` with a `"team"`/`"workflow"` row, as row 6 anticipated (rejected once implementation showed nothing here constructs an entity — would have added an unused seam); reusing `RunnableLike` as-is (rejected: fails structurally for the `Remote*` classes) |
 | 6b | (EGPT-1.7b, PR #82 round-2 review) Slack's HITL handler needs a fifth, narrower protocol, `HitlRunnableLike` (extends `AsyncRunnableLike` with `acontinue_run`/`aget_run_output`, for static typing), checked at `attach_routes` setup time with an explicit `hasattr`/`callable` capability check, not `isinstance` | `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` satisfy `AsyncRunnableLike` but lack `aget_run_output`, and `Slack.__init__`'s public signature at the time explicitly allowed `Remote*` types — a non-conforming entity would otherwise pass setup and only fail on the first approval/rejection click; `isinstance` against a callable-only `runtime_checkable` protocol resolves per-attribute via `inspect.getattr_static`, which bypasses `Mock`/`AsyncMock`'s dynamic `__getattr__` regardless of the test double's actual instance attributes | Widening `attach_routes`'s `agent`/`team`/`workflow` param types to `HitlRunnableLike` directly (rejected: would statically break `Slack.__init__`'s existing, documented `Optional[Union[X, RemoteX]]` signature — a bigger API decision than this fix calls for at the time); `isinstance(entity, HitlRunnableLike)` (rejected: verified it returns `False` for every `Mock`/`AsyncMock`-based test entity in the existing Slack router test suite, not just genuinely non-conforming ones — it doesn't raise, but the false-negative on mocks is disqualifying on its own); leaving the `# type: ignore` suppressions in place (rejected: exactly what the review flagged — hides a real runtime gap) |
 | 6c | (EGPT-1.7b, PR #82 round-3 review) `Slack.__init__`'s `agent`/`team`/`workflow` type hints are narrowed to plain `Agent`/`Team`/`Workflow`, dropping `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` from the accepted types entirely | Row 6b's setup-time check only fails loudly instead of silently — it doesn't change that a `Remote*` entity can *never* satisfy Slack's now-unconditional HITL requirement, so advertising `Remote*` as accepted input was a stale, misleading API contract; `tests/system/gateway_server.py` was still constructing `Slack(agent=remote_assistant, ...)` and `Slack(team=remote_team, ...)` at module scope, which would have crashed gateway container startup on the next nightly/`workflow_dispatch` system-test run | Keep the wider type hints and rely solely on the row 6b runtime check (rejected: leaves a real API footgun — nothing at the type level tells a caller `Remote*` will always fail here); redesign HITL to work for `Remote*` entities, e.g. by adding a remote `aget_run_output` (rejected: a materially larger feature change than this ticket's scope, and no current caller needs it) |
+| 6d | (EGPT-1.7c) The toolkit/model-provider #180 debt is discharged with three consumer-scoped protocols (`ToolHandleLike`, `ChatRunnableLike`, `SessionAgentLike`) plus canonical-home import rewrites, and the guardrails edge by relocating the shared OpenAI image wire-format helpers to core (`egpt.utils.media`) | Tool-param injection is name-based, so retyping is behavior-safe; the surveyed usage surface is tiny (most handles unused, two toolkits touch only `session_state`), so per-consumer protocols stay honest to the "members need a real consumer" rule; the image helpers' whole dependency closure was already core, and both a services-layer guardrail and five integrations providers need them — a shared lower-layer home is the only direction the matrix allows | One wide `AgentLike`-style protocol carrying the union surface (rejected: writes members with no consumer into every signature); `ignore_imports` (rejected on #52, again here); moving `egpt.guardrails.openai`'s image handling behind a callback (rejected: indirection for a pure-function move) |
+| 6e | (EGPT-1.7c follow-up) The memory-substrate debt is discharged by a scope hand-off, not a protocol: `egpt.memory` leaves contract 2's `forbidden_modules` (staying in contract 1's `source_modules`) and `tests/unit/memory/test_memory_layout.py` names the exact importable type island (`types`/`tiers`/`errors`/`embedding`/`graph.episodic`) and polices the island's own imports; `MemoryProviderConfigError` moves to `memory/errors.py` and `ProviderMode` to core `egpt.metrics` (re-exported from `egpt.providers.model_provider`) | A substrate backend implements `egpt.memory`'s ports, so it *must* import the ports' envelope types -- the same interface-vs-backend mix that already keeps `egpt.db`/`egpt.vectordb`/`egpt.knowledge` out of the contract lists in favor of per-tree AST guards; a protocol cannot help here because the coupling is to value types, not behavior; moving the enum (rather than re-exporting it from a module the backend already imports) changes the real dependency direction instead of hiding it from the gate | Physically relocating the type island to a core package (rejected: rewrites ~15 in-package importers mid-SM-epic for no observable gain over the guard); an `ignore_imports` carve-out per edge (rejected on #52, again here); a second deployment-mode enum for memory (rejected: ADR 0003 section B.5's one-vocabulary rule) |
 
 ## Layer → module mapping
 
@@ -471,12 +509,32 @@ cells is deferred to that follow-up.
 
 For the integrations column that *is* now enforced: contracts use `allow_indirect_imports = true`
 (checking direct imports only, not the whole transitive reachability grimp's default would check
-— see the comment in `pyproject.toml`), and carry **no** `ignore_imports` for the A13 debt or
-for the toolkit/model-provider files found to reference `egpt.agent`/`egpt.team` directly during
-this work (tracked as [aicoe-tracker#180](https://github.com/Saturam-Inc/aicoe-tracker/issues/180)) — a stakeholder comment on aicoe-tracker#52
-explicitly rejected masking that debt this way. `libs/agno/tests/unit/test_import_linter_contracts.py`
-tracks the exact known set instead, and the `import-linter` CI job is intentionally
-non-required until that set is empty. `egpt.context` itself is excluded from these contracts'
+— see the comment in `pyproject.toml`), and carry **no** `ignore_imports` for known debt — a
+stakeholder comment on aicoe-tracker#52 explicitly rejected masking it that way.
+`libs/agno/tests/unit/test_import_linter_contracts.py` tracks the exact known set instead, and
+while debt existed, the `import-linter` CI job ran as informational-only. EGPT-1.7c emptied
+the ledger in two waves. First the toolkit/model-provider and guardrails entries (see its
+seam section and row 6d above). Then the memory-substrate family
+(`egpt.integrations.memory.*` → `egpt.memory`/`egpt.providers.model_provider`, from the SM
+epic), resolved by the seam decision this paragraph previously recorded as the follow-up
+direction: `egpt.memory` left the "integrations must not import …" contract's
+`forbidden_modules` in favor of a dedicated AST guard,
+`tests/unit/memory/test_memory_layout.py` (the `egpt.vectordb`/`test_backend_layout.py`
+precedent), which names the exact type island substrate backends may import —
+`types`/`tiers`/`errors`/`embedding`/`graph.episodic`, listed as exact modules because
+`graph/entities.py` reaches into `substrates`/`egpt.learn` and so is *not* island — and also
+polices the island's own imports, since integrations sit one hop from whatever the island
+pulls in. Unlike the other mixed trees, `egpt.memory` **stays** in the first contract's
+`source_modules`: it contains no backend shims, so the inward "must not import integrations"
+direction loses nothing by staying lint-enforced. `MemoryProviderConfigError` moved from
+`memory/config.py` (the composition root) into `memory/errors.py`, and the `ProviderMode`
+enum moved to core — `egpt.metrics`, beside `ModelType`, the enum its own docstring cited as
+the shape precedent — with `egpt.providers.model_provider` re-exporting it, so the
+pgvector→providers edge is cleared by moving the dependency, not hiding it (ADR 0003 §B.5's
+one-vocabulary rule stands). With the ledger empty, that test file is reduced to its terminal
+`test_no_known_violations_remain` guard and the `import-linter` job is promoted into
+`ci-success`'s `needs` — the required "CI fails on any cross-layer import violation" gate
+EGPT-1.11's acceptance criteria asked for. `egpt.context` itself is excluded from these contracts'
 module lists (like `egpt.db`/`egpt.models`/`egpt.vectordb`/`egpt.knowledge`/`egpt.tools`): EGPT-1.7a
 gave it its own dedicated guard, `tests/unit/context/test_context_layout.py`, which checks the
 same boundary with connector-specific precision — including the `integrations.context.* ->

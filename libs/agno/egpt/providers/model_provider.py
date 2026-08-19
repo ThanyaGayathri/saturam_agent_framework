@@ -6,8 +6,9 @@ behind a gateway) are a configuration swap rather than a code change.
 
 This module is the contract four other tickets code against, so it is deliberately thin:
 
-* It imports ``egpt.models.base`` for the ``Model`` return type and nothing else from the
-  framework. In particular it never imports a concrete provider -- ``providers/`` sits in the
+* It imports ``egpt.models.base`` for the ``Model`` return type, ``egpt.metrics`` for the
+  ``ProviderMode`` vocabulary (its core home since the EGPT-1.7c follow-up), and nothing else
+  from the framework. In particular it never imports a concrete provider -- ``providers/`` sits in the
   same "may not name an integration" cell of ADR 0001's matrix as ``registry/``, and
   ``tests/unit/registry/test_discovery_laziness.py`` fails any seam that eagerly imports a
   provider class. Construction goes through ``egpt.registry.discovery.construct``, imported
@@ -33,10 +34,13 @@ for their literal meaning.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Protocol, Tuple, runtime_checkable
 
+# ProviderMode is re-exported from its core home (see the enum's docstring for the
+# EGPT-1.7c move): every services-layer import site keeps working, while integrations
+# import it from egpt.metrics.
+from egpt.metrics import ProviderMode
 from egpt.models.base import Model
 
 __all__ = [
@@ -52,18 +56,6 @@ __all__ = [
     "aresolve_via",
     "supports_detailed_resolve",
 ]
-
-
-class ProviderMode(str, Enum):
-    """Which family of backends a request is served from.
-
-    ``str`` mixin so a config value ("local") validates by construction and a serialized run
-    record round-trips without a custom encoder -- the same choice ``egpt.metrics.ModelType``
-    makes.
-    """
-
-    LOCAL = "local"  # Mode A: in-VPC vLLM / Ollama / any OpenAI-compatible endpoint
-    FRONTIER = "frontier"  # Mode B: hosted frontier providers, optionally via a gateway
 
 
 @dataclass(frozen=True)
@@ -94,7 +86,7 @@ class ModelResolveRequest:
     # has no policy overriding it MUST return it unchanged: user intent outranks configuration.
     requested: Optional[Model] = None
     # Which functional slot is being resolved. Mirrors ``egpt.metrics.ModelType`` values but is
-    # typed as ``str`` so this module need not import ``egpt.metrics``.
+    # typed as ``str`` so a provider can name a role the enum has not grown yet.
     role: str = "model"
 
     # -- mode selection (EGPT-3.2) -----------------------------------------

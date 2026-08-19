@@ -3,12 +3,11 @@ pip install fal-client
 """
 
 from os import getenv
-from typing import Optional, Union
+from typing import Optional
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Image, Video
-from egpt.team.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_error, log_info, logger
@@ -51,7 +50,7 @@ class FalTools(Toolkit):
                     log_info(message)
                     self.seen_logs.add(message)
 
-    def generate_media(self, agent: Union[Agent, Team], prompt: str) -> ToolResult:
+    def generate_media(self, agent: ToolHandleLike, prompt: str) -> ToolResult:
         """
         Use this function to run a model with a given prompt.
 
@@ -133,7 +132,7 @@ class FalTools(Toolkit):
             logger.exception("Failed to run model")
             return ToolResult(content=f"Error: {e}")
 
-    def image_to_image(self, agent: Union[Agent, Team], prompt: str, image_url: Optional[str] = None) -> ToolResult:
+    def image_to_image(self, agent: ToolHandleLike, prompt: str, image_url: Optional[str] = None) -> ToolResult:
         """
         Use this function to transform an input image based on a text prompt using the Fal AI image-to-image model.
         The model takes an existing image and generates a new version modified according to your prompt.

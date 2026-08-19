@@ -1,12 +1,11 @@
 from io import BytesIO
 from os import getenv, path
 from pathlib import Path
-from typing import Any, Iterator, List, Literal, Optional, Union
+from typing import Any, Iterator, List, Literal, Optional
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Audio
-from egpt.team.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_error, log_info
@@ -160,7 +159,7 @@ class ElevenLabsTools(Toolkit):
             log_error(f"Failed to generate sound effect: {str(e)}")
             return ToolResult(content=f"Error: {e}")
 
-    def text_to_speech(self, agent: Union[Agent, Team], prompt: str) -> ToolResult:
+    def text_to_speech(self, agent: ToolHandleLike, prompt: str) -> ToolResult:
         """
         Convert text to speech.
 
