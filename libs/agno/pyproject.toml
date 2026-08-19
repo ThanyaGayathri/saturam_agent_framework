@@ -498,7 +498,14 @@ markers = [
 # edge the `RunnableLike` protocol + `construct_runnable` seam in `egpt/registry/protocols.py` /
 # `egpt/run/utils.py` exists to close). Hand-listing every shim subdirectory here would duplicate
 # those guards and go stale on every new extra or connector, so this config's source_modules list
-# the packages that are NOT already covered that way. `egpt.cloud` has no `__init__.py` today
+# the packages that are NOT already covered that way. `egpt.memory` joined this family HALFWAY
+# (EGPT-1.7c follow-up, aicoe-tracker#180): its substrate backends live under
+# `egpt.integrations.memory` and must import its envelope types, so it left the second
+# contract's forbidden_modules in favor of `tests/unit/memory/test_memory_layout.py` (which
+# names the exact importable type island) -- but it STAYS in the first contract's
+# source_modules, because unlike the trees above it contains no backend shims, so the inward
+# "must not import integrations" direction loses nothing by staying lint-enforced.
+# `egpt.cloud` has no `__init__.py` today
 # (only `cloud/aws/`, which is provider-specific and arguably belongs in integrations per ADR
 # 0001's own module mapping) and isn't an importable package yet -- out of scope.
 #
@@ -522,14 +529,16 @@ root_package = "egpt"
 # mapping (provider utils "move with their providers" -- extraction prerequisite #3 -- and
 # `tracing/exporter.py` is listed under the integrations layer).
 #
-# No `ignore_imports` here for the newly-found violations (egpt.guardrails.openai, the
-# toolkit/model files importing Agent/Team directly -- owned by aicoe-tracker#180) -- see
-# libs/agno/tests/unit/test_import_linter_contracts.py, which tracks them explicitly instead of
-# masking them here. ignore_imports below is reserved for the ADR-ratified composition-root /
-# extraction-prerequisite carve-outs only. (The A8 context-connector debt this comment used to
-# also cover was cleared by EGPT-1.7a / aicoe-tracker#157, and the A13 Slack channel-adapter
-# debt by EGPT-1.7b / aicoe-tracker#158 -- see the scope note above for why `egpt.context` is
-# excluded from this contract's module lists now, not tracked-and-clean.)
+# No `ignore_imports` for layering debt: the tracked-debt ledger is retired. The last family
+# (memory-substrate) was cleared by EGPT-1.7c / aicoe-tracker#180, after A8's context
+# connectors (EGPT-1.7a / aicoe-tracker#157) and A13's Slack channel adapters (EGPT-1.7b /
+# aicoe-tracker#158) -- these contracts now hold with zero violations, and
+# libs/agno/tests/unit/test_import_linter_contracts.py asserts exactly that. ignore_imports
+# below is reserved for the ADR-ratified composition-root / extraction-prerequisite
+# carve-outs only. The one deliberate scope change from the debt era: `egpt.memory` is absent
+# from the second contract's forbidden_modules, and its outward boundary is guarded with
+# module-level precision by libs/agno/tests/unit/memory/test_memory_layout.py instead (see
+# the inline note on that list).
 #
 # allow_indirect_imports = true: "forbidden" contracts check the whole transitive dependency
 # chain by default, which floods the report with reachability noise unrelated to a real
@@ -656,7 +665,14 @@ forbidden_modules = [
     "egpt.components",
     "egpt.eval",
     "egpt.learn",
-    "egpt.memory",
+    # egpt.memory is deliberately absent (EGPT-1.7c follow-up, aicoe-tracker#180): substrate
+    # backends under egpt.integrations.memory implement egpt.memory's ports, so they must
+    # import its envelope types -- the same interface-vs-backend mix that keeps egpt.db/
+    # egpt.vectordb/egpt.knowledge out of these lists. The outward direction is guarded with
+    # module-level precision by libs/agno/tests/unit/memory/test_memory_layout.py (only the
+    # named type island is importable from integrations); the inward direction (egpt.memory
+    # must not import integrations) stays enforced by the first contract, since egpt.memory
+    # stays in its source_modules and contains no backend shims of its own.
     "egpt.culture",
     "egpt.skills",
     "egpt.scheduler",
@@ -686,10 +702,12 @@ ignore_imports = [
     # reads `slack_signing_secret` to verify inbound Slack request signatures.
     "egpt.integrations.channels.slack.security -> egpt.settings",
 ]
-# Otherwise no ignore_imports: 24 distinct modules under egpt.integrations currently violate
-# this contract by importing egpt.agent/egpt.team directly (egpt.integrations.discord.client
-# is one of them, not the only one). Left in scope deliberately -- see
-# libs/agno/tests/unit/test_import_linter_contracts.py.
+# Otherwise no ignore_imports: the toolkit/model-provider modules that used to import
+# egpt.agent/egpt.team directly were retyped against egpt.registry.protocols, and the
+# memory-substrate family was resolved by moving its shared types to the island guarded by
+# libs/agno/tests/unit/memory/test_memory_layout.py (both EGPT-1.7c / aicoe-tracker#180).
+# This contract reports zero violations, and
+# libs/agno/tests/unit/test_import_linter_contracts.py keeps it that way.
 
 # --- No import cycles across the integrations boundary (ADR 0001 Rule 7, scoped to this config) ---
 # Not encoded as a separate "independence" contract: that type enforces *mutual* exclusion in

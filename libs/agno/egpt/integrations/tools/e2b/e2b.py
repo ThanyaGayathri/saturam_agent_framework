@@ -4,12 +4,11 @@ import tempfile
 import time
 from os import fdopen, getenv
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Image
-from egpt.team.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.code_execution import prepare_python_code
@@ -158,13 +157,13 @@ class E2BTools(Toolkit):
             return json.dumps({"status": "error", "message": f"Error uploading file: {str(e)}"})
 
     def download_png_result(
-        self, agent: Union[Agent, Team], result_index: int = 0, output_path: Optional[str] = None
+        self, agent: ToolHandleLike, result_index: int = 0, output_path: Optional[str] = None
     ) -> ToolResult:
         """
         Add a PNG image result from the last code execution as an Image object.
 
         Args:
-            agent: The agent to add the image artifact to
+            agent: Framework-injected agent/team handle (unused)
             result_index (int): Index of the result to use (default: 0, the first result)
             output_path (str, optional): Optional path to also save the PNG file. If not provided, image is only added as artifact.
 
@@ -222,14 +221,18 @@ class E2BTools(Toolkit):
             return ToolResult(content=f"Error processing PNG: {str(e)}")
 
     def download_chart_data(
-        self, agent: Agent, result_index: int = 0, output_path: Optional[str] = None, add_as_artifact: bool = True
+        self,
+        agent: ToolHandleLike,
+        result_index: int = 0,
+        output_path: Optional[str] = None,
+        add_as_artifact: bool = True,
     ) -> ToolResult:
         """
         Extract chart data from an interactive chart in the execution results.
         Optionally add the chart as an image artifact.
 
         Args:
-            agent: The agent to add the chart artifact to
+            agent: Framework-injected agent/team handle (unused)
             result_index (int): Index of the result to extract data from (default: 0)
             output_path (str, optional): Path to save the JSON data. Defaults to 'chart-data-{result_index}.json'
             add_as_artifact (bool): Whether to add the chart as an image artifact (default: True)

@@ -29,8 +29,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
 
 from egpt.knowledge.embedder import Embedder
-from egpt.memory.config import MemoryProviderConfigError
-from egpt.providers.model_provider import ProviderMode
+from egpt.memory.errors import MemoryProviderConfigError
+from egpt.metrics import ProviderMode
 from egpt.utils.log import log_warning
 
 __all__ = [

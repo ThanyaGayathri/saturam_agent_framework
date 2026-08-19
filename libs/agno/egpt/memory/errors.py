@@ -3,11 +3,34 @@
 Their own module because ``tiers.py`` needs to raise ``MemoryOperationError`` and ``types.py``
 imports ``tiers``, so the error cannot live in ``types``. Both are re-exported from
 :mod:`egpt.memory.types`, which stays the import site every other module uses.
+
+``MemoryProviderConfigError`` moved here from ``config.py`` for the same layering reason
+(EGPT-1.7c follow-up, aicoe-tracker#180): substrate backends in ``egpt.integrations.memory``
+raise it, and ``config.py`` is the composition root -- it imports ``MemoryProvider`` and the
+registry -- so a backend importing ``config`` for one error class dragged the whole
+composition surface across the integrations boundary. ``config.py`` re-exports it, which
+stays the import site for services-layer callers.
 """
 
 from typing import Optional
 
-__all__ = ["MemoryOperationError", "MemoryScopeRequiredError"]
+__all__ = ["MemoryOperationError", "MemoryProviderConfigError", "MemoryScopeRequiredError"]
+
+
+class MemoryProviderConfigError(ValueError):
+    """A memory provider's configuration is invalid or incomplete.
+
+    ``ValueError`` for the same reason ``ModelProviderConfigError`` is one: a deployment mistake
+    caught at configuration time should land on the type callers already assert against.
+
+    Deliberately distinct from ``ModelProviderConfigError`` -- that one is about resolving a
+    *model*, and collapsing the two would make a bad memory DSN look like a bad model policy in
+    every log and every ``except`` clause.
+    """
+
+    def __init__(self, message: str, *, field_name: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.field_name = field_name
 
 
 class MemoryOperationError(ValueError):

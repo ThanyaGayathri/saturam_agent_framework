@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from egpt.integrations.memory.vector.pgvector import sql
-from egpt.memory.config import MemoryProviderConfigError
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.embedding import resolve_memory_embedder
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -43,7 +43,7 @@ from egpt.memory.types import (
     Substrate,
     require_scope,
 )
-from egpt.providers.model_provider import ProviderMode
+from egpt.metrics import ProviderMode
 from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_debug, log_warning
 from egpt.vectordb.distance import Distance

@@ -4,8 +4,8 @@ from os import getenv
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Image
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_debug, log_error, log_info
@@ -122,7 +122,7 @@ class BrightDataTools(Toolkit):
         except Exception as e:
             return f"Error scraping URL {url}: {e}"
 
-    def get_screenshot(self, agent: Agent, url: str, output_path: str = "screenshot.png") -> ToolResult:
+    def get_screenshot(self, agent: ToolHandleLike, url: str, output_path: str = "screenshot.png") -> ToolResult:
         """
         Capture a screenshot of a webpage
 

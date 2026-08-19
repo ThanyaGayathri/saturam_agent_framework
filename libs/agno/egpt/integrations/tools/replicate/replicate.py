@@ -4,9 +4,8 @@ from typing import Any, Iterable, Iterator, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Image, Video
-from egpt.team.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_error, logger
@@ -38,7 +37,7 @@ class ReplicateTools(Toolkit):
 
         super().__init__(name="replicate_toolkit", tools=tools, **kwargs)
 
-    def generate_media(self, agent: Union[Agent, Team], prompt: str) -> ToolResult:
+    def generate_media(self, agent: ToolHandleLike, prompt: str) -> ToolResult:
         """
         Use this function to generate an image or a video using a replicate model.
         Args:

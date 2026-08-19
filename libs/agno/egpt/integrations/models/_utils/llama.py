@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
-from egpt.agent import Message
 from egpt.integrations.models._utils.openai import process_image
+from egpt.models.message import Message
 from egpt.utils.log import log_warning
 
 ROLE_MAP = {

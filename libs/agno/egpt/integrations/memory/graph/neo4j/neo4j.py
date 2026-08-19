@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence,
 from uuid import uuid4
 
 from egpt.integrations.memory.graph.neo4j import cypher
-from egpt.memory.config import MemoryProviderConfigError
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.graph.episodic import entity_node_id_for, mention_link_id, mention_rows
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (

@@ -1,12 +1,11 @@
 import uuid
 from os import getenv
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional
 
 import httpx
 
-from egpt.agent import Agent
 from egpt.media import Image
-from egpt.team.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_error, logger
@@ -41,7 +40,7 @@ class GiphyTools(Toolkit):
 
         super().__init__(name="giphy_tools", tools=tools, **kwargs)
 
-    def search_gifs(self, agent: Union[Agent, Team], query: str) -> ToolResult:
+    def search_gifs(self, agent: ToolHandleLike, query: str) -> ToolResult:
         """Find a GIPHY gif
 
         Args:

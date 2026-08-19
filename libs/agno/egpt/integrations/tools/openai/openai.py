@@ -1,10 +1,9 @@
 from os import getenv
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, List, Literal, Optional
 from uuid import uuid4
 
-from egpt.agent import Agent
 from egpt.media import Audio, Image
-from egpt.team.team import Team
+from egpt.registry.protocols import ToolHandleLike
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_debug, log_error, log_warning
@@ -167,7 +166,7 @@ class OpenAITools(Toolkit):
 
     def generate_speech(
         self,
-        agent: Union[Agent, Team],
+        agent: ToolHandleLike,
         text_input: str,
     ) -> ToolResult:  # Changed return type
         """Generate speech from text using OpenAI's Text-to-Speech API.
