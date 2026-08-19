@@ -18,6 +18,7 @@ from egpt.memory.episodic import (
     recency_decay,
     reinforce,
 )
+from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
@@ -204,4 +205,8 @@ __all__ = [
     "events_from_run",
     "start_writeback_future",
     "astart_writeback_task",
+    # Episodic relevance scoring (SM-E6)
+    "aepisode_relevance",
+    "cosine_relevance",
+    "episode_relevance",
 ]
