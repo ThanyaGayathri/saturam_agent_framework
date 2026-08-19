@@ -446,8 +446,11 @@ deliberately leaves them), embeds each with a real `sentence-transformers` model
 resolution pipeline over both candidates.
 
 **Result:** Success, and all three acceptance criteria are visible in the output. Before
-resolution, two nodes exist for one company. `pipeline.run` reports 2 candidates, 1 merged into 1
-survivor. After resolution, exactly one node remains, carrying `aliases=['Acme Corporation']` and
+resolution, two nodes exist for one company. `pipeline.run` reports 1 candidate (the second,
+"Acme Corporation", is folded away by the first's merge before it would be attempted, and round 3's
+review fixed `report.candidates` to count only what was actually attempted, not `len(candidates)`),
+1 merged into 1 survivor. After resolution, exactly one node remains, carrying
+`aliases=['Acme Corporation']` and
 the union of both episodes' ids in `source_episode_ids` -- duplicate entities merged, aliases
 retained. Both episodes' `MENTIONS` edges now resolve to the one surviving node's name -- edges
 updated on merge. The two candidates are given the **same** description on purpose: description is
