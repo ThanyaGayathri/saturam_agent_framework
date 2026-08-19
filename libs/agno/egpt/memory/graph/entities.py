@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence,
 
 from pydantic import BaseModel, Field
 
+from egpt.memory.graph.passes import select_current_episodes
 from egpt.memory.substrates import GraphSubstrate
-from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     EntityWrite,
     MemoryOperationError,
@@ -282,25 +282,11 @@ class EntityExtractionPipeline:
     def _selected(self, episodes: Sequence[MemoryRecord]) -> Tuple[List[MemoryRecord], bool]:
         """The episodes this pass extracts from, and whether it left any **unread**.
 
-        Unread, not skipped: a superseded row was examined and passed over, so reporting the pass
-        incomplete for one would tell a scheduler to re-run a pass with nothing left to do.
+        Delegates to :func:`~egpt.memory.graph.passes.select_current_episodes`, shared with
+        :class:`~egpt.memory.graph.relations.RelationExtractionPipeline` (SM-G3 #101): both
+        pipelines read the same episodic slice under the same two rules.
         """
-        chosen: List[MemoryRecord] = []
-        for index, episode in enumerate(episodes):
-            if episode.tier is not MemoryTier.EPISODIC:
-                raise MemoryOperationError(
-                    f"Episode {episode.id!r} is {episode.tier.value!r}. Entities are extracted from "
-                    f"the {MemoryTier.EPISODIC.value} tier; a semantic fact is already distilled, "
-                    "and re-extracting one would attribute its entities to a derived row.",
-                    field_name="tier",
-                )
-            # A superseded episode's entities belong to its live revision. Extracting from it would
-            # attribute them to a row no read returns.
-            if episode.is_current_belief():
-                chosen.append(episode)
-            if len(chosen) == self.max_episodes_per_pass:
-                return chosen, index + 1 < len(episodes)
-        return chosen, False
+        return select_current_episodes(episodes, max_episodes_per_pass=self.max_episodes_per_pass, purpose="Entities")
 
     @staticmethod
     def _candidates(episode: MemoryRecord, extracted: Sequence[ExtractedEntity]) -> List[EntityWrite]:

@@ -8,6 +8,14 @@ from egpt.memory.config import (
     register_provider,
     registered_providers,
 )
+from egpt.memory.episodic.decay import (
+    DEFAULT_BASE_HALF_LIFE_S,
+    DEFAULT_IMP_FACTOR,
+    episode_decay_score,
+    half_life_s,
+    recency_decay,
+    reinforce,
+)
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
@@ -47,6 +55,7 @@ from egpt.memory.types import (
     FUSION_KEYS,
     MAX_LIMIT,
     NO_ENTITIES,
+    NO_RELATIONS,
     NO_SUPERSEDE,
     SCOPE_SLOTS,
     ConsolidationReport,
@@ -140,6 +149,7 @@ __all__ = [
     "FUSION_KEYS",
     "MAX_LIMIT",
     "NO_ENTITIES",
+    "NO_RELATIONS",
     "NO_SUPERSEDE",
     "normalize_entity_name",
     "MemoryProvider",
@@ -159,4 +169,11 @@ __all__ = [
     "episode_from_event",
     "episode_to_record",
     "graph_node_id_for",
+    # Episodic recency-decay scoring (SM-E4)
+    "DEFAULT_BASE_HALF_LIFE_S",
+    "DEFAULT_IMP_FACTOR",
+    "episode_decay_score",
+    "half_life_s",
+    "recency_decay",
+    "reinforce",
 ]

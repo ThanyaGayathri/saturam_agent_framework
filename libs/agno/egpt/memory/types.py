@@ -51,6 +51,7 @@ __all__ = [
     "MemoryScopeRequiredError",
     "MemorySlice",
     "NO_ENTITIES",
+    "NO_RELATIONS",
     "normalize_entity_name",
     "PartialWriteError",
     "require_scope",
@@ -1031,6 +1032,13 @@ NO_SUPERSEDE = "not implemented in SM-C1 -- SM-L3 (#124)"
 #: The honest default for ``entities``: a pass with no entity pipeline extracted none, which a
 #: scheduler cannot tell from an episode set that mentioned none.
 NO_ENTITIES = "not extracted -- no entity pipeline wired (SM-G2 #100)"
+
+#: The ``relations`` counterpart to :data:`NO_ENTITIES` (SM-G3 #101): a pass with no relation
+#: pipeline extracted none, which a scheduler cannot tell from an episode set that stated none.
+#: ``details["relations"]`` is carried as a free extra key on ``consolidation_details``, not a
+#: :data:`CONSOLIDATION_KEYS` floor member -- promoting it is a separate, deliberate decision this
+#: ticket does not make (see ``co_located.RelationSummary``'s docstring).
+NO_RELATIONS = "not extracted -- no relation pipeline wired (SM-G3 #101)"
 
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.

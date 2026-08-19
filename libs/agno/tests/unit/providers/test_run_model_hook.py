@@ -19,6 +19,7 @@ from typing import Optional
 import pytest
 
 from egpt.agent._run import apply_run_model
+from egpt.run.base import run_model
 from egpt.providers import set_default_model_provider
 from egpt.providers.escalation import EscalatingModelProvider
 from egpt.providers.model_provider import ModelCapabilities, ModelResolveRequest, ProviderMode
@@ -71,7 +72,7 @@ class TestPerRunResolution:
             model_provider=EscalatingModelProvider(primary=primary, escalation_target=frontier),
         )
         apply_run_model(agent, run_context, tools=None)
-        assert agent.model.id == "mode-a-model"
+        assert run_model(agent, run_context).id == "mode-a-model"
 
     def test_tool_count_is_passed_through(self, run_context, primary, frontier):
         """The signal only exists at run time, which is why the hook lives in the run path."""
@@ -108,7 +109,7 @@ class TestPerRunResolution:
             model_provider=EscalatingModelProvider(primary=primary, escalation_target=frontier),
         )
         apply_run_model(agent, run_context, tools=[object()] * 50)
-        assert agent.model.id == "mode-b-model"
+        assert run_model(agent, run_context).id == "mode-b-model"
         assert frontier.calls[0].escalation_reason == "too_many_tools"
 
     def test_each_run_re_resolves(self, run_context, primary, frontier):
@@ -118,22 +119,22 @@ class TestPerRunResolution:
             model_provider=EscalatingModelProvider(primary=primary, escalation_target=frontier),
         )
         apply_run_model(agent, run_context, tools=None)
-        assert agent.model.id == "mode-a-model"
+        assert run_model(agent, run_context).id == "mode-a-model"
         apply_run_model(agent, run_context, tools=[object()] * 50)
-        assert agent.model.id == "mode-b-model"
+        assert run_model(agent, run_context).id == "mode-b-model"
 
     def test_the_process_default_provider_is_used(self, run_context, primary, frontier):
         set_default_model_provider(EscalatingModelProvider(primary=primary, escalation_target=frontier))
         agent = StubAgent(model=FakeModel(id="stale"))
         apply_run_model(agent, run_context, tools=None)
-        assert agent.model.id == "mode-a-model"
+        assert run_model(agent, run_context).id == "mode-a-model"
 
     def test_a_per_agent_provider_outranks_the_default(self, run_context, primary, frontier):
         other = FakeDetailedProvider("per-agent", SMALL, ProviderMode.LOCAL)
         set_default_model_provider(EscalatingModelProvider(primary=primary, escalation_target=frontier))
         agent = StubAgent(model=FakeModel(id="stale"), model_provider=other)
         apply_run_model(agent, run_context, tools=None)
-        assert agent.model.id == "per-agent-model"
+        assert run_model(agent, run_context).id == "per-agent-model"
 
 
 class TestFailuresAreNotFatal:
@@ -198,7 +199,7 @@ class TestTeamsReachTheHook:
         )
         # Enough tools to trip the threshold rule, exactly as the agent-path test does.
         apply_run_model(team, run_context, tools=[object()] * 50)
-        assert team.model.id == "mode-b-model"
+        assert run_model(team, run_context).id == "mode-b-model"
         assert frontier.calls[0].escalation_reason == "too_many_tools"
 
     def test_a_team_stays_put_when_no_rule_fires(self, run_context, primary, frontier):
@@ -207,7 +208,7 @@ class TestTeamsReachTheHook:
             model_provider=EscalatingModelProvider(primary=primary, escalation_target=frontier),
         )
         apply_run_model(team, run_context, tools=None)
-        assert team.model.id == "mode-a-model"
+        assert run_model(team, run_context).id == "mode-a-model"
 
     def test_a_team_without_a_provider_is_untouched(self, run_context):
         original = FakeModel(id="team-original")
@@ -386,7 +387,7 @@ class TestModelAttributionIsRestamped:
 
         apply_run_model(agent, run_context, tools=None, run_response=run_response)
 
-        assert run_response.model == agent.model.id, "the stamped id must match the served model"
+        assert run_response.model == run_model(agent, run_context).id, "the stamped id must match the served model"
 
     def test_no_run_response_is_not_an_error(self, run_context, primary, frontier):
         """The hook is called from paths that have no RunOutput yet; re-stamping must be optional."""
@@ -397,7 +398,7 @@ class TestModelAttributionIsRestamped:
 
         apply_run_model(agent, run_context, tools=None, run_response=None)
 
-        assert agent.model.id == "mode-a-model"
+        assert run_model(agent, run_context).id == "mode-a-model"
 
 
 class TestConfigErrorsAreLoud:
@@ -479,7 +480,7 @@ class TestAsyncHook:
 
         assert provider.async_calls == 1, "the async path must reach aresolve"
         assert provider.sync_calls == 0, "the sync path must not be used from an async run"
-        assert agent.model.id == "from-async"
+        assert run_model(agent, run_context).id == "from-async"
 
     async def test_the_async_hook_also_raises_on_a_config_error(self, run_context):
         from egpt.agent._run import aapply_run_model
@@ -573,7 +574,7 @@ class TestThePinLatchesOnlyAtConstruction:
 
         set_default_model(agent)  # run 1 init
         apply_run_model(agent, run_context, [object()] * 50)  # escalates
-        assert agent.model.id == "mode-b-model"
+        assert run_model(agent, run_context).id == "mode-b-model"
 
         set_default_model(agent)  # run 2 init -- must not latch the escalated model
         assert agent._user_pinned_model is None, "a provider-assigned model must never become 'the user's pin'"
@@ -619,7 +620,7 @@ class TestExplicitPolicyFlagIsReachable:
 
         apply_run_model(agent, run_context, tools=None)
 
-        assert agent.model.id == "mode-b-model"
+        assert run_model(agent, run_context).id == "mode-b-model"
         assert frontier.calls[0].escalation_reason == "explicit_policy_flag"
 
     def test_absent_metadata_is_an_empty_mapping_not_none(self, primary, frontier):
@@ -777,7 +778,7 @@ class TestDeepCopyDoesNotLaunderThePin:
         agent = Agent(model=None)
         agent.model_provider = EscalatingModelProvider(primary=primary, escalation_target=frontier)
         agent.initialize_agent()  # what EgptOS does at startup
-        assert agent.model.id == "mode-a-model"
+        assert run_model(agent, run_context).id == "mode-a-model"
 
         fresh = agent.deep_copy()  # what every AgentOS request does
 
@@ -854,14 +855,14 @@ class TestModelChangedIsNotIdentityOnly:
 
         agent = StubAgent(model=FakeModel(id="same"))
 
-        assert _stamp_resolved_model(agent, None, FakeModel(id="same")) is False
+        assert _stamp_resolved_model(agent, None, None, FakeModel(id="same")) is False
 
     def test_a_different_model_is_still_a_change(self):
         from egpt.agent._run import _stamp_resolved_model
 
         agent = StubAgent(model=FakeModel(id="small"))
 
-        assert _stamp_resolved_model(agent, None, FakeModel(id="frontier")) is True
+        assert _stamp_resolved_model(agent, None, None, FakeModel(id="frontier")) is True
 
 
 class TestDeepCopyUpdateIsAFreshPin:
@@ -1365,7 +1366,7 @@ class TestTheFormatFlagGate:
         resolved = FakeModel(id="gpt-5.5")
         resolved.supports_native_structured_outputs = False
 
-        assert _stamp_resolved_model(StubAgent(model=current), None, resolved) is True, (
+        assert _stamp_resolved_model(StubAgent(model=current), None, None, resolved) is True, (
             "same class and id but different structured-output support is a change the format derivation must see"
         )
 
@@ -1379,7 +1380,7 @@ class TestTheFormatFlagGate:
         resolved = FakeModel(id="gpt-5.5")
         resolved.supports_native_structured_outputs = True
 
-        assert _stamp_resolved_model(StubAgent(model=current), None, resolved) is False
+        assert _stamp_resolved_model(StubAgent(model=current), None, None, resolved) is False
 
     def test_an_endpoint_move_alone_is_not_a_format_change(self):
         """Why this gate does not share `same_model`: a different endpoint is a different
@@ -1390,4 +1391,4 @@ class TestTheFormatFlagGate:
         current = openai.OpenAIResponses(id="gpt-5.5", base_url="https://tenant-a.internal/v1")
         resolved = openai.OpenAIResponses(id="gpt-5.5", base_url="https://tenant-b.internal/v1")
 
-        assert _stamp_resolved_model(StubAgent(model=current), None, resolved) is False
+        assert _stamp_resolved_model(StubAgent(model=current), None, None, resolved) is False

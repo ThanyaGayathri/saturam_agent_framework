@@ -19,7 +19,7 @@ an episode or a fact, which tier consolidation reads and which it writes -- is r
 import asyncio
 import inspect
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar, Union
 from uuid import NAMESPACE_OID, uuid4, uuid5
 
 from egpt.memory.config import (
@@ -43,6 +43,7 @@ from egpt.memory.tiers import (
 )
 from egpt.memory.types import (
     NO_ENTITIES,
+    NO_RELATIONS,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
@@ -64,6 +65,7 @@ from egpt.utils.dttm import now_epoch_s
 
 if TYPE_CHECKING:
     from egpt.memory.graph.entities import EntityExtractionPipeline
+    from egpt.memory.graph.relations import RelationExtractionPipeline
 
 __all__ = ["CoLocatedMemoryProvider"]
 
@@ -88,6 +90,16 @@ _MAX_EPISODES_PER_PASS = 5_000
 #: hides the ``isinstance(..., dict)`` branch a consumer needs before reading a pipeline field.
 EntitySummary = Union[Dict[str, Any], str]
 
+#: The ``details["relations"]`` counterpart to :data:`EntitySummary` (SM-G3 #101), same two shapes
+#: for the same reason: a ``relation_details`` payload from a wired pipeline, or
+#: :data:`~egpt.memory.types.NO_RELATIONS` from an unwired one.
+#:
+#: ``details["relations"]`` itself is carried as a free extra key on ``consolidation_details``
+#: (explicitly documented as allowed), not promoted to the ``types.CONSOLIDATION_KEYS`` floor --
+#: that floor is shared by every provider this seam will ever grow, and widening it is a
+#: deliberate, separately-reviewable decision this ticket does not make.
+RelationSummary = Union[Dict[str, Any], str]
+
 
 def _positive_int(value: Any, option: str) -> int:
     """Validate a bound that reaches a substrate, at construction rather than three frames down.
@@ -106,13 +118,23 @@ def _positive_int(value: Any, option: str) -> int:
     return value
 
 
-def _checked_pipeline(candidate: Any) -> Optional["EntityExtractionPipeline"]:
-    """Verify an injected entity pipeline carries both halves, at construction time.
+#: Carries the candidate's own type through to the return type, so ``self.entity_pipeline`` and
+#: ``self.relation_pipeline`` keep their concrete `Optional["EntityExtractionPipeline"]` /
+#: `Optional["RelationExtractionPipeline"]` annotations at the call sites below instead of both
+#: widening to `Optional[Any]` -- which would silence mypy on a wrong argument type or a missing
+#: method on either field.
+_P = TypeVar("_P")
 
-    The same bargain :func:`egpt.memory.substrates.checked_graph` strikes: names only, but it turns
-    "consolidate mysteriously stopped extracting" or an ``AttributeError`` deep inside a pass into a
-    build-time error. ``None`` passes through -- a provider without entity extraction is the
-    default, not a misconfiguration.
+
+def _checked_pipeline(candidate: Optional[_P], *, option: str) -> Optional[_P]:
+    """Verify an injected extraction pipeline carries both halves, at construction time.
+
+    Shared by ``entity_pipeline`` and ``relation_pipeline`` (SM-G3 #101): the same bargain
+    :func:`egpt.memory.substrates.checked_graph` strikes, generalised over which option is being
+    checked so the two pipelines cannot drift on this rule. Names only, but it turns "consolidate
+    mysteriously stopped extracting" or an ``AttributeError`` deep inside a pass into a build-time
+    error. ``None`` passes through -- a provider without a given extraction pass is the default,
+    not a misconfiguration.
 
     Method presence only, like that same bargain -- a candidate with the right names and wrong
     behaviour (a bad model, a broken embedder passed through) still passes here and fails at the
@@ -123,10 +145,10 @@ def _checked_pipeline(candidate: Any) -> Optional["EntityExtractionPipeline"]:
     missing = [verb for verb in ("run", "arun") if not callable(getattr(candidate, verb, None))]
     if missing:
         raise MemoryProviderConfigError(
-            f"options['entity_pipeline'] is a {type(candidate).__name__}, which is missing "
+            f"options[{option!r}] is a {type(candidate).__name__}, which is missing "
             f"{missing}. consolidate and aconsolidate each drive one half; a pipeline with only "
             "the sync verb blocks the async lane's event loop.",
-            field_name="options.entity_pipeline",
+            field_name=f"options.{option}",
         )
     return candidate
 
@@ -191,6 +213,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         max_episodes_per_pass: int = _MAX_EPISODES_PER_PASS,
         max_concurrent_writes: int = _MAX_CONCURRENT_WRITES,
         entity_pipeline: Optional["EntityExtractionPipeline"] = None,
+        relation_pipeline: Optional["RelationExtractionPipeline"] = None,
     ) -> None:
         if vector is None and graph is None:
             raise MemoryProviderConfigError(
@@ -205,7 +228,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #:
         #: Duck-typed for the same reason ``close`` is -- the type lives in ``memory.graph``, which
         #: pulls in the model and learn stacks, and every ``import egpt.memory`` would pay for it.
-        self.entity_pipeline = _checked_pipeline(entity_pipeline)
+        self.entity_pipeline = _checked_pipeline(entity_pipeline, option="entity_pipeline")
+        #: SM-G3's (#101) relation extraction, run by ``consolidate`` right after entity
+        #: extraction. Same duck-typed, opt-in shape as ``entity_pipeline`` and the same reason:
+        #: an LLM pass per episode that a provider must be asked for, not upgraded into.
+        self.relation_pipeline = _checked_pipeline(relation_pipeline, option="relation_pipeline")
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         #: Ceiling on one consolidation pass. Adjustable because the default is a safety bound, not
         #: a policy: a tier larger than this has its tail consolidated *never*, not later.
@@ -904,6 +931,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         facts: Sequence[FactWrite],
         merged: int,
         entities: EntitySummary,
+        relations: RelationSummary,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
         return ConsolidationReport(
@@ -928,6 +956,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # unnecessary cap increase, the false negative costs silent loss of the tail.
                 complete=not hit_cap,
                 entities=entities,
+                # `relations` is a free extra key, not a `CONSOLIDATION_KEYS` floor member (see
+                # `RelationSummary`'s docstring): promoting it is a separate, deliberate decision
+                # this ticket does not make.
+                relations=relations,
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
                 tail_unreachable=hit_cap,
             ),
@@ -968,6 +1000,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
         if self.entity_pipeline is None:
             return NO_ENTITIES
         return (await self.entity_pipeline.arun(scope, episodes)).details
+
+    def _relations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationSummary:
+        """Run SM-G3's (#101) relation extraction over the episodes this pass kept.
+
+        Same ``episodes``, same ordering after the fact write, and the same
+        wired-vs-empty-vs-never-wired distinction as :meth:`_entities` -- see that method's
+        docstring for why each of those matters.
+        """
+        if self.relation_pipeline is None:
+            return NO_RELATIONS
+        return self.relation_pipeline.run(scope, episodes).details
+
+    async def _arelations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationSummary:
+        """Async variant of :meth:`_relations`, making the same decisions."""
+        if self.relation_pipeline is None:
+            return NO_RELATIONS
+        return (await self.relation_pipeline.arun(scope, episodes)).details
 
     @staticmethod
     def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
@@ -1111,15 +1160,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # `return` unconditionally.
             try:
                 entities = self._entities(scope, episodes)
+                # After entities, not before: relation edges land on the same entity nodes by
+                # name (module docstring), so running this second lets a fresh node exist before
+                # any edge that names it -- though `upsert_facts` creates a bare endpoint either
+                # way, so this is ordering for readability, not a correctness dependency.
+                relations = self._relations(scope, episodes)
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         else:
-            # No `receipt` exists here to attach -- `facts` is empty, so nothing above committed.
-            # A failure here is a plain refusal, matching `write`'s rule: propagate bare, do not
-            # wrap. Deliberately parallel to the `if facts:` branch above, not an oversight against
-            # it -- see the review-round-3 note in `_entities`'s own docstring.
+            # No `receipt` exists here to attach -- `facts` is empty, so no *semantic fact* was
+            # committed above. `_entities`/`_relations` below can still write graph nodes/edges of
+            # their own, uncounted by this branch's `PartialWriteError` handling -- a pre-existing
+            # gap, pre-existing for `_entities` alone and now also covering `_relations`'s
+            # write below -- this ticket does not widen the fix for either; tracked as
+            # aicoe-tracker #186. A failure here is a plain refusal, matching
+            # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
+            # branch above, not an oversight against it -- see the review-round-3 note in
+            # `_entities`'s own docstring.
             entities = self._entities(scope, episodes)
-        return self._report(scope, scanned, episodes, facts, merged, entities)
+            relations = self._relations(scope, episodes)
+        return self._report(scope, scanned, episodes, facts, merged, entities, relations)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1161,15 +1221,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 raise PartialWriteError(receipt) from exc
             try:
                 entities = await self._aentities(scope, episodes)
+                relations = await self._arelations(scope, episodes)
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         else:
-            # No `receipt` exists here to attach -- `facts` is empty, so nothing above committed.
-            # A failure here is a plain refusal, matching `write`'s rule: propagate bare, do not
-            # wrap. Deliberately parallel to the `if facts:` branch above, not an oversight against
-            # it -- see the review-round-3 note in `_entities`'s own docstring.
+            # No `receipt` exists here to attach -- `facts` is empty, so no *semantic fact* was
+            # committed above. `_entities`/`_relations` below can still write graph nodes/edges of
+            # their own, uncounted by this branch's `PartialWriteError` handling -- a pre-existing
+            # gap, pre-existing for `_entities` alone and now also covering `_relations`'s
+            # write below -- this ticket does not widen the fix for either; tracked as
+            # aicoe-tracker #186. A failure here is a plain refusal, matching
+            # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
+            # branch above, not an oversight against it -- see the review-round-3 note in
+            # `_entities`'s own docstring.
             entities = await self._aentities(scope, episodes)
-        return self._report(scope, scanned, episodes, facts, merged, entities)
+            relations = await self._arelations(scope, episodes)
+        return self._report(scope, scanned, episodes, facts, merged, entities, relations)
 
 
 @register_provider("co_located")
@@ -1209,4 +1276,7 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
         # Injected, not resolved by registry key: the pipeline needs a model and an embedder, and
         # naming those in provider config would put SM-V2's (#96) embedder selection here.
         entity_pipeline=config.options.get("entity_pipeline"),
+        # Same reasoning as `entity_pipeline`, one line up: a model is all `RelationExtractionPipeline`
+        # needs, but naming one here would put model selection in provider config.
+        relation_pipeline=config.options.get("relation_pipeline"),
     )

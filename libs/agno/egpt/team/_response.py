@@ -27,7 +27,7 @@ from egpt.models.fallback import acall_model_stream_with_fallback, call_model_st
 from egpt.models.message import Message
 from egpt.models.response import ModelResponse, ModelResponseEvent
 from egpt.reasoning.step import NextAction, ReasoningStep, ReasoningSteps
-from egpt.run import RunContext
+from egpt.run import RunContext, run_model
 from egpt.run.agent import RunOutput, RunOutputEvent
 from egpt.run.messages import RunMessages
 from egpt.run.requirement import RunRequirement
@@ -1035,7 +1035,7 @@ def _handle_model_response_stream(
 
     full_model_response = ModelResponse()
     for model_response_event in call_model_stream_with_fallback(
-        team.model,
+        run_model(team, run_context),
         team.fallback_config,
         messages=run_messages.messages,
         response_format=response_format,
@@ -1195,7 +1195,7 @@ async def _ahandle_model_response_stream(
 
     full_model_response = ModelResponse()
     model_stream = acall_model_stream_with_fallback(
-        team.model,
+        run_model(team, run_context),
         team.fallback_config,
         messages=run_messages.messages,
         response_format=response_format,

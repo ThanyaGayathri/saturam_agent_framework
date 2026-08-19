@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
 
 from pydantic import BaseModel
 
@@ -10,6 +10,17 @@ from egpt.models.message import Citations, Message, MessageReferences
 from egpt.models.metrics import RunMetrics
 from egpt.reasoning.step import ReasoningStep
 from egpt.utils.log import log_error
+
+if TYPE_CHECKING:
+    from egpt.models.base import Model
+else:
+    # `RunContext` is used as a tool-function parameter annotation, and pydantic's
+    # `validate_call` (see tools/function.py) resolves this dataclass's annotations at
+    # *runtime* -- a TYPE_CHECKING-only name raises PydanticUndefinedAnnotation there
+    # (aicoe-tracker#166 review). A real import at module scope closes an import cycle
+    # (egpt.run -> egpt.models.base -> ... -> egpt.tools -> egpt.run), so bind the name to
+    # Any for the runtime pass only: static checkers still see the precise `Model`.
+    Model = Any
 
 
 @dataclass
@@ -52,6 +63,63 @@ class RunContext:
     tools: Optional[List[Any]] = None
     knowledge: Optional[Any] = None
     members: Optional[List[Any]] = None
+
+    # The model this run resolved through the provider seam (EGPT-3.5), or None when no provider
+    # is configured and the run simply serves `component.model`.
+    #
+    # Per-run state on the per-run object, for the same reason `tenant_id` above is carried here
+    # rather than ambiently. `apply_run_model` used to assign the resolved model to
+    # `component.model`, but a component is shared -- CLAUDE.md tells users to reuse agents rather
+    # than build one per request -- so a run that escalated wrote to state every other run reads.
+    # Two failures followed: a concurrent run's in-flight call used a model it never asked for
+    # (metered frontier egress, and possibly another tenant's `base_url`), and the escalation
+    # outlived the run, so a later resolution failure kept the *escalated* model rather than the
+    # configured one. Both are read-your-own-writes problems a per-run field simply does not have.
+    # Tracked as aicoe-tracker#166.
+    #
+    # Read through `run_model(component, run_context)` below, never directly: the fallback to
+    # `component.model` is what keeps the no-provider path byte-identical, and every site that
+    # picks a serving model must make the same choice.
+    #
+    # Keyed by the *component* that resolved it, not stored bare. A `RunContext` is deliberately
+    # shared across the steps of a workflow (`workflow/step.py` passes one context into every
+    # executor), and `apply_run_model`'s no-provider path early-returns without writing anything.
+    # A bare field therefore let step 1's escalated model serve step 2's provider-less component:
+    # wrong model, wrong provider, wrong `base_url`, silently -- the same leak this field exists
+    # to prevent, moved from "between concurrent runs" to "between sequential steps".
+    # Held as a weak reference rather than `id()`: CPython recycles the id of a freed object, so
+    # an id key could match a *different* component that happened to land on the same address.
+    # A dead weakref simply compares unequal, which is the safe direction.
+    resolved_model: Optional["Model"] = None
+    resolved_model_owner: Optional[Any] = None  # weakref.ref to the component that resolved it
+
+
+def run_model(component: Any, run_context: Optional[RunContext]) -> "Model":
+    """The model that serves *this* run: what the provider resolved, else what the caller configured.
+
+    Every run-path site that needs a serving model -- the model call itself, the tool binding, the
+    response-format derivation, the run's attribution -- must go through here rather than reading
+    ``component.model``. That attribute is shared across runs, so reading it directly is what let
+    one run's escalation reach another run's in-flight call (aicoe-tracker#166).
+
+    The fallback is what keeps the no-provider path byte-identical: with nothing configured,
+    ``resolved_model`` stays ``None`` and every caller reads exactly the attribute it read before.
+    ``run_context`` is ``Optional`` because a few run-path helpers are reachable without one; those
+    still get a model rather than an ``AttributeError``.
+
+    Lives here rather than in ``agent/_run.py`` so that ``team/_run.py`` can import it at module
+    level. ``egpt.team`` imports ``egpt.agent``, so an ``agent/_run.py`` home forced a
+    function-local import in each of the ~20 team run paths that need it -- one omission away from
+    a ``NameError`` on a path no test happens to drive. It is a pure accessor over ``RunContext``
+    with no orchestration dependency, so core is where it belongs.
+    """
+    if run_context is not None:
+        resolved = getattr(run_context, "resolved_model", None)
+        owner = getattr(run_context, "resolved_model_owner", None)
+        # Only the component that resolved it may read it back -- see `resolved_model_owner`.
+        if resolved is not None and owner is not None and owner() is component:
+            return resolved
+    return component.model
 
 
 @dataclass

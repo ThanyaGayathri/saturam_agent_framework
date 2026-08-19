@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from egpt.db.base import BaseDb, ComponentType
+from egpt.db.cas_retry import RetriesExhausted
 from egpt.os.routers.components import get_components_router
 from egpt.os.settings import AgnoAPISettings
 
@@ -396,6 +397,17 @@ class TestCreateConfig:
 
         assert response.status_code == 400
 
+    def test_create_config_handles_retries_exhausted(self, client, mock_db):
+        """Concurrent writers exhausting the version-assignment retry is a 409, not a 400."""
+        mock_db.upsert_config.side_effect = RetriesExhausted("kept being claimed by concurrent writers")
+
+        response = client.post(
+            "/components/agent-1/configs",
+            json={"config": {}},
+        )
+
+        assert response.status_code == 409
+
 
 # =============================================================================
 # Get Current Config Tests
@@ -501,6 +513,17 @@ class TestUpdateConfig:
 
         assert response.status_code == 400
 
+    def test_update_config_handles_retries_exhausted(self, client, mock_db):
+        """Concurrent writers exhausting the publish CAS retry is a 409, not a 400."""
+        mock_db.upsert_config.side_effect = RetriesExhausted("current_version kept changing")
+
+        response = client.patch(
+            "/components/agent-1/configs/1",
+            json={"stage": "published"},
+        )
+
+        assert response.status_code == 409
+
 
 # =============================================================================
 # Delete Config Tests
@@ -575,6 +598,14 @@ class TestSetCurrentConfig:
         response = client.post("/components/agent-1/configs/1/set-current")
 
         assert response.status_code == 400
+
+    def test_set_current_config_handles_retries_exhausted(self, client, mock_db):
+        """Concurrent writers exhausting the rollback CAS retry is a 409, not a 400."""
+        mock_db.set_current_version.side_effect = RetriesExhausted("current_version kept changing")
+
+        response = client.post("/components/agent-1/configs/1/set-current")
+
+        assert response.status_code == 409
 
 
 # =============================================================================

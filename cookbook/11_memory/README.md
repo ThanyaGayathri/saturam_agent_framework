@@ -47,7 +47,12 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `./cookbook/scripts/run_neo4j.sh`; no API key. The entity names are supplied on the event:
   extracting them from content is SM-G2's (see `17_`). Requires `.venv`, not `.venvs/demo` --
   `demo_setup.sh` does not install the `neo4j` driver.
-- `19_entity_resolution_graph.py`: Entity resolution (SM-G8) -- folding "Acme" and "Acme
+- `19_relation_extraction_graph.py`: Relation/fact edge extraction into typed graph edges (SM-G3) --
+  `(source)-[relation]->(target)` between the entity nodes `17_`'s pass creates, provenanced back to
+  the interaction. Same consolidation-lane placement as `17_`, wired alongside it with a second
+  `relation_pipeline` option. Needs `./cookbook/scripts/run_neo4j.sh`,
+  `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY`.
+- `20_entity_resolution_graph.py`: Entity resolution (SM-G8) -- folding "Acme" and "Acme
   Corporation" into one node via `EntityResolutionPipeline`, re-pointing their `MENTIONS` edges and
   keeping the losing name as an alias. No API key; needs `./cookbook/scripts/run_neo4j.sh` and a
   local embedder (`sentence-transformers`, installed by `.venvs/demo`).
