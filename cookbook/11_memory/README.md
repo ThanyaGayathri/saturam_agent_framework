@@ -51,7 +51,8 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `(source)-[relation]->(target)` between the entity nodes `17_`'s pass creates, provenanced back to
   the interaction. Same consolidation-lane placement as `17_`, wired alongside it with a second
   `relation_pipeline` option. Needs `./cookbook/scripts/run_neo4j.sh`,
-  `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY`.
+  `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY`. Reads the edges back through
+  `graph.recall_facts` (SM-G7), the read `19_` used to reach `graph._driver` directly for.
 - `20_entity_resolution_graph.py`: Entity resolution (SM-G8) -- folding "Acme" and "Acme
   Corporation" into one node via `EntityResolutionPipeline`, re-pointing their `MENTIONS` edges and
   keeping the losing name as an alias. No API key; needs `./cookbook/scripts/run_neo4j.sh` and a
@@ -67,19 +68,29 @@ This section demonstrates how EGPT agents persist and use user memories across r
   can still be scored. `cosine_relevance` on precomputed embeddings and `episode_relevance` on raw
   text; recency/importance/composite weighting are SM-E4/SM-E5/SM-E7's. Runs with no database and
   no API key -- a tiny deterministic bag-of-hashed-tokens embedder, not a real model.
-- `23_episodic_segmentation.py`: The SM-R6 v1 inline segmentation prior at write-back (SM-E3) --
+- `23_consolidation_worker.py`: The async consolidation worker (SM-L1) -- draining `consolidate`
+  off the hot path across a tier larger than one bounded pass, via the provider's internal
+  resumption cursor; retrying a failed pass safely (idempotent upsert by content-derived id); and
+  running as a background task on an interval. Vector-only, so it runs with no database and no API
+  key.
+- `24_episodic_segmentation.py`: The SM-R6 v1 inline segmentation prior at write-back (SM-E3) --
   the deterministic `time_gap` + `max_turns_per_episode` cut, suppressed below
   `min_turns_per_episode`, that tags each write-back event with which boundary rule (if any)
   opened a new episode. Shows a two-topic session segmenting in one call and across two write-back
   calls via `SegmentState`, and the hard turn cap firing with no idle gap. The async
   re-segmentation lane (embedding-similarity drift, EM-LLM, LLM) is SM-R7's, not shown here. Runs
   with no database and no API key.
-
-- `23_consolidation_worker.py`: The async consolidation worker (SM-L1) -- draining `consolidate`
-  off the hot path across a tier larger than one bounded pass, via the provider's internal
-  resumption cursor; retrying a failed pass safely (idempotent upsert by content-derived id); and
-  running as a background task on an interval. Vector-only, so it runs with no database and no API
-  key.
+- `25_semantic_subgraph.py`: The semantic subgraph (SM-G7) -- resolved `(:Entity)` nodes and the
+  `(:Entity)-[:REL]->(:Entity)` fact edges between them, recalled by entity, by relation label, and
+  by valid time, and shown as a subgraph distinct from `18_`'s episodic one over the same scope.
+  Needs `./cookbook/scripts/run_neo4j.sh`; no API key -- entities and fact edges are written
+  directly, the same way `18_` writes episodes without SM-G2's extraction pass. Requires `.venv`,
+  not `.venvs/demo`, for the same reason `18_` does.
+  **Renumbered from `20_` to `23_` to `24_` to `25_` across three merges** -- `feat/SM-G8` took
+  `20_entity_resolution_graph.py` first, then `feat/SM-E5`/`feat/SM-E6` took `21_`/`22_`, then
+  `feat/SM-L1` took `23_consolidation_worker.py`, then `feat/SM-E3` took `24_episodic_segmentation.py`
+  while this branch was still catching up. Per this file's own convention, whoever merges second
+  renumbers -- three times, this time.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

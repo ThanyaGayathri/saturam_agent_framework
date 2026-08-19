@@ -50,6 +50,7 @@ from egpt.memory.graph.resolve import (
     EntityResolutionReport,
     resolution_details,
 )
+from egpt.memory.graph.semantic import require_fact_filters
 from egpt.memory.graph.temporal import (
     RuleBasedValidTimeExtractor,
     ValidTimeExtractor,
@@ -92,6 +93,7 @@ __all__ = [
     "normalized_mentions",
     "relation_details",
     "relation_edge_id_for",
+    "require_fact_filters",
     "require_recall_filters",
     "require_recall_limit",
     "require_time_window",

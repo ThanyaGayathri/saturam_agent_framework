@@ -439,6 +439,28 @@ into this run.
 
 ---
 
+### 19_relation_extraction_graph.py (re-verified, SM-G7 #105)
+
+**Status:** FAIL (same pre-existing gap; the changed part is verified separately)
+
+**Description:** SM-G7 replaced this file's `relation_edges` helper -- which used to reach
+`graph._driver` directly because the port had no read verb for the semantic subgraph -- with
+`graph.recall_facts(ACME_ADA, since=0)`, the read this ticket adds.
+
+**Result:** Still gated on the same `OPENAI_API_KEY` this environment does not have, so the file
+itself does not run end to end here -- unchanged from the entry above. What changed is verified
+directly: `RelationExtractionPipeline.run()` then `.arun()` were run against the real
+`smg1-neo4j` container (the same technique the entry above used) with a stub extractor over
+`(Ada, works_at, Acme Corp)`, then read back with `graph.recall_facts(scope, entities=["Ada"])`
+and `graph.recall_facts(scope, relation="works_at")` -- both returned exactly the one edge written,
+and `graph.recall_facts(scope, relation="lives_in")` returned none. `recall_facts` reads what the
+consolidation lane writes, against the real engine.
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`, `./cookbook/scripts/run_pgvector.sh`, and an
+`OPENAI_API_KEY`.
+
+---
+
 ### 20_entity_resolution_graph.py
 
 **Status:** PASS
@@ -597,3 +619,31 @@ the same parameters used to build it.
 **Renumbered from `23_` to `24_`: SM-L1 (#122) merged to `main` first and took `23_` for
 `23_consolidation_worker.py`.** Per this file's own convention, whoever merges second renumbers --
 now the fourth time this file's lineage has moved (see `22_`'s own note above for the earlier two).
+
+---
+
+### 25_semantic_subgraph.py
+
+**Status:** PASS
+
+**Description:** The semantic subgraph's read surface (SM-G7 #105) -- resolved entities and fact
+edges written directly (no model call), then recalled by entity (either end of the edge), by
+relation label, and by valid-time window, against a real Neo4j 5 Community
+(`smg1-neo4j`, the container already running on this host on the ports `run_neo4j.sh` names).
+
+**Result:** Ran to completion against the real engine. Entity recall found both edges naming
+"Ada" (`works_at`, `relocated_to`) and both edges naming "NorthStar Analytics" (`works_at`,
+`located_in`) at either end. Relation recall found exactly the one `located_in` edge. The
+valid-time window (`until=JUNE`) excluded the one edge dated at `JUNE` and kept the two dated at
+`MARCH`. The episodic-vs-semantic count at the end reported 3 episodic rows (left in this scope by
+an earlier `18_` run in this same session) against 3 semantic fact edges -- `recall_facts` returned
+none of the episodic ones and `recall_episodes` returned none of these fact edges. The final
+unfiltered call raised the expected refusal naming SM-G9 (#107).
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`; no API key.
+
+**Renumbered from `20_semantic_subgraph.py` to `23_` to `24_` to `25_` across three merges**:
+`feat/SM-G8` landed `20_` on `main` first, `feat/SM-E5`/`feat/SM-E6` claimed `21_`/`22_` while this
+branch was still catching up, then `feat/SM-L1` claimed `23_consolidation_worker.py`, then
+`feat/SM-E3` claimed `24_episodic_segmentation.py`. Per this file's own convention, whoever merges
+second renumbers -- three times, this time.

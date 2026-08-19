@@ -78,6 +78,17 @@ def all_statements(scope):
                 ("until", {"entities": None, "since": None, "until": 20, "limit": None}),
             )
         ],
+        # Same reasoning as `recall_episodes` above, over `recall_facts`'s extra `relation` axis.
+        *[
+            (f"recall_facts[{label}]", *cypher.recall_facts_statement(scope, **kwargs))
+            for label, kwargs in (
+                ("entities", {"entities": ["berlin"], "relation": None, "since": None, "until": None, "limit": None}),
+                ("relation", {"entities": None, "relation": "lives_in", "since": None, "until": None, "limit": None}),
+                ("window", {"entities": None, "relation": None, "since": 10, "until": 20, "limit": 5}),
+                ("since", {"entities": None, "relation": None, "since": 10, "until": None, "limit": 0}),
+                ("until", {"entities": None, "relation": None, "since": None, "until": 20, "limit": None}),
+            )
+        ],
     ]
     return emitted
 
@@ -281,6 +292,17 @@ def test_the_entity_key_and_embedding_are_indexed():
     assert "ON (n.scope_key, n.key)" in statements
     assert f"VECTOR INDEX egpt_{cypher.ENTITY.lower()}_embedding" in statements
     assert "ON (n.embedding)" in statements
+
+
+def test_the_rel_edges_t_valid_predicate_is_indexed():
+    """Review finding on PR #102, round 1. The id-equality index (`egpt_rel_scope`) never helps
+    `recall_facts_statement`'s `t_valid` window predicate, which never mentions `id` -- without a
+    dedicated index, a `since`/`until` bound `recall_facts` read is a sequential scan over every REL
+    edge in the tenant. Mirrors `egpt_episode_t_valid`'s reason on the episodic side."""
+    statements = " ".join(cypher.SCHEMA_STATEMENTS)
+
+    assert "INDEX egpt_rel_t_valid" in statements
+    assert "ON (r.tenant_id, r.t_valid)" in statements
 
 
 def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties():
@@ -593,6 +615,7 @@ DRIVER_CALLS = {
     ),
     "traverse": lambda g: g.traverse(FULL, MemoryQuery(text="x")),
     "recall_episodes": lambda g: g.recall_episodes(FULL, since=10),
+    "recall_facts": lambda g: g.recall_facts(FULL, since=10),
     "bounds_for_ids": lambda g: g.bounds_for_ids(FULL, ["f1"]),
     "invalidate": lambda g: g.invalidate(FULL, "f1", t_invalid=300, at=310),
     "init_schema": lambda g: g.init_schema(),
@@ -712,6 +735,7 @@ ASYNC_DRIVER_CALLS = {
     ),
     "atraverse": lambda g: g.atraverse(FULL, MemoryQuery(text="x")),
     "arecall_episodes": lambda g: g.arecall_episodes(FULL, since=10),
+    "arecall_facts": lambda g: g.arecall_facts(FULL, since=10),
     "abounds_for_ids": lambda g: g.abounds_for_ids(FULL, ["f1"]),
     "ainvalidate": lambda g: g.ainvalidate(FULL, "f1", t_invalid=300, at=310),
     "ainit_schema": lambda g: g.ainit_schema(),

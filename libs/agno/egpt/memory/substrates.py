@@ -597,6 +597,74 @@ class GraphSubstrate(Protocol):
         """Async variant of :meth:`recall_episodes`."""
         ...
 
+    def recall_facts(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        relation: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        """Fact edges by entity, by relation label, and by valid time -- the semantic subgraph's
+        read (SM-G7 #105), mirroring :meth:`recall_episodes` for the episodic side.
+
+        **Only the** ``(:Entity)-[:REL]->(:Entity)`` **shape.** The untripled ``(:Fact)`` node has
+        no subject or object to filter on, so it is out of scope here the same way it is out of
+        :func:`~egpt.memory.graph.semantic.require_fact_filters`'s filters -- a caller wanting it
+        still reaches it through :meth:`traverse`.
+
+        Not a ranked query and deliberately not :meth:`traverse`, for :meth:`recall_episodes`'s
+        reason: this returns the fact edges a filter set selects, in valid-time order, with **no
+        score**. Ranking a semantic retriever over this shape is SM-G9's (#107) / SM-H's to build;
+        this is the retrieval it would read from.
+
+        * ``entities`` -- return only edges whose **subject or object** name is in this set (a
+          disjunction over either end, matching how :meth:`recall_episodes`'s anchor set is used).
+          ``None`` applies no entity filter. An **empty** sequence is refused, for the reason
+          :meth:`recall_episodes` refuses one.
+        * ``relation`` -- return only edges whose relation label equals this string exactly.
+          ``None`` applies no relation filter; a blank string is refused for the same reason an
+          empty ``entities`` is.
+        * ``since`` / ``until`` -- the same half-open valid-time window :meth:`recall_episodes`
+          defines, compared against the edge's ``t_valid``. An edge whose ``t_valid`` is unknown
+          (``None``) fails *either* bound and so is excluded by any window -- an edge with no known
+          time is not a member of one, the same three-valued reading :meth:`recall_episodes` gives
+          (round-2 review, PR #102).
+        * ``limit`` -- the same bound-not-page contract as :meth:`recall_episodes`.
+
+        **At least one of ``entities`` / ``relation`` / ``since`` / ``until`` is required**, for
+        :meth:`recall_episodes`'s enumeration reason -- SM-G9 (#107) owns what enumerating the
+        semantic subgraph means. All four refusals come from
+        ``egpt.memory.graph.semantic.require_fact_filters``, so every backend refuses identically.
+
+        Ordering is **ascending ``t_valid``, then ``created_at``, then ``content``, then ``id``**,
+        matching :meth:`recall_episodes`'s total order so neither read reorders identical rows
+        between runs.
+
+        **Current belief only** (``expired_at IS NULL``), applied before ``limit``, as everywhere
+        else on this port.
+
+        Each returned record carries ``provenance["subject"]``, ``provenance["predicate"]`` and
+        ``provenance["object"]`` -- read from the edge and its two endpoint nodes, not
+        reconstructed by parsing ``content``. ``content`` is free text (``upsert_facts`` writes it
+        as ``f"{subject} {predicate} {object}"``) and an entity name containing a space would make
+        that split ambiguous; the graph shape itself is the only unambiguous source for the three.
+        """
+        ...
+
+    async def arecall_facts(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        relation: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        """Async variant of :meth:`recall_facts`."""
+        ...
+
     def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
         """The graph's bi-temporal bounds for the given record ids -- **not** a ranked query.
 

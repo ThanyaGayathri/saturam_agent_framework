@@ -29,14 +29,19 @@ _ISLAND_MODULES = {
     "egpt.memory.embedding",
     "egpt.memory.errors",
     "egpt.memory.graph.episodic",
+    "egpt.memory.graph.semantic",
     "egpt.memory.tiers",
     "egpt.memory.types",
 }
-# `egpt.memory.graph.episodic` is listed exactly, not as a `graph.*` prefix: its sibling
-# `graph/entities.py` (and the subpackage `__init__`, which re-exports it) imports
-# `egpt.memory.substrates` and `egpt.learn.*` -- services surface no backend may pull in. A
-# new cross-backend graph rule module earns its island row only once it passes
-# `test_island_modules_import_only_core_or_island` below.
+# `egpt.memory.graph.episodic` and `egpt.memory.graph.semantic` are listed exactly, not as a
+# `graph.*` prefix: their sibling `graph/entities.py` (and the subpackage `__init__`, which
+# re-exports it) imports `egpt.memory.substrates` and `egpt.learn.*` -- services surface no
+# backend may pull in. `semantic.py` earns its row here (SM-G7 #105) the same way `episodic.py`
+# did: `cypher.py`'s `recall_facts_statement` needs `require_fact_filters`, the fact-edge recall
+# guard every backend must apply identically, and `semantic.py` itself imports only
+# `egpt.memory.types` -- already in the island -- so it passes
+# `test_island_modules_import_only_core_or_island` below cleanly. A new cross-backend graph rule
+# module earns its own island row only once it passes that same test.
 
 # What an island module may not import: the integrations tree (that direction inverts the
 # seam), and the orchestration/services/api packages the import-linter contract forbids for

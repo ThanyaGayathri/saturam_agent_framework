@@ -16,7 +16,6 @@ resolved fact: two spellings of one entity address two different endpoint nodes 
 address two different nodes in `17_`, and merging them is SM-G8's (#106).
 """
 
-import json
 import os
 
 from egpt.integrations.knowledge.embedder.sentence_transformer import (
@@ -114,34 +113,15 @@ print(f"  entities: {report.details['entities']}")
 print(f"  relations: {report.details['relations']}")
 
 
-def relation_edges(scope: Scope) -> list[dict]:
-    """Read the relation edges back with Cypher.
-
-    The port has no read verb for them: querying the semantic subgraph is SM-G7 (#105) / SM-G9
-    (#107), and inventing one here would ship a surface this ticket cannot test -- the same reason
-    `17_`'s own `entity_nodes` reaches `graph._driver` directly.
-    """
-    with graph._driver.session(database=graph.database) as session:
-        return [
-            dict(row)
-            for row in session.run(
-                # `:REL` matches `cypher.REL`, the edge label `upsert_facts_statements`'s triple
-                # leg hardcodes -- update here if that constant ever changes.
-                "MATCH (s:Entity {scope_key: $scope_key})-[r:REL]->(o:Entity {scope_key: $scope_key}) "
-                "RETURN s.name AS source, r.predicate AS relation, o.name AS target, "
-                # Nested values are JSON on a Neo4j property (`Neo4jGraphSubstrate._row`'s own
-                # docstring) -- `provenance` is a JSON string here, not a map.
-                "r.provenance AS provenance ORDER BY s.name, o.name",
-                scope_key=scope.key(),
-            )
-        ]
-
-
-print("\nRelation edges for acme/ada:")
-for edge in relation_edges(ACME_ADA):
-    episodes = json.loads(edge["provenance"])["source_episode_ids"]
+print("\nRelation edges for acme/ada, read through the semantic subgraph (SM-G7 #105):")
+# `recall_facts` is the port's read for this shape -- fact edges by entity/relation/valid-time,
+# unranked, distinct from `traverse`'s relevance-ranked search over every tier at once. `since=0`
+# asks for the whole history rather than narrowing by entity or relation.
+for edge in graph.recall_facts(ACME_ADA, since=0):
+    episodes = edge.provenance.get("source_episode_ids", [])
     print(
-        f"  {edge['source']} --[{edge['relation']}]--> {edge['target']}  from={episodes}"
+        f"  {edge.provenance['subject']} --[{edge.provenance['predicate']}]--> "
+        f"{edge.provenance['object']}  from={episodes}"
     )
 
 print(

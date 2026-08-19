@@ -767,14 +767,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
         the verb the caller used. Threading it is what keeps the entry guard and the post-condition
         from disagreeing about which method is running.
         """
-        # `GraphSubstrate.recall_episodes` (SM-G6 #104) is deliberately absent from this fan-out.
-        # It answers a different question -- episodes by valid-time window and mention link,
-        # unranked -- than `traverse`'s relevance-ranked search, and merging an unranked leg into
-        # `_merged`'s ranked-fusion machinery would need a decision about how the two combine that
-        # nobody has made. No ticket currently owns wiring it into the fused read path; a caller
-        # that wants it reaches `provider.graph.recall_episodes` directly, as
-        # `cookbook/18_episodic_subgraph.py` does. Stated here rather than left to look like an
-        # oversight, per round-3 review, PR #90.
+        # `GraphSubstrate.recall_episodes` (SM-G6 #104) and `.recall_facts` (SM-G7 #105) are
+        # deliberately absent from this fan-out. Both answer a different question -- rows by
+        # valid-time window and by entity/relation link, unranked -- than `traverse`'s
+        # relevance-ranked search, and merging an unranked leg into `_merged`'s ranked-fusion
+        # machinery would need a decision about how the two combine that nobody has made. No ticket
+        # currently owns wiring either into the fused read path; a caller that wants one reaches
+        # `provider.graph.recall_episodes` / `.recall_facts` directly, as
+        # `cookbook/18_episodic_subgraph.py` / `cookbook/25_semantic_subgraph.py` do. Stated here
+        # rather than left to look like an oversight, per round-3 review, PR #90.
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         vector_hits: List[MemoryRecord] = []

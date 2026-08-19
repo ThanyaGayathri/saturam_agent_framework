@@ -31,6 +31,7 @@ from egpt.memory.graph.episodic import (
     require_recall_limit,
     require_time_window,
 )
+from egpt.memory.graph.semantic import require_fact_filters
 from egpt.memory.types import SCOPE_SLOTS, Scope, require_scope
 
 __all__ = [
@@ -56,6 +57,7 @@ __all__ = [
     "match_entities_by_key_statement",
     "mentioning_episodes_statement",
     "recall_episodes_statement",
+    "recall_facts_statement",
     "scope_predicate",
     "scope_props",
     "traverse_statements",
@@ -398,6 +400,95 @@ def recall_episodes_statement(
         "WITH e, men, ment ORDER BY men.position ASC "
         "WITH e AS row, [n IN collect(ment.name) WHERE n IS NOT NULL] AS mentions "
         f"{_RECALL_RETURN} ORDER BY row.t_valid ASC, row.created_at ASC, row.content ASC, row.id ASC"
+    )
+    if limit is not None:
+        text += " LIMIT $limit"
+        params["limit"] = limit
+    return text, params
+
+
+#: The fact-edge columns :func:`recall_facts_statement` selects: the same envelope
+#: ``_RECALL_RETURN`` uses, **plus** the edge's own scope slots -- for the reason
+#: ``_RECALL_RETURN``'s own comment gives for episodes: under a tenant-wide call the edge's write
+#: scope and the call scope disagree, and a caller reading ``record.scope`` afterwards needs the
+#: former, not the latter (round-1 review, PR #102). Plus the three SPO fields read from the edge
+#: and its endpoints rather than parsed out of ``content`` -- see ``GraphSubstrate.recall_facts``
+#: for why that split matters.
+_RECALL_FACTS_RETURN = (
+    "RETURN row.id AS id, row.tier AS tier, row.content AS content, row.topics AS topics, "
+    "row.t_valid AS t_valid, row.t_invalid AS t_invalid, row.created_at AS created_at, "
+    "row.expired_at AS expired_at, row.superseded_by AS superseded_by, "
+    "row.provenance AS provenance, row.metadata AS metadata, "
+    + ", ".join(f"row.{slot} AS {slot}" for slot in SCOPE_SLOTS)
+    + ", subject, row.predicate AS predicate, object"
+)
+
+
+def recall_facts_statement(
+    scope: Scope,
+    *,
+    entities: Optional[Sequence[str]] = None,
+    relation: Optional[str] = None,
+    since: Optional[int] = None,
+    until: Optional[int] = None,
+    limit: Optional[int] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """Fact edges by entity, by relation label and by half-open valid-time window (SM-G7 #105).
+
+    Only the ``(:Entity)-[r:REL]->(:Entity)`` shape -- the untripled ``(:Fact)`` node has no
+    subject or object a filter here could match, matching
+    :func:`~egpt.memory.graph.semantic.require_fact_filters`'s own scope.
+
+    Every filter is applied in Cypher, not after the fact, for :func:`_traverse`'s reason: ``LIMIT``
+    runs server-side, so a predicate evaluated afterwards cuts rows the limit already spent.
+
+    The entity filter matches **either end** of the edge -- ``s.name`` or ``o.name`` -- because an
+    anchor set is a disjunction over "involves this entity" the same way
+    :func:`recall_episodes_statement`'s ``entities`` is a disjunction over "mentions this entity".
+    ``relation`` compares against ``r.predicate`` exactly, with no case-folding: two spellings of one
+    relation label are two labels, matching how two spellings of one entity are two nodes elsewhere
+    on this backend -- folding either is a resolution policy, not a write-path decision.
+
+    ``since`` / ``until`` compare against ``r.t_valid``, the same three-valued ``NULL`` behaviour
+    :func:`recall_episodes_statement` documents.
+
+    **Cost model, checked against the engine's own plan rather than assumed.** ``EXPLAIN`` on this
+    statement's ``entities``-only and ``relation``-only forms shows ``DirectedRelationshipTypeScan``
+    -- every ``:REL`` relationship in the graph, filtered by ``tenant_id``/name/predicate
+    afterwards -- not an index seek; ``egpt_rel_scope`` never gets chosen for a bare tenant equality
+    on this pattern. The ``since``/``until`` form is the one case that *is* indexed: the same
+    ``EXPLAIN`` shows ``DirectedRelationshipIndexSeek`` on ``egpt_rel_t_valid``. So a caller wanting
+    the cheap path today narrows by time; entity/relation-only filtering costs a tenant-wide REL
+    scan, matching :func:`traverse_statements`'s own cost note for the identical reason -- no shipped
+    index leads with the columns those two filters compare on, and SM-G9 (#107) replaces this read
+    path outright, so sizing one is the same unmeasured question that note already defers (round-2
+    review, PR #102).
+
+    ``LIMIT`` is omitted from the text entirely when unbounded, matching
+    :func:`recall_episodes_statement` -- ``LIMIT $limit`` with a null parameter is an error rather
+    than "no limit".
+    """
+    predicate, params = _scoped_live("r", scope, "recall_facts_statement")
+    require_fact_filters(entities, relation, since, until)
+    require_time_window(since, until)
+    require_recall_limit(limit)
+    if since is not None:
+        predicate += " AND r.t_valid >= $since"
+        params["since"] = since
+    if until is not None:
+        predicate += " AND r.t_valid < $until"
+        params["until"] = until
+    if relation is not None:
+        predicate += " AND r.predicate = $relation"
+        params["relation"] = relation
+    if entities is not None:
+        predicate += " AND (s.name IN $entities OR o.name IN $entities)"
+        params["entities"] = list(entities)
+    text = (
+        f"MATCH (s:{ENTITY})-[r:{REL}]->(o:{ENTITY}) WHERE {predicate} "
+        "WITH r AS row, s.name AS subject, o.name AS object "
+        f"{_RECALL_FACTS_RETURN} "
+        "ORDER BY row.t_valid ASC, row.created_at ASC, row.content ASC, row.id ASC"
     )
     if limit is not None:
         text += " LIMIT $limit"
@@ -838,6 +929,11 @@ SCHEMA_STATEMENTS = (
     f"CREATE INDEX egpt_{EPISODE.lower()}_t_valid IF NOT EXISTS FOR (n:{EPISODE}) ON (n.tenant_id, n.t_valid)",
     f"CREATE INDEX egpt_{FACT.lower()}_scope IF NOT EXISTS FOR (n:{FACT}) ON (n.tenant_id, n.id)",
     f"CREATE INDEX egpt_rel_scope IF NOT EXISTS FOR ()-[r:{REL}]-() ON (r.tenant_id, r.id)",
+    # Backs `recall_facts_statement`'s `t_valid` window predicate, for the same reason
+    # `egpt_episode_t_valid` backs `recall_episodes_statement`'s: the id-equality index above never
+    # helps it, since that statement never mentions `id` -- within one tenant a time-window
+    # `recall_facts` read was a sequential scan over every REL edge (round-1 review, PR #102).
+    f"CREATE INDEX egpt_rel_t_valid IF NOT EXISTS FOR ()-[r:{REL}]-() ON (r.tenant_id, r.t_valid)",
     f"CREATE INDEX egpt_{ENTITY.lower()}_scope IF NOT EXISTS FOR (n:{ENTITY}) ON (n.scope_key, n.name)",
     # SM-G8's (#106) first pass groups exact-match candidates on the normalised `key`, which the
     # identity index above -- keyed on the surface `name` -- does not back; without this, that pass
