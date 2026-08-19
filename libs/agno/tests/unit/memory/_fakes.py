@@ -42,6 +42,7 @@ from egpt.memory.types import (
     MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
+    ScanCursor,
     Scope,
     Substrate,
     TemporalBounds,
@@ -159,6 +160,11 @@ class FakeVector:
         #: is vacuous.
         self.search_limits: List[Optional[int]] = []
         self.scan_limits: List[Optional[int]] = []
+        #: Every ``after`` cursor this substrate was *asked* for, in order -- same rationale as
+        #: ``scan_limits``: a provider that drops the cursor still returns the right rows on a
+        #: corpus small enough to fit one pass, so only the request distinguishes resuming from
+        #: rescanning.
+        self.scan_afters: List[Optional[ScanCursor]] = []
         #: Every valid-time window this substrate was *asked* to narrow to, in order. Recorded for
         #: the same reason as ``search_limits``: a provider that dropped the window on the way down
         #: still returns the right rows on a corpus that happens to sit inside it, so only the
@@ -210,24 +216,33 @@ class FakeVector:
         self.calls.append("asearch")
         return self.search(scope, query, tier)
 
-    def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+    def scan(
+        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None, after: Optional[ScanCursor] = None
+    ) -> List[MemoryRecord]:
         require_scope(scope, method="scan")
         self.calls.append("scan")
         self.scan_limits.append(limit)
+        self.scan_afters.append(after)
         # Copies, like `search` returns. `scan` handing back live objects made a provider that
         # mutates what it scanned unobservable -- and the consolidate path did exactly that.
         rows = [replace(r) for r in self._matching(scope) if r.tier is tier]
         rows.sort(key=lambda r: ((r.created_at or 0), r.id))
+        if after is not None:
+            # Strict composite bound, matching pgvector's row comparison -- a same-second sibling
+            # at the cursor's exact `id` is excluded, everything past it is not.
+            rows = [r for r in rows if ((r.created_at or 0), r.id) > after]
         # `limit=0` means zero rows, not "unlimited". Every real backend distinguishes `LIMIT 0`
         # from an omitted limit, and conflating them here would hide a provider that fetches
         # everything when it asked for nothing.
         return rows if limit is None else rows[:limit]
 
-    async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+    async def ascan(
+        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None, after: Optional[ScanCursor] = None
+    ) -> List[MemoryRecord]:
         require_scope(scope, method="ascan")
         await _yield()
         self.calls.append("ascan")
-        return self.scan(scope, tier, limit)
+        return self.scan(scope, tier, limit, after)
 
 
 class FakeGraph:

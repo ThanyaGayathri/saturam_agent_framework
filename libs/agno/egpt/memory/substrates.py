@@ -29,6 +29,7 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     RetrievalCandidates,
+    ScanCursor,
     Scope,
     TemporalBounds,
 )
@@ -149,7 +150,13 @@ class VectorSubstrate(Protocol):
         """Async variant of :meth:`search`."""
         ...
 
-    def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+    def scan(
+        self,
+        scope: Scope,
+        tier: MemoryTier,
+        limit: Optional[int] = None,
+        after: Optional[ScanCursor] = None,
+    ) -> List[MemoryRecord]:
         """Enumerate records in insertion order -- no relevance ranking.
 
         Consolidation needs to walk every episode in a scope, which is not a search. The spec's
@@ -160,11 +167,16 @@ class VectorSubstrate(Protocol):
         Ordering is **ascending ``created_at``, then ``id``**, so a pass processes oldest-first.
 
         ``limit`` is a bound, not a page: ``limit=0`` returns zero rows, and ``None`` means
-        unlimited. There is no cursor here. A resumable walk needs a strict ``(created_at, id)``
-        cursor -- ``created_at`` is whole seconds, so one batched ``write()`` puts more rows in a
-        single second than a page holds and a time-only cursor never advances -- and a protocol
-        with that many failure modes should be designed alongside the scheduler that drives it,
-        which is SM-L1's (#122).
+        unlimited.
+
+        ``after`` is the resumption cursor SM-L1 (#122) brings: an exclusive ``(created_at, id)``
+        pair, returning only rows strictly greater than it in that composite order. Composite,
+        not time-only -- ``created_at`` is whole seconds, so one batched ``write()`` puts more rows
+        in a single second than a page holds, and a time-only cursor never advances past them. A
+        caller walking a tier passes back the last row's ``(created_at, id)`` to resume; ``None``
+        starts from the beginning. This is a stateless request parameter -- owning a persistent
+        watermark across calls is the caller's job (:mod:`egpt.memory.consolidation`), not this
+        port's.
 
         Only the vector substrate carries this. Nothing in SM-C1 enumerates the graph, and
         enumeration over a temporal graph is not obviously one operation (current belief? every
@@ -173,7 +185,13 @@ class VectorSubstrate(Protocol):
         """
         ...
 
-    async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+    async def ascan(
+        self,
+        scope: Scope,
+        tier: MemoryTier,
+        limit: Optional[int] = None,
+        after: Optional[ScanCursor] = None,
+    ) -> List[MemoryRecord]:
         """Async variant of :meth:`scan`."""
         ...
 

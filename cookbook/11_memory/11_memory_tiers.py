@@ -26,7 +26,7 @@ small here because the subject is the tier axis rather than the seam.
 
 import warnings
 from dataclasses import replace
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from egpt.memory import (
     TIER_POLICY,
@@ -86,18 +86,29 @@ class InMemoryVector:
         return self.search(scope, query, tier)
 
     def scan(
-        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
+        self,
+        scope: Scope,
+        tier: MemoryTier,
+        limit: Optional[int] = None,
+        after: Optional[Tuple[int, str]] = None,
     ) -> List[MemoryRecord]:
         require_scope(scope, method="scan")
         self.calls.append("scan")
         rows = [replace(r) for r in self.rows.values() if r.tier is tier]
+        rows.sort(key=lambda r: ((r.created_at or 0), r.id))
+        if after is not None:
+            rows = [r for r in rows if ((r.created_at or 0), r.id) > after]
         return rows if limit is None else rows[:limit]
 
     async def ascan(
-        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
+        self,
+        scope: Scope,
+        tier: MemoryTier,
+        limit: Optional[int] = None,
+        after: Optional[Tuple[int, str]] = None,
     ) -> List[MemoryRecord]:
         require_scope(scope, method="ascan")
-        return self.scan(scope, tier, limit)
+        return self.scan(scope, tier, limit, after)
 
 
 class InMemoryGraph:

@@ -8,8 +8,14 @@ silently and one puts another tenant's data into a prompt: tenant isolation and 
 validity.
 
 Out of scope, deliberately: rank fusion beyond a score sum (SM-H2 #132), a consolidation scheduler
-or resumption cursor (SM-L1 #122), **retiring a fact whose source group changed** (SM-L3 #124).
+(SM-L1 #122), **retiring a fact whose source group changed** (SM-L3 #124).
 ``consolidate`` here is scan -> filter -> distil -> write, and the report names what it does not do.
+
+``consolidate`` carries an in-process resumption cursor (SM-L1 #122) so repeated calls jointly
+drain a tier larger than one pass -- see ``__init__``'s ``_scan_cursors`` and ``_advance_cursor``.
+The cursor is not part of the public signature and not durable: a fresh instance starts every scope
+from the beginning, which is safe because a re-run upserts the same fact ids rather than duplicating
+them, just wasted work.
 
 Every tier decision this file makes -- which substrates a write reaches, whether a graph write is
 an episode or a fact, which tier consolidation reads and which it writes -- is read from
@@ -52,6 +58,7 @@ from egpt.memory.types import (
     MemoryRecord,
     MemorySlice,
     PartialWriteError,
+    ScanCursor,
     Scope,
     Substrate,
     ValidWindow,
@@ -80,8 +87,9 @@ _FACT_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.consolidate.fact")
 #: engine is thousands of concurrent round trips, which exhausts a pool rather than going fast.
 _MAX_CONCURRENT_WRITES = 16
 
-#: Safety cap on one consolidation pass. Not a resumption protocol -- when the cap is hit the
-#: report says ``complete=False``, and draining the rest is SM-L1's (#122).
+#: Cap on one consolidation pass. When it is hit the report says ``complete=False``, and the next
+#: call to ``consolidate`` on this instance resumes from ``_scan_cursors`` (SM-L1 #122) rather than
+#: re-reading the same window.
 _MAX_EPISODES_PER_PASS = 5_000
 
 #: What ``ConsolidationReport.details["entities"]`` holds: an ``entity_details`` payload from a
@@ -235,10 +243,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self.relation_pipeline = _checked_pipeline(relation_pipeline, option="relation_pipeline")
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         #: Ceiling on one consolidation pass. Adjustable because the default is a safety bound, not
-        #: a policy: a tier larger than this has its tail consolidated *never*, not later.
+        #: a policy: a tier larger than this has its tail consolidated over multiple passes, tracked
+        #: by ``_scan_cursors`` below.
         self.max_episodes_per_pass = _positive_int(max_episodes_per_pass, "max_episodes_per_pass")
         #: Cap on simultaneous per-record backend calls in one async write.
         self.max_concurrent_writes = _positive_int(max_concurrent_writes, "max_concurrent_writes")
+        #: The resumption cursor SM-L1 (#122) brings, keyed by ``(scope.key(), tier)``. Lives on the
+        #: instance, not the substrate: it is how repeated ``consolidate`` calls jointly drain a
+        #: tier larger than one pass without adding a parameter to the public method (the interface
+        #: docstring is explicit that a caller-facing cursor was tried and failed three times).
+        #: Not durable across a process restart -- a fresh instance rescans from the beginning,
+        #: which costs redundant work but not correctness, because a fact id is derived from its
+        #: source episodes.
+        #: TODO(SM-L1x, aicoe-tracker #189): grows with the active scope set and is never
+        #: evicted -- one entry per (scope, tier) pair ever consolidated on this instance, for
+        #: the instance's lifetime. Bounded per-deployment today by how many distinct scopes one
+        #: process consolidates (today, ``ConsolidationWorker``'s own configured scope list); a
+        #: high-cardinality scope set (many users x many tiers, over a long-lived process) would
+        #: want a bounded LRU or eviction on idle rather than this plain dict. Should land before
+        #: SM-L9 wires this worker into a multi-tenant cron scheduler.
+        self._scan_cursors: Dict[Tuple[str, MemoryTier], ScanCursor] = {}
 
     def substrates(self) -> Dict[Substrate, bool]:
         return {Substrate.VECTOR: self.vector is not None, Substrate.GRAPH: self.graph is not None}
@@ -847,6 +871,36 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
         return self.vector
 
+    def _cursor_key(self, scope: Scope, tier: MemoryTier) -> Tuple[str, MemoryTier]:
+        """The ``_scan_cursors`` key -- ``scope.key()``, not the ``Scope`` object itself.
+
+        A pass scoped to a tenant and a pass scoped to one user within it are different walks with
+        different cursors, so the *call* scope is the key, not any scope a scanned row carries.
+        """
+        return scope.key(), tier
+
+    def _advance_cursor(self, key: Tuple[str, MemoryTier], scanned: Sequence[MemoryRecord]) -> None:
+        """Move the cursor to the last row this pass read, if it read any.
+
+        ``scanned`` arrives in ``scan``'s own ascending ``(created_at, id)`` order, so its last
+        element is the composite maximum -- no re-sort needed. Advancing even on a *complete* pass
+        (rather than resetting) is what makes the next call cheap: it scans only what was written
+        since, instead of re-reading the whole tier to confirm nothing new arrived.
+
+        **Assumes episodes arrive with non-decreasing ``created_at``.** A write landing with
+        ``(created_at, id) <= this cursor`` -- most plausibly clock skew between writers stamping
+        ``now_epoch_s()`` a moment apart -- is excluded by ``scan``'s ``after`` bound on every
+        future pass on this instance: not merely deferred, silently unreachable, the same failure
+        mode ``tail_pending`` exists to name for the cap case. There is no detection or repair
+        here; a deployment where writer clocks can disagree meaningfully needs one, and it is not
+        built by this ticket. Pinned by
+        ``test_a_backdated_write_below_the_cursor_is_never_consolidated``.
+        """
+        if not scanned:
+            return
+        last = scanned[-1]
+        self._scan_cursors[key] = (last.created_at or 0, last.id)
+
     def _distil(self, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], int]:
         """Group near-duplicate episodes and emit one fact per group.
 
@@ -945,12 +999,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
             contradictions_resolved=0,
             details=consolidation_details(
                 derived_by="co_located.deterministic_dedup",
-                # False when the pass hit its cap. **The tail is not merely deferred: nothing marks
-                # an episode consumed and `scan` is ordered oldest-first, so every pass re-reads the
-                # same first N and episodes past the cap are never consolidated at all.** Raising
-                # `max_episodes_per_pass` above the tier size is the only remedy until SM-L1 (#122)
-                # brings a cursor.
-                #
                 # `>=`, deliberately conservative: `scan` returns at most `limit`, so a full page
                 # and a truncated one are indistinguishable from here. A tier holding exactly the
                 # cap is reported as truncated when it was drained -- the false positive costs one
@@ -962,7 +1010,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # this ticket does not make.
                 relations=relations,
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
-                tail_unreachable=hit_cap,
+                # Renamed from `tail_unreachable` (SM-C1): that name stopped being true once
+                # `_advance_cursor` shipped -- the tail is reachable, by calling `consolidate` again
+                # on this instance. `tail_pending` says what is actually still known: this pass
+                # stopped at the cap and left rows unread, without claiming they are unreachable.
+                tail_pending=hit_cap,
             ),
         )
 
@@ -1112,10 +1164,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
         require_scope(scope, method="consolidate")
         vector = self._check_consolidatable(tiers)
         instant = now_epoch_s()
+        cursor_key = self._cursor_key(scope, CONSOLIDATION_SOURCE)
         # Detached before anything touches them: `scan` may hand back the rows the substrate is
         # holding (`search` returns copies, `scan` need not), and `_reconcile_bounds` writes bounds
         # onto what it is given.
-        scanned = [r.detached() for r in vector.scan(scope, CONSOLIDATION_SOURCE, limit=self.max_episodes_per_pass)]
+        scanned = [
+            r.detached()
+            for r in vector.scan(
+                scope,
+                CONSOLIDATION_SOURCE,
+                limit=self.max_episodes_per_pass,
+                after=self._scan_cursors.get(cursor_key),
+            )
+        ]
         assert_scope_isolation(scope, scanned, method="consolidate")
         episodes = self._visible_episodes(scope, scanned, instant)
         facts, merged = self._distil(episodes)
@@ -1180,14 +1241,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # `_entities`'s own docstring.
             entities = self._entities(scope, episodes)
             relations = self._relations(scope, episodes)
+        # After every write in this pass has landed, never before: advancing on a pass that then
+        # raises would have the next call skip the very episodes that failed to consolidate, which
+        # is the caller-hands-the-termination-condition failure mode the interface docstring warns
+        # about, reincarnated one layer down.
+        self._advance_cursor(cursor_key, scanned)
         return self._report(scope, scanned, episodes, facts, merged, entities, relations)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
         vector = self._check_consolidatable(tiers)
         instant = now_epoch_s()
+        cursor_key = self._cursor_key(scope, CONSOLIDATION_SOURCE)
         scanned = [
-            r.detached() for r in await vector.ascan(scope, CONSOLIDATION_SOURCE, limit=self.max_episodes_per_pass)
+            r.detached()
+            for r in await vector.ascan(
+                scope,
+                CONSOLIDATION_SOURCE,
+                limit=self.max_episodes_per_pass,
+                after=self._scan_cursors.get(cursor_key),
+            )
         ]
         assert_scope_isolation(scope, scanned, method="aconsolidate")
         episodes = await self._avisible_episodes(scope, scanned, instant)
@@ -1237,6 +1310,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # `_entities`'s own docstring.
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
+        self._advance_cursor(cursor_key, scanned)
         return self._report(scope, scanned, episodes, facts, merged, entities, relations)
 
 
