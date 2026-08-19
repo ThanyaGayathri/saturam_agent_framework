@@ -23,6 +23,7 @@ from egpt.run.base import run_model
 from egpt.providers import set_default_model_provider
 from egpt.providers.escalation import EscalatingModelProvider
 from egpt.providers.model_provider import ModelCapabilities, ModelResolveRequest, ProviderMode
+from egpt.models.base import same_model
 from egpt.run.base import RunContext
 from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider, FakeModel
 
@@ -1343,8 +1344,16 @@ class TestConnectionAwarePinningThroughDeepCopy:
 
         fresh = agent.deep_copy(update={"model": responses_cls(id="gpt-5.5")})
 
-        assert fresh._user_pinned_model is agent._user_pinned_model, (
+        # `same_model`, not `is`: the carry-over branch fired, which is what this asserts. Since
+        # aicoe-tracker#172 a copy derives its *own* pin object rather than aliasing the original's, so
+        # identity here would test the sharing mechanism rather than the pinning decision -- and
+        # the sharing is exactly what was removed (one request's client build wrote environment
+        # credentials into the pin every other copy resolved to).
+        assert same_model(fresh._user_pinned_model, agent._user_pinned_model), (
             "an identical reconstruction is the model already in use, so the original pin stands"
+        )
+        assert fresh._user_pinned_model is not agent._user_pinned_model, (
+            "and the copy carries its own pin object, not a shared alias"
         )
 
 

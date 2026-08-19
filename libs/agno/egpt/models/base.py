@@ -3372,6 +3372,38 @@ def same_model(candidate: Any, existing: Any) -> bool:
     )
 
 
+def carry_over_pin(pin: Any) -> Any:
+    """The pin a `deep_copy` should record, given the original's.
+
+    Returns a *copy* rather than the original object. The pin is not inert state: `mode_a`'s
+    resolver returns `request.requested` as the serving model (`providers/mode_a.py:277`), so the
+    pinned object is what a run actually calls -- and `_get_client_params` writes environment
+    credentials onto the model it is given (aicoe-tracker#171). Sharing one object across copies
+    therefore lets one request's client build write `api_key`/`base_url` into the pin every other
+    copy resolves to. That is a cross-tenant hazard on the hottest path in the system: `os/utils.py`
+    deep-copies an agent per request, and `team/_utils.py` copies every member.
+
+    Shallow, via `model_copy`/`copy`: the pin is compared by class-and-id plus connection fields
+    (`same_model`), all of which a shallow copy preserves, and a deep copy would duplicate client
+    objects and connection pools that `deep_copy_field` deliberately shares by reference.
+
+    Falls back to the original object if a model cannot be copied. A shared pin is the status quo
+    ante and still resolves correctly; refusing to copy an exotic `Model` subclass would break
+    `deep_copy` outright, which is the worse failure.
+    """
+    if pin is None:
+        return None
+    try:
+        model_copy = getattr(pin, "model_copy", None)
+        if callable(model_copy):
+            return model_copy(deep=False)
+        from copy import copy as _shallow_copy
+
+        return _shallow_copy(pin)
+    except Exception:
+        return pin
+
+
 def update_pins_a_new_model(update: Optional[Dict[str, Any]], new_model: Any, existing_model: Any) -> bool:
     """Whether an `update` dict passed to `deep_copy` states a fresh user pin.
 

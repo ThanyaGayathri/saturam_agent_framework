@@ -319,3 +319,104 @@ class TestTheAttributeTupleDoesNotDrift:
             "declared-connection snapshot and same_model falls back to live values for them:\n"
             + "\n".join(f"  {name}" for name in sorted(set(missing)))
         )
+
+
+class TestWhatUpdateModelNoneMeans:
+    """`deep_copy(update={"model": None})` keeps the pin. Recorded, not incidental (aicoe-tracker#172).
+
+    The input is genuinely ambiguous and the codebase had never decided: "clear the pin" is a
+    plausible reading of an explicit `None`, and "do not change the model" is what the code does.
+    Both are defensible, so the risk was that the answer lived in one guard clause and one test
+    and could be flipped by a refactor without anyone choosing.
+
+    The decision is **keep the pin**, on the grounds that a pin is a tenancy-sensitive control:
+    clearing it hands the copy to whatever the provider's default policy picks, which is a model
+    no caller chose. There is deliberately no way to *ask* to be un-pinned -- a caller who wants a
+    different model passes one.
+    """
+
+    def test_an_explicit_none_does_not_clear_the_pin(self):
+        from egpt.agent import Agent
+
+        agent = Agent(model=BareModel(id="P"), telemetry=False)
+        copy = agent.deep_copy(update={"model": None})
+
+        assert copy._user_pinned_model is not None, (
+            "update={'model': None} means 'do not change the model', not 'clear the pin'"
+        )
+        assert copy._user_pinned_model.id == "P"
+
+    def test_a_real_model_in_update_still_repins(self):
+        """The control: keeping the pin on `None` must not make the copy un-repinnable."""
+        from egpt.agent import Agent
+
+        agent = Agent(model=BareModel(id="P"), telemetry=False)
+        copy = agent.deep_copy(update={"model": BareModel(id="Q")})
+
+        assert copy._user_pinned_model.id == "Q"
+
+    def test_an_unpinned_agent_stays_unpinned(self):
+        """And the other control: `None` in, `None` out, for an agent nobody pinned."""
+        from egpt.agent import Agent
+
+        agent = Agent(telemetry=False)
+        agent._user_pinned_model = None
+
+        assert agent.deep_copy(update={"model": None})._user_pinned_model is None
+
+
+class TestThePinIsNotSharedAcrossCopies:
+    """A copy derives its own pin object rather than aliasing the original's (aicoe-tracker#172).
+
+    Not cosmetic. `mode_a`'s resolver returns `request.requested` *as the serving model*
+    (`providers/mode_a.py:277`), and `_get_client_params` writes environment credentials onto the
+    model it is handed (aicoe-tracker#171). With one shared object, one request's client build writes
+    `api_key`/`base_url` into the pin every other copy resolves to -- on the hottest path there
+    is, since `os/utils.py` deep-copies an agent per request and `team/_utils.py` copies every
+    member.
+    """
+
+    def test_each_copy_gets_its_own_pin_object(self):
+        from egpt.agent import Agent
+
+        agent = Agent(model=BareModel(id="P"), telemetry=False)
+        first, second = agent.deep_copy(), agent.deep_copy()
+
+        assert first._user_pinned_model is not agent._user_pinned_model
+        assert second._user_pinned_model is not first._user_pinned_model
+
+    def test_mutating_one_copys_pin_does_not_reach_the_others(self):
+        """The failure this exists to prevent, written as the scenario rather than as identity."""
+        from egpt.agent import Agent
+
+        agent = Agent(model=BareModel(id="P"), telemetry=False)
+        first, second = agent.deep_copy(), agent.deep_copy()
+
+        first._user_pinned_model.api_key = "tenant-1-secret"
+
+        assert getattr(second._user_pinned_model, "api_key", None) is None, (
+            "one copy's credential must not appear on another copy's pin"
+        )
+        assert getattr(agent._user_pinned_model, "api_key", None) is None, (
+            "nor on the original the copies were made from"
+        )
+
+    def test_the_copy_still_compares_equal_to_the_original_pin(self):
+        """A copied pin must remain the *same model* by the predicate the seam uses, or the copy
+        would read as a fresh caller pin and re-pin itself on the next resolve."""
+        from egpt.agent import Agent
+
+        agent = Agent(model=BareModel(id="P"), telemetry=False)
+        copy = agent.deep_copy()
+
+        assert same_model(copy._user_pinned_model, agent._user_pinned_model)
+
+    def test_a_team_copy_gets_its_own_pin_too(self):
+        """The Team path shares the helper, so it must not drift from the Agent path."""
+        from egpt.team import Team
+
+        team = Team(members=[], name="t", model=BareModel(id="TP"), telemetry=False)
+        copy = team.deep_copy()
+
+        assert copy._user_pinned_model is not team._user_pinned_model
+        assert copy._user_pinned_model.id == "TP"
