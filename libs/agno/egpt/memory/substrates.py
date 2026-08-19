@@ -18,10 +18,11 @@ or anywhere under it. pgvector (SM-V1 #95) and the graph engine (SM-G1 #99) are 
 resolved by registry key.
 """
 
-from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    EntityMerge,
     EntityWrite,
     FactWrite,
     MemoryEvent,
@@ -392,6 +393,93 @@ class GraphSubstrate(Protocol):
 
     async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
         """Async variant of :meth:`upsert_entities`."""
+        ...
+
+    def match_entities(
+        self,
+        scope: Scope,
+        candidate: EntityWrite,
+        limit: int = 5,
+        min_score: float = 0.92,
+    ) -> List[Tuple[EntityWrite, float]]:
+        """Existing entities in ``scope`` that plausibly name what ``candidate`` names (SM-G8 #106).
+
+        Two lookups, unioned and re-ranked together:
+
+        * **Exact key.** Every live node sharing ``candidate.key`` -- the normalised form
+          :meth:`upsert_entities` stores but does not group on -- scored ``1.0``. This is the
+          "two spellings, one key" case :func:`~egpt.memory.types.normalize_entity_name` describes:
+          punctuation and case a caller should never have to embed-match for.
+        * **Embedding similarity.** Nearest neighbours to ``candidate.embedding`` at or above
+          ``min_score``, ``[0.0, 1.0]`` like every other similarity this seam returns -- but a
+          backend's own cosine normalisation, not necessarily raw cosine (the shipped Neo4j backend
+          reports ``(1 + cosine) / 2``, so its ``min_score=0.92`` admits a raw cosine no lower than
+          ``0.84``). This is what catches "Acme" against "Acme Corporation" -- no shared key, but
+          one embedding space, because :func:`~egpt.memory.graph.entities.embedding_text` folds the
+          entity type in too ("atlas" the project and "atlas" the person do not collide here for
+          want of it).
+
+        ``candidate`` itself is never in the result, matched by name: asking whether a node matches
+        itself is not resolution. Ordered by score descending, ties broken on name -- no uuid reaches
+        this ordering, so one corpus produces one match order across runs.
+
+        **Read-only.** A caller decides what to do with a match; this method does not write. Scoped
+        to ``candidate.scope`` -- the full scope, not the tenant, matching every other identity on
+        this port -- so one user's "berlin" is never offered as a match for another's.
+
+        ``candidate.embedding`` is required: an unembedded candidate has nothing for the second
+        lookup to compare against, and a resolution pass silently skipping it would report a clean
+        run having checked nothing.
+        """
+        ...
+
+    async def amatch_entities(
+        self,
+        scope: Scope,
+        candidate: EntityWrite,
+        limit: int = 5,
+        min_score: float = 0.92,
+    ) -> List[Tuple[EntityWrite, float]]:
+        """Async variant of :meth:`match_entities`."""
+        ...
+
+    def merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        """Fold each :class:`~egpt.memory.types.EntityMerge`'s duplicates into its canonical node.
+
+        Per merge: the canonical node is written through the same union rule
+        :meth:`upsert_entities` uses (``source_episode_ids`` and ``aliases`` accumulate; everything
+        else is last-write), every **live** edge into a duplicate node is re-pointed at the
+        canonical node -- a ``MENTIONS`` edge (SM-G6 #104) today, a relation edge once SM-G3 (#101)
+        ships -- and the duplicate node is then removed. An edge whose two endpoints both fold into
+        one merge's canonical is not duplicated: re-pointing both to the same node is the same edge.
+
+        **Live, not every edge -- stated because "every edge" is the more comfortable claim and the
+        false one.** A duplicate node's edge from an episode that is no longer the live revision of
+        its id (superseded, per this port's own SCD-2 rule) is removed along with the node and is
+        **not** re-pointed: liveness is exactly what :func:`~egpt.memory.graph.episodic.mention_rows`
+        and ``link_mentions_statement`` already gate mention-linking on, and re-pointing an edge
+        those statements would refuse to create in the first place would be a second, disagreeing
+        rule for the same concept.
+
+        **Not required to be atomic**, exactly as :meth:`upsert_episodes` describes: the canonical
+        write, the re-point, and the delete are each idempotent (``MERGE``-keyed, or a no-op on a
+        node already gone), so a caller that retries the whole batch after a partial failure reaches
+        the same end state rather than a different one. That non-atomicity has a concrete edge for a
+        backend that reads which episodes currently mention a duplicate and only then deletes it in
+        a *separate* operation: a concurrent write adding a new mention to that duplicate between
+        the two is lost silently, since the read already happened and the delete does not re-check.
+        The shipped Neo4j backend closes this window by running the read and every write inside one
+        transaction; a future backend that cannot must document the residual window here.
+
+        Batched, and empty-is-a-no-op like every other write on this port. A merge whose
+        ``duplicate_names`` names a node this scope does not have is not an error -- resolution runs
+        against a snapshot, and a node another writer removed between the match and this call is
+        simply nothing left to fold in.
+        """
+        ...
+
+    async def amerge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        """Async variant of :meth:`merge_entities`."""
         ...
 
     def traverse(

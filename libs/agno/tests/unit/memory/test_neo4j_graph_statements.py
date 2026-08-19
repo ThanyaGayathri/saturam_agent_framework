@@ -21,6 +21,7 @@ from egpt.integrations.memory.graph.neo4j.neo4j import Neo4jGraphSubstrate  # no
 from egpt.memory.substrates import GraphSubstrate  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
 from egpt.memory.types import (  # noqa: E402
+    EntityMerge,
     EntityWrite,
     FactWrite,
     MemoryEvent,
@@ -62,6 +63,10 @@ def all_statements(scope):
         ("episode_probe", *cypher.episode_probe_statement(scope)),
         ("clear_mentions", *cypher.clear_mentions_statement(scope)),
         ("link_mentions", *cypher.link_mentions_statement(scope)),
+        ("match_entities_by_key", *cypher.match_entities_by_key_statement(scope)),
+        ("match_entities_by_embedding", *cypher.match_entities_by_embedding_statement(scope, k=25)),
+        ("mentioning_episodes", *cypher.mentioning_episodes_statement(scope)),
+        ("delete_entities", *cypher.delete_entities_statement(scope)),
         # Every filter combination, because each one appends its own clause to the predicate and a
         # scope guard that only held for the fully-filtered form would be the "one wiring" gap.
         *[
@@ -119,8 +124,26 @@ WRITE_STATEMENTS = (
     "link_mentions",
 )
 
+#: Entity resolution's lookups and cleanup (SM-G8 #106): scoped by exact ``scope_key``, like a
+#: write, but bound as a single query parameter rather than carried per-row -- there is exactly one
+#: caller scope per call, not a batch of rows that might not share one. Always issued for an
+#: already-fully-specified :class:`~egpt.memory.types.EntityWrite`'s own scope (validated at the
+#: pipeline, never a partially-specified caller scope), so the write-style exact match is the
+#: correct predicate here, not the read-style per-slot conjunction ``scope_predicate`` builds --
+#: which would also defeat the ``egpt_entity_key`` / ``egpt_entity_embedding`` indexes, both keyed
+#: on ``scope_key`` rather than on the individual slots.
+KEY_SCOPED_STATEMENTS = (
+    "match_entities_by_key",
+    "match_entities_by_embedding",
+    "mentioning_episodes",
+    "delete_entities",
+)
 
-@pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name not in WRITE_STATEMENTS])
+
+@pytest.mark.parametrize(
+    "label",
+    [name for name in statement_ids(FULL) if name not in WRITE_STATEMENTS and name not in KEY_SCOPED_STATEMENTS],
+)
 def test_every_read_statement_filters_on_every_scope_slot(label):
     """A backend that honours the tenant and ignores the user leaks inside the tenant.
 
@@ -147,11 +170,27 @@ def test_every_write_statement_merges_on_the_exact_scope(label):
     assert "scope_key: row.scope_key" in text, f"{label} does not merge on the row's scope"
 
 
+@pytest.mark.parametrize("label", KEY_SCOPED_STATEMENTS)
+def test_every_key_scoped_statement_filters_on_the_exact_bound_scope_key(label):
+    """The third mechanism's own version of the rule above: one bound ``$scope_key``, not a row."""
+    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+
+    assert "scope_key: $scope_key" in text or "scope_key = $scope_key" in text, (
+        f"{label} does not filter on the bound scope_key"
+    )
+    assert params["scope_key"] == FULL.key(), f"{label} binds the wrong scope_key"
+
+
 def test_every_statement_is_scoped_by_one_mechanism_or_the_other():
     """Nothing may be unscoped. Checked over the whole set so a new statement cannot slip through
-    by belonging to neither category above."""
+    by belonging to none of the three categories above."""
     for label, text, _ in all_statements(FULL):
-        scoped = ".tenant_id = $tenant_id" in text or "scope_key: row.scope_key" in text
+        scoped = (
+            ".tenant_id = $tenant_id" in text
+            or "scope_key: row.scope_key" in text
+            or "scope_key: $scope_key" in text
+            or "scope_key = $scope_key" in text
+        )
         assert scoped, f"{label} names no scope at all"
 
 
@@ -165,7 +204,10 @@ def test_the_row_builder_supplies_the_scope_key_a_write_merges_on():
     assert Scope(tenant_id="acme").key() != FULL.key(), "the key must distinguish scopes"
 
 
-@pytest.mark.parametrize("label", [name for name in statement_ids(TENANT_ONLY) if name not in WRITE_STATEMENTS])
+@pytest.mark.parametrize(
+    "label",
+    [name for name in statement_ids(TENANT_ONLY) if name not in WRITE_STATEMENTS and name not in KEY_SCOPED_STATEMENTS],
+)
 def test_an_unset_slot_contributes_no_clause(label):
     """``None`` means "any". Filtering on it would narrow a tenant-wide read to nothing."""
     text, params = next((t, p) for name, t, p in all_statements(TENANT_ONLY) if name == label)
@@ -261,6 +303,30 @@ def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties()
     # no failing test, since the membership check above cannot see *where* a key landed.
     assert "source_episode_ids" not in row["props"], "union semantics break if this enters props"
     assert "aliases" not in row["props"], "union semantics break if this enters props"
+
+
+def test_an_unembedded_entity_omits_the_embedding_keys_rather_than_nulling_them():
+    """Review finding on PR #96 (SM-G8): ``SET n += row.props`` deletes a property whose value in
+    the map is ``null``. A row for an ``EntityWrite`` with no embedding must omit ``embedding`` and
+    ``embedding_version`` from ``props`` entirely, or every such write -- a merge whose canonical
+    came from a match result, or a plain description-only re-upsert -- erases whatever embedding
+    the node already had.
+    """
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    (row,) = substrate._entity_rows(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)])
+
+    assert "embedding" not in row["props"]
+    assert "embedding_version" not in row["props"]
+
+
+def test_an_embedded_entity_still_carries_both_embedding_keys():
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    (row,) = substrate._entity_rows(
+        FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL, embedding=[0.1, 0.2], embedding_version="v")]
+    )
+
+    assert row["props"]["embedding"] == [0.1, 0.2]
+    assert row["props"]["embedding_version"] == "v"
 
 
 def test_an_entity_node_carries_no_bi_temporal_field():
@@ -513,6 +579,18 @@ DRIVER_CALLS = {
         FULL, [FactWrite(record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=FULL))]
     ),
     "upsert_entities": lambda g: g.upsert_entities(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]),
+    "match_entities": lambda g: g.match_entities(
+        FULL, EntityWrite(name="Acme", entity_type="company", scope=FULL, embedding=[0.1, 0.2])
+    ),
+    "merge_entities": lambda g: g.merge_entities(
+        FULL,
+        [
+            EntityMerge(
+                canonical=EntityWrite(name="Acme", entity_type="company", scope=FULL),
+                duplicate_names=["Acme Corp"],
+            )
+        ],
+    ),
     "traverse": lambda g: g.traverse(FULL, MemoryQuery(text="x")),
     "recall_episodes": lambda g: g.recall_episodes(FULL, since=10),
     "bounds_for_ids": lambda g: g.bounds_for_ids(FULL, ["f1"]),
@@ -619,6 +697,18 @@ ASYNC_DRIVER_CALLS = {
     ),
     "aupsert_entities": lambda g: g.aupsert_entities(
         FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]
+    ),
+    "amatch_entities": lambda g: g.amatch_entities(
+        FULL, EntityWrite(name="Acme", entity_type="company", scope=FULL, embedding=[0.1, 0.2])
+    ),
+    "amerge_entities": lambda g: g.amerge_entities(
+        FULL,
+        [
+            EntityMerge(
+                canonical=EntityWrite(name="Acme", entity_type="company", scope=FULL),
+                duplicate_names=["Acme Corp"],
+            )
+        ],
     ),
     "atraverse": lambda g: g.atraverse(FULL, MemoryQuery(text="x")),
     "arecall_episodes": lambda g: g.arecall_episodes(FULL, since=10),
@@ -778,3 +868,93 @@ async def test_the_no_op_invalidation_branch_rolls_back(half):
         await substrate.ainvalidate(FULL, "never-written", t_invalid=300, at=310)
 
     assert calls == ["rollback"], f"the no-op branch must roll back and not commit, got {calls}"
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_merge_entities_runs_the_read_and_the_write_in_one_transaction(half):
+    """Review finding on PR #96 (round 2): the mentioning-episodes read and the upsert/re-point/
+    delete write must observe one transaction, or a concurrent write between them can be lost --
+    see the ``merge_entities`` port docstring's TOCTOU note. Pinned by counting transactions
+    opened, not by asserting the code structure: a future refactor that reintroduces two separate
+    round trips would open two, and this would catch it regardless of how it did so.
+    """
+    opened = []
+
+    class _Tx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, *_args, **_kwargs):
+            return []
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def begin_transaction(self):
+            opened.append("tx")
+            return _Tx()
+
+    class _ATx:
+        async def run(self, *_args, **_kwargs):
+            class _Result:
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    raise StopAsyncIteration
+
+            return _Result()
+
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+    class _ASession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def begin_transaction(self):
+            opened.append("tx")
+            return _ATx()
+
+    class _Driver:
+        def session(self, **_kwargs):
+            return _Session()
+
+    class _ADriver:
+        def session(self, **_kwargs):
+            return _ASession()
+
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
+    substrate._driver = _Driver()
+    merge = EntityMerge(
+        canonical=EntityWrite(name="Acme", entity_type="company", scope=FULL), duplicate_names=["Acme Corp"]
+    )
+
+    if half == "sync":
+        substrate.merge_entities(FULL, [merge])
+    else:
+        substrate._adriver = _ADriver()
+        substrate._async_driver = lambda: substrate._adriver
+        await substrate.amerge_entities(FULL, [merge])
+
+    assert opened == ["tx"], f"expected exactly one transaction, got {len(opened)}"

@@ -52,6 +52,10 @@ This section demonstrates how EGPT agents persist and use user memories across r
   the interaction. Same consolidation-lane placement as `17_`, wired alongside it with a second
   `relation_pipeline` option. Needs `./cookbook/scripts/run_neo4j.sh`,
   `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY`.
+- `20_entity_resolution_graph.py`: Entity resolution (SM-G8) -- folding "Acme" and "Acme
+  Corporation" into one node via `EntityResolutionPipeline`, re-pointing their `MENTIONS` edges and
+  keeping the losing name as an alias. No API key; needs `./cookbook/scripts/run_neo4j.sh` and a
+  local embedder (`sentence-transformers`, installed by `.venvs/demo`).
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

@@ -257,7 +257,9 @@ def test_the_rule_based_extractor_reads_explicit_dates_out_of_episode_content(
 ):
     """End-to-end through the real (non-stub) extractor: SM-R10's regex+month-map rule, exercised
     the way ``run`` actually calls it -- one span per episode content."""
-    pipe, graph = pipeline(valid_time_extractor=RuleBasedValidTimeExtractor(), extractor=StubExtractor(default=[relation()]))
+    pipe, graph = pipeline(
+        valid_time_extractor=RuleBasedValidTimeExtractor(), extractor=StubExtractor(default=[relation()])
+    )
 
     pipe.run(ACME, [episode(content)])
 
@@ -266,7 +268,9 @@ def test_the_rule_based_extractor_reads_explicit_dates_out_of_episode_content(
     assert fact.record.t_invalid == expected_t_invalid
 
 
-@pytest.mark.parametrize("at,visible", [(1704067100, False), (1704067200, True), (1717199999, True), (1717200000, False)])
+@pytest.mark.parametrize(
+    "at,visible", [(1704067100, False), (1704067200, True), (1717199999, True), (1717200000, False)]
+)
 def test_true_at_t_returns_the_correct_edge_state_for_an_extracted_relation(at, visible):
     """AC 3, end-to-end: extraction through the consolidation lane, then a point-in-time read over
     the fused set. ``co_located``'s ``as_of`` filter and the Neo4j double's bi-temporal envelope
@@ -274,7 +278,9 @@ def test_true_at_t_returns_the_correct_edge_state_for_an_extracted_relation(at, 
     actually adds, the extracted ``t_valid``/``t_invalid`` on a relation edge."""
     extractor = StubExtractor(default=[relation()])
     graph = FakeGraph()
-    pipe = RelationExtractionPipeline(graph=graph, extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+    pipe = RelationExtractionPipeline(
+        graph=graph, extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor()
+    )
     memory = CoLocatedMemoryProvider(
         vector=FakeVector(),
         graph=graph,

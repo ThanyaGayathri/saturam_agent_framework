@@ -301,7 +301,9 @@ class RelationExtractionPipeline:
         max_episodes_per_pass: int = DEFAULT_MAX_EPISODES_PER_PASS,
         valid_time_extractor: Optional[ValidTimeExtractor] = None,
     ) -> None:
-        valid_time_extractor = valid_time_extractor if valid_time_extractor is not None else RuleBasedValidTimeExtractor()
+        valid_time_extractor = (
+            valid_time_extractor if valid_time_extractor is not None else RuleBasedValidTimeExtractor()
+        )
         for name, candidate, verbs in (
             ("graph", graph, ("upsert_facts", "aupsert_facts")),
             ("extractor", extractor, ("extract", "aextract")),

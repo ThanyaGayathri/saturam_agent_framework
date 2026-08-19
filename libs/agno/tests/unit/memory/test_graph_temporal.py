@@ -45,7 +45,7 @@ def test_an_explicit_date_is_extracted(extractor, content, expected_t_valid):
 
 
 def test_a_bare_month_resolves_against_the_ingest_years_january(extractor):
-    """"since Jan" names no year, so it resolves relative to when the fact was recorded, not an
+    """ "since Jan" names no year, so it resolves relative to when the fact was recorded, not an
     absolute year -- the same fact re-extracted a year later would date differently, which is
     correct: it is describing "the most recent January" at each ingest time, not a fixed one."""
     span_2024 = extractor.extract("User lives in LA since Jan", ingest_time=epoch(2024, 7, 15))
