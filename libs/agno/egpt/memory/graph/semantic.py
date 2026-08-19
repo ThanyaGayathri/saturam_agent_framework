@@ -25,13 +25,16 @@ writes.
 
 from typing import Optional, Sequence
 
-from egpt.memory.graph.episodic import require_recall_limit, require_time_window
 from egpt.memory.types import MemoryOperationError
 
+#: `require_recall_limit` / `require_time_window` are deliberately not imported or re-exported
+#: here. `require_fact_filters` below checks only entities/relation/since/until against each
+#: other; every caller (`cypher.recall_facts_statement`, `FakeGraph.recall_facts`) calls those two
+#: directly from `episodic`, where they belong -- that is the one canonical home for both, so
+#: re-exporting them from this module too would blur the module boundary this file exists to keep
+#: (round-3 review, PR #102: the prior version imported both here without using either).
 __all__ = [
     "require_fact_filters",
-    "require_recall_limit",
-    "require_time_window",
 ]
 
 

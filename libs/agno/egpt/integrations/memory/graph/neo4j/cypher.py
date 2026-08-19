@@ -415,7 +415,7 @@ _RECALL_FACTS_RETURN = (
     "row.expired_at AS expired_at, row.superseded_by AS superseded_by, "
     "row.provenance AS provenance, row.metadata AS metadata, "
     + ", ".join(f"row.{slot} AS {slot}" for slot in SCOPE_SLOTS)
-    + ", subject, row.predicate AS relation, object"
+    + ", subject, row.predicate AS predicate, object"
 )
 
 

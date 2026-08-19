@@ -426,7 +426,7 @@ class Neo4jGraphSubstrate:
             # nodes -- not reconstructed by splitting `content`, which `GraphSubstrate.recall_facts`
             # documents is ambiguous for an entity name containing a space.
             provenance["subject"] = row["subject"]
-            provenance["predicate"] = row["relation"]
+            provenance["predicate"] = row["predicate"]
             provenance["object"] = row["object"]
         return MemoryRecord(
             id=row["id"],

@@ -8,7 +8,8 @@ this file asserts them there plus once through the reference double -- the same 
 
 import pytest
 
-from egpt.memory.graph.semantic import require_fact_filters, require_recall_limit, require_time_window
+from egpt.memory.graph.episodic import require_recall_limit, require_time_window
+from egpt.memory.graph.semantic import require_fact_filters
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MAX_LIMIT, FactWrite, MemoryEvent, MemoryOperationError, MemoryRecord, Scope
 from tests.unit.memory._fakes import FakeGraph
