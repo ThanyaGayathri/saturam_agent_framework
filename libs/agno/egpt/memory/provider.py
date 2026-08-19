@@ -147,6 +147,16 @@ class MemoryProvider(ABC):
         The async variant is the primary lane; this sync one exists for tests and manual triggers.
         Ordering constraint from SM-R5 section 6: decay-pruning runs **after** this pass, never
         before, or an episode can be pruned before its knowledge reaches the semantic tier.
+
+        **Concurrent calls on the same scope and tier are safe, not free.** Idempotent upsert
+        (by content-derived fact id) means two overlapping passes cannot corrupt state or produce
+        duplicate rows, but an implementation that tracks a resumption cursor internally (the
+        previous paragraph) reads it once per call, before either has advanced it -- so both scan
+        and distil the same window, redoing one pass's work rather than splitting it.
+        ``ConsolidationWorker`` never does this to itself (one call in flight per scope at a
+        time); a caller driving ``consolidate``/``aconsolidate`` directly, outside that worker,
+        is responsible for serializing calls to the same scope if avoiding the redundant work
+        matters to it.
         """
         raise NotImplementedError
 

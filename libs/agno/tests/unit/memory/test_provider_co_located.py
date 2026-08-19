@@ -763,6 +763,45 @@ def test_a_third_call_with_nothing_new_written_scans_nothing():
     assert third.details["complete"] is True
 
 
+def test_a_backdated_write_below_the_cursor_is_never_consolidated():
+    """Named limitation, not a bug: the cursor assumes non-decreasing `created_at`.
+
+    A writer lagging the clock that produced the cursor's episode can land a row with
+    `(created_at, id) <= cursor` -- `scan`'s `after` bound then excludes it on every future pass
+    on this instance, permanently, not merely until the next call. Pinned so a future change to
+    this behaviour (e.g. a real watermark that tolerates skew) updates this test deliberately
+    rather than by surprise.
+    """
+    vector, graph = FakeVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph)
+    p.write(ACME, [event("the deploy failed on friday", id="e_ontime")])
+    first = p.consolidate(ACME)
+    assert first.episodic_scanned == 1
+
+    # Bypasses `write()`'s `now_epoch_s()` stamp to simulate a writer whose clock lagged behind
+    # the one that produced `e_ontime` -- `write()` itself offers no way to backdate a record.
+    cursor_created_at, _ = p._scan_cursors[(ACME.key(), MemoryTier.EPISODIC)]
+    backdated = MemoryRecord(
+        id="e_backdated",
+        tier=MemoryTier.EPISODIC,
+        content="a customer complaint from before the pass advanced",
+        scope=ACME,
+        created_at=cursor_created_at - 100,
+    )
+    vector.upsert(ACME, [backdated])
+
+    second = p.consolidate(ACME)
+
+    assert second.episodic_scanned == 0, "the backdated row is below the cursor and never scanned"
+    seen = {
+        id_
+        for fact in vector.rows["acme"].values()
+        if fact.tier is MemoryTier.SEMANTIC
+        for id_ in fact.provenance.get("source_episode_ids", [])
+    }
+    assert "e_backdated" not in seen
+
+
 def test_a_failed_write_does_not_advance_the_cursor():
     """A pass whose fact write raises must leave the cursor where it was -- advancing it first
     would have the retry skip exactly the episodes that failed to consolidate.

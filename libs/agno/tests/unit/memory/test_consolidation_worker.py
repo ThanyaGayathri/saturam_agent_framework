@@ -264,6 +264,59 @@ async def test_stop_waits_for_the_in_flight_tick_then_returns():
     assert worker._task is None
 
 
+async def test_start_during_stop_does_not_orphan_a_second_task():
+    """A `start()` landing while a `stop()` is still awaiting the outgoing task must not create a
+    second one -- `stop()`'s very first line sets `_running = False` before its `await`, so a
+    guard on `_running` alone (rather than `_task`) would pass here, hand out a second task, and
+    have `self._task` overwritten out from under the `stop()` call joining the first -- orphaned,
+    with no reference left to cancel or await, and un-stoppable by any later `stop()` (which would
+    see `_task is None` and return immediately).
+
+    Mutation guard: reverting `start()`'s guard to `if self._running: return` makes
+    `tasks_created["n"]` come back 1 instead of 0 (a second loop task scheduled during the
+    no-op `start()` below), and `worker._task` end up non-``None`` after `stop()` returns,
+    holding a stale reference to the now-orphaned original task.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    inside_tick = asyncio.Event()
+    release_tick = asyncio.Event()
+    tasks_created = {"n": 0}
+    real_aconsolidate = provider.aconsolidate
+    original_create_task = asyncio.create_task
+
+    def counting_create_task(coro, **kwargs):
+        tasks_created["n"] += 1
+        return original_create_task(coro, **kwargs)
+
+    async def slow_aconsolidate(scope, tiers=None):
+        inside_tick.set()
+        await release_tick.wait()
+        return await real_aconsolidate(scope, tiers)
+
+    provider.aconsolidate = slow_aconsolidate
+    worker = ConsolidationWorker(provider, [ACME], poll_interval=10, retry_delay=0.001)
+
+    worker.start()
+    await asyncio.wait_for(inside_tick.wait(), timeout=1)
+
+    # `ensure_future`, not `create_task`, so the counter below tracks only `start()`'s own calls.
+    stop_future = asyncio.ensure_future(worker.stop())
+    await asyncio.sleep(0)  # let stop() run up to its `await asyncio.wait_for(task, ...)`
+
+    asyncio.create_task = counting_create_task
+    try:
+        worker.start()  # must be a no-op: the loop is still mid-shutdown
+    finally:
+        asyncio.create_task = original_create_task
+    assert tasks_created["n"] == 0, "start() during stop() must not schedule a second loop task"
+
+    release_tick.set()
+    await asyncio.wait_for(stop_future, timeout=1)
+
+    assert worker._task is None
+
+
 async def test_a_cancelled_loop_reports_itself_cancelled_not_a_clean_return():
     """`_loop`'s `CancelledError` handler must re-raise, not swallow -- a caller inspecting the
     task after cancellation should see the true outcome, matching ordinary asyncio convention.
@@ -317,6 +370,40 @@ async def test_scopes_callable_is_re_resolved_every_tick():
 
     assert len(first) == 1
     assert len(second) == 2
+
+
+async def test_the_background_loop_survives_a_scope_source_that_raises():
+    """`_drain_scope` catches a per-scope failure; a scope-*source* that raises during resolution
+    (before any scope exists to attribute the failure to) is `run_once`'s own machinery breaking,
+    caught one level up in `_loop`. The task must keep polling on the next tick rather than dying
+    silently -- a background task nobody is awaiting fails invisibly otherwise.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    calls = {"n": 0}
+
+    def flaky_scopes():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("scope directory unavailable")
+        return [ACME]
+
+    worker = ConsolidationWorker(provider, flaky_scopes, poll_interval=0.01, retry_delay=0.001)
+
+    worker.start()
+    task = worker._task
+    try:
+        await asyncio.wait_for(_until(lambda: calls["n"] >= 2), timeout=1)
+    finally:
+        await worker.stop()
+
+    assert not task.cancelled()
+    assert task.exception() is None, "the failed tick must not have crashed the loop task"
+
+
+async def _until(predicate) -> None:
+    while not predicate():
+        await asyncio.sleep(0.005)
 
 
 @pytest.mark.parametrize(

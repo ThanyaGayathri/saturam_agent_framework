@@ -631,6 +631,15 @@ def scan_statement(
     ordering, exclusive, so it names the two bind values rather than the tuple -- ``:after_id`` is
     ``TEXT`` and ``:after_created_at`` is ``BIGINT``, and passing the tuple as one bind would ask
     the driver to infer a composite type it does not have.
+
+    **Relies on ``created_at`` never being ``NULL``.** A row comparison against a ``NULL`` column
+    evaluates to unknown, which ``WHERE`` treats as false regardless of ``id`` -- a ``NULL`` row
+    would be excluded by the cursor forever, the same silent-loss failure mode as a backdated
+    write (``CoLocatedMemoryProvider._advance_cursor``'s docstring). The DDL's ``created_at
+    BIGINT NOT NULL`` (this module's ``create_partition_statement``) is what makes that
+    unreachable through this port -- an in-memory double that normalises ``None`` to ``0``
+    (``FakeVector.scan``) is *more* permissive than the real backend here, not less, so a
+    provider test passing against the double is not evidence this predicate handles ``NULL``.
     """
     predicate, binds = scope_predicate(scope)
     statement = (

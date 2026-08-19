@@ -163,6 +163,12 @@ class ConsolidationWorker:
         provider's cursor exactly where the last *successful* pass left it (``co_located.py``
         advances it only after every write lands), so a retry re-attempts precisely the episodes
         that were not yet consolidated, never more and never fewer.
+
+        ``retry_delay`` is fixed, with no jitter or backoff. Low blast radius for this specific
+        retry (a missed one defers a pass, not a lost write), but several worker instances
+        retrying the same backend on the same fixed delay could synchronize into a repeating
+        burst rather than smoothing out -- worth adding if this is ever run multi-replica against
+        one backend under real load.
         """
         attempt = 0
         while True:
@@ -181,8 +187,22 @@ class ConsolidationWorker:
         """Start the background loop. Returns immediately, synchronously -- ``asyncio.create_task``
         schedules ``_loop`` but does not run it, so the first tick never runs before this call
         returns, which is the "does not block the hot path" contract. No ``await`` here means no
-        sync/async split to maintain: this **is** the sync form, and the only form."""
-        if self._running:
+        sync/async split to maintain: this **is** the sync form, and the only form.
+
+        Must be called from within a running event loop (an ``async def``, or sync code entered
+        via ``asyncio.run``) -- ``asyncio.create_task`` requires one and raises otherwise. That
+        is a property of every ``asyncio`` program, not a caveat specific to this method.
+
+        Guarded on ``self._task``, not ``self._running``: the latter is already ``False`` for the
+        entire span of a ``stop()`` call in progress (set at its very first line, before the
+        ``await`` that can yield to a concurrent ``start()``), so a ``start()`` landing inside
+        that window would pass a ``_running``-only guard, create a second task, and overwrite
+        ``self._task`` out from under the ``stop()`` call awaiting the first one -- orphaning it
+        with no reference left to join or cancel. ``self._task`` stays non-``None`` for that same
+        window (cleared only after ``stop()`` finishes joining it), so it is the guard that is
+        actually true exactly while a loop is running or being torn down.
+        """
+        if self._task is not None:
             return
         self._running = True
         self._wake = asyncio.Event()
@@ -208,7 +228,12 @@ class ConsolidationWorker:
                     await task
                 except (asyncio.CancelledError, Exception):
                     pass
-            self._task = None
+            # Only if `self._task` is still the task this call joined: a `start()` that raced in
+            # and lost (see `start()`'s docstring) cannot happen now that it is guarded on
+            # `self._task`, but clearing unconditionally would silently repeat the same class of
+            # bug the moment that guard is ever touched again.
+            if self._task is task:
+                self._task = None
         log_info("Consolidation worker stopped")
 
     async def _loop(self) -> None:

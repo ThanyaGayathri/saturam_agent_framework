@@ -255,6 +255,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #: Not durable across a process restart -- a fresh instance rescans from the beginning,
         #: which costs redundant work but not correctness, because a fact id is derived from its
         #: source episodes.
+        #: TODO: grows with the active scope set and is never evicted -- one entry per
+        #: (scope, tier) pair ever consolidated on this instance, for the instance's lifetime.
+        #: Bounded per-deployment today by how many distinct scopes one process consolidates
+        #: (today, ``ConsolidationWorker``'s own configured scope list); a high-cardinality
+        #: scope set (many users x many tiers, over a long-lived process) would want a bounded
+        #: LRU or eviction on idle rather than this plain dict.
         self._scan_cursors: Dict[Tuple[str, MemoryTier], ScanCursor] = {}
 
     def substrates(self) -> Dict[Substrate, bool]:
@@ -878,6 +884,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
         element is the composite maximum -- no re-sort needed. Advancing even on a *complete* pass
         (rather than resetting) is what makes the next call cheap: it scans only what was written
         since, instead of re-reading the whole tier to confirm nothing new arrived.
+
+        **Assumes episodes arrive with non-decreasing ``created_at``.** A write landing with
+        ``(created_at, id) <= this cursor`` -- most plausibly clock skew between writers stamping
+        ``now_epoch_s()`` a moment apart -- is excluded by ``scan``'s ``after`` bound on every
+        future pass on this instance: not merely deferred, silently unreachable, the same failure
+        mode ``tail_pending`` exists to name for the cap case. There is no detection or repair
+        here; a deployment where writer clocks can disagree meaningfully needs one, and it is not
+        built by this ticket. Pinned by
+        ``test_a_backdated_write_below_the_cursor_is_never_consolidated``.
         """
         if not scanned:
             return
