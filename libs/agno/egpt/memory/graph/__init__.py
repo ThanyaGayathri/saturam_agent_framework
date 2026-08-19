@@ -1,9 +1,9 @@
 """The temporal graph's shared shapes and write-side pipelines (SM-G group).
 
 Episode-to-entity mention links are SM-G6 (#104); entity extraction is SM-G2 (#100);
-relation/fact edges are SM-G3 (#101), the semantic subgraph SM-G7 (#105), and entity resolution
-SM-G8 (#106). The graph *backend* is an integration (``egpt/integrations/memory/graph/``);
-nothing here imports one.
+relation/fact edges are SM-G3 (#101), their bi-temporal valid-time extraction SM-G4 (#102), the
+semantic subgraph SM-G7 (#105), and entity resolution SM-G8 (#106). The graph *backend* is an
+integration (``egpt/integrations/memory/graph/``); nothing here imports one.
 """
 
 from egpt.memory.graph.entities import (
@@ -41,6 +41,11 @@ from egpt.memory.graph.relations import (
     relation_details,
     relation_edge_id_for,
 )
+from egpt.memory.graph.temporal import (
+    RuleBasedValidTimeExtractor,
+    ValidTimeExtractor,
+    ValidTimeSpan,
+)
 
 __all__ = [
     "ENTITY_KEYS",
@@ -60,6 +65,9 @@ __all__ = [
     "RelationExtractionPipeline",
     "RelationExtractionReport",
     "RelationExtractor",
+    "RuleBasedValidTimeExtractor",
+    "ValidTimeExtractor",
+    "ValidTimeSpan",
     "embedding_text",
     "entity_details",
     "entity_node_id_for",
