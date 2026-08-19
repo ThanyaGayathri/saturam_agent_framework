@@ -23,6 +23,7 @@ from egpt.memory.graph.relations import (
     RelationExtractionPipeline,
     relation_edge_id_for,
 )
+from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor, ValidTimeSpan
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     NO_RELATIONS,
@@ -160,6 +161,132 @@ def test_relation_edge_id_for_normalizes_whitespace_before_deriving_the_id():
     assert relation_edge_id_for(ACME, " Ada ", "works_at", "Acme Corp") == relation_edge_id_for(
         ACME, "Ada", "works_at", "Acme Corp"
     )
+
+
+# ---------------------------------------------------------------------------
+# AC 2/3 -- bi-temporal valid-time (SM-G4 #102): extracted where present, and a
+# point-in-time read over the written edge returns the correct state
+# ---------------------------------------------------------------------------
+
+
+class StubValidTimeExtractor:
+    """Returns a fixed span regardless of content, so a test can assert the pipeline *uses* what
+    the extractor returns without depending on the rule-based regex."""
+
+    def __init__(self, span):
+        self.span = span
+        self.seen = []
+
+    def extract(self, content, ingest_time=None):
+        self.seen.append((content, ingest_time))
+        return self.span
+
+    async def aextract(self, content, ingest_time=None):
+        await asyncio.sleep(0)
+        return self.extract(content, ingest_time)
+
+
+def test_the_default_valid_time_extractor_is_rule_based():
+    pipe, _ = pipeline()
+
+    assert isinstance(pipe.valid_time_extractor, RuleBasedValidTimeExtractor)
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_relation_edge_carries_the_valid_time_the_extractor_returns(is_async):
+    """The criterion itself: what the extractor reports lands on the written edge's
+    ``t_valid``/``t_invalid``, not left ``None`` the way every edge was before this ticket."""
+    vt = StubValidTimeExtractor(ValidTimeSpan(t_valid=1704067200, t_invalid=1717200000, source="explicit"))
+    pipe, graph = pipeline(valid_time_extractor=vt)
+
+    call = pipe.arun(ACME, [episode("Ada works at Acme since Jan 2024")]) if is_async else None
+    if is_async:
+        asyncio.run(call)
+    else:
+        pipe.run(ACME, [episode("Ada works at Acme since Jan 2024")])
+
+    fact = edge_for(graph)
+    assert fact.record.t_valid == 1704067200
+    assert fact.record.t_invalid == 1717200000
+
+
+def test_the_extractor_is_called_once_per_episode_content_not_once_per_relation():
+    """Two relations from one episode share one span -- they were dated by the same sentence, so
+    extracting per-relation would let two edges from one episode disagree about validity."""
+    vt = StubValidTimeExtractor(ValidTimeSpan(t_valid=100, source="ingest_fallback"))
+    extractor = StubExtractor(default=[relation(relation="works_at"), relation(relation="reports_to")])
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=vt)
+
+    pipe.run(ACME, [episode("Ada works at and reports to Acme", episode_id="e1")])
+
+    assert vt.seen == [("Ada works at and reports to Acme", None)]
+    assert len(graph.facts) == 2
+    assert {f.record.t_valid for f in graph.facts} == {100}
+
+
+def test_a_relation_edge_falls_back_to_the_episodes_valid_time_as_ingest_time():
+    """Spec section 5's "extracted valid-time, else ingest time": with nothing stated, the span is
+    anchored on when the source episode itself happened, not on the pass's wall clock -- the two
+    differ under batched/async consolidation (SM-L1 #122)."""
+    pipe, graph = pipeline(valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Acme", t_valid=555)])
+
+    assert edge_for(graph).record.t_valid == 555
+
+
+def test_a_relation_edge_falls_back_to_the_episodes_created_at_when_it_has_no_valid_time():
+    pipe, graph = pipeline(valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Acme", created_at=777)])
+
+    assert edge_for(graph).record.t_valid == 777
+
+
+@pytest.mark.parametrize(
+    "content, expected_t_valid, expected_t_invalid",
+    [
+        ("Ada works at Acme since Jan 2024", 1704067200, None),
+        ("Ada works at Acme from Jun 2024 until Sep 2024", 1717200000, 1725148800),
+        ("Ada worked at Acme in 2019", 1546300800, None),
+        ("Ada joined Acme on 2023-04-10", 1681084800, None),
+    ],
+)
+def test_the_rule_based_extractor_reads_explicit_dates_out_of_episode_content(
+    content, expected_t_valid, expected_t_invalid
+):
+    """End-to-end through the real (non-stub) extractor: SM-R10's regex+month-map rule, exercised
+    the way ``run`` actually calls it -- one span per episode content."""
+    pipe, graph = pipeline(valid_time_extractor=RuleBasedValidTimeExtractor(), extractor=StubExtractor(default=[relation()]))
+
+    pipe.run(ACME, [episode(content)])
+
+    fact = edge_for(graph)
+    assert fact.record.t_valid == expected_t_valid
+    assert fact.record.t_invalid == expected_t_invalid
+
+
+@pytest.mark.parametrize("at,visible", [(1704067100, False), (1704067200, True), (1717199999, True), (1717200000, False)])
+def test_true_at_t_returns_the_correct_edge_state_for_an_extracted_relation(at, visible):
+    """AC 3, end-to-end: extraction through the consolidation lane, then a point-in-time read over
+    the fused set. ``co_located``'s ``as_of`` filter and the Neo4j double's bi-temporal envelope
+    predate this ticket (SM-G1 #99) -- this proves they compose correctly with what this ticket
+    actually adds, the extracted ``t_valid``/``t_invalid`` on a relation edge."""
+    extractor = StubExtractor(default=[relation()])
+    graph = FakeGraph()
+    pipe = RelationExtractionPipeline(graph=graph, extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+    memory = CoLocatedMemoryProvider(
+        vector=FakeVector(),
+        graph=graph,
+        config=MemoryProviderConfig(provider="co_located"),
+        relation_pipeline=pipe,
+    )
+    memory.write(ACME, [MemoryEvent(content="Ada works at Acme from Jan 2024 until Jun 2024", scope=ACME)])
+
+    memory.consolidate(ACME)
+
+    found = memory.read(ACME, MemoryQuery(text="ada acme corp", as_of=at)).records
+    assert bool(found) is visible
 
 
 def test_provenance_is_replaced_not_accumulated_on_a_second_pass():
@@ -339,7 +466,9 @@ def test_a_pass_that_reads_no_episode_is_refused_at_construction():
     assert excinfo.value.field_name == "max_episodes_per_pass"
 
 
-@pytest.mark.parametrize("name, broken", [("graph", object()), ("extractor", object())])
+@pytest.mark.parametrize(
+    "name, broken", [("graph", object()), ("extractor", object()), ("valid_time_extractor", object())]
+)
 def test_a_collaborator_missing_either_half_is_refused_at_construction(name, broken):
     with pytest.raises(MemoryOperationError) as excinfo:
         pipeline(**{name: broken})
