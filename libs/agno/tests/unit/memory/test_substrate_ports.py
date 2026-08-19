@@ -19,6 +19,7 @@ from egpt.memory.types import (
     MemoryEvent,
     MemoryQuery,
     MemoryRecord,
+    ScanCursor,
     Scope,
     TemporalBounds,
 )
@@ -41,10 +42,14 @@ class CompleteVector:
 
     # Signature mirrors the real port exactly. `runtime_checkable` checks method *presence*, so a
     # stale parameter here passes the conformance test while misleading anyone who copies this as
-    # reference -- and `since` was removed from `scan` when the consolidation cursor went to SM-L1.
-    def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]: ...
+    # reference -- `after` is the composite resumption cursor SM-L1 (#122) added.
+    def scan(
+        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None, after: Optional[ScanCursor] = None
+    ) -> List[MemoryRecord]: ...
 
-    async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]: ...
+    async def ascan(
+        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None, after: Optional[ScanCursor] = None
+    ) -> List[MemoryRecord]: ...
 
 
 class CompleteGraph:

@@ -22,7 +22,7 @@ this file needs no model, no API key, and no network.
 """
 
 from dataclasses import replace
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from egpt.memory import (
@@ -126,11 +126,16 @@ class InMemoryVector:
         return self.search(scope, query, tier)
 
     def scan(
-        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
+        self,
+        scope: Scope,
+        tier: MemoryTier,
+        limit: Optional[int] = None,
+        after: Optional[Tuple[int, str]] = None,
     ) -> List[MemoryRecord]:
         require_scope(scope, method="scan")
-        # The port's contract, not a shortcut: ascending created_at then id, `limit` respected.
-        # Reference code gets copied, so it should model the contract it teaches.
+        # The port's contract, not a shortcut: ascending created_at then id, `limit` respected,
+        # `after` an exclusive composite bound (SM-L1's resumption cursor). Reference code gets
+        # copied, so it should model the contract it teaches.
         rows = [
             # A copy, like `search` returns: the provider may annotate what it scanned.
             replace(record)
@@ -138,13 +143,19 @@ class InMemoryVector:
             if record.tier is tier and scoped(record.scope, scope)
         ]
         rows.sort(key=lambda record: ((record.created_at or 0), record.id))
+        if after is not None:
+            rows = [r for r in rows if ((r.created_at or 0), r.id) > after]
         return rows if limit is None else rows[:limit]
 
     async def ascan(
-        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
+        self,
+        scope: Scope,
+        tier: MemoryTier,
+        limit: Optional[int] = None,
+        after: Optional[Tuple[int, str]] = None,
     ) -> List[MemoryRecord]:
         require_scope(scope, method="ascan")
-        return self.scan(scope, tier, limit)
+        return self.scan(scope, tier, limit, after)
 
 
 class InMemoryGraph:

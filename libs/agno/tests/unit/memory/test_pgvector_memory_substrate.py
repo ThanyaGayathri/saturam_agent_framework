@@ -392,6 +392,14 @@ def test_a_zero_limit_scan_is_zero_rows_not_unlimited(substrate):
     assert substrate._scan_call("ai", "v", ACME, MemoryTier.EPISODIC, None) is not None
 
 
+def test_a_scan_cursor_reaches_the_statement_binds(substrate):
+    """``after`` must survive the trip from the port method to the emitted statement, or a worker
+    that thinks it resumed a walk silently rescans from the beginning."""
+    _, binds = substrate._scan_call("ai", "v", ACME, MemoryTier.EPISODIC, 10, after=(1000, "e5"))
+    assert binds["after_created_at"] == 1000
+    assert binds["after_id"] == "e5"
+
+
 def test_close_refuses_without_disposing_either_half(substrate):
     """Dropping the reference is not closing: it leaves the pool's sockets open and permanently
     disables ``aclose``'s own guard, so the leak becomes unreachable rather than fixed.

@@ -164,6 +164,28 @@ def test_scan_orders_oldest_first_and_never_on_a_uuid_alone():
     assert statement.rstrip().endswith("ORDER BY created_at, id")
 
 
+def test_scan_with_no_cursor_emits_no_cursor_predicate():
+    """``after=None`` (the default) must not bind the cursor columns at all -- a bound with no
+    predicate silently narrows nothing, but the point is a first pass never carries dead binds."""
+    statement, binds = sql.scan_statement("ai", "memory_vectors", FULL, None)
+    assert "after_created_at" not in statement
+    assert "after_created_at" not in binds and "after_id" not in binds
+
+
+def test_scan_cursor_is_a_row_comparison_not_two_separate_predicates():
+    """A time-only predicate cannot page past a co-second batch (SM-L1 #122): the row comparison
+    `(created_at, id) > (a, b)` is what lets a same-second sibling with a greater id still pass,
+    while one with a lesser id (already scanned in the prior page) does not."""
+    statement, binds = sql.scan_statement("ai", "memory_vectors", FULL, 10, after=(1000, "e5"))
+    assert "(created_at, id) > (:after_created_at, :after_id)" in statement
+    assert binds["after_created_at"] == 1000
+    assert binds["after_id"] == "e5"
+    # Before ORDER BY / LIMIT, alongside the rest of the WHERE clause.
+    where, _, rest = statement.partition("ORDER BY")
+    assert "(created_at, id) >" in where
+    assert "(created_at, id) >" not in rest
+
+
 def test_an_unlimited_scan_emits_no_limit_clause_and_binds_no_limit():
     """``None`` means unlimited; a large number standing in for it is a different request."""
     statement, binds = sql.scan_statement("ai", "memory_vectors", FULL, None)
