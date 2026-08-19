@@ -56,6 +56,17 @@ This section demonstrates how EGPT agents persist and use user memories across r
   Corporation" into one node via `EntityResolutionPipeline`, re-pointing their `MENTIONS` edges and
   keeping the losing name as an alias. No API key; needs `./cookbook/scripts/run_neo4j.sh` and a
   local embedder (`sentence-transformers`, installed by `.venvs/demo`).
+- `21_episode_importance.py`: Episode salience scoring (SM-E5) -- an episode's content scored
+  1-10 (Generative Agents' poignancy scale) and normalized to the `[0, 1]` range
+  `Decaying.importance` already validates, then applied to an already-built episode with
+  `dataclasses.replace`. Needs a real model (`OPENAI_API_KEY`); there is no offline path for
+  LLM-assigned salience.
+- `22_episodic_relevance_scoring.py`: Episodic relevance scoring (SM-E6) -- query-vs-episode
+  cosine similarity as its own signal, computed independently of a live `VectorSubstrate.search`
+  round trip so a candidate reaching composite scoring by another path (graph traversal, a scan)
+  can still be scored. `cosine_relevance` on precomputed embeddings and `episode_relevance` on raw
+  text; recency/importance/composite weighting are SM-E4/SM-E5/SM-E7's. Runs with no database and
+  no API key -- a tiny deterministic bag-of-hashed-tokens embedder, not a real model.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

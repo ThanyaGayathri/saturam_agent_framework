@@ -473,3 +473,58 @@ merge had just deleted -- both runs start from the same two-node state and print
 **Renumbered from `19_entity_resolution_graph.py` to `20_`**: `feat/SM-G3` landed `19_` on `main`
 while this branch was still in review. Per this file's own convention, whoever merges second
 renumbers.
+
+---
+
+### 21_episode_importance.py
+
+**Status:** PARTIAL
+
+**Description:** Demonstrates `ImportanceScorer` (SM-E5): scores two contrasting episodes with
+`ascore()`, applies the result to each with `dataclasses.replace(episode, importance=score)`, and
+shows the scored value reaching a reader through the existing `EPISODE_KEYS` floor.
+
+**Result:** Verified structurally with a mocked `Model.aresponse` (no network) -- the script runs
+end-to-end, `dataclasses.replace` applies the scored value, `significant.importance >
+mundane.importance` holds, and `episode_to_record(...).metadata["importance"]` carries it through.
+**Not run against a real model**: no `OPENAI_API_KEY` was available in the environment that wrote
+this cookbook. `ImportanceScorer` itself is covered against a mocked model by
+`libs/agno/tests/unit/memory/test_episodic_importance.py`; this file is the only thing left
+unverified against a live provider. Re-run with a real key before relying on this entry as a full
+PASS.
+
+**Requires:** `OPENAI_API_KEY` (or your configured provider's credentials). No database.
+
+**Renumbered from `15_` to `19_` to `20_` to `21_` across three merges**: `feat/SM-V4`,
+`feat/SM-V2`, `feat/SM-G2` and `feat/SM-G6` claimed `15_`-`18_` on `main` between this branch's
+first two merges of `main`; then `feat/SM-G3` claimed `19_`; then `feat/SM-G8` claimed `20_`. Per
+this file's own convention, whoever merges second renumbers -- four times, this time.
+
+---
+
+### 22_episodic_relevance_scoring.py
+
+**Status:** PASS
+
+**Description:** Exercises SM-E6's relevance signal: `cosine_relevance` on two precomputed
+embeddings, `episode_relevance` embedding raw text through a deterministic stub embedder, and the
+three boundary refusals (empty embedding, mismatched width, a `None` an embedder returned instead
+of raising).
+
+**Result:** Success. With `DIM = 128` on the bag-of-hashed-tokens embedder, the matching pair
+("deploy the payments service to production" / "shipped the payments service to prod") scores
+`0.577`, distinctly higher than the unrelated pair ("...to production" / "the office coffee
+machine is broken again") at `0.309` -- the acceptance criterion, visibly. `cosine_relevance` and
+`episode_relevance` agree exactly on the matching/unrelated pair, as they should since
+`episode_relevance` is a thin wrapper that embeds then calls `cosine_relevance`. All three
+refusals print the named `MemoryOperationError` rather than a silent fallthrough.
+
+**Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `19_` to `21_` to `22_` across two merges**: SM-G3 (#95) landed `19_` on `main`
+while this branch was still catching up; `episodic/__init__.py` was a genuine 3-way concurrent
+collision with SM-E4 (#91) and SM-E5 (#93). SM-E4 merged first, so this file moved to `21_`
+avoiding SM-E5's own then-open claim on `20_`. Then SM-E5 (#93) merged and its branch had already
+renumbered to `20_entity_resolution_graph.py`/`21_episode_importance.py` following SM-G8 (#96)
+landing `20_` first -- so this file moves to `22_` to stay clear of both. Per this file's own
+convention, whoever merges second (now third) renumbers.

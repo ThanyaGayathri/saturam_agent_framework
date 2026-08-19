@@ -8,14 +8,17 @@ from egpt.memory.config import (
     register_provider,
     registered_providers,
 )
-from egpt.memory.episodic.decay import (
+from egpt.memory.episodic import (
     DEFAULT_BASE_HALF_LIFE_S,
     DEFAULT_IMP_FACTOR,
+    ImportanceScore,
+    ImportanceScorer,
     episode_decay_score,
     half_life_s,
     recency_decay,
     reinforce,
 )
+from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
@@ -189,6 +192,9 @@ __all__ = [
     "half_life_s",
     "recency_decay",
     "reinforce",
+    # Episode salience scoring (SM-E5)
+    "ImportanceScore",
+    "ImportanceScorer",
     # Write-back capture (SM-E2)
     "ROLE_KEY",
     "TOOL_CALL_ERROR_KEY",
@@ -199,4 +205,8 @@ __all__ = [
     "events_from_run",
     "start_writeback_future",
     "astart_writeback_task",
+    # Episodic relevance scoring (SM-E6)
+    "aepisode_relevance",
+    "cosine_relevance",
+    "episode_relevance",
 ]
