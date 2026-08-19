@@ -432,3 +432,40 @@ episode count rather than with the run.
 **Note:** the file writes to its own `memory_vectors_sm_g3` table, matching `17_`'s own reasoning:
 `consolidate` reads every episode in the scope, so sharing a table mixes another cookbook's writes
 into this run.
+
+---
+
+### 20_entity_resolution_graph.py
+
+**Status:** PASS
+
+**Description:** Exercises SM-G8's `EntityResolutionPipeline` against a real Neo4j 5 Community.
+Writes two episodes each mentioning a different spelling of one company ("Acme" / "Acme
+Corporation"), writes both as separate candidate entity nodes (as `17_entity_extraction_graph.py`
+deliberately leaves them), embeds each with a real `sentence-transformers` model, then runs the
+resolution pipeline over both candidates.
+
+**Result:** Success, and all three acceptance criteria are visible in the output. Before
+resolution, two nodes exist for one company. `pipeline.run` reports 1 candidate (the second,
+"Acme Corporation", is folded away by the first's merge before it would be attempted, and round 3's
+review fixed `report.candidates` to count only what was actually attempted, not `len(candidates)`),
+1 merged into 1 survivor. After resolution, exactly one node remains, carrying
+`aliases=['Acme Corporation']` and
+the union of both episodes' ids in `source_episode_ids` -- duplicate entities merged, aliases
+retained. Both episodes' `MENTIONS` edges now resolve to the one surviving node's name -- edges
+updated on merge. The two candidates are given the **same** description on purpose: description is
+folded into the embedded text (`entities.embedding_text`), and two real, differently-worded
+descriptions of the same company scored a normalised cosine of ~0.84 against the default
+`min_score=0.92` floor -- correctly refusing to merge on a genuinely weaker signal, but a duller
+demo of the merge path than showing the acceptance criteria succeed.
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`, and a local `sentence-transformers` embedder --
+installed by `.venvs/demo`, no API key.
+
+**Run twice in a row and the output is identical**: episodes and entities are both written by id,
+so the second run's `upsert_entities` call recreates the "Acme Corporation" node the first run's
+merge had just deleted -- both runs start from the same two-node state and print the same report.
+
+**Renumbered from `19_entity_resolution_graph.py` to `20_`**: `feat/SM-G3` landed `19_` on `main`
+while this branch was still in review. Per this file's own convention, whoever merges second
+renumbers.
