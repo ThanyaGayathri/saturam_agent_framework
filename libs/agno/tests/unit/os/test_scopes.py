@@ -176,6 +176,15 @@ class TestDefaultScopeMappings:
         # Delete
         assert mappings["DELETE /components/*"] == ["components:delete"]
         assert mappings["DELETE /components/*/configs/*"] == ["components:delete"]
+        # Audit: components:read by default, components:audit when the aicoe-tracker#170
+        # split is enabled.
+        assert mappings["GET /components/*/audit"] == ["components:read"]
+
+    def test_components_audit_scope_split_when_enabled(self):
+        mappings = get_default_scope_mappings(components_audit_scope_enabled=True)
+        assert mappings["GET /components/*/audit"] == ["components:audit"]
+        # Everything else stays on components:read/write/delete as before.
+        assert mappings["GET /components/*"] == ["components:read"]
 
     def test_learnings_endpoints_have_scope_mappings(self):
         mappings = get_default_scope_mappings()

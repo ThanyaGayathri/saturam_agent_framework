@@ -72,6 +72,11 @@ class AgentOSScope(str, Enum):
     - service_accounts:read - List service accounts
     - service_accounts:write - Mint service account tokens
     - service_accounts:delete - Revoke service account tokens
+    - components:read - View components and their configs
+    - components:write - Create and update components and configs
+    - components:delete - Delete components and configs
+    - components:audit - View a component's audit history (opt-in via
+      components_audit_scope_enabled; falls back to components:read when disabled)
 
     Per-Resource Scopes (with resource ID):
     - agents:<agent-id>:read - Read specific agent
@@ -448,12 +453,18 @@ def get_a2a_scope_mappings(prefix: str = "/a2a") -> Dict[str, List[str]]:
     }
 
 
-def get_default_scope_mappings() -> Dict[str, List[str]]:
+def get_default_scope_mappings(*, components_audit_scope_enabled: bool = False) -> Dict[str, List[str]]:
     """
     Get default scope mappings for EgptOS endpoints.
 
     Returns a dictionary mapping route patterns (with HTTP methods) to required scope templates.
     Format: "METHOD /path/pattern": ["resource:action"]
+
+    Args:
+        components_audit_scope_enabled: When True, ``GET /components/*/audit`` requires the
+            dedicated ``components:audit`` scope instead of reusing ``components:read``
+            (aicoe-tracker#170). Defaults to False so existing ``components:read``-only tokens
+            keep working until a deployment opts in.
     """
     mappings: Dict[str, List[str]] = {
         # Config endpoints (legacy scope: system:read)
@@ -567,14 +578,15 @@ def get_default_scope_mappings() -> Dict[str, List[str]]:
         "GET /registry": ["registry:read"],
         # Component endpoints (Studio)
         "GET /components": ["components:read"],
-        # Literal component routes (EGPT-2.8 portability, EGPT-2.9 dry-run validation). These sit
-        # ABOVE the wildcards on purpose: the fallback below takes the first pattern that
-        # fnmatches, in insertion order, so "GET /components/*" would otherwise swallow the export
-        # route and decide its scope by accident rather than by decision. No "POST /components/*"
-        # entry exists today, so the two POSTs here are not yet at risk -- keeping them in this
-        # block is what makes that survive the day one is added. Reordering this dict silently
-        # changes authorization.
+        # Literal component routes (EGPT-2.8 portability, EGPT-2.9 dry-run validation, EGPT-2.6
+        # audit scope split). These sit ABOVE the wildcards on purpose: the fallback below takes
+        # the first pattern that fnmatches, in insertion order, so "GET /components/*" would
+        # otherwise swallow the export/audit routes and decide their scope by accident rather
+        # than by decision. No "POST /components/*" entry exists today, so the two POSTs here are
+        # not yet at risk -- keeping them in this block is what makes that survive the day one is
+        # added. Reordering this dict silently changes authorization.
         "GET /components/*/export": ["components:read"],
+        "GET /components/*/audit": ["components:audit"] if components_audit_scope_enabled else ["components:read"],
         "POST /components/import": ["components:write"],
         # Write, not read: the dry run evaluates the same capability allow-list a write does, so a
         # read-only caller has no business probing which models the tenant policy permits.
@@ -590,7 +602,6 @@ def get_default_scope_mappings() -> Dict[str, List[str]]:
         "PATCH /components/*/configs/*": ["components:write"],
         "DELETE /components/*/configs/*": ["components:delete"],
         "POST /components/*/configs/*/set-current": ["components:write"],
-        "GET /components/*/audit": ["components:read"],
     }
     # A2A interface routes under the default prefix. App startup additionally merges
     # entries for any A2A interface mounted under a custom prefix (see

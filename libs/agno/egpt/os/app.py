@@ -569,7 +569,10 @@ class EgptOS:
             if isinstance(self.db, BaseDb):
                 updated_routers.append(
                     get_components_router(
-                        os_db=self.db, registry=self.registry, capability_policy=self.capability_policy
+                        os_db=self.db,
+                        settings=self.settings,
+                        registry=self.registry,
+                        capability_policy=self.capability_policy,
                     )
                 )
             else:
@@ -1157,7 +1160,10 @@ class EgptOS:
             if isinstance(self.db, BaseDb):
                 routers.append(
                     get_components_router(
-                        os_db=self.db, registry=self.registry, capability_policy=self.capability_policy
+                        os_db=self.db,
+                        settings=self.settings,
+                        registry=self.registry,
+                        capability_policy=self.capability_policy,
                     )
                 )
             else:
@@ -1411,6 +1417,7 @@ class EgptOS:
             excluded_route_paths = DEFAULT_EXCLUDED_ROUTE_PATHS + extra_excluded_route_paths
 
         middleware_kwargs["excluded_route_paths"] = excluded_route_paths
+        middleware_kwargs["components_audit_scope_enabled"] = self.settings.components_audit_scope_enabled
 
         # Interface routes are authorization-gated by the scope entries each interface
         # declares (Interface.get_scope_mappings), merged here against its ACTUAL mount

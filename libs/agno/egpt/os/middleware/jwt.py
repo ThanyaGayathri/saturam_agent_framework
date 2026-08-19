@@ -545,6 +545,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         tenant_id_claim: Optional[str] = None,
         service_account_verifier: Optional["ServiceAccountVerifier"] = None,
         security_key: Optional[str] = None,
+        components_audit_scope_enabled: bool = False,
     ):
         """
         Initialize the JWT middleware.
@@ -609,6 +610,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 ownership/scoping gates stay dormant — preserves backwards
                 compatibility with deployments that handle isolation in their
                 own application layer.
+            components_audit_scope_enabled: When True, GET /components/*/audit requires the
+                dedicated components:audit scope instead of reusing components:read
+                (aicoe-tracker#170). Default False preserves existing components:read-only
+                tokens' access.
 
         Note:
             - At least one verification key or JWKS file must be provided if validate=True
@@ -672,7 +677,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Build final scope mappings (additive approach)
         if self.authorization:
             # Start with default scope mappings
-            self.scope_mappings = get_default_scope_mappings()
+            self.scope_mappings = get_default_scope_mappings(
+                components_audit_scope_enabled=components_audit_scope_enabled
+            )
 
             # Merge user-provided scope mappings (overrides defaults)
             if scope_mappings is not None:
@@ -683,7 +690,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Service account scopes are enforced even when authorization is disabled
         # (they are this instance's own ACL data, not third-party claims), so keep
         # a fully merged scope map regardless of the authorization flag.
-        self.service_account_scope_mappings = get_default_scope_mappings()
+        self.service_account_scope_mappings = get_default_scope_mappings(
+            components_audit_scope_enabled=components_audit_scope_enabled
+        )
         if scope_mappings is not None:
             self.service_account_scope_mappings.update(scope_mappings)
 

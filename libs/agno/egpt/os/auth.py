@@ -23,11 +23,11 @@ from egpt.settings import jwt_is_configured
 security = HTTPBearer(auto_error=False)
 
 
-@lru_cache(maxsize=1)
-def _default_scope_mappings() -> Dict[str, List[str]]:
-    """The default route→scope mappings, built once (they are static data) so the
-    per-request service-account path does not rebuild the dict on every call."""
-    return get_default_scope_mappings()
+@lru_cache(maxsize=2)
+def _default_scope_mappings(components_audit_scope_enabled: bool = False) -> Dict[str, List[str]]:
+    """The default route→scope mappings, built once per flag value (they are static data) so
+    the per-request service-account path does not rebuild the dict on every call."""
+    return get_default_scope_mappings(components_audit_scope_enabled=components_audit_scope_enabled)
 
 
 # Scopes granted to the internal service token (used by the scheduler executor).
@@ -70,7 +70,10 @@ def get_auth_token_from_request(request: Request) -> Optional[str]:
 
 
 async def _authenticate_service_account(
-    request: Request, token: str, treat_unverifiable_as_anonymous: bool = False
+    request: Request,
+    token: str,
+    treat_unverifiable_as_anonymous: bool = False,
+    components_audit_scope_enabled: bool = False,
 ) -> bool:
     """Verify a service account token (agno_pat_...) and attach its identity to the request.
 
@@ -106,7 +109,7 @@ async def _authenticate_service_account(
         request,
         token,
         verifier=verifier,
-        scope_mappings=_default_scope_mappings(),
+        scope_mappings=_default_scope_mappings(components_audit_scope_enabled=components_audit_scope_enabled),
         admin_scope=admin_scope,
     )
     if error is not None:
@@ -225,7 +228,10 @@ def get_authentication_dependency(settings: EgptServingSettings):
         if token and token.startswith(SERVICE_ACCOUNT_TOKEN_PREFIX):
             instance_has_auth = bool(settings and settings.os_security_key) or _is_jwt_configured()
             return await _authenticate_service_account(
-                request, token, treat_unverifiable_as_anonymous=not instance_has_auth
+                request,
+                token,
+                treat_unverifiable_as_anonymous=not instance_has_auth,
+                components_audit_scope_enabled=bool(settings and settings.components_audit_scope_enabled),
             )
 
         # Also skip if JWT is configured via environment variables
@@ -526,7 +532,9 @@ def require_resource_access(resource_type: str, action: str, resource_id_param: 
     return dependency
 
 
-def _scope_table_for_prefix(prefix: str) -> Dict[Tuple[str, str], List[str]]:
+def _scope_table_for_prefix(
+    prefix: str, components_audit_scope_enabled: bool = False
+) -> Dict[Tuple[str, str], List[str]]:
     """The route->scope entries under ``prefix``, keyed by ``(method, normalised path)``.
 
     Built once at wiring time from :func:`get_default_scope_mappings`, so ``os/scopes.py``
@@ -535,7 +543,9 @@ def _scope_table_for_prefix(prefix: str) -> Dict[Tuple[str, str], List[str]]:
     path converge on the same string.
     """
     table: Dict[Tuple[str, str], List[str]] = {}
-    for route_key, scopes in get_default_scope_mappings().items():
+    for route_key, scopes in get_default_scope_mappings(
+        components_audit_scope_enabled=components_audit_scope_enabled
+    ).items():
         method, path = route_key.split(" ", 1)
         if not path.startswith(prefix):
             continue
@@ -556,7 +566,7 @@ def _scope_table_for_prefix(prefix: str) -> Dict[Tuple[str, str], List[str]]:
     return table
 
 
-def require_route_scopes(prefix: str):
+def require_route_scopes(prefix: str, components_audit_scope_enabled: bool = False):
     """Enforce the ``os/scopes.py`` route->scope map on a router, independently of middleware.
 
     ``AuthMiddleware`` and the service-account path both consult the same map, but they key the
@@ -575,8 +585,10 @@ def require_route_scopes(prefix: str):
     Args:
         prefix: The path prefix owning the routes, e.g. ``"/components"``. Every mapping under
             it is collected once, here, at wiring time.
+        components_audit_scope_enabled: Forwarded to :func:`get_default_scope_mappings`
+            (aicoe-tracker#170).
     """
-    table = _scope_table_for_prefix(prefix)
+    table = _scope_table_for_prefix(prefix, components_audit_scope_enabled=components_audit_scope_enabled)
     # Longest first, so the suffix match below prefers the most specific declared route.
     ordered = sorted(table.items(), key=lambda item: len(item[0][1]), reverse=True)
 

@@ -27,6 +27,7 @@ from egpt.db.base import ComponentType
 from egpt.db.component_audit import ComponentAuditAction
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
+from egpt.os.settings import EgptServingSettings
 
 jwt = pytest.importorskip("jwt", reason="pyjwt is required for the audit integration suite")
 
@@ -97,6 +98,24 @@ def client(audit_db) -> TestClient:
             audience=OS_ID,
             tenant_id_claim=TENANT_CLAIM,
         ),
+    )
+    return TestClient(os_app.get_app())
+
+
+@pytest.fixture
+def client_with_audit_scope_split(audit_db) -> TestClient:
+    """The same real EgptOS as `client`, but with the aicoe-tracker#170 split turned on."""
+    os_app = EgptOS(
+        id=OS_ID,
+        db=audit_db,
+        authorization=True,
+        authorization_config=AuthorizationConfig(
+            verification_keys=[JWT_SECRET],
+            algorithm="HS256",
+            audience=OS_ID,
+            tenant_id_claim=TENANT_CLAIM,
+        ),
+        settings=EgptServingSettings(components_audit_scope_enabled=True),
     )
     return TestClient(os_app.get_app())
 
@@ -351,6 +370,28 @@ class TestScopes:
         response = client.get("/components/agent-a/audit", headers=auth(scopes=["components:write"]))
 
         assert response.status_code == 403
+
+
+class TestScopesWithAuditSplitEnabled:
+    """aicoe-tracker#170: with the split turned on, components:read alone no longer suffices."""
+
+    def test_components_read_alone_is_refused(self, client_with_audit_scope_split):
+        create_component(client_with_audit_scope_split)
+
+        response = client_with_audit_scope_split.get(
+            "/components/agent-a/audit", headers=auth(scopes=["components:read"])
+        )
+
+        assert response.status_code == 403
+
+    def test_components_audit_is_enough(self, client_with_audit_scope_split):
+        create_component(client_with_audit_scope_split)
+
+        response = client_with_audit_scope_split.get(
+            "/components/agent-a/audit", headers=auth(scopes=["components:audit"])
+        )
+
+        assert response.status_code == 200
 
 
 # =============================================================================
