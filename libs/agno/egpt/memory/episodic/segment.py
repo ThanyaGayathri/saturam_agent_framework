@@ -30,8 +30,9 @@ which is not what either input represents. :func:`segment_events` refuses a mixe
 rather than silently segmenting only the first scope it sees.
 """
 
+import math
 from dataclasses import dataclass, replace
-from typing import List, Optional, Sequence, Tuple
+from typing import Final, List, Optional, Sequence, Tuple
 
 from egpt.memory.schemas.episodic import EpisodicRecord
 from egpt.memory.types import MemoryEvent, MemoryOperationError
@@ -58,8 +59,8 @@ DEFAULT_MIN_TURNS_PER_EPISODE: int = 3
 #: The two ``boundary_method`` values this module ever writes -- the other four in DECISION.md
 #: section 5's enum (``embedding_drift`` / ``em_llm`` / ``llm`` / ``manual``) belong to the async
 #: lane or a human, not the inline prior.
-TIME_GAP_METHOD = "time_gap"
-TURN_CAP_METHOD = "turn_cap"
+TIME_GAP_METHOD: Final[str] = "time_gap"
+TURN_CAP_METHOD: Final[str] = "turn_cap"
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,13 @@ class SegmentState:
     calls -- this is what lets the next call see it. ``turns_since_boundary`` is the count of
     events written since the last boundary (inclusive of the boundary event itself), which is what
     ``max_turns_per_episode`` compares against.
+
+    ``last_occurred_at=None`` together with ``turns_since_boundary > 0`` is a state
+    :func:`segment_events` never produces but does not reject either: with no previous timestamp to
+    compare against, the next event always takes the "no prior state" branch (a fresh boundary),
+    which silently discards the carried count rather than using it. The default ``SegmentState()``
+    (both fields at their zero value) is always consistent; a hand-built or deserialized state
+    should keep the two fields in step with each other.
     """
 
     last_occurred_at: Optional[int] = None
@@ -108,10 +116,13 @@ def segmenter_version(
 
 
 def _validate_params(gap_s: float, max_turns: int, min_turns: int) -> None:
-    if not gap_s > 0:
+    if not math.isfinite(gap_s) or gap_s <= 0:
         raise MemoryOperationError(
-            f"gap_s must be positive, got {gap_s!r}: a zero or negative gap would call every "
-            "event its own episode regardless of the actual idle time.",
+            f"gap_s must be a finite positive number, got {gap_s!r}: zero or negative would call "
+            "every event its own episode regardless of the actual idle time, and infinite (or "
+            "NaN) would silently disable time-gap detection -- `not gap_s > 0` alone lets "
+            "`float('inf')` through, the same class of guard decay.py's half_life_s applies to "
+            "base_half_life_s.",
             field_name="gap_s",
         )
     if max_turns < 1:
@@ -246,6 +257,12 @@ def stamp_boundaries(
     Positional, not by id: :func:`segment_events` returns decisions in the same order as the events
     it was given, and this function trusts that pairing rather than re-deriving it, so ``episodes``
     and ``decisions`` must be built from the same ordered event sequence.
+
+    ``decision.method`` is the value actually written to ``boundary_method`` -- ``is_boundary`` is
+    not consulted for that field, only asserted against it below. :func:`segment_events` never
+    produces a ``BoundaryDecision`` where the two disagree, so this is a defensive check against a
+    hand-built or future ``BoundaryDecision`` (e.g. a boundary with no label) reaching this
+    function and being stamped as a silent continuation.
     """
     if len(episodes) != len(decisions):
         raise MemoryOperationError(
@@ -255,15 +272,26 @@ def stamp_boundaries(
             "`episodes` from.",
             field_name="decisions",
         )
-    return [
-        replace(
-            episode,
-            boundary_method=decision.method,
-            boundary_trigger=decision.trigger,
-            boundary_confidence=decision.confidence,
-            segmenter_version=version,
-            revision=0,
-            refined=False,
+    stamped = []
+    for episode, decision in zip(episodes, decisions):
+        if decision.is_boundary and decision.method is None:
+            raise MemoryOperationError(
+                f"Episode {episode.id!r} carries a BoundaryDecision with is_boundary=True but "
+                "method=None. stamp_boundaries writes `method` as the authoritative "
+                "boundary_method, so an unlabelled boundary would be stamped as a silent "
+                "continuation (boundary_method=None) -- the caller building BoundaryDecision "
+                "has a bug, not this function.",
+                field_name="decisions",
+            )
+        stamped.append(
+            replace(
+                episode,
+                boundary_method=decision.method,
+                boundary_trigger=decision.trigger,
+                boundary_confidence=decision.confidence,
+                segmenter_version=version,
+                revision=0,
+                refined=False,
+            )
         )
-        for episode, decision in zip(episodes, decisions)
-    ]
+    return stamped

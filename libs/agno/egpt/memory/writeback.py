@@ -269,7 +269,12 @@ def episodes_from_events(
     has.
 
     ``events`` must already be in non-decreasing ``occurred_at`` order and share one scope --
-    :func:`~egpt.memory.episodic.segment.segment_events` enforces both; see its docstring.
+    :func:`~egpt.memory.episodic.segment.segment_events` enforces both; see its docstring. Note
+    that an event with ``occurred_at=None`` is resolved to the current wall-clock time (above), so
+    a caller mixing ``None`` events with events carrying an explicit, older timestamp gets an
+    out-of-order rejection from :func:`~egpt.memory.episodic.segment.segment_events` naming an
+    event index -- the null resolving to "now" is the root cause, not something that message says
+    directly.
 
     Returns the stamped rows and the :class:`~egpt.memory.episodic.segment.SegmentState` the next
     call for this scope should pass back in as ``state``. A caller with nowhere to keep that state
@@ -283,7 +288,7 @@ def episodes_from_events(
 
     now = now_epoch_s()
     resolved = [event if event.occurred_at is not None else replace(event, occurred_at=now) for event in episodic]
-    stamped = [event if event.id else replace(event, id=str(uuid4())) for event in resolved]
+    stamped = [event if (event.id and event.id.strip()) else replace(event, id=str(uuid4())) for event in resolved]
 
     decisions, next_state = segment_events(stamped, state=state, gap_s=gap_s, max_turns=max_turns, min_turns=min_turns)
     episodes = [episode_from_event(event) for event in stamped]

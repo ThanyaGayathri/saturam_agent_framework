@@ -126,6 +126,21 @@ def test_state_carries_a_boundary_decision_across_batches():
     assert state_2 == SegmentState(last_occurred_at=BASE_T + 4000, turns_since_boundary=1)
 
 
+def test_turn_cap_fires_on_first_event_of_next_batch_when_state_is_full():
+    """The only branch that cannot fire within a single batch: a prior batch ends with
+    turns_since_boundary already at max_turns, and the very next event -- still inside the gap
+    window, so time_gap would not fire on its own -- opens on turn_cap instead."""
+    first_batch = [an_event(BASE_T + i) for i in range(3)]
+    _, state_1 = segment_events(first_batch, gap_s=900.0, max_turns=3, min_turns=1)
+    assert state_1.turns_since_boundary == 3
+
+    second_batch = [an_event(BASE_T + 5)]  # well within the gap window
+    decisions_2, state_2 = segment_events(second_batch, state=state_1, gap_s=900.0, max_turns=3, min_turns=1)
+
+    assert decisions_2 == [BoundaryDecision(is_boundary=True, method=TURN_CAP_METHOD, trigger=3.0, confidence=1.0)]
+    assert state_2 == SegmentState(last_occurred_at=BASE_T + 5, turns_since_boundary=1)
+
+
 def test_empty_batch_returns_empty_decisions_and_passes_state_through():
     state_in = SegmentState(last_occurred_at=BASE_T, turns_since_boundary=2)
     decisions, state_out = segment_events([], state=state_in)
@@ -165,6 +180,8 @@ def test_out_of_order_events_are_refused():
     [
         {"gap_s": 0.0},
         {"gap_s": -1.0},
+        {"gap_s": float("inf")},
+        {"gap_s": float("nan")},
         {"max_turns": 0},
         {"min_turns": 0},
         {"min_turns": 5, "max_turns": 3},
@@ -232,6 +249,15 @@ def test_stamp_boundaries_overwrites_a_preexisting_refined_row():
     assert stamped[0].boundary_method == TIME_GAP_METHOD
 
 
+def test_stamp_boundaries_refuses_a_boundary_decision_with_no_method():
+    episodes = [_episode("ep-1", BASE_T)]
+    decisions = [BoundaryDecision(is_boundary=True, method=None, trigger=None, confidence=1.0)]
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        stamp_boundaries(episodes, decisions, version=segmenter_version())
+    assert excinfo.value.field_name == "decisions"
+
+
 def test_stamp_boundaries_length_mismatch_is_refused():
     episodes = [_episode("ep-1", BASE_T), _episode("ep-2", BASE_T + 10)]
     decisions = [BoundaryDecision(is_boundary=True, method=TIME_GAP_METHOD, trigger=None, confidence=1.0)]
@@ -275,6 +301,16 @@ def test_episodes_from_events_stamps_ids_when_the_caller_left_them_unset():
     ids = [e.id for e in episodes]
     assert all(ids)
     assert len(set(ids)) == 2
+
+
+def test_episodes_from_events_stamps_a_whitespace_only_id():
+    """A whitespace-only id is truthy (`if event.id`), so a caller who passes one must not slip
+    past the stamping guard and reach episode_from_event's own (differently worded) refusal."""
+    events = [an_event(BASE_T, id="   ")]
+    episodes, _ = episodes_from_events(events)
+
+    assert episodes[0].id != "   "
+    assert episodes[0].id.strip()
 
 
 def test_episodes_from_events_resolves_missing_occurred_at_to_one_shared_now():
