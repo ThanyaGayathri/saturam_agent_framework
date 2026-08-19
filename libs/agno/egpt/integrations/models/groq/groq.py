@@ -70,9 +70,10 @@ class Groq(Model):
 
     def _get_client_params(self) -> Dict[str, Any]:
         # Fetch API key from env if not already set
-        if not self.api_key:
-            self.api_key = getenv("GROQ_API_KEY")
-            if not self.api_key:
+        api_key = self.api_key
+        if not api_key:
+            api_key = getenv("GROQ_API_KEY")
+            if not api_key:
                 raise ModelAuthenticationError(
                     message="GROQ_API_KEY not set. Please set the GROQ_API_KEY environment variable.",
                     model_name=self.name,
@@ -80,7 +81,7 @@ class Groq(Model):
 
         # Define base client params
         base_params = {
-            "api_key": self.api_key,
+            "api_key": api_key,
             "base_url": self.base_url,
             "timeout": self.timeout,
             "max_retries": self.max_retries,

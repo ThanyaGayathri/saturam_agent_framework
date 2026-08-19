@@ -32,11 +32,10 @@ class LiteLLMOpenAI(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        if not self.api_key:
-            self.api_key = getenv("LITELLM_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="LITELLM_API_KEY not set. Please set the LITELLM_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+        api_key = self.api_key or getenv("LITELLM_API_KEY")
+        if not api_key:
+            raise ModelAuthenticationError(
+                message="LITELLM_API_KEY not set. Please set the LITELLM_API_KEY environment variable.",
+                model_name=self.name,
+            )
+        return super()._get_client_params(api_key=api_key)

@@ -46,15 +46,14 @@ class OpenRouter(OpenAILike):
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
         # Fetch API key from env if not already set
-        if not self.api_key:
-            self.api_key = getenv("OPENROUTER_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="OPENROUTER_API_KEY not set. Please set the OPENROUTER_API_KEY environment variable.",
-                    model_name=self.name,
-                )
+        api_key = self.api_key or getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ModelAuthenticationError(
+                message="OPENROUTER_API_KEY not set. Please set the OPENROUTER_API_KEY environment variable.",
+                model_name=self.name,
+            )
 
-        return super()._get_client_params()
+        return super()._get_client_params(api_key=api_key)
 
     def get_request_params(
         self,

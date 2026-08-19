@@ -193,23 +193,6 @@ class Model(ABC):
     def __post_init__(self):
         if self.provider is None and self.name is not None:
             self.provider = f"{self.name} ({self.id})"
-        self._snapshot_declared_connection()
-
-    def _snapshot_declared_connection(self) -> None:
-        """Record which connection attributes the *caller* declared, before any lazy fill.
-
-        Needed because providers resolve credentials and endpoints inside ``_get_client_params``
-        and write them back onto ``self`` (``if not self.api_key: self.api_key = getenv(...)``).
-        So a model that has served one request carries values its own reconstruction does not, and
-        a by-value comparison of the live attributes reports an identical rebuild as "different"
-        from run 2 onward -- which re-opens the pin laundering ``same_model`` exists to close.
-
-        Called from ``Model.__post_init__``. A subclass that defines ``__post_init__`` without
-        chaining to ``super()`` takes no snapshot; ``same_model`` then falls back to the live
-        values for that class, which is the pre-snapshot behaviour rather than a crash.
-        ``tests/unit/models/test_same_model.py`` asserts every constructible subclass carries one.
-        """
-        self._declared_connection = {name: getattr(self, name, None) for name in _CONNECTION_ATTRS}
 
     def _get_retry_delay(self, attempt: int) -> float:
         """Calculate the delay before the next retry attempt."""
@@ -3300,37 +3283,6 @@ _CONNECTION_NON_DISCRIMINATORS: Tuple[str, ...] = (
 )
 
 
-def _declared_connection_value(model: Any, name: str) -> Any:
-    """The value the *caller* declared for ``name``, ignoring lazy environment fill-in.
-
-    Every in-tree provider resolves credentials and endpoints inside ``_get_client_params`` and
-    writes them onto ``self``, guarded ``if not self.X:``. That guard is what makes this readable:
-
-    * ``None -> value`` after construction is **ambiguous** -- an environment fill or a caller
-      edit -- so it is treated as undeclared and reported as ``None``.
-    * ``value -> value`` is **unambiguously** a caller edit, since the guard would not have fired,
-      so the live value is honoured.
-
-    Why not the simpler "skip an attribute when either side is ``None``": that reads ``None`` as a
-    wildcard, and it is not one. A bare ``OpenAIResponses(id="gpt-5.5")`` -- or the coerced
-    ``"openai:gpt-5.5"`` -- has every connection attribute ``None`` *by construction*, so every
-    comparison would be skipped, the rule would degenerate to class-and-id, and a tenant-A-pinned
-    agent would keep tenant A's ``base_url`` and ``api_key`` through a live run. ``None`` there is
-    a positive assertion of the default public endpoint, not an absence of information. That
-    version passes the rest of this tree's suite, which is why the discriminating tests in
-    ``tests/unit/models/test_same_model.py`` matter more than this helper's line count.
-
-    Falls back to the live value when no snapshot exists, so a subclass whose ``__post_init__``
-    does not chain to ``super()`` degrades to the pre-snapshot behaviour rather than crashing.
-    """
-    snapshot = getattr(model, "_declared_connection", None)
-    if snapshot is None:
-        return getattr(model, name, None)
-    if snapshot.get(name) is None:
-        return None
-    return getattr(model, name, None)
-
-
 def same_model(candidate: Any, existing: Any) -> bool:
     """Whether two model references denote the same model *and the same connection*.
 
@@ -3350,10 +3302,11 @@ def same_model(candidate: Any, existing: Any) -> bool:
     from the previous tenant's endpoint with the previous tenant's key.
 
     So: identical objects match; otherwise same class, same id, and every scalar connection
-    attribute equal -- compared as **declared at construction**, not as currently live. See
-    ``_declared_connection_value``: providers fill credentials and endpoints in lazily, so
-    comparing live values reported an identical reconstruction as "different" from run 2 onward
-    and re-opened both directions of this bug.
+    attribute equal -- compared **live**. This is safe because no in-tree provider mutates these
+    attributes after construction: ``_get_client_params`` (and its equivalents) resolve
+    credentials and endpoints from the environment into local variables, never writing them back
+    onto ``self``. So ``self.<attr>`` always equals what the caller declared, or ``None``, for the
+    whole life of the object -- including after a client has been built.
 
     An absent side never matches -- an agent with no model cannot already be using the one being
     offered.
@@ -3366,10 +3319,7 @@ def same_model(candidate: Any, existing: Any) -> bool:
         return False
     if getattr(candidate, "id", None) != getattr(existing, "id", None):
         return False
-    return all(
-        _declared_connection_value(candidate, name) == _declared_connection_value(existing, name)
-        for name in _CONNECTION_ATTRS
-    )
+    return all(getattr(candidate, name, None) == getattr(existing, name, None) for name in _CONNECTION_ATTRS)
 
 
 def update_pins_a_new_model(update: Optional[Dict[str, Any]], new_model: Any, existing_model: Any) -> bool:

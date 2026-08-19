@@ -71,13 +71,13 @@ class HuggingFace(Model):
     async_client: Optional[AsyncInferenceClient] = None
 
     def get_client_params(self) -> Dict[str, Any]:
-        self.api_key = self.api_key or getenv("HF_TOKEN")
-        if not self.api_key:
+        api_key = self.api_key or getenv("HF_TOKEN")
+        if not api_key:
             log_error("HF_TOKEN not set. Please set the HF_TOKEN environment variable.")
 
         _client_params: Dict[str, Any] = {}
-        if self.api_key is not None:
-            _client_params["api_key"] = self.api_key
+        if api_key is not None:
+            _client_params["api_key"] = api_key
         if self.base_url is not None:
             _client_params["base_url"] = self.base_url
         if self.timeout is not None:

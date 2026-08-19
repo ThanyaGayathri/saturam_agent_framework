@@ -34,14 +34,13 @@ class CometAPI(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        if not self.api_key:
-            self.api_key = getenv("COMETAPI_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="COMETAPI_KEY not set. Please set the COMETAPI_KEY environment variable.",
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+        api_key = self.api_key or getenv("COMETAPI_KEY")
+        if not api_key:
+            raise ModelAuthenticationError(
+                message="COMETAPI_KEY not set. Please set the COMETAPI_KEY environment variable.",
+                model_name=self.name,
+            )
+        return super()._get_client_params(api_key=api_key)
 
     def get_available_models(self) -> List[str]:
         """
@@ -50,7 +49,8 @@ class CometAPI(OpenAILike):
         Returns:
             List of available chat model IDs
         """
-        if not self.api_key:
+        api_key = self.api_key or getenv("COMETAPI_KEY")
+        if not api_key:
             log_debug("No API key provided, returning empty model list")
             return []
 
@@ -58,7 +58,7 @@ class CometAPI(OpenAILike):
             with httpx.Client() as client:
                 response = client.get(
                     f"{self.base_url}/models",
-                    headers={"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"},
+                    headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
                     timeout=30.0,
                 )
                 response.raise_for_status()

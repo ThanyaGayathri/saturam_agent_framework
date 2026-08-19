@@ -19,11 +19,10 @@ from typing import Optional
 import pytest
 
 from egpt.agent._run import apply_run_model
-from egpt.run.base import run_model
 from egpt.providers import set_default_model_provider
 from egpt.providers.escalation import EscalatingModelProvider
 from egpt.providers.model_provider import ModelCapabilities, ModelResolveRequest, ProviderMode
-from egpt.run.base import RunContext
+from egpt.run.base import RunContext, run_model
 from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider, FakeModel
 
 
@@ -1331,15 +1330,15 @@ class TestConnectionAwarePinningThroughDeepCopy:
     def test_an_identical_reconstruction_after_a_client_build_is_not_a_fresh_pin(self, responses_cls, monkeypatch):
         """The round-2 critical, through the public API: the post-first-run state.
 
-        A live model that has served a request carries an environment-filled `api_key` its own
-        reconstruction does not, so comparing live values reported an identical rebuild as
-        "different" and re-opened the laundering. No test here reached this state before.
+        `get_client()` must not mutate `self.api_key`, so a live model that has served a request
+        still compares equal to its own fresh reconstruction via plain live-attribute comparison --
+        no construction-time snapshot needed. No test here reached this state before.
         """
         monkeypatch.setenv("OPENAI_API_KEY", "sk-from-the-environment")
         live = responses_cls(id="gpt-5.5")
         agent = self._agent(live)
-        live.get_client()  # run 1: the lazy fill happens here
-        assert live.api_key == "sk-from-the-environment"
+        live.get_client()  # run 1: must not leak the env-resolved key onto self
+        assert live.api_key is None, "get_client() must not mutate api_key on self"
 
         fresh = agent.deep_copy(update={"model": responses_cls(id="gpt-5.5")})
 

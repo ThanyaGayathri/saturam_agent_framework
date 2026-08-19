@@ -1,10 +1,15 @@
-"""``same_model`` and the declared-connection snapshot (EGPT-3.5 follow-up).
+"""``same_model`` (EGPT-171 follow-up to EGPT-3.5).
 
 ``same_model`` answers one question for ``Agent.deep_copy`` / ``Team.deep_copy``: did the caller
 choose a genuinely different model, or hand back the one already in use? Getting it wrong is not a
 bookkeeping error -- a provider honouring pins returns ``request.requested`` unchanged, so a wrong
 "same" keeps the *previous* tenant's object as the pin and the copy then serves traffic from that
 tenant's endpoint under that tenant's key.
+
+It compares connection attributes **live** -- safe because no in-tree provider mutates them after
+construction. Providers used to resolve credentials/endpoints from the environment and write them
+onto ``self`` inside ``_get_client_params``, which required a construction-time snapshot to compare
+against instead of live values; that mutation is gone (EGPT-171), so the snapshot is too.
 
 Two rounds of review shipped green with a real defect open because the tests and the helper shared
 a blind spot: every test used a double declaring none of the connection attributes, so nothing
@@ -118,22 +123,23 @@ class TestTheConnectionQuestion:
 
 
 class TestTheLazyFillDoesNotBreakComparison:
-    """Providers resolve credentials inside ``_get_client_params`` and write them onto ``self``, so
-    a model that has served one request carries values its own reconstruction does not."""
+    """Providers used to resolve credentials inside ``_get_client_params`` and write them onto
+    ``self``; this class guards against a regression back to that (EGPT-171)."""
 
     def test_an_identical_reconstruction_still_matches_after_a_client_build(self, monkeypatch):
-        """The round-2 critical. Before the declared-connection snapshot this returned False from
-        run 2 onward, re-opening both directions of the pin bug."""
+        """The round-2 critical. ``get_client()`` must not mutate ``self.api_key``, so a bare
+        model still compares equal to its own reconstruction after serving a request -- no
+        construction-time snapshot needed, live comparison is enough."""
         monkeypatch.setenv("OPENAI_API_KEY", "sk-from-the-environment")
         live = OpenAIResponses(id="gpt-5.5")
         live.get_client()
-        assert live.api_key == "sk-from-the-environment", "the lazy fill must have happened"
+        assert live.api_key is None, "get_client() must not mutate api_key on self"
 
         assert same_model(OpenAIResponses(id="gpt-5.5"), live) is True
 
     def test_an_explicitly_configured_model_still_matches_after_a_client_build(self, monkeypatch):
-        """The guard is ``if not self.X:``, so an explicit value is never overwritten and must
-        keep comparing equal for the model's whole life."""
+        """An explicit value is never overwritten by the environment and must keep comparing
+        equal for the model's whole life."""
         monkeypatch.setenv("OPENAI_API_KEY", "sk-from-the-environment")
         kwargs = {"id": "gpt-5.5", "base_url": "https://tenant-a.internal/v1", "api_key": "key_a"}
         live = OpenAIResponses(**kwargs)
@@ -173,8 +179,9 @@ class TestNullIsNotAWildcard:
         assert same_model(bare, tenant_a) is False
 
     def test_a_bare_model_after_a_client_build_is_still_not_the_tenant_model(self, monkeypatch):
-        """The two failure modes combined: the lazy fill populates the bare model's ``api_key``,
-        and it still must not be confused with a tenant-configured model."""
+        """Regression guard: even if ``get_client()`` were to leak an env value onto ``self``
+        again, a bare model must still not compare equal to a tenant-configured one -- asserted
+        post-``get_client()`` so a future regression here is caught too."""
         monkeypatch.setenv("OPENAI_API_KEY", "sk-from-the-environment")
         tenant_a = OpenAIResponses(id="gpt-5.5", base_url="https://tenant-a.internal/v1", api_key="key_a")
         bare = OpenAIResponses(id="gpt-5.5")
@@ -296,26 +303,3 @@ class TestTheAttributeTupleDoesNotDrift:
         this test existed. These twenty were each confirmed against the declaring source file.
         """
         assert name in _CONNECTION_ATTRS
-
-    def test_every_constructible_model_takes_a_declared_connection_snapshot(self):
-        """A subclass whose ``__post_init__`` does not chain to ``super()`` silently keeps the
-        pre-snapshot behaviour, which is exactly the round-2 critical for that provider. Three
-        classes were in that state when the snapshot landed."""
-        missing: List[str] = []
-        for cls in self._constructible_subclasses():
-            if "__post_init__" not in cls.__dict__:
-                continue  # inherits Model's, which snapshots
-            import inspect
-
-            try:
-                body = inspect.getsource(cls.__post_init__)
-            except (OSError, TypeError):  # pragma: no cover - source unavailable
-                continue
-            if "super().__post_init__()" not in body:
-                missing.append(f"{cls.__module__}.{cls.__name__}")
-
-        assert not missing, (
-            "these override __post_init__ without chaining to super(), so they take no "
-            "declared-connection snapshot and same_model falls back to live values for them:\n"
-            + "\n".join(f"  {name}" for name in sorted(set(missing)))
-        )

@@ -33,13 +33,10 @@ class TuningEngines(OpenAILike):
         # Resolve the API key from TUNING_ENGINES_API_KEY and fail fast with a clear
         # message. Without this, the base class falls back to OPENAI_API_KEY,
         # which would silently send an OpenAI key to the Tuning Engines endpoint.
-        if not self.api_key:
-            self.api_key = getenv("TUNING_ENGINES_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message=(
-                        "TUNING_ENGINES_API_KEY not set. Please set the TUNING_ENGINES_API_KEY environment variable."
-                    ),
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+        api_key = self.api_key or getenv("TUNING_ENGINES_API_KEY")
+        if not api_key:
+            raise ModelAuthenticationError(
+                message=("TUNING_ENGINES_API_KEY not set. Please set the TUNING_ENGINES_API_KEY environment variable."),
+                model_name=self.name,
+            )
+        return super()._get_client_params(api_key=api_key)

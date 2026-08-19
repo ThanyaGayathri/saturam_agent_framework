@@ -33,9 +33,10 @@ class LangDB(OpenAILike):
     default_headers: Optional[dict] = None
 
     def _get_client_params(self) -> Dict[str, Any]:
-        if not self.api_key:
-            self.api_key = getenv("LANGDB_API_KEY")
-            if not self.api_key:
+        api_key = self.api_key
+        if not api_key:
+            api_key = getenv("LANGDB_API_KEY")
+            if not api_key:
                 raise ModelAuthenticationError(
                     message="LANGDB_API_KEY not set. Please set the LANGDB_API_KEY environment variable.",
                     model_name=self.name,
@@ -47,14 +48,12 @@ class LangDB(OpenAILike):
                 model_name=self.name,
             )
 
-        if not self.base_url:
-            self.base_url = f"{self.base_host_url}/{self.project_id}/v1"
+        base_url = self.base_url or f"{self.base_host_url}/{self.project_id}/v1"
 
-        # Initialize headers with label if present
-        if self.label and not self.default_headers:
-            self.default_headers = {
-                "x-label": self.label,
-            }
+        client_params = super()._get_client_params(api_key=api_key, base_url=base_url)
 
-        client_params = super()._get_client_params()
+        # Add label header if present, without mutating self.default_headers.
+        if self.label and "default_headers" not in client_params:
+            client_params["default_headers"] = {"x-label": self.label}
+
         return client_params

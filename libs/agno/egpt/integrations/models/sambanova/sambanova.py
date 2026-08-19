@@ -35,11 +35,10 @@ class Sambanova(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        if not self.api_key:
-            self.api_key = getenv("SAMBANOVA_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="SAMBANOVA_API_KEY not set. Please set the SAMBANOVA_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+        api_key = self.api_key or getenv("SAMBANOVA_API_KEY")
+        if not api_key:
+            raise ModelAuthenticationError(
+                message="SAMBANOVA_API_KEY not set. Please set the SAMBANOVA_API_KEY environment variable.",
+                model_name=self.name,
+            )
+        return super()._get_client_params(api_key=api_key)
