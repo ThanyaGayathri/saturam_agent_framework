@@ -447,6 +447,18 @@ def recall_facts_statement(
     ``since`` / ``until`` compare against ``r.t_valid``, the same three-valued ``NULL`` behaviour
     :func:`recall_episodes_statement` documents.
 
+    **Cost model, checked against the engine's own plan rather than assumed.** ``EXPLAIN`` on this
+    statement's ``entities``-only and ``relation``-only forms shows ``DirectedRelationshipTypeScan``
+    -- every ``:REL`` relationship in the graph, filtered by ``tenant_id``/name/predicate
+    afterwards -- not an index seek; ``egpt_rel_scope`` never gets chosen for a bare tenant equality
+    on this pattern. The ``since``/``until`` form is the one case that *is* indexed: the same
+    ``EXPLAIN`` shows ``DirectedRelationshipIndexSeek`` on ``egpt_rel_t_valid``. So a caller wanting
+    the cheap path today narrows by time; entity/relation-only filtering costs a tenant-wide REL
+    scan, matching :func:`traverse_statements`'s own cost note for the identical reason -- no shipped
+    index leads with the columns those two filters compare on, and SM-G9 (#107) replaces this read
+    path outright, so sizing one is the same unmeasured question that note already defers (round-2
+    review, PR #102).
+
     ``LIMIT`` is omitted from the text entirely when unbounded, matching
     :func:`recall_episodes_statement` -- ``LIMIT $limit`` with a null parameter is an error rather
     than "no limit".

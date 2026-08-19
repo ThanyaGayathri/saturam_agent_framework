@@ -403,7 +403,12 @@ class Neo4jGraphSubstrate:
                 session_id=row.get("session_id"),
             )
             provenance["entity_ids"] = [entity_node_id_for(record_scope, name) for name in row["mentions"]]
-        if "subject" in row:
+        elif "subject" in row:
+            # `elif`, not a second `if`: today's two row shapes are mutually exclusive --
+            # `_RECALL_RETURN` never selects `subject` and `_RECALL_FACTS_RETURN` never selects
+            # `mentions` -- but a row carrying both would silently run this branch's own scope
+            # reconstruction over the one above's, undetected, if this were a second `if` (round-2
+            # review, PR #102).
             # `recall_facts` rows carry the edge's own **write** scope in the columns
             # `_RECALL_FACTS_RETURN` selects -- not the call scope `traverse` uses `scope` for,
             # mirroring the `"mentions"` branch above for the identical reason: under a tenant-wide

@@ -549,6 +549,11 @@ class FakeGraph:
         require_scope(scope, method="arecall_facts")
         await _yield()
         self.calls.append("arecall_facts")
+        # Delegates to `recall_facts` below, which appends `"recall_facts"` to `self.calls` too --
+        # so one async call leaves both verbs recorded. `aupsert_entities` avoids the identical
+        # shape for `upsert_entities` (review finding on PR #89, round 3), and `arecall_episodes`
+        # carries the same double-append this does; a caller asserting the exact `self.calls`
+        # sequence for either recall pair should read both entries, not one.
         return self.recall_facts(scope, entities, relation, since, until, limit)
 
     def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:

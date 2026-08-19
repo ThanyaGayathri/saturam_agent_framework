@@ -521,7 +521,10 @@ class GraphSubstrate(Protocol):
           ``None`` applies no relation filter; a blank string is refused for the same reason an
           empty ``entities`` is.
         * ``since`` / ``until`` -- the same half-open valid-time window :meth:`recall_episodes`
-          defines, compared against the edge's ``t_valid``.
+          defines, compared against the edge's ``t_valid``. An edge whose ``t_valid`` is unknown
+          (``None``) fails *either* bound and so is excluded by any window -- an edge with no known
+          time is not a member of one, the same three-valued reading :meth:`recall_episodes` gives
+          (round-2 review, PR #102).
         * ``limit`` -- the same bound-not-page contract as :meth:`recall_episodes`.
 
         **At least one of ``entities`` / ``relation`` / ``since`` / ``until`` is required**, for

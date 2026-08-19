@@ -157,6 +157,17 @@ def test_edges_come_back_oldest_first_within_a_half_open_window(any_graph):
     assert ids(any_graph.recall_facts(ACME, since=100)) == ["f1", "f2", "f3"]
 
 
+def test_an_edge_with_no_known_time_is_in_no_window(any_graph):
+    """Three-valued comparison, made explicit: a null ``t_valid`` fails *either* bound. Mirrors
+    episodic's ``test_an_episode_with_no_known_time_is_in_no_window`` (round-2 review, PR #102) --
+    the alternative readings (treat it as 0, or as unbounded) both look reasonable and would
+    silently differ between the double and the engine."""
+    any_graph.upsert_facts(ACME, [edge("f1", "a", "r", "b", t_valid=None), edge("f2", "a", "r", "c", t_valid=100)])
+
+    assert ids(any_graph.recall_facts(ACME, since=0)) == ["f2"]
+    assert ids(any_graph.recall_facts(ACME, until=1000)) == ["f2"]
+
+
 def test_limit_is_a_bound_and_zero_means_zero(any_graph):
     any_graph.upsert_facts(ACME, [edge("f1", "a", "r", "b"), edge("f2", "a", "r2", "c")])
 
