@@ -542,13 +542,17 @@ class TestBudgetDenialInsideARealRun:
     @pytest.mark.xfail(
         strict=True,
         reason=(
-            "Known defect (residue after #173): an agent with no model is now refused at the "
-            "initialisation resolve, but one constructed with an explicit model skips that "
-            "guard, and apply_run_model still swallows BudgetExceededError. Asserted on the run's observable outcome rather "
-            "than on a raised exception, because _run.py's run-level handler converts anything "
-            "escaping the seam into a run error event -- so making the denial fatal flips this "
-            "to XPASS, while a pytest.raises never would. XPASS means AC1 now holds: delete "
-            "the marker. Tracked as aicoe-tracker#169."
+            "Not the #169 swallow any more -- that is fixed: BudgetExceededError is a "
+            "ProviderDenial and apply_run_model re-raises it. What remains is a *shape* "
+            "difference between the two seams. An agent with no model is refused at the "
+            "initialisation resolve, which has no run-level handler above it, so the denial "
+            "propagates out of run() as an exception; an agent with a preset model is refused "
+            "at apply_run_model, inside the run body, so _run.py's handler converts it to "
+            "status=RunStatus.error. Both correctly block the turn and neither serves the "
+            "model, but a caller cannot write one handler for both. This test asserts the "
+            "returned-status shape, so it XFAILs on the raising path. Unifying the two is a "
+            "product decision (raise, or always return a failed run) beyond aicoe-tracker#169's "
+            "scope -- tracked separately; XPASS here means it was unified toward returning."
         ),
     )
     def test_the_denial_reaches_the_caller(self):
@@ -578,21 +582,21 @@ class TestBudgetDenialInsideARealRun:
         assert "exhausted its token budget" in str(out.content), "the caller has to be told why the turn was refused"
         assert backend.invocations == 0, "an exhausted tenant's turn must not reach the backend"
 
-    def test_an_agent_with_a_preset_model_is_still_served_over_budget(self):
-        """The residue of the swallow that #173's fix does **not** close.
+    def test_an_agent_with_a_preset_model_is_also_refused_over_budget(self):
+        """The other half of aicoe-tracker#169, and the one #173's fix could not reach.
 
-        Threading the tenant into the initialisation resolve (#173) means an over-budget tenant
-        is now refused *there*, and `set_default_model` has no swallowing handler, so the denial
-        reaches the caller -- see `test_the_denial_reaches_the_caller` above, which now passes.
+        #173 threaded tenant identity into the *initialisation* resolve, which closed the case
+        where the agent has no model yet. But that resolve is guarded by `if agent.model is
+        None`, so an agent constructed with an explicit model skips it and the only seam that
+        runs is `apply_run_model` -- which used to swallow `BudgetExceededError` as though it
+        were a transient provider fault and serve the turn anyway.
 
-        But that resolve is guarded by `if agent.model is None`. An agent constructed with an
-        explicit model skips it entirely, so the only seam that runs is `apply_run_model` --
-        which still swallows `BudgetExceededError` (`_run.py:449`). That agent's turn is served
-        over budget, and the enforcer's refusal appears only as a log line.
+        That mattered because `Agent(model=...)` is the ordinary shape: the residue applied to
+        essentially every agent in the codebase, and the denial surfaced only as a log line.
 
-        This is the remaining half of aicoe-tracker#169, and it is why that xfail stays: the
-        propagation defect is real for any agent that carries its own model, which is every
-        `Agent(model=...)` in the codebase.
+        `BudgetExceededError` is now a `ProviderDenial`, which `apply_run_model` re-raises
+        rather than downgrading, so the refusal reaches the caller and the preset model is never
+        invoked.
         """
         backend = RecordingModel("preset")
         limits = BudgetLimits(max_tokens=100)
@@ -610,8 +614,126 @@ class TestBudgetDenialInsideARealRun:
             "hello", run_context=RunContext(run_id="r-1", session_id="s-1", tenant_id="acme")
         )
 
-        assert out.status == RunStatus.completed, "today the over-budget turn still completes"
-        assert backend.invocations == 1, "served by the preset model, over budget -- the #169 residue"
+        assert out.status == RunStatus.error, "an over-budget turn must not report success"
+        assert "exhausted its token budget" in str(out.content), (
+            "and the caller has to be told why, not just get a failed run"
+        )
+        assert backend.invocations == 0, (
+            "the preset model must never be invoked -- serving it is exactly what #169 reported"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_async_path_refuses_over_budget_too(self):
+        """`aapply_run_model` is a separate function with its own copy of the catch clause.
+
+        Not a delegation to the sync one, so an edit that fixed one and missed the other would
+        go undetected -- and `arun` is the path the HTTP routers take, so it is the one that
+        matters in production. Raised in review of #104.
+        """
+        backend = RecordingModel("preset")
+        limits = BudgetLimits(max_tokens=100)
+        enforcer = BudgetEnforcer(InMemoryCounterStore(), warn_on_in_memory=False)
+        enforcer.reserve("acme", limits, estimated_tokens=100)
+        set_default_model_provider(
+            BudgetAwareModelProvider(
+                _RecordingProvider("mode-a", RecordingModel("slm"), ProviderMode.LOCAL),
+                enforcer=enforcer,
+                limits_for=lambda request: limits,
+            )
+        )
+
+        out = await _agent(model=backend).arun(
+            "hello", run_context=RunContext(run_id="r-1", session_id="s-1", tenant_id="acme")
+        )
+
+        assert out.status == RunStatus.error
+        assert "exhausted its token budget" in str(out.content)
+        assert backend.invocations == 0, "the async seam must refuse before the model call too"
+
+    def test_a_rate_denial_is_refused_the_same_way(self):
+        """`RateLimitExceededError` travels the same path but was only pinned by an `issubclass`
+        check, never driven through a run -- so `_denial()`'s `request_rate_exceeded` branch had
+        no end-to-end coverage. Raised in review of #104."""
+        backend = RecordingModel("preset")
+        limits = BudgetLimits(max_requests=1)
+        enforcer = BudgetEnforcer(InMemoryCounterStore(), warn_on_in_memory=False)
+        enforcer.reserve("acme", limits, estimated_tokens=0)  # the one allowed request
+        set_default_model_provider(
+            BudgetAwareModelProvider(
+                _RecordingProvider("mode-a", RecordingModel("slm"), ProviderMode.LOCAL),
+                enforcer=enforcer,
+                limits_for=lambda request: limits,
+            )
+        )
+
+        out = _agent(model=backend).run(
+            "hello", run_context=RunContext(run_id="r-1", session_id="s-1", tenant_id="acme")
+        )
+
+        assert out.status == RunStatus.error
+        assert backend.invocations == 0, "a rate denial must block the turn like a budget denial"
+
+    def test_a_denial_is_not_retried(self):
+        """A denial is deterministic, so the generic retry loop must treat it as terminal.
+
+        Before the guard, `retries=3` meant four trips to the budget store plus three backoff
+        sleeps to rediscover the same answer -- a cost regression introduced by making the
+        denial escape at all. Counts enforcer calls rather than timing, so it cannot flake.
+        Raised in review of #104.
+        """
+        checks = {"n": 0}
+
+        class CountingEnforcer(BudgetEnforcer):
+            def check(self, *args: Any, **kwargs: Any):
+                checks["n"] += 1
+                return super().check(*args, **kwargs)
+
+        backend = RecordingModel("preset")
+        limits = BudgetLimits(max_tokens=100)
+        enforcer = CountingEnforcer(InMemoryCounterStore(), warn_on_in_memory=False)
+        enforcer.reserve("acme", limits, estimated_tokens=100)
+        set_default_model_provider(
+            BudgetAwareModelProvider(
+                _RecordingProvider("mode-a", RecordingModel("slm"), ProviderMode.LOCAL),
+                enforcer=enforcer,
+                limits_for=lambda request: limits,
+            )
+        )
+        checks["n"] = 0
+
+        out = _agent(model=backend, retries=3, delay_between_retries=0).run(
+            "hello", run_context=RunContext(run_id="r-1", session_id="s-1", tenant_id="acme")
+        )
+
+        assert out.status == RunStatus.error
+        assert checks["n"] == 1, f"a denial must be checked once and not retried, got {checks['n']} checks"
+        assert backend.invocations == 0
+
+    def test_a_team_is_refused_over_budget_too(self):
+        """`apply_run_model` documents supporting both Agent and Team, and `team/_run.py` has its
+        own ~17 call sites -- none of which had a denial test. A Team run carries every member's
+        output, so it is the *larger* spend, and the one an operator would least want unbilled.
+        Raised in review of #104."""
+        from egpt.team import Team
+
+        backend = RecordingModel("team-preset")
+        limits = BudgetLimits(max_tokens=100)
+        enforcer = BudgetEnforcer(InMemoryCounterStore(), warn_on_in_memory=False)
+        enforcer.reserve("acme", limits, estimated_tokens=100)
+        set_default_model_provider(
+            BudgetAwareModelProvider(
+                _RecordingProvider("mode-a", RecordingModel("slm"), ProviderMode.LOCAL),
+                enforcer=enforcer,
+                limits_for=lambda request: limits,
+            )
+        )
+
+        out = Team(members=[], name="t", model=backend, telemetry=False).run(
+            "hello", run_context=RunContext(run_id="r-1", session_id="s-1", tenant_id="acme")
+        )
+
+        assert out.status == RunStatus.error
+        assert backend.invocations == 0, "the Team seam must refuse before the model call too"
 
     def test_the_enforcer_itself_refuses_the_same_tenant(self):
         """Isolates blame. The seam is correct; only the propagation is broken. Without this, the

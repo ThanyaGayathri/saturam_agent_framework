@@ -41,6 +41,30 @@ def restore_discovery_table():
 
 
 @pytest.fixture(autouse=True)
+def restore_the_global_logger():
+    """`Agent.run`/`Team.run` swap `egpt.utils.log.logger` and never put it back.
+
+    `use_agent_logger()`/`use_team_logger()`/`use_workflow_logger()` reassign the module-global,
+    so any test in this package that drives a live run leaves it pointing at `egpt-agent` or
+    `egpt-team` for everything after it. A later test doing
+    `caplog.set_level(logger="egpt")` then captures nothing, because the records are being
+    emitted somewhere else -- which is how a budget-denial test added here turned the whole of
+    `test_escalation_logging.py` red while every targeted run stayed green.
+
+    Restores it around each test, alongside the other process-global restores in this file. The
+    underlying leak is repo-wide and tracked as aicoe-tracker#184; this keeps it out of this package
+    meanwhile.
+    """
+    import egpt.utils.log as _log
+
+    saved = _log.logger
+    try:
+        yield
+    finally:
+        _log.logger = saved
+
+
+@pytest.fixture(autouse=True)
 def restore_default_model_provider():
     """Restore the process-wide default provider around every test in this package."""
     saved = get_default_model_provider()

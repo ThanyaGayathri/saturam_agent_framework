@@ -198,3 +198,52 @@ class TestNoLeak:
         second = MessageMetrics(input_tokens=10)
         assert usage_by_tenant(second) == {}, "a fresh object must not inherit a dead reservation"
         assert len(budget_runtime._RESERVATIONS) == 0
+
+
+class TestDenialsAreClassifiedByMeaning:
+    """`ProviderDenial` is what makes a refusal fatal to a run (aicoe-tracker#169).
+
+    `apply_run_model` re-raises denials and swallows everything else as a transient provider
+    fault. Before this marker existed that split was by concrete type -- only
+    `ModelProviderConfigError` was fatal -- so a budget denial was logged as though the gateway
+    had hiccuped and the turn was served anyway, on the agent's own model and against no
+    tenant's counter.
+
+    These pin the classification itself rather than one call site's behaviour: a future denial
+    type is fatal by construction if it inherits the marker, and these tests fail if someone
+    re-parents one of them onto a plain `AgnoError`.
+    """
+
+    def test_both_denials_are_provider_denials(self):
+        from egpt.exceptions import BudgetExceededError, ProviderDenial, RateLimitExceededError
+
+        assert issubclass(BudgetExceededError, ProviderDenial)
+        assert issubclass(RateLimitExceededError, ProviderDenial)
+
+    def test_a_denial_is_not_a_provider_fault(self):
+        """The other half of the contract, and the reason the marker is not on `ModelProviderError`.
+
+        `Model._is_retryable_error` treats a 429 as retryable and `models/fallback.py` answers a
+        `ModelProviderError` by trying the next (costlier) model. A denial routed through either
+        would spend more money in response to being told to stop spending.
+        """
+        from egpt.exceptions import (
+            AgnoError,
+            BudgetExceededError,
+            ModelProviderError,
+            ProviderDenial,
+            RateLimitExceededError,
+        )
+
+        assert issubclass(ProviderDenial, AgnoError)
+        assert not issubclass(ProviderDenial, ModelProviderError)
+        for denial in (BudgetExceededError, RateLimitExceededError):
+            assert not issubclass(denial, ModelProviderError)
+
+    def test_the_denials_carry_a_429(self):
+        """The status the OS layer maps to HTTP. A denial that surfaced as a 500 would read as a
+        framework bug rather than an answer the operator configured."""
+        from egpt.exceptions import BudgetExceededError, RateLimitExceededError
+
+        assert BudgetExceededError("over budget").status_code == 429
+        assert RateLimitExceededError("too fast").status_code == 429

@@ -289,7 +289,35 @@ class RunNotContinuableError(ValueError):
     """
 
 
-class BudgetExceededError(AgnoError):
+class ProviderDenial(AgnoError):
+    """A provider's deliberate refusal to serve a request -- not a fault.
+
+    The distinction this marks is "the provider answered no" versus "the provider could not be
+    reached". Both surface as exceptions from the seam, but they deserve opposite handling: a
+    fault should not fail a run that would otherwise have succeeded (a missing SDK, a flaky
+    gateway), while a denial is the answer, and serving the turn anyway defeats the control it
+    was raised to enforce.
+
+    Exists so that classification is by *meaning* rather than by enumerating types at each catch
+    site. ``apply_run_model``'s handler previously re-raised only ``ModelProviderConfigError``
+    and swallowed everything else as transient, so a budget denial was logged and the turn
+    served regardless -- and, because the resolution carrying ``tenant_id`` was the one that
+    raised, served unattributed too (aicoe-tracker#169).
+
+    The guarantee is precise, and worth stating as such: a denial that *subclasses this* is
+    handled correctly everywhere denials are handled -- the catch tuple, and the retry loop that
+    treats it as terminal -- without those sites being edited. What is not enforced is the
+    subclassing itself; nothing stops a future denial being hung off ``AgnoError`` directly, and
+    only ``test_a_denial_is_not_a_provider_fault`` pins the two that exist today. If a third
+    denial type appears, it belongs here.
+
+    Kept off ``ModelProviderError`` for the reason each subclass documents: that base is treated
+    as a retryable provider fault by ``Model._is_retryable_error`` and by ``models/fallback.py``,
+    both of which would answer a denial by spending more.
+    """
+
+
+class BudgetExceededError(ProviderDenial):
     """Raised when a tenant's configured token budget is exhausted (EGPT-3.6).
 
     **Deliberately not a ``ModelProviderError``**, and that is load-bearing in two places:
@@ -328,7 +356,7 @@ class BudgetExceededError(AgnoError):
         self.error_id = "budget_exceeded_error"
 
 
-class RateLimitExceededError(AgnoError):
+class RateLimitExceededError(ProviderDenial):
     """Raised when a tenant exceeds its configured request rate (EGPT-3.6).
 
     Separate from :class:`BudgetExceededError` because the two answer different questions -- "too
