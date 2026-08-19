@@ -139,6 +139,14 @@ class ConsolidationWorker:
         that already has one running, the same reason ``SchedulePoller`` (``egpt/scheduler/``)
         carries no sync twin either. A caller with no loop of its own can run one tick via
         ``asyncio.run(worker.run_once())``.
+
+        Calling this directly while the background loop (``start()``) is already running is
+        safe -- there is nothing here it can corrupt, and a scope's cursor tolerates concurrent
+        readers per :meth:`MemoryProvider.consolidate`'s own docstring -- but it duplicates work,
+        for the same reason a scope's cursor does not serialize concurrent callers on its own:
+        both read it before either advances it. Direct calls are for tests and one-shot
+        invocations; a caller running the loop should let it drive `run_once` on its own
+        schedule instead of also calling it manually.
         """
         scopes = _resolve_scopes(self.scopes)
         return list(await asyncio.gather(*(self._drain_scope(scope) for scope in scopes)))
@@ -257,3 +265,10 @@ class ConsolidationWorker:
                 await asyncio.wait_for(self._wake.wait(), timeout=self.poll_interval)
             except asyncio.TimeoutError:
                 pass
+            else:
+                # Cleared, not left set: harmless today (`stop()` is the only setter, and it
+                # also clears `_running` first, so the loop exits at the top of the next
+                # iteration regardless) but a `_wake` left permanently set is a zero-delay spin
+                # trap for any future caller that reuses this event to wake the loop early
+                # without stopping it.
+                self._wake.clear()

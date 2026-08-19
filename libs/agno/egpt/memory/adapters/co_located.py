@@ -255,12 +255,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #: Not durable across a process restart -- a fresh instance rescans from the beginning,
         #: which costs redundant work but not correctness, because a fact id is derived from its
         #: source episodes.
-        #: TODO: grows with the active scope set and is never evicted -- one entry per
-        #: (scope, tier) pair ever consolidated on this instance, for the instance's lifetime.
-        #: Bounded per-deployment today by how many distinct scopes one process consolidates
-        #: (today, ``ConsolidationWorker``'s own configured scope list); a high-cardinality
-        #: scope set (many users x many tiers, over a long-lived process) would want a bounded
-        #: LRU or eviction on idle rather than this plain dict.
+        #: TODO(SM-L1x, aicoe-tracker #189): grows with the active scope set and is never
+        #: evicted -- one entry per (scope, tier) pair ever consolidated on this instance, for
+        #: the instance's lifetime. Bounded per-deployment today by how many distinct scopes one
+        #: process consolidates (today, ``ConsolidationWorker``'s own configured scope list); a
+        #: high-cardinality scope set (many users x many tiers, over a long-lived process) would
+        #: want a bounded LRU or eviction on idle rather than this plain dict. Should land before
+        #: SM-L9 wires this worker into a multi-tenant cron scheduler.
         self._scan_cursors: Dict[Tuple[str, MemoryTier], ScanCursor] = {}
 
     def substrates(self) -> Dict[Substrate, bool]:

@@ -1017,7 +1017,17 @@ def consolidation_details(
     it is said. All three in the floor rather than as adapter extras, because one provider silently
     doing less than another is exactly the divergence the floor exists to prevent.
 
-    Extra keys are free; the contract is a floor, not a ceiling.
+    Extra keys are free; the contract is a floor, not a ceiling. One that is not free by
+    convention -- reserved, not required -- is ``tail_pending`` (``bool``): whether *this* pass
+    stopped at its own cap with more of the tier left to read, distinct from ``complete`` in the
+    presence of a resumption cursor (SM-L1 #122, ``CoLocatedMemoryProvider._advance_cursor``'s
+    docstring) -- a provider tracking one can report a pass both ``complete=True`` (drained
+    *from where it started*) and, on the very next call, immediately have new work again, which
+    ``tail_pending`` on the specific pass that stopped early is what lets a caller tell apart
+    from "the tier is now empty". Not promoted to :data:`CONSOLIDATION_KEYS`: only one provider
+    emits it today, and widening the floor every provider must carry is a separate, deliberate
+    decision this ticket does not make -- the same reasoning ``RelationSummary``'s docstring
+    (``co_located.py``) gives for ``relations``.
     """
     details: Dict[str, Any] = {
         "derived_by": derived_by,
