@@ -24,7 +24,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from egpt.memory.errors import MemoryOperationError, MemoryScopeRequiredError
 from egpt.memory.tiers import DEFAULT_WRITE_TIER, PERSISTENT_TIERS, MemoryTier
@@ -966,6 +966,11 @@ def fusion_diagnostics(
     diagnostics.update(extra)
     return diagnostics
 
+
+#: The resumption cursor :meth:`~egpt.memory.substrates.VectorSubstrate.scan` accepts as ``after``:
+#: an exclusive ``(created_at, id)`` bound in the same composite order ``scan`` sorts by. Composite
+#: because ``created_at`` alone cannot page past a co-second batch (SM-L1 #122).
+ScanCursor = Tuple[int, str]
 
 #: Keys every provider must put in ``ConsolidationReport.details``.
 #:

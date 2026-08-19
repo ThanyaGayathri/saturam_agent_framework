@@ -122,8 +122,13 @@ class MemoryProvider(ABC):
         **One bounded pass, and the caller does not resume it.** An implementation may cap how much
         it reads; ``details["complete"]`` says whether the tier was drained. There is deliberately
         no cursor in this signature -- it would put the termination condition in the caller's hands,
-        where ignoring it silently skips episodes. Draining a tier larger than one pass, and
-        scheduling passes at all, are SM-L1's (#122).
+        where ignoring it silently skips episodes. An implementation MAY track a resumption cursor
+        of its own, internally, so that repeated calls jointly drain a tier larger than one pass --
+        ``CoLocatedMemoryProvider`` does (SM-L1 #122) -- but that state is never exposed here: a
+        caller that never calls again has lost nothing it was ever given, and one that does call
+        again makes progress without having to pass anything back. Scheduling passes at all --
+        which scopes, how often, retrying a failed one -- is :mod:`egpt.memory.consolidation`'s
+        (SM-L1 #122).
 
         **It distils and writes; it does not retire.** A provider derives a fact id from the
         episodes it came from, so a group whose membership changes mints a *new* id and the

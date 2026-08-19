@@ -23,7 +23,7 @@ interpolated unescaped; hand-rolled quoting is one review round from being right
 from hashlib import md5
 from typing import Any, Dict, List, Optional, Tuple
 
-from egpt.memory.types import Scope, ValidWindow, require_scope
+from egpt.memory.types import ScanCursor, Scope, ValidWindow, require_scope
 
 __all__ = [
     "COLUMNS",
@@ -613,7 +613,9 @@ def lexical_search_statement(
     return statement, binds
 
 
-def scan_statement(schema: str, table: str, scope: Scope, limit: Optional[int]) -> Tuple[str, Dict[str, Any]]:
+def scan_statement(
+    schema: str, table: str, scope: Scope, limit: Optional[int], after: Optional[ScanCursor] = None
+) -> Tuple[str, Dict[str, Any]]:
     """Enumerate one tier in insertion order -- oldest first, no ranking.
 
     ``limit`` is a bound and not a page: ``None`` emits no ``LIMIT`` clause at all rather than a
@@ -624,14 +626,22 @@ def scan_statement(schema: str, table: str, scope: Scope, limit: Optional[int]) 
     for ranked reads only, and this is an enumeration: a substrate that quietly narrowed it would
     let a consolidation pass report a drained tier while never seeing part of it. The caller
     decides what a retired row means to it.
+
+    ``after`` resumes the walk: a Postgres row comparison against the same ``(created_at, id)``
+    ordering, exclusive, so it names the two bind values rather than the tuple -- ``:after_id`` is
+    ``TEXT`` and ``:after_created_at`` is ``BIGINT``, and passing the tuple as one bind would ask
+    the driver to infer a composite type it does not have.
     """
     predicate, binds = scope_predicate(scope)
     statement = (
         f"SELECT {_READ_COLUMNS}, NULL::float8 AS distance "
         f"FROM {qualified(schema, table)} "
-        f"WHERE {predicate} AND tier = :tier "
-        "ORDER BY created_at, id"
+        f"WHERE {predicate} AND tier = :tier"
     )
+    if after is not None:
+        statement += " AND (created_at, id) > (:after_created_at, :after_id)"
+        binds["after_created_at"], binds["after_id"] = after
+    statement += " ORDER BY created_at, id"
     if limit is not None:
         statement += " LIMIT :limit"
         binds["limit"] = limit

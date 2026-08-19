@@ -535,11 +535,16 @@ async def test_sync_and_async_reads_agree():
 
 
 async def test_sync_and_async_consolidation_agree():
-    p, _, _ = provider()
-    p.write(ACME, [event("the deploy failed on friday")])
+    """Two independent instances, not one -- SM-L1's (#122) cursor advances after the sync call,
+    so a second call on the *same* instance would scan nothing new and this would stop comparing
+    what it claims to."""
+    vector, graph = FakeVector(), FakeGraph()
+    config = MemoryProviderConfig(provider="co_located")
+    event_ = event("the deploy failed on friday")
+    CoLocatedMemoryProvider(vector=vector, graph=graph, config=config).write(ACME, [event_])
 
-    sync_report = p.consolidate(ACME)
-    async_report = await p.aconsolidate(ACME)
+    sync_report = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config).consolidate(ACME)
+    async_report = await CoLocatedMemoryProvider(vector=vector, graph=graph, config=config).aconsolidate(ACME)
 
     assert sync_report.episodic_scanned == async_report.episodic_scanned
     assert sync_report.duplicates_merged == async_report.duplicates_merged
@@ -631,13 +636,22 @@ def test_as_of_selects_the_instant_rather_than_enabling_the_predicate():
 
 
 def test_consolidating_twice_does_not_duplicate_the_semantic_tier():
-    """Major 4. Each pass minted a fresh uuid4, so N scheduled cycles produced N copies."""
-    p, vector, graph = provider()
-    p.write(ACME, [event("the deploy failed on friday")])
+    """Major 4. Each pass minted a fresh uuid4, so N scheduled cycles produced N copies.
 
-    first = p.consolidate(ACME)
-    second = p.consolidate(ACME)
-    third = p.consolidate(ACME)
+    Three independent provider instances over the same substrates -- not three calls on one --
+    because SM-L1's (#122) internal cursor would otherwise have the second and third calls scan
+    nothing new and this test would stop exercising the id-derivation fix. Three fresh instances
+    is the scenario that fix actually guards: no shared cursor state (a worker restart, or several
+    replicas), so every one independently rescans the same window.
+    """
+    vector, graph = FakeVector(), FakeGraph()
+    config = MemoryProviderConfig(provider="co_located")
+    event_ = event("the deploy failed on friday")
+    CoLocatedMemoryProvider(vector=vector, graph=graph, config=config).write(ACME, [event_])
+
+    first = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config).consolidate(ACME)
+    second = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config).consolidate(ACME)
+    third = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config).consolidate(ACME)
 
     semantic = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
     assert first.semantic_written == second.semantic_written == third.semantic_written == 1
@@ -661,15 +675,18 @@ def test_consolidation_bounds_its_scan():
     # One scan: the episodic tier. SM-C1's pass distils and writes; it does not read the semantic
     # tier back, because retiring what it subsumes is SM-L3's (#124).
     assert vector.scan_limits == [_MAX_EPISODES_PER_PASS]
+    # A first call on a fresh instance has no cursor yet.
+    assert vector.scan_afters == [None]
 
 
 def test_one_pass_consolidates_every_episode_it_scanned():
-    """No cursor, no resumption protocol: one bounded pass, and it covers what it read.
+    """One bounded pass, and it covers what it read.
 
-    Three rounds of findings lived in the cursor *protocol* -- nothing passed it, then a time-only
-    cursor could not page past co-second episodes, then a runaway guard fired on a legitimate
-    no-progress batch. Draining a tier larger than one pass is SM-L1's (#122); this reports
-    `complete` and stops.
+    Three rounds of findings lived in the cursor *protocol* SM-L1 (#122) eventually shipped --
+    nothing passed it, then a time-only cursor could not page past co-second episodes, then a
+    runaway guard fired on a legitimate no-progress batch. A tier under the cap still completes
+    in one call; draining a tier *larger* than one pass is covered separately, by
+    `test_a_second_call_on_the_same_instance_resumes_from_the_cursor_and_drains_the_tail`.
     """
     p, vector, _ = provider()
     for i in range(9):
@@ -699,9 +716,79 @@ def test_a_pass_that_hits_the_cap_says_it_is_incomplete():
 
     assert report.episodic_scanned == 3
     assert report.details["complete"] is False
-    # `complete=False` alone reads like ordinary pagination. It is not: nothing marks an episode
-    # consumed and `scan` is oldest-first, so the tail past the cap is never consolidated at all.
-    assert report.details["tail_unreachable"] is True
+    # `complete=False` alone reads like ordinary pagination. `tail_pending` is the same signal
+    # under its post-SM-L1 name -- the tail is reachable (a second call on this instance resumes
+    # from the cursor), just not read by this pass.
+    assert report.details["tail_pending"] is True
+
+
+def test_a_second_call_on_the_same_instance_resumes_from_the_cursor_and_drains_the_tail():
+    """SM-L1 (#122): the cursor is internal, so the caller does nothing but call `consolidate`
+    again -- no `since`, no page token, matching the interface's "no cursor in this signature".
+
+    Mutation guard: with `_advance_cursor` made a no-op, the second call re-reads the same first
+    3 episodes, `second.episodic_scanned` stays 3, and the assertion on the union of source ids
+    fails because e3/e4 never appear.
+    """
+    vector, graph = FakeVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph, max_episodes_per_pass=3)
+    p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(5)])
+
+    first = p.consolidate(ACME)
+    second = p.consolidate(ACME)
+
+    assert first.episodic_scanned == 3
+    assert first.details["complete"] is False
+    assert second.episodic_scanned == 2
+    assert second.details["complete"] is True
+    seen = set()
+    for fact in vector.rows["acme"].values():
+        if fact.tier is MemoryTier.SEMANTIC:
+            seen.update(fact.provenance.get("source_episode_ids", []))
+    assert {f"e{i}" for i in range(5)} == seen
+
+
+def test_a_third_call_with_nothing_new_written_scans_nothing():
+    """Once drained, the cursor sits at the tier's last row -- a call that finds no new episodes
+    costs a bounded, empty `scan`, not a walk over rows already consolidated."""
+    vector, graph = FakeVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph, max_episodes_per_pass=3)
+    p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(5)])
+    p.consolidate(ACME)
+    p.consolidate(ACME)
+
+    third = p.consolidate(ACME)
+
+    assert third.episodic_scanned == 0
+    assert third.details["complete"] is True
+
+
+def test_a_failed_write_does_not_advance_the_cursor():
+    """A pass whose fact write raises must leave the cursor where it was -- advancing it first
+    would have the retry skip exactly the episodes that failed to consolidate.
+
+    Mutation guard: moving `_advance_cursor` before the write's `try` makes this pass with the
+    retry's `episodic_scanned` at 0 instead of 3.
+    """
+
+    class OnceFailingGraph(FakeGraph):
+        fail = True
+
+        def upsert_facts(self, scope, facts):
+            if self.fail:
+                raise MemoryOperationError("backend unavailable", field_name="tier")
+            super().upsert_facts(scope, facts)
+
+    vector, graph = FakeVector(), OnceFailingGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph, max_episodes_per_pass=3)
+    p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(3)])
+
+    with pytest.raises(PartialWriteError):
+        p.consolidate(ACME)
+
+    graph.fail = False
+    retry = p.consolidate(ACME)
+    assert retry.episodic_scanned == 3
 
 
 async def test_async_consolidation_covers_the_same_episodes():
@@ -1269,11 +1356,13 @@ def test_consolidate_does_not_mutate_the_rows_the_substrate_handed_it():
         This double is deliberately permissive on exactly that axis.
         """
 
-        def scan(self, scope, tier, limit=None):
+        def scan(self, scope, tier, limit=None, after=None):
             self.calls.append("scan")
             self.scan_limits.append(limit)
             rows = [r for r in self._matching(scope) if r.tier is tier]
             rows.sort(key=lambda r: ((r.created_at or 0), r.id))
+            if after is not None:
+                rows = [r for r in rows if ((r.created_at or 0), r.id) > after]
             return rows if limit is None else rows[:limit]
 
     vector, graph = LiveRowVector(), FakeGraph()
@@ -1543,13 +1632,21 @@ def test_consolidation_does_not_retire_and_says_so():
     says `supersede: not implemented`, and this test fails the moment SM-L3 changes the behaviour,
     which is when the SPEC row and this test should both be updated.
     """
-    p, vector, graph = provider()
+    # Two independent instances over shared substrates, not two calls on one: SM-L1's (#122)
+    # cursor would have the second call scan only `g2`, which still leaves two live facts but no
+    # longer for the reason this test pins -- group membership changing under a *full* rescan.
+    # Two fresh instances reproduce that rescan, matching a scheduler with no cursor continuity
+    # (a restart, or a second replica).
+    vector, graph = FakeVector(), FakeGraph()
+    config = MemoryProviderConfig(provider="co_located")
     grow = "ada prefers async standups"
-    p.write(ACME, [event(grow, id="g1")])
-    p.consolidate(ACME)
-    p.write(ACME, [event(grow, id="g2")])
+    first_pass = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config)
+    first_pass.write(ACME, [event(grow, id="g1")])
+    first_pass.consolidate(ACME)
+    second_pass = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config)
+    second_pass.write(ACME, [event(grow, id="g2")])
 
-    report = p.consolidate(ACME)
+    report = second_pass.consolidate(ACME)
 
     assert report.details["supersede"].startswith("not implemented")
     assert "facts_superseded" not in report.details
