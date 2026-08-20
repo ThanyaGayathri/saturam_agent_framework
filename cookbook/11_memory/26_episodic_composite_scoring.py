@@ -61,13 +61,13 @@ print("With an explicit write-time weight set, staleness now matters:")
 print(
     "  stale: ",
     composite_episodic_score(
-        0.9, recency=0.02, importance=0.9, weights=write_time_weights
+        relevance=0.9, recency=0.02, importance=0.9, weights=write_time_weights
     ),
 )
 print(
     "  fresh: ",
     composite_episodic_score(
-        0.9, recency=0.95, importance=0.9, weights=write_time_weights
+        relevance=0.9, recency=0.95, importance=0.9, weights=write_time_weights
     ),
 )
 
@@ -84,7 +84,10 @@ episodes = {
 }
 scored = {
     name: composite_episodic_score(
-        relevance, recency=recency, importance=importance, weights=write_time_weights
+        relevance=relevance,
+        recency=recency,
+        importance=importance,
+        weights=write_time_weights,
     )
     for name, (relevance, recency, importance) in episodes.items()
 }
@@ -103,12 +106,12 @@ print("Refusals")
 for label, call in (
     (
         "a relevance value outside [0, 1]",
-        lambda: composite_episodic_score(1.5, recency=0.5, importance=0.5),
+        lambda: composite_episodic_score(relevance=1.5, recency=0.5, importance=0.5),
     ),
     (
         "a NaN weight",
         lambda: composite_episodic_score(
-            0.5,
+            relevance=0.5,
             recency=0.5,
             importance=0.5,
             weights=EpisodicScoreWeights(relevance=float("nan")),
@@ -117,7 +120,7 @@ for label, call in (
     (
         "a negative weight (would silently invert that signal's contribution)",
         lambda: composite_episodic_score(
-            0.5,
+            relevance=0.5,
             recency=0.5,
             importance=0.5,
             weights=EpisodicScoreWeights(relevance=-1.0),

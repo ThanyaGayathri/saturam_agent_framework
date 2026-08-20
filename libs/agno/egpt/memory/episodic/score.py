@@ -21,6 +21,15 @@ choice, since it cannot tell which caller it is, but the default is deliberately
 
 Pure arithmetic over already-computed floats -- no store is read or written, so there is no async
 twin, the same exemption :mod:`.decay` and :mod:`.relevance` document for their pure functions.
+
+Every ``MemoryOperationError`` this module raises uses a bare ``field_name`` (e.g.
+``"relevance"``, ``"relevance_weight"``), matching the package-wide convention -- ``decay.py``,
+``relevance.py``, ``types.py``, and ``writeback.py`` all raise bare names, and ``writeback.py``
+branches on ``exc.field_name`` programmatically, so a caller that matches on a bare name must keep
+matching one here too. A signal error and its same-named weight error need distinct field names
+(``"relevance"`` vs. ``"relevance_weight"``), since both can legitimately name the same underlying
+concept -- appending ``"_weight"`` keeps both bare and dot-free while staying unambiguous, rather
+than the ``"weights.<name>"`` dotted path this module used before this was raised in review.
 """
 
 import math
@@ -68,10 +77,10 @@ def _require_unit_signal(value: float, field_name: str) -> float:
 def _require_nonnegative_finite_weight(value: float, field_name: str) -> float:
     if not math.isfinite(value) or value < 0.0:
         raise MemoryOperationError(
-            f"weights.{field_name} must be a finite, non-negative value, got {value!r}: NaN or "
-            "infinite poisons the composite, and a negative weight inverts that signal's "
+            f"The {field_name} weight must be a finite, non-negative value, got {value!r}: NaN "
+            "or infinite poisons the composite, and a negative weight inverts that signal's "
             "contribution -- a more relevant/recent/important episode would score lower.",
-            field_name=f"weights.{field_name}",
+            field_name=f"{field_name}_weight",
         )
     return value
 
@@ -113,8 +122,12 @@ def composite_episodic_score(
 
     Raises:
         MemoryOperationError: any signal is outside ``[0.0, 1.0]`` or non-finite (``field_name``
-            names the offending signal), or any weight is negative or non-finite (``field_name``
-            is ``"weights.<name>"``).
+            names the offending signal: ``"relevance"``, ``"recency"``, or ``"importance"``), or
+            any weight is negative or non-finite (``field_name`` is ``"relevance_weight"``,
+            ``"recency_weight"``, or ``"importance_weight"`` -- a bare, dot-free name distinct
+            from its signal counterpart, matching the package-wide ``field_name`` convention
+            every other ``MemoryOperationError`` raise in this package uses; see the module
+            docstring for why this module does not use a dotted ``"weights.<name>"`` path).
     """
     _require_unit_signal(relevance, "relevance")
     _require_unit_signal(recency, "recency")

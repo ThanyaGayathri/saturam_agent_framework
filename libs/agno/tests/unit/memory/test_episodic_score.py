@@ -95,9 +95,10 @@ def test_rejects_a_nan_signal(field_name):
 
 
 @pytest.mark.parametrize("field_name", ["relevance", "recency", "importance"])
-def test_rejects_an_infinite_signal(field_name):
+@pytest.mark.parametrize("infinity", [math.inf, -math.inf])
+def test_rejects_an_infinite_signal(field_name, infinity):
     kwargs = {"relevance": 0.5, "recency": 0.5, "importance": 0.5}
-    kwargs[field_name] = math.inf
+    kwargs[field_name] = infinity
     with pytest.raises(MemoryOperationError) as exc_info:
         composite_episodic_score(**kwargs)
     assert exc_info.value.field_name == field_name
@@ -117,15 +118,16 @@ def test_rejects_a_nan_weight(field_name):
     weights = EpisodicScoreWeights(**{field_name: math.nan})
     with pytest.raises(MemoryOperationError) as exc_info:
         composite_episodic_score(0.5, recency=0.5, importance=0.5, weights=weights)
-    assert exc_info.value.field_name == f"weights.{field_name}"
+    assert exc_info.value.field_name == f"{field_name}_weight"
 
 
 @pytest.mark.parametrize("field_name", ["relevance", "recency", "importance"])
-def test_rejects_an_infinite_weight(field_name):
-    weights = EpisodicScoreWeights(**{field_name: math.inf})
+@pytest.mark.parametrize("infinity", [math.inf, -math.inf])
+def test_rejects_an_infinite_weight(field_name, infinity):
+    weights = EpisodicScoreWeights(**{field_name: infinity})
     with pytest.raises(MemoryOperationError) as exc_info:
         composite_episodic_score(0.5, recency=0.5, importance=0.5, weights=weights)
-    assert exc_info.value.field_name == f"weights.{field_name}"
+    assert exc_info.value.field_name == f"{field_name}_weight"
 
 
 @pytest.mark.parametrize("field_name", ["relevance", "recency", "importance"])
@@ -135,7 +137,7 @@ def test_rejects_a_negative_weight(field_name):
     weights = EpisodicScoreWeights(**{field_name: -1.0})
     with pytest.raises(MemoryOperationError) as exc_info:
         composite_episodic_score(0.5, recency=0.5, importance=0.5, weights=weights)
-    assert exc_info.value.field_name == f"weights.{field_name}"
+    assert exc_info.value.field_name == f"{field_name}_weight"
 
 
 # -- ranking matches expected ordering on a fixture -------------------------------------------
@@ -167,3 +169,23 @@ def test_ranking_matches_expected_ordering_on_a_fixture():
         "old_incident_postmortem",
         "unrelated_small_talk",
     ]
+
+
+def test_default_weights_rank_a_stale_important_episode_over_a_fresh_unimportant_one():
+    # Executable form of the ADR 0003 B.1 rationale prose above test_default_weights_zero_out_recency:
+    # under the shipped defaults, recency has zero say in the ranking, so a stale episode that is
+    # both relevant and important outranks a fresh episode that is neither. A regression that
+    # re-enables recency in the defaults (recency=1.0) would flip this ranking, but would NOT fail
+    # test_ranking_matches_expected_ordering_on_a_fixture above, since that test hard-codes its own
+    # non-default weights rather than using DEFAULT_EPISODIC_SCORE_WEIGHTS.
+    episodes = {
+        "stale_important_incident": (0.9, 0.01, 0.9),
+        "fresh_unimportant_ping": (0.2, 0.99, 0.1),
+    }
+    scored = {
+        name: composite_episodic_score(
+            relevance, recency=recency, importance=importance, weights=DEFAULT_EPISODIC_SCORE_WEIGHTS
+        )
+        for name, (relevance, recency, importance) in episodes.items()
+    }
+    assert scored["stale_important_incident"] > scored["fresh_unimportant_ping"]
