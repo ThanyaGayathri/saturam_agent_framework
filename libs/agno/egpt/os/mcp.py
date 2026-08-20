@@ -593,6 +593,10 @@ def build_mcp_server(
     by an in-memory MCP client in tests, without the HTTP/JWT layer.
     """
     mcp_config: "Optional[MCPServerConfig]" = getattr(os, "mcp_config", None)
+    # No built-in MCP tool reads component or audit data today (the tool scopes below only
+    # ever gate /config and /sessions), so this is forward-compat plumbing: threaded through
+    # now so the day a components-reading tool is added, it picks up the split for free
+    # instead of needing its own wiring.
     components_audit_scope_enabled = bool(
         getattr(getattr(os, "settings", None), "components_audit_scope_enabled", False)
     )

@@ -621,6 +621,14 @@ def get_required_scopes_for_route(scope_mappings: Dict[str, List[str]], method: 
     Returns:
         List of required scopes. Empty list [] means no scopes required (allow access).
         Routes not present in scope_mappings also return [], allowing access.
+
+    ``path`` is expected to already be a canonical route path -- URL variants (a trailing
+    slash, query strings, case, ``..`` traversal) are normalized or redirected upstream by
+    FastAPI/routing before a request ever reaches this function. A trailing slash in
+    particular resolves to a *weaker* scope here (e.g. "/components/*" instead of the more
+    specific "/components/*/audit"), which looks alarming in isolation but is not reachable
+    as a bypass: FastAPI answers that form with a 307 redirect to the canonical path, which
+    is then re-resolved correctly.
     """
     route_key = f"{method} {path}"
 
@@ -631,7 +639,11 @@ def get_required_scopes_for_route(scope_mappings: Dict[str, List[str]], method: 
     # Then try pattern matching, most specific pattern first. A shorter wildcard (e.g.
     # "/components/*") and a longer literal route (e.g. "/components/*/audit") can both
     # fnmatch the same request path; resolving by specificity rather than dict insertion
-    # order means the mapping's declaration order no longer decides authorization.
+    # order means the mapping's declaration order no longer decides authorization. Note
+    # `sorted` is stable, so two patterns of equal specificity still fall back to insertion
+    # order between themselves -- harmless today (no two same-length patterns for the same
+    # method can match the same concrete path), but not a guarantee this sort provides on
+    # its own if a colliding route is ever added.
     candidates = sorted(scope_mappings.items(), key=lambda item: len(item[0].split(" ", 1)[1]), reverse=True)
     for pattern, scopes in candidates:
         pattern_method, pattern_path = pattern.split(" ", 1)

@@ -184,10 +184,11 @@ a component's config can also see who has been changing it. Newest first, pagina
 The audit trail is the one surface whose purpose is attribution, and in most governance models
 "can read config" and "can see who touched it" are separable grants. A deployment that needs the
 split can set `components_audit_scope_enabled=True` on `EgptServingSettings` (or the
-`COMPONENTS_AUDIT_SCOPE_ENABLED` env var, aicoe-tracker#170): this route then requires a
+`EGPT_COMPONENTS_AUDIT_SCOPE_ENABLED` env var, aicoe-tracker#170): this route then requires a
 dedicated `components:audit` scope instead, and a `components:read`-only token is refused. The
 setting defaults to `False`, so existing `components:read`-only tokens keep working until a
-deployment opts in.
+deployment opts in. (The bare `COMPONENTS_AUDIT_SCOPE_ENABLED` spelling also works as a legacy
+fallback, but fires a deprecation warning on every read — use the `EGPT_`-prefixed form.)
 
 Rolling back is not symmetric: disabling the flag after `components:audit`-only tokens have been
 minted locks those tokens out of the audit route (403, since scope checks are AND-only and there
