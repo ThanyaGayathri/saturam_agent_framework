@@ -647,3 +647,24 @@ unfiltered call raised the expected refusal naming SM-G9 (#107).
 branch was still catching up, then `feat/SM-L1` claimed `23_consolidation_worker.py`, then
 `feat/SM-E3` claimed `24_episodic_segmentation.py`. Per this file's own convention, whoever merges
 second renumbers -- three times, this time.
+
+---
+
+### 26_multihop_graph_traversal.py
+
+**Status:** PASS
+
+**Description:** Anchor-seeded multi-hop graph traversal (SM-G9 #107) -- a three-hop entity chain
+(Ada -> NorthStar Analytics -> Berlin -> Germany) written directly (no model call), then read back
+through `traverse` with the query text naming only "Ada", against a real Neo4j 5 Community
+(`smg1-neo4j`, the container already running on this host on the ports `run_neo4j.sh` names).
+
+**Result:** Ran to completion against the real engine. The default hop bound (2) surfaced both the
+hop-1 edge ("Ada works_at NorthStar Analytics") and the hop-2 edge ("NorthStar Analytics
+located_in Berlin") -- the second shares no word with the query text "tell me about Ada" at all,
+and is surfaced purely by graph adjacency -- while the hop-3 edge ("Berlin part_of Germany") was
+correctly excluded, and the hop-1 edge outranked the hop-2 one. Sweeping `max_traverse_hops` over
+1/2/3 on freshly constructed substrates showed exactly the expected edge set grow at each bound
+(`['ada-works-at-northstar']` -> `+ 'northstar-located-in-berlin'` -> `+ 'berlin-part-of-germany'`).
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`; no API key. Run with `.venvs/demo`.

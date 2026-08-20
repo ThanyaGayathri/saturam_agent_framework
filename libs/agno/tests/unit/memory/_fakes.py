@@ -253,11 +253,23 @@ class FakeGraph:
     history stays reconstructible and ``traverse`` filters to current belief.
     """
 
-    def __init__(self) -> None:
+    #: Mirrors ``cypher.DEFAULT_MAX_HOPS`` -- kept as a local literal rather than an import so this
+    #: double stays backend-agnostic (it depends on nothing under ``egpt.integrations``). A drift
+    #: between the two only changes how far the double's multi-hop leg walks, not whether it agrees
+    #: with the real backend on any single hop count a test actually asserts.
+    DEFAULT_MAX_HOPS = 2
+
+    def __init__(self, max_traverse_hops: int = DEFAULT_MAX_HOPS) -> None:
         self.rows: Dict[str, List[MemoryRecord]] = {}
         self.facts: List[FactWrite] = []
         self.calls: List[str] = []
         self.traverse_limits: List[Optional[int]] = []
+        #: Every valid-time window ``traverse`` was *asked* to narrow to, in order -- the graph-leg
+        #: counterpart to ``FakeVector.search_windows`` (SM-G9 #107). A provider that dropped the
+        #: window on the way down still returns the right rows on a corpus that happens to sit
+        #: inside it, so only the request distinguishes filtering in-search from filtering after.
+        self.traverse_windows: List[Optional[ValidWindow]] = []
+        self.max_traverse_hops = max_traverse_hops
         #: Every id set the provider asked bounds for -- asserting on the *request* is what makes a
         #: missing reconciliation visible, since a result-only assertion cannot see one.
         self.bounds_requests: List[List[str]] = []
@@ -593,17 +605,109 @@ class FakeGraph:
             return
         self._merge_entities(scope, merges)
 
+    def _multihop_edges(
+        self,
+        scope: Scope,
+        terms: Set[str],
+        max_hops: int,
+        window: Optional[ValidWindow],
+        tiers: Set[MemoryTier],
+    ) -> List[MemoryRecord]:
+        """Fact edges reached by walking from an anchor entity, scored by hop distance (SM-G9 #107).
+
+        Mirrors ``Neo4jGraphSubstrate.traverse``'s anchor-seeded leg in plain Python: an anchor is
+        an entity whose normalised ``key`` shares a word with ``terms``; the walk is a breadth-first
+        expansion over edges carrying SPO provenance (the ``(:Entity)-[:REL]->(:Entity)`` shape),
+        undirected, bounded to ``max_hops``, refusing to cross an edge that is not current belief or
+        not inside ``window`` -- a superseded or out-of-window edge cannot extend a path, matching
+        what the real backend refuses to walk through.
+
+        **Anchor candidates come from two places, matching the real backend.** ``self.entities`` --
+        written by ``upsert_entities`` (SM-G2 #100), carrying a normalised ``key`` -- and every live
+        edge's own subject/object names, which is how ``RelationExtractionPipeline`` (SM-G3 #101)
+        writes the common case: it calls only ``upsert_facts``, and the real backend's triple leg
+        merges a bare endpoint node with a ``name`` but no ``key``. Matching on ``self.entities``
+        alone would make every such node permanently unreachable as an anchor, silently missing most
+        production-extracted relations.
+        """
+        if not terms:
+            return []
+        edges = [row for row in self._matching(scope) if current_belief(row) and "subject" in row.provenance]
+        candidates: Set[Tuple[str, str, Optional[str]]] = {
+            (entity.scope.key(), entity.name, entity.key)
+            for (_, name), entity in self.entities.items()
+            if scoped(entity.scope, scope)
+        }
+        for row in edges:
+            for name in (row.provenance.get("subject"), row.provenance.get("object")):
+                if name is not None:
+                    candidates.add((row.scope.key(), name, None))
+        anchors = {
+            (scope_key, name)
+            for scope_key, name, key in candidates
+            if terms & set((key if key is not None else name.lower()).split())
+        }
+        if not anchors:
+            return []
+        reached: Dict[str, int] = {}
+        frontier = set(anchors)
+        seen = set(anchors)
+        hop = 0
+        while frontier and hop < max_hops:
+            hop += 1
+            next_frontier: Set[Tuple[str, str]] = set()
+            for row in edges:
+                if row.id in reached:
+                    continue
+                if window is not None and not window.overlaps(row.t_valid, row.t_invalid):
+                    continue
+                endpoints = (
+                    (row.scope.key(), row.provenance.get("subject")),
+                    (row.scope.key(), row.provenance.get("object")),
+                )
+                if endpoints[0] not in frontier and endpoints[1] not in frontier:
+                    continue
+                reached[row.id] = hop
+                for node in endpoints:
+                    if node not in seen:
+                        seen.add(node)
+                        next_frontier.add(node)
+            frontier = next_frontier
+        return [
+            replace(row, score=1.0 / (1.0 + reached[row.id]))
+            for row in edges
+            if row.id in reached and row.tier in tiers
+        ]
+
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         require_scope(scope, method="traverse")
         self.calls.append("traverse")
         self.traverse_limits.append(query.limit)
         tiers = {tier} if tier else set(query.resolved_tiers())
-        hits = [
+        window = query.window()
+        self.traverse_windows.append(window)
+        direct = [
             replace(row, score=overlap(query.text, row.content))
             for row in self._matching(scope)
-            if row.tier in tiers and current_belief(row)  # transaction time, before ranking
+            if row.tier in tiers
+            and current_belief(row)  # transaction time, before ranking
+            and (window is None or window.overlaps(row.t_valid, row.t_invalid))
         ]
-        return _ranked(hits, query.limit)
+        terms = {word for word in query.text.lower().split() if word}
+        multihop = self._multihop_edges(scope, terms, self.max_traverse_hops, window, tiers)
+        # Deduped by (scope, id) keeping the higher score, matching
+        # `Neo4jGraphSubstrate._merge_hits`: an edge that both lexically matches the query and sits
+        # within `max_hops` of an anchor is a legitimate hit on both legs, and returning it twice
+        # would double its weight downstream. **Scope joins id in the key** -- `id` alone is not
+        # unique across scopes under a tenant-wide read (two users' rows can share one id), and a
+        # bare-id dedup collapsed exactly that case (round-1 review).
+        best: Dict[Tuple[str, str], MemoryRecord] = {}
+        for hit in (*direct, *multihop):
+            dedup_key = (hit.scope.key(), hit.id)
+            current = best.get(dedup_key)
+            if current is None or (hit.score or 0.0) > (current.score or 0.0):
+                best[dedup_key] = hit
+        return _ranked(list(best.values()), query.limit)
 
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None

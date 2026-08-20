@@ -729,16 +729,13 @@ def test_init_schema_actually_creates_the_schema(graph):
     assert created > 0, "init_schema issued its statements without them taking effect"
 
 
-# -- known limitations, pinned ----------------------------------------------
+# -- anchor-seeded multi-hop traversal (SM-G9 #107) --------------------------
 
 
-def test_traversal_is_single_hop_until_sm_g9(graph):
-    """Pinned rather than commented: this fails when SM-G9 (#107) lands multi-hop traversal.
-
-    ``traverse`` ranks the rows this substrate holds by lexical overlap. It does not follow an edge
-    from an anchor entity, so a fact reachable only through a neighbour is not returned: asking
-    about ada does not surface what is known about berlin, even though an edge joins them. A
-    comment would rot; this states the boundary and reports when it moves.
+def test_multihop_traversal_reaches_a_fact_via_a_neighbouring_entity(graph):
+    """Supersedes ``test_traversal_is_single_hop_until_sm_g9``, which pinned exactly this gap and
+    named its own replacement: "SM-G9 has landed multi-hop traversal -- update this ticket's
+    boundary." Asking about ada now surfaces what is known about berlin, joined by one edge.
     """
     graph.upsert_facts(
         ACME,
@@ -750,7 +747,95 @@ def test_traversal_is_single_hop_until_sm_g9(graph):
 
     hits = graph.traverse(ACME, MemoryQuery(text="ada"))
 
-    assert ids(hits) == ["f1"], "SM-G9 has landed multi-hop traversal -- update this ticket's boundary"
+    assert ids(hits) == ["f1", "f2"]
+
+
+def test_a_bare_relation_endpoint_with_no_explicit_entity_upsert_is_still_a_valid_anchor(graph):
+    """``RelationExtractionPipeline`` (SM-G3 #101) calls only ``upsert_facts``, never
+    ``upsert_entities`` -- the endpoint nodes ``upsert_facts_statements``'s triple leg merges carry
+    a ``name`` but no normalised ``key``, since only ``upsert_entities_statement`` writes that.
+    Anchor selection keyed on ``key`` alone would make every such node permanently unreachable,
+    silently missing most production-extracted relations -- this is the regression that guards it.
+    """
+    graph.upsert_facts(
+        ACME,
+        [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")],
+    )
+    with graph._driver.session(database=graph.database) as session:
+        key = session.run("MATCH (n:Entity {name: 'ada'}) RETURN n.key AS key").single()["key"]
+    assert key is None, "setup check: this node must be the bare endpoint case, not an explicit upsert"
+
+    hits = graph.traverse(ACME, MemoryQuery(text="tell me about ada"))
+
+    assert "f1" in ids(hits)
+
+
+def test_multihop_traversal_respects_the_configured_hop_bound(graph):
+    """The bound is set at construction (``max_traverse_hops``), not per call -- SM-G9 closes it
+    at the source rather than trusting a caller to pass a smaller value."""
+    settings = _settings()
+    bounded = Neo4jGraphSubstrate(**settings, max_traverse_hops=1)
+    try:
+        bounded.upsert_facts(
+            ACME,
+            [
+                fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin"),
+                fact("f2", "berlin sits within germany", subject="berlin", predicate="located_in", object="germany"),
+            ],
+        )
+        hits = bounded.traverse(ACME, MemoryQuery(text="ada"))
+        assert ids(hits) == ["f1"], "hop 2 is beyond the configured bound"
+    finally:
+        bounded.close()
+
+
+def test_multihop_traversal_respects_the_valid_time_window(graph):
+    """The window shapes the walk itself, not only what is returned -- an out-of-window edge cannot
+    be crossed to reach a farther hop, matching how ``VectorSubstrate.search`` narrows in-search."""
+    graph.upsert_facts(
+        ACME,
+        [
+            # `t_invalid=200` closes the interval to [100, 200) -- genuinely outside [400, 600).
+            # An open-ended `t_valid` alone would still overlap: `ValidWindow.overlaps` reads an
+            # unset upper bound as valid through the present, which does intersect a later window.
+            fact(
+                "f1",
+                "ada lives in berlin",
+                subject="ada",
+                predicate="lives_in",
+                object="berlin",
+                t_valid=100,
+                t_invalid=200,
+            ),
+            fact(
+                "f2",
+                "berlin sits within germany",
+                subject="berlin",
+                predicate="located_in",
+                object="germany",
+                t_valid=500,
+            ),
+        ],
+    )
+
+    windowed = MemoryQuery(text="ada", valid_from=400, valid_to=600)
+    assert graph.traverse(ACME, windowed) == [], "f1 (hop 1) is outside the window, so f2 is unreachable through it"
+
+    unwindowed = MemoryQuery(text="ada")
+    assert ids(graph.traverse(ACME, unwindowed)) == ["f1", "f2"]
+
+
+async def test_amultihop_traversal_agrees_with_the_sync_half(async_graph):
+    await async_graph.aupsert_facts(
+        ACME,
+        [
+            fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin"),
+            fact("f2", "berlin sits within germany", subject="berlin", predicate="located_in", object="germany"),
+        ],
+    )
+
+    query = MemoryQuery(text="ada")
+    assert ids(await async_graph.atraverse(ACME, query)) == ids(async_graph.traverse(ACME, query))
 
 
 def test_the_graph_is_not_enumerable(graph):

@@ -165,17 +165,21 @@ def test_the_slice_reports_how_many_the_window_dropped():
 
     Non-zero here means reconciliation tightened a bound after the substrate had already filtered,
     so it is the observable for the graph-authority half of the rule.
+
+    Since SM-G9 (#107) both legs narrow in-search, so the only remaining way a row reaches the
+    merged set looking in-window and leaves it outside is the graph-authority path this docstring
+    already names: the vector leg's own copy of the bounds is stale, and the graph's authoritative
+    ``bounds_for_ids`` (ADR 0003 D8) tightens them after the fact. Seeded with the *same* id under
+    both substrates -- the vector leg's stale ``t_valid=500, t_invalid=None`` passes the window, and
+    the graph's fresher ``[100, 400)`` does not (it ends at the window's inclusive lower bound).
     """
     prov, vector, graph = provider()
     seeded(vector, record("inside", 500))
-    # The graph leg does not narrow to the window (SM-G9 #107), so it is what puts an out-of-window
-    # row into the merged set -- and the provider dropping it is what this key counts. Seeded there
-    # rather than in the vector store precisely because the vector store would have filtered it.
-    graph.rows.setdefault(ACME.tenant_id, []).append(record("outside", 100, 200))
+    graph.rows.setdefault(ACME.tenant_id, []).append(record("inside", 100, 400))
 
     result = prov.read(ACME, MemoryQuery(text="alpha beta", valid_from=400, valid_to=600))
 
-    assert [r.id for r in result.records] == ["inside"]
+    assert result.records == []
     assert result.fusion["dropped_outside_window"] == 1
     # Not double-counted: one filter runs, so the point-predicate key stays zero for a windowed
     # read. Reporting the drop under both would tell a caller two rows went when one did.
@@ -252,25 +256,22 @@ def test_the_tier_narrowed_read_carries_the_window_too(method):
     assert [r.id for r in records] == ["inside"]
 
 
-# -- the known gap, pinned ----------------------------------------------------
+# -- the graph leg narrows in-search (SM-G9 #107) -----------------------------
 
 
-def test_the_graph_leg_does_not_narrow_to_the_valid_time_window():
-    """**Pins a shipped limitation. Owner: SM-G9 (#107).**
+def test_the_graph_leg_now_narrows_to_the_valid_time_window():
+    """**Supersedes the prior pin.** Owner: SM-G9 (#107).
 
-    ``GraphSubstrate.traverse`` receives the window and ignores it, so its contribution to a
-    windowed read can come back short -- out-of-window rows consume its ``limit`` and the provider
-    drops them afterwards. The answer stays precise; only recall suffers, and the count is reported
-    as ``fusion["dropped_outside_window"]``.
+    ``GraphSubstrate.traverse`` used to receive the window and ignore it, so its contribution to a
+    windowed read could come back short -- out-of-window rows consumed its ``limit`` and the
+    provider dropped them afterwards. ``test_the_graph_leg_does_not_narrow_to_the_valid_time_window``
+    pinned that gap and named exactly this replacement once the predicate landed in the traversal:
+    "delete it and assert the graph leg narrows like the vector one."
 
-    **This test fails when SM-G9 pushes the predicate into the traversal**, which is the point: a
-    comment recording the gap rots, a failing test does not. When it does fail, delete it and
-    assert the graph leg narrows like the vector one.
-
-    Pinned on **behaviour** rather than on a sentinel attribute. An earlier version asserted that
-    ``FakeGraph`` had grown no ``traverse_windows`` attribute, which needed SM-G9 to pick that
-    exact name a ticket away and would have passed vacuously forever otherwise. What the traversal
-    returns needs no such agreement.
+    Asserted on the *request* (``graph.traverse_windows``), mirroring
+    ``test_the_window_reaches_the_substrate_rather_than_being_applied_afterwards`` for the vector
+    leg -- a result-only assertion cannot distinguish in-search filtering from a corpus that happens
+    to sit inside the window.
     """
     prov, _, graph = provider()
     inside = record("inside", 500, content="alpha beta gamma")
@@ -282,13 +283,12 @@ def test_the_graph_leg_does_not_narrow_to_the_valid_time_window():
 
     windowed = MemoryQuery(text="alpha beta gamma", valid_from=400, valid_to=600, limit=5)
 
-    # The gap itself: the traversal is handed the window and returns the out-of-window row anyway.
     traversed = graph.traverse(ACME, windowed)
-    assert {r.id for r in traversed} == {"inside", "outside"}
+    assert {r.id for r in traversed} == {"inside"}
+    assert graph.traverse_windows[-1] == ValidWindow(valid_from=400, valid_to=600)
 
-    # And the consequence is bounded: the provider drops it, so the answer is precise and only the
-    # graph leg's recall suffers. Precision is what a caller sees; recall is what the diagnostic
-    # reports.
+    # The graph leg no longer contributes an out-of-window row for the provider to drop.
     result = prov.read(ACME, windowed)
     assert [r.id for r in result.records] == ["inside"]
-    assert result.fusion["dropped_outside_window"] == 1
+    assert result.fusion["dropped_outside_window"] == 0
+    assert result.fusion["dropped_by_validity"] == 0

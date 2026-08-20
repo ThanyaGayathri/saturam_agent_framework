@@ -252,6 +252,74 @@ def test_traverse_filters_current_belief_before_ranking(label):
     assert "LIMIT $limit" in text
 
 
+@pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name.startswith("traverse")])
+def test_every_traverse_leg_applies_the_bi_temporal_window(label):
+    """SM-G9 (#107): the window is pushed into every leg, not only the row-shape ones. Retires the
+    gap ``test_the_graph_leg_does_not_narrow_to_the_valid_time_window`` pinned."""
+    text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+
+    assert "$valid_from" in text
+    assert "$valid_to" in text
+    assert text.index("$valid_to") < text.index("ORDER BY"), "the window must narrow before ranking"
+
+
+def _multihop_traverse_statement():
+    """The anchor-seeded leg specifically -- identified by the hop-bound syntax no other leg emits,
+    not by list position, so a reordering of :func:`cypher.traverse_statements` cannot silently
+    point this file's assertions at the wrong statement."""
+    for label, text, params in all_statements(FULL):
+        if label.startswith("traverse") and "*1.." in text:
+            return label, text, params
+    raise AssertionError("no traverse leg emits a bounded-hop relationship pattern")
+
+
+def test_the_multihop_leg_bounds_the_walk_to_a_literal_hop_count():
+    """Not a bound parameter -- Cypher does not accept one for a variable-length pattern, and SM-G9
+    closes the bound at the source (construction time) rather than trusting a per-call value."""
+    _, text, _ = _multihop_traverse_statement()
+    assert f"*1..{cypher.DEFAULT_MAX_HOPS}" in text
+
+    custom_text = next(t for t, _ in cypher.traverse_statements(FULL, max_hops=5) if "*1.." in t)
+    assert "*1..5" in custom_text
+
+
+@pytest.mark.parametrize("max_hops", [0, -1, 1.5, True])
+def test_max_hops_must_be_a_positive_integer(max_hops):
+    with pytest.raises(MemoryOperationError, match="max_hops"):
+        cypher.traverse_statements(FULL, max_hops=max_hops)
+
+
+def test_the_multihop_leg_selects_anchors_lexically_against_the_query_terms():
+    """No embedding, no model call -- an anchor is chosen by word overlap against a stored entity's
+    normalised ``key``, matching this port's no-query-time-LLM contract."""
+    _, text, _ = _multihop_traverse_statement()
+
+    assert "$terms" in text
+    assert "anchor.key" in text
+    assert text.index("anchor.key") < text.index("MATCH path"), "anchors must be selected before the walk"
+
+
+def test_the_multihop_leg_scopes_the_walk_to_one_exact_entity_graph():
+    """``other.scope_key = anchor.scope_key`` -- a tenant-wide read must not let a name collision
+    bridge two users' private entity graphs (SM-C4 #92)."""
+    _, text, _ = _multihop_traverse_statement()
+
+    assert "other.scope_key = anchor.scope_key" in text
+
+
+def test_the_multihop_leg_refuses_to_walk_through_a_superseded_or_out_of_window_edge():
+    """Applied to *every* edge in the path, not only the one returned -- a superseded or
+    out-of-window edge cannot extend a walk, matching what :func:`cypher._traverse` refuses to
+    rank."""
+    _, text, _ = _multihop_traverse_statement()
+
+    all_clause_start = text.index("all(rel IN relationships(path)")
+    all_clause_end = text.index("UNWIND")
+    all_clause = text[all_clause_start:all_clause_end]
+    assert "rel.expired_at IS NULL" in all_clause
+    assert "$valid_to" in all_clause and "$valid_from" in all_clause
+
+
 @pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name.startswith("bounds")])
 def test_bounds_are_not_filtered_to_current_belief(label):
     """The bound this exists to surface usually sits on a revision ranking hid.

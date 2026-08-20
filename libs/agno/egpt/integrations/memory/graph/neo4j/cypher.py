@@ -25,6 +25,7 @@ to a node and a relationship alike.
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from egpt.memory.errors import MemoryOperationError
 from egpt.memory.graph.episodic import (
     MENTIONS,
     require_recall_filters,
@@ -35,6 +36,7 @@ from egpt.memory.graph.semantic import require_fact_filters
 from egpt.memory.types import SCOPE_SLOTS, Scope, require_scope
 
 __all__ = [
+    "DEFAULT_MAX_HOPS",
     "ENTITY",
     "ENTITY_PROPERTIES",
     "EPISODE",
@@ -139,9 +141,30 @@ LIVE = "live"
 
 def _live(alias: str) -> str:
     """Current belief, on the transaction axis. Applied before ranking, or superseded rows eat the
-    limit. Valid time is deliberately absent -- see ``GraphSubstrate.traverse`` for why it belongs
-    to the merged set instead."""
+    limit. Valid time -- ``query.as_of`` -- is deliberately absent: see ``GraphSubstrate.traverse``
+    for why *that* predicate belongs to the merged set instead. ``query.window()`` is a different
+    question (see :func:`_window_predicate`) and, since SM-G9 (#107), is applied here."""
     return f"{alias}.expired_at IS NULL"
+
+
+def _window_predicate(alias: str) -> str:
+    """The half-open valid-time window (SM-V4 #98), pushed into the traversal itself (SM-G9 #107).
+
+    Reproduces :meth:`~egpt.memory.types.ValidWindow.overlaps` clause for clause, so the two
+    encodings cannot drift on what a window means: a row is excluded when it starts at or after
+    ``$valid_to``, and excluded when it ends at or before ``$valid_from``. An unset bound, on the
+    window or on the row, is open at that end, matching every other reading of ``None`` at this
+    seam.
+
+    ``$valid_from`` / ``$valid_to`` are always bound (to ``None`` for an unwindowed read), never
+    omitted from the statement text -- a query text missing the parameter is a Cypher error, not
+    "no predicate", the same reason :func:`recall_episodes_statement` binds ``$since``/``$until``
+    unconditionally once they are used at all.
+    """
+    return (
+        f"($valid_to IS NULL OR {alias}.t_valid IS NULL OR {alias}.t_valid < $valid_to) "
+        f"AND ($valid_from IS NULL OR {alias}.t_invalid IS NULL OR {alias}.t_invalid > $valid_from)"
+    )
 
 
 def _scoped_live(alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
@@ -152,8 +175,10 @@ def _scoped_live(alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, 
 
 #: Jaccard overlap between the query terms and the row's content words, in ``[0.0, 1.0]`` as the
 #: port requires. Computed server-side so ``limit`` cuts a ranked set rather than an arbitrary page,
-#: and with no model call on the read path (issue #99's fourth criterion). Real traversal --
-#: multi-hop from anchor entities -- is SM-G9's (#107); this ranks the rows the substrate holds.
+#: and with no model call on the read path (issue #99's fourth criterion). This scores a row against
+#: the query text directly; it does not follow an edge. Multi-hop traversal from anchor entities --
+#: surfacing a row the query text shares no words with -- is :func:`_traverse_multihop`'s (SM-G9
+#: #107), a sibling leg rather than a replacement for this one.
 _SCORE = (
     "WITH {alias}, [w IN split(toLower({alias}.content), ' ') WHERE w <> ''] AS ws "
     "WITH {alias}, [i IN range(0, size(ws) - 1) WHERE NOT ws[i] IN ws[0..i] | ws[i]] AS cw "
@@ -203,8 +228,10 @@ _RECALL_RETURN = (
 def _traverse(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
     # The tier predicate belongs here, beside the scope and current-belief ones, because `LIMIT` is
     # applied by this statement: a tier filtered after the fact cuts rows the limit already spent.
+    # The window predicate (SM-G9 #107) joins it for the identical reason -- an out-of-window row
+    # filtered afterwards has already spent a slot in the ranked, limited page.
     predicate, params = _scoped_live(alias, scope, method)
-    predicate = f"{predicate} AND {alias}.tier IN $tiers"
+    predicate = f"{predicate} AND {alias}.tier IN $tiers AND {_window_predicate(alias)}"
     return (
         f"{match} WHERE {predicate} "
         + _SCORE.format(alias=alias)
@@ -213,24 +240,119 @@ def _traverse(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, D
     ), params
 
 
-def traverse_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
-    """One statement per row shape. The caller merges, re-ranks, and applies ``limit`` again.
+#: Backend-level ceiling on how many ``REL`` hops the anchor-seeded leg walks (SM-G9 #107). Not a
+#: per-call parameter on :class:`~egpt.memory.substrates.MemoryQuery` -- the port takes no such
+#: field, and closing the bound here, at construction (``Neo4jGraphSubstrate.__init__``), rather
+#: than trusting every caller to pass one is what "bounded hops" in the ticket's acceptance
+#: criteria actually means.
+DEFAULT_MAX_HOPS = 2
 
-    Three statements rather than one ``UNION``: a union of three ranked, limited legs still needs a
-    merge above it, so it buys nothing and costs the ability to read each statement on its own.
 
-    **Cost model, stated because no index changes it.** The scoring runs per row over everything
-    that survives the scope, tier and current-belief filters, before ``ORDER BY ... LIMIT``. None of
-    the shipped indexes lead with a column this statement filters on, so the work scales with
-    rows-in-scope rather than with ``limit`` -- a tenant-prefix scan at best, however narrow the
-    caller's ``user_id`` happens to be. Picking an index for it is guesswork until someone measures
-    at the real envelope, and SM-G9 (#107) replaces this read path outright; sizing it is the same
-    unmeasured question as the graph-side isolation benchmark SM-R2 section 5.4 asks for.
+def _anchor_predicate(alias: str) -> str:
+    """Whether ``alias`` (an ``:Entity``) is plausibly named by the query text.
+
+    Word overlap between ``$terms`` and the entity's normalised ``key``, mirroring the row-level
+    Jaccard :data:`_SCORE` already uses for lexical matching -- so "the query mentions this entity"
+    means the same thing here that it means for a fact or episode's content. No embedding and no
+    model call: the port requires this read path stay LLM-free, and an anchor set chosen this way
+    costs one Cypher predicate, not a query-time inference call.
+
+    **Falls back to ``name`` when ``key`` is unset.** ``key`` is written only by
+    ``upsert_entities_statement`` (SM-G2 #100); a node ``upsert_facts_statements``'s triple leg
+    merges as a bare edge endpoint -- the common case for ``RelationExtractionPipeline`` (SM-G3
+    #101), which writes edges and never calls ``upsert_entities`` -- carries only ``name`` and the
+    scope columns. Matching on ``key`` alone would make every such node permanently unreachable as
+    an anchor, silently excluding most production-extracted relations from this leg. ``key`` is
+    already the normalised form of a written ``name`` (:func:`~egpt.memory.types.
+    normalize_entity_name`), so falling back to a lowercased split of the raw ``name`` when ``key``
+    is absent is the same comparison, just unnormalised for punctuation.
     """
+    match_text = f"toLower(coalesce({alias}.key, {alias}.name))"
+    return f"any(t IN $terms WHERE t IN [w IN split({match_text}, ' ') WHERE w <> ''])"
+
+
+def _traverse_multihop(scope: Scope, max_hops: int, method: str) -> Tuple[str, Dict[str, Any]]:
+    """Fact edges reached by walking ``REL`` from an anchor entity, scored by hop distance.
+
+    This is the leg the row-level legs in :func:`_traverse` cannot supply: a query whose *text*
+    shares no words with a fact's content still surfaces that fact when the fact is graph-adjacent
+    to an entity the query *does* name -- the associative recall a lexical scorer cannot infer.
+
+    Undirected (``-[:REL*1..N]-``, no arrow): an anchor set is "involves this entity", matching how
+    :func:`recall_facts_statement`'s own ``entities`` filter reads either end of an edge as a
+    disjunction, not a direction to privilege.
+
+    ``other.scope_key = anchor.scope_key`` pins the walk to one exact write-scope, not merely one
+    tenant: under a tenant-wide read a name collision between two users' private entity graphs must
+    not bridge them, and entity identity is already ``(scope_key, name)`` -- see
+    ``GraphSubstrate.upsert_entities``. ``r``'s own scope is checked too, redundantly with that
+    join, for the same reason every other statement here scopes its own alias directly rather than
+    trusting a join to carry it (SM-C4 #92).
+
+    Every edge in a path must be **current belief and inside the window** to be walked through, not
+    only to be returned -- a superseded or out-of-window edge cannot extend a path, matching how
+    :func:`_traverse` refuses to rank one. Distance is computed as the least hop count any
+    discovered path reaches that edge at (``min(hop)`` after unwinding every path's relationships),
+    then scored ``1.0 / (1.0 + hops)`` -- strictly decreasing, bounded to ``(0.0, 1.0]``, matching
+    the port's similarity contract.
+
+    An untripled ``(:Fact)`` node has no entity to anchor from and is out of scope for this leg; it
+    stays reachable through :func:`_traverse`'s row-level leg and through vector search over the
+    semantic-fact tier, where it is independently embedded.
+    """
+    anchor_predicate, anchor_params = scope_predicate("anchor", scope, method=method)
+    anchor_predicate = f"{anchor_predicate} AND {_anchor_predicate('anchor')}"
+    rel_predicate, rel_params = scope_predicate("r", scope, method=method)
+    text = (
+        f"MATCH (anchor:{ENTITY}) WHERE {anchor_predicate} "
+        "WITH DISTINCT anchor "
+        f"MATCH path = (anchor)-[:{REL}*1..{max_hops}]-(other:{ENTITY}) "
+        "WHERE other.scope_key = anchor.scope_key "
+        "AND all(rel IN relationships(path) "
+        f"WHERE rel.expired_at IS NULL AND {_window_predicate('rel')}) "
+        "UNWIND range(0, size(relationships(path)) - 1) AS idx "
+        "WITH relationships(path)[idx] AS r, idx + 1 AS hop "
+        f"WHERE {rel_predicate} AND r.tier IN $tiers "
+        "WITH r, min(hop) AS hop "
+        "WITH r AS row, 1.0 / toFloat(1 + hop) AS score "
+        f"{_RETURN} {_ORDER}"
+    )
+    return text, {**anchor_params, **rel_params}
+
+
+def traverse_statements(scope: Scope, *, max_hops: int = DEFAULT_MAX_HOPS) -> List[Tuple[str, Dict[str, Any]]]:
+    """Four statements: the three row-shape legs, plus the anchor-seeded multi-hop leg (SM-G9
+    #107). The caller merges, dedups by id keeping the higher score, re-ranks, and applies
+    ``limit`` again.
+
+    Separate statements rather than one ``UNION``: a union of four ranked, limited legs still needs
+    a merge above it, so it buys nothing and costs the ability to read each statement on its own.
+
+    ``max_hops`` bounds only the fourth leg; it is keyword-only and defaults to
+    :data:`DEFAULT_MAX_HOPS` so every existing call site is unaffected. Refused when it is not a
+    positive integer, matching this module's own guard-at-the-builder convention -- a direct caller
+    of this function gets the same refusal :meth:`~egpt.memory.substrates.GraphSubstrate.traverse`
+    would raise through :class:`~egpt.integrations.memory.graph.neo4j.neo4j.Neo4jGraphSubstrate`.
+
+    **Cost model, stated because no index changes it.** The first three legs' scoring runs per row
+    over everything that survives the scope, tier, current-belief and window filters, before
+    ``ORDER BY ... LIMIT`` -- none of the shipped indexes lead with a column those filter on, so the
+    work scales with rows-in-scope rather than with ``limit``. The fourth leg's cost is bounded by
+    the anchor set and ``max_hops`` rather than by corpus size, but is unmeasured at the real
+    envelope, matching the unmeasured question the graph-side isolation benchmark (SM-R2 section
+    5.4) already asks for the other three.
+    """
+    if not isinstance(max_hops, int) or isinstance(max_hops, bool) or max_hops < 1:
+        raise MemoryOperationError(
+            f"traverse_statements max_hops must be a positive integer, got {max_hops!r}. SM-G9 "
+            "closes the hop bound at the source rather than accepting an unbounded walk.",
+            field_name="max_hops",
+        )
     return [
         _traverse(f"MATCH (e:{EPISODE})", "e", scope, "traverse_statements"),
         _traverse(f"MATCH (f:{FACT})", "f", scope, "traverse_statements"),
         _traverse(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "traverse_statements"),
+        _traverse_multihop(scope, max_hops, "traverse_statements"),
     ]
 
 
@@ -460,9 +582,8 @@ def recall_facts_statement(
     ``EXPLAIN`` shows ``DirectedRelationshipIndexSeek`` on ``egpt_rel_t_valid``. So a caller wanting
     the cheap path today narrows by time; entity/relation-only filtering costs a tenant-wide REL
     scan, matching :func:`traverse_statements`'s own cost note for the identical reason -- no shipped
-    index leads with the columns those two filters compare on, and SM-G9 (#107) replaces this read
-    path outright, so sizing one is the same unmeasured question that note already defers (round-2
-    review, PR #102).
+    index leads with the columns those two filters compare on, and sizing one is the same unmeasured
+    question that note already defers (round-2 review, PR #102).
 
     ``LIMIT`` is omitted from the text entirely when unbounded, matching
     :func:`recall_episodes_statement` -- ``LIMIT $limit`` with a null parameter is an error rather

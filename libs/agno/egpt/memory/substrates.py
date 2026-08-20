@@ -508,21 +508,35 @@ class GraphSubstrate(Protocol):
     ) -> List[MemoryRecord]:
         """Retrieve by graph traversal, returning **current belief only** (``expired_at IS NULL``).
 
-        Current belief is a transaction-time filter and is always applied. Valid-time filtering
-        (``query.as_of``) is not applied here -- it belongs to the merged read path (finding F2),
-        for the same reason as :meth:`VectorSubstrate.search`.
+        Two kinds of candidate, merged (SM-G9 #107): rows whose own content matches ``query.text``
+        directly, and rows reached by a **bounded-hop walk from anchor entities** the query text
+        names -- multi-hop associative recall a lexical or vector scorer cannot infer, because it
+        surfaces a fact the query shares no words or embedding-similar content with, only a
+        graph-adjacent entity. Anchor selection is lexical (word overlap against a stored entity's
+        normalised key); the hop bound is a **backend-level** ceiling set at construction, not a
+        per-call parameter this method exposes -- a caller cannot ask for an unbounded walk. Neither
+        leg calls a model: this read path is LLM-free, matching the port's own contract.
+
+        Current belief is a transaction-time filter and is always applied, to every row a walk
+        passes *through* as well as the ones it returns -- a superseded edge cannot extend a path.
+        Valid-time filtering (``query.as_of``) is not applied here -- it belongs to the merged read
+        path (finding F2), for the same reason as :meth:`VectorSubstrate.search`.
 
         Tier resolution matches ``MemoryQuery.resolved_tiers`` exactly (finding F3), and ``score``
         obeys the same similarity contract as :meth:`VectorSubstrate.search` -- a similarity in
-        ``[0.0, 1.0]``, higher is better, converted by the backend if its native metric is not.
+        ``[0.0, 1.0]``, higher is better, converted by the backend if its native metric is not. The
+        multi-hop leg scores by hop distance (nearer is more relevant); a row reachable by both legs
+        keeps the higher of the two scores rather than being returned twice.
 
-        ``query.window()`` is **not** applied here either, and unlike ``as_of`` that is a gap rather
-        than a decision: this port holds the authoritative bounds and could filter on them, but
-        pushing a predicate into a traversal is a change to how the traversal is *shaped*, which is
-        SM-G9's (#107). Until then a windowed read narrows the vector leg in-search and the merged
-        set afterwards, so the answer is precise and the graph leg's contribution can come back
-        short -- reported as ``MemorySlice.fusion["dropped_outside_window"]`` and pinned by
-        ``test_the_graph_leg_does_not_narrow_to_the_valid_time_window``.
+        **``query.window()`` is applied here** (SM-G9 #107), pushed into the walk itself: an
+        out-of-window row cannot be traversed through or returned, matching how
+        :meth:`VectorSubstrate.search` narrows in-search rather than after ``limit`` has already
+        been spent. This retires the prior gap
+        ``test_the_graph_leg_does_not_narrow_to_the_valid_time_window`` pinned.
+
+        An untripled fact -- no subject/predicate/object -- has no entity to anchor the multi-hop
+        leg from, so it is reachable only through the direct-content leg here, and independently
+        through :meth:`VectorSubstrate.search` over the semantic-fact tier.
         """
         ...
 
@@ -616,8 +630,12 @@ class GraphSubstrate(Protocol):
 
         Not a ranked query and deliberately not :meth:`traverse`, for :meth:`recall_episodes`'s
         reason: this returns the fact edges a filter set selects, in valid-time order, with **no
-        score**. Ranking a semantic retriever over this shape is SM-G9's (#107) / SM-H's to build;
-        this is the retrieval it would read from.
+        score**. :meth:`traverse`'s anchor-seeded multi-hop leg (SM-G9 #107) is the ranked retriever
+        over this same ``(:Entity)-[:REL]->(:Entity)`` shape -- built as a sibling of this method
+        rather than on top of it, since a filter-driven read and an anchor-driven walk select rows
+        by different questions ("which edges match these filters" versus "which edges are near this
+        entity") and forcing one through the other's signature would blur which question a caller is
+        asking.
 
         * ``entities`` -- return only edges whose **subject or object** name is in this set (a
           disjunction over either end, matching how :meth:`recall_episodes`'s anchor set is used).

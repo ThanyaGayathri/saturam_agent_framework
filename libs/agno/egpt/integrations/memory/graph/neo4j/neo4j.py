@@ -19,9 +19,12 @@ emit.
 Deliberately **not** here, each with an owner: entity and relation extraction (SM-G2 #100 /
 SM-G3 #101), contradiction *detection* (SM-G5 #103 -- this ships the primitive, not the decision to
 call it), valid-time extraction from content (SM-G4 #102), append-only enforcement via APOC trigger
-or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), and multi-hop traversal and graph
-enumeration beyond ``match_entities``' two targeted lookups (SM-G9 #107), PPR over a GDS projection
-(SM-H4 #134). Episode-to-entity mention links arrived with SM-G6 (#104); the entity names they link
+or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), and PPR over a GDS projection
+(SM-H4 #134). Bounded-hop BFS traversal from anchor entities, and the bi-temporal window pushed
+into every leg of it, shipped with SM-G9 (#107); graph *enumeration* -- what an unfiltered walk
+means over a temporal graph -- remains open and unowned, named at each refusal site
+(``egpt.memory.graph.episodic``/``semantic``) rather than here. Episode-to-entity mention links
+arrived with SM-G6 (#104); the entity names they link
 are supplied on the event, not extracted here. **Entity resolution's mechanism, not its policy**
 (SM-G8 #106): ``match_entities`` and ``merge_entities`` are the primitives -- lookup and fold --
 this backend can support; *which* candidates should merge and at what threshold is
@@ -114,6 +117,13 @@ class Neo4jGraphSubstrate:
     hopping a thread, because a thread hop is a sync call wearing an ``async def``.
     """
 
+    #: A class-level default, not only an ``__init__`` assignment: several statement-shape tests in
+    #: this module build a substrate via ``Neo4jGraphSubstrate.__new__(...)``, deliberately skipping
+    #: ``__init__`` so they need no live driver. Attribute lookup falls back to this when the
+    #: instance never set its own, so ``traverse`` still has a bound to pass rather than an
+    #: ``AttributeError`` unrelated to whatever the test is actually checking.
+    max_traverse_hops: int = cypher.DEFAULT_MAX_HOPS
+
     def __init__(
         self,
         uri: Optional[str] = None,
@@ -121,6 +131,7 @@ class Neo4jGraphSubstrate:
         password: Optional[str] = None,
         database: Optional[str] = None,
         auto_init_schema: bool = True,
+        max_traverse_hops: int = cypher.DEFAULT_MAX_HOPS,
     ) -> None:
         resolved_uri: str = uri or os.getenv("NEO4J_URI") or "bolt://localhost:7687"
         username = username or os.getenv("NEO4J_USERNAME")
@@ -134,6 +145,12 @@ class Neo4jGraphSubstrate:
             )
         self.uri, self.database = resolved_uri, database or "neo4j"
         self._auth = (username, password)
+        # A construction-time bound, not a per-call one -- `GraphSubstrate.traverse` takes no such
+        # field, and closing it here rather than trusting every caller to pass one is SM-G9's
+        # (#107) "bounded hops" acceptance criterion. Validated lazily by `cypher.traverse_statements`
+        # on first use rather than here, matching this constructor's existing style of deferring
+        # per-call validation to the call.
+        self.max_traverse_hops = max_traverse_hops
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
         self._adriver: Optional["AsyncDriver"] = None
         # Eager, unlike `PgVector`'s deferred `create_schema`. The statements are idempotent, so a
@@ -925,13 +942,32 @@ class Neo4jGraphSubstrate:
     # -- reads ----------------------------------------------------------------
 
     def _merge_hits(self, rows: List[List[Dict[str, Any]]], scope: Scope, query: MemoryQuery) -> List[MemoryRecord]:
-        """Merge the per-shape legs, re-rank, and apply ``limit`` to the merged set.
+        """Merge the legs, dedup by ``(scope, id)`` keeping the higher score, re-rank, and apply
+        ``limit``.
 
-        Each statement applied ``limit`` to its own shape, so the union can hold up to three times
-        it; ranking across shapes and cutting again is what makes ``limit`` mean what it says.
+        Each statement applied ``limit`` to its own leg, so the union can hold up to four times it;
+        ranking across legs and cutting again is what makes ``limit`` mean what it says.
+
+        **Deduped by ``(scope, id)``, not merely concatenated (SM-G9 #107).** The three row-shape
+        legs cannot collide -- each addresses a disjoint shape -- but the anchor-seeded multi-hop leg
+        reads the same ``:REL`` edges the row-shape REL leg does, so one edge that both lexically
+        matches the query *and* sits within ``max_hops`` of an anchor is a legitimate hit on both.
+        Returning it twice would double its weight in whatever sums these scores downstream (the
+        provider's ``_merge`` does exactly that); keeping the higher of the two scores is the correct
+        answer to "how relevant is this edge", not an arbitrary tiebreak. **Scope joins id in the
+        dedup key** -- ``id`` alone is not unique across scopes: a tenant-wide read can legitimately
+        return two different users' rows sharing one id, and a bare-id dedup would collapse them into
+        one (``test_a_wider_scope_reads_what_a_narrower_one_wrote``-shaped case).
         """
-        hits = [self._record(row, scope) for leg in rows for row in leg]
-        hits.sort(key=lambda r: (-(r.score or 0.0), r.created_at or 0, r.content, r.id))
+        best: Dict[Tuple[str, str], MemoryRecord] = {}
+        for leg in rows:
+            for row in leg:
+                record = self._record(row, scope)
+                dedup_key = (record.scope.key(), record.id)
+                current = best.get(dedup_key)
+                if current is None or (record.score or 0.0) > (current.score or 0.0):
+                    best[dedup_key] = record
+        hits = sorted(best.values(), key=lambda r: (-(r.score or 0.0), r.created_at or 0, r.content, r.id))
         return hits[: query.limit]
 
     @staticmethod
@@ -944,12 +980,28 @@ class Neo4jGraphSubstrate:
         """
         return query if tier is None else replace(query, tiers=[tier])
 
+    @staticmethod
+    def _window_params(query: MemoryQuery) -> Dict[str, Any]:
+        """``valid_from``/``valid_to`` for the traversal's bi-temporal predicate (SM-G9 #107).
+
+        Always both keys, bound to ``None`` for an unwindowed read: the Cypher predicate references
+        ``$valid_from``/``$valid_to`` unconditionally, and an omitted parameter is a driver error,
+        not "no predicate" -- the same reason ``recall_episodes_statement`` binds ``$since``/
+        ``$until`` the same way.
+        """
+        window = query.window()
+        return {"valid_from": window.valid_from if window else None, "valid_to": window.valid_to if window else None}
+
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         query = self._requested(query, tier)
         if not query.limit or not _terms(query.text):
             return []
         rows = self._run(
-            cypher.traverse_statements(scope), terms=_terms(query.text), limit=query.limit, tiers=_tiers(query)
+            cypher.traverse_statements(scope, max_hops=self.max_traverse_hops),
+            terms=_terms(query.text),
+            limit=query.limit,
+            tiers=_tiers(query),
+            **self._window_params(query),
         )
         return self._merge_hits(rows, scope, query)
 
@@ -960,7 +1012,11 @@ class Neo4jGraphSubstrate:
         if not query.limit or not _terms(query.text):
             return []
         rows = await self._arun(
-            cypher.traverse_statements(scope), terms=_terms(query.text), limit=query.limit, tiers=_tiers(query)
+            cypher.traverse_statements(scope, max_hops=self.max_traverse_hops),
+            terms=_terms(query.text),
+            limit=query.limit,
+            tiers=_tiers(query),
+            **self._window_params(query),
         )
         return self._merge_hits(rows, scope, query)
 
