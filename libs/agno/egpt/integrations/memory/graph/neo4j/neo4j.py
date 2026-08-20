@@ -117,12 +117,13 @@ class Neo4jGraphSubstrate:
     hopping a thread, because a thread hop is a sync call wearing an ``async def``.
     """
 
-    #: A class-level default, not only an ``__init__`` assignment: several statement-shape tests in
+    #: Class-level defaults, not only ``__init__`` assignments: several statement-shape tests in
     #: this module build a substrate via ``Neo4jGraphSubstrate.__new__(...)``, deliberately skipping
-    #: ``__init__`` so they need no live driver. Attribute lookup falls back to this when the
-    #: instance never set its own, so ``traverse`` still has a bound to pass rather than an
+    #: ``__init__`` so they need no live driver. Attribute lookup falls back to these when the
+    #: instance never set its own, so ``traverse`` still has bounds to pass rather than an
     #: ``AttributeError`` unrelated to whatever the test is actually checking.
     max_traverse_hops: int = cypher.DEFAULT_MAX_HOPS
+    max_traverse_anchor_entities: int = cypher.DEFAULT_MAX_ANCHOR_ENTITIES
 
     def __init__(
         self,
@@ -132,6 +133,7 @@ class Neo4jGraphSubstrate:
         database: Optional[str] = None,
         auto_init_schema: bool = True,
         max_traverse_hops: int = cypher.DEFAULT_MAX_HOPS,
+        max_traverse_anchor_entities: int = cypher.DEFAULT_MAX_ANCHOR_ENTITIES,
     ) -> None:
         resolved_uri: str = uri or os.getenv("NEO4J_URI") or "bolt://localhost:7687"
         username = username or os.getenv("NEO4J_USERNAME")
@@ -145,12 +147,15 @@ class Neo4jGraphSubstrate:
             )
         self.uri, self.database = resolved_uri, database or "neo4j"
         self._auth = (username, password)
-        # A construction-time bound, not a per-call one -- `GraphSubstrate.traverse` takes no such
-        # field, and closing it here rather than trusting every caller to pass one is SM-G9's
-        # (#107) "bounded hops" acceptance criterion. Validated lazily by `cypher.traverse_statements`
-        # on first use rather than here, matching this constructor's existing style of deferring
+        # Construction-time bounds, not per-call ones -- `GraphSubstrate.traverse` takes no such
+        # fields, and closing them here rather than trusting every caller to pass one is SM-G9's
+        # (#107) "bounded hops" acceptance criterion, extended to the anchor axis after round-1
+        # review found the hop bound alone does not cap the leg's cost (a common query word matches
+        # every entity whose name contains it). Validated lazily by `cypher.traverse_statements` on
+        # first use rather than here, matching this constructor's existing style of deferring
         # per-call validation to the call.
         self.max_traverse_hops = max_traverse_hops
+        self.max_traverse_anchor_entities = max_traverse_anchor_entities
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
         self._adriver: Optional["AsyncDriver"] = None
         # Eager, unlike `PgVector`'s deferred `create_schema`. The statements are idempotent, so a
@@ -396,26 +401,30 @@ class Neo4jGraphSubstrate:
             ) from exc
 
     def _record(self, row: Dict[str, Any], scope: Scope) -> MemoryRecord:
-        # `scope` is the call scope every caller passes -- load-bearing for `traverse`'s Fact/REL
-        # rows, which carry no scope columns of their own and so use it as-is. It is overwritten
-        # below for a `recall_episodes` row (one that carries `"mentions"`), which is why it looks
-        # unused from `recall_episodes`'s own call site: that reconstruction is what round-1 review
-        # asked for, not a sign the parameter is dead on the shared signature.
+        # `scope` is the call scope every caller passes -- the fallback for a row shape that
+        # carries no scope columns of its own (none exist today; every `_RETURN`/`_RECALL_RETURN`/
+        # `_RECALL_FACTS_RETURN` row does, see below).
         provenance = self._from_json(row.get("provenance"), "provenance", row.get("id"))
         record_scope = scope
-        if "mentions" in row:
-            # `recall_episodes` rows carry the episode's own **write** scope in the columns
-            # `_RECALL_RETURN` selects -- not the call scope `traverse` uses `scope` for. The
-            # distinction matters here specifically because `entity_ids` is *derived* from scope:
-            # under a tenant-wide call (`Scope(tenant_id="acme")`), deriving it from the call scope
-            # produced an id like `acme/*/*/*/*/entity/berlin` against a node actually merged at
-            # `acme/*/ada/*/*/entity/berlin` -- pointing at nothing (round-1 review, PR #90). The
-            # entity node was `MERGE`d under the episode's write scope (`link_mentions_statement`),
-            # so reconstructing that same scope here is what makes the two agree.
+        if "tenant_id" in row:
+            # **Every row this backend returns carries its own write scope, and it is
+            # reconstructed here rather than left as the call scope (SM-G9 #107 round-1 review).**
+            # `traverse` used to be the one reader that fell through to the call-scope fallback
+            # above -- correct for `MemoryRecord.scope`'s isolation post-condition (which only
+            # checks the call scope was honoured), but wrong for anything keying on scope
+            # *identity*. `Neo4jGraphSubstrate._merge_hits` dedups the merged legs on
+            # `(record.scope.key(), record.id)` precisely to let two different users' rows share
+            # one id under a tenant-wide read without colliding (SM-C1's per-scope id space) -- and
+            # the call scope is one constant value across the whole call, so keying on it added
+            # nothing: two colliding ids from two different writers still collapsed to one row,
+            # exactly the bug the (scope, id) key was supposed to close. `_RETURN` was extended
+            # with the same `SCOPE_SLOTS` columns `_RECALL_RETURN`/`_RECALL_FACTS_RETURN` already
+            # select, so the same reconstruction now runs for every row shape, unconditionally.
             #
-            # `record.scope` is set from the same reconstructed value, not left as the call scope:
-            # a caller deriving further ids from `record.scope` after this call would reproduce the
-            # identical bug the entity_ids fix above closes.
+            # This is also why `entity_ids` (below) has always had to derive from the write scope,
+            # not the call scope: under a tenant-wide call (`Scope(tenant_id="acme")`), the call
+            # scope produced an id like `acme/*/*/*/*/entity/berlin` against a node actually merged
+            # at `acme/*/ada/*/*/entity/berlin` -- pointing at nothing (round-1 review, PR #90).
             record_scope = Scope(
                 tenant_id=row["tenant_id"],
                 agent_id=row.get("agent_id"),
@@ -423,26 +432,14 @@ class Neo4jGraphSubstrate:
                 team_id=row.get("team_id"),
                 session_id=row.get("session_id"),
             )
+        if "mentions" in row:
             provenance["entity_ids"] = [entity_node_id_for(record_scope, name) for name in row["mentions"]]
         elif "subject" in row:
             # `elif`, not a second `if`: today's two row shapes are mutually exclusive --
             # `_RECALL_RETURN` never selects `subject` and `_RECALL_FACTS_RETURN` never selects
-            # `mentions` -- but a row carrying both would silently run this branch's own scope
-            # reconstruction over the one above's, undetected, if this were a second `if` (round-2
-            # review, PR #102).
-            # `recall_facts` rows carry the edge's own **write** scope in the columns
-            # `_RECALL_FACTS_RETURN` selects -- not the call scope `traverse` uses `scope` for,
-            # mirroring the `"mentions"` branch above for the identical reason: under a tenant-wide
-            # call (`Scope(tenant_id="acme")`), leaving `record.scope` as the call scope disagreed
-            # with `FakeGraph`, which returns each row under its own write scope (round-1 review,
+            # `mentions` -- but a row carrying both would silently run this branch's own provenance
+            # write over the one above's, undetected, if this were a second `if` (round-2 review,
             # PR #102).
-            record_scope = Scope(
-                tenant_id=row["tenant_id"],
-                agent_id=row.get("agent_id"),
-                user_id=row.get("user_id"),
-                team_id=row.get("team_id"),
-                session_id=row.get("session_id"),
-            )
             # `recall_facts` rows carry the edge's SPO read from the edge and its two endpoint
             # nodes -- not reconstructed by splitting `content`, which `GraphSubstrate.recall_facts`
             # documents is ambiguous for an entity name containing a space.
@@ -997,7 +994,9 @@ class Neo4jGraphSubstrate:
         if not query.limit or not _terms(query.text):
             return []
         rows = self._run(
-            cypher.traverse_statements(scope, max_hops=self.max_traverse_hops),
+            cypher.traverse_statements(
+                scope, max_hops=self.max_traverse_hops, max_anchor_entities=self.max_traverse_anchor_entities
+            ),
             terms=_terms(query.text),
             limit=query.limit,
             tiers=_tiers(query),
@@ -1012,7 +1011,9 @@ class Neo4jGraphSubstrate:
         if not query.limit or not _terms(query.text):
             return []
         rows = await self._arun(
-            cypher.traverse_statements(scope, max_hops=self.max_traverse_hops),
+            cypher.traverse_statements(
+                scope, max_hops=self.max_traverse_hops, max_anchor_entities=self.max_traverse_anchor_entities
+            ),
             terms=_terms(query.text),
             limit=query.limit,
             tiers=_tiers(query),

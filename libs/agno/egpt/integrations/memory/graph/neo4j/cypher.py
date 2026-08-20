@@ -143,7 +143,9 @@ def _live(alias: str) -> str:
     """Current belief, on the transaction axis. Applied before ranking, or superseded rows eat the
     limit. Valid time -- ``query.as_of`` -- is deliberately absent: see ``GraphSubstrate.traverse``
     for why *that* predicate belongs to the merged set instead. ``query.window()`` is a different
-    question (see :func:`_window_predicate`) and, since SM-G9 (#107), is applied here."""
+    question (see :func:`_window_predicate`), applied in :func:`_traverse` and
+    :func:`_traverse_multihop` alongside this predicate, since SM-G9 (#107) -- not by this function,
+    which returns only the clause above."""
     return f"{alias}.expired_at IS NULL"
 
 
@@ -191,11 +193,20 @@ _SCORE = (
 #: reorder identical content across runs (SM-C1 deviation D7).
 _ORDER = "ORDER BY score DESC, row.created_at ASC, row.content ASC, row.id ASC LIMIT $limit"
 
+#: Every row this returns carries its **own write scope**, not merely the caller's -- matching
+#: ``_RECALL_RETURN``/``_RECALL_FACTS_RETURN``, which select it for the identical reason. Without
+#: it every row from a `traverse` call reconstructs as the call scope, and the call scope is one
+#: constant value for the whole call: `Neo4jGraphSubstrate._merge_hits`'s ``(scope, id)`` dedup key
+#: -- meant to let two different users' rows share one id under a tenant-wide read without
+#: colliding -- degenerated to a bare-id key, exactly the collision it exists to prevent (SM-G9
+#: #107 round-1 review). See ``Neo4jGraphSubstrate._record``.
 _RETURN = (
     "RETURN row.id AS id, row.tier AS tier, row.content AS content, row.topics AS topics, "
     "row.t_valid AS t_valid, row.t_invalid AS t_invalid, row.created_at AS created_at, "
     "row.expired_at AS expired_at, row.superseded_by AS superseded_by, "
-    "row.provenance AS provenance, row.metadata AS metadata, score"
+    "row.provenance AS provenance, row.metadata AS metadata, "
+    + ", ".join(f"row.{slot} AS {slot}" for slot in SCOPE_SLOTS)
+    + ", score"
 )
 
 #: The same columns without ``score``, plus the episode's own scope slots and its mention names.
@@ -247,6 +258,15 @@ def _traverse(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, D
 #: criteria actually means.
 DEFAULT_MAX_HOPS = 2
 
+#: Backend-level ceiling on how many anchor entities the multi-hop leg walks from, per call (SM-G9
+#: #107 round-1 review). ``max_hops`` alone does not bound the leg's cost: :func:`_anchor_predicate`
+#: is a word-overlap match, so a common word ("the", "about") in the query text matches every
+#: entity whose name contains it, and an unbounded anchor set drives a walk whose cost is
+#: ``O(anchor_count * avg_degree ** max_hops)``. Ordered by name before the cut (``ORDER BY
+#: anchor.name`` -- no uuid in an ordering, matching every other statement here), so which anchors
+#: survive the cut is deterministic rather than whichever the engine happened to visit first.
+DEFAULT_MAX_ANCHOR_ENTITIES = 50
+
 
 def _anchor_predicate(alias: str) -> str:
     """Whether ``alias`` (an ``:Entity``) is plausibly named by the query text.
@@ -271,7 +291,9 @@ def _anchor_predicate(alias: str) -> str:
     return f"any(t IN $terms WHERE t IN [w IN split({match_text}, ' ') WHERE w <> ''])"
 
 
-def _traverse_multihop(scope: Scope, max_hops: int, method: str) -> Tuple[str, Dict[str, Any]]:
+def _traverse_multihop(
+    scope: Scope, max_hops: int, max_anchor_entities: int, method: str
+) -> Tuple[str, Dict[str, Any]]:
     """Fact edges reached by walking ``REL`` from an anchor entity, scored by hop distance.
 
     This is the leg the row-level legs in :func:`_traverse` cannot supply: a query whose *text*
@@ -282,12 +304,23 @@ def _traverse_multihop(scope: Scope, max_hops: int, method: str) -> Tuple[str, D
     :func:`recall_facts_statement`'s own ``entities`` filter reads either end of an edge as a
     disjunction, not a direction to privilege.
 
-    ``other.scope_key = anchor.scope_key`` pins the walk to one exact write-scope, not merely one
-    tenant: under a tenant-wide read a name collision between two users' private entity graphs must
-    not bridge them, and entity identity is already ``(scope_key, name)`` -- see
-    ``GraphSubstrate.upsert_entities``. ``r``'s own scope is checked too, redundantly with that
-    join, for the same reason every other statement here scopes its own alias directly rather than
-    trusting a join to carry it (SM-C4 #92).
+    **Every node the walk touches is scope-constrained, not only the two ends.**
+    ``other.scope_key = anchor.scope_key`` pins the *far* end to the anchor's exact write-scope; the
+    ``all(n IN nodes(path)[1..-1] ...)`` clause does the same for every node strictly between them.
+    Checking only the two ends (round-1 review) left the walk's interior scope isolation resting
+    entirely on a write-time invariant -- that a triple write never creates a cross-scope edge, so a
+    same-named node in another scope could never be graph-adjacent to this one -- true by
+    construction today, but not a property this statement enforced itself, and every other one on
+    this port scopes its own alias directly rather than trusting a join or an upstream invariant to
+    carry it (SM-C4 #92). ``nodes(path)[1..-1]`` excludes both ends, which the two clauses above
+    already cover; on a 1-hop path it is the empty list, and ``all`` over an empty list holds. ``r``'s
+    own scope is checked too, redundantly with the node-level clauses, for the identical reason.
+
+    **The anchor set is bounded** (:data:`DEFAULT_MAX_ANCHOR_ENTITIES`, round-1 review): the hop
+    bound alone does not cap this leg's cost, because :func:`_anchor_predicate` is a word-overlap
+    match and a common query word matches every entity whose name contains it. ``LIMIT
+    $max_anchors``, ordered by name first so which anchors survive a cut is deterministic, caps the
+    walk's fan-out independent of how permissive the anchor match turns out to be on a given corpus.
 
     Every edge in a path must be **current belief and inside the window** to be walked through, not
     only to be returned -- a superseded or out-of-window edge cannot extend a path, matching how
@@ -295,6 +328,15 @@ def _traverse_multihop(scope: Scope, max_hops: int, method: str) -> Tuple[str, D
     discovered path reaches that edge at (``min(hop)`` after unwinding every path's relationships),
     then scored ``1.0 / (1.0 + hops)`` -- strictly decreasing, bounded to ``(0.0, 1.0]``, matching
     the port's similarity contract.
+
+    **The tier filter (``r.tier IN $tiers``) applies only to what is returned, not to what the walk
+    may cross.** An edge outside the requested tier set can still be traversed *through* to reach a
+    farther edge that is in it -- intentional, not an oversight (round-1 review): tier is a
+    read-shape filter over what a caller wants back, not a claim that an off-tier edge is somehow
+    absent from the graph the walk is over. Bounding the walk itself to on-tier edges only would
+    make "everything about Ada, semantic tier only" silently miss a semantic fact two hops away
+    through an episodic-tier edge, which is a stronger (and unintended) restriction than the caller
+    asked for.
 
     An untripled ``(:Fact)`` node has no entity to anchor from and is out of scope for this leg; it
     stays reachable through :func:`_traverse`'s row-level leg and through vector search over the
@@ -305,9 +347,10 @@ def _traverse_multihop(scope: Scope, max_hops: int, method: str) -> Tuple[str, D
     rel_predicate, rel_params = scope_predicate("r", scope, method=method)
     text = (
         f"MATCH (anchor:{ENTITY}) WHERE {anchor_predicate} "
-        "WITH DISTINCT anchor "
+        "WITH DISTINCT anchor ORDER BY anchor.name ASC LIMIT $max_anchors "
         f"MATCH path = (anchor)-[:{REL}*1..{max_hops}]-(other:{ENTITY}) "
         "WHERE other.scope_key = anchor.scope_key "
+        "AND all(n IN nodes(path)[1..-1] WHERE n.scope_key = anchor.scope_key) "
         "AND all(rel IN relationships(path) "
         f"WHERE rel.expired_at IS NULL AND {_window_predicate('rel')}) "
         "UNWIND range(0, size(relationships(path)) - 1) AS idx "
@@ -317,10 +360,15 @@ def _traverse_multihop(scope: Scope, max_hops: int, method: str) -> Tuple[str, D
         "WITH r AS row, 1.0 / toFloat(1 + hop) AS score "
         f"{_RETURN} {_ORDER}"
     )
-    return text, {**anchor_params, **rel_params}
+    return text, {**anchor_params, **rel_params, "max_anchors": max_anchor_entities}
 
 
-def traverse_statements(scope: Scope, *, max_hops: int = DEFAULT_MAX_HOPS) -> List[Tuple[str, Dict[str, Any]]]:
+def traverse_statements(
+    scope: Scope,
+    *,
+    max_hops: int = DEFAULT_MAX_HOPS,
+    max_anchor_entities: int = DEFAULT_MAX_ANCHOR_ENTITIES,
+) -> List[Tuple[str, Dict[str, Any]]]:
     """Four statements: the three row-shape legs, plus the anchor-seeded multi-hop leg (SM-G9
     #107). The caller merges, dedups by id keeping the higher score, re-ranks, and applies
     ``limit`` again.
@@ -328,19 +376,19 @@ def traverse_statements(scope: Scope, *, max_hops: int = DEFAULT_MAX_HOPS) -> Li
     Separate statements rather than one ``UNION``: a union of four ranked, limited legs still needs
     a merge above it, so it buys nothing and costs the ability to read each statement on its own.
 
-    ``max_hops`` bounds only the fourth leg; it is keyword-only and defaults to
-    :data:`DEFAULT_MAX_HOPS` so every existing call site is unaffected. Refused when it is not a
-    positive integer, matching this module's own guard-at-the-builder convention -- a direct caller
-    of this function gets the same refusal :meth:`~egpt.memory.substrates.GraphSubstrate.traverse`
-    would raise through :class:`~egpt.integrations.memory.graph.neo4j.neo4j.Neo4jGraphSubstrate`.
+    ``max_hops``/``max_anchor_entities`` bound only the fourth leg; both are keyword-only and
+    default so every existing call site is unaffected. Each is refused when it is not a positive
+    integer, matching this module's own guard-at-the-builder convention -- a direct caller of this
+    function gets the same refusal :meth:`~egpt.memory.substrates.GraphSubstrate.traverse` would
+    raise through :class:`~egpt.integrations.memory.graph.neo4j.neo4j.Neo4jGraphSubstrate`.
 
     **Cost model, stated because no index changes it.** The first three legs' scoring runs per row
     over everything that survives the scope, tier, current-belief and window filters, before
     ``ORDER BY ... LIMIT`` -- none of the shipped indexes lead with a column those filter on, so the
     work scales with rows-in-scope rather than with ``limit``. The fourth leg's cost is bounded by
-    the anchor set and ``max_hops`` rather than by corpus size, but is unmeasured at the real
-    envelope, matching the unmeasured question the graph-side isolation benchmark (SM-R2 section
-    5.4) already asks for the other three.
+    the anchor set (now capped at ``max_anchor_entities``, round-1 review) and ``max_hops`` rather
+    than by corpus size, but is unmeasured at the real envelope, matching the unmeasured question
+    the graph-side isolation benchmark (SM-R2 section 5.4) already asks for the other three.
     """
     if not isinstance(max_hops, int) or isinstance(max_hops, bool) or max_hops < 1:
         raise MemoryOperationError(
@@ -348,11 +396,18 @@ def traverse_statements(scope: Scope, *, max_hops: int = DEFAULT_MAX_HOPS) -> Li
             "closes the hop bound at the source rather than accepting an unbounded walk.",
             field_name="max_hops",
         )
+    if not isinstance(max_anchor_entities, int) or isinstance(max_anchor_entities, bool) or max_anchor_entities < 1:
+        raise MemoryOperationError(
+            f"traverse_statements max_anchor_entities must be a positive integer, got "
+            f"{max_anchor_entities!r}. A common query word otherwise matches every entity whose "
+            "name contains it, with nothing capping how many of them the walk starts from.",
+            field_name="max_anchor_entities",
+        )
     return [
         _traverse(f"MATCH (e:{EPISODE})", "e", scope, "traverse_statements"),
         _traverse(f"MATCH (f:{FACT})", "f", scope, "traverse_statements"),
         _traverse(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "traverse_statements"),
-        _traverse_multihop(scope, max_hops, "traverse_statements"),
+        _traverse_multihop(scope, max_hops, max_anchor_entities, "traverse_statements"),
     ]
 
 

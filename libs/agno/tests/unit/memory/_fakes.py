@@ -253,13 +253,19 @@ class FakeGraph:
     history stays reconstructible and ``traverse`` filters to current belief.
     """
 
-    #: Mirrors ``cypher.DEFAULT_MAX_HOPS`` -- kept as a local literal rather than an import so this
-    #: double stays backend-agnostic (it depends on nothing under ``egpt.integrations``). A drift
-    #: between the two only changes how far the double's multi-hop leg walks, not whether it agrees
-    #: with the real backend on any single hop count a test actually asserts.
+    #: Mirrors ``cypher.DEFAULT_MAX_HOPS``/``cypher.DEFAULT_MAX_ANCHOR_ENTITIES`` -- kept as local
+    #: literals rather than an import so this double stays backend-agnostic (it depends on nothing
+    #: under ``egpt.integrations``). A drift between the two only changes how far, or from how many
+    #: anchors, the double's multi-hop leg walks, not whether it agrees with the real backend on any
+    #: single value a test actually asserts.
     DEFAULT_MAX_HOPS = 2
+    DEFAULT_MAX_ANCHOR_ENTITIES = 50
 
-    def __init__(self, max_traverse_hops: int = DEFAULT_MAX_HOPS) -> None:
+    def __init__(
+        self,
+        max_traverse_hops: int = DEFAULT_MAX_HOPS,
+        max_traverse_anchor_entities: int = DEFAULT_MAX_ANCHOR_ENTITIES,
+    ) -> None:
         self.rows: Dict[str, List[MemoryRecord]] = {}
         self.facts: List[FactWrite] = []
         self.calls: List[str] = []
@@ -270,6 +276,7 @@ class FakeGraph:
         #: inside it, so only the request distinguishes filtering in-search from filtering after.
         self.traverse_windows: List[Optional[ValidWindow]] = []
         self.max_traverse_hops = max_traverse_hops
+        self.max_traverse_anchor_entities = max_traverse_anchor_entities
         #: Every id set the provider asked bounds for -- asserting on the *request* is what makes a
         #: missing reconciliation visible, since a result-only assertion cannot see one.
         self.bounds_requests: List[List[str]] = []
@@ -610,6 +617,7 @@ class FakeGraph:
         scope: Scope,
         terms: Set[str],
         max_hops: int,
+        max_anchor_entities: int,
         window: Optional[ValidWindow],
         tiers: Set[MemoryTier],
     ) -> List[MemoryRecord]:
@@ -629,6 +637,29 @@ class FakeGraph:
         merges a bare endpoint node with a ``name`` but no ``key``. Matching on ``self.entities``
         alone would make every such node permanently unreachable as an anchor, silently missing most
         production-extracted relations.
+
+        **The anchor set is capped at ``max_anchor_entities``, ordered by name first (round-1
+        review)** -- ``max_hops`` alone does not bound this leg's cost, since a common query word
+        matches every entity whose name contains it, and an unbounded anchor set drives a walk whose
+        cost scales with it. Matches the real backend's ``ORDER BY anchor.name ASC LIMIT
+        $max_anchors``: which anchors survive the cut is deterministic, not whichever this loop
+        happened to visit first.
+
+        **Every node the BFS touches is scope-isolated by construction, not by an explicit check.**
+        ``edges`` is pre-filtered to ``self._matching(scope)`` and every node key carries its own
+        *write* scope (``row.scope.key()``), not the call scope -- so two users' "acme" nodes are
+        two distinct keys (``(ada_scope_key, "acme")`` vs ``(bob_scope_key, "acme")``) throughout
+        ``frontier``/``seen``/``reached``, and the walk can never cross between them. This is why
+        the double needed no equivalent of the real backend's ``nodes(path)[1..-1]`` scope guard
+        (round-1 review, ``cypher._traverse_multihop``): a real Cypher pattern match can wander
+        through any node in the store unless a predicate excludes it, but this walk only ever visits
+        rows ``_matching`` already scoped in.
+
+        **The tier filter (``tiers``) applies only to what is returned, not to what the walk may
+        cross** -- intentional, matching the real backend's identical choice (round-1 review): an
+        off-tier edge can still be walked *through* to reach a farther edge that is in the requested
+        set, since tier is a read-shape filter over the answer, not a claim that an off-tier edge is
+        absent from the graph the walk is over.
         """
         if not terms:
             return []
@@ -642,11 +673,16 @@ class FakeGraph:
             for name in (row.provenance.get("subject"), row.provenance.get("object")):
                 if name is not None:
                     candidates.add((row.scope.key(), name, None))
-        anchors = {
+        matched = {
             (scope_key, name)
             for scope_key, name, key in candidates
-            if terms & set((key if key is not None else name.lower()).split())
+            # `.split(" ")` filtered to non-empty pieces, not bare `.split()` -- Cypher's
+            # `split(toLower(...), ' ')` splits on a single space only, so a name containing a tab
+            # or a run of consecutive spaces tokenizes differently under Python's any-whitespace
+            # `.split()` than it would against the real backend (round-1 review).
+            if terms & {w for w in (key if key is not None else name.lower()).split(" ") if w}
         }
+        anchors = set(sorted(matched, key=lambda node: node[1])[:max_anchor_entities])
         if not anchors:
             return []
         reached: Dict[str, int] = {}
@@ -694,7 +730,9 @@ class FakeGraph:
             and (window is None or window.overlaps(row.t_valid, row.t_invalid))
         ]
         terms = {word for word in query.text.lower().split() if word}
-        multihop = self._multihop_edges(scope, terms, self.max_traverse_hops, window, tiers)
+        multihop = self._multihop_edges(
+            scope, terms, self.max_traverse_hops, self.max_traverse_anchor_entities, window, tiers
+        )
         # Deduped by (scope, id) keeping the higher score, matching
         # `Neo4jGraphSubstrate._merge_hits`: an edge that both lexically matches the query and sits
         # within `max_hops` of an anchor is a legitimate hit on both legs, and returning it twice
