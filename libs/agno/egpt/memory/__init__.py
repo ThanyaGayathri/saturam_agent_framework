@@ -22,6 +22,11 @@ from egpt.memory.episodic import (
     reinforce,
 )
 from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
+from egpt.memory.episodic.score import (
+    DEFAULT_EPISODIC_SCORE_WEIGHTS,
+    EpisodicScoreWeights,
+    composite_episodic_score,
+)
 from egpt.memory.episodic.segment import (
     DEFAULT_MAX_TURNS_PER_EPISODE,
     DEFAULT_MIN_TURNS_PER_EPISODE,
@@ -239,6 +244,10 @@ __all__ = [
     "aepisode_relevance",
     "cosine_relevance",
     "episode_relevance",
+    # Composite episodic scoring (SM-E7)
+    "DEFAULT_EPISODIC_SCORE_WEIGHTS",
+    "EpisodicScoreWeights",
+    "composite_episodic_score",
     # The consolidation scheduler (SM-L1)
     "ConsolidationOutcome",
     "ConsolidationWorker",

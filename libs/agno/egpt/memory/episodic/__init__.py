@@ -1,12 +1,12 @@
 """Episodic-tier scoring, graph-link resolution, and segmentation (SM-E3 #110, SM-E4 #111,
-SM-E5 #112, SM-E6 #113, SM-E10 #117).
+SM-E5 #112, SM-E6 #113, SM-E7 #114, SM-E10 #117).
 
 Re-exports the tier's scorers -- SM-E4's recency-decay module (:mod:`egpt.memory.episodic.decay`),
 SM-E5's salience scorer (:mod:`egpt.memory.episodic.importance`), SM-E6's relevance module
-(:mod:`egpt.memory.episodic.relevance`) -- SM-E10's :mod:`egpt.memory.episodic.link`, which
+(:mod:`egpt.memory.episodic.relevance`), SM-E7's composite module
+(:mod:`egpt.memory.episodic.score`) -- SM-E10's :mod:`egpt.memory.episodic.link`, which
 resolves an episode's derived graph link back against a live ``GraphSubstrate``, and SM-E3's
-SM-R6 v1 inline segmenter (:mod:`egpt.memory.episodic.segment`). The module composing the three
-scorers (SM-E7 #114) lands here alongside them.
+SM-R6 v1 inline segmenter (:mod:`egpt.memory.episodic.segment`).
 """
 
 from egpt.memory.episodic.decay import (
@@ -25,6 +25,11 @@ from egpt.memory.episodic.link import (
     resolve_episode_link,
 )
 from egpt.memory.episodic.relevance import EmbedderLike, aepisode_relevance, cosine_relevance, episode_relevance
+from egpt.memory.episodic.score import (
+    DEFAULT_EPISODIC_SCORE_WEIGHTS,
+    EpisodicScoreWeights,
+    composite_episodic_score,
+)
 from egpt.memory.episodic.segment import (
     DEFAULT_MAX_TURNS_PER_EPISODE,
     DEFAULT_MIN_TURNS_PER_EPISODE,
@@ -40,6 +45,7 @@ from egpt.memory.episodic.segment import (
 
 __all__ = [
     "DEFAULT_BASE_HALF_LIFE_S",
+    "DEFAULT_EPISODIC_SCORE_WEIGHTS",
     "DEFAULT_IMP_FACTOR",
     "DEFAULT_MAX_TURNS_PER_EPISODE",
     "DEFAULT_MIN_TURNS_PER_EPISODE",
@@ -49,11 +55,13 @@ __all__ = [
     "BoundaryDecision",
     "EmbedderLike",
     "EpisodeLink",
+    "EpisodicScoreWeights",
     "ImportanceScore",
     "ImportanceScorer",
     "SegmentState",
     "aepisode_relevance",
     "aresolve_episode_link",
+    "composite_episodic_score",
     "cosine_relevance",
     "episode_decay_score",
     "episode_link_drift",
