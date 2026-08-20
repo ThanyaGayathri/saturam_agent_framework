@@ -564,7 +564,15 @@ class RelationExtractionPipeline:
         (``expired_at IS NULL``) on the transaction axis, which is every row this batch could
         possibly need to retire. A ``t_invalid``-closed valid-time interval is a *different* axis --
         handled by :meth:`_contradicted`'s own ``rec.t_invalid`` check, not by narrowing this
-        lookup."""
+        lookup.
+
+        ``entities=self._subjects(facts)`` matches a fact edge whose subject **or** object is one
+        of these names (``recall_facts``'s own contract) -- a superset of what this batch's
+        candidates can actually contradict, since only the subject side is relevant here. An edge
+        where one of these names appears only as the *object* is over-fetched and then dropped by
+        :meth:`_contradicted`'s own ``subject != candidate.subject`` check. Correct and harmless
+        (no narrower entity filter exists on the port), just wider than the eventual result.
+        """
         contradictions: Dict[str, int] = {}
         for relation, facts in self._by_relation(batch):
             existing = self.graph.recall_facts(scope, entities=self._subjects(facts), relation=relation)
