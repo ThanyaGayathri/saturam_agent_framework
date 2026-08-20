@@ -490,6 +490,34 @@ def test_custom_scope_mappings_override_defaults():
     assert middleware.scope_mappings["GET /agents"] == ["custom:agents:read"]
 
 
+def test_components_audit_scope_enabled_swaps_the_audit_route_scope():
+    """aicoe-tracker#170: the flag swaps components:read for components:audit on the audit
+    route, in both the JWT scope map and the service-account scope map."""
+    middleware = JWTMiddleware(
+        app=None,
+        verification_keys=[JWT_SECRET],
+        algorithm="HS256",
+        authorization=True,
+        components_audit_scope_enabled=True,
+    )
+
+    assert middleware.scope_mappings["GET /components/*/audit"] == ["components:audit"]
+    assert middleware.service_account_scope_mappings["GET /components/*/audit"] == ["components:audit"]
+
+
+def test_components_audit_scope_enabled_defaults_false():
+    """Default behaviour is unchanged: components:read still gates the audit route."""
+    middleware = JWTMiddleware(
+        app=None,
+        verification_keys=[JWT_SECRET],
+        algorithm="HS256",
+        authorization=True,
+    )
+
+    assert middleware.scope_mappings["GET /components/*/audit"] == ["components:read"]
+    assert middleware.service_account_scope_mappings["GET /components/*/audit"] == ["components:read"]
+
+
 def test_custom_admin_scope():
     """Test that custom admin scope is used."""
     middleware = JWTMiddleware(

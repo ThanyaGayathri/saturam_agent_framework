@@ -96,7 +96,11 @@ def get_components_router(
     router = APIRouter(
         dependencies=[
             Depends(get_authentication_dependency(settings)),
-            Depends(require_route_scopes("/components")),
+            Depends(
+                require_route_scopes(
+                    "/components", components_audit_scope_enabled=settings.components_audit_scope_enabled
+                )
+            ),
             Depends(require_tenant_id),
         ],
         tags=["Components"],

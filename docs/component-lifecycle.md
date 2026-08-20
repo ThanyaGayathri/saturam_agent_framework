@@ -175,16 +175,25 @@ widest possible access, so it has to be refused; an actor of `None` grants nothi
 GET /components/{component_id}/audit
 ```
 
-Scope `components:read` — the same scope as `GET /components` and `GET /components/*/configs/*`.
-This is deliberate reuse, not an oversight: `actor` is already exposed under read scopes
-elsewhere in this API (sessions, runs), so anyone who can already read a component's config can
-now also see who has been changing it. Newest first, paginated like `GET /components`.
+Scope `components:read` by default — the same scope as `GET /components` and
+`GET /components/*/configs/*`. This was deliberate reuse, not an oversight: `actor` is already
+exposed under read scopes elsewhere in this API (sessions, runs), so anyone who can already read
+a component's config can also see who has been changing it. Newest first, paginated like
+`GET /components`.
 
-It is worth being explicit that this is an **accepted decision rather than a settled one**. The
-audit trail is the one surface whose purpose is attribution, and in most governance models "can
-read config" and "can see who touched it" are separable grants. The reuse holds the line with the
-rest of the API today; a deployment that needs the split wants a dedicated `components:audit`
-scope, which is tracked in aicoe-tracker #170.
+The audit trail is the one surface whose purpose is attribution, and in most governance models
+"can read config" and "can see who touched it" are separable grants. A deployment that needs the
+split can set `components_audit_scope_enabled=True` on `EgptServingSettings` (or the
+`EGPT_COMPONENTS_AUDIT_SCOPE_ENABLED` env var, aicoe-tracker#170): this route then requires a
+dedicated `components:audit` scope instead, and a `components:read`-only token is refused. The
+setting defaults to `False`, so existing `components:read`-only tokens keep working until a
+deployment opts in. (The bare `COMPONENTS_AUDIT_SCOPE_ENABLED` spelling also works as a legacy
+fallback, but fires a deprecation warning on every read — use the `EGPT_`-prefixed form.)
+
+Rolling back is not symmetric: disabling the flag after `components:audit`-only tokens have been
+minted locks those tokens out of the audit route (403, since scope checks are AND-only and there
+is no fallback to `components:read`). Coordinate a rollback with token holders, or re-mint their
+tokens with `components:read` first.
 
 | Parameter | Notes |
 |---|---|
@@ -199,7 +208,7 @@ scope, which is tracked in aicoe-tracker #170.
 | Component soft- or hard-deleted, `include_deleted` unset | 404, byte-identical |
 | Component soft- or hard-deleted, `include_deleted=true`, history exists | 200, full history |
 | Unknown `action` filter | 422 |
-| Missing `components:read` | 403 |
+| Missing `components:read` (or `components:audit` when the split is enabled) | 403 |
 
 An unknown `action` is rejected rather than answered with an empty page, so a typo'd filter is
 never mistaken for a component that nothing ever happened to.
@@ -208,9 +217,9 @@ The response never includes `tenant_id`, matching every other component response
 
 ### Reading past a delete
 
-`include_deleted=true` opts into seeing a deleted component's history, under the same
-`components:read` scope as the rest of this route — no dedicated scope (that split is still
-tracked separately in aicoe-tracker #170).
+`include_deleted=true` opts into seeing a deleted component's history, under the same scope as
+the rest of this route — `components:read` by default, or `components:audit` when
+`components_audit_scope_enabled` is on (see above).
 
 Soft and hard delete need different proof of existence, because they leave different things
 behind. A soft delete leaves the `components` row in place (`deleted_at` set), so

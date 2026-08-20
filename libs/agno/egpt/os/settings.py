@@ -62,6 +62,20 @@ class EgptServingSettings(BrandedSettings):
         json_schema_extra=bare_env("HYDRATE_PUBLISHED_ONLY"),
     )
 
+    # When True, GET /components/*/audit requires a dedicated components:audit scope instead
+    # of reusing components:read. Default False: existing components:read-only tokens keep
+    # working until a deployment opts in to the split (aicoe-tracker#170). Set via
+    # EGPT_COMPONENTS_AUDIT_SCOPE_ENABLED (the bare COMPONENTS_AUDIT_SCOPE_ENABLED spelling
+    # also works, via bare_env's legacy fallback, but fires a FutureWarning on every read --
+    # since this setting has no legacy deployments to support, the branded spelling is the
+    # one to use).
+    components_audit_scope_enabled: bool = Field(
+        default=False,
+        description="Require components:audit (instead of components:read) for the component audit "
+        "endpoint. Set via EGPT_COMPONENTS_AUDIT_SCOPE_ENABLED.",
+        json_schema_extra=bare_env("COMPONENTS_AUDIT_SCOPE_ENABLED"),
+    )
+
     # Cors origin list to allow requests from.
     # This list is set using the set_cors_origin_list validator
     cors_origin_list: Optional[List[str]] = Field(
