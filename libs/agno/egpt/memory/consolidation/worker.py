@@ -14,9 +14,11 @@ cancel-and-await on stop, structurally the same as ``SchedulePoller``.
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Sequence, Union
 
+from egpt.memory.consolidation.triggers import ConsolidationTrigger
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.types import ConsolidationReport, Scope, entity_extraction_complete
 from egpt.utils.log import log_error, log_info, log_warning
@@ -112,6 +114,8 @@ class ConsolidationWorker:
         max_retries: int = 3,
         retry_delay: float = 5.0,
         stop_timeout: float = _DEFAULT_STOP_TIMEOUT,
+        trigger: Optional[ConsolidationTrigger] = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self.provider = provider
         self.scopes = scopes
@@ -122,6 +126,10 @@ class ConsolidationWorker:
         self.max_retries = _non_negative_int(max_retries, "max_retries")
         self.retry_delay = _positive(retry_delay, "retry_delay")
         self.stop_timeout = _positive(stop_timeout, "stop_timeout")
+        #: SM-L2's trigger policy (#123). `None` preserves SM-L1's original behaviour exactly --
+        #: every configured scope drains on every tick, regardless of whether anything changed.
+        self.trigger = trigger
+        self.clock = clock
         self._task: Optional["asyncio.Task[None]"] = None
         self._running = False
         self._wake: Optional[asyncio.Event] = None
@@ -147,9 +155,24 @@ class ConsolidationWorker:
         both read it before either advances it. Direct calls are for tests and one-shot
         invocations; a caller running the loop should let it drive `run_once` on its own
         schedule instead of also calling it manually.
+
+        **Trigger-gated (SM-L2 #123)**: with ``self.trigger`` set, a scope is drained only when
+        ``trigger.should_fire`` says so as of ``self.clock()`` -- a scope that does not fire is
+        left out of the returned list entirely, not included with empty reports, so a caller
+        counting drained scopes never mistakes "not due" for "drained nothing". A scope that
+        drains without error has the trigger reset afterward; one that errors keeps its
+        accumulated state, so the next tick's `should_fire` still reflects the still-pending work.
         """
         scopes = _resolve_scopes(self.scopes)
-        return list(await asyncio.gather(*(self._drain_scope(scope) for scope in scopes)))
+        if self.trigger is not None:
+            now = self.clock()
+            scopes = [scope for scope in scopes if self.trigger.should_fire(scope, now=now)]
+        outcomes = list(await asyncio.gather(*(self._drain_scope(scope) for scope in scopes)))
+        if self.trigger is not None:
+            for outcome in outcomes:
+                if outcome.error is None:
+                    self.trigger.reset(outcome.scope)
+        return outcomes
 
     async def _drain_scope(self, scope: Scope) -> ConsolidationOutcome:
         outcome = ConsolidationOutcome(scope=scope)

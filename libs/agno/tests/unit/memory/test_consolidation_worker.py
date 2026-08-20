@@ -12,7 +12,7 @@ import pytest
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
-from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker
+from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker, EventCountTrigger
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import ConsolidationReport, MemoryEvent, Scope
 from tests.unit.memory._fakes import FakeGraph, FakeVector
@@ -414,6 +414,81 @@ def test_construction_refuses_a_non_positive_bound(option, value):
     provider, _, _ = make_provider()
     with pytest.raises(ValueError, match=option):
         ConsolidationWorker(provider, [ACME], **{option: value})
+
+
+async def test_run_once_skips_a_scope_the_trigger_has_not_fired_for():
+    """SM-L2 (#123): with a trigger configured, a scope that has not crossed its threshold is left
+    out of the tick entirely -- not drained with an empty report.
+
+    Mutation guard: if the worker ignored `self.trigger` (SM-L1's original, always-drain
+    behaviour), this would return an outcome for ACME instead of an empty list.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    trigger = EventCountTrigger(threshold=3)
+    trigger.record_event(ACME, now=0.0)  # below the threshold of 3
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, retry_delay=0.001)
+
+    outcomes = await worker.run_once()
+
+    assert outcomes == []
+
+
+async def test_run_once_drains_a_scope_the_trigger_has_fired_for():
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    trigger = EventCountTrigger(threshold=1)
+    trigger.record_event(ACME, now=0.0)
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, retry_delay=0.001)
+
+    outcomes = await worker.run_once()
+
+    assert len(outcomes) == 1
+    assert outcomes[0].scope == ACME
+    assert outcomes[0].error is None
+
+
+async def test_a_successful_drain_resets_the_trigger():
+    """A scope that just drained must not still read as due next tick -- otherwise every scope
+    fires forever once its threshold is crossed once.
+
+    Mutation guard: skipping the `trigger.reset` call after a successful drain would make the
+    second `run_once` also return ACME's outcome instead of an empty list.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    trigger = EventCountTrigger(threshold=1)
+    trigger.record_event(ACME, now=0.0)
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, retry_delay=0.001)
+
+    first = await worker.run_once()
+    assert len(first) == 1
+
+    second = await worker.run_once()
+
+    assert second == []
+
+
+async def test_a_failed_drain_does_not_reset_the_trigger():
+    """The trigger's accumulated state (still-pending work) must survive a failed tick, so the
+    next tick's `should_fire` still reflects it rather than losing the signal to a transient error.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+
+    async def always_fails(scope, tiers=None):
+        raise RuntimeError("backend unreachable")
+
+    provider.aconsolidate = always_fails
+    trigger = EventCountTrigger(threshold=1)
+    trigger.record_event(ACME, now=0.0)
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, max_retries=0, retry_delay=0.001)
+
+    first = await worker.run_once()
+    assert len(first) == 1
+    assert first[0].error is not None
+
+    assert trigger.should_fire(ACME, now=0.0) is True
 
 
 def test_max_retries_zero_is_accepted_as_fail_fast():
