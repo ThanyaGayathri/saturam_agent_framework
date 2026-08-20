@@ -17,6 +17,7 @@ matching the port's "no query-time LLM" contract.
 
 import os
 
+from egpt.integrations.memory.graph.neo4j import Neo4jGraphSubstrate
 from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import EntityWrite, FactWrite, MemoryQuery, MemoryRecord, Scope
@@ -109,7 +110,6 @@ assert "berlin-part-of-germany" not in by_id, "hop 3 is beyond the default 2-hop
 
 print()
 print("--- the bound is set at construction, not per call -- try 1 hop and 3 hops ---")
-from egpt.integrations.memory.graph.neo4j import Neo4jGraphSubstrate  # noqa: E402
 
 
 def substrate_with(max_traverse_hops):

@@ -820,6 +820,14 @@ def test_multihop_traversal_scopes_every_intermediate_node_not_only_the_far_end(
     normally prevent this), with every scope property an edge would otherwise carry set to ada's
     own -- isolating the assertion to the node-scope guard specifically, not the pre-existing
     edge-scope or ``other``-scope checks, which would otherwise also explain a pass.
+
+    **A positive witness edge, not only the negative assertion (round-2 review, Critical).** A
+    purely negative ``assert "edge2-mole-secret" not in hits`` passes vacuously if the whole leg
+    silently returns nothing -- for any reason, not only the guard under test. ``friend``/
+    ``workplace`` sit entirely inside ada's own scope, two genuine hops from the anchor with no
+    lexical overlap with the query at all, so ``workplace-edge`` appearing in ``hits`` is direct
+    evidence the multi-hop leg walked two hops and returned something on *this* call, not merely
+    that a foreign edge happened to be absent.
     """
     ada, globex = ACME, GLOBEX
     graph.upsert_entities(
@@ -827,9 +835,32 @@ def test_multihop_traversal_scopes_every_intermediate_node_not_only_the_far_end(
         [
             EntityWrite(name="ada", entity_type="person", scope=ada),
             EntityWrite(name="secret", entity_type="thing", scope=ada),
+            EntityWrite(name="friend", entity_type="person", scope=ada),
+            EntityWrite(name="workplace", entity_type="thing", scope=ada),
         ],
     )
     graph.upsert_entities(globex, [EntityWrite(name="mole", entity_type="person", scope=globex)])
+    graph.upsert_facts(
+        ada,
+        [
+            fact(
+                "friend-edge",
+                "it is a close relationship",
+                scope=ada,
+                subject="ada",
+                predicate="knows",
+                object="friend",
+            ),
+            fact(
+                "workplace-edge",
+                "it operates five days a week",
+                scope=ada,
+                subject="friend",
+                predicate="works_at",
+                object="workplace",
+            ),
+        ],
+    )
 
     def rel_props(edge_id, subject, object_):
         return {
@@ -866,7 +897,91 @@ def test_multihop_traversal_scopes_every_intermediate_node_not_only_the_far_end(
 
     hits = ids(graph.traverse(ada, MemoryQuery(text="tell me about ada")))
 
+    assert "workplace-edge" in hits, "the multi-hop leg must still be reaching genuine two-hop, in-scope edges"
     assert "edge2-mole-secret" not in hits, "the walk must not cross the foreign-scoped intermediate node"
+
+
+def test_multihop_traversal_scopes_every_intermediate_edge_too(graph):
+    """Round-2 review, Minor: the ``all(rel IN relationships(path) ...)`` guard checked
+    current-belief and the window on every path edge, but not each edge's own ``scope_key`` --
+    that was left to the post-``UNWIND`` ``rel_predicate``, which only decides whether *that*
+    edge is *returned*, not whether the path may be walked *through* it to reach a farther one.
+
+    Distinct from ``test_multihop_traversal_scopes_every_intermediate_node_not_only_the_far_end``:
+    here every *node* on the path is correctly ada-scoped (so the node guard has nothing to catch)
+    and only the *intermediate edge's own* ``scope_key`` property is wrong -- a data-integrity
+    anomaly, not a reachable write-path bug (a genuine write always stamps an edge's `scope_key`
+    from the same call as both its endpoints), constructed here with raw Cypher to isolate this
+    guard specifically. Without it, the pre-existing post-``UNWIND`` ``rel_predicate`` still keeps
+    the mis-scoped edge itself from being *returned* (it checks the individual ``SCOPE_SLOTS``
+    properties, which this edge's own content lexically matching "ada" would otherwise also make
+    reachable through the unrelated flat leg -- not this finding's concern, so the edge's content
+    here avoids the anchor word entirely). What only the new guard prevents is the walk continuing
+    *through* the mis-scoped edge to reach ``edge2`` -- the same "walk through a violation to reach
+    something legitimate" shape as the node case.
+    """
+    ada = ACME
+    graph.upsert_entities(
+        ada,
+        [
+            EntityWrite(name="ada", entity_type="person", scope=ada),
+            EntityWrite(name="mid", entity_type="thing", scope=ada),
+            EntityWrite(name="far", entity_type="thing", scope=ada),
+            EntityWrite(name="colleague", entity_type="person", scope=ada),
+        ],
+    )
+    # A witness edge, fully in-scope and reachable at hop 1 -- positive evidence the leg still
+    # runs on this call, not only that the anomalous edge happens to be absent (round-2 review).
+    graph.upsert_facts(
+        ada,
+        [
+            fact(
+                "witness-edge", "it has worked together for years", subject="ada", predicate="knows", object="colleague"
+            )
+        ],
+    )
+
+    def rel_props(edge_id, content, scope_key):
+        # `content` deliberately avoids "ada" -- the flat direct-content leg scopes by the
+        # individual SCOPE_SLOTS properties, not `scope_key`, so a mis-scoped-by-`scope_key`-alone
+        # edge whose content lexically matches the query is still visible through that unrelated
+        # leg. Not this finding's concern; excluded here so it cannot explain either assertion.
+        return {
+            "id": edge_id,
+            "row_id": f"{edge_id}-row",
+            "live": True,
+            "tier": "semantic",
+            "content": content,
+            "scope_key": scope_key,
+            "tenant_id": ada.tenant_id,
+            "user_id": ada.user_id,
+            "predicate": "knows",
+            "t_valid": 100,
+            "created_at": 100,
+            "provenance": "{}",
+            "metadata": "{}",
+        }
+
+    with graph._driver.session(database=graph.database) as session:
+        # edge1's endpoints are both correctly ada-scoped nodes -- only the edge's own `scope_key`
+        # property is wrong, so the node-level guards have nothing to reject here.
+        session.run(
+            "MATCH (a:Entity {scope_key: $ada_key, name: 'ada'}), (m:Entity {scope_key: $ada_key, name: 'mid'}) "
+            "CREATE (a)-[r:REL]->(m) SET r = $props",
+            ada_key=ada.key(),
+            props=rel_props("edge1-wrong-scope", "a first connection", "not-a-real-scope-key"),
+        )
+        session.run(
+            "MATCH (m:Entity {scope_key: $ada_key, name: 'mid'}), (f:Entity {scope_key: $ada_key, name: 'far'}) "
+            "CREATE (m)-[r:REL]->(f) SET r = $props",
+            ada_key=ada.key(),
+            props=rel_props("edge2-past-the-anomaly", "a second connection", ada.key()),
+        )
+
+    hits = ids(graph.traverse(ada, MemoryQuery(text="tell me about ada")))
+
+    assert "witness-edge" in hits, "the multi-hop leg must still be reaching genuine in-scope edges"
+    assert "edge2-past-the-anomaly" not in hits, "the walk must not cross the mis-scoped edge to reach a farther one"
 
 
 def test_multihop_traversal_respects_the_configured_hop_bound(graph):
@@ -930,6 +1045,10 @@ def test_multihop_traversal_caps_the_anchor_set(graph):
 
         hits = ids(bounded.traverse(ACME, MemoryQuery(text="tell me about acme")))
 
+        # Positive assertions first (round-2 review, Critical): a purely negative check passes
+        # vacuously if the whole leg returns nothing (broken Cypher, an unbound parameter), which
+        # proves nothing about the cap operating at 2 rather than at 0.
+        assert "f-alpha" in hits and "f-beta" in hits, "the two lower-sorted anchors must still reach their edges"
         # Deterministic by name: "acme alpha" and "acme beta" sort before "acme gamma".
         assert "f-gamma" not in hits, "the third-sorted anchor must be cut by the cap"
     finally:

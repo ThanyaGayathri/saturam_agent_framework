@@ -103,6 +103,45 @@ def test_a_hop_beyond_the_configured_bound_is_not_returned():
     assert "hop2" not in hits
 
 
+def test_the_anchor_set_is_capped_and_ordered_deterministically():
+    """Round-1 review, Major: the hop bound alone does not cap this leg's cost -- a common query
+    word matches every entity whose name contains it. Round-2 review: the double had no matching
+    test at all. Two entities both match "acme"; capped to 1, only the first-sorted one becomes an
+    anchor, so only its edge is walkable. Content is phrased without "acme" in it, so the flat
+    direct-content leg cannot also explain a pass (same isolation ``graph_with_chain``'s own tests
+    use).
+    """
+    graph = FakeGraph(max_traverse_anchor_entities=1)
+    graph.upsert_entities(ACME, [entity("acme alpha"), entity("acme beta")])
+    graph.upsert_facts(
+        ACME,
+        [
+            FactWrite(
+                record=MemoryRecord(
+                    id="f-alpha", tier=MemoryTier.SEMANTIC, content="it operates here", scope=ACME, t_valid=100
+                ),
+                subject="acme alpha",
+                predicate="operates",
+                object="widgets",
+            ),
+            FactWrite(
+                record=MemoryRecord(
+                    id="f-beta", tier=MemoryTier.SEMANTIC, content="it operates there", scope=ACME, t_valid=100
+                ),
+                subject="acme beta",
+                predicate="operates",
+                object="gadgets",
+            ),
+        ],
+    )
+
+    hits = {r.id for r in graph.traverse(ACME, MemoryQuery(text="tell me about acme"))}
+
+    # Deterministic by name: "acme alpha" sorts before "acme beta".
+    assert "f-alpha" in hits, "the first-sorted anchor must still reach its edge"
+    assert "f-beta" not in hits, "the second-sorted anchor must be cut by the cap"
+
+
 def test_no_entity_lexically_matches_the_query_yields_no_multihop_candidates():
     """An anchor set of zero is a legitimate answer -- nothing to walk from, not an error."""
     graph = graph_with_chain()
@@ -194,9 +233,15 @@ def test_an_out_of_window_edge_cannot_be_walked_through_to_reach_a_farther_hop()
         replace(r, t_valid=100, t_invalid=200) if r.id == "hop1" else r for r in graph.rows[ACME.tenant_id]
     ]
 
-    hits = {r.id for r in graph.traverse(ACME, MemoryQuery(text="acme", valid_from=400, valid_to=600))}
-
+    windowed = MemoryQuery(text="acme", valid_from=400, valid_to=600)
+    hits = {r.id for r in graph.traverse(ACME, windowed)}
     assert hits == set(), "hop1 is outside the window, so hop2 is unreachable through it"
+
+    # A positive companion, not only the negative assertion (round-2 review, Critical): a purely
+    # negative check passes vacuously if the whole leg silently returns nothing regardless of the
+    # window. Confirms hop2 *is* reachable through hop1 once the window stops excluding it.
+    unwindowed = {r.id for r in graph.traverse(ACME, MemoryQuery(text="acme"))}
+    assert "hop2" in unwindowed
 
 
 # -- AC: feeds fusion; no query-time LLM ---------------------------------------

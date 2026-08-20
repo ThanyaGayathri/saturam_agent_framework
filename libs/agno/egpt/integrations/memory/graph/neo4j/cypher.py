@@ -36,6 +36,7 @@ from egpt.memory.graph.semantic import require_fact_filters
 from egpt.memory.types import SCOPE_SLOTS, Scope, require_scope
 
 __all__ = [
+    "DEFAULT_MAX_ANCHOR_ENTITIES",
     "DEFAULT_MAX_HOPS",
     "ENTITY",
     "ENTITY_PROPERTIES",
@@ -352,7 +353,8 @@ def _traverse_multihop(
         "WHERE other.scope_key = anchor.scope_key "
         "AND all(n IN nodes(path)[1..-1] WHERE n.scope_key = anchor.scope_key) "
         "AND all(rel IN relationships(path) "
-        f"WHERE rel.expired_at IS NULL AND {_window_predicate('rel')}) "
+        "WHERE rel.expired_at IS NULL AND rel.scope_key = anchor.scope_key "
+        f"AND {_window_predicate('rel')}) "
         "UNWIND range(0, size(relationships(path)) - 1) AS idx "
         "WITH relationships(path)[idx] AS r, idx + 1 AS hop "
         f"WHERE {rel_predicate} AND r.tier IN $tiers "
@@ -360,6 +362,12 @@ def _traverse_multihop(
         "WITH r AS row, 1.0 / toFloat(1 + hop) AS score "
         f"{_RETURN} {_ORDER}"
     )
+    # `anchor_params` and `rel_params` are both built from the same `scope` (`scope_predicate`
+    # keys its dict on bare `SCOPE_SLOTS` names, not on the alias), so the merge is a safe no-op
+    # today: both dicts agree on every key. That invariant is what makes it safe, not the merge
+    # itself -- if this ever needs two *different* scopes (a wider anchor scope, a narrower rel
+    # scope), the param names must be aliased (e.g. `anchor_tenant_id` vs `rel_tenant_id`) before
+    # they diverge, or one silently overwrites the other with no error (round-2 review, Major).
     return text, {**anchor_params, **rel_params, "max_anchors": max_anchor_entities}
 
 
@@ -375,6 +383,16 @@ def traverse_statements(
 
     Separate statements rather than one ``UNION``: a union of four ranked, limited legs still needs
     a merge above it, so it buys nothing and costs the ability to read each statement on its own.
+
+    **Every returned statement references five parameters this function does not bind**: ``$terms``,
+    ``$tiers``, ``$limit``, ``$valid_from``, ``$valid_to`` -- everything scope-related (every
+    :data:`SCOPE_SLOTS` name) *is* bound, in each statement's own returned ``params``, via
+    ``scope_predicate``. The five above are per-query rather than per-scope (this function only ever
+    sees ``scope``), so ``Neo4jGraphSubstrate.traverse``/``atraverse`` binds them once per read,
+    exactly as they already had to for the pre-SM-G9 row-level legs -- not a new pattern this leg
+    introduces, but worth stating here since a direct caller of this function (round-2 review) has
+    no other signal that these five are missing. Running a returned statement with only its own
+    ``params`` dict is a Cypher "unbound parameter" error, not a silent miss.
 
     ``max_hops``/``max_anchor_entities`` bound only the fourth leg; both are keyword-only and
     default so every existing call site is unaffected. Each is refused when it is not a positive

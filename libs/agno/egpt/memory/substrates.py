@@ -513,7 +513,7 @@ class GraphSubstrate(Protocol):
         names -- multi-hop associative recall a lexical or vector scorer cannot infer, because it
         surfaces a fact the query shares no words or embedding-similar content with, only a
         graph-adjacent entity. Anchor selection is lexical (word overlap against a stored entity's
-        normalised key); the hop bound **and** the anchor-set size are both **backend-level** ceilings set
+        normalised key); the hop bound **and** the anchor-set size are both **backend-level ceilings** set
         at construction, not per-call parameters this method exposes -- a caller cannot ask for an
         unbounded walk, and a common query word cannot alone drive an unbounded anchor fan-out
         either. Neither leg calls a model: this read path is LLM-free, matching the port's own

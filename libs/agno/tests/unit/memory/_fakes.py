@@ -680,7 +680,12 @@ class FakeGraph:
             # `split(toLower(...), ' ')` splits on a single space only, so a name containing a tab
             # or a run of consecutive spaces tokenizes differently under Python's any-whitespace
             # `.split()` than it would against the real backend (round-1 review).
-            if terms & {w for w in (key if key is not None else name.lower()).split(" ") if w}
+            # `.lower()` applied to whichever branch is taken, matching Cypher's
+            # `toLower(coalesce(key, name))` exactly -- `key` is already lowercase by construction
+            # (`normalize_entity_name`), so this is inert today, but a branch-specific `.lower()`
+            # would silently diverge from the real backend if that ever stopped being true
+            # (round-2 review).
+            if terms & {w for w in (key if key is not None else name).lower().split(" ") if w}
         }
         anchors = set(sorted(matched, key=lambda node: node[1])[:max_anchor_entities])
         if not anchors:
