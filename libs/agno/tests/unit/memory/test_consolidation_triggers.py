@@ -8,6 +8,7 @@ import pytest
 
 from egpt.memory.consolidation.triggers import (
     AnyTrigger,
+    ConsolidationTrigger,
     EventCountTrigger,
     IdleTrigger,
     LatencyTrigger,
@@ -107,6 +108,22 @@ class TestSizeTrigger:
         trigger.record_event(ACME, now=1.0)
         assert trigger.should_fire(ACME, now=1.0) is True
 
+    def test_per_tenant_threshold_overrides_the_default(self):
+        """Mirrors `TestEventCountTrigger`'s equivalent test -- both classes share
+        `_AccumulatingTrigger`, so a per-tenant resolution regression in the shared base could slip
+        through CI if only one of the two subclasses exercised it.
+
+        Mutation guard: reading `.default` unconditionally instead of resolving by tenant would
+        make acme's trigger require size 100 too, not fire at size 20.
+        """
+        threshold = PerTenantThreshold(default=100, by_tenant={"acme": 20})
+        trigger = SizeTrigger(threshold=threshold)
+        trigger.record_event(ACME, now=0.0, size=20.0)
+        trigger.record_event(GLOBEX, now=0.0, size=20.0)
+
+        assert trigger.should_fire(ACME, now=0.0) is True
+        assert trigger.should_fire(GLOBEX, now=0.0) is False
+
 
 class TestLatencyTrigger:
     def test_fires_once_the_oldest_pending_event_ages_past_the_bound(self):
@@ -139,6 +156,15 @@ class TestLatencyTrigger:
     def test_no_pending_events_never_fires(self):
         trigger = LatencyTrigger(max_age_seconds=10)
         assert trigger.should_fire(ACME, now=1000.0) is False
+
+    def test_reset_of_an_unseen_scope_is_a_no_op(self):
+        """Mirrors `TestEventCountTrigger`'s equivalent test. `reset` pops with a default, but
+        `record_event` is not the only caller of the underlying dict -- pinning this per-class
+        catches a mutation to a bare (no-default) `.pop(key)` slipping into any one of them.
+        """
+        trigger = LatencyTrigger(max_age_seconds=10)
+        trigger.reset(ACME)  # must not raise
+        assert trigger.should_fire(ACME, now=0.0) is False
 
 
 class TestIdleTrigger:
@@ -173,6 +199,41 @@ class TestIdleTrigger:
         trigger.record_event(ACME, now=0.0)
         trigger.reset(ACME)
         assert trigger.should_fire(ACME, now=100.0) is False
+
+    def test_reset_of_an_unseen_scope_is_a_no_op(self):
+        trigger = IdleTrigger(idle_seconds=30)
+        trigger.reset(ACME)  # must not raise
+        assert trigger.should_fire(ACME, now=0.0) is False
+
+
+class TestPerTenantThreshold:
+    def test_default_must_be_positive_standalone(self):
+        """`PerTenantThreshold` validates itself at construction, independent of whether it is ever
+        passed to a trigger -- a caller building a config object before wiring it up to anything
+        must not be able to hold an invalid one.
+        """
+        with pytest.raises(ValueError, match="default"):
+            PerTenantThreshold(default=-1.0)
+
+    def test_by_tenant_override_must_be_positive_standalone(self):
+        with pytest.raises(ValueError, match="by_tenant"):
+            PerTenantThreshold(default=5.0, by_tenant={"acme": 0.0})
+
+    def test_mutating_the_original_mapping_after_construction_does_not_affect_resolve(self):
+        """`frozen=True` only stops rebinding `by_tenant` itself, not mutating the dict a caller
+        passed in and kept a handle to -- `__post_init__` must defensively copy it, or a threshold
+        already validated as positive could be flipped to 0.0 after the fact with nothing to catch
+        it a second time.
+
+        Mutation guard: `object.__setattr__(self, "by_tenant", self.by_tenant)` (no `dict(...)`
+        copy) would make `resolve("acme")` return the mutated 0.0 instead of the original 2.0.
+        """
+        overrides = {"acme": 2.0}
+        threshold = PerTenantThreshold(default=10.0, by_tenant=overrides)
+
+        overrides["acme"] = 0.0
+
+        assert threshold.resolve("acme") == 2.0
 
 
 class TestAnyTrigger:
@@ -213,3 +274,61 @@ class TestAnyTrigger:
     def test_construction_refuses_an_empty_trigger_list(self):
         with pytest.raises(ValueError, match="at least one"):
             AnyTrigger([])
+
+    def test_record_event_reaches_every_child_even_when_one_raises(self):
+        """`ConsolidationTrigger` is a `Protocol` -- a caller-supplied implementation (DB-backed,
+        network-backed) can raise from `record_event`. A raise from the first child must not
+        starve the second of the event it depends on to ever fire.
+
+        Mutation guard: dropping the `try`/`except` around each child call would propagate the
+        `RuntimeError` out of `record_event` instead of letting `counts` still receive the event.
+        """
+        raising = _RaisingTrigger()
+        counts = EventCountTrigger(threshold=1)
+        combined = AnyTrigger([raising, counts])
+
+        combined.record_event(ACME, now=0.0)  # must not raise
+
+        assert combined.should_fire(ACME, now=0.0) is True, "the second child must still have fired"
+
+    def test_reset_reaches_every_child_even_when_one_raises(self):
+        """Mutation guard: dropping the `try`/`except` around each child call would leave `counts`
+        still armed after `reset`, so `should_fire` would incorrectly read `True` on the next tick
+        for a scope that was, in fact, already drained.
+        """
+        raising = _RaisingTrigger()
+        counts = EventCountTrigger(threshold=1)
+        combined = AnyTrigger([raising, counts])
+        combined.record_event(ACME, now=0.0)
+        assert combined.should_fire(ACME, now=0.0) is True
+
+        combined.reset(ACME)  # must not raise
+
+        assert combined.should_fire(ACME, now=0.0) is False, "counts must have been reset"
+
+
+class _RaisingTrigger:
+    """A `ConsolidationTrigger` whose every method raises -- stands in for a caller-supplied
+    implementation (DB-backed, network-backed) failing mid-call.
+    """
+
+    def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
+        raise RuntimeError("record_event boom")
+
+    def should_fire(self, scope: Scope, *, now: float) -> bool:
+        raise RuntimeError("should_fire boom")
+
+    def reset(self, scope: Scope) -> None:
+        raise RuntimeError("reset boom")
+
+
+class TestConsolidationTriggerRuntimeCheckable:
+    def test_a_conforming_trigger_satisfies_isinstance(self):
+        assert isinstance(EventCountTrigger(threshold=1), ConsolidationTrigger)
+
+    def test_isinstance_does_not_raise_typeerror(self):
+        """Before `@runtime_checkable`, `isinstance(obj, ConsolidationTrigger)` raised `TypeError`
+        regardless of `obj` -- this pins that a caller can now guard-check any object, conforming
+        or not, instead of being forced to catch `TypeError` around the check itself.
+        """
+        assert isinstance(object(), ConsolidationTrigger) is False

@@ -34,6 +34,25 @@ def make_provider(max_episodes_per_pass=5000):
     return provider, vector, graph
 
 
+class _SpyTrigger:
+    """A `ConsolidationTrigger` that never fires and just records every `reset` call -- isolates
+    the departed-scope diff in `run_once` from the ordinary post-drain reset, which a real trigger
+    (e.g. `EventCountTrigger`) could not do on its own.
+    """
+
+    def __init__(self):
+        self.reset_calls = []
+
+    def record_event(self, scope, *, now, size=1.0):
+        pass
+
+    def should_fire(self, scope, *, now):
+        return False
+
+    def reset(self, scope):
+        self.reset_calls.append(scope)
+
+
 async def test_run_once_drains_a_tier_larger_than_one_pass():
     """A tier past the cap must be fully consolidated within one tick, not left for the caller to
     notice and re-invoke -- that is the whole point of a scheduler over a bounded pass.
@@ -489,6 +508,63 @@ async def test_a_failed_drain_does_not_reset_the_trigger():
     assert first[0].error is not None
 
     assert trigger.should_fire(ACME, now=0.0) is True
+
+
+async def test_a_partial_drain_does_not_reset_the_trigger():
+    """SM-L2 review: `error is None` alone is not "fully drained" -- `outcome.drained` can be
+    `False` with no error when `max_passes_per_scope` caps the tick before the scope's tail
+    clears. Resetting the trigger anyway would make `should_fire` stop reflecting the still-
+    pending remainder until enough *new* events re-cross the threshold, silently dropping the
+    unconsolidated backlog acquired before the cap was hit.
+
+    Mutation guard: reverting the reset condition to `outcome.error is None` (dropping
+    `and outcome.drained`) would make `trigger.should_fire` read `False` after this tick instead
+    of `True`.
+    """
+    provider, _, _ = make_provider(max_episodes_per_pass=1)
+    provider.write(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(3)])
+    trigger = EventCountTrigger(threshold=1)
+    trigger.record_event(ACME, now=0.0)
+    worker = ConsolidationWorker(
+        provider, [ACME], trigger=trigger, clock=lambda: 0.0, max_passes_per_scope=1, retry_delay=0.001
+    )
+
+    outcomes = await worker.run_once()
+
+    assert outcomes[0].error is None
+    assert outcomes[0].drained is False
+    assert trigger.should_fire(ACME, now=0.0) is True
+
+
+async def test_a_scope_that_drops_out_of_a_dynamic_source_has_its_trigger_reset():
+    """SM-L2 review: a dynamic `ScopeSource` (a callable) that stops naming a scope must not leave
+    that scope's trigger state alive for the rest of the worker's lifetime -- otherwise a
+    deployment with tenant churn grows a trigger's per-scope dict without bound. `run_once` must
+    call `reset` for a scope that disappears between ticks, on the tick it disappears.
+
+    `should_fire` always returns `False` here so the only possible source of a `reset` call is the
+    departed-scope diff, not the ordinary post-drain reset -- isolating exactly what this test
+    means to pin.
+
+    Mutation guard: dropping the departed-scope diff entirely would leave `spy.reset_calls` empty
+    after the second tick instead of `[ACME]`.
+    """
+    provider, _, _ = make_provider()
+    calls = {"n": 0}
+
+    def scopes():
+        calls["n"] += 1
+        return [ACME] if calls["n"] == 1 else []
+
+    spy = _SpyTrigger()
+    worker = ConsolidationWorker(provider, scopes, trigger=spy, clock=lambda: 0.0, retry_delay=0.001)
+
+    await worker.run_once()
+    assert spy.reset_calls == []
+
+    await worker.run_once()
+
+    assert spy.reset_calls == [ACME]
 
 
 def test_max_retries_zero_is_accepted_as_fail_fast():

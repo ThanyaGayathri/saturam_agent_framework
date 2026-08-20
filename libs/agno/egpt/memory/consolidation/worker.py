@@ -16,7 +16,7 @@ cancel-and-await on stop, structurally the same as ``SchedulePoller``.
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Optional, Sequence, Union
 
 from egpt.memory.consolidation.triggers import ConsolidationTrigger
 from egpt.memory.provider import MemoryProvider
@@ -130,6 +130,13 @@ class ConsolidationWorker:
         #: every configured scope drains on every tick, regardless of whether anything changed.
         self.trigger = trigger
         self.clock = clock
+        #: Every scope `_resolve_scopes` returned as of the last tick, keyed by `.key()` -- only
+        #: populated (and consulted) when `trigger` is set. A dynamic `ScopeSource` can shrink
+        #: (tenant offboarded, scope no longer configured); without this, that scope's trigger
+        #: state (`EventCountTrigger`'s counter, `IdleTrigger`'s last-seen time, ...) would never
+        #: be cleared, since `reset` only ever runs for scopes the *current* resolution still
+        #: names -- unbounded growth over the worker's lifetime in a deployment with tenant churn.
+        self._known_scopes: Dict[str, Scope] = {}
         self._task: Optional["asyncio.Task[None]"] = None
         self._running = False
         self._wake: Optional[asyncio.Event] = None
@@ -159,18 +166,30 @@ class ConsolidationWorker:
         **Trigger-gated (SM-L2 #123)**: with ``self.trigger`` set, a scope is drained only when
         ``trigger.should_fire`` says so as of ``self.clock()`` -- a scope that does not fire is
         left out of the returned list entirely, not included with empty reports, so a caller
-        counting drained scopes never mistakes "not due" for "drained nothing". A scope that
-        drains without error has the trigger reset afterward; one that errors keeps its
-        accumulated state, so the next tick's `should_fire` still reflects the still-pending work.
+        counting drained scopes never mistakes "not due" for "drained nothing". A scope drains to
+        completion (``outcome.drained``, no error) has the trigger reset afterward; one that
+        errors, or hits ``max_passes_per_scope`` with work still pending, keeps its accumulated
+        state, so the next tick's `should_fire` still reflects what is genuinely still unconsolidated
+        rather than reading as caught up when it is not.
+
+        A scope that drops out of a dynamic ``ScopeSource`` between ticks has its trigger state
+        reset too, on the tick it disappears -- otherwise a trigger keyed by scope (like
+        ``EventCountTrigger``'s per-scope counters) would keep dict entries alive for the rest of
+        the worker's lifetime for a scope nothing will ever resolve to again.
         """
         scopes = _resolve_scopes(self.scopes)
         if self.trigger is not None:
             now = self.clock()
+            current_by_key = {scope.key(): scope for scope in scopes}
+            departed = [scope for key, scope in self._known_scopes.items() if key not in current_by_key]
+            for scope in departed:
+                self.trigger.reset(scope)
+            self._known_scopes = current_by_key
             scopes = [scope for scope in scopes if self.trigger.should_fire(scope, now=now)]
         outcomes = list(await asyncio.gather(*(self._drain_scope(scope) for scope in scopes)))
         if self.trigger is not None:
             for outcome in outcomes:
-                if outcome.error is None:
+                if outcome.error is None and outcome.drained:
                     self.trigger.reset(outcome.scope)
         return outcomes
 

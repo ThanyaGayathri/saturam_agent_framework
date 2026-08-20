@@ -22,6 +22,7 @@ from egpt.memory.consolidation.triggers import (
     LatencyTrigger,
     PerTenantThreshold,
     SizeTrigger,
+    ThresholdSource,
 )
 from egpt.memory.consolidation.worker import ConsolidationOutcome, ConsolidationWorker
 
@@ -35,4 +36,5 @@ __all__ = [
     "LatencyTrigger",
     "PerTenantThreshold",
     "SizeTrigger",
+    "ThresholdSource",
 ]
