@@ -78,6 +78,24 @@ def test_is_prune_eligible_never_reselects_an_already_archived_episode():
     assert is_prune_eligible(archived, now=DAY * 90) is False
 
 
+def test_is_prune_eligible_checks_expired_at_before_validating_the_threshold():
+    """The docstring's own claim: a caller filtering a mixed batch never pays for (or is misled
+    by) threshold validation on a row this function refuses regardless of it -- an already-archived
+    episode with an invalid threshold returns False, it does not raise."""
+    episode = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
+    archived = forget(episode, at=DAY)
+    assert is_prune_eligible(archived, now=DAY * 90, prune_threshold=float("nan")) is False
+
+
+def test_is_prune_eligible_falls_back_to_created_at_when_last_accessed_at_is_none():
+    """The `episode_decay_score` fallback path (never-accessed episode decays from `created_at`),
+    exercised through `is_prune_eligible` rather than assumed from `test_episodic_decay.py` alone."""
+    never_accessed = an_episode(created_at=0, last_accessed_at=None, importance=0.0)
+    assert is_prune_eligible(never_accessed, now=DAY * 90) is True
+    fresh_never_accessed = an_episode(created_at=DAY * 90, last_accessed_at=None, importance=0.5)
+    assert is_prune_eligible(fresh_never_accessed, now=DAY * 90) is False
+
+
 def test_is_prune_eligible_uses_the_default_threshold_when_unset():
     assert DEFAULT_PRUNE_THRESHOLD == 0.05
     just_above_floor = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
@@ -117,8 +135,9 @@ def test_is_prune_eligible_rejects_a_threshold_at_or_above_one():
     with pytest.raises(MemoryOperationError) as exc_info:
         is_prune_eligible(fresh, now=0, prune_threshold=1.0)
     assert exc_info.value.field_name == "prune_threshold"
-    with pytest.raises(MemoryOperationError):
+    with pytest.raises(MemoryOperationError) as exc_info:
         is_prune_eligible(fresh, now=0, prune_threshold=1.5)
+    assert exc_info.value.field_name == "prune_threshold"
 
 
 def test_is_prune_eligible_rejects_a_zero_threshold():
@@ -217,6 +236,25 @@ def test_forget_rejects_at_before_created_at():
     assert exc_info.value.field_name == "at"
 
 
+def test_forget_rejects_a_default_at_before_a_future_created_at(monkeypatch):
+    """An unset `at` resolves through this module's own clock *before* the ordering guard runs,
+    so a future `created_at` is refused as a `MemoryOperationError` here -- not left to leak a
+    bare `ValueError` from `BiTemporal._validate_temporal` further down the call stack."""
+    monkeypatch.setattr("egpt.memory.episodic.forget.now_epoch_s", lambda: DAY)
+    episode = an_episode(created_at=DAY * 10)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        forget(episode)
+    assert exc_info.value.field_name == "at"
+
+
+def test_forget_accepts_a_float_at():
+    """`at`/`t_invalid` are `float`, matching what `to_epoch_s` actually accepts -- a caller
+    passing `time.time()`'s float is ordinary usage, not a type violation."""
+    episode = an_episode()
+    archived = forget(episode, at=DAY + 0.5)
+    assert archived.expired_at == DAY  # to_epoch_s truncates, same as an int `at` would
+
+
 def test_forget_only_changes_expired_at():
     episode = an_episode(importance=0.7)
     archived = forget(episode, at=DAY)
@@ -224,12 +262,9 @@ def test_forget_only_changes_expired_at():
 
 
 def test_forget_defaults_at_to_now_epoch_s(monkeypatch):
-    # `forget()` has no `now` fallback of its own -- an unset `at` reaches
-    # `BiTemporal.expire`, which reads `egpt.utils.dttm.now_epoch_s` directly (not this module's
-    # `now_epoch_s` import, which only `select_for_forgetting` uses).
-    from egpt.db.schemas import memory as memory_row_module
-
-    monkeypatch.setattr(memory_row_module, "now_epoch_s", lambda: 4242)
+    # `forget()` resolves an unset `at` through this module's own `now_epoch_s` import, ahead of
+    # its validation guards -- not left to `BiTemporal.expire`'s internal default.
+    monkeypatch.setattr("egpt.memory.episodic.forget.now_epoch_s", lambda: 4242)
     episode = an_episode()
     assert forget(episode).expired_at == 4242
 
@@ -292,6 +327,19 @@ def test_select_for_forgetting_accepts_a_separate_transaction_time():
     stale = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
     (selected,) = select_for_forgetting([stale], now=DAY * 90, at=DAY * 91)
     assert selected.expired_at == DAY * 91
+
+
+def test_select_for_forgetting_closes_t_invalid_on_every_archived_episode():
+    stale_a = an_episode(id="a", created_at=0, last_accessed_at=0, importance=0.0)
+    stale_b = an_episode(id="b", created_at=0, last_accessed_at=0, importance=0.0)
+    selected = select_for_forgetting([stale_a, stale_b], now=DAY * 90, t_invalid=DAY * 90)
+    assert [e.t_invalid for e in selected] == [DAY * 90, DAY * 90]
+
+
+def test_select_for_forgetting_leaves_t_invalid_unset_by_default():
+    stale = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
+    (selected,) = select_for_forgetting([stale], now=DAY * 90)
+    assert selected.t_invalid is None
 
 
 def test_select_for_forgetting_preserves_relative_order():

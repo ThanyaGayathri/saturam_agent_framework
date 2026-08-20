@@ -98,6 +98,10 @@ def is_prune_eligible(
     scoring so a caller filtering a mixed batch of live and already-archived rows never pays for
     (or is misled by) a decay score on a row this function will refuse regardless of it.
 
+    Checked *before* ``prune_threshold`` is validated: an already-archived episode is refused
+    regardless of what ``prune_threshold`` is, so there is no reason to reject it over a bad
+    threshold value it would have been exempt from anyway.
+
     ``prune_threshold`` must be in ``(0.0, 1.0)``. A NaN threshold makes ``score <
     prune_threshold`` false for every score under IEEE 754 comparison rules -- silently turning
     pruning off rather than raising. A negative threshold is finite but has the same effect,
@@ -110,6 +114,8 @@ def is_prune_eligible(
     a parameter that (per the module docstring) SM-C5's not-yet-landed per-tenant config is
     expected to supply, so a bad tenant value must raise, not silently disable or maximise pruning.
     """
+    if episode.expired_at is not None:
+        return False
     if not math.isfinite(prune_threshold) or prune_threshold <= 0.0 or prune_threshold >= 1.0:
         raise MemoryOperationError(
             f"prune_threshold must be in (0.0, 1.0), got {prune_threshold!r}: outside that range "
@@ -117,18 +123,21 @@ def is_prune_eligible(
             "of raising.",
             field_name="prune_threshold",
         )
-    if episode.expired_at is not None:
-        return False
     score = episode_decay_score(episode, now, base_half_life_s, imp_factor)
     return score < prune_threshold
 
 
 def forget(
     episode: EpisodicRecord,
-    at: Optional[int] = None,
-    t_invalid: Optional[int] = None,
+    at: Optional[float] = None,
+    t_invalid: Optional[float] = None,
 ) -> EpisodicRecord:
     """Archive one episode: row-level ``expired_at``, never delete (DECISION.md section 6).
+
+    ``at``/``t_invalid`` are ``float``, not ``int``: ``to_epoch_s`` (``egpt.utils.dttm``), what
+    :meth:`~egpt.db.schemas.memory.BiTemporal.expire` ultimately calls, already accepts
+    ``Union[int, float, str, datetime]`` and truncates -- a caller passing ``time.time()``'s
+    ``float`` is ordinary usage, not a type violation to reject.
 
     Returns a detached, already-archived copy -- the same non-mutation contract
     :func:`~egpt.memory.episodic.decay.reinforce` documents, and for the same reason: mutating the
@@ -147,7 +156,17 @@ def forget(
     unchanged: :meth:`~egpt.db.schemas.memory.BiTemporal.expire` no-ops on a replayed archive,
     matching its documented behaviour for every other caller of that method.
 
-    ``at`` and ``t_invalid`` are validated here rather than left to
+    ``at`` defaults to this module's own clock (``now_epoch_s()``), resolved *before* validation
+    rather than left to :meth:`~egpt.db.schemas.memory.BiTemporal.expire`'s own default. Two
+    reasons: an unresolved ``at=None`` would skip the ``created_at``-ordering guard below entirely
+    (there would be no concrete value to compare), silently falling through to ``expire``'s own
+    bare ``ValueError`` for an episode with a future ``created_at`` -- the same error-boundary gap
+    ``at``/``t_invalid`` validation exists to close; and resolving it here, rather than through
+    ``BiTemporal``'s internal default, gives this module one clock for both its default-at path and
+    :func:`select_for_forgetting`'s explicit one, instead of two call sites reaching
+    ``now_epoch_s`` through different imports.
+
+    ``at``/``t_invalid`` are validated here rather than left to
     :meth:`~egpt.db.schemas.memory.BiTemporal.expire`/``to_epoch_s``, which raise bare
     ``ValueError``/``OverflowError`` (a non-finite epoch) or a bare ``ValueError`` (``at`` before
     ``episode.created_at``) -- neither is a :class:`~egpt.memory.types.MemoryOperationError`, so a
@@ -155,20 +174,28 @@ def forget(
     than through ``expire``, is what lets :func:`select_for_forgetting` propagate one error type
     for every failure mode this module defines.
     """
-    for field_name, value in (("at", at), ("t_invalid", t_invalid)):
+    resolved_at = now_epoch_s() if at is None else at
+    for field_name, value in (("at", resolved_at), ("t_invalid", t_invalid)):
         if value is not None and not math.isfinite(value):
             raise MemoryOperationError(
                 f"{field_name} must be a finite epoch-second, got {value!r}.",
                 field_name=field_name,
             )
-    if at is not None and episode.created_at is not None and at < episode.created_at:
+    if episode.created_at is not None and resolved_at < episode.created_at:
         raise MemoryOperationError(
-            f"at ({at}) precedes episode.created_at ({episode.created_at}): an episode cannot be "
-            "archived before it was created.",
+            f"at ({resolved_at}) precedes episode.created_at ({episode.created_at}): an episode "
+            "cannot be archived before it was created.",
             field_name="at",
         )
     archived = replace(episode)
-    archived.expire(expired_at=at, t_invalid=t_invalid)
+    # `int(...)` here, not a bare pass-through: `BiTemporal.expire` is typed `Optional[int]`,
+    # narrower than what its own `to_epoch_s` call actually accepts (`Union[int, float, str,
+    # datetime]`) -- truncating here matches what `to_epoch_s` would do internally, so accepting
+    # `float` above changes what callers may pass without changing what gets stored.
+    archived.expire(
+        expired_at=int(resolved_at),
+        t_invalid=int(t_invalid) if t_invalid is not None else None,
+    )
     return archived
 
 
@@ -178,7 +205,8 @@ def select_for_forgetting(
     prune_threshold: float = DEFAULT_PRUNE_THRESHOLD,
     base_half_life_s: float = DEFAULT_BASE_HALF_LIFE_S,
     imp_factor: float = DEFAULT_IMP_FACTOR,
-    at: Optional[int] = None,
+    at: Optional[float] = None,
+    t_invalid: Optional[float] = None,
 ) -> List[EpisodicRecord]:
     """Archive every prune-eligible episode in ``episodes``, in the shape ``Curator.prune``
     establishes: filter a list, return only what the filter selected.
@@ -190,6 +218,11 @@ def select_for_forgetting(
     :func:`forget` writes onto ``expired_at``) defaults from the same clock unless a caller passes
     a different one, so a replayed pass can archive under the instant it actually ran, not the
     instant it is scoring against.
+
+    ``t_invalid`` closes the valid-time axis on every archived row in the batch, the same single
+    value for all of them -- there is no per-episode override here, matching ``at``'s one-clock
+    treatment: a caller needing different ``t_invalid`` values per episode is expressing something
+    :func:`forget` already supports one call at a time, not a gap in this batch API.
 
     Episodes that are not prune-eligible are simply absent from the result -- there is no "kept"
     half to return, unlike ``Curator._filter_by_age``, because nothing here removes a row from
@@ -205,7 +238,7 @@ def select_for_forgetting(
     instant = now_epoch_s() if now is None else now
     stamp = instant if at is None else at
     return [
-        forget(episode, at=stamp)
+        forget(episode, at=stamp, t_invalid=t_invalid)
         for episode in episodes
         if is_prune_eligible(episode, instant, prune_threshold, base_half_life_s, imp_factor)
     ]
