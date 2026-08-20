@@ -351,8 +351,10 @@ class RelationExtractionPipeline:
             if missing:
                 raise MemoryOperationError(
                     f"RelationExtractionPipeline.{name} is a {type(candidate).__name__}, which is "
-                    f"missing {missing}. Both halves are required: a pipeline whose async twin is "
-                    "absent blocks the consolidation lane's event loop on the first pass.",
+                    f"missing {missing}. Every method listed is required: a pipeline missing even "
+                    "one -- sync or async -- either cannot make a decision this pipeline depends "
+                    "on, or blocks the consolidation lane's event loop the first time it is asked "
+                    "to await one that is not there.",
                     field_name=name,
                 )
         if not isinstance(max_episodes_per_pass, int) or isinstance(max_episodes_per_pass, bool):
@@ -499,9 +501,14 @@ class RelationExtractionPipeline:
 
     @staticmethod
     def _subjects(facts: Sequence[FactWrite]) -> List[str]:
-        """The distinct, non-empty subjects in ``facts`` -- every member of which
-        :meth:`_by_relation` already guarantees carries one, but narrowed here the same
-        field-by-field way for the same mypy reason."""
+        """The distinct, non-empty subjects in ``facts``.
+
+        The ``if fact.subject:`` guard below is not a second, redundant check against
+        :meth:`_by_relation`'s own filter -- it is what lets mypy narrow ``fact.subject`` from
+        ``Optional[str]`` to ``str`` for ``subjects.add``, the same reason :meth:`_by_relation`
+        checks fields directly rather than trusting ``fact.is_triple()``. Every ``fact`` this
+        method is actually called with already satisfies it by construction.
+        """
         subjects: Set[str] = set()
         for fact in facts:
             if fact.subject:
@@ -525,6 +532,15 @@ class RelationExtractionPipeline:
         Two or more candidates contradicting the same existing edge keep the **earliest**
         ``t_valid`` -- that is the instant the edge actually stopped being current, not whichever
         candidate happened to be checked last.
+
+        **An existing edge with no ``t_valid`` of its own is eligible.** ``rec.t_valid is None``
+        is read as "always valid, since before any known instant" -- the same convention
+        ``ValidWindow``/``MemoryRecord`` use everywhere else an unset lower bound appears -- so it
+        is treated as older than any candidate rather than excluded. Correct given that reading,
+        not exercised end-to-end here: reaching it through the pipeline needs a live edge whose
+        ``t_valid`` was never populated, which ``RuleBasedValidTimeExtractor`` cannot produce
+        (``ValidTimeSpan.t_valid`` is never ``None``) -- only a pre-SM-G4 row or a hand-built
+        ``FactWrite`` would carry one.
         """
         found: Dict[str, int] = {}
         for candidate in candidates:
@@ -571,6 +587,16 @@ class RelationExtractionPipeline:
         before this batch -- a candidate must never be compared against itself. Invalidation runs
         **after** ``upsert_facts`` lands, not before: a caller retrying a failed write must not find
         edges already retired for candidates that never reached the graph.
+
+        **Assumes one writer per (scope, subject, relation) at a time.** Two concurrent passes
+        contradicting the same existing edge each compute their own contradiction set against the
+        graph's state as they separately read it -- neither sees the other's not-yet-committed
+        write -- so both can call ``invalidate`` on the same edge. The backend's own concurrency
+        contract decides what that means (the Neo4j backend's single transaction per invalidation
+        makes it safe: the second call still expire-and-reinserts, just against whatever the first
+        left as live). What this method does not do is detect or serialize against a concurrent
+        writer itself -- consolidation runs single-threaded per scope today, so this has not been a
+        live concern, but it is worth stating rather than leaving implicit.
         """
         contradictions = self._contradictions_for(scope, batch)
         self.graph.upsert_facts(scope, batch)
