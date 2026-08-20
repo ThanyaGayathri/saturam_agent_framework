@@ -658,14 +658,14 @@ second renumbers -- three times, this time.
 (SM-E6), recency (SM-E4) and importance (SM-E5) into one weighted-sum score. Shows the default
 weights (recency=0.0, per ADR 0003 B.1: no additive per-query hot-path recency rescore) leaving a
 stale and a fresh episode tied, an explicit write-time weight set that then separates them,
-a four-episode fixture ranked in the expected order, and the two boundary refusals (a signal
-outside `[0.0, 1.0]`, a NaN weight).
+a four-episode fixture ranked in the expected order, and the three boundary refusals (a signal
+outside `[0.0, 1.0]`, a NaN weight, a negative weight -- added in review round 1, PR #109).
 
 **Result:** Ran to completion with no database and no API key. Stale/fresh scored identically
 (1.8/1.8) under the default weights, then diverged (1.82/2.75) once recency was given a nonzero
 weight. The fixture ranked `shipped_v2_to_prod` (2.70) > `quick_status_ping` (1.90) >
 `old_incident_postmortem` (1.75) > `unrelated_small_talk` (0.40), matching the acceptance
-criterion's expected ordering. Both refusals raised `MemoryOperationError` naming the offending
-field (`relevance`, `weights.relevance`).
+criterion's expected ordering. All three refusals raised `MemoryOperationError` naming the
+offending field (`relevance`, `weights.relevance` for both the NaN and the negative-weight case).
 
 **Requires:** Nothing -- no database, no API key.
