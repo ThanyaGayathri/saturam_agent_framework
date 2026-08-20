@@ -129,7 +129,7 @@ def is_prune_eligible(
 
 def forget(
     episode: EpisodicRecord,
-    at: Optional[float] = None,
+    at: Optional[float] = None,  # float: accepts time.time(); to_epoch_s truncates internally
     t_invalid: Optional[float] = None,
 ) -> EpisodicRecord:
     """Archive one episode: row-level ``expired_at``, never delete (DECISION.md section 6).
@@ -168,11 +168,12 @@ def forget(
 
     ``at``/``t_invalid`` are validated here rather than left to
     :meth:`~egpt.db.schemas.memory.BiTemporal.expire`/``to_epoch_s``, which raise bare
-    ``ValueError``/``OverflowError`` (a non-finite epoch) or a bare ``ValueError`` (``at`` before
-    ``episode.created_at``) -- neither is a :class:`~egpt.memory.types.MemoryOperationError`, so a
-    caller catching this module's own error type would not catch either. Raising it here, rather
-    than through ``expire``, is what lets :func:`select_for_forgetting` propagate one error type
-    for every failure mode this module defines.
+    ``ValueError``/``OverflowError`` for a non-finite epoch, ``at`` before ``episode.created_at``,
+    or ``t_invalid`` before ``episode.t_valid`` -- none of those is a
+    :class:`~egpt.memory.types.MemoryOperationError`, so a caller catching this module's own error
+    type would not catch any of them. Raising it here, rather than through ``expire``, is what lets
+    :func:`select_for_forgetting` propagate one error type for every failure mode this module
+    defines.
     """
     resolved_at = now_epoch_s() if at is None else at
     for field_name, value in (("at", resolved_at), ("t_invalid", t_invalid)):
@@ -186,6 +187,17 @@ def forget(
             f"at ({resolved_at}) precedes episode.created_at ({episode.created_at}): an episode "
             "cannot be archived before it was created.",
             field_name="at",
+        )
+    # `BiTemporal.expire` never touches `t_valid` (see its own docstring), so it cannot see this
+    # coming: an unguarded `t_invalid` below `t_valid` reaches `_validate_temporal` and raises a
+    # bare `ValueError` there instead of the `MemoryOperationError` this function otherwise always
+    # raises. Compared as `int(t_invalid)` -- what `expire` below actually stores -- rather than
+    # the raw float, so the value this check judges is the value that lands in the row.
+    if t_invalid is not None and episode.t_valid is not None and int(t_invalid) < episode.t_valid:
+        raise MemoryOperationError(
+            f"t_invalid ({int(t_invalid)}) precedes episode.t_valid ({episode.t_valid}): the "
+            "valid-time close cannot precede the valid-time open.",
+            field_name="t_invalid",
         )
     archived = replace(episode)
     # `int(...)` here, not a bare pass-through: `BiTemporal.expire` is typed `Optional[int]`,
@@ -226,17 +238,21 @@ def select_for_forgetting(
 
     Episodes that are not prune-eligible are simply absent from the result -- there is no "kept"
     half to return, unlike ``Curator._filter_by_age``, because nothing here removes a row from
-    anywhere for a caller to reconcile against; an episode not returned is untouched.
+    anywhere for a caller to reconcile against; an episode not returned is untouched. Duplicate
+    episodes in ``episodes`` (the same object, or two rows sharing an ``id``) each produce their
+    own archived copy in the result if both are eligible -- there is no id-based deduplication
+    here, so a caller passing duplicates gets duplicates back.
 
     Raises :class:`~egpt.memory.types.MemoryOperationError` -- propagated from
-    :func:`is_prune_eligible` when ``prune_threshold`` is out of range, or from :func:`forget`
-    when ``at``/``t_invalid`` is non-finite or ``at`` precedes an episode's ``created_at``. Either
-    fires on whichever episode in ``episodes`` triggers it first; the surrounding comprehension
-    then raises before its ``return`` runs, so the caller gets no list at all, not a partial one --
-    there is nothing to roll back either way, since nothing in this module persists anything.
+    :func:`is_prune_eligible` when ``prune_threshold`` is out of range, or from :func:`forget` when
+    ``at``/``t_invalid`` is non-finite, ``at`` precedes an episode's ``created_at``, or ``t_invalid``
+    precedes an episode's ``t_valid``. Any of these fires on whichever episode in ``episodes``
+    triggers it first; the surrounding comprehension then raises before its ``return`` runs, so the
+    caller gets no list at all, not a partial one -- there is nothing to roll back either way, since
+    nothing in this module persists anything.
     """
     instant = now_epoch_s() if now is None else now
-    stamp = instant if at is None else at
+    stamp: float = instant if at is None else at
     return [
         forget(episode, at=stamp, t_invalid=t_invalid)
         for episode in episodes

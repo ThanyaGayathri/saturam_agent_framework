@@ -128,13 +128,17 @@ def test_is_prune_eligible_rejects_a_negative_threshold():
     assert exc_info.value.field_name == "prune_threshold"
 
 
-def test_is_prune_eligible_rejects_a_threshold_at_or_above_one():
+def test_is_prune_eligible_rejects_a_threshold_of_exactly_one():
     """The mirror failure: `score` never exceeds 1.0, so a threshold >= 1.0 would make every
     episode eligible -- a misconfigured per-tenant value silently archiving a whole tenant."""
     fresh = an_episode(created_at=0, last_accessed_at=0, importance=0.5)
     with pytest.raises(MemoryOperationError) as exc_info:
         is_prune_eligible(fresh, now=0, prune_threshold=1.0)
     assert exc_info.value.field_name == "prune_threshold"
+
+
+def test_is_prune_eligible_rejects_a_threshold_above_one():
+    fresh = an_episode(created_at=0, last_accessed_at=0, importance=0.5)
     with pytest.raises(MemoryOperationError) as exc_info:
         is_prune_eligible(fresh, now=0, prune_threshold=1.5)
     assert exc_info.value.field_name == "prune_threshold"
@@ -255,6 +259,19 @@ def test_forget_accepts_a_float_at():
     assert archived.expired_at == DAY  # to_epoch_s truncates, same as an int `at` would
 
 
+def test_forget_rejects_t_invalid_before_t_valid():
+    episode = an_episode(t_valid=DAY * 5)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        forget(episode, at=DAY * 10, t_invalid=DAY * 2)
+    assert exc_info.value.field_name == "t_invalid"
+
+
+def test_forget_accepts_t_invalid_at_or_after_t_valid():
+    episode = an_episode(t_valid=DAY * 5)
+    archived = forget(episode, at=DAY * 10, t_invalid=DAY * 5)
+    assert archived.t_invalid == DAY * 5
+
+
 def test_forget_only_changes_expired_at():
     episode = an_episode(importance=0.7)
     archived = forget(episode, at=DAY)
@@ -357,6 +374,20 @@ def test_select_for_forgetting_ignores_already_archived_episodes():
 
 def test_select_for_forgetting_returns_empty_on_empty_input():
     assert select_for_forgetting([], now=DAY * 90) == []
+
+
+def test_select_for_forgetting_propagates_bad_threshold():
+    stale = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        select_for_forgetting([stale], now=DAY * 90, prune_threshold=float("nan"))
+    assert exc_info.value.field_name == "prune_threshold"
+
+
+def test_select_for_forgetting_propagates_at_before_created_at():
+    stale = an_episode(created_at=DAY * 10, last_accessed_at=0, importance=0.0)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        select_for_forgetting([stale], now=DAY * 90, at=DAY * 5)
+    assert exc_info.value.field_name == "at"
 
 
 def test_default_base_half_life_matches_decay_module():

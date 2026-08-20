@@ -219,11 +219,6 @@ __all__ = [
     "half_life_s",
     "recency_decay",
     "reinforce",
-    # Episode forgetting / pruning (SM-E9)
-    "DEFAULT_PRUNE_THRESHOLD",
-    "forget",
-    "is_prune_eligible",
-    "select_for_forgetting",
     # Episode salience scoring (SM-E5)
     "ImportanceScore",
     "ImportanceScorer",
@@ -253,6 +248,11 @@ __all__ = [
     "aepisode_relevance",
     "cosine_relevance",
     "episode_relevance",
+    # Episode forgetting / pruning (SM-E9)
+    "DEFAULT_PRUNE_THRESHOLD",
+    "forget",
+    "is_prune_eligible",
+    "select_for_forgetting",
     # The consolidation scheduler (SM-L1)
     "ConsolidationOutcome",
     "ConsolidationWorker",

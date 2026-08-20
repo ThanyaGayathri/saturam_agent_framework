@@ -7,13 +7,6 @@ Keeps memories tidy through:
 - Pruning: Remove old memories
 - Deduplication: Remove exact/near-exact duplicates
 
-Scoped to ``self.machine.stores["user_profile"]`` and its list of plain dicts -- there is no
-episodic-tier awareness here. SM-E9 (#116, ``egpt.memory.episodic.forget``) restates this class's
-filter-a-list-and-return-survivors shape for ``EpisodicRecord`` decay-based pruning rather than
-extending this class: importing episodic types here would pull ``egpt.memory`` into ``egpt.learn``,
-inverting the dependency direction ADR 0003 section 2 ratifies (``MemoryProvider`` wraps this seed,
-not the reverse). See ``egpt.memory.episodic.forget`` module docstring for the full rationale.
-
 Usage:
     >>> learning = LearningMachine(db=db, model=model, user_profile=True)
     >>>
@@ -22,6 +15,13 @@ Usage:
     >>>
     >>> # Remove duplicate memories
     >>> deduped = learning.curator.deduplicate(user_id="alice")
+
+Scoped to ``self.machine.stores["user_profile"]`` and its list of plain dicts -- there is no
+episodic-tier awareness here. SM-E9 (#116, ``egpt.memory.episodic.forget``) restates this class's
+filter-a-list-and-return-survivors shape for ``EpisodicRecord`` decay-based pruning rather than
+extending this class: importing episodic types here would pull ``egpt.memory`` into ``egpt.learn``,
+inverting the dependency direction ADR 0003 section 2 ratifies (``MemoryProvider`` wraps this seed,
+not the reverse). See ``egpt.memory.episodic.forget`` module docstring for the full rationale.
 """
 
 from dataclasses import dataclass
