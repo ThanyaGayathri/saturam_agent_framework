@@ -17,7 +17,7 @@ from egpt.memory.episodic.score import (
     EpisodicScoreWeights,
     composite_episodic_score,
 )
-from egpt.memory.errors import MemoryOperationError
+from egpt.memory.types import MemoryOperationError
 
 # -- weighted sum ----------------------------------------------------------------------------
 
@@ -50,6 +50,16 @@ def test_score_is_not_renormalized_to_unit_interval():
 def test_zero_weight_excludes_a_signal_regardless_of_its_value():
     weights = EpisodicScoreWeights(relevance=1.0, recency=0.0, importance=0.0)
     assert composite_episodic_score(0.7, 1.0, 1.0, weights) == pytest.approx(0.7)
+
+
+def test_all_zero_weights_collapse_every_score_to_zero():
+    # Valid arithmetic, not refused (see composite_episodic_score's docstring): unlike the
+    # single-zero default on recency alone, all three at zero is almost certainly a
+    # misconfiguration, but the composite can't tell that apart from a caller who genuinely
+    # wants every episode tied, so this documents the degenerate behavior rather than hiding it.
+    weights = EpisodicScoreWeights(relevance=0.0, recency=0.0, importance=0.0)
+    assert composite_episodic_score(0.9, 0.9, 0.9, weights) == pytest.approx(0.0)
+    assert composite_episodic_score(0.1, 0.1, 0.1, weights) == pytest.approx(0.0)
 
 
 # -- signal validation ------------------------------------------------------------------------
@@ -106,6 +116,16 @@ def test_rejects_an_infinite_weight():
     with pytest.raises(MemoryOperationError) as exc_info:
         composite_episodic_score(0.5, 0.5, 0.5, weights)
     assert exc_info.value.field_name == "weights.recency"
+
+
+@pytest.mark.parametrize("field_name", ["relevance", "recency", "importance"])
+def test_rejects_a_negative_weight(field_name):
+    # A negative weight inverts a signal's contribution -- a more relevant/recent/important
+    # episode would score lower, silently flipping the ranking rather than just skewing it.
+    weights = EpisodicScoreWeights(**{field_name: -1.0})
+    with pytest.raises(MemoryOperationError) as exc_info:
+        composite_episodic_score(0.5, 0.5, 0.5, weights)
+    assert exc_info.value.field_name == f"weights.{field_name}"
 
 
 # -- ranking matches expected ordering on a fixture -------------------------------------------

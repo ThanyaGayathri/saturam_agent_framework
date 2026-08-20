@@ -104,6 +104,12 @@ for label, call in (
             0.5, 0.5, 0.5, EpisodicScoreWeights(relevance=float("nan"))
         ),
     ),
+    (
+        "a negative weight (would silently invert that signal's contribution)",
+        lambda: composite_episodic_score(
+            0.5, 0.5, 0.5, EpisodicScoreWeights(relevance=-1.0)
+        ),
+    ),
 ):
     try:
         call()

@@ -25,7 +25,7 @@ twin, the same exemption :mod:`.decay` and :mod:`.relevance` document for their 
 import math
 from dataclasses import dataclass
 
-from egpt.memory.errors import MemoryOperationError
+from egpt.memory.types import MemoryOperationError
 
 __all__ = ["DEFAULT_EPISODIC_SCORE_WEIGHTS", "EpisodicScoreWeights", "composite_episodic_score"]
 
@@ -57,11 +57,12 @@ def _require_unit_signal(value: float, field_name: str) -> float:
     return value
 
 
-def _require_finite_weight(value: float, field_name: str) -> float:
-    if not math.isfinite(value):
+def _require_nonnegative_finite_weight(value: float, field_name: str) -> float:
+    if not math.isfinite(value) or value < 0.0:
         raise MemoryOperationError(
-            f"weights.{field_name} must be finite, got {value!r}: a NaN or infinite weight "
-            "poisons the composite regardless of what the other two weights or signals are.",
+            f"weights.{field_name} must be a finite, non-negative value, got {value!r}: NaN or "
+            "infinite poisons the composite, and a negative weight inverts that signal's "
+            "contribution -- a more relevant/recent/important episode would score lower.",
             field_name=f"weights.{field_name}",
         )
     return value
@@ -75,21 +76,33 @@ def composite_episodic_score(
 ) -> float:
     """``a*relevance + b*recency + c*importance`` for one episode against one query.
 
+    Positional order matches the formula -- ``relevance`` first, ``recency`` second, ``importance``
+    third -- but nothing in the signature stops a transposed call from type-checking, since all
+    three are plain ``float``. Prefer keyword arguments to avoid that.
+
     Not itself renormalized to ``[0.0, 1.0]`` -- DECISION.md's ratified two-term canonical scorer
     (``alpha * relevance + beta * recency`` at ``alpha=beta=1.0``) is not either, and dividing by
     the weight sum here would silently rescale it, changing what a caller who tuned weights against
     an un-normalized score gets back. Each of the three *signals* is normalized; the composite is a
     weighted sum of normalized signals, not a normalized value itself.
 
+    All-zero weights (every field of ``weights`` at ``0.0``) is valid arithmetic, not refused: it
+    collapses every episode's score to ``0.0`` regardless of its signals, destroying ranking
+    discrimination. That is almost certainly a misconfiguration if all three land at zero
+    together -- unlike the single-zero default on ``recency`` alone, which is deliberate (see the
+    module docstring) -- but the composite has no way to distinguish "misconfigured" from "a
+    caller who genuinely wants every episode tied", so it computes the (degenerate) arithmetic
+    rather than guessing.
+
     Raises:
         MemoryOperationError: any signal is outside ``[0.0, 1.0]`` or non-finite (``field_name``
-            names the offending signal), or any weight is non-finite (``field_name`` is
-            ``"weights.<name>"``).
+            names the offending signal), or any weight is negative or non-finite (``field_name``
+            is ``"weights.<name>"``).
     """
     _require_unit_signal(relevance, "relevance")
     _require_unit_signal(recency, "recency")
     _require_unit_signal(importance, "importance")
-    _require_finite_weight(weights.relevance, "relevance")
-    _require_finite_weight(weights.recency, "recency")
-    _require_finite_weight(weights.importance, "importance")
+    _require_nonnegative_finite_weight(weights.relevance, "relevance")
+    _require_nonnegative_finite_weight(weights.recency, "recency")
+    _require_nonnegative_finite_weight(weights.importance, "importance")
     return weights.relevance * relevance + weights.recency * recency + weights.importance * importance
