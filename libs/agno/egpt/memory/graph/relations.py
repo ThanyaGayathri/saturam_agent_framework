@@ -544,6 +544,11 @@ class RelationExtractionPipeline:
         return found
 
     def _contradictions_for(self, scope: Scope, batch: Sequence[FactWrite]) -> Dict[str, int]:
+        """No ``until`` bound on the ``recall_facts`` call: it already filters to current belief
+        (``expired_at IS NULL``) on the transaction axis, which is every row this batch could
+        possibly need to retire. A ``t_invalid``-closed valid-time interval is a *different* axis --
+        handled by :meth:`_contradicted`'s own ``rec.t_invalid`` check, not by narrowing this
+        lookup."""
         contradictions: Dict[str, int] = {}
         for relation, facts in self._by_relation(batch):
             existing = self.graph.recall_facts(scope, entities=self._subjects(facts), relation=relation)
@@ -551,6 +556,8 @@ class RelationExtractionPipeline:
         return contradictions
 
     async def _acontradictions_for(self, scope: Scope, batch: Sequence[FactWrite]) -> Dict[str, int]:
+        """Async variant of :meth:`_contradictions_for`; see its docstring for the missing
+        ``until``."""
         contradictions: Dict[str, int] = {}
         for relation, facts in self._by_relation(batch):
             existing = await self.graph.arecall_facts(scope, entities=self._subjects(facts), relation=relation)
@@ -567,6 +574,9 @@ class RelationExtractionPipeline:
         """
         contradictions = self._contradictions_for(scope, batch)
         self.graph.upsert_facts(scope, batch)
+        # Sorted for deterministic call order across runs (matches this module's own convention
+        # elsewhere, e.g. `_batches`) -- not for correctness: each `invalidate` call targets a
+        # distinct edge id, so the order among them has no effect on the outcome.
         for edge_id, t_invalid in sorted(contradictions.items()):
             self.graph.invalidate(scope, edge_id, t_invalid)
         return len(contradictions)

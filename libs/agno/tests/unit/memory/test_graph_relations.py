@@ -422,17 +422,30 @@ def test_an_earlier_dated_fact_does_not_invalidate_a_later_live_one():
 def test_an_edge_already_closed_before_the_candidate_starts_does_not_contradict():
     """An existing edge whose own stated ``t_invalid`` already ends at or before the candidate's
     ``t_valid`` has nothing left to supersede -- the two describe adjacent, non-overlapping
-    intervals, not a correction of one by the other."""
-    extractor = StubExtractor(
-        by_content={
-            "Ada worked at Acme from Jan 2024 until Jun 2024": [relation(target="Acme Corp")],
-            "Ada works at Beta since Jun 2024": [relation(target="Beta Inc")],
-        }
-    )
-    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+    intervals, not a correction of one by the other.
 
-    pipe.run(ACME, [episode("Ada worked at Acme from Jan 2024 until Jun 2024")])
-    report = pipe.run(ACME, [episode("Ada works at Beta since Jun 2024")])
+    Explicit integer bounds via a stub extractor, not the rule-based regex (round-1 review, PR
+    #110): parsing "from Jan 2024 until Jun 2024" / "since Jun 2024" into the *same* epoch was
+    the intent, but if the pattern ever stopped matching both episodes would fall back to
+    ``t_valid=<ingest_time>`` -- equal instants -- and the *same-instant* guard this test is not
+    about would explain ``edges_invalidated == 0`` just as well, silently passing for the wrong
+    reason. Two separate pipelines (one stub extractor + one stub valid-time extractor each) over
+    one shared graph is what lets each write carry its own fixed, unambiguous span.
+    """
+    graph = FakeGraph()
+    first = RelationExtractionPipeline(
+        graph=graph,
+        extractor=StubExtractor(default=[relation(target="Acme Corp")]),
+        valid_time_extractor=StubValidTimeExtractor(ValidTimeSpan(t_valid=100, t_invalid=200, source="explicit")),
+    )
+    second = RelationExtractionPipeline(
+        graph=graph,
+        extractor=StubExtractor(default=[relation(target="Beta Inc")]),
+        valid_time_extractor=StubValidTimeExtractor(ValidTimeSpan(t_valid=200, source="explicit")),
+    )
+
+    first.run(ACME, [episode("Ada worked at Acme")])
+    report = second.run(ACME, [episode("Ada works at Beta")])
 
     assert report.edges_invalidated == 0
     assert len(graph.rows["acme"]) == 2
@@ -455,6 +468,37 @@ def test_two_facts_starting_at_the_exact_same_instant_do_not_contradict():
 
     assert report.edges_invalidated == 0
     assert len(graph.rows["acme"]) == 2
+
+
+def test_a_candidate_with_no_valid_time_cannot_contradict_anything():
+    """``_contradicted``'s own guard: a candidate whose ``record.t_valid`` is unset carries no
+    instant an existing edge could be said to have stopped being true at, so it is skipped rather
+    than treated as always-superseding.
+
+    Unreachable through the pipeline today -- ``ValidTimeSpan.t_valid`` is never ``None`` (its
+    own ``__post_init__`` enforces that), so every candidate ``run``/``arun`` builds already
+    satisfies the guard before it is ever checked. Exercised directly against the static
+    predicate instead (round-1 review, PR #110), the only way this guard can actually be
+    defeated -- by a hand-built ``FactWrite`` from a caller that bypasses the pipeline.
+    """
+    existing = [
+        MemoryRecord(
+            id="old",
+            tier=MemoryTier.SEMANTIC,
+            content="Ada works at Acme",
+            scope=ACME,
+            t_valid=100,
+            provenance={"subject": "Ada", "predicate": "works_at", "object": "Acme Corp"},
+        )
+    ]
+    candidate = FactWrite(
+        record=MemoryRecord(id="new", tier=MemoryTier.SEMANTIC, content="Ada works at Beta", scope=ACME, t_valid=None),
+        subject="Ada",
+        predicate="works_at",
+        object="Beta Inc",
+    )
+
+    assert RelationExtractionPipeline._contradicted(existing, [candidate]) == {}
 
 
 def test_a_different_subject_under_the_same_relation_does_not_contradict():
@@ -491,13 +535,25 @@ def test_a_different_relation_for_the_same_pair_does_not_contradict():
 
 def test_contradiction_is_scoped_to_the_facts_own_scope():
     """A subject+relation match in a different scope must never be invalidated -- ``recall_facts``
-    is itself scope-checked, but this pins the pipeline actually relies on that rather than
-    reading across scopes some other way."""
-    extractor = StubExtractor(default=[relation(target="Acme Corp")])
+    is itself scope-checked, but this pins that the pipeline actually relies on that rather than
+    reading across scopes some other way.
+
+    Different objects per scope, not the same one (round-1 review, PR #110): with one shared
+    object, the ordinary object-mismatch skip already explains zero invalidations, and a scope
+    leak would go unnoticed. Differing objects means only scope filtering stands between this and
+    a false invalidation -- if ``recall_facts`` ever leaked BOB's edge into ACME's lookup, the
+    object-mismatch condition would find a "contradiction" and this test would catch it.
+    """
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
     pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
 
     pipe.run(ACME, [episode("Ada works at Acme", "e1", t_valid=100, scope=ACME)])
-    report = pipe.run(BOB, [episode("Ada works at Acme", "e2", t_valid=200, scope=BOB)])
+    report = pipe.run(BOB, [episode("Ada works at Beta", "e2", t_valid=200, scope=BOB)])
 
     assert report.edges_invalidated == 0
     acme_edge = next(f for f in graph.facts if f.record.scope == ACME)
