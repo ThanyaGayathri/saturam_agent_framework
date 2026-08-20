@@ -669,3 +669,27 @@ criterion's expected ordering. All three refusals raised `MemoryOperationError` 
 offending field (`relevance`, `weights.relevance` for both the NaN and the negative-weight case).
 
 **Requires:** Nothing -- no database, no API key.
+
+---
+
+### 27_episode_forgetting.py
+
+**Status:** PASS
+
+**Description:** The SM-E9 forgetting policy (`select_for_forgetting`) applied to a
+three-episode batch: a low-importance episode idle 40 days, a high-importance episode idle the
+same 40 days, and a recent episode idle 1 day. The default recency-floor threshold (0.05) and the
+default decay parameters (`base_half_life=5d`, `imp_factor=4.0`).
+
+**Result:** Ran to completion. Exactly the low-importance stale episode was archived (`expired_at`
+set to the run's `now`); the high-importance episode at the same age survived (its longer,
+importance-scaled half-life keeps its decay score above the floor at 40 days), and the recent
+episode was untouched. The two originals passed in that were *not* selected, and the one that
+*was*, all still report `expired_at=None` on the original objects -- `select_for_forgetting`
+returns detached archived copies, never mutates its input.
+
+**Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `26_` to `27_`: SM-E7 (#109) merged to `main` first and took `26_` for
+`26_episodic_composite_scoring.py`.** Per this file's own convention, whoever merges second
+renumbers.

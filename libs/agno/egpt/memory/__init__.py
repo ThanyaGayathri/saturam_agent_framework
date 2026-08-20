@@ -14,13 +14,22 @@ from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker
 from egpt.memory.episodic import (
     DEFAULT_BASE_HALF_LIFE_S,
     DEFAULT_IMP_FACTOR,
+    DEFAULT_PRUNE_THRESHOLD,
     ImportanceScore,
     ImportanceScorer,
     episode_decay_score,
     half_life_s,
+    is_prune_eligible,
     recency_decay,
     reinforce,
+    select_for_forgetting,
 )
+
+# `forget` (the single-episode archive function) is imported from its submodule directly, not
+# re-exported by `egpt.memory.episodic`'s own __init__ -- that package deliberately excludes it to
+# avoid binding `egpt.memory.episodic.forget` (the submodule) to the function in its own
+# namespace. No such collision exists here: this package has no `egpt.memory.forget` submodule.
+from egpt.memory.episodic.forget import forget
 from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.episodic.score import (
     DEFAULT_EPISODIC_SCORE_WEIGHTS,
@@ -248,6 +257,11 @@ __all__ = [
     "DEFAULT_EPISODIC_SCORE_WEIGHTS",
     "EpisodicScoreWeights",
     "composite_episodic_score",
+    # Episode forgetting / pruning (SM-E9)
+    "DEFAULT_PRUNE_THRESHOLD",
+    "forget",
+    "is_prune_eligible",
+    "select_for_forgetting",
     # The consolidation scheduler (SM-L1)
     "ConsolidationOutcome",
     "ConsolidationWorker",
