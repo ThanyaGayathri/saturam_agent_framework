@@ -719,3 +719,27 @@ correctly excluded, and the hop-1 edge outranked the hop-2 one. Sweeping `max_tr
 `main` first and took `26_`/`27_` for `26_episodic_composite_scoring.py`/`27_episode_forgetting.py`
 while this branch was still catching up.** Per this file's own convention, whoever merges second
 renumbers.
+
+---
+
+### 29_reflection.py
+
+**Status:** PARTIAL
+
+**Description:** Importance-gated reflection (SM-L6): wires a `ReflectionPipeline` (threshold 1.2)
+into `CoLocatedMemoryProvider`, writes three episodes about the same incident (importances
+0.5/0.6/0.4, summing past the threshold), consolidates, and reads the synthesized insight back
+through the ordinary SEMANTIC-tier read path, showing it still carries `source_episode_ids` for
+all three episodes.
+
+**Result:** Verified structurally with a mocked `Model.response` (no network) -- the script runs
+end to end: `report.details["reflection"]["triggered"]` is `True`, the insight is retrievable via
+`memory.read`, and its provenance names all three episode ids. **Not run against a real model**: no
+`OPENAI_API_KEY` was available in the environment that wrote this cookbook, the same gap
+`21_episode_importance.py` logs. `ReflectionPipeline`'s own decisions (accumulation, threshold
+crossing, provenance, sync/async parity) are covered against a stub synthesizer by
+`libs/agno/tests/unit/memory/test_consolidation_reflect.py`; this file is the only thing left
+unverified against a live provider. Re-run with a real key before relying on this entry as a full
+PASS.
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.

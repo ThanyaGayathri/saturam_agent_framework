@@ -115,6 +115,13 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `26_` to `28_`: `feat/SM-E7` (#109) and `feat/SM-E9` (#112) both merged to
   `main` first and took `26_`/`27_` while this branch was still catching up.**
 
+- `29_reflection.py`: Importance-gated insight synthesis (SM-L6) -- `ReflectionPipeline` accumulates
+  episode importance (SM-E5) per scope across passes, reusing SM-L2's `SizeTrigger` policy, and once
+  the accumulation crosses a threshold asks an `LLMInsightSynthesizer` to distill the cluster into
+  one insight or decline. A synthesized insight becomes a `FactWrite` citing every source episode
+  and lands on the SEMANTIC tier through the same write path a deduped fact uses -- retrievable
+  through an ordinary read. Requires a real model (`OPENAI_API_KEY`); no database.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
