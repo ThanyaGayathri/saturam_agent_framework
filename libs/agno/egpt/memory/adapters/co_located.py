@@ -8,7 +8,10 @@ silently and one puts another tenant's data into a prompt: tenant isolation and 
 validity.
 
 Out of scope, deliberately: rank fusion beyond a score sum (SM-H2 #132), a consolidation scheduler
-(SM-L1 #122), **retiring a fact whose source group changed** (SM-L3 #124).
+(SM-L1 #122). **Retiring a fact whose source group changed** is SM-L3's (#124)
+``egpt.memory.consolidation.extract.FactExtractionPipeline`` -- opt-in via ``fact_pipeline``, same
+shape as ``entity_pipeline``/``relation_pipeline``; ``_distil``'s deterministic dedup below remains
+the zero-config default and still cannot retire what it subsumes (its own docstring).
 ``consolidate`` here is scan -> filter -> distil -> write, and the report names what it does not do.
 
 ``consolidate`` carries an in-process resumption cursor (SM-L1 #122) so repeated calls jointly
@@ -34,6 +37,7 @@ from egpt.memory.config import (
     register_provider,
     resolve_substrate,
 )
+from egpt.memory.consolidation.extract import STRATEGY_ID as FACT_PIPELINE_STRATEGY_ID
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
@@ -50,6 +54,7 @@ from egpt.memory.tiers import (
 from egpt.memory.types import (
     NO_ENTITIES,
     NO_RELATIONS,
+    NO_SUPERSEDE,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
@@ -71,6 +76,7 @@ from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids,
 from egpt.utils.dttm import now_epoch_s
 
 if TYPE_CHECKING:
+    from egpt.memory.consolidation.extract import FactExtractionPipeline
     from egpt.memory.graph.entities import EntityExtractionPipeline
     from egpt.memory.graph.relations import RelationExtractionPipeline
 
@@ -134,15 +140,21 @@ def _positive_int(value: Any, option: str) -> int:
 _P = TypeVar("_P")
 
 
-def _checked_pipeline(candidate: Optional[_P], *, option: str) -> Optional[_P]:
+def _checked_pipeline(
+    candidate: Optional[_P], *, option: str, verbs: Tuple[str, str] = ("run", "arun")
+) -> Optional[_P]:
     """Verify an injected extraction pipeline carries both halves, at construction time.
 
-    Shared by ``entity_pipeline`` and ``relation_pipeline`` (SM-G3 #101): the same bargain
-    :func:`egpt.memory.substrates.checked_graph` strikes, generalised over which option is being
-    checked so the two pipelines cannot drift on this rule. Names only, but it turns "consolidate
-    mysteriously stopped extracting" or an ``AttributeError`` deep inside a pass into a build-time
-    error. ``None`` passes through -- a provider without a given extraction pass is the default,
-    not a misconfiguration.
+    Shared by ``entity_pipeline``, ``relation_pipeline`` (SM-G3 #101) and ``fact_pipeline``
+    (SM-L3 #124): the same bargain :func:`egpt.memory.substrates.checked_graph` strikes,
+    generalised over which option is being checked so the pipelines cannot drift on this rule.
+    Names only, but it turns "consolidate mysteriously stopped extracting" or an
+    ``AttributeError`` deep inside a pass into a build-time error. ``None`` passes through -- a
+    provider without a given extraction pass is the default, not a misconfiguration.
+
+    ``verbs`` defaults to entity/relation's ``run``/``arun``; ``fact_pipeline`` names its own
+    (``distil``/``adistil``) because it returns writes rather than performing them (module
+    docstring difference: see ``FactExtractionPipeline``).
 
     Method presence only, like that same bargain -- a candidate with the right names and wrong
     behaviour (a bad model, a broken embedder passed through) still passes here and fails at the
@@ -150,7 +162,7 @@ def _checked_pipeline(candidate: Optional[_P], *, option: str) -> Optional[_P]:
     """
     if candidate is None:
         return None
-    missing = [verb for verb in ("run", "arun") if not callable(getattr(candidate, verb, None))]
+    missing = [verb for verb in verbs if not callable(getattr(candidate, verb, None))]
     if missing:
         raise MemoryProviderConfigError(
             f"options[{option!r}] is a {type(candidate).__name__}, which is missing "
@@ -222,6 +234,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         max_concurrent_writes: int = _MAX_CONCURRENT_WRITES,
         entity_pipeline: Optional["EntityExtractionPipeline"] = None,
         relation_pipeline: Optional["RelationExtractionPipeline"] = None,
+        fact_pipeline: Optional["FactExtractionPipeline"] = None,
     ) -> None:
         if vector is None and graph is None:
             raise MemoryProviderConfigError(
@@ -241,6 +254,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #: extraction. Same duck-typed, opt-in shape as ``entity_pipeline`` and the same reason:
         #: an LLM pass per episode that a provider must be asked for, not upgraded into.
         self.relation_pipeline = _checked_pipeline(relation_pipeline, option="relation_pipeline")
+        #: SM-L3's (#124) mem0-style extract-and-merge, replacing ``_distil``'s deterministic
+        #: dedup for the pass it runs on. ``None`` by default for the same reason as the two
+        #: pipelines above: extraction and the merge decision are each an LLM pass, so a provider
+        #: must be asked for them rather than start paying for it on an upgrade. Unlike those two,
+        #: this pipeline's writes flow through the same fact-write path ``_distil`` feeds --
+        #: see ``consolidate``.
+        self.fact_pipeline = _checked_pipeline(fact_pipeline, option="fact_pipeline", verbs=("distil", "adistil"))
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         #: Ceiling on one consolidation pass. Adjustable because the default is a safety bound, not
         #: a policy: a tier larger than this has its tail consolidated over multiple passes, tracked
@@ -988,6 +1008,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         merged: int,
         entities: EntitySummary,
         relations: RelationSummary,
+        derived_by: str = "co_located.deterministic_dedup",
+        supersede: str = NO_SUPERSEDE,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
         return ConsolidationReport(
@@ -996,15 +1018,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
             semantic_written=len(facts),
             duplicates_merged=merged,
             # Zero by design: knowing two facts *disagree* needs extraction, which is SM-L5's
-            # (#126).
+            # (#126). `fact_pipeline`'s UPDATE/DELETE resolve a *candidate against its own*
+            # similar facts, not two already-stored facts against each other -- a narrower
+            # question than SM-L5's, so this stays zero even when it is wired.
             contradictions_resolved=0,
             details=consolidation_details(
-                derived_by="co_located.deterministic_dedup",
+                derived_by=derived_by,
                 # `>=`, deliberately conservative: `scan` returns at most `limit`, so a full page
                 # and a truncated one are indistinguishable from here. A tier holding exactly the
                 # cap is reported as truncated when it was drained -- the false positive costs one
                 # unnecessary cap increase, the false negative costs silent loss of the tail.
                 complete=not hit_cap,
+                supersede=supersede,
                 entities=entities,
                 # `relations` is a free extra key, not a `CONSOLIDATION_KEYS` floor member (see
                 # `RelationSummary`'s docstring): promoting it is a separate, deliberate decision
@@ -1161,6 +1186,33 @@ class CoLocatedMemoryProvider(MemoryProvider):
             failures.append(exc)
         self._raise_write_failure(failures, receipt)
 
+    def _distil_facts(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], int, str, str]:
+        """Which strategy runs -- ``fact_pipeline`` when wired, ``_distil``'s dedup default
+        otherwise -- and the ``(derived_by, supersede)`` pair the report names it with.
+
+        ``merged`` is redefined for the pipeline path: ``_distil`` counts extra *episodes* folded
+        into a group; the pipeline counts UPDATE and NOOP decisions, which is the closest existing
+        analogue (episodes that did not become a brand-new fact) since it has no notion of a
+        "group" to subtract one from.
+        """
+        if self.fact_pipeline is not None:
+            facts, report = self.fact_pipeline.distil(scope, episodes)
+            return facts, report.updated + report.noop, FACT_PIPELINE_STRATEGY_ID, FACT_PIPELINE_STRATEGY_ID
+        facts, merged = self._distil(episodes)
+        return facts, merged, "co_located.deterministic_dedup", NO_SUPERSEDE
+
+    async def _adistil_facts(
+        self, scope: Scope, episodes: Sequence[MemoryRecord]
+    ) -> Tuple[List[FactWrite], int, str, str]:
+        """Async variant of :meth:`_distil_facts`, making the same decisions."""
+        if self.fact_pipeline is not None:
+            facts, report = await self.fact_pipeline.adistil(scope, episodes)
+            return facts, report.updated + report.noop, FACT_PIPELINE_STRATEGY_ID, FACT_PIPELINE_STRATEGY_ID
+        # Off the loop, matching `aconsolidate`'s existing `_distil` call: quadratic and measured
+        # seconds of pure CPU at the cap, during which no other coroutine in the process runs.
+        facts, merged = await asyncio.to_thread(self._distil, episodes)
+        return facts, merged, "co_located.deterministic_dedup", NO_SUPERSEDE
+
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="consolidate")
         vector = self._check_consolidatable(tiers)
@@ -1180,7 +1232,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ]
         assert_scope_isolation(scope, scanned, method="consolidate")
         episodes = self._visible_episodes(scope, scanned, instant)
-        facts, merged = self._distil(episodes)
+        facts, merged, derived_by, supersede = self._distil_facts(scope, episodes)
 
         if facts:
             self._check_distilled(facts)
@@ -1247,7 +1299,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # is the caller-hands-the-termination-condition failure mode the interface docstring warns
         # about, reincarnated one layer down.
         self._advance_cursor(cursor_key, scanned)
-        return self._report(scope, scanned, episodes, facts, merged, entities, relations)
+        return self._report(scope, scanned, episodes, facts, merged, entities, relations, derived_by, supersede)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1265,9 +1317,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ]
         assert_scope_isolation(scope, scanned, method="aconsolidate")
         episodes = await self._avisible_episodes(scope, scanned, instant)
-        # Off the loop: `_distil` is quadratic and measured seconds of pure CPU at the cap, during
-        # which no other coroutine in the process runs.
-        facts, merged = await asyncio.to_thread(self._distil, episodes)
+        facts, merged, derived_by, supersede = await self._adistil_facts(scope, episodes)
 
         if facts:
             self._check_distilled(facts)
@@ -1312,7 +1362,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
         self._advance_cursor(cursor_key, scanned)
-        return self._report(scope, scanned, episodes, facts, merged, entities, relations)
+        return self._report(scope, scanned, episodes, facts, merged, entities, relations, derived_by, supersede)
 
 
 @register_provider("co_located")
@@ -1355,4 +1405,7 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
         # Same reasoning as `entity_pipeline`, one line up: a model is all `RelationExtractionPipeline`
         # needs, but naming one here would put model selection in provider config.
         relation_pipeline=config.options.get("relation_pipeline"),
+        # Same reasoning again: `FactExtractionPipeline` (SM-L3 #124) needs a model and the
+        # already-resolved vector substrate, neither of which belongs in provider config.
+        fact_pipeline=config.options.get("fact_pipeline"),
     )

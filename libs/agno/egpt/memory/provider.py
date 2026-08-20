@@ -130,12 +130,17 @@ class MemoryProvider(ABC):
         which scopes, how often, retrying a failed one -- is :mod:`egpt.memory.consolidation`'s
         (SM-L1 #122).
 
-        **It distils and writes; it does not retire.** A provider derives a fact id from the
-        episodes it came from, so a group whose membership changes mints a *new* id and the
-        previous row stays current belief -- one logical fact, two rows. Retiring the subsumed row
-        needs supersede semantics that cover growth, shrinkage and split/merge, which belong with
-        the extraction strategy that decides group membership: SM-L3 (#124). Until then a provider
-        must say so in ``details["supersede"]`` rather than leave a caller to discover it.
+        **Retiring a subsumed fact needs supersede semantics that cover growth, shrinkage and
+        split/merge, which belong with the extraction strategy that decides group membership.**
+        A zero-config pass derives a fact id from the episodes it came from, so a group whose
+        membership changes mints a *new* id and the previous row stays current belief -- one
+        logical fact, two rows. SM-L3 (#124) is the extraction strategy that can decide membership
+        -- ``egpt.memory.consolidation.extract.FactExtractionPipeline``, opt-in the same way as a
+        provider's entity/relation pipelines -- and its UPDATE/DELETE stamp ``expired_at`` +
+        ``superseded_by`` (transaction time, not valid time: a superseded fact did not become
+        false, a better-sourced row replaced it) on the row they retire. A provider with no such
+        strategy wired must still say so in ``details["supersede"]`` rather than leave a caller to
+        discover it.
 
         ``ConsolidationReport.details`` carries at least :data:`~egpt.memory.types.CONSOLIDATION_KEYS`
         on every provider, so a scheduler reading it does not have to know which one it got.
