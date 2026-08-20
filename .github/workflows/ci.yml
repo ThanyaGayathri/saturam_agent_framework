@@ -15,7 +15,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # event_name is included so a manual workflow_dispatch run on main doesn't
+  # share a group with (and get silently cancelled by, or silently cancel) an
+  # automatic push run on main -- they'd otherwise collide on the same
+  # ci-refs/heads/main group.
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
