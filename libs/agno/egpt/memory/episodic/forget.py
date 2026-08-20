@@ -1,0 +1,159 @@
+"""Episode forgetting / pruning policy (SM-E9 #116), per SM-R5's ratified decision.
+
+``benchmarks/memory_decay/DECISION.md`` section 4 (restated in ADR 0003 section B.1, "SM-E9 owns
+pruning under the A.7/SM-R5 recency floor") is the policy this implements: an episode is
+prune-eligible when its SM-E4 decay score (:func:`~egpt.memory.episodic.decay.episode_decay_score`)
+falls below a recency floor, and that is the *only* gate. DECISION.md section 4 implemented and
+measured a stricter three-condition gate (recency floor AND importance-below-floor AND
+not-currently-valid) and rejected it: the extra conditions shield ``FOREVER``-valid clutter from
+ever being pruned, so retained count stays ~402 of 439 rather than the recency-floor-alone result
+of 292 -- too conservative to bound growth. The importance-weighted half-life
+(``episodic.decay.half_life_s``) already makes the plain recency floor safe (0 false-forgets
+measured), which is what lets this module skip the extra conditions.
+
+**Archive, never hard-delete (DECISION.md section 6, ADR 0003 section B.3).** Pruning here means
+row-level ``expired_at`` (:meth:`~egpt.db.schemas.memory.BiTemporal.expire`, SCD-2 /
+invalidate-not-delete) -- never :meth:`~egpt.memory.substrates.GraphSubstrate.invalidate`, which is
+edge-level semantic contradiction on the graph and, per that method's own docstring, is explicitly
+"a different object" ("Do not route episode archival here"). An archived episode drops out of
+current-belief reads (``expired_at IS NULL``) but stays reconstructable, exactly like a
+consolidation-superseded row.
+
+**Ordering (ADR 0003 section 3, ratified from DECISION.md section 6): decay-pruning must run
+*after* the consolidation/reflection pass, never before**, or an episodic row can be archived
+before its knowledge is distilled into the semantic tier. This module does not enforce that --
+consolidation's own extract/merge/reflect stages are not wired into a scheduled pass yet
+(``egpt.memory.consolidation`` package docstring), so there is nothing in this codebase to
+sequence against today. Whichever caller schedules a forgetting pass owns running it after
+consolidation, the same way ``egpt.memory.adapters.seed.SeedMemoryProvider.consolidate`` already
+documents that the *rest* of the consolidation loop is "SM-L1's (#122) onward" rather than
+something this layer can wire up.
+
+**Per-tenant config (SM-C5 #93, not yet landed; ``egpt.memory.config`` module docstring).** Every
+threshold below is a plain parameter carrying the DECISION.md-ratified default, not a hardcoded
+constant, so a per-tenant policy lookup can override it once SM-C5 ships its
+``ProviderConfig.lookup``-shaped resolution (``egpt.providers.config``). Resolving *which* value a
+given tenant gets is SM-C5's job; this module only defines what a threshold means and what happens
+once an episode crosses it.
+
+**Reuses the shape of the seed's ``Curator``, not the class itself.** ``learn/curate.py``'s
+``Curator.prune`` / ``_filter_by_age`` / ``_keep_newest`` (SM-E9's own seed facts) establish
+filter-a-list-and-return-survivors as the pruning shape :func:`select_for_forgetting` follows here.
+They are not imported: ``Curator`` is scoped to ``self.machine.stores["user_profile"]`` and a list
+of plain dicts (its own docstring: "Currently supports user_profile store only"), and
+``egpt.learn`` sits *below* ``egpt.memory`` in the dependency direction ADR 0003 section 2 ratifies
+(``MemoryProvider`` wraps the seed's ``LearningStore``, not the reverse) -- importing
+``EpisodicRecord``/decay scoring into ``learn/curate.py`` would invert that. This is the same
+judgment call ``egpt.memory.types.normalize_entity_name`` already made for
+``Curator._normalize`` ("restated rather than imported because that method is private on a class
+needing a wired ``LearningMachine``") and ``SeedMemoryProvider.consolidate`` made for
+``Curator.deduplicate`` ("narrower than ADR 0003 section 2.1's 'REUSE inside consolidate' implies
+... wired as the dedup hook it can serve").
+
+Like :mod:`egpt.memory.episodic.decay`, every function here is pure -- no store is read or
+written, so a caller with an archived episode persists it through the substrate seam it already
+owns (``GraphSubstrate.upsert_episodes`` / ``VectorSubstrate.upsert``). No async twins, the same
+construction-only exemption CLAUDE.md gives ``episode_from_event``.
+"""
+
+from dataclasses import replace
+from typing import List, Optional, Sequence
+
+from egpt.memory.episodic.decay import (
+    DEFAULT_BASE_HALF_LIFE_S,
+    DEFAULT_IMP_FACTOR,
+    episode_decay_score,
+)
+from egpt.memory.schemas.episodic import EpisodicRecord
+from egpt.utils.dttm import now_epoch_s
+
+__all__ = [
+    "DEFAULT_PRUNE_THRESHOLD",
+    "forget",
+    "is_prune_eligible",
+    "select_for_forgetting",
+]
+
+#: DECISION.md section 1 / section 4's ratified recency-floor prune gate, ADR 0003 section A.7:
+#: "RATIFIED as defaults". Below this decay score an episode is prune-eligible.
+DEFAULT_PRUNE_THRESHOLD: float = 0.05
+
+
+def is_prune_eligible(
+    episode: EpisodicRecord,
+    now: Optional[int] = None,
+    prune_threshold: float = DEFAULT_PRUNE_THRESHOLD,
+    base_half_life_s: float = DEFAULT_BASE_HALF_LIFE_S,
+    imp_factor: float = DEFAULT_IMP_FACTOR,
+) -> bool:
+    """DECISION.md section 4: ``episode_decay_score(episode) < prune_threshold``, and only that.
+
+    An already-archived episode (``expired_at`` set) is never eligible again -- re-selecting it on
+    a later pass would double-report an episode this policy already decided about, even though
+    :meth:`~egpt.db.schemas.memory.BiTemporal.expire` itself no-ops on a replay. Checked ahead of
+    scoring so a caller filtering a mixed batch of live and already-archived rows never pays for
+    (or is misled by) a decay score on a row this function will refuse regardless of it.
+    """
+    if episode.expired_at is not None:
+        return False
+    score = episode_decay_score(episode, now, base_half_life_s, imp_factor)
+    return score < prune_threshold
+
+
+def forget(
+    episode: EpisodicRecord,
+    at: Optional[int] = None,
+    t_invalid: Optional[int] = None,
+) -> EpisodicRecord:
+    """Archive one episode: row-level ``expired_at``, never delete (DECISION.md section 6).
+
+    Returns a detached, already-archived copy -- the same non-mutation contract
+    :func:`~egpt.memory.episodic.decay.reinforce` documents, and for the same reason: mutating the
+    caller's row in place would let a reader see an archived episode nothing has actually
+    persisted. ``dataclasses.replace`` (rather than mutating ``episode`` directly) re-runs
+    ``MemoryRow.__post_init__``, which re-copies every list-typed field, so the returned copy
+    shares no mutable state with ``episode`` -- the isolation :meth:`expire` alone does not give,
+    since it only ever touches ``expired_at``/``t_invalid``.
+
+    Unconditional: this does not check :func:`is_prune_eligible`. A caller that already decided
+    (batch selection is :func:`select_for_forgetting`'s job) or an explicit forget request is not
+    re-gated on the recency floor here -- refusing it would make a deliberate action fail silently
+    for a reason the caller did not ask about. An already-archived episode passed here comes back
+    unchanged: :meth:`~egpt.db.schemas.memory.BiTemporal.expire` no-ops on a replayed archive,
+    matching its documented behaviour for every other caller of that method.
+    """
+    archived = replace(episode)
+    archived.expire(expired_at=at, t_invalid=t_invalid)
+    return archived
+
+
+def select_for_forgetting(
+    episodes: Sequence[EpisodicRecord],
+    now: Optional[int] = None,
+    prune_threshold: float = DEFAULT_PRUNE_THRESHOLD,
+    base_half_life_s: float = DEFAULT_BASE_HALF_LIFE_S,
+    imp_factor: float = DEFAULT_IMP_FACTOR,
+    at: Optional[int] = None,
+) -> List[EpisodicRecord]:
+    """Archive every prune-eligible episode in ``episodes``, in the shape ``Curator.prune``
+    establishes: filter a list, return only what the filter selected.
+
+    One clock (``now``) shared across the whole batch, exactly as
+    ``MemoryProvider.consolidate`` stamps one ``instant`` up front rather than calling
+    ``now_epoch_s()`` per row -- two episodes at the same recency must be judged against the same
+    instant, not drift apart across a long scan. ``at`` (the transaction-time stamp
+    :func:`forget` writes onto ``expired_at``) defaults from the same clock unless a caller passes
+    a different one, so a replayed pass can archive under the instant it actually ran, not the
+    instant it is scoring against.
+
+    Episodes that are not prune-eligible are simply absent from the result -- there is no "kept"
+    half to return, unlike ``Curator._filter_by_age``, because nothing here removes a row from
+    anywhere for a caller to reconcile against; an episode not returned is untouched.
+    """
+    instant = now_epoch_s() if now is None else now
+    stamp = instant if at is None else at
+    return [
+        forget(episode, at=stamp)
+        for episode in episodes
+        if is_prune_eligible(episode, instant, prune_threshold, base_half_life_s, imp_factor)
+    ]
