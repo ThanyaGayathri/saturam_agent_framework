@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Union
 
+from egpt.memory.consolidation._validators import _positive
 from egpt.memory.consolidation.triggers import ConsolidationTrigger
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.types import ConsolidationReport, Scope, entity_extraction_complete
@@ -36,10 +37,25 @@ def _resolve_scopes(source: ScopeSource) -> Sequence[Scope]:
     return source() if callable(source) else source
 
 
-def _positive(value: float, option: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ValueError(f"{option} must be a positive number, got {value!r}.")
-    return value
+def _sync_trigger_result(result, trigger: ConsolidationTrigger, method: str):
+    """Guards every ``ConsolidationTrigger`` call site against an async implementation.
+
+    ``ConsolidationTrigger`` is a synchronous Protocol by design (see its own docstring), but
+    nothing at the type level stops a caller from handing over one whose methods are
+    ``async def``. Called as a plain function -- exactly how every site below calls it -- Python
+    evaluates the *coroutine object* itself, which is always truthy: an async ``should_fire``
+    that means "not due" would silently drain every scope on every tick instead of raising
+    anywhere. Failing loudly here, at the one place every trigger call funnels through, turns
+    that into an immediate, actionable ``TypeError`` instead.
+    """
+    if asyncio.iscoroutine(result):
+        result.close()  # avoid a dangling "coroutine was never awaited" warning
+        raise TypeError(
+            f"{type(trigger).__name__}.{method}() returned a coroutine. ConsolidationTrigger is a "
+            "synchronous Protocol -- ConsolidationWorker calls every method as a plain function "
+            "call, never awaited. Do any real I/O with a blocking client instead of `async def`."
+        )
+    return result
 
 
 def _positive_int(value: int, option: str) -> int:
@@ -128,6 +144,11 @@ class ConsolidationWorker:
         self.stop_timeout = _positive(stop_timeout, "stop_timeout")
         #: SM-L2's trigger policy (#123). `None` preserves SM-L1's original behaviour exactly --
         #: every configured scope drains on every tick, regardless of whether anything changed.
+        #: Public like every other constructor-set attribute on this class (`poll_interval`,
+        #: `max_retries`, ...), but not meant to be reassigned after construction: `should_fire`
+        #: is looked up on `self.trigger` fresh every tick, so a swap mid-run would leave
+        #: `self._known_scopes` (below) keyed under the *old* trigger's state, orphaned with no
+        #: cleanup path. Construct a new `ConsolidationWorker` instead of swapping triggers on one.
         self.trigger = trigger
         self.clock = clock
         #: Every scope `_resolve_scopes` returned as of the last tick, keyed by `.key()` -- only
@@ -156,12 +177,19 @@ class ConsolidationWorker:
         ``asyncio.run(worker.run_once())``.
 
         Calling this directly while the background loop (``start()``) is already running is
-        safe -- there is nothing here it can corrupt, and a scope's cursor tolerates concurrent
-        readers per :meth:`MemoryProvider.consolidate`'s own docstring -- but it duplicates work,
-        for the same reason a scope's cursor does not serialize concurrent callers on its own:
-        both read it before either advances it. Direct calls are for tests and one-shot
-        invocations; a caller running the loop should let it drive `run_once` on its own
-        schedule instead of also calling it manually.
+        safe when ``trigger`` is ``None`` -- there is nothing here it can corrupt, and a scope's
+        cursor tolerates concurrent readers per :meth:`MemoryProvider.consolidate`'s own
+        docstring -- but it duplicates work, for the same reason a scope's cursor does not
+        serialize concurrent callers on its own: both read it before either advances it. Direct
+        calls are for tests and one-shot invocations; a caller running the loop should let it
+        drive `run_once` on its own schedule instead of also calling it manually.
+
+        With ``trigger`` set, "safe to call concurrently" holds only as long as every
+        :class:`ConsolidationTrigger` method stays synchronous and side-effect-free across an
+        ``await``: two overlapping ``run_once`` calls both read-diff-write ``self._known_scopes``
+        with no ``await`` in between, so today's synchronous trigger contract cannot interleave
+        there -- but that stops being true the moment any trigger method does real ``await``ing
+        work of its own.
 
         **Trigger-gated (SM-L2 #123)**: with ``self.trigger`` set, a scope is drained only when
         ``trigger.should_fire`` says so as of ``self.clock()`` -- a scope that does not fire is
@@ -183,14 +211,22 @@ class ConsolidationWorker:
             current_by_key = {scope.key(): scope for scope in scopes}
             departed = [scope for key, scope in self._known_scopes.items() if key not in current_by_key]
             for scope in departed:
-                self.trigger.reset(scope)
+                # `reset` is typed `-> None`; capturing its "return value" here is deliberate, not
+                # a mistake mypy should flag -- the whole point is to catch a *runtime* Protocol
+                # violation (an async implementation) that the type system cannot rule out on its
+                # own. See `_sync_trigger_result`'s docstring.
+                _sync_trigger_result(self.trigger.reset(scope), self.trigger, "reset")  # type: ignore[func-returns-value]
             self._known_scopes = current_by_key
-            scopes = [scope for scope in scopes if self.trigger.should_fire(scope, now=now)]
+            scopes = [
+                scope
+                for scope in scopes
+                if _sync_trigger_result(self.trigger.should_fire(scope, now=now), self.trigger, "should_fire")
+            ]
         outcomes = list(await asyncio.gather(*(self._drain_scope(scope) for scope in scopes)))
         if self.trigger is not None:
             for outcome in outcomes:
                 if outcome.error is None and outcome.drained:
-                    self.trigger.reset(outcome.scope)
+                    _sync_trigger_result(self.trigger.reset(outcome.scope), self.trigger, "reset")  # type: ignore[func-returns-value]
         return outcomes
 
     async def _drain_scope(self, scope: Scope) -> ConsolidationOutcome:

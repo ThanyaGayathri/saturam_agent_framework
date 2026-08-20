@@ -166,6 +166,23 @@ class TestLatencyTrigger:
         trigger.reset(ACME)  # must not raise
         assert trigger.should_fire(ACME, now=0.0) is False
 
+    def test_per_tenant_threshold_overrides_the_default(self):
+        """`_resolve` (the per-tenant lookup) is shared code, but nothing exercised it for a
+        time-based trigger before this -- only the two `_AccumulatingTrigger` subclasses had this
+        test. A regression that made every trigger read `.default` unconditionally would have
+        passed CI for `LatencyTrigger` specifically.
+
+        Mutation guard: reading `.default` unconditionally instead of resolving by tenant would
+        make acme's trigger require 20s too, not fire at 5s.
+        """
+        threshold = PerTenantThreshold(default=20, by_tenant={"acme": 5})
+        trigger = LatencyTrigger(max_age_seconds=threshold)
+        trigger.record_event(ACME, now=0.0)
+        trigger.record_event(GLOBEX, now=0.0)
+
+        assert trigger.should_fire(ACME, now=5.0) is True
+        assert trigger.should_fire(GLOBEX, now=5.0) is False
+
 
 class TestIdleTrigger:
     def test_fires_once_idle_long_enough_since_the_last_event(self):
@@ -205,6 +222,21 @@ class TestIdleTrigger:
         trigger.reset(ACME)  # must not raise
         assert trigger.should_fire(ACME, now=0.0) is False
 
+    def test_per_tenant_threshold_overrides_the_default(self):
+        """Mirrors `TestLatencyTrigger`'s equivalent test -- both time-based triggers share the
+        same `_resolve` per-tenant lookup.
+
+        Mutation guard: reading `.default` unconditionally instead of resolving by tenant would
+        make acme's trigger require 60s of idle too, not fire at 10s.
+        """
+        threshold = PerTenantThreshold(default=60, by_tenant={"acme": 10})
+        trigger = IdleTrigger(idle_seconds=threshold)
+        trigger.record_event(ACME, now=0.0)
+        trigger.record_event(GLOBEX, now=0.0)
+
+        assert trigger.should_fire(ACME, now=10.0) is True
+        assert trigger.should_fire(GLOBEX, now=10.0) is False
+
 
 class TestPerTenantThreshold:
     def test_default_must_be_positive_standalone(self):
@@ -218,6 +250,14 @@ class TestPerTenantThreshold:
     def test_by_tenant_override_must_be_positive_standalone(self):
         with pytest.raises(ValueError, match="by_tenant"):
             PerTenantThreshold(default=5.0, by_tenant={"acme": 0.0})
+
+    def test_by_tenant_key_must_be_non_empty(self):
+        """`Scope.__post_init__` rejects a blank `tenant_id`, so an empty-string override can never
+        be reached by a valid scope lookup -- but that makes it a dead, silently-accepted entry
+        rather than a reachable one, worth rejecting at construction all the same.
+        """
+        with pytest.raises(ValueError, match="non-empty"):
+            PerTenantThreshold(default=5.0, by_tenant={"": 2.0})
 
     def test_mutating_the_original_mapping_after_construction_does_not_affect_resolve(self):
         """`frozen=True` only stops rebinding `by_tenant` itself, not mutating the dict a caller
@@ -305,6 +345,32 @@ class TestAnyTrigger:
         combined.reset(ACME)  # must not raise
 
         assert combined.should_fire(ACME, now=0.0) is False, "counts must have been reset"
+
+    def test_should_fire_reaches_every_child_even_when_one_raises(self):
+        """Named separately from the `record_event`/`reset` resilience tests above -- the
+        previous round's `test_fires_when_any_child_fires` incidentally exercised this same
+        `try`/`except` via `_RaisingTrigger.should_fire`, but nothing said so, so a future reader
+        (or a future removal of that incidental coverage) would not notice `should_fire`'s own
+        resilience had gone untested.
+
+        Mutation guard: dropping the `try`/`except` around each child's `should_fire` call would
+        propagate `RuntimeError` here instead of `counts` still being consulted and firing `True`.
+        """
+        raising = _RaisingTrigger()
+        counts = EventCountTrigger(threshold=1)
+        combined = AnyTrigger([raising, counts])
+        combined.record_event(ACME, now=0.0)
+
+        assert combined.should_fire(ACME, now=0.0) is True  # must not raise
+
+    def test_construction_refuses_a_child_that_is_not_a_consolidation_trigger(self):
+        """`ConsolidationTrigger` is `@runtime_checkable` specifically so this guard can exist --
+        without it, a non-conforming child is accepted silently and only fails later, inside the
+        `try`/`except` in `record_event`/`should_fire`/`reset`, where it looks like just another
+        trigger that happened to fail rather than a construction-time mistake.
+        """
+        with pytest.raises(TypeError, match="not a ConsolidationTrigger"):
+            AnyTrigger([EventCountTrigger(threshold=1), object()])
 
 
 class _RaisingTrigger:

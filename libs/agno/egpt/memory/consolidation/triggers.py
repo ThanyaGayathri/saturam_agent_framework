@@ -14,11 +14,18 @@ A caller (typically the write path) reports pending work with ``record_event``; 
 consults ``should_fire`` before draining a scope and calls ``reset`` after a successful drain.
 Wiring ``record_event`` into a specific write path is a caller's decision, not this module's --
 none of these triggers know or care what "an event" is, only that ``record_event`` was called.
+
+**Every trigger method here is synchronous by design.** ``ConsolidationWorker`` calls
+``should_fire``/``reset`` as plain function calls, never awaited (see
+:func:`~egpt.memory.consolidation.worker._sync_trigger_result`, which fails loudly if a call
+returns a coroutine). A caller-supplied implementation may still be "DB-backed" or
+"network-backed" -- it just has to do that I/O with a blocking client, not ``async def``.
 """
 
 from dataclasses import dataclass, field
 from typing import Dict, Mapping, Protocol, Sequence, Union, runtime_checkable
 
+from egpt.memory.consolidation._validators import _positive
 from egpt.memory.types import Scope
 from egpt.utils.log import log_error
 
@@ -34,27 +41,27 @@ __all__ = [
 ]
 
 
-def _positive(value: float, option: str) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ValueError(f"{option} must be a positive number, got {value!r}.")
-
-
 @dataclass(frozen=True)
 class PerTenantThreshold:
     """A threshold overridable per tenant, falling back to ``default`` for any tenant with no
     explicit entry -- the "configurable per tenant" half of every acceptance criterion here.
 
     Self-validating: constructing one directly (not just passing it to a trigger) rejects a
-    non-positive ``default`` or override immediately, so a bad value cannot sit unnoticed until
-    whichever trigger it is eventually handed to happens to validate it.
+    non-positive ``default`` or override, or a blank tenant id, immediately, so a bad value cannot
+    sit unnoticed until whichever trigger it is eventually handed to happens to validate it.
     """
 
     default: float
+    #: Accepts any ``Mapping`` from a caller (so a ``MappingProxyType`` or similar works too), but
+    #: ``__post_init__`` always narrows it to a private, freshly-copied ``dict`` before storing it
+    #: -- see the defensive-copy comment below.
     by_tenant: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _positive(self.default, "default")
         for tenant_id, override in self.by_tenant.items():
+            if not tenant_id:
+                raise ValueError("by_tenant keys must be non-empty tenant IDs, got ''.")
             _positive(override, f"by_tenant[{tenant_id!r}]")
         # Defensive copy into a plain, private dict: `by_tenant` accepts any `Mapping`, and
         # `frozen=True` only stops rebinding the field, not a caller holding the original mapping
@@ -68,7 +75,10 @@ class PerTenantThreshold:
 
 
 #: A plain number applies to every tenant alike; a ``PerTenantThreshold`` narrows per tenant.
-ThresholdSource = Union[float, PerTenantThreshold]
+#: ``int`` is listed explicitly even though PEP 484's numeric tower already makes it assignable to
+#: `float` (so this is unchanged under mypy, `--strict` included) -- spelling it out means a reader
+#: does not have to know that rule to see why `EventCountTrigger(threshold=3)` type-checks.
+ThresholdSource = Union[int, float, PerTenantThreshold]
 
 
 def _validated_threshold(value: ThresholdSource, option: str) -> ThresholdSource:
@@ -90,9 +100,19 @@ class ConsolidationTrigger(Protocol):
     """What :class:`ConsolidationWorker` consults before draining a scope, and what it must update
     once it has.
 
-    ``@runtime_checkable`` is a pure addition with no behavioural change -- every trigger here is
-    already used structurally, never through ``isinstance`` -- but it lets a caller that wants to
-    guard-check a trigger before passing it in actually do so instead of hitting a ``TypeError``.
+    **Synchronous by design.** Every method here is a plain function, not a coroutine --
+    ``ConsolidationWorker`` calls each one directly, never with ``await``. An ``async def``
+    implementation would still satisfy this Protocol structurally at the type level, but at
+    runtime its methods return coroutine objects, which are always truthy: called un-awaited
+    (exactly how the worker calls them), an async ``should_fire`` meaning "not due" would read as
+    "fired" regardless of what it would have returned if awaited. The worker guards against this
+    (see :func:`~egpt.memory.consolidation.worker._sync_trigger_result`) by raising ``TypeError``
+    the moment any call returns a coroutine, rather than silently misfiring. Do real I/O with a
+    blocking client, not ``async def``.
+
+    ``@runtime_checkable`` lets ``AnyTrigger`` (below) reject a non-conforming child at
+    construction with a clear ``TypeError`` instead of an ``AttributeError`` surfacing later,
+    inside a ``try``/``except`` that would otherwise treat it as just another trigger that failed.
     """
 
     def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
@@ -206,6 +226,11 @@ class IdleTrigger:
     Requires at least one recorded event: a scope nothing has ever written to reads as "nothing to
     consolidate", not "idle enough to fire", so this never fires on a tenant that has simply never
     sent an event, only on one that sent events and then went quiet.
+
+    Does not re-arm itself after ``reset``: a successful drain pops the scope's ``_last_event_at``
+    entry, returning it to the same "no event yet" state as a scope nothing has ever written to --
+    it will not fire again until a fresh ``record_event`` arrives, however much wall-clock time
+    passes in between.
     """
 
     def __init__(self, idle_seconds: ThresholdSource) -> None:
@@ -234,6 +259,15 @@ class AnyTrigger:
     def __init__(self, triggers: Sequence[ConsolidationTrigger]) -> None:
         if not triggers:
             raise ValueError("AnyTrigger requires at least one trigger.")
+        for i, trigger in enumerate(triggers):
+            # `ConsolidationTrigger` is `@runtime_checkable` specifically so this check can exist:
+            # without it, a non-conforming child (e.g. a plain dict, or an object missing a
+            # method) is accepted silently here and only fails later, inside the try/except in
+            # `record_event`/`should_fire`/`reset` -- which logs it and moves on, so the bad child
+            # looks like just another trigger that happened to fail rather than a construction-time
+            # mistake.
+            if not isinstance(trigger, ConsolidationTrigger):
+                raise TypeError(f"triggers[{i}] is not a ConsolidationTrigger: {type(trigger).__name__}")
         self._triggers = list(triggers)
 
     def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
@@ -259,7 +293,12 @@ class AnyTrigger:
         fired = False
         for trigger in self._triggers:
             try:
-                fired = trigger.should_fire(scope, now=now) or fired
+                # Two statements, not `fired = trigger.should_fire(...) or fired`: `or`'s
+                # left-to-right evaluation already calls `should_fire` unconditionally every time
+                # (there is nothing on the left for `fired` to short-circuit), but written combined
+                # it reads as if `fired` could suppress the call.
+                result = trigger.should_fire(scope, now=now)
+                fired = fired or result
             except Exception as exc:
                 log_error(f"AnyTrigger: should_fire failed for {type(trigger).__name__}: {exc}")
         return fired

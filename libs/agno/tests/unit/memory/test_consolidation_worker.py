@@ -567,6 +567,38 @@ async def test_a_scope_that_drops_out_of_a_dynamic_source_has_its_trigger_reset(
     assert spy.reset_calls == [ACME]
 
 
+async def test_an_async_trigger_raises_instead_of_silently_draining_everything():
+    """SM-L2 review round 2: `ConsolidationTrigger` is a synchronous Protocol, but nothing at the
+    type level stops a caller from passing one whose methods are `async def`. Called as a plain
+    function (exactly how `run_once` calls it), Python evaluates the *coroutine object* itself,
+    which is always truthy -- an async `should_fire` that means "not due" would otherwise drain
+    every scope on every tick instead of raising anywhere. This must fail loudly instead.
+
+    Reproduced first: confirmed via a standalone script that `bool(async_trigger.should_fire(...))`
+    is `True` regardless of what the coroutine would have returned if awaited.
+
+    Mutation guard: removing the `asyncio.iscoroutine` guard in `_sync_trigger_result` would make
+    this pass with `outcomes` non-empty (every scope drained) instead of raising `TypeError`.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+
+    class AsyncTrigger:
+        async def record_event(self, scope, *, now, size=1.0):
+            pass
+
+        async def should_fire(self, scope, *, now):
+            return False  # would mean "not due" if this worker awaited it -- it does not
+
+        async def reset(self, scope):
+            pass
+
+    worker = ConsolidationWorker(provider, [ACME], trigger=AsyncTrigger(), clock=lambda: 0.0, retry_delay=0.001)
+
+    with pytest.raises(TypeError, match="coroutine"):
+        await worker.run_once()
+
+
 def test_max_retries_zero_is_accepted_as_fail_fast():
     """0 is "no retry", a real setting -- not a bound violation like the negative case above."""
     provider, _, _ = make_provider()
