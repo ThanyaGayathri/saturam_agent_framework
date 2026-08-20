@@ -108,6 +108,27 @@ class TestSizeTrigger:
         trigger.record_event(ACME, now=1.0)
         assert trigger.should_fire(ACME, now=1.0) is True
 
+    def test_reset_clears_accumulated_size(self):
+        """Mirrors `TestEventCountTrigger`'s equivalent test -- `SizeTrigger` was the one trigger
+        class in the PR missing it.
+        """
+        trigger = SizeTrigger(threshold=10)
+        trigger.record_event(ACME, now=0.0, size=10.0)
+        assert trigger.should_fire(ACME, now=0.0) is True
+
+        trigger.reset(ACME)
+
+        assert trigger.should_fire(ACME, now=0.0) is False
+
+    def test_reset_of_an_unseen_scope_is_a_no_op(self):
+        """`reset` (inherited from `_AccumulatingTrigger`) pops with a default, but nothing had
+        pinned that specifically for `SizeTrigger` -- a mutation to a bare (no-default) `.pop(key)`
+        would have passed CI for every other trigger class except this one.
+        """
+        trigger = SizeTrigger(threshold=10)
+        trigger.reset(ACME)  # must not raise
+        assert trigger.should_fire(ACME, now=0.0) is False
+
     def test_per_tenant_threshold_overrides_the_default(self):
         """Mirrors `TestEventCountTrigger`'s equivalent test -- both classes share
         `_AccumulatingTrigger`, so a per-tenant resolution regression in the shared base could slip
@@ -259,6 +280,18 @@ class TestPerTenantThreshold:
         with pytest.raises(ValueError, match="non-empty"):
             PerTenantThreshold(default=5.0, by_tenant={"": 2.0})
 
+    def test_by_tenant_key_error_names_the_actual_offending_key(self):
+        """SM-L2 review round 3: the error message must name the *actual* key, not a hardcoded
+        `''` -- a caller passing a `None` key (a plausible typo, e.g. building `by_tenant` from a
+        dict comprehension gone wrong) would otherwise see a misleading `"got ''."` instead of the
+        `None` that was actually rejected.
+
+        Mutation guard: hardcoding `"got ''."` instead of `{tenant_id!r}` would make this see the
+        message for the empty-string case (`""`) even though the offending key here is `None`.
+        """
+        with pytest.raises(ValueError, match=r"got None\."):
+            PerTenantThreshold(default=5.0, by_tenant={None: 2.0})
+
     def test_mutating_the_original_mapping_after_construction_does_not_affect_resolve(self):
         """`frozen=True` only stops rebinding `by_tenant` itself, not mutating the dict a caller
         passed in and kept a handle to -- `__post_init__` must defensively copy it, or a threshold
@@ -371,6 +404,60 @@ class TestAnyTrigger:
         """
         with pytest.raises(TypeError, match="not a ConsolidationTrigger"):
             AnyTrigger([EventCountTrigger(threshold=1), object()])
+
+    def test_record_event_raises_on_an_async_child_instead_of_discarding_it(self):
+        """SM-L2 review round 3: an async child satisfies `isinstance(_, ConsolidationTrigger)`
+        structurally (the construction-time guard above cannot distinguish sync from async), so it
+        passes construction -- the failure mode is `record_event`'s coroutine being silently
+        discarded un-awaited, leaving the child's state never actually updated.
+
+        Reproduced first: a standalone script confirmed `child.events` stayed `[]` after
+        `record_event` with no guard in place.
+
+        Mutation guard: removing the `_reject_coroutine` call after the try/except would make this
+        pass with no exception raised, `AsyncChild.events` still empty, instead of raising.
+        """
+        combined = AnyTrigger([_AsyncTrigger()])
+
+        with pytest.raises(TypeError, match="coroutine"):
+            combined.record_event(ACME, now=0.0)
+
+    def test_reset_raises_on_an_async_child_instead_of_discarding_it(self):
+        combined = AnyTrigger([_AsyncTrigger()])
+
+        with pytest.raises(TypeError, match="coroutine"):
+            combined.reset(ACME)
+
+    def test_a_raising_sync_child_is_still_resilience_handled_alongside_an_async_one(self):
+        """The coroutine guard sits outside the try/except specifically so it does not disturb the
+        existing resilience contract -- a child that raises synchronously (not an async-shape
+        mismatch) must still be logged-and-skipped, not turned into a hard failure.
+        """
+        combined = AnyTrigger([_RaisingTrigger(), EventCountTrigger(threshold=1)])
+
+        combined.record_event(ACME, now=0.0)  # must not raise -- _RaisingTrigger just logs
+
+        assert combined.should_fire(ACME, now=0.0) is True, "the second child must still have fired"
+
+
+class _AsyncTrigger:
+    """A `ConsolidationTrigger` whose every method is `async def` -- structurally conforms to the
+    Protocol (so it passes `AnyTrigger`'s construction-time `isinstance` guard) but is the wrong
+    shape at call time, per `ConsolidationTrigger`'s own docstring.
+    """
+
+    def __init__(self):
+        self.events = []
+        self.was_reset = False
+
+    async def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
+        self.events.append(now)
+
+    async def should_fire(self, scope: Scope, *, now: float) -> bool:
+        return False
+
+    async def reset(self, scope: Scope) -> None:
+        self.was_reset = True
 
 
 class _RaisingTrigger:

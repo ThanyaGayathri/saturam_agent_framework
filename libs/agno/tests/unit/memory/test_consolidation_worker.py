@@ -7,6 +7,7 @@ background start/stop lifecycle.
 """
 
 import asyncio
+from typing import List
 
 import pytest
 
@@ -40,16 +41,16 @@ class _SpyTrigger:
     (e.g. `EventCountTrigger`) could not do on its own.
     """
 
-    def __init__(self):
-        self.reset_calls = []
+    def __init__(self) -> None:
+        self.reset_calls: List[Scope] = []
 
-    def record_event(self, scope, *, now, size=1.0):
+    def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
         pass
 
-    def should_fire(self, scope, *, now):
+    def should_fire(self, scope: Scope, *, now: float) -> bool:
         return False
 
-    def reset(self, scope):
+    def reset(self, scope: Scope) -> None:
         self.reset_calls.append(scope)
 
 
@@ -577,7 +578,7 @@ async def test_an_async_trigger_raises_instead_of_silently_draining_everything()
     Reproduced first: confirmed via a standalone script that `bool(async_trigger.should_fire(...))`
     is `True` regardless of what the coroutine would have returned if awaited.
 
-    Mutation guard: removing the `asyncio.iscoroutine` guard in `_sync_trigger_result` would make
+    Mutation guard: removing the `asyncio.iscoroutine` guard in `_reject_coroutine` would make
     this pass with `outcomes` non-empty (every scope drained) instead of raising `TypeError`.
     """
     provider, _, _ = make_provider()

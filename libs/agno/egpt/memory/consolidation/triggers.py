@@ -16,16 +16,17 @@ Wiring ``record_event`` into a specific write path is a caller's decision, not t
 none of these triggers know or care what "an event" is, only that ``record_event`` was called.
 
 **Every trigger method here is synchronous by design.** ``ConsolidationWorker`` calls
-``should_fire``/``reset`` as plain function calls, never awaited (see
-:func:`~egpt.memory.consolidation.worker._sync_trigger_result`, which fails loudly if a call
-returns a coroutine). A caller-supplied implementation may still be "DB-backed" or
+``should_fire``/``reset`` as plain function calls, never awaited, and :class:`AnyTrigger` calls
+its own children the same way -- both funnel through
+:func:`~egpt.memory.consolidation._validators._reject_coroutine`, which fails loudly if a call
+returns a coroutine. A caller-supplied implementation may still be "DB-backed" or
 "network-backed" -- it just has to do that I/O with a blocking client, not ``async def``.
 """
 
 from dataclasses import dataclass, field
 from typing import Dict, Mapping, Protocol, Sequence, Union, runtime_checkable
 
-from egpt.memory.consolidation._validators import _positive
+from egpt.memory.consolidation._validators import _positive, _reject_coroutine
 from egpt.memory.types import Scope
 from egpt.utils.log import log_error
 
@@ -61,7 +62,7 @@ class PerTenantThreshold:
         _positive(self.default, "default")
         for tenant_id, override in self.by_tenant.items():
             if not tenant_id:
-                raise ValueError("by_tenant keys must be non-empty tenant IDs, got ''.")
+                raise ValueError(f"by_tenant keys must be non-empty tenant IDs, got {tenant_id!r}.")
             _positive(override, f"by_tenant[{tenant_id!r}]")
         # Defensive copy into a plain, private dict: `by_tenant` accepts any `Mapping`, and
         # `frozen=True` only stops rebinding the field, not a caller holding the original mapping
@@ -101,18 +102,24 @@ class ConsolidationTrigger(Protocol):
     once it has.
 
     **Synchronous by design.** Every method here is a plain function, not a coroutine --
-    ``ConsolidationWorker`` calls each one directly, never with ``await``. An ``async def``
-    implementation would still satisfy this Protocol structurally at the type level, but at
-    runtime its methods return coroutine objects, which are always truthy: called un-awaited
-    (exactly how the worker calls them), an async ``should_fire`` meaning "not due" would read as
-    "fired" regardless of what it would have returned if awaited. The worker guards against this
-    (see :func:`~egpt.memory.consolidation.worker._sync_trigger_result`) by raising ``TypeError``
-    the moment any call returns a coroutine, rather than silently misfiring. Do real I/O with a
-    blocking client, not ``async def``.
+    ``ConsolidationWorker`` calls each one directly, never with ``await``, and so does
+    ``AnyTrigger`` when fanning out to its own children. An ``async def`` implementation would
+    still satisfy this Protocol structurally at the type level, but at runtime its methods return
+    coroutine objects: called un-awaited (exactly how every call site here calls them), an async
+    ``should_fire`` meaning "not due" reads as "fired" regardless of what it would have returned
+    if awaited, and an async ``record_event``/``reset`` is simply discarded un-run, silently never
+    updating that trigger's state at all. Both call sites guard against this (see
+    :func:`~egpt.memory.consolidation._validators._reject_coroutine`) by raising ``TypeError`` the
+    moment any call returns a coroutine, rather than silently misfiring or silently doing nothing.
+    Do real I/O with a blocking client, not ``async def``.
 
     ``@runtime_checkable`` lets ``AnyTrigger`` (below) reject a non-conforming child at
     construction with a clear ``TypeError`` instead of an ``AttributeError`` surfacing later,
     inside a ``try``/``except`` that would otherwise treat it as just another trigger that failed.
+    This construction-time check only catches a child *missing* a required method -- it cannot
+    tell a synchronous implementation from an ``async def`` one, since both satisfy the Protocol's
+    structural shape identically; the coroutine guard above is what catches that case, at call
+    time rather than construction time.
     """
 
     def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
@@ -261,11 +268,14 @@ class AnyTrigger:
             raise ValueError("AnyTrigger requires at least one trigger.")
         for i, trigger in enumerate(triggers):
             # `ConsolidationTrigger` is `@runtime_checkable` specifically so this check can exist:
-            # without it, a non-conforming child (e.g. a plain dict, or an object missing a
-            # method) is accepted silently here and only fails later, inside the try/except in
-            # `record_event`/`should_fire`/`reset` -- which logs it and moves on, so the bad child
-            # looks like just another trigger that happened to fail rather than a construction-time
-            # mistake.
+            # without it, a child missing a required method (e.g. a plain dict, or an object
+            # missing `reset`) is accepted silently here and only fails later, inside the
+            # try/except in `record_event`/`should_fire`/`reset` -- which logs it and moves on, so
+            # the bad child looks like just another trigger that happened to fail rather than a
+            # construction-time mistake. This only catches a *missing* method, not an async one:
+            # `isinstance` checks structural shape, and an `async def should_fire` satisfies that
+            # shape identically to a sync one. The async case is caught separately, at call time,
+            # by `_reject_coroutine` in every method below.
             if not isinstance(trigger, ConsolidationTrigger):
                 raise TypeError(f"triggers[{i}] is not a ConsolidationTrigger: {type(trigger).__name__}")
         self._triggers = list(triggers)
@@ -276,12 +286,27 @@ class AnyTrigger:
         mid-fan-out. Without the guard here, a raise from one child would leave every later child
         never told about this event, so its own accumulated state would silently drift out of
         sync with what actually happened -- worse than the one child's own failure.
+
+        Also guards against an async child: unlike ``should_fire`` (whose coroutine return value
+        propagates out through ``any()``/``or`` and is caught by the worker), a coroutine returned
+        here has nothing to propagate to -- this method returns ``None`` -- so an unguarded call
+        would just silently discard it, un-awaited and un-run, leaving that child's state never
+        updated at all rather than raising anywhere. The coroutine check runs *outside* the
+        try/except below, deliberately: a genuine failure from a child (raised synchronously) is
+        resilience-handled like any other, but a coroutine means the child is fundamentally the
+        wrong shape for this worker and should fail loudly, the same choice round 2 made for the
+        worker's own trigger call sites, not be swallowed into a log line and moved past.
         """
         for trigger in self._triggers:
             try:
-                trigger.record_event(scope, now=now, size=size)
+                # `record_event` is typed `-> None`; capturing its "return value" is deliberate --
+                # see `_reject_coroutine`'s docstring, same reasoning as `ConsolidationWorker`'s
+                # own trigger call sites.
+                result = trigger.record_event(scope, now=now, size=size)  # type: ignore[func-returns-value]
             except Exception as exc:
                 log_error(f"AnyTrigger: record_event failed for {type(trigger).__name__}: {exc}")
+                continue
+            _reject_coroutine(result, trigger, "record_event")
 
     def should_fire(self, scope: Scope, *, now: float) -> bool:
         """Same all-attempted guarantee as ``record_event``/``reset``: one child raising on
@@ -289,14 +314,24 @@ class AnyTrigger:
         bare generator would propagate the first exception and never reach the rest, silently
         turning "one policy is unavailable" into "this scope never fires at all". A raising child
         counts as "no" from that child, not as a tick-ending failure.
+
+        An async child's coroutine return value is not separately guarded here: it is truthy, so
+        it propagates out through ``fired = fired or result`` as this method's own return value,
+        and the worker's own call site (:func:`~egpt.memory.consolidation._validators._reject_coroutine`)
+        catches it there. Deliberately not duplicated -- one coroutine, one place it gets rejected.
         """
         fired = False
         for trigger in self._triggers:
             try:
-                # Two statements, not `fired = trigger.should_fire(...) or fired`: `or`'s
-                # left-to-right evaluation already calls `should_fire` unconditionally every time
-                # (there is nothing on the left for `fired` to short-circuit), but written combined
-                # it reads as if `fired` could suppress the call.
+                # Two statements, not one combined expression: the call must happen unconditionally
+                # on every iteration regardless of `fired`'s current value. Written as
+                # `fired = trigger.should_fire(...) or fired`, `should_fire` is `or`'s *left*
+                # operand and Python's left-to-right evaluation already calls it unconditionally --
+                # so that particular ordering carries no actual short-circuit risk, only a
+                # readability one (it reads as if `fired` could suppress the call). The genuinely
+                # unsafe ordering would be `fired = fired or trigger.should_fire(...)`, where
+                # `fired` is the left operand and *would* short-circuit past every remaining child
+                # the moment it goes `True` -- never write it that way around.
                 result = trigger.should_fire(scope, now=now)
                 fired = fired or result
             except Exception as exc:
@@ -307,9 +342,17 @@ class AnyTrigger:
         """Same all-attempted guarantee as ``record_event``: one child raising on ``reset`` must
         not leave every later child still armed -- that scope would then re-fire on the very next
         tick for a child that had, in fact, already been drained.
+
+        Guards against an async child for the same reason ``record_event`` does, and the same way:
+        this method returns ``None``, so a coroutine returned here has no propagation path to the
+        worker's own guard and would otherwise be discarded un-run, leaving that child never
+        actually reset -- checked outside the try/except so it fails loudly rather than being
+        resilience-handled like a genuine, synchronously-raised child failure.
         """
         for trigger in self._triggers:
             try:
-                trigger.reset(scope)
+                result = trigger.reset(scope)  # type: ignore[func-returns-value]
             except Exception as exc:
                 log_error(f"AnyTrigger: reset failed for {type(trigger).__name__}: {exc}")
+                continue
+            _reject_coroutine(result, trigger, "reset")
