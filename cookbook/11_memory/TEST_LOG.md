@@ -719,3 +719,28 @@ correctly excluded, and the hop-1 edge outranked the hop-2 one. Sweeping `max_tr
 `main` first and took `26_`/`27_` for `26_episodic_composite_scoring.py`/`27_episode_forgetting.py`
 while this branch was still catching up.** Per this file's own convention, whoever merges second
 renumbers.
+
+---
+
+### 29_episodic_contiguity_retrieval.py
+
+**Status:** PASS
+
+**Description:** Temporal-contiguity retrieval (SM-E8 #115) -- `temporal_neighbors` on a
+six-episode session names the radius-2 neighbors of a hit, `ContiguityBuffer(capacity=4)`
+accumulates them across the pass and deduplicates a second hit's overlapping neighbors, and
+`blend_contiguity`/`contiguity_bonus` blend a neighbor's distance from its hit into its own
+`composite_episodic_score`.
+
+**Result:** Ran to completion. `temporal_neighbors` returned the expected four neighbors, nearest
+first (`ep-1`/`ep-3` at distance +/-1, `ep-0`/`ep-4` at distance +/-2). The buffer filled to its
+4-item capacity with zero evictions on the first hit's lookup, and the second hit's neighbor
+lookup added nothing new (every id it named was already buffered), demonstrating deduplication.
+The fixture showed an unrelated later-session episode (base score 0.650) outranking the hit's own
+temporal continuation (base score 0.500) under relevance/importance alone, and the ranking
+reversing once the continuation's contiguity bonus (0.200 at distance +1) was blended in (0.700 >
+0.650) -- the improved-temporal-recall behavior the acceptance criteria ask for. The refusal
+section confirmed a negative radius, a hit absent from the candidate pool, a zero-capacity buffer,
+and a distance-0 contiguity bonus are all refused with a named field.
+
+**Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.

@@ -115,6 +115,15 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `26_` to `28_`: `feat/SM-E7` (#109) and `feat/SM-E9` (#112) both merged to
   `main` first and took `26_`/`27_` while this branch was still catching up.**
 
+- `29_episodic_contiguity_retrieval.py`: Temporal-contiguity retrieval (SM-E8) --
+  `temporal_neighbors` names a hit's +/- n neighbors in temporal order (occurred_at, falling back
+  to created_at), `ContiguityBuffer` accumulates them across a pass in a bounded, deduplicating
+  FIFO, and `blend_contiguity`/`contiguity_bonus` turn a buffered neighbor's distance from its
+  hit into a bonus on top of its own `composite_episodic_score` (`26_`). A six-episode fixture
+  shows an unrelated episode outranking the hit's own temporal continuation on relevance alone,
+  and the ranking reversing once the continuation's contiguity bonus is blended in. Wiring
+  contiguity into live retrieval is SM-H5's (#135). Runs with no database and no API key.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
