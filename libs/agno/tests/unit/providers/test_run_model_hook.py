@@ -1322,6 +1322,50 @@ class TestConnectionAwarePinningThroughDeepCopy:
         )
         assert team._user_pinned_model.api_key is None
 
+    def test_a_copys_pin_and_live_model_stay_one_object(self, responses_cls):
+        """`get_models` aliases the pin to the live model in `__init__`, and a copy must keep it.
+
+        Copying the pin alone splits that alias, and nothing on the run path heals it --
+        `initialize_agent` calls `set_default_model`, which early-returns when a model is already
+        set, so `get_models` never runs again. The copy would then carry two `Model` objects that
+        drift: a post-copy `copy.model.temperature = ...` is invisible to a pin-honouring
+        provider, which serves the *pin*. Silent, and on the per-request copy path.
+
+        Found in the third review round of #107 -- all 144 tests in the touched suites passed
+        with the split present, so it was entirely uncovered.
+        """
+        agent = self._agent(responses_cls(id="gpt-5.5"))
+        assert agent._user_pinned_model is agent.model, "precondition: __init__ aliases them"
+
+        copy = agent.deep_copy()
+
+        assert copy._user_pinned_model is copy.model, (
+            "the copy must hold one object, not a pin and a live model that can drift"
+        )
+        copy.model.temperature = 0.95
+        assert copy._user_pinned_model.temperature == 0.95, (
+            "a setting applied to the copy's model must be what a pin-honouring provider serves"
+        )
+
+    def test_keeping_them_aliased_still_isolates_the_copy(self, responses_cls, monkeypatch):
+        """The alias must not be restored by pointing back at the *original's* object.
+
+        Healing the split by sharing `agent.model` would undo #172 entirely. The copy gets its
+        own object that is aliased to its own pin -- so a client build on one copy reaches
+        neither its siblings nor the original.
+        """
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+
+        agent = self._agent(responses_cls(id="gpt-5.5"))
+        first, second = agent.deep_copy(), agent.deep_copy()
+
+        assert first.model is not agent.model and first.model is not second.model
+
+        first.model.get_client()
+
+        assert second.model.api_key is None, "a sibling copy's model must stay clean"
+        assert agent.model.api_key is None, "and so must the shared original's"
+
     def test_a_model_at_another_tenants_endpoint_is_a_fresh_pin(self, responses_cls):
         """The round-1 finding, through the public API. Same class, same id, different endpoint and
         key: the copy must take the caller's model as its pin, not keep tenant A's."""

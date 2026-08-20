@@ -234,7 +234,22 @@ def deep_copy(agent: Agent, *, update: Optional[Dict[str, Any]] = None) -> Agent
         # the helper for why (mode_a returns the pinned object as the serving model, and
         # `_get_client_params` mutates it).
         if not update_pins_a_new_model(update, new_agent.model, agent.model):
-            new_agent._user_pinned_model = carry_over_pin(agent._user_pinned_model)
+            # When the original's pin *is* its live model -- the ordinary case, since
+            # `get_models` aliases them in `__init__` -- the copy must keep them one object too.
+            # Copying the pin alone splits the alias, and nothing on the run path heals it
+            # (`initialize_agent` calls `set_default_model`, which early-returns when a model is
+            # already set). The copy would then hold two Models that drift: a post-copy
+            # `copy.model.temperature = ...` is invisible to a pin-honouring provider, which
+            # serves the pin. Found in the third review round of #107.
+            #
+            # Assigning `.model` as well also *strengthens* the fix this helper exists for: the
+            # credential filled by one copy's client build no longer lands in the shared
+            # `agent.model` either. Guarded on the copy still sharing the original's model, so an
+            # `update={"model": X}` that supplied its own is left alone.
+            carried = carry_over_pin(agent._user_pinned_model)
+            if agent._user_pinned_model is agent.model and new_agent.model is agent.model:
+                new_agent.model = carried
+            new_agent._user_pinned_model = carried
         log_debug(f"Created new {agent.__class__.__name__}")
         return new_agent
     except Exception as e:
