@@ -432,24 +432,55 @@ class TestTheUncopyablePinFallback:
     """
 
     def test_an_uncopyable_pin_falls_back_to_the_original(self, caplog):
+        """The double defines only `__copy__`, deliberately.
+
+        An earlier version also defined `model_copy`, which meant it exited through the pydantic
+        branch -- a path no in-tree `Model` reaches, since they are all dataclasses. The test read
+        as covering the fallback while the live route stayed untested: the same shape as this
+        file's earlier `BareModel.api_key` gap. Raised in review of #107.
+        """
         import logging
 
         from egpt.models.base import carry_over_pin
 
         class Uncopyable(BareModel):
-            def model_copy(self, *args, **kwargs):
-                raise RuntimeError("cannot copy this model")
-
             def __copy__(self):
                 raise RuntimeError("cannot copy this model")
 
         pin = Uncopyable(id="P")
+        assert not hasattr(pin, "model_copy"), "the double must take the copy.copy path every real Model takes"
+
         with caplog.at_level(logging.WARNING):
             carried = carry_over_pin(pin)
 
         assert carried is pin, "the fallback keeps the run working rather than raising"
         assert any("share the original's pin" in r.getMessage() for r in caplog.records), (
             "the degrade must be visible: it re-admits the hazard this helper closes"
+        )
+
+    def test_a_bad_model_copy_signature_still_gets_a_real_copy(self, caplog):
+        """A pydantic-shaped subclass whose `model_copy` omits `deep=` must not degrade.
+
+        Ordering `model_copy` first meant its `TypeError` was swallowed and the *shared* original
+        returned -- this helper's own hazard, in a case where `copy.copy` works fine. Raised in
+        review of #107.
+        """
+        import logging
+
+        from egpt.models.base import carry_over_pin
+
+        class BadSignature(BareModel):
+            def model_copy(self, *, update=None):  # no `deep=`
+                raise TypeError("model_copy() got an unexpected keyword argument 'deep'")
+
+        pin = BadSignature(id="P")
+        with caplog.at_level(logging.WARNING):
+            carried = carry_over_pin(pin)
+
+        assert carried is not pin, "copy.copy succeeds, so the shared-object degrade must not fire"
+        assert same_model(carried, pin)
+        assert not any("share the original's pin" in r.getMessage() for r in caplog.records), (
+            "nothing degraded, so nothing should have warned"
         )
 
     def test_a_none_pin_is_returned_unchanged(self):

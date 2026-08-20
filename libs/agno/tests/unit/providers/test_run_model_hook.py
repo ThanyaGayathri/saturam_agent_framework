@@ -1299,6 +1299,29 @@ class TestConnectionAwarePinningThroughDeepCopy:
         )
         assert agent._user_pinned_model.api_key is None, "nor may the original the copies were made from"
 
+    def test_a_team_copys_pin_is_isolated_from_a_real_credential_fill(self, responses_cls, monkeypatch):
+        """The Team half of the leak, on a real provider.
+
+        `test_same_model.py`'s Team cases use `BareModel`, which does not declare `api_key` as a
+        dataclass field -- so they set a plain attribute and assert on `getattr(..., None)`, which
+        cannot tell "isolated" from "attribute absent". This drives the real credential-fill path
+        through the Team copy site, which had no real-provider coverage. Raised in review of #107.
+        """
+        from egpt.team import Team
+
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+
+        team = Team(members=[], name="t", model=responses_cls(id="gpt-5.5"), telemetry=False)
+        first, second = team.deep_copy(), team.deep_copy()
+
+        first._user_pinned_model.get_client()
+
+        assert first._user_pinned_model.api_key == "sk-tenant-one"
+        assert second._user_pinned_model.api_key is None, (
+            "a sibling Team copy's pin must not acquire another request's credential"
+        )
+        assert team._user_pinned_model.api_key is None
+
     def test_a_model_at_another_tenants_endpoint_is_a_fresh_pin(self, responses_cls):
         """The round-1 finding, through the public API. Same class, same id, different endpoint and
         key: the copy must take the caller's model as its pin, not keep tenant A's."""
