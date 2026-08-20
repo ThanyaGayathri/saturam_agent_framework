@@ -319,6 +319,427 @@ def test_true_at_t_returns_the_correct_edge_state_for_an_extracted_relation(is_a
     assert bool(found) is visible
 
 
+# ---------------------------------------------------------------------------
+# Contradiction -> invalidation, not delete (SM-G5 #103)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_contradicting_fact_invalidates_the_superseded_edge(is_async):
+    """The ticket's own three acceptance criteria in one test: a later fact naming a different
+    object for the same ``(subject, relation)`` retires the earlier edge -- ``t_invalid`` set via
+    expire-and-reinsert, nothing deleted, and the report counts the retirement."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+    old_id = relation_edge_id_for(ACME, "Ada", "works_at", "Acme Corp")
+    new_id = relation_edge_id_for(ACME, "Ada", "works_at", "Beta Inc")
+
+    first = episode("Ada works at Acme", "e1", t_valid=100)
+    second = episode("Ada works at Beta", "e2", t_valid=200)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        report = asyncio.run(pipe.arun(ACME, [second]))
+    else:
+        pipe.run(ACME, [first])
+        report = pipe.run(ACME, [second])
+
+    assert report.edges_invalidated == 1
+    # The async path actually calls the async verb (round-2 review, PR #110): `graph.rows`
+    # mutating correctly does not prove `_awrite_batch` reached it through `ainvalidate` rather
+    # than the sync `invalidate` -- `FakeGraph` would leave the same state either way, since
+    # nothing here awaits between the check and the call. The verb itself is what distinguishes a
+    # regression that silently drops back to the sync method on the async path.
+    assert graph.calls.count("ainvalidate" if is_async else "invalidate") == 1
+    rows = graph.rows["acme"]
+    # No data loss: both the original row and its bounded copy are still in the graph.
+    old_rows = [row for row in rows if row.id == old_id]
+    assert len(old_rows) == 2
+    assert any(row.t_invalid is None and row.is_current_belief() is False for row in old_rows), (
+        "the original row is expired, never edited in place"
+    )
+    bounded_copy = next(row for row in old_rows if row.is_current_belief())
+    assert bounded_copy.t_invalid == 200
+
+    # Point-in-time: after t=200 only the new object is valid; the old edge is still there (see
+    # ``test_the_superseded_edge_is_still_queryable_at_an_earlier_instant``) but no longer current.
+    after = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=200, until=300)
+    assert {row.id for row in after} == {new_id}
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_two_candidates_contradicting_one_edge_in_the_same_batch_keep_the_earliest_t_valid(is_async):
+    """``_contradicted``'s merge branch (round-3 review, PR #110): two candidates in **one**
+    ``run``/``arun`` call, each naming a different object for the same ``(subject, relation)``,
+    both retire the one pre-existing edge they share -- and the retirement keeps the **earlier**
+    ``t_valid``, the instant that edge actually stopped being current, not whichever candidate the
+    loop happened to check last.
+
+    **The candidates' object names are chosen so the alphabetically-last one is also the
+    temporally-last (highest ``t_valid``)** (round-4 review, PR #110): ``_merged`` sorts candidates
+    by edge id -- alphabetical on the object name here -- before ``_contradicted`` ever iterates
+    them, regardless of the episode list order this test passes in. "Alpha Inc" (``t_valid=150``,
+    the true minimum) therefore processes *first*, and "Zeta LLC" (``t_valid=250``) processes
+    *last*. That is what makes a genuine last-processed-wins bug diverge from the correct merge:
+    last-processed-wins always lands on whichever candidate ``_contradicted`` reaches last --
+    ``250`` here -- while the correct merge keeps the true minimum, ``150``, regardless of
+    processing order. An earlier version of this test picked names ("Beta Inc" 250, "Gamma LLC"
+    150) where the alphabetically-last candidate happened to *also* hold the true minimum, so
+    last-processed-wins and min-wins produced the identical answer and the test passed against
+    either implementation.
+
+    Every other test in this file presents at most one candidate per existing edge, so this branch
+    was previously reachable only by inspection of the code, not by any test failing without it.
+    Also pins the documented, deliberate gap one tier up: the two new candidates do not contradict
+    *each other* -- both land as live edges -- because within-batch resolution between candidates
+    is SM-L5's, not this ticket's (module docstring).
+    """
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Alpha": [relation(target="Alpha Inc")],
+            "Ada works at Zeta": [relation(target="Zeta LLC")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+    old_id = relation_edge_id_for(ACME, "Ada", "works_at", "Acme Corp")
+
+    pipe.run(ACME, [episode("Ada works at Acme", "e0", t_valid=100)])
+    alpha = episode("Ada works at Alpha", "e1", t_valid=150)
+    zeta = episode("Ada works at Zeta", "e2", t_valid=250)
+    if is_async:
+        report = asyncio.run(pipe.arun(ACME, [alpha, zeta]))
+    else:
+        report = pipe.run(ACME, [alpha, zeta])
+
+    assert report.edges_invalidated == 1
+    bounds = graph.bounds_for_ids(ACME, [old_id])
+    assert bounds[old_id].t_invalid == 150
+
+    # Point-in-time, not an unbounded recall_facts: the Acme edge's bounded SCD-2 copy is still
+    # "current belief" on the transaction axis (expired_at IS NULL) -- only a valid-time window
+    # after both new candidates' t_valid actually excludes it.
+    after = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=150, until=300)
+    assert {row.provenance.get("object") for row in after} == {"Alpha Inc", "Zeta LLC"}
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_edges_invalidated_accumulates_across_scope_batches_in_one_pass(is_async):
+    """``run``/``arun`` sum ``edges_invalidated`` across every scope batch a tenant-wide pass
+    produces, not just the last one written (round-3 review, PR #110). The scope-isolation test
+    proves scope filtering works; it does not prove two scopes that *both* legitimately retire an
+    edge in the same pass are both counted -- the failure mode this test rules out is a `+=` that
+    accidentally became a plain assignment when the loop grew a second scope."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(source="Ada", target="Acme Corp")],
+            "Bob works at Acme": [relation(source="Bob", target="Acme Corp")],
+            "Ada works at Beta": [relation(source="Ada", target="Beta Inc")],
+            "Bob works at Beta": [relation(source="Bob", target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Acme", "e0a", t_valid=100, scope=ACME)])
+    pipe.run(BOB, [episode("Bob works at Acme", "e0b", t_valid=100, scope=BOB)])
+
+    tenant_wide = Scope(tenant_id="acme")
+    contradicting = [
+        episode("Ada works at Beta", "e1", t_valid=200, scope=ACME),
+        episode("Bob works at Beta", "e2", t_valid=200, scope=BOB),
+    ]
+    if is_async:
+        report = asyncio.run(pipe.arun(tenant_wide, contradicting))
+    else:
+        report = pipe.run(tenant_wide, contradicting)
+
+    assert report.edges_invalidated == 2
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_the_superseded_edge_is_still_queryable_at_an_earlier_instant(is_async):
+    """AC: "Old edge still queryable at earlier T" -- point-in-time reads before the new fact's
+    ``t_valid`` must still see the old belief, exactly as any other bi-temporal edge does."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    first = episode("Ada works at Acme", "e1", t_valid=100)
+    second = episode("Ada works at Beta", "e2", t_valid=200)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        asyncio.run(pipe.arun(ACME, [second]))
+    else:
+        pipe.run(ACME, [first])
+        pipe.run(ACME, [second])
+
+    before = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=100, until=200)
+    assert {row.provenance.get("object") for row in before} == {"Acme Corp"}
+    after = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=200, until=300)
+    assert {row.provenance.get("object") for row in after} == {"Beta Inc"}
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_the_same_fact_re_extracted_does_not_contradict_itself(is_async):
+    """Re-extraction upserts the same edge id (``relation_edge_id_for`` is deterministic in the
+    triple) -- the object has not changed, so nothing is superseded."""
+    pipe, graph = pipeline(
+        extractor=StubExtractor(default=[relation()]), valid_time_extractor=RuleBasedValidTimeExtractor()
+    )
+
+    first = episode("Ada works at Acme", "e1", t_valid=100)
+    second = episode("Ada works at Acme", "e2", t_valid=200)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        report = asyncio.run(pipe.arun(ACME, [second]))
+    else:
+        pipe.run(ACME, [first])
+        report = pipe.run(ACME, [second])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 1
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_earlier_dated_fact_does_not_invalidate_a_later_live_one(is_async):
+    """A candidate backfilling history (an earlier ``t_valid`` than an edge the graph already
+    holds) is not a contradiction of the newer edge -- it did not happen after it, so it cannot be
+    what superseded it. Guards against invalidating the wrong direction."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Beta": [relation(target="Beta Inc")],
+            "Ada works at Acme": [relation(target="Acme Corp")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    first = episode("Ada works at Beta", "e1", t_valid=200)
+    second = episode("Ada works at Acme", "e2", t_valid=100)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        report = asyncio.run(pipe.arun(ACME, [second]))
+    else:
+        pipe.run(ACME, [first])
+        report = pipe.run(ACME, [second])
+
+    assert report.edges_invalidated == 0
+    live = graph.recall_facts(ACME, entities=["Ada"], relation="works_at")
+    assert {row.provenance.get("object") for row in live} == {"Beta Inc", "Acme Corp"}
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_edge_already_closed_before_the_candidate_starts_does_not_contradict(is_async):
+    """An existing edge whose own stated ``t_invalid`` already ends at or before the candidate's
+    ``t_valid`` has nothing left to supersede -- the two describe adjacent, non-overlapping
+    intervals, not a correction of one by the other.
+
+    Explicit integer bounds via a stub extractor, not the rule-based regex (round-1 review, PR
+    #110): parsing "from Jan 2024 until Jun 2024" / "since Jun 2024" into the *same* epoch was
+    the intent, but if the pattern ever stopped matching both episodes would fall back to
+    ``t_valid=<ingest_time>`` -- equal instants -- and the *same-instant* guard this test is not
+    about would explain ``edges_invalidated == 0`` just as well, silently passing for the wrong
+    reason. Two separate pipelines (one stub extractor + one stub valid-time extractor each) over
+    one shared graph is what lets each write carry its own fixed, unambiguous span.
+    """
+    graph = FakeGraph()
+    first = RelationExtractionPipeline(
+        graph=graph,
+        extractor=StubExtractor(default=[relation(target="Acme Corp")]),
+        valid_time_extractor=StubValidTimeExtractor(ValidTimeSpan(t_valid=100, t_invalid=200, source="explicit")),
+    )
+    second = RelationExtractionPipeline(
+        graph=graph,
+        extractor=StubExtractor(default=[relation(target="Beta Inc")]),
+        valid_time_extractor=StubValidTimeExtractor(ValidTimeSpan(t_valid=200, source="explicit")),
+    )
+
+    if is_async:
+        asyncio.run(first.arun(ACME, [episode("Ada worked at Acme")]))
+        report = asyncio.run(second.arun(ACME, [episode("Ada works at Beta")]))
+    else:
+        first.run(ACME, [episode("Ada worked at Acme")])
+        report = second.run(ACME, [episode("Ada works at Beta")])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 2
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_two_facts_starting_at_the_exact_same_instant_do_not_contradict(is_async):
+    """The boundary of the ordering guard: an existing edge whose ``t_valid`` equals the
+    candidate's own is not *strictly* older, so which one actually supersedes the other is
+    ambiguous -- left alone rather than guessed at, deferred to SM-L5's fuller resolution."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    first = episode("Ada works at Acme", "e1", t_valid=100)
+    second = episode("Ada works at Beta", "e2", t_valid=100)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        report = asyncio.run(pipe.arun(ACME, [second]))
+    else:
+        pipe.run(ACME, [first])
+        report = pipe.run(ACME, [second])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 2
+
+
+def test_a_candidate_with_no_valid_time_cannot_contradict_anything():
+    """``_contradicted``'s own guard: a candidate whose ``record.t_valid`` is unset carries no
+    instant an existing edge could be said to have stopped being true at, so it is skipped rather
+    than treated as always-superseding.
+
+    Unreachable through the pipeline today -- ``ValidTimeSpan.t_valid`` is never ``None`` (its
+    own ``__post_init__`` enforces that), so every candidate ``run``/``arun`` builds already
+    satisfies the guard before it is ever checked. Exercised directly against the static
+    predicate instead (round-1 review, PR #110), the only way this guard can actually be
+    defeated -- by a hand-built ``FactWrite`` from a caller that bypasses the pipeline.
+    """
+    existing = [
+        MemoryRecord(
+            id="old",
+            tier=MemoryTier.SEMANTIC,
+            content="Ada works at Acme",
+            scope=ACME,
+            t_valid=100,
+            provenance={"subject": "Ada", "predicate": "works_at", "object": "Acme Corp"},
+        )
+    ]
+    candidate = FactWrite(
+        record=MemoryRecord(id="new", tier=MemoryTier.SEMANTIC, content="Ada works at Beta", scope=ACME, t_valid=None),
+        subject="Ada",
+        predicate="works_at",
+        object="Beta Inc",
+    )
+
+    assert RelationExtractionPipeline._contradicted(existing, [candidate]) == {}
+
+
+def test_an_existing_edge_with_no_valid_time_is_eligible_to_be_superseded():
+    """The mirror of the previous test: an *existing* edge with an unset ``t_valid`` is read as
+    "always valid, since before any known instant" and so is treated as older than any dated
+    candidate, not excluded (round-2 review, PR #110). Exercised the same way as the candidate-side
+    guard -- directly against ``_contradicted`` -- since ``RuleBasedValidTimeExtractor`` can never
+    produce a live edge with ``t_valid=None`` through the pipeline itself."""
+    existing = [
+        MemoryRecord(
+            id="old",
+            tier=MemoryTier.SEMANTIC,
+            content="Ada works at Acme",
+            scope=ACME,
+            t_valid=None,
+            provenance={"subject": "Ada", "predicate": "works_at", "object": "Acme Corp"},
+        )
+    ]
+    candidate = FactWrite(
+        record=MemoryRecord(id="new", tier=MemoryTier.SEMANTIC, content="Ada works at Beta", scope=ACME, t_valid=200),
+        subject="Ada",
+        predicate="works_at",
+        object="Beta Inc",
+    )
+
+    assert RelationExtractionPipeline._contradicted(existing, [candidate]) == {"old": 200}
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_different_subject_under_the_same_relation_does_not_contradict(is_async):
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(source="Ada", target="Acme Corp")],
+            "Bob works at Beta": [relation(source="Bob", target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    first = episode("Ada works at Acme", "e1", t_valid=100)
+    second = episode("Bob works at Beta", "e2", t_valid=200)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        report = asyncio.run(pipe.arun(ACME, [second]))
+    else:
+        pipe.run(ACME, [first])
+        report = pipe.run(ACME, [second])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 2
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_different_relation_for_the_same_pair_does_not_contradict(is_async):
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(relation="works_at", target="Acme Corp")],
+            "Ada reports to Acme": [relation(relation="reports_to", target="Acme Corp")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    first = episode("Ada works at Acme", "e1", t_valid=100)
+    second = episode("Ada reports to Acme", "e2", t_valid=200)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        report = asyncio.run(pipe.arun(ACME, [second]))
+    else:
+        pipe.run(ACME, [first])
+        report = pipe.run(ACME, [second])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 2
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_contradiction_is_scoped_to_the_facts_own_scope(is_async):
+    """A subject+relation match in a different scope must never be invalidated -- ``recall_facts``
+    is itself scope-checked, but this pins that the pipeline actually relies on that rather than
+    reading across scopes some other way.
+
+    Different objects per scope, not the same one (round-1 review, PR #110): with one shared
+    object, the ordinary object-mismatch skip already explains zero invalidations, and a scope
+    leak would go unnoticed. Differing objects means only scope filtering stands between this and
+    a false invalidation -- if ``recall_facts`` ever leaked BOB's edge into ACME's lookup, the
+    object-mismatch condition would find a "contradiction" and this test would catch it.
+
+    Asserted on ``graph.calls``, not on ``graph.facts`` (round-2 review, PR #110): ``graph.facts``
+    holds the original, immutable ``FactWrite`` arguments every ``upsert_facts`` call was ever
+    given -- ``invalidate`` writes to ``graph.rows``, never back to ``graph.facts`` -- so
+    ``acme_edge.record.t_invalid is None`` was true whether or not invalidation ran, and this test
+    was not actually exercising the scope guard it claimed to.
+    """
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    first = episode("Ada works at Acme", "e1", t_valid=100, scope=ACME)
+    second = episode("Ada works at Beta", "e2", t_valid=200, scope=BOB)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        report = asyncio.run(pipe.arun(BOB, [second]))
+    else:
+        pipe.run(ACME, [first])
+        report = pipe.run(BOB, [second])
+
+    assert report.edges_invalidated == 0
+    assert ("ainvalidate" if is_async else "invalidate") not in graph.calls
+
+
 def test_provenance_is_replaced_not_accumulated_on_a_second_pass():
     """The dominant assertion is the second one below (provenance replacement), not the first
     (id determinism) -- named for it after a review round noted the previous name buried it.

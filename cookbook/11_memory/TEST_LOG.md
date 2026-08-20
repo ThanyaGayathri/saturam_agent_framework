@@ -650,7 +650,29 @@ second renumbers -- three times, this time.
 
 ---
 
-### 26_episode_forgetting.py
+### 26_episodic_composite_scoring.py
+
+**Status:** PASS
+
+**Description:** SM-E7's composite scorer -- `composite_episodic_score` combining relevance
+(SM-E6), recency (SM-E4) and importance (SM-E5) into one weighted-sum score. Shows the default
+weights (recency=0.0, per ADR 0003 B.1: no additive per-query hot-path recency rescore) leaving a
+stale and a fresh episode tied, an explicit write-time weight set that then separates them,
+a four-episode fixture ranked in the expected order, and the three boundary refusals (a signal
+outside `[0.0, 1.0]`, a NaN weight, a negative weight -- added in review round 1, PR #109).
+
+**Result:** Ran to completion with no database and no API key. Stale/fresh scored identically
+(1.8/1.8) under the default weights, then diverged (1.82/2.75) once recency was given a nonzero
+weight. The fixture ranked `shipped_v2_to_prod` (2.70) > `quick_status_ping` (1.90) >
+`old_incident_postmortem` (1.75) > `unrelated_small_talk` (0.40), matching the acceptance
+criterion's expected ordering. All three refusals raised `MemoryOperationError` naming the
+offending field (`relevance`, `weights.relevance` for both the NaN and the negative-weight case).
+
+**Requires:** Nothing -- no database, no API key.
+
+---
+
+### 27_episode_forgetting.py
 
 **Status:** PASS
 
@@ -667,3 +689,7 @@ episode was untouched. The two originals passed in that were *not* selected, and
 returns detached archived copies, never mutates its input.
 
 **Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `26_` to `27_`: SM-E7 (#109) merged to `main` first and took `26_` for
+`26_episodic_composite_scoring.py`.** Per this file's own convention, whoever merges second
+renumbers.

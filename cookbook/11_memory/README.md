@@ -91,13 +91,19 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `feat/SM-L1` took `23_consolidation_worker.py`, then `feat/SM-E3` took `24_episodic_segmentation.py`
   while this branch was still catching up. Per this file's own convention, whoever merges second
   renumbers -- three times, this time.
+- `26_episodic_composite_scoring.py`: Composite episodic scoring (SM-E7) -- relevance (`22_`),
+  recency (`14_`) and importance (`21_`) combined with `composite_episodic_score` into one
+  weighted-sum ranking score. Shows the default weights (`recency=0.0`, per ADR 0003 B.1: no
+  additive per-query hot-path recency rescore -- recency is a write-time prior instead), a
+  write-time weight set that re-enables it, and a four-episode fixture ranked in order. Wiring the
+  composite into live retrieval is SM-H5's (#135). Runs with no database and no API key.
 
-- `26_episode_forgetting.py`: Episode forgetting/pruning (SM-E9) -- the SM-R5-ratified
+- `27_episode_forgetting.py`: Episode forgetting/pruning (SM-E9) -- the SM-R5-ratified
   recency-floor gate applied to a mixed batch of episodes at different ages and importances,
   showing the importance-weighted half-life keep a high-importance stale episode alive past where
   a low-importance one at the same age is already archived. Archival is row-level `expired_at`
   (invalidate-not-delete) on detached copies; the originals passed in are never mutated. Runs with
-  no database and no API key.
+  no database and no API key. **Renumbered from `26_` to `27_`: SM-E7 (#109) took `26_` first.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
