@@ -377,35 +377,44 @@ def test_two_candidates_contradicting_one_edge_in_the_same_batch_keep_the_earlie
     ``run``/``arun`` call, each naming a different object for the same ``(subject, relation)``,
     both retire the one pre-existing edge they share -- and the retirement keeps the **earlier**
     ``t_valid``, the instant that edge actually stopped being current, not whichever candidate the
-    loop happened to check last (candidates are grouped per-relation and iterated in extraction
-    order, not sorted by time, so "last checked" and "later" are not the same thing).
+    loop happened to check last.
+
+    **The candidates' object names are chosen so the alphabetically-last one is also the
+    temporally-last (highest ``t_valid``)** (round-4 review, PR #110): ``_merged`` sorts candidates
+    by edge id -- alphabetical on the object name here -- before ``_contradicted`` ever iterates
+    them, regardless of the episode list order this test passes in. "Alpha Inc" (``t_valid=150``,
+    the true minimum) therefore processes *first*, and "Zeta LLC" (``t_valid=250``) processes
+    *last*. That is what makes a genuine last-processed-wins bug diverge from the correct merge:
+    last-processed-wins always lands on whichever candidate ``_contradicted`` reaches last --
+    ``250`` here -- while the correct merge keeps the true minimum, ``150``, regardless of
+    processing order. An earlier version of this test picked names ("Beta Inc" 250, "Gamma LLC"
+    150) where the alphabetically-last candidate happened to *also* hold the true minimum, so
+    last-processed-wins and min-wins produced the identical answer and the test passed against
+    either implementation.
 
     Every other test in this file presents at most one candidate per existing edge, so this branch
     was previously reachable only by inspection of the code, not by any test failing without it.
-    Also pins the documented, deliberate gap one tier up: the two new candidates (Beta, Gamma) do
-    not contradict *each other* -- both land as live edges -- because within-batch resolution
-    between candidates is SM-L5's, not this ticket's (module docstring).
+    Also pins the documented, deliberate gap one tier up: the two new candidates do not contradict
+    *each other* -- both land as live edges -- because within-batch resolution between candidates
+    is SM-L5's, not this ticket's (module docstring).
     """
     extractor = StubExtractor(
         by_content={
             "Ada works at Acme": [relation(target="Acme Corp")],
-            "Ada works at Beta": [relation(target="Beta Inc")],
-            "Ada works at Gamma": [relation(target="Gamma LLC")],
+            "Ada works at Alpha": [relation(target="Alpha Inc")],
+            "Ada works at Zeta": [relation(target="Zeta LLC")],
         }
     )
     pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
     old_id = relation_edge_id_for(ACME, "Ada", "works_at", "Acme Corp")
 
     pipe.run(ACME, [episode("Ada works at Acme", "e0", t_valid=100)])
-    # Later t_valid first, earlier second -- so "the candidate checked last" and "the earlier
-    # t_valid" are deliberately different candidates, which is what makes this test able to tell
-    # a `min`-like merge apart from a last-write-wins one.
-    beta = episode("Ada works at Beta", "e1", t_valid=250)
-    gamma = episode("Ada works at Gamma", "e2", t_valid=150)
+    alpha = episode("Ada works at Alpha", "e1", t_valid=150)
+    zeta = episode("Ada works at Zeta", "e2", t_valid=250)
     if is_async:
-        report = asyncio.run(pipe.arun(ACME, [beta, gamma]))
+        report = asyncio.run(pipe.arun(ACME, [alpha, zeta]))
     else:
-        report = pipe.run(ACME, [beta, gamma])
+        report = pipe.run(ACME, [alpha, zeta])
 
     assert report.edges_invalidated == 1
     bounds = graph.bounds_for_ids(ACME, [old_id])
@@ -415,7 +424,7 @@ def test_two_candidates_contradicting_one_edge_in_the_same_batch_keep_the_earlie
     # "current belief" on the transaction axis (expired_at IS NULL) -- only a valid-time window
     # after both new candidates' t_valid actually excludes it.
     after = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=150, until=300)
-    assert {row.provenance.get("object") for row in after} == {"Beta Inc", "Gamma LLC"}
+    assert {row.provenance.get("object") for row in after} == {"Alpha Inc", "Zeta LLC"}
 
 
 @pytest.mark.parametrize("is_async", [False, True])
