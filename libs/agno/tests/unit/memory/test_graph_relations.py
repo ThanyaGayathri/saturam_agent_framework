@@ -319,6 +319,191 @@ def test_true_at_t_returns_the_correct_edge_state_for_an_extracted_relation(is_a
     assert bool(found) is visible
 
 
+# ---------------------------------------------------------------------------
+# Contradiction -> invalidation, not delete (SM-G5 #103)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_contradicting_fact_invalidates_the_superseded_edge(is_async):
+    """The ticket's own three acceptance criteria in one test: a later fact naming a different
+    object for the same ``(subject, relation)`` retires the earlier edge -- ``t_invalid`` set via
+    expire-and-reinsert, nothing deleted, and the report counts the retirement."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+    old_id = relation_edge_id_for(ACME, "Ada", "works_at", "Acme Corp")
+    new_id = relation_edge_id_for(ACME, "Ada", "works_at", "Beta Inc")
+
+    first = episode("Ada works at Acme", "e1", t_valid=100)
+    second = episode("Ada works at Beta", "e2", t_valid=200)
+    if is_async:
+        asyncio.run(pipe.arun(ACME, [first]))
+        report = asyncio.run(pipe.arun(ACME, [second]))
+    else:
+        pipe.run(ACME, [first])
+        report = pipe.run(ACME, [second])
+
+    assert report.edges_invalidated == 1
+    rows = graph.rows["acme"]
+    # No data loss: both the original row and its bounded copy are still in the graph.
+    old_rows = [row for row in rows if row.id == old_id]
+    assert len(old_rows) == 2
+    assert any(row.t_invalid is None and row.is_current_belief() is False for row in old_rows), (
+        "the original row is expired, never edited in place"
+    )
+    bounded_copy = next(row for row in old_rows if row.is_current_belief())
+    assert bounded_copy.t_invalid == 200
+
+    # Point-in-time: after t=200 only the new object is valid; the old edge is still there (see
+    # ``test_the_superseded_edge_is_still_queryable_at_an_earlier_instant``) but no longer current.
+    after = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=200, until=300)
+    assert {row.id for row in after} == {new_id}
+
+
+def test_the_superseded_edge_is_still_queryable_at_an_earlier_instant():
+    """AC: "Old edge still queryable at earlier T" -- point-in-time reads before the new fact's
+    ``t_valid`` must still see the old belief, exactly as any other bi-temporal edge does."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Acme", "e1", t_valid=100)])
+    pipe.run(ACME, [episode("Ada works at Beta", "e2", t_valid=200)])
+
+    before = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=100, until=200)
+    assert {row.provenance.get("object") for row in before} == {"Acme Corp"}
+    after = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=200, until=300)
+    assert {row.provenance.get("object") for row in after} == {"Beta Inc"}
+
+
+def test_the_same_fact_re_extracted_does_not_contradict_itself():
+    """Re-extraction upserts the same edge id (``relation_edge_id_for`` is deterministic in the
+    triple) -- the object has not changed, so nothing is superseded."""
+    pipe, graph = pipeline(
+        extractor=StubExtractor(default=[relation()]), valid_time_extractor=RuleBasedValidTimeExtractor()
+    )
+
+    pipe.run(ACME, [episode("Ada works at Acme", "e1", t_valid=100)])
+    report = pipe.run(ACME, [episode("Ada works at Acme", "e2", t_valid=200)])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 1
+
+
+def test_an_earlier_dated_fact_does_not_invalidate_a_later_live_one():
+    """A candidate backfilling history (an earlier ``t_valid`` than an edge the graph already
+    holds) is not a contradiction of the newer edge -- it did not happen after it, so it cannot be
+    what superseded it. Guards against invalidating the wrong direction."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Beta": [relation(target="Beta Inc")],
+            "Ada works at Acme": [relation(target="Acme Corp")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Beta", "e1", t_valid=200)])
+    report = pipe.run(ACME, [episode("Ada works at Acme", "e2", t_valid=100)])
+
+    assert report.edges_invalidated == 0
+    live = graph.recall_facts(ACME, entities=["Ada"], relation="works_at")
+    assert {row.provenance.get("object") for row in live} == {"Beta Inc", "Acme Corp"}
+
+
+def test_an_edge_already_closed_before_the_candidate_starts_does_not_contradict():
+    """An existing edge whose own stated ``t_invalid`` already ends at or before the candidate's
+    ``t_valid`` has nothing left to supersede -- the two describe adjacent, non-overlapping
+    intervals, not a correction of one by the other."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada worked at Acme from Jan 2024 until Jun 2024": [relation(target="Acme Corp")],
+            "Ada works at Beta since Jun 2024": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada worked at Acme from Jan 2024 until Jun 2024")])
+    report = pipe.run(ACME, [episode("Ada works at Beta since Jun 2024")])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 2
+
+
+def test_two_facts_starting_at_the_exact_same_instant_do_not_contradict():
+    """The boundary of the ordering guard: an existing edge whose ``t_valid`` equals the
+    candidate's own is not *strictly* older, so which one actually supersedes the other is
+    ambiguous -- left alone rather than guessed at, deferred to SM-L5's fuller resolution."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Acme", "e1", t_valid=100)])
+    report = pipe.run(ACME, [episode("Ada works at Beta", "e2", t_valid=100)])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 2
+
+
+def test_a_different_subject_under_the_same_relation_does_not_contradict():
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(source="Ada", target="Acme Corp")],
+            "Bob works at Beta": [relation(source="Bob", target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Acme", "e1", t_valid=100)])
+    report = pipe.run(ACME, [episode("Bob works at Beta", "e2", t_valid=200)])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 2
+
+
+def test_a_different_relation_for_the_same_pair_does_not_contradict():
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(relation="works_at", target="Acme Corp")],
+            "Ada reports to Acme": [relation(relation="reports_to", target="Acme Corp")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Acme", "e1", t_valid=100)])
+    report = pipe.run(ACME, [episode("Ada reports to Acme", "e2", t_valid=200)])
+
+    assert report.edges_invalidated == 0
+    assert len(graph.rows["acme"]) == 2
+
+
+def test_contradiction_is_scoped_to_the_facts_own_scope():
+    """A subject+relation match in a different scope must never be invalidated -- ``recall_facts``
+    is itself scope-checked, but this pins the pipeline actually relies on that rather than
+    reading across scopes some other way."""
+    extractor = StubExtractor(default=[relation(target="Acme Corp")])
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+
+    pipe.run(ACME, [episode("Ada works at Acme", "e1", t_valid=100, scope=ACME)])
+    report = pipe.run(BOB, [episode("Ada works at Acme", "e2", t_valid=200, scope=BOB)])
+
+    assert report.edges_invalidated == 0
+    acme_edge = next(f for f in graph.facts if f.record.scope == ACME)
+    assert acme_edge.record.t_invalid is None
+
+
 def test_provenance_is_replaced_not_accumulated_on_a_second_pass():
     """The dominant assertion is the second one below (provenance replacement), not the first
     (id determinism) -- named for it after a review round noted the previous name buried it.

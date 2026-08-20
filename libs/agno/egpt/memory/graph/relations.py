@@ -35,6 +35,26 @@ SM-G1 (#99) built both generically on :class:`~egpt.memory.types.MemoryRecord` a
 substrate, which also stamps ``created_at``/``expired_at`` (the transaction axis) at write time --
 this module's job is only ``t_valid``/``t_invalid`` (the valid-time axis), left unset before it.
 
+**Contradiction -> invalidation, not delete (SM-G5 #103).** Before each scope's batch is written,
+:meth:`RelationExtractionPipeline._contradictions_for` looks up the live edges sharing a
+candidate's ``(subject, relation)`` through :meth:`~egpt.memory.substrates.GraphSubstrate.recall_facts`
+-- a targeted lookup, not an enumeration, same as :mod:`~egpt.memory.graph.resolve`'s
+``match_entities`` call. An existing edge naming a **different** ``object``, whose ``t_valid``
+precedes the candidate's, is what this module calls contradicted: it is retired through
+:meth:`~egpt.memory.substrates.GraphSubstrate.invalidate` (expire-and-reinsert, SM-R10's SCD-2)
+**after** the new edge lands, never deleted and never mutated in place. The old row stays
+queryable at any instant before the candidate's ``t_valid`` (ADR 0003 D7).
+
+**Every relation is treated as single-valued for this purpose.** A subject can only state one
+current object per relation label; a second, later object supersedes the first. That is the right
+call for a functional relation (``works_at``, ``lives_in``) and the wrong one for a genuinely
+multi-valued relation (``knows``, ``friends_with``), where a second object is an addition, not a
+correction -- this pass cannot tell the two apart from the triple alone. Distinguishing them needs
+relation-type awareness this ticket does not build; it is named here as the gap SM-L5 (#126), which
+this module's own docstring already points to, owns for the fuller consolidation-loop resolution.
+Two candidates in the *same* pass naming the same subject+relation with different objects are, for
+the identical reason, not checked against each other -- only against what the graph already holds.
+
 The prompt is the seed's, imported from ``learn/stores/entity_memory.py`` -- the same one SM-G2
 reuses -- because it already documents relationships as part of what one extraction pass reads for
 (the ``sarah_chen --[works_at]--> northstar_analytics`` example in its own text).
@@ -42,7 +62,7 @@ reuses -- because it already documents relationships as part of what one extract
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple, runtime_checkable
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Set, Tuple, runtime_checkable
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -276,12 +296,16 @@ def relation_details(
 class RelationExtractionReport:
     """What one extraction pass read and wrote. ``candidates`` is what the extractor returned and
     ``edges_written`` what survived the same-triple merge, so folding several mentions of one
-    relation into one edge reads as a fold rather than as losses."""
+    relation into one edge reads as a fold rather than as losses. ``edges_invalidated`` is how many
+    existing edges this pass's candidates contradicted and retired (SM-G5 #103) -- distinct from
+    ``edges_written``, since one retirement is a second write against an *existing* row's id, not
+    one of the new ids counted there."""
 
     scope: Scope
     episodes_read: int = 0
     candidates: int = 0
     edges_written: int = 0
+    edges_invalidated: int = 0
     details: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -315,7 +339,11 @@ class RelationExtractionPipeline:
         # symmetry meaningful; switching only one entry to `isinstance` would buy no additional
         # protection while making that entry's validation inconsistent with its two siblings here.
         for name, candidate, verbs in (
-            ("graph", graph, ("upsert_facts", "aupsert_facts")),
+            (
+                "graph",
+                graph,
+                ("upsert_facts", "aupsert_facts", "recall_facts", "arecall_facts", "invalidate", "ainvalidate"),
+            ),
             ("extractor", extractor, ("extract", "aextract")),
             ("valid_time_extractor", valid_time_extractor, ("extract", "aextract")),
         ):
@@ -449,6 +477,108 @@ class RelationExtractionPipeline:
             batched.setdefault(fact.record.scope, []).append(fact)
         return [(scope, batched[scope]) for scope in sorted(batched, key=lambda s: s.key())]
 
+    # -- contradiction -> invalidation (SM-G5 #103) ----------------------------
+
+    @staticmethod
+    def _by_relation(batch: Sequence[FactWrite]) -> List[Tuple[str, List[FactWrite]]]:
+        """``batch``'s triple candidates, grouped by relation label -- one ``recall_facts`` round
+        trip per relation, not per candidate. A candidate that is not a full triple carries nothing
+        to look up a contradiction for and is dropped here.
+
+        Checked field-by-field, not via ``fact.is_triple()``: the boolean tells a caller *whether*
+        a fact is triple-shaped, but mypy cannot follow it back to narrow ``fact.predicate`` from
+        ``Optional[str]`` to ``str`` for the ``setdefault`` key below -- the narrowing has to
+        happen on the attribute itself.
+        """
+        grouped: Dict[str, List[FactWrite]] = {}
+        for fact in batch:
+            predicate = fact.predicate
+            if predicate and fact.subject and fact.object:
+                grouped.setdefault(predicate, []).append(fact)
+        return [(relation, grouped[relation]) for relation in sorted(grouped)]
+
+    @staticmethod
+    def _subjects(facts: Sequence[FactWrite]) -> List[str]:
+        """The distinct, non-empty subjects in ``facts`` -- every member of which
+        :meth:`_by_relation` already guarantees carries one, but narrowed here the same
+        field-by-field way for the same mypy reason."""
+        subjects: Set[str] = set()
+        for fact in facts:
+            if fact.subject:
+                subjects.add(fact.subject)
+        return sorted(subjects)
+
+    @staticmethod
+    def _contradicted(existing: Sequence[MemoryRecord], candidates: Sequence[FactWrite]) -> Dict[str, int]:
+        """Existing live edges any of ``candidates`` supersedes -- ``{edge_id: t_invalid}``.
+
+        A contradiction is the same subject naming a **different** object under a relation
+        ``existing`` was already filtered to (see :meth:`_by_relation`) -- treating every relation
+        as single-valued, per the module docstring's scope note. There is no separate "same edge"
+        check: given that filter, an equal object is the only way ``rec.id`` could equal the
+        candidate's, so excluding it already excludes the other. Only an edge whose own interval
+        already ends by the candidate's ``t_valid``, or whose own ``t_valid`` is not strictly
+        before it, is excluded: the first has nothing left to contradict, and the second is not
+        older than the candidate, so retiring it would supersede a fact with one that does not
+        postdate it.
+
+        Two or more candidates contradicting the same existing edge keep the **earliest**
+        ``t_valid`` -- that is the instant the edge actually stopped being current, not whichever
+        candidate happened to be checked last.
+        """
+        found: Dict[str, int] = {}
+        for candidate in candidates:
+            if candidate.record.t_valid is None:
+                continue
+            for rec in existing:
+                if (
+                    rec.provenance.get("subject") != candidate.subject
+                    or rec.provenance.get("object") == candidate.object
+                    or (rec.t_valid is not None and rec.t_valid >= candidate.record.t_valid)
+                    or (rec.t_invalid is not None and rec.t_invalid <= candidate.record.t_valid)
+                ):
+                    continue
+                current = found.get(rec.id)
+                if current is None or candidate.record.t_valid < current:
+                    found[rec.id] = candidate.record.t_valid
+        return found
+
+    def _contradictions_for(self, scope: Scope, batch: Sequence[FactWrite]) -> Dict[str, int]:
+        contradictions: Dict[str, int] = {}
+        for relation, facts in self._by_relation(batch):
+            existing = self.graph.recall_facts(scope, entities=self._subjects(facts), relation=relation)
+            contradictions.update(self._contradicted(existing, facts))
+        return contradictions
+
+    async def _acontradictions_for(self, scope: Scope, batch: Sequence[FactWrite]) -> Dict[str, int]:
+        contradictions: Dict[str, int] = {}
+        for relation, facts in self._by_relation(batch):
+            existing = await self.graph.arecall_facts(scope, entities=self._subjects(facts), relation=relation)
+            contradictions.update(self._contradicted(existing, facts))
+        return contradictions
+
+    def _write_batch(self, scope: Scope, batch: Sequence[FactWrite]) -> int:
+        """Write one scope's batch, then retire whatever it supersedes.
+
+        Contradiction is looked up **before** the write, against the graph's state as it stood
+        before this batch -- a candidate must never be compared against itself. Invalidation runs
+        **after** ``upsert_facts`` lands, not before: a caller retrying a failed write must not find
+        edges already retired for candidates that never reached the graph.
+        """
+        contradictions = self._contradictions_for(scope, batch)
+        self.graph.upsert_facts(scope, batch)
+        for edge_id, t_invalid in sorted(contradictions.items()):
+            self.graph.invalidate(scope, edge_id, t_invalid)
+        return len(contradictions)
+
+    async def _awrite_batch(self, scope: Scope, batch: Sequence[FactWrite]) -> int:
+        """Async variant of :meth:`_write_batch`, making the same decisions in the same order."""
+        contradictions = await self._acontradictions_for(scope, batch)
+        await self.graph.aupsert_facts(scope, batch)
+        for edge_id, t_invalid in sorted(contradictions.items()):
+            await self.graph.ainvalidate(scope, edge_id, t_invalid)
+        return len(contradictions)
+
     def _report(
         self,
         scope: Scope,
@@ -456,12 +586,14 @@ class RelationExtractionPipeline:
         candidates: int,
         written: Sequence[FactWrite],
         complete: bool,
+        invalidated: int,
     ) -> RelationExtractionReport:
         return RelationExtractionReport(
             scope=scope,
             episodes_read=episodes_read,
             candidates=candidates,
             edges_written=len(written),
+            edges_invalidated=invalidated,
             details=relation_details(extractor=RELATION_EXTRACTOR_ID, complete=complete),
         )
 
@@ -476,9 +608,10 @@ class RelationExtractionPipeline:
             span = self.valid_time_extractor.extract(episode.content, ingest_time=self._ingest_time(episode))
             candidates.extend(self._candidates(episode, self.extractor.extract(episode), span))
         merged = self._merged(candidates)
+        invalidated = 0
         for batch_scope, batch in self._batches(merged):
-            self.graph.upsert_facts(batch_scope, batch)
-        return self._report(scope, len(selected), len(candidates), merged, not truncated)
+            invalidated += self._write_batch(batch_scope, batch)
+        return self._report(scope, len(selected), len(candidates), merged, not truncated, invalidated)
 
     async def arun(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationExtractionReport:
         """Async variant of :meth:`run`, making the same decisions through the same helpers.
@@ -494,6 +627,7 @@ class RelationExtractionPipeline:
             span = await self.valid_time_extractor.aextract(episode.content, ingest_time=self._ingest_time(episode))
             candidates.extend(self._candidates(episode, await self.extractor.aextract(episode), span))
         merged = self._merged(candidates)
+        invalidated = 0
         for batch_scope, batch in self._batches(merged):
-            await self.graph.aupsert_facts(batch_scope, batch)
-        return self._report(scope, len(selected), len(candidates), merged, not truncated)
+            invalidated += await self._awrite_batch(batch_scope, batch)
+        return self._report(scope, len(selected), len(candidates), merged, not truncated, invalidated)
