@@ -490,6 +490,48 @@ def test_distinct_episodes_stay_distinct():
     assert report.duplicates_merged == 0
 
 
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_facts_that_differ_only_by_punctuation_still_merge(half, monkeypatch):
+    """SM-L4 (#125): `_distil`'s raw ``text.lower().split()`` tokenizer treats "failed!" and
+    "failed" as unrelated tokens, so two episodes that are the same fact once normalized would
+    form two Jaccard groups on their own. ``consolidation.dedup.merge_near_duplicate_facts`` folds
+    them after ``_distil`` runs -- forced apart here (rather than relying on real near-punctuation
+    content) by monkeypatching ``_DUPLICATE_THRESHOLD`` to 1.1, so only that later stage can be
+    responsible for the merge this test asserts. Parametrised over both halves because the fold
+    is wired into `consolidate` and `aconsolidate` separately, and a divergence between them would
+    otherwise only surface in the one this test happened not to run.
+    """
+    import egpt.memory.adapters.co_located as co_located
+
+    monkeypatch.setattr(co_located, "_DUPLICATE_THRESHOLD", 1.1)
+    p, vector, graph = provider()
+    p.write(ACME, [event("the deploy failed!", id="a"), event("the deploy failed", id="b")])
+
+    report = p.consolidate(ACME) if half == "sync" else await p.aconsolidate(ACME)
+
+    assert report.semantic_written == 1
+    assert report.duplicates_merged == 1
+    (fact,) = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+    assert sorted(fact.provenance["source_episode_ids"]) == ["a", "b"]
+    assert sorted(graph.facts[0].source_episode_ids) == ["a", "b"]
+
+
+def test_near_duplicate_facts_from_different_users_never_merge(monkeypatch):
+    """The fold must respect scope isolation exactly like `_distil`'s own grouping does."""
+    import egpt.memory.adapters.co_located as co_located
+
+    monkeypatch.setattr(co_located, "_DUPLICATE_THRESHOLD", 1.1)
+    p, vector, _ = provider()
+    other = Scope(tenant_id="acme", user_id="u2")
+    p.write(ACME, [event("the deploy failed!", id="a")])
+    p.write(other, [event("the deploy failed", id="b", scope=other)])
+
+    report = p.consolidate(Scope(tenant_id="acme"))
+
+    assert report.semantic_written == 2
+    assert report.duplicates_merged == 0
+
+
 def test_contradictions_resolved_stays_zero_and_says_why():
     """Resolution needs extraction to know two facts disagree -- that is SM-L5's."""
     p, _, _ = provider()

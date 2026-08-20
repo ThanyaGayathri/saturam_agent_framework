@@ -34,6 +34,7 @@ from egpt.memory.config import (
     register_provider,
     resolve_substrate,
 )
+from egpt.memory.consolidation.dedup import merge_near_duplicate_facts
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
@@ -77,7 +78,9 @@ if TYPE_CHECKING:
 __all__ = ["CoLocatedMemoryProvider"]
 
 #: Jaccard threshold above which two episodes are treated as the same thing.
-#: Deterministic and crude on purpose; real extraction is SM-L3 (#124) / SM-L4 (#125).
+#: Deterministic and crude on purpose; real extraction is SM-L3's (#124). What punctuation-only
+#: differences slip past this raw tokenizer, ``consolidation.dedup.merge_near_duplicate_facts``
+#: (SM-L4 #125) folds after ``_distil`` builds the fact group -- see that module's docstring.
 _DUPLICATE_THRESHOLD = 0.8
 
 #: Namespace for deriving a fact id from its source episodes, so a re-run upserts the same row.
@@ -1181,6 +1184,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         assert_scope_isolation(scope, scanned, method="consolidate")
         episodes = self._visible_episodes(scope, scanned, instant)
         facts, merged = self._distil(episodes)
+        facts, folded = merge_near_duplicate_facts(facts)
+        merged += folded
 
         if facts:
             self._check_distilled(facts)
@@ -1268,6 +1273,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Off the loop: `_distil` is quadratic and measured seconds of pure CPU at the cap, during
         # which no other coroutine in the process runs.
         facts, merged = await asyncio.to_thread(self._distil, episodes)
+        facts, folded = merge_near_duplicate_facts(facts)
+        merged += folded
 
         if facts:
             self._check_distilled(facts)
