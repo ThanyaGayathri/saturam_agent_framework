@@ -3400,7 +3400,17 @@ def carry_over_pin(pin: Any) -> Any:
         from copy import copy as _shallow_copy
 
         return _shallow_copy(pin)
-    except Exception:
+    except Exception as e:
+        # Falling back to the shared object re-admits the very hazard this helper exists to
+        # close (aicoe-tracker#172), so it is logged rather than swallowed: a deployment hitting
+        # this is one `_get_client_params` call away from one request's credential landing in
+        # another's pin. Still a fallback rather than a raise -- a shared pin resolves correctly
+        # and is the status quo ante, while refusing to copy an exotic Model subclass would break
+        # `deep_copy` outright. Mirrors `deep_copy_field`'s log-and-degrade in `agent/_utils.py`.
+        log_warning(
+            f"Could not copy the pinned model {type(pin).__name__}; the copy will share the "
+            f"original's pin, which is unsafe if anything mutates it (aicoe-tracker#171): {e}"
+        )
         return pin
 
 

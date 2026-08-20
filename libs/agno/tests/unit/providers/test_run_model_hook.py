@@ -1271,6 +1271,34 @@ class TestConnectionAwarePinningThroughDeepCopy:
 
         return Agent(model=model, telemetry=False)
 
+    def test_building_a_client_on_one_copy_does_not_reach_another(self, responses_cls, monkeypatch):
+        """The aicoe-tracker#172 leak, end to end through the real credential-fill path.
+
+        The mutation test in `test_same_model.py` uses `BareModel`, which does not declare
+        `api_key` as a dataclass field -- so it sets a plain attribute and never exercises
+        `_get_client_params`. This drives the real one: `get_client()` on a real provider writes
+        the environment's key onto the model it is called on (aicoe-tracker#171, still open).
+
+        Before the fix, every copy's `_user_pinned_model` was the *same object*, and `mode_a`
+        returns that object as the serving model -- so one request's client build wrote a
+        credential into the pin every other copy resolved to. Raised in review of #107 as the
+        highest-value coverage gap.
+        """
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+
+        agent = self._agent(responses_cls(id="gpt-5.5"))
+        first, second = agent.deep_copy(), agent.deep_copy()
+
+        first._user_pinned_model.get_client()
+
+        assert first._user_pinned_model.api_key == "sk-tenant-one", (
+            "the copy that built the client is the one that should carry the filled key"
+        )
+        assert second._user_pinned_model.api_key is None, (
+            "a sibling copy's pin must not acquire another request's credential"
+        )
+        assert agent._user_pinned_model.api_key is None, "nor may the original the copies were made from"
+
     def test_a_model_at_another_tenants_endpoint_is_a_fresh_pin(self, responses_cls):
         """The round-1 finding, through the public API. Same class, same id, different endpoint and
         key: the copy must take the caller's model as its pin, not keep tenant A's."""

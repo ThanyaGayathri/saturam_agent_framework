@@ -420,3 +420,77 @@ class TestThePinIsNotSharedAcrossCopies:
 
         assert copy._user_pinned_model is not team._user_pinned_model
         assert copy._user_pinned_model.id == "TP"
+
+
+class TestTheUncopyablePinFallback:
+    """`carry_over_pin`'s last resort, which had no coverage (raised in review of #107).
+
+    Returning the original object re-admits the shared-pin hazard the helper exists to close, so
+    the branch is a deliberate degrade rather than a silent one: it warns. Raising instead would
+    break `deep_copy` outright for an exotic `Model` subclass, which is the worse failure -- a
+    shared pin still resolves correctly, it is only unsafe if something mutates it.
+    """
+
+    def test_an_uncopyable_pin_falls_back_to_the_original(self, caplog):
+        import logging
+
+        from egpt.models.base import carry_over_pin
+
+        class Uncopyable(BareModel):
+            def model_copy(self, *args, **kwargs):
+                raise RuntimeError("cannot copy this model")
+
+            def __copy__(self):
+                raise RuntimeError("cannot copy this model")
+
+        pin = Uncopyable(id="P")
+        with caplog.at_level(logging.WARNING):
+            carried = carry_over_pin(pin)
+
+        assert carried is pin, "the fallback keeps the run working rather than raising"
+        assert any("share the original's pin" in r.getMessage() for r in caplog.records), (
+            "the degrade must be visible: it re-admits the hazard this helper closes"
+        )
+
+    def test_a_none_pin_is_returned_unchanged(self):
+        """An unpinned component must not acquire a pin object from the copy path."""
+        from egpt.models.base import carry_over_pin
+
+        assert carry_over_pin(None) is None
+
+
+class TestTheTeamPathMatchesTheAgentPath:
+    """`team/_utils.py:184` is an independent call site of the same helpers, so it can drift.
+
+    Agent's cases above cover mutation isolation and the `update={"model": None}` decision; the
+    Team path had only an identity check. Raised in review of #107.
+    """
+
+    def _team(self, **kwargs):
+        from egpt.team import Team
+
+        return Team(members=[], name="t", telemetry=False, **kwargs)
+
+    def test_mutating_one_team_copys_pin_does_not_reach_the_others(self):
+        team = self._team(model=BareModel(id="TP"))
+        first, second = team.deep_copy(), team.deep_copy()
+
+        first._user_pinned_model.api_key = "tenant-1-secret"
+
+        assert getattr(second._user_pinned_model, "api_key", None) is None
+        assert getattr(team._user_pinned_model, "api_key", None) is None
+
+    def test_an_explicit_none_does_not_clear_a_teams_pin(self):
+        team = self._team(model=BareModel(id="TP"))
+
+        copy = team.deep_copy(update={"model": None})
+
+        assert copy._user_pinned_model is not None
+        assert copy._user_pinned_model.id == "TP"
+
+    def test_a_real_model_in_update_still_repins_a_team(self):
+        team = self._team(model=BareModel(id="TP"))
+
+        copy = team.deep_copy(update={"model": BareModel(id="TQ")})
+
+        assert copy._user_pinned_model.id == "TQ"
