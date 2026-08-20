@@ -1257,12 +1257,25 @@ class TestConnectionAwarePinningThroughDeepCopy:
     that matter through `Agent.deep_copy` and, for the leak, through `apply_run_model`.
     """
 
+    #: (module, class name, env var the class falls back to for `api_key`) for each provider run
+    #: through these cases. Both declare `base_url`/`api_key` as `Optional[str] = None` with an
+    #: env fallback -- the shape `test_a_bare_default_endpoint_model_is_a_fresh_pin` depends on --
+    #: unlike most OpenAI-family providers, which bake in a fixed non-`None` `base_url` default.
+    _PROVIDER_CASES = [
+        ("egpt.integrations.models.openai", "OpenAIResponses", "OPENAI_API_KEY"),
+        ("egpt.integrations.models.vllm.vllm", "VLLM", "VLLM_API_KEY"),
+    ]
+
+    @pytest.fixture(params=_PROVIDER_CASES, ids=[case[1] for case in _PROVIDER_CASES])
+    def provider_case(self, request):
+        module_name, cls_name, api_key_env = request.param
+        module = pytest.importorskip(module_name, reason="the connection cases need a real provider")
+        return getattr(module, cls_name), api_key_env
+
     @pytest.fixture
-    def responses_cls(self):
-        openai = pytest.importorskip(
-            "egpt.integrations.models.openai", reason="the connection cases need a real provider"
-        )
-        return openai.OpenAIResponses
+    def responses_cls(self, provider_case):
+        cls, _ = provider_case
+        return cls
 
     def _agent(self, model):
         from egpt.agent.agent import Agent
@@ -1327,14 +1340,15 @@ class TestConnectionAwarePinningThroughDeepCopy:
         assert copy.model.base_url is None, "the run must not reach tenant A's endpoint"
         assert copy.model.api_key != "key_a", "nor use tenant A's key"
 
-    def test_an_identical_reconstruction_after_a_client_build_is_not_a_fresh_pin(self, responses_cls, monkeypatch):
+    def test_an_identical_reconstruction_after_a_client_build_is_not_a_fresh_pin(self, provider_case, monkeypatch):
         """The round-2 critical, through the public API: the post-first-run state.
 
         `get_client()` must not mutate `self.api_key`, so a live model that has served a request
         still compares equal to its own fresh reconstruction via plain live-attribute comparison --
         no construction-time snapshot needed. No test here reached this state before.
         """
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-the-environment")
+        responses_cls, api_key_env = provider_case
+        monkeypatch.setenv(api_key_env, "sk-from-the-environment")
         live = responses_cls(id="gpt-5.5")
         agent = self._agent(live)
         live.get_client()  # run 1: must not leak the env-resolved key onto self

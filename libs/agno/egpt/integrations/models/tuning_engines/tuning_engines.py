@@ -36,7 +36,7 @@ class TuningEngines(OpenAILike):
         api_key = self.api_key or getenv("TUNING_ENGINES_API_KEY")
         if not api_key:
             raise ModelAuthenticationError(
-                message=("TUNING_ENGINES_API_KEY not set. Please set the TUNING_ENGINES_API_KEY environment variable."),
+                message="TUNING_ENGINES_API_KEY not set. Please set the TUNING_ENGINES_API_KEY environment variable.",
                 model_name=self.name,
             )
         return super()._get_client_params(api_key=api_key)

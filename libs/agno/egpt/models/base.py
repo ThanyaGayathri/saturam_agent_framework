@@ -3308,6 +3308,12 @@ def same_model(candidate: Any, existing: Any) -> bool:
     onto ``self``. So ``self.<attr>`` always equals what the caller declared, or ``None``, for the
     whole life of the object -- including after a client has been built.
 
+    That invariant has no runtime guard of its own; it is enforced by
+    ``tests/unit/models/test_same_model.py::TestNoProviderMutatesConnectionAttrsAfterClientBuild``,
+    which builds a client for every constructible provider and asserts the connection attributes
+    it left unset are still unset afterward. A provider that reintroduces the mutation fails that
+    test, not this function.
+
     An absent side never matches -- an agent with no model cannot already be using the one being
     offered.
     """

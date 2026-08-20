@@ -52,8 +52,9 @@ class LangDB(OpenAILike):
 
         client_params = super()._get_client_params(api_key=api_key, base_url=base_url)
 
-        # Add label header if present, without mutating self.default_headers.
-        if self.label and "default_headers" not in client_params:
+        # Add label header if present, without mutating self.default_headers. Truthiness (not
+        # key-presence) matches the pre-fix behavior: an explicit empty dict still gets the label.
+        if self.label and not client_params.get("default_headers"):
             client_params["default_headers"] = {"x-label": self.label}
 
         return client_params

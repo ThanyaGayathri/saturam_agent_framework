@@ -303,3 +303,225 @@ class TestTheAttributeTupleDoesNotDrift:
         this test existed. These twenty were each confirmed against the declaring source file.
         """
         assert name in _CONNECTION_ATTRS
+
+
+# Each entry: (module suffix under egpt.integrations.models, class name, env vars to set so
+# resolution succeeds without raising, connection attrs expected to stay `None` on `self`,
+# the method that performs resolution, and any extra constructor kwargs a class requires that
+# have no env fallback of their own).
+#
+# Hand-curated, not derived from `_CONNECTION_ATTRS` or a source walk: the whole point is to
+# pin the *env var name* each provider actually reads, which nothing else in the tree records
+# in one place. A dynamic version would have to parse `getenv(...)` calls out of source, which
+# is more fragile than just writing down what EGPT-171's fix touched.
+_PROVIDER_MUTATION_CASES = [
+    ("requesty.requesty", "Requesty", {"REQUESTY_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("sambanova.sambanova", "Sambanova", {"SAMBANOVA_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "portkey.portkey",
+        "Portkey",
+        {"PORTKEY_VIRTUAL_KEY": "sentinel"},
+        ("virtual_key",),
+        "_get_client_params",
+        {"portkey_api_key": "dummy-portkey-key"},
+    ),
+    ("internlm.internlm", "InternLM", {"INTERNLM_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("together.together", "Together", {"TOGETHER_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("vercel.v0", "V0", {"V0_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("openrouter.openrouter", "OpenRouter", {"OPENROUTER_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("inception.inception", "Inception", {"INCEPTION_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "siliconflow.siliconflow",
+        "Siliconflow",
+        {"SILICONFLOW_API_KEY": "sentinel"},
+        ("api_key",),
+        "_get_client_params",
+        {},
+    ),
+    (
+        "azure.openai_chat",
+        "AzureOpenAI",
+        {"AZURE_OPENAI_API_KEY": "sentinel", "AZURE_OPENAI_ENDPOINT": "https://sentinel.example/"},
+        ("api_key", "azure_endpoint"),
+        "_get_client_params",
+        {},
+    ),
+    (
+        "azure.claude",
+        "Claude",
+        {"ANTHROPIC_FOUNDRY_API_KEY": "sentinel", "ANTHROPIC_FOUNDRY_RESOURCE": "sentinel-resource"},
+        ("api_key", "resource"),
+        "_get_client_params",
+        {},
+    ),
+    ("deepinfra.deepinfra", "DeepInfra", {"DEEPINFRA_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "azure.ai_foundry",
+        "AzureAIFoundry",
+        {"AZURE_API_KEY": "sentinel", "AZURE_ENDPOINT": "https://sentinel.example/"},
+        ("api_key", "azure_endpoint"),
+        "_get_client_params",
+        {},
+    ),
+    ("fireworks.fireworks", "Fireworks", {"FIREWORKS_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "cloudflare.cloudflare",
+        "Cloudflare",
+        {"CLOUDFLARE_API_TOKEN": "sentinel", "CLOUDFLARE_ACCOUNT_ID": "sentinel-account"},
+        ("api_key", "account_id", "gateway_id"),
+        "_get_client_params",
+        {},
+    ),
+    ("meta.llama_openai", "LlamaOpenAI", {"LLAMA_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "vllm.vllm",
+        "VLLM",
+        {"VLLM_API_KEY": "sentinel", "VLLM_BASE_URL": "http://sentinel:8000/v1/"},
+        ("api_key", "base_url"),
+        "_get_client_params",
+        {},
+    ),
+    (
+        "tuning_engines.tuning_engines",
+        "TuningEngines",
+        {"TUNING_ENGINES_API_KEY": "sentinel"},
+        ("api_key",),
+        "_get_client_params",
+        {},
+    ),
+    ("xai.xai", "xAI", {"XAI_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "ibm.watsonx",
+        "WatsonX",
+        {"IBM_WATSONX_API_KEY": "sentinel", "IBM_WATSONX_PROJECT_ID": "sentinel-project"},
+        ("api_key", "project_id"),
+        "_get_client_params",
+        {},
+    ),
+    ("perplexity.perplexity", "Perplexity", {"PERPLEXITY_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("xiaomi.mimo", "MiMo", {"MIMO_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("nvidia.nvidia", "Nvidia", {"NVIDIA_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("aimlapi.aimlapi", "AIMLAPI", {"AIMLAPI_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "aws.claude",
+        "Claude",
+        {
+            "AWS_ACCESS_KEY_ID": "sentinel-access-key",
+            "AWS_SECRET_ACCESS_KEY": "sentinel-secret-key",
+            "AWS_SESSION_TOKEN": "sentinel-session-token",
+            "AWS_REGION": "sentinel-region",
+        },
+        ("aws_access_key", "aws_secret_key", "aws_session_token", "aws_region"),
+        "_get_client_params",
+        {},
+    ),
+    ("anthropic.claude", "Claude", {"ANTHROPIC_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("huggingface.huggingface", "HuggingFace", {"HF_TOKEN": "sentinel"}, ("api_key",), "get_client_params", {}),
+    (
+        "cerebras.cerebras_openai",
+        "CerebrasOpenAI",
+        {"CEREBRAS_API_KEY": "sentinel"},
+        ("api_key",),
+        "_get_client_params",
+        {},
+    ),
+    ("cometapi.cometapi", "CometAPI", {"COMETAPI_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "litellm.litellm_openai",
+        "LiteLLMOpenAI",
+        {"LITELLM_API_KEY": "sentinel"},
+        ("api_key",),
+        "_get_client_params",
+        {},
+    ),
+    ("litellm.chat", "LiteLLM", {"LITELLM_API_KEY": "sentinel"}, ("api_key",), "get_request_params", {}),
+    ("mistral.mistral", "MistralChat", {"MISTRAL_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("neosantara.neosantara", "Neosantara", {"NEOSANTARA_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    # These resolve independently at each call site rather than through a shared
+    # `_get_client_params` (EGPT-171's PR description calls them out by name), so `get_client()`
+    # (and, for bedrock, `get_async_client()` too -- a separate call site with its own history of
+    # this exact bug) is the method under test rather than a params-building helper.
+    ("cohere.chat", "Cohere", {"CO_API_KEY": "sentinel"}, ("api_key",), "get_client", {}),
+    (
+        "aws.bedrock",
+        "AwsBedrock",
+        {
+            "AWS_ACCESS_KEY_ID": "sentinel-access-key",
+            "AWS_SECRET_ACCESS_KEY": "sentinel-secret-key",
+            "AWS_SESSION_TOKEN": "sentinel-session-token",
+            "AWS_REGION": "sentinel-region",
+        },
+        ("aws_access_key_id", "aws_secret_access_key", "aws_session_token", "aws_region"),
+        "get_client",
+        {},
+    ),
+    (
+        "aws.bedrock",
+        "AwsBedrock",
+        {
+            "AWS_ACCESS_KEY_ID": "sentinel-access-key",
+            "AWS_SECRET_ACCESS_KEY": "sentinel-secret-key",
+            "AWS_SESSION_TOKEN": "sentinel-session-token",
+            "AWS_REGION": "sentinel-region",
+        },
+        ("aws_access_key_id", "aws_secret_access_key", "aws_session_token", "aws_region"),
+        "get_async_client",
+        {},
+    ),
+    ("google.gemini", "Gemini", {"GOOGLE_API_KEY": "sentinel"}, ("api_key",), "get_client", {}),
+    (
+        "google.gemini_interactions",
+        "GeminiInteractions",
+        {"GOOGLE_API_KEY": "sentinel"},
+        ("api_key",),
+        "get_client",
+        {},
+    ),
+]
+
+
+class TestNoProviderMutatesConnectionAttrsAfterClientBuild:
+    """The gap two reviews of PR #108 (EGPT-171) flagged: only ``OpenAIResponses`` and
+    ``Neosantara`` got an explicit "does not mutate self" regression assertion, out of ~44
+    changed providers. Everything else relied on the one-time sweep the PR described, not on a
+    test -- so a new provider (or an edit to an existing one) reintroducing the mutation would
+    pass CI silently. This is the runtime backstop `same_model`'s docstring now points to.
+
+    Each case sets the env var(s) a provider falls back to, builds an instance, snapshots the
+    connection attrs before calling whichever method actually performs resolution, and asserts
+    those attrs are unchanged afterward -- the exact shape of the bug EGPT-171 fixed. Comparing
+    against a snapshot (rather than asserting ``None``) covers both flavors of provider in the
+    tree: most declare ``api_key: Optional[str] = None`` and resolve lazily inside the method
+    under test, but a few (e.g. ``langdb``, ``tuning_engines``, ``cometapi``) resolve eagerly via
+    ``field(default_factory=lambda: getenv(...))``, so the attr is already non-``None`` by the
+    time this test constructs the instance.
+    """
+
+    @pytest.mark.parametrize(
+        "module_suffix,cls_name,env,attrs,call_method,extra_kwargs",
+        _PROVIDER_MUTATION_CASES,
+        ids=[f"{case[0]}.{case[1]}:{case[4]}" for case in _PROVIDER_MUTATION_CASES],
+    )
+    def test_resolution_does_not_write_back_onto_self(
+        self, module_suffix, cls_name, env, attrs, call_method, extra_kwargs, monkeypatch
+    ):
+        import importlib
+
+        try:
+            module = importlib.import_module(f"egpt.integrations.models.{module_suffix}")
+            cls = getattr(module, cls_name)
+        except Exception as e:
+            pytest.skip(f"{module_suffix}.{cls_name} not importable in this environment: {e}")
+
+        for var, value in env.items():
+            monkeypatch.setenv(var, value)
+
+        instance = cls(id="test-model", **extra_kwargs)
+        before = {attr: getattr(instance, attr, None) for attr in attrs}
+
+        getattr(instance, call_method)()
+
+        for attr in attrs:
+            assert getattr(instance, attr, None) == before[attr], (
+                f"{cls_name}.{call_method}() must not mutate {attr} on self (EGPT-171 regression)"
+            )
