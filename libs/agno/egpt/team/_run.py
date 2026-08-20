@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from egpt.exceptions import (
     InputCheckError,
     OutputCheckError,
+    ProviderDenial,
     RunCancelledException,
     RunNotContinuableError,
     RunNotFoundError,
@@ -1424,7 +1425,10 @@ def _run(
                     log_warning(f"Failed to persist cancelled run: {store_err}")
                 return run_response
             except Exception as e:
-                if attempt < num_attempts - 1:
+                # A provider's denial is deterministic: retrying re-hits the budget/rate store
+                # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
+                # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
+                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
                     # Calculate delay with exponential backoff if enabled
                     if team.exponential_backoff:
                         delay = team.delay_between_retries * (2**attempt)
@@ -1906,7 +1910,10 @@ def _run_stream(
                     yield run_response
                 break
             except Exception as e:
-                if attempt < num_attempts - 1:
+                # A provider's denial is deterministic: retrying re-hits the budget/rate store
+                # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
+                # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
+                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
                     # Calculate delay with exponential backoff if enabled
                     if team.exponential_backoff:
                         delay = team.delay_between_retries * (2**attempt)
@@ -3450,7 +3457,10 @@ async def _arun(
                 return run_response
 
             except Exception as e:
-                if attempt < num_attempts - 1:
+                # A provider's denial is deterministic: retrying re-hits the budget/rate store
+                # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
+                # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
+                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
                     # Calculate delay with exponential backoff if enabled
                     if team.exponential_backoff:
                         delay = team.delay_between_retries * (2**attempt)
@@ -4203,7 +4213,10 @@ async def _arun_stream(
                 break
 
             except Exception as e:
-                if attempt < num_attempts - 1:
+                # A provider's denial is deterministic: retrying re-hits the budget/rate store
+                # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
+                # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
+                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
                     # Calculate delay with exponential backoff if enabled
                     if team.exponential_backoff:
                         delay = team.delay_between_retries * (2**attempt)
@@ -7478,7 +7491,10 @@ def _continue_run(
                 return run_response
 
             except Exception as e:
-                if attempt < num_attempts - 1:
+                # A provider's denial is deterministic: retrying re-hits the budget/rate store
+                # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
+                # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
+                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
                     import time as _time
 
                     if team.exponential_backoff:
@@ -7758,7 +7774,10 @@ def _continue_run_stream(
                 break
 
             except Exception as e:
-                if attempt < num_attempts - 1:
+                # A provider's denial is deterministic: retrying re-hits the budget/rate store
+                # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
+                # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
+                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
                     import time as _time
 
                     if team.exponential_backoff:
@@ -8557,7 +8576,10 @@ async def _acontinue_run(
                 raise
             except Exception as e:
                 run_response = cast(TeamRunOutput, run_response)
-                if attempt < num_attempts - 1:
+                # A provider's denial is deterministic: retrying re-hits the budget/rate store
+                # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
+                # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
+                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
                     if team.exponential_backoff:
                         delay = team.delay_between_retries * (2**attempt)
                     else:
@@ -9256,7 +9278,10 @@ async def _acontinue_run_stream(
                 if run_response is None:
                     run_response = TeamRunOutput(run_id=run_id)
                 run_response = cast(TeamRunOutput, run_response)
-                if attempt < num_attempts - 1:
+                # A provider's denial is deterministic: retrying re-hits the budget/rate store
+                # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
+                # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
+                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
                     if team.exponential_backoff:
                         delay = team.delay_between_retries * (2**attempt)
                     else:
