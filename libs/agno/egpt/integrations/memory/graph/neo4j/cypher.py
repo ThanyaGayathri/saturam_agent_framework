@@ -283,10 +283,18 @@ def _anchor_predicate(alias: str) -> str:
     merges as a bare edge endpoint -- the common case for ``RelationExtractionPipeline`` (SM-G3
     #101), which writes edges and never calls ``upsert_entities`` -- carries only ``name`` and the
     scope columns. Matching on ``key`` alone would make every such node permanently unreachable as
-    an anchor, silently excluding most production-extracted relations from this leg. ``key`` is
-    already the normalised form of a written ``name`` (:func:`~egpt.memory.types.
-    normalize_entity_name`), so falling back to a lowercased split of the raw ``name`` when ``key``
-    is absent is the same comparison, just unnormalised for punctuation.
+    an anchor, silently excluding most production-extracted relations from this leg.
+
+    **The fallback is semantically equivalent only for punctuation-free names, not the same
+    comparison in general (round-3 review).** ``key`` is :func:`~egpt.memory.types.
+    normalize_entity_name`'s output, which *strips* punctuation before splitting on whitespace; the
+    fallback only lowercases ``name`` and splits it, leaving punctuation attached to whichever word
+    it touches. ``"Ada's Corp"`` normalises to key ``"adas corp"`` (splits to ``["adas", "corp"]``),
+    while the fallback's ``toLower("Ada's Corp")`` splits to ``["ada's", "corp"]`` -- a query term
+    ``"adas"`` matches the explicit-entity case and not the bare-endpoint one, with no error either
+    way. Only reachable when no explicit ``upsert_entities`` call ever ran for that name; stated
+    here because the earlier wording ("the same comparison, just unnormalised for punctuation")
+    undersold that gap.
     """
     match_text = f"toLower(coalesce({alias}.key, {alias}.name))"
     return f"any(t IN $terms WHERE t IN [w IN split({match_text}, ' ') WHERE w <> ''])"
@@ -368,6 +376,13 @@ def _traverse_multihop(
     # itself -- if this ever needs two *different* scopes (a wider anchor scope, a narrower rel
     # scope), the param names must be aliased (e.g. `anchor_tenant_id` vs `rel_tenant_id`) before
     # they diverge, or one silently overwrites the other with no error (round-2 review, Major).
+    # Asserted rather than only commented (round-3 review): a silent divergence here is wrong
+    # Cypher parameters and wrong results, with nothing else in this module positioned to catch
+    # it -- turning that into a loud failure at the point of divergence costs one comparison on
+    # every call and finds the mistake before it reaches a query.
+    assert anchor_params == rel_params, (
+        "anchor_params and rel_params must agree; key the params by alias before using different scopes"
+    )
     return text, {**anchor_params, **rel_params, "max_anchors": max_anchor_entities}
 
 

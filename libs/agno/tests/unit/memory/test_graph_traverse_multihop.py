@@ -331,4 +331,9 @@ def test_feeds_fusion_through_the_provider_read_path():
 
     result = provider.read(ACME, MemoryQuery(text="tell me about acme"))
 
-    assert "hop1" in {r.id for r in result.records}
+    # `hop1`'s content ("acme located_in berlin") shares "acme" with the query, so the pre-existing
+    # lexical leg alone would satisfy an assertion on it -- this would pass even with
+    # `_multihop_edges` deleted entirely. `hop2`'s content ("berlin part_of europe") shares no word
+    # with the query at all; it is reachable only through the multi-hop leg, so its presence is what
+    # actually proves that leg feeds fusion (round-3 review).
+    assert "hop2" in {r.id for r in result.records}

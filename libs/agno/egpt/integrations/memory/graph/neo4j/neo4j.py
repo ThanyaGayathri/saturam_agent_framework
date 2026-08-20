@@ -153,7 +153,10 @@ class Neo4jGraphSubstrate:
         # review found the hop bound alone does not cap the leg's cost (a common query word matches
         # every entity whose name contains it). Validated lazily by `cypher.traverse_statements` on
         # first use rather than here, matching this constructor's existing style of deferring
-        # per-call validation to the call.
+        # per-call validation to the call -- so `max_traverse_hops=0` (or a negative/non-int value,
+        # for either parameter) is accepted silently here and only raises `MemoryOperationError` on
+        # the first `traverse`/`atraverse` call, naming `traverse_statements` as the site rather
+        # than this constructor (round-3 review).
         self.max_traverse_hops = max_traverse_hops
         self.max_traverse_anchor_entities = max_traverse_anchor_entities
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
