@@ -3,10 +3,11 @@
 ``score = a*relevance + b*recency + c*importance``, each signal a finite value in ``[0.0, 1.0]``
 (the contract :mod:`.relevance`'s ``cosine_relevance``, :mod:`.decay`'s ``recency_decay``, and
 :mod:`.importance`'s ``ImportanceScorer.score`` already promise their callers) and each weight
-independently configurable, per the issue's Generative-Agents recipe and design decision #2
-("configurable weights -- tune per use case/tenant"). This module only combines already-computed
-signals; producing them is SM-E4/SM-E5/SM-E6's job, and wiring the composite into retrieval
-ranking is SM-H5's (#135) -- see ``docs/adr/0003-symbiotic-memory.md`` section B.1.
+independently configurable, per SM-E7 #114's Generative-Agents recipe and design decision #2 in
+that issue's own "Design Decisions" table ("configurable weights -- tune per use case/tenant").
+This module only combines already-computed signals; producing them is SM-E4/SM-E5/SM-E6's job,
+and wiring the composite into retrieval ranking is SM-H5's (#135) -- see
+``docs/adr/0003-symbiotic-memory.md`` section B.1.
 
 **Default weights are not equal-weighted.** ADR 0003 B.1 ratifies SM-R8's measured finding that
 an additive per-query recency rescore on the fused hot path *hurts* retrieval quality
@@ -32,8 +33,15 @@ __all__ = ["DEFAULT_EPISODIC_SCORE_WEIGHTS", "EpisodicScoreWeights", "composite_
 
 @dataclass(frozen=True)
 class EpisodicScoreWeights:
-    """The composite's three weights -- ``a``, ``b``, ``c`` in the issue's ``score = a*relevance +
-    b*recency + c*importance``, named for the signal each multiplies rather than by letter."""
+    """The composite's three weights -- ``a``, ``b``, ``c`` in SM-E7 #114's ``score = a*relevance +
+    b*recency + c*importance``, named for the signal each multiplies rather than by letter.
+
+    Construction does not validate: a ``nan`` or negative field builds without error.
+    Validation runs at :func:`composite_episodic_score` call time, on whatever ``weights`` that
+    call receives, not here -- the same deferred-validation choice the rest of this module makes
+    for the three signal arguments, which are also plain, unchecked ``float`` until they reach
+    that function.
+    """
 
     relevance: float = 1.0
     recency: float = 0.0
@@ -70,15 +78,18 @@ def _require_nonnegative_finite_weight(value: float, field_name: str) -> float:
 
 def composite_episodic_score(
     relevance: float,
+    *,
     recency: float,
     importance: float,
     weights: EpisodicScoreWeights = DEFAULT_EPISODIC_SCORE_WEIGHTS,
 ) -> float:
     """``a*relevance + b*recency + c*importance`` for one episode against one query.
 
-    Positional order matches the formula -- ``relevance`` first, ``recency`` second, ``importance``
-    third -- but nothing in the signature stops a transposed call from type-checking, since all
-    three are plain ``float``. Prefer keyword arguments to avoid that.
+    ``recency`` and ``importance`` are keyword-only: all three signals are plain ``float``, so
+    nothing but the call itself would catch a transposed pair (``composite_episodic_score(v,
+    importance_val, recency_val)`` type-checks and silently scores the wrong thing). Keyword-only
+    forces every call to spell out which value is which; ``relevance`` stays positional-or-keyword
+    since a single leading value has nothing to transpose against.
 
     Not itself renormalized to ``[0.0, 1.0]`` -- DECISION.md's ratified two-term canonical scorer
     (``alpha * relevance + beta * recency`` at ``alpha=beta=1.0``) is not either, and dividing by
@@ -93,6 +104,12 @@ def composite_episodic_score(
     module docstring) -- but the composite has no way to distinguish "misconfigured" from "a
     caller who genuinely wants every episode tied", so it computes the (degenerate) arithmetic
     rather than guessing.
+
+    Returns:
+        A finite float in ``[0.0, weights.relevance + weights.recency + weights.importance]``
+        (reached at all-zero signals and at all-``1.0`` signals respectively, given the
+        non-negative weight guarantee :func:`_require_nonnegative_finite_weight` enforces below).
+        Not renormalized to ``[0.0, 1.0]`` -- see above.
 
     Raises:
         MemoryOperationError: any signal is outside ``[0.0, 1.0]`` or non-finite (``field_name``

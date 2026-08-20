@@ -6,10 +6,11 @@ This example shows SM-E7's composite scorer: relevance (SM-E6) + recency (SM-E4)
 + importance (SM-E5) combined into one ranking score with configurable weights.
 
 Key concepts:
-- composite_episodic_score(relevance, recency, importance, weights) is a
+- composite_episodic_score(relevance, *, recency, importance, weights) is a
   weighted sum, a*relevance + b*recency + c*importance -- not renormalized
   back to [0, 1], the same choice DECISION.md's ratified two-term scorer
-  makes.
+  makes. recency and importance are keyword-only so a transposed pair can't
+  silently type-check into the wrong score.
 - Each of the three signals must already be a finite value in [0.0, 1.0] --
   the contract cosine_relevance, recency_decay and ImportanceScorer.score
   each promise their own callers. A value outside that range is refused, not
@@ -59,11 +60,15 @@ print()
 print("With an explicit write-time weight set, staleness now matters:")
 print(
     "  stale: ",
-    composite_episodic_score(0.9, 0.02, 0.9, write_time_weights),
+    composite_episodic_score(
+        0.9, recency=0.02, importance=0.9, weights=write_time_weights
+    ),
 )
 print(
     "  fresh: ",
-    composite_episodic_score(0.9, 0.95, 0.9, write_time_weights),
+    composite_episodic_score(
+        0.9, recency=0.95, importance=0.9, weights=write_time_weights
+    ),
 )
 
 # ---------------------------------------------------------------------------
@@ -78,7 +83,9 @@ episodes = {
     "unrelated_small_talk": (0.1, 0.2, 0.1),
 }
 scored = {
-    name: composite_episodic_score(relevance, recency, importance, write_time_weights)
+    name: composite_episodic_score(
+        relevance, recency=recency, importance=importance, weights=write_time_weights
+    )
     for name, (relevance, recency, importance) in episodes.items()
 }
 print()
@@ -96,18 +103,24 @@ print("Refusals")
 for label, call in (
     (
         "a relevance value outside [0, 1]",
-        lambda: composite_episodic_score(1.5, 0.5, 0.5),
+        lambda: composite_episodic_score(1.5, recency=0.5, importance=0.5),
     ),
     (
         "a NaN weight",
         lambda: composite_episodic_score(
-            0.5, 0.5, 0.5, EpisodicScoreWeights(relevance=float("nan"))
+            0.5,
+            recency=0.5,
+            importance=0.5,
+            weights=EpisodicScoreWeights(relevance=float("nan")),
         ),
     ),
     (
         "a negative weight (would silently invert that signal's contribution)",
         lambda: composite_episodic_score(
-            0.5, 0.5, 0.5, EpisodicScoreWeights(relevance=-1.0)
+            0.5,
+            recency=0.5,
+            importance=0.5,
+            weights=EpisodicScoreWeights(relevance=-1.0),
         ),
     ),
 ):
