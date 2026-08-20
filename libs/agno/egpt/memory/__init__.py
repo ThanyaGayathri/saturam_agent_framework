@@ -14,12 +14,15 @@ from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker
 from egpt.memory.episodic import (
     DEFAULT_BASE_HALF_LIFE_S,
     DEFAULT_IMP_FACTOR,
+    DEFAULT_PRUNE_THRESHOLD,
     ImportanceScore,
     ImportanceScorer,
     episode_decay_score,
     half_life_s,
+    is_prune_eligible,
     recency_decay,
     reinforce,
+    select_for_forgetting,
 )
 from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.episodic.segment import (
@@ -210,6 +213,10 @@ __all__ = [
     "half_life_s",
     "recency_decay",
     "reinforce",
+    # Episode forgetting / pruning (SM-E9)
+    "DEFAULT_PRUNE_THRESHOLD",
+    "is_prune_eligible",
+    "select_for_forgetting",
     # Episode salience scoring (SM-E5)
     "ImportanceScore",
     "ImportanceScorer",

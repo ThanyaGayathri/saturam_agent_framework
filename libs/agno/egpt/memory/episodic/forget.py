@@ -50,10 +50,12 @@ needing a wired ``LearningMachine``") and ``SeedMemoryProvider.consolidate`` mad
 ``Curator.deduplicate`` ("narrower than ADR 0003 section 2.1's 'REUSE inside consolidate' implies
 ... wired as the dedup hook it can serve").
 
-Like :mod:`egpt.memory.episodic.decay`, every function here is pure -- no store is read or
-written, so a caller with an archived episode persists it through the substrate seam it already
-owns (``GraphSubstrate.upsert_episodes`` / ``VectorSubstrate.upsert``). No async twins, the same
-construction-only exemption CLAUDE.md gives ``episode_from_event``.
+Like :mod:`egpt.memory.episodic.decay`, no function here reads or writes a store, so a caller
+with an archived episode persists it through the substrate seam it already owns
+(``GraphSubstrate.upsert_episodes`` / ``VectorSubstrate.upsert``) -- the same language
+``episodic.decay``'s own module docstring uses, since "pure" would overstate it:
+:func:`select_for_forgetting` reads the system clock (``now_epoch_s()``) when ``now`` is unset.
+No async twins, the same construction-only exemption CLAUDE.md gives ``episode_from_event``.
 """
 
 import math
@@ -96,17 +98,23 @@ def is_prune_eligible(
     scoring so a caller filtering a mixed batch of live and already-archived rows never pays for
     (or is misled by) a decay score on a row this function will refuse regardless of it.
 
-    ``prune_threshold`` must be finite: a NaN threshold makes ``score < prune_threshold`` false
-    for every score under IEEE 754 comparison rules, which would silently turn pruning off rather
-    than raise -- the same non-finite-input failure mode :func:`~egpt.memory.episodic.decay.
-    half_life_s` guards ``base_half_life_s``/``imp_factor`` against, reached here through a
-    parameter that (per the module docstring) SM-C5's not-yet-landed per-tenant config is expected
-    to supply.
+    ``prune_threshold`` must be in ``(0.0, 1.0)``. A NaN threshold makes ``score <
+    prune_threshold`` false for every score under IEEE 754 comparison rules -- silently turning
+    pruning off rather than raising. A negative threshold is finite but has the same effect,
+    since :func:`~egpt.memory.episodic.decay.recency_decay` never returns a value at or below 0.0
+    in practice (its own docstring: "the practical range is (0.0, 1.0]"), so ``score <
+    prune_threshold`` is false for every episode there too. A threshold ``>= 1.0`` is the mirror
+    failure: ``score`` never exceeds 1.0, so every episode becomes eligible, archiving a whole
+    batch. All three are the same class of silent-wrong-answer :func:`~egpt.memory.episodic.decay.
+    half_life_s` already guards ``base_half_life_s``/``imp_factor`` against -- reached here through
+    a parameter that (per the module docstring) SM-C5's not-yet-landed per-tenant config is
+    expected to supply, so a bad tenant value must raise, not silently disable or maximise pruning.
     """
-    if not math.isfinite(prune_threshold):
+    if not math.isfinite(prune_threshold) or prune_threshold <= 0.0 or prune_threshold >= 1.0:
         raise MemoryOperationError(
-            f"prune_threshold must be a finite number, got {prune_threshold!r}: NaN silently "
-            "disables pruning (every comparison against it is false) rather than raising.",
+            f"prune_threshold must be in (0.0, 1.0), got {prune_threshold!r}: outside that range "
+            "it silently disables pruning (<=0 or NaN) or archives every episode (>=1.0) instead "
+            "of raising.",
             field_name="prune_threshold",
         )
     if episode.expired_at is not None:
@@ -127,8 +135,10 @@ def forget(
     caller's row in place would let a reader see an archived episode nothing has actually
     persisted. ``dataclasses.replace`` (rather than mutating ``episode`` directly) re-runs
     ``MemoryRow.__post_init__``, which re-copies every list-typed field, so the returned copy
-    shares no mutable state with ``episode`` -- the isolation :meth:`expire` alone does not give,
-    since it only ever touches ``expired_at``/``t_invalid``.
+    shares no top-level mutable state with ``episode`` for any mutation :meth:`expire` performs
+    (it only ever touches ``expired_at``/``t_invalid``) -- ``metadata`` is a shallow copy, so a
+    caller that mutates a nested object *inside* a metadata value would see that mutation on both
+    copies, same as :func:`~egpt.memory.episodic.decay.reinforce`.
 
     Unconditional: this does not check :func:`is_prune_eligible`. A caller that already decided
     (batch selection is :func:`select_for_forgetting`'s job) or an explicit forget request is not
@@ -136,7 +146,27 @@ def forget(
     for a reason the caller did not ask about. An already-archived episode passed here comes back
     unchanged: :meth:`~egpt.db.schemas.memory.BiTemporal.expire` no-ops on a replayed archive,
     matching its documented behaviour for every other caller of that method.
+
+    ``at`` and ``t_invalid`` are validated here rather than left to
+    :meth:`~egpt.db.schemas.memory.BiTemporal.expire`/``to_epoch_s``, which raise bare
+    ``ValueError``/``OverflowError`` (a non-finite epoch) or a bare ``ValueError`` (``at`` before
+    ``episode.created_at``) -- neither is a :class:`~egpt.memory.types.MemoryOperationError`, so a
+    caller catching this module's own error type would not catch either. Raising it here, rather
+    than through ``expire``, is what lets :func:`select_for_forgetting` propagate one error type
+    for every failure mode this module defines.
     """
+    for field_name, value in (("at", at), ("t_invalid", t_invalid)):
+        if value is not None and not math.isfinite(value):
+            raise MemoryOperationError(
+                f"{field_name} must be a finite epoch-second, got {value!r}.",
+                field_name=field_name,
+            )
+    if at is not None and episode.created_at is not None and at < episode.created_at:
+        raise MemoryOperationError(
+            f"at ({at}) precedes episode.created_at ({episode.created_at}): an episode cannot be "
+            "archived before it was created.",
+            field_name="at",
+        )
     archived = replace(episode)
     archived.expire(expired_at=at, t_invalid=t_invalid)
     return archived
@@ -164,6 +194,13 @@ def select_for_forgetting(
     Episodes that are not prune-eligible are simply absent from the result -- there is no "kept"
     half to return, unlike ``Curator._filter_by_age``, because nothing here removes a row from
     anywhere for a caller to reconcile against; an episode not returned is untouched.
+
+    Raises :class:`~egpt.memory.types.MemoryOperationError` -- propagated from
+    :func:`is_prune_eligible` when ``prune_threshold`` is out of range, or from :func:`forget`
+    when ``at``/``t_invalid`` is non-finite or ``at`` precedes an episode's ``created_at``. Either
+    fires on whichever episode in ``episodes`` triggers it first; the surrounding comprehension
+    then raises before its ``return`` runs, so the caller gets no list at all, not a partial one --
+    there is nothing to roll back either way, since nothing in this module persists anything.
     """
     instant = now_epoch_s() if now is None else now
     stamp = instant if at is None else at

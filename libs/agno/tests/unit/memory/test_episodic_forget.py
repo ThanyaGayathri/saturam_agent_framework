@@ -100,12 +100,41 @@ def test_is_prune_eligible_rejects_an_infinite_threshold():
     assert exc_info.value.field_name == "prune_threshold"
 
 
+def test_is_prune_eligible_rejects_a_negative_threshold():
+    """A negative threshold is finite -- `math.isfinite` alone would let it through -- but
+    `recency_decay` never returns a value <= 0.0, so `score < prune_threshold` would silently be
+    False for every episode: the same silent-disable failure as NaN, through a different door."""
+    episode = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        is_prune_eligible(episode, now=DAY * 90, prune_threshold=-0.05)
+    assert exc_info.value.field_name == "prune_threshold"
+
+
+def test_is_prune_eligible_rejects_a_threshold_at_or_above_one():
+    """The mirror failure: `score` never exceeds 1.0, so a threshold >= 1.0 would make every
+    episode eligible -- a misconfigured per-tenant value silently archiving a whole tenant."""
+    fresh = an_episode(created_at=0, last_accessed_at=0, importance=0.5)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        is_prune_eligible(fresh, now=0, prune_threshold=1.0)
+    assert exc_info.value.field_name == "prune_threshold"
+    with pytest.raises(MemoryOperationError):
+        is_prune_eligible(fresh, now=0, prune_threshold=1.5)
+
+
+def test_is_prune_eligible_rejects_a_zero_threshold():
+    episode = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        is_prune_eligible(episode, now=DAY * 90, prune_threshold=0.0)
+    assert exc_info.value.field_name == "prune_threshold"
+
+
 def test_is_prune_eligible_respects_a_per_call_threshold_override():
     """Stands in for SM-C5's not-yet-landed per-tenant lookup: the threshold is a plain
     parameter, so a caller-supplied override changes the outcome without editing this module."""
     episode = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
     at_10_days = DAY * 10
-    assert is_prune_eligible(episode, now=at_10_days, prune_threshold=DEFAULT_PRUNE_THRESHOLD) is False
+    default_threshold = DEFAULT_PRUNE_THRESHOLD
+    assert is_prune_eligible(episode, now=at_10_days, prune_threshold=default_threshold) is False
     assert is_prune_eligible(episode, now=at_10_days, prune_threshold=0.9) is True
 
 
@@ -150,10 +179,42 @@ def test_forget_returns_a_different_object():
 
 
 def test_forget_does_not_share_mutable_fields_with_the_original():
-    episode = an_episode(entity_ids=["e1"])
+    episode = an_episode(entity_ids=["e1"], supersedes=["e0"], superseded_by=["e2"])
     archived = forget(episode, at=DAY)
     assert archived.entity_ids == episode.entity_ids
     assert archived.entity_ids is not episode.entity_ids
+    assert archived.supersedes == episode.supersedes
+    assert archived.supersedes is not episode.supersedes
+    assert archived.superseded_by == episode.superseded_by
+    assert archived.superseded_by is not episode.superseded_by
+
+
+def test_forget_rejects_a_nan_at():
+    episode = an_episode()
+    with pytest.raises(MemoryOperationError) as exc_info:
+        forget(episode, at=float("nan"))
+    assert exc_info.value.field_name == "at"
+
+
+def test_forget_rejects_an_infinite_at():
+    episode = an_episode()
+    with pytest.raises(MemoryOperationError) as exc_info:
+        forget(episode, at=float("inf"))
+    assert exc_info.value.field_name == "at"
+
+
+def test_forget_rejects_a_non_finite_t_invalid():
+    episode = an_episode()
+    with pytest.raises(MemoryOperationError) as exc_info:
+        forget(episode, at=DAY, t_invalid=float("nan"))
+    assert exc_info.value.field_name == "t_invalid"
+
+
+def test_forget_rejects_at_before_created_at():
+    episode = an_episode(created_at=DAY * 10)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        forget(episode, at=DAY * 5)
+    assert exc_info.value.field_name == "at"
 
 
 def test_forget_only_changes_expired_at():
@@ -244,6 +305,10 @@ def test_select_for_forgetting_ignores_already_archived_episodes():
     episode = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
     archived = forget(episode, at=DAY)
     assert select_for_forgetting([archived], now=DAY * 90) == []
+
+
+def test_select_for_forgetting_returns_empty_on_empty_input():
+    assert select_for_forgetting([], now=DAY * 90) == []
 
 
 def test_default_base_half_life_matches_decay_module():
