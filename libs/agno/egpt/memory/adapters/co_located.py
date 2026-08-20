@@ -36,6 +36,7 @@ from egpt.memory.config import (
 )
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.schemas.semantic import fact_record
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
@@ -1199,7 +1200,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
-                        vector.upsert(fact_scope, [f.record for f in batch])
+                        # `fact_record`, not `f.record`: the vector row must carry the same
+                        # subject/predicate/object/confidence/derived_by a graph `recall_facts`
+                        # read already surfaces, or the same fact reads as two different shapes
+                        # depending which leg answered (SM-S1 #118).
+                        vector.upsert(fact_scope, [fact_record(f) for f in batch])
                         committed_any = True
                     if to_graph and self.graph is not None:
                         self._graph_fact_batch(fact_scope, batch, receipt)
@@ -1281,7 +1286,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
-                        await vector.aupsert(fact_scope, [f.record for f in batch])
+                        # See the sync half's comment: `fact_record` keeps the vector leg's shape
+                        # in step with what `recall_facts` already returns from the graph leg.
+                        await vector.aupsert(fact_scope, [fact_record(f) for f in batch])
                         committed_any = True
                     if to_graph and self.graph is not None:
                         await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)

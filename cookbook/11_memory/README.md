@@ -115,6 +115,16 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `26_` to `28_`: `feat/SM-E7` (#109) and `feat/SM-E9` (#112) both merged to
   `main` first and took `26_`/`27_` while this branch was still catching up.**
 
+- `29_semantic_fact_store.py`: The semantic fact store (SM-S1) -- `SemanticFactStore` dual-writes a
+  batch of `FactWrite`s to both substrates from one call, and this shows the acceptance criterion
+  directly: a fact retrieved through `VectorSubstrate.search` and the same fact retrieved through
+  `GraphSubstrate.recall_facts` carry the same subject/predicate/object/confidence/derived_by,
+  because `egpt.memory.schemas.semantic.fact_record` projects them identically onto both legs. Also
+  shows an untripled fact (no SPO) storing fine on the vector leg alone. Fact *extraction* from raw
+  episodes is SM-L3's (#124), not shown here -- the `FactWrite`s are handed to the store directly.
+  Needs both `./cookbook/scripts/run_pgvector.sh` and `./cookbook/scripts/run_neo4j.sh`; no API key.
+  Runs with `.venvs/demo`.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

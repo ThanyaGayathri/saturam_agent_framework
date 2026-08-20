@@ -61,6 +61,10 @@ from egpt.memory.schemas.episodic import (
     episode_to_record,
     graph_node_id_for,
 )
+from egpt.memory.schemas.semantic import FACT_METADATA_KEYS, SPO_PROVENANCE_KEYS, fact_record
+
+# The semantic fact store (SM-S1)
+from egpt.memory.semantic import SemanticFactStore
 from egpt.memory.strategies import (
     MemoryOptimizationStrategy,
     MemoryOptimizationStrategyFactory,
@@ -217,6 +221,11 @@ __all__ = [
     "episode_from_event",
     "episode_to_record",
     "graph_node_id_for",
+    # The semantic fact store (SM-S1)
+    "FACT_METADATA_KEYS",
+    "SPO_PROVENANCE_KEYS",
+    "SemanticFactStore",
+    "fact_record",
     # Episodic recency-decay scoring (SM-E4)
     "DEFAULT_BASE_HALF_LIFE_S",
     "DEFAULT_IMP_FACTOR",
