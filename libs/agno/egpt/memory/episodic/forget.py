@@ -56,6 +56,7 @@ owns (``GraphSubstrate.upsert_episodes`` / ``VectorSubstrate.upsert``). No async
 construction-only exemption CLAUDE.md gives ``episode_from_event``.
 """
 
+import math
 from dataclasses import replace
 from typing import List, Optional, Sequence
 
@@ -65,6 +66,7 @@ from egpt.memory.episodic.decay import (
     episode_decay_score,
 )
 from egpt.memory.schemas.episodic import EpisodicRecord
+from egpt.memory.types import MemoryOperationError
 from egpt.utils.dttm import now_epoch_s
 
 __all__ = [
@@ -93,7 +95,20 @@ def is_prune_eligible(
     :meth:`~egpt.db.schemas.memory.BiTemporal.expire` itself no-ops on a replay. Checked ahead of
     scoring so a caller filtering a mixed batch of live and already-archived rows never pays for
     (or is misled by) a decay score on a row this function will refuse regardless of it.
+
+    ``prune_threshold`` must be finite: a NaN threshold makes ``score < prune_threshold`` false
+    for every score under IEEE 754 comparison rules, which would silently turn pruning off rather
+    than raise -- the same non-finite-input failure mode :func:`~egpt.memory.episodic.decay.
+    half_life_s` guards ``base_half_life_s``/``imp_factor`` against, reached here through a
+    parameter that (per the module docstring) SM-C5's not-yet-landed per-tenant config is expected
+    to supply.
     """
+    if not math.isfinite(prune_threshold):
+        raise MemoryOperationError(
+            f"prune_threshold must be a finite number, got {prune_threshold!r}: NaN silently "
+            "disables pruning (every comparison against it is false) rather than raising.",
+            field_name="prune_threshold",
+        )
     if episode.expired_at is not None:
         return False
     score = episode_decay_score(episode, now, base_half_life_s, imp_factor)

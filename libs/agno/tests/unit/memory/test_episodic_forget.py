@@ -10,6 +10,8 @@ is asserted as row-level ``expired_at`` (never a hard delete, never routed throu
 
 from dataclasses import replace
 
+import pytest
+
 from egpt.memory.episodic.decay import DEFAULT_BASE_HALF_LIFE_S, episode_decay_score
 from egpt.memory.episodic.forget import (
     DEFAULT_PRUNE_THRESHOLD,
@@ -18,6 +20,7 @@ from egpt.memory.episodic.forget import (
     select_for_forgetting,
 )
 from egpt.memory.schemas.episodic import EpisodicRecord
+from egpt.memory.types import MemoryOperationError
 
 DAY = 24 * 3600
 
@@ -81,6 +84,20 @@ def test_is_prune_eligible_uses_the_default_threshold_when_unset():
     # At the default half-life (5d) and importance 0, recency crosses 0.05 shortly after 21 days
     # (0.5 ** (21/5) ~= 0.043); pick a point comfortably past it.
     assert is_prune_eligible(just_above_floor, now=DAY * 25) is True
+
+
+def test_is_prune_eligible_rejects_a_nan_threshold():
+    episode = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        is_prune_eligible(episode, now=DAY * 90, prune_threshold=float("nan"))
+    assert exc_info.value.field_name == "prune_threshold"
+
+
+def test_is_prune_eligible_rejects_an_infinite_threshold():
+    episode = an_episode(created_at=0, last_accessed_at=0, importance=0.0)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        is_prune_eligible(episode, now=DAY * 90, prune_threshold=float("inf"))
+    assert exc_info.value.field_name == "prune_threshold"
 
 
 def test_is_prune_eligible_respects_a_per_call_threshold_override():
