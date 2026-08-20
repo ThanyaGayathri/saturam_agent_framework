@@ -4,6 +4,8 @@ idle-vs-latency distinction, not anything ``ConsolidationWorker`` integration al
 ``test_consolidation_worker.py``.
 """
 
+from typing import List
+
 import pytest
 
 from egpt.memory.consolidation.triggers import (
@@ -290,7 +292,7 @@ class TestPerTenantThreshold:
         message for the empty-string case (`""`) even though the offending key here is `None`.
         """
         with pytest.raises(ValueError, match=r"got None\."):
-            PerTenantThreshold(default=5.0, by_tenant={None: 2.0})
+            PerTenantThreshold(default=5.0, by_tenant={None: 2.0})  # type: ignore[arg-type]
 
     def test_mutating_the_original_mapping_after_construction_does_not_affect_resolve(self):
         """`frozen=True` only stops rebinding `by_tenant` itself, not mutating the dict a caller
@@ -428,6 +430,28 @@ class TestAnyTrigger:
         with pytest.raises(TypeError, match="coroutine"):
             combined.reset(ACME)
 
+    def test_should_fire_raises_on_an_async_child_that_comes_after_a_firing_sync_child(self):
+        """SM-L2 review round 4: `fired = fired or trigger.should_fire(...)` short-circuits once
+        `fired` is already `True` from an earlier child -- so an async child placed *after* a
+        firing sync child never has its coroutine combined into the return value at all, and the
+        worker's own outer guard (which only ever sees this method's final `bool`) never gets a
+        chance to catch it. The async child's Protocol violation goes completely undetected.
+
+        Reproduced first: a standalone script confirmed `AnyTrigger([firing_sync, async_child])
+        .should_fire(...)` returned a plain `True`, not a coroutine, with a "was never awaited"
+        warning for the async child's `should_fire`.
+
+        Mutation guard: moving the `_reject_coroutine` call back to after `fired = fired or
+        result` (or removing it) would make this pass with no exception raised instead of raising
+        `TypeError`.
+        """
+        firing_sync = EventCountTrigger(threshold=1)
+        firing_sync.record_event(ACME, now=0.0)
+        combined = AnyTrigger([firing_sync, _AsyncTrigger()])
+
+        with pytest.raises(TypeError, match="coroutine"):
+            combined.should_fire(ACME, now=0.0)
+
     def test_a_raising_sync_child_is_still_resilience_handled_alongside_an_async_one(self):
         """The coroutine guard sits outside the try/except specifically so it does not disturb the
         existing resilience contract -- a child that raises synchronously (not an async-shape
@@ -446,9 +470,9 @@ class _AsyncTrigger:
     shape at call time, per `ConsolidationTrigger`'s own docstring.
     """
 
-    def __init__(self):
-        self.events = []
-        self.was_reset = False
+    def __init__(self) -> None:
+        self.events: List[float] = []
+        self.was_reset: bool = False
 
     async def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
         self.events.append(now)

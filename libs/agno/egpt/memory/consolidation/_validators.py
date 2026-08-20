@@ -40,6 +40,13 @@ def _reject_coroutine(result: Any, owner: Any, method: str) -> Any:
     would silently leave that trigger's state never updated at all. Failing loudly here, at the
     one place every trigger call funnels through, turns either into an immediate, actionable
     ``TypeError`` instead.
+
+    Catches ``async def`` coroutine objects only, via ``asyncio.iscoroutine`` -- an
+    implementation that returns some *other* awaitable (a bare ``asyncio.Future``/``Task``, or a
+    custom object with ``__await__``) instead of using ``async def`` would pass this check
+    undetected. Not handled: every trigger built in this package is plain sync, and a caller
+    reaching for a raw awaitable instead of ``async def`` to implement ``ConsolidationTrigger`` is
+    enough of a deliberate edge case that broadening this check has no real case driving it yet.
     """
     if asyncio.iscoroutine(result):
         result.close()  # avoid a dangling "coroutine was never awaited" warning

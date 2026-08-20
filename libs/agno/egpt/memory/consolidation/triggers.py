@@ -106,12 +106,15 @@ class ConsolidationTrigger(Protocol):
     ``AnyTrigger`` when fanning out to its own children. An ``async def`` implementation would
     still satisfy this Protocol structurally at the type level, but at runtime its methods return
     coroutine objects: called un-awaited (exactly how every call site here calls them), an async
-    ``should_fire`` meaning "not due" reads as "fired" regardless of what it would have returned
-    if awaited, and an async ``record_event``/``reset`` is simply discarded un-run, silently never
-    updating that trigger's state at all. Both call sites guard against this (see
-    :func:`~egpt.memory.consolidation._validators._reject_coroutine`) by raising ``TypeError`` the
-    moment any call returns a coroutine, rather than silently misfiring or silently doing nothing.
-    Do real I/O with a blocking client, not ``async def``.
+    ``should_fire`` meaning "not due" would otherwise read as "fired" regardless of what it would
+    have returned if awaited, and an async ``record_event``/``reset`` would otherwise be simply
+    discarded un-run, silently never updating that trigger's state at all. Every call site guards
+    against this -- ``ConsolidationWorker``'s own ``should_fire``/``reset`` calls, and each of
+    ``AnyTrigger``'s ``record_event``/``should_fire``/``reset`` when fanning out to its children --
+    by routing the result through
+    :func:`~egpt.memory.consolidation._validators._reject_coroutine`, which raises ``TypeError``
+    the moment any call returns a coroutine, rather than silently misfiring or silently doing
+    nothing. Do real I/O with a blocking client, not ``async def``.
 
     ``@runtime_checkable`` lets ``AnyTrigger`` (below) reject a non-conforming child at
     construction with a clear ``TypeError`` instead of an ``AttributeError`` surfacing later,
@@ -287,14 +290,13 @@ class AnyTrigger:
         never told about this event, so its own accumulated state would silently drift out of
         sync with what actually happened -- worse than the one child's own failure.
 
-        Also guards against an async child: unlike ``should_fire`` (whose coroutine return value
-        propagates out through ``any()``/``or`` and is caught by the worker), a coroutine returned
-        here has nothing to propagate to -- this method returns ``None`` -- so an unguarded call
-        would just silently discard it, un-awaited and un-run, leaving that child's state never
-        updated at all rather than raising anywhere. The coroutine check runs *outside* the
-        try/except below, deliberately: a genuine failure from a child (raised synchronously) is
-        resilience-handled like any other, but a coroutine means the child is fundamentally the
-        wrong shape for this worker and should fail loudly, the same choice round 2 made for the
+        Also guards against an async child, the same way ``should_fire`` and ``reset`` do: a
+        coroutine returned here would otherwise just be silently discarded, un-awaited and un-run,
+        leaving that child's state never updated at all rather than raising anywhere. The coroutine
+        check runs *outside* the try/except below, deliberately: a genuine failure from a child
+        (raised synchronously) is resilience-handled like any other, but a coroutine means the
+        child is fundamentally the wrong shape for this worker and should fail loudly, the same
+        choice round 2 made for the
         worker's own trigger call sites, not be swallowed into a log line and moved past.
         """
         for trigger in self._triggers:
@@ -315,27 +317,32 @@ class AnyTrigger:
         turning "one policy is unavailable" into "this scope never fires at all". A raising child
         counts as "no" from that child, not as a tick-ending failure.
 
-        An async child's coroutine return value is not separately guarded here: it is truthy, so
-        it propagates out through ``fired = fired or result`` as this method's own return value,
-        and the worker's own call site (:func:`~egpt.memory.consolidation._validators._reject_coroutine`)
-        catches it there. Deliberately not duplicated -- one coroutine, one place it gets rejected.
+        **Guards every child's result before combining it, not just the first one** (SM-L2 review
+        round 4): an earlier revision relied on an async child's truthy coroutine propagating out
+        through ``fired = fired or result`` as this method's own return value, to be caught by the
+        worker's outer guard. That only holds while ``fired`` is still ``False`` -- a sync child
+        that has already fired ``True`` makes every later ``... or result`` short-circuit on the
+        left operand, so a coroutine from an async child appearing *after* one is evaluated,
+        discarded un-awaited and un-closed, and never reaches the worker's guard at all: the async
+        child's Protocol violation goes completely undetected. Checking each result with
+        :func:`~egpt.memory.consolidation._validators._reject_coroutine` immediately after its own
+        call, before it is ever combined into ``fired``, closes that ordering gap -- matching the
+        pattern ``record_event``/``reset`` already use.
         """
         fired = False
         for trigger in self._triggers:
             try:
-                # Two statements, not one combined expression: the call must happen unconditionally
-                # on every iteration regardless of `fired`'s current value. Written as
-                # `fired = trigger.should_fire(...) or fired`, `should_fire` is `or`'s *left*
-                # operand and Python's left-to-right evaluation already calls it unconditionally --
-                # so that particular ordering carries no actual short-circuit risk, only a
-                # readability one (it reads as if `fired` could suppress the call). The genuinely
-                # unsafe ordering would be `fired = fired or trigger.should_fire(...)`, where
-                # `fired` is the left operand and *would* short-circuit past every remaining child
-                # the moment it goes `True` -- never write it that way around.
                 result = trigger.should_fire(scope, now=now)
-                fired = fired or result
             except Exception as exc:
                 log_error(f"AnyTrigger: should_fire failed for {type(trigger).__name__}: {exc}")
+                continue
+            _reject_coroutine(result, trigger, "should_fire")
+            # Two statements, not one combined expression: the call above must happen
+            # unconditionally on every iteration regardless of `fired`'s current value, and now
+            # that `_reject_coroutine` runs between the call and the combine, writing them as one
+            # expression would no longer even be an option -- kept as two for the same reason
+            # `record_event`/`reset` are: obviously-unconditional, not implicitly so.
+            fired = fired or result
         return fired
 
     def reset(self, scope: Scope) -> None:
