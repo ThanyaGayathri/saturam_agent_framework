@@ -105,6 +105,16 @@ This section demonstrates how EGPT agents persist and use user memories across r
   (invalidate-not-delete) on detached copies; the originals passed in are never mutated. Runs with
   no database and no API key. **Renumbered from `26_` to `27_`: SM-E7 (#109) took `26_` first.**
 
+- `28_multihop_graph_traversal.py`: Anchor-seeded multi-hop traversal (SM-G9) -- `traverse` scores
+  a fact edge reached by walking a bounded number of `REL` hops from an entity the query text
+  names, surfacing a fact the query shares no words with at all. Shows the hop bound is set at
+  substrate construction (`max_traverse_hops`), not per call, and that a bare `upsert_facts`
+  endpoint (no explicit `upsert_entities`) is still a valid anchor. Needs
+  `./cookbook/scripts/run_neo4j.sh`; no API key -- entities and fact edges are written directly, the
+  same way `25_` does. Runs with `.venvs/demo`.
+  **Renumbered from `26_` to `28_`: `feat/SM-E7` (#109) and `feat/SM-E9` (#112) both merged to
+  `main` first and took `26_`/`27_` while this branch was still catching up.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

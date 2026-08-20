@@ -729,16 +729,13 @@ def test_init_schema_actually_creates_the_schema(graph):
     assert created > 0, "init_schema issued its statements without them taking effect"
 
 
-# -- known limitations, pinned ----------------------------------------------
+# -- anchor-seeded multi-hop traversal (SM-G9 #107) --------------------------
 
 
-def test_traversal_is_single_hop_until_sm_g9(graph):
-    """Pinned rather than commented: this fails when SM-G9 (#107) lands multi-hop traversal.
-
-    ``traverse`` ranks the rows this substrate holds by lexical overlap. It does not follow an edge
-    from an anchor entity, so a fact reachable only through a neighbour is not returned: asking
-    about ada does not surface what is known about berlin, even though an edge joins them. A
-    comment would rot; this states the boundary and reports when it moves.
+def test_multihop_traversal_reaches_a_fact_via_a_neighbouring_entity(graph):
+    """Supersedes ``test_traversal_is_single_hop_until_sm_g9``, which pinned exactly this gap and
+    named its own replacement: "SM-G9 has landed multi-hop traversal -- update this ticket's
+    boundary." Asking about ada now surfaces what is known about berlin, joined by one edge.
     """
     graph.upsert_facts(
         ACME,
@@ -748,9 +745,366 @@ def test_traversal_is_single_hop_until_sm_g9(graph):
         ],
     )
 
-    hits = graph.traverse(ACME, MemoryQuery(text="ada"))
+    hits = {r.id: r for r in graph.traverse(ACME, MemoryQuery(text="ada"))}
 
-    assert ids(hits) == ["f1"], "SM-G9 has landed multi-hop traversal -- update this ticket's boundary"
+    # Membership, not order: `ids()` sorts, so it could not have asserted ranking either way.
+    # `f1` (hop 1, and lexically overlapping "ada" too) must outrank `f2` (hop 2, no overlap) --
+    # asserted on score directly rather than an id order that would silently stop meaning anything
+    # the day either fact's content changes (round-1 review).
+    assert set(hits) == {"f1", "f2"}
+    assert hits["f1"].score > hits["f2"].score, "a nearer hop must outrank a farther one"
+
+
+def test_a_bare_relation_endpoint_with_no_explicit_entity_upsert_is_still_a_valid_anchor(graph):
+    """``RelationExtractionPipeline`` (SM-G3 #101) calls only ``upsert_facts``, never
+    ``upsert_entities`` -- the endpoint nodes ``upsert_facts_statements``'s triple leg merges carry
+    a ``name`` but no normalised ``key``, since only ``upsert_entities_statement`` writes that.
+    Anchor selection keyed on ``key`` alone would make every such node permanently unreachable,
+    silently missing most production-extracted relations -- this is the regression that guards it.
+    """
+    graph.upsert_facts(
+        ACME,
+        [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")],
+    )
+    with graph._driver.session(database=graph.database) as session:
+        key = session.run("MATCH (n:Entity {name: 'ada'}) RETURN n.key AS key").single()["key"]
+    assert key is None, "setup check: this node must be the bare endpoint case, not an explicit upsert"
+
+    hits = graph.traverse(ACME, MemoryQuery(text="tell me about ada"))
+
+    assert "f1" in ids(hits)
+
+
+def test_traverse_reconstructs_each_rows_own_write_scope_under_a_tenant_wide_read(graph):
+    """Round-1 review, Major: ``_record`` used to leave every ``traverse`` row's ``scope`` as the
+    *call* scope, not its own write scope -- correct for the isolation post-condition alone, but
+    wrong for ``Neo4jGraphSubstrate._merge_hits``'s ``(record.scope.key(), record.id)`` dedup key,
+    which exists specifically so two different users' rows can share one id under a tenant-wide read
+    without colliding. With the call scope constant across the whole call, that key degenerated to a
+    bare id, and the second writer's row silently disappeared.
+
+    Two users, same id, same call -- the exact collision the dedup key exists to prevent.
+    """
+    ada, bob = ACME, ACME_BOB
+    graph.upsert_facts(
+        ada,
+        [fact("shared-id", "ada earns 200k", scope=ada, subject="ada", predicate="earns", object="200k")],
+    )
+    graph.upsert_facts(
+        bob,
+        [fact("shared-id", "bob earns 150k", scope=bob, subject="bob", predicate="earns", object="150k")],
+    )
+
+    hits = {r.scope: r for r in graph.traverse(Scope(tenant_id="acme"), MemoryQuery(text="earns"))}
+
+    assert set(hits) == {ada, bob}, "both writers' rows must survive the (scope, id) dedup"
+    assert hits[ada].content == "ada earns 200k"
+    assert hits[bob].content == "bob earns 150k"
+
+
+def test_multihop_traversal_scopes_every_intermediate_node_not_only_the_far_end(graph):
+    """Round-1 review, Major: only ``other.scope_key = anchor.scope_key`` (the walk's far end) was
+    checked; an intermediate node on a 2+-hop path had no scope predicate of its own.
+
+    A 1-hop bridge into a foreign scope is already caught by the pre-existing ``other`` check --
+    for that path, the foreign node *is* ``other``. Isolating the actual gap needs a path where the
+    *intermediate* node is foreign-scoped but the walk happens to land back in the anchor's own
+    scope: ``ada -[edge1]-> mole (globex) -[edge2]-> secret (acme)``. Without the
+    ``nodes(path)[1..-1]`` guard, that 2-hop path passes every other check (``other`` = ``secret``,
+    same scope as ``anchor``) and ``edge2`` would be walkable.
+
+    **Unexploitable through the public write API** -- every write scopes both of an edge's
+    endpoints under the same call, so no genuinely cross-scope edge like ``edge1`` can exist to
+    walk through. This proves the query-level guard itself, not a reachable production bug: both
+    edges are created directly via raw Cypher (bypassing every write-path invariant that would
+    normally prevent this), with every scope property an edge would otherwise carry set to ada's
+    own -- isolating the assertion to the node-scope guard specifically, not the pre-existing
+    edge-scope or ``other``-scope checks, which would otherwise also explain a pass.
+
+    **A positive witness edge, not only the negative assertion (round-2 review, Critical).** A
+    purely negative ``assert "edge2-mole-secret" not in hits`` passes vacuously if the whole leg
+    silently returns nothing -- for any reason, not only the guard under test. ``friend``/
+    ``workplace`` sit entirely inside ada's own scope, two genuine hops from the anchor with no
+    lexical overlap with the query at all, so ``workplace-edge`` appearing in ``hits`` is direct
+    evidence the multi-hop leg walked two hops and returned something on *this* call, not merely
+    that a foreign edge happened to be absent.
+    """
+    ada, globex = ACME, GLOBEX
+    graph.upsert_entities(
+        ada,
+        [
+            EntityWrite(name="ada", entity_type="person", scope=ada),
+            EntityWrite(name="secret", entity_type="thing", scope=ada),
+            EntityWrite(name="friend", entity_type="person", scope=ada),
+            EntityWrite(name="workplace", entity_type="thing", scope=ada),
+        ],
+    )
+    graph.upsert_entities(globex, [EntityWrite(name="mole", entity_type="person", scope=globex)])
+    graph.upsert_facts(
+        ada,
+        [
+            fact(
+                "friend-edge",
+                "it is a close relationship",
+                scope=ada,
+                subject="ada",
+                predicate="knows",
+                object="friend",
+            ),
+            fact(
+                "workplace-edge",
+                "it operates five days a week",
+                scope=ada,
+                subject="friend",
+                predicate="works_at",
+                object="workplace",
+            ),
+        ],
+    )
+
+    def rel_props(edge_id, subject, object_):
+        return {
+            "id": edge_id,
+            "row_id": f"{edge_id}-row",
+            "live": True,
+            "tier": "semantic",
+            "content": f"{subject} knows {object_}",
+            "scope_key": ada.key(),
+            "tenant_id": ada.tenant_id,
+            "user_id": ada.user_id,
+            "predicate": "knows",
+            "t_valid": 100,
+            "created_at": 100,
+            "provenance": "{}",
+            "metadata": "{}",
+        }
+
+    with graph._driver.session(database=graph.database) as session:
+        session.run(
+            "MATCH (a:Entity {scope_key: $ada_key, name: 'ada'}), (m:Entity {scope_key: $globex_key, name: 'mole'}) "
+            "CREATE (a)-[r:REL]->(m) SET r = $props",
+            ada_key=ada.key(),
+            globex_key=globex.key(),
+            props=rel_props("edge1-ada-mole", "ada", "mole"),
+        )
+        session.run(
+            "MATCH (m:Entity {scope_key: $globex_key, name: 'mole'}), (s:Entity {scope_key: $ada_key, name: 'secret'}) "
+            "CREATE (m)-[r:REL]->(s) SET r = $props",
+            ada_key=ada.key(),
+            globex_key=globex.key(),
+            props=rel_props("edge2-mole-secret", "mole", "secret"),
+        )
+
+    hits = ids(graph.traverse(ada, MemoryQuery(text="tell me about ada")))
+
+    assert "workplace-edge" in hits, "the multi-hop leg must still be reaching genuine two-hop, in-scope edges"
+    assert "edge2-mole-secret" not in hits, "the walk must not cross the foreign-scoped intermediate node"
+
+
+def test_multihop_traversal_scopes_every_intermediate_edge_too(graph):
+    """Round-2 review, Minor: the ``all(rel IN relationships(path) ...)`` guard checked
+    current-belief and the window on every path edge, but not each edge's own ``scope_key`` --
+    that was left to the post-``UNWIND`` ``rel_predicate``, which only decides whether *that*
+    edge is *returned*, not whether the path may be walked *through* it to reach a farther one.
+
+    Distinct from ``test_multihop_traversal_scopes_every_intermediate_node_not_only_the_far_end``:
+    here every *node* on the path is correctly ada-scoped (so the node guard has nothing to catch)
+    and only the *intermediate edge's own* ``scope_key`` property is wrong -- a data-integrity
+    anomaly, not a reachable write-path bug (a genuine write always stamps an edge's `scope_key`
+    from the same call as both its endpoints), constructed here with raw Cypher to isolate this
+    guard specifically. Without it, the pre-existing post-``UNWIND`` ``rel_predicate`` still keeps
+    the mis-scoped edge itself from being *returned* (it checks the individual ``SCOPE_SLOTS``
+    properties, which this edge's own content lexically matching "ada" would otherwise also make
+    reachable through the unrelated flat leg -- not this finding's concern, so the edge's content
+    here avoids the anchor word entirely). What only the new guard prevents is the walk continuing
+    *through* the mis-scoped edge to reach ``edge2`` -- the same "walk through a violation to reach
+    something legitimate" shape as the node case.
+    """
+    ada = ACME
+    graph.upsert_entities(
+        ada,
+        [
+            EntityWrite(name="ada", entity_type="person", scope=ada),
+            EntityWrite(name="mid", entity_type="thing", scope=ada),
+            EntityWrite(name="far", entity_type="thing", scope=ada),
+            EntityWrite(name="colleague", entity_type="person", scope=ada),
+        ],
+    )
+    # A witness edge, fully in-scope and reachable at hop 1 -- positive evidence the leg still
+    # runs on this call, not only that the anomalous edge happens to be absent (round-2 review).
+    graph.upsert_facts(
+        ada,
+        [
+            fact(
+                "witness-edge", "it has worked together for years", subject="ada", predicate="knows", object="colleague"
+            )
+        ],
+    )
+
+    def rel_props(edge_id, content, scope_key):
+        # `content` deliberately avoids "ada" -- the flat direct-content leg scopes by the
+        # individual SCOPE_SLOTS properties, not `scope_key`, so a mis-scoped-by-`scope_key`-alone
+        # edge whose content lexically matches the query is still visible through that unrelated
+        # leg. Not this finding's concern; excluded here so it cannot explain either assertion.
+        return {
+            "id": edge_id,
+            "row_id": f"{edge_id}-row",
+            "live": True,
+            "tier": "semantic",
+            "content": content,
+            "scope_key": scope_key,
+            "tenant_id": ada.tenant_id,
+            "user_id": ada.user_id,
+            "predicate": "knows",
+            "t_valid": 100,
+            "created_at": 100,
+            "provenance": "{}",
+            "metadata": "{}",
+        }
+
+    with graph._driver.session(database=graph.database) as session:
+        # edge1's endpoints are both correctly ada-scoped nodes -- only the edge's own `scope_key`
+        # property is wrong, so the node-level guards have nothing to reject here.
+        session.run(
+            "MATCH (a:Entity {scope_key: $ada_key, name: 'ada'}), (m:Entity {scope_key: $ada_key, name: 'mid'}) "
+            "CREATE (a)-[r:REL]->(m) SET r = $props",
+            ada_key=ada.key(),
+            props=rel_props("edge1-wrong-scope", "a first connection", "not-a-real-scope-key"),
+        )
+        session.run(
+            "MATCH (m:Entity {scope_key: $ada_key, name: 'mid'}), (f:Entity {scope_key: $ada_key, name: 'far'}) "
+            "CREATE (m)-[r:REL]->(f) SET r = $props",
+            ada_key=ada.key(),
+            props=rel_props("edge2-past-the-anomaly", "a second connection", ada.key()),
+        )
+
+    hits = ids(graph.traverse(ada, MemoryQuery(text="tell me about ada")))
+
+    assert "witness-edge" in hits, "the multi-hop leg must still be reaching genuine in-scope edges"
+    assert "edge2-past-the-anomaly" not in hits, "the walk must not cross the mis-scoped edge to reach a farther one"
+
+
+def test_multihop_traversal_respects_the_configured_hop_bound(graph):
+    """The bound is set at construction (``max_traverse_hops``), not per call -- SM-G9 closes it
+    at the source rather than trusting a caller to pass a smaller value."""
+    settings = _settings()
+    bounded = Neo4jGraphSubstrate(**settings, max_traverse_hops=1)
+    try:
+        bounded.upsert_facts(
+            ACME,
+            [
+                fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin"),
+                fact("f2", "berlin sits within germany", subject="berlin", predicate="located_in", object="germany"),
+            ],
+        )
+        hits = bounded.traverse(ACME, MemoryQuery(text="ada"))
+        assert ids(hits) == ["f1"], "hop 2 is beyond the configured bound"
+    finally:
+        bounded.close()
+
+
+def test_multihop_traversal_caps_the_anchor_set(graph):
+    """Round-1 review, Major: ``max_hops`` alone does not bound this leg's cost, since a common
+    query word matches every entity whose name contains it. Three entities all match the query
+    "acme"; capped to 2, only the two that sort first by name become anchors, so only their edges
+    are walkable.
+
+    Each fact's content is phrased without "acme" in it at all -- content repeating the subject
+    name would also satisfy the flat direct-content leg regardless of anchor selection, which would
+    not isolate this leg's own cap (the same pitfall the unit-level version of this test named).
+    """
+    settings = _settings()
+    bounded = Neo4jGraphSubstrate(**settings, max_traverse_anchor_entities=2)
+    try:
+        bounded.upsert_entities(
+            ACME,
+            [
+                EntityWrite(name="acme alpha", entity_type="company", scope=ACME),
+                EntityWrite(name="acme beta", entity_type="company", scope=ACME),
+                EntityWrite(name="acme gamma", entity_type="company", scope=ACME),
+            ],
+        )
+        bounded.upsert_facts(
+            ACME,
+            [
+                fact(
+                    "f-alpha",
+                    "it runs the widget business",
+                    subject="acme alpha",
+                    predicate="operates",
+                    object="widgets",
+                ),
+                fact(
+                    "f-beta", "it runs the gadget business", subject="acme beta", predicate="operates", object="gadgets"
+                ),
+                fact(
+                    "f-gamma", "it runs the gizmo business", subject="acme gamma", predicate="operates", object="gizmos"
+                ),
+            ],
+        )
+
+        hits = ids(bounded.traverse(ACME, MemoryQuery(text="tell me about acme")))
+
+        # Positive assertions first (round-2 review, Critical): a purely negative check passes
+        # vacuously if the whole leg returns nothing (broken Cypher, an unbound parameter), which
+        # proves nothing about the cap operating at 2 rather than at 0.
+        assert "f-alpha" in hits and "f-beta" in hits, "the two lower-sorted anchors must still reach their edges"
+        # Deterministic by name: "acme alpha" and "acme beta" sort before "acme gamma".
+        assert "f-gamma" not in hits, "the third-sorted anchor must be cut by the cap"
+    finally:
+        bounded.close()
+
+
+def test_multihop_traversal_respects_the_valid_time_window(graph):
+    """The window shapes the walk itself, not only what is returned -- an out-of-window edge cannot
+    be crossed to reach a farther hop, matching how ``VectorSubstrate.search`` narrows in-search."""
+    graph.upsert_facts(
+        ACME,
+        [
+            # `t_invalid=200` closes the interval to [100, 200) -- genuinely outside [400, 600).
+            # An open-ended `t_valid` alone would still overlap: `ValidWindow.overlaps` reads an
+            # unset upper bound as valid through the present, which does intersect a later window.
+            fact(
+                "f1",
+                "ada lives in berlin",
+                subject="ada",
+                predicate="lives_in",
+                object="berlin",
+                t_valid=100,
+                t_invalid=200,
+            ),
+            fact(
+                "f2",
+                "berlin sits within germany",
+                subject="berlin",
+                predicate="located_in",
+                object="germany",
+                t_valid=500,
+            ),
+        ],
+    )
+
+    windowed = MemoryQuery(text="ada", valid_from=400, valid_to=600)
+    assert graph.traverse(ACME, windowed) == [], "f1 (hop 1) is outside the window, so f2 is unreachable through it"
+
+    unwindowed = MemoryQuery(text="ada")
+    assert ids(graph.traverse(ACME, unwindowed)) == ["f1", "f2"]
+
+
+async def test_sync_and_async_traverse_agree(async_graph):
+    """Named to match ``test_sync_and_async_traversal_agree`` in the unit suite (round-1 review:
+    the previous name, ``test_amultihop_traversal_agrees_with_the_sync_half``, read as exercising
+    only the async half, when it calls both)."""
+    await async_graph.aupsert_facts(
+        ACME,
+        [
+            fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin"),
+            fact("f2", "berlin sits within germany", subject="berlin", predicate="located_in", object="germany"),
+        ],
+    )
+
+    query = MemoryQuery(text="ada")
+    assert ids(await async_graph.atraverse(ACME, query)) == ids(async_graph.traverse(ACME, query))
 
 
 def test_the_graph_is_not_enumerable(graph):
