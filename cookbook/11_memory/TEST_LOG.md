@@ -650,7 +650,53 @@ second renumbers -- three times, this time.
 
 ---
 
-### 26_multihop_graph_traversal.py
+### 26_episodic_composite_scoring.py
+
+**Status:** PASS
+
+**Description:** SM-E7's composite scorer -- `composite_episodic_score` combining relevance
+(SM-E6), recency (SM-E4) and importance (SM-E5) into one weighted-sum score. Shows the default
+weights (recency=0.0, per ADR 0003 B.1: no additive per-query hot-path recency rescore) leaving a
+stale and a fresh episode tied, an explicit write-time weight set that then separates them,
+a four-episode fixture ranked in the expected order, and the three boundary refusals (a signal
+outside `[0.0, 1.0]`, a NaN weight, a negative weight -- added in review round 1, PR #109).
+
+**Result:** Ran to completion with no database and no API key. Stale/fresh scored identically
+(1.8/1.8) under the default weights, then diverged (1.82/2.75) once recency was given a nonzero
+weight. The fixture ranked `shipped_v2_to_prod` (2.70) > `quick_status_ping` (1.90) >
+`old_incident_postmortem` (1.75) > `unrelated_small_talk` (0.40), matching the acceptance
+criterion's expected ordering. All three refusals raised `MemoryOperationError` naming the
+offending field (`relevance`, `weights.relevance` for both the NaN and the negative-weight case).
+
+**Requires:** Nothing -- no database, no API key.
+
+---
+
+### 27_episode_forgetting.py
+
+**Status:** PASS
+
+**Description:** The SM-E9 forgetting policy (`select_for_forgetting`) applied to a
+three-episode batch: a low-importance episode idle 40 days, a high-importance episode idle the
+same 40 days, and a recent episode idle 1 day. The default recency-floor threshold (0.05) and the
+default decay parameters (`base_half_life=5d`, `imp_factor=4.0`).
+
+**Result:** Ran to completion. Exactly the low-importance stale episode was archived (`expired_at`
+set to the run's `now`); the high-importance episode at the same age survived (its longer,
+importance-scaled half-life keeps its decay score above the floor at 40 days), and the recent
+episode was untouched. The two originals passed in that were *not* selected, and the one that
+*was*, all still report `expired_at=None` on the original objects -- `select_for_forgetting`
+returns detached archived copies, never mutates its input.
+
+**Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `26_` to `27_`: SM-E7 (#109) merged to `main` first and took `26_` for
+`26_episodic_composite_scoring.py`.** Per this file's own convention, whoever merges second
+renumbers.
+
+---
+
+### 28_multihop_graph_traversal.py
 
 **Status:** PASS
 
@@ -668,3 +714,8 @@ correctly excluded, and the hop-1 edge outranked the hop-2 one. Sweeping `max_tr
 (`['ada-works-at-northstar']` -> `+ 'northstar-located-in-berlin'` -> `+ 'berlin-part-of-germany'`).
 
 **Requires:** `./cookbook/scripts/run_neo4j.sh`; no API key. Run with `.venvs/demo`.
+
+**Renumbered from `26_` to `28_`: `feat/SM-E7` (#109) and `feat/SM-E9` (#112) both merged to
+`main` first and took `26_`/`27_` for `26_episodic_composite_scoring.py`/`27_episode_forgetting.py`
+while this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers.

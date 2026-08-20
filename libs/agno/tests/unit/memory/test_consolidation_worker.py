@@ -7,12 +7,13 @@ background start/stop lifecycle.
 """
 
 import asyncio
+from typing import List
 
 import pytest
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
-from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker
+from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker, EventCountTrigger
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import ConsolidationReport, MemoryEvent, Scope
 from tests.unit.memory._fakes import FakeGraph, FakeVector
@@ -32,6 +33,25 @@ def make_provider(max_episodes_per_pass=5000):
         vector=vector, graph=graph, config=config, max_episodes_per_pass=max_episodes_per_pass
     )
     return provider, vector, graph
+
+
+class _SpyTrigger:
+    """A `ConsolidationTrigger` that never fires and just records every `reset` call -- isolates
+    the departed-scope diff in `run_once` from the ordinary post-drain reset, which a real trigger
+    (e.g. `EventCountTrigger`) could not do on its own.
+    """
+
+    def __init__(self) -> None:
+        self.reset_calls: List[Scope] = []
+
+    def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
+        pass
+
+    def should_fire(self, scope: Scope, *, now: float) -> bool:
+        return False
+
+    def reset(self, scope: Scope) -> None:
+        self.reset_calls.append(scope)
 
 
 async def test_run_once_drains_a_tier_larger_than_one_pass():
@@ -414,6 +434,170 @@ def test_construction_refuses_a_non_positive_bound(option, value):
     provider, _, _ = make_provider()
     with pytest.raises(ValueError, match=option):
         ConsolidationWorker(provider, [ACME], **{option: value})
+
+
+async def test_run_once_skips_a_scope_the_trigger_has_not_fired_for():
+    """SM-L2 (#123): with a trigger configured, a scope that has not crossed its threshold is left
+    out of the tick entirely -- not drained with an empty report.
+
+    Mutation guard: if the worker ignored `self.trigger` (SM-L1's original, always-drain
+    behaviour), this would return an outcome for ACME instead of an empty list.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    trigger = EventCountTrigger(threshold=3)
+    trigger.record_event(ACME, now=0.0)  # below the threshold of 3
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, retry_delay=0.001)
+
+    outcomes = await worker.run_once()
+
+    assert outcomes == []
+
+
+async def test_run_once_drains_a_scope_the_trigger_has_fired_for():
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    trigger = EventCountTrigger(threshold=1)
+    trigger.record_event(ACME, now=0.0)
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, retry_delay=0.001)
+
+    outcomes = await worker.run_once()
+
+    assert len(outcomes) == 1
+    assert outcomes[0].scope == ACME
+    assert outcomes[0].error is None
+
+
+async def test_a_successful_drain_resets_the_trigger():
+    """A scope that just drained must not still read as due next tick -- otherwise every scope
+    fires forever once its threshold is crossed once.
+
+    Mutation guard: skipping the `trigger.reset` call after a successful drain would make the
+    second `run_once` also return ACME's outcome instead of an empty list.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    trigger = EventCountTrigger(threshold=1)
+    trigger.record_event(ACME, now=0.0)
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, retry_delay=0.001)
+
+    first = await worker.run_once()
+    assert len(first) == 1
+
+    second = await worker.run_once()
+
+    assert second == []
+
+
+async def test_a_failed_drain_does_not_reset_the_trigger():
+    """The trigger's accumulated state (still-pending work) must survive a failed tick, so the
+    next tick's `should_fire` still reflects it rather than losing the signal to a transient error.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+
+    async def always_fails(scope, tiers=None):
+        raise RuntimeError("backend unreachable")
+
+    provider.aconsolidate = always_fails
+    trigger = EventCountTrigger(threshold=1)
+    trigger.record_event(ACME, now=0.0)
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, max_retries=0, retry_delay=0.001)
+
+    first = await worker.run_once()
+    assert len(first) == 1
+    assert first[0].error is not None
+
+    assert trigger.should_fire(ACME, now=0.0) is True
+
+
+async def test_a_partial_drain_does_not_reset_the_trigger():
+    """SM-L2 review: `error is None` alone is not "fully drained" -- `outcome.drained` can be
+    `False` with no error when `max_passes_per_scope` caps the tick before the scope's tail
+    clears. Resetting the trigger anyway would make `should_fire` stop reflecting the still-
+    pending remainder until enough *new* events re-cross the threshold, silently dropping the
+    unconsolidated backlog acquired before the cap was hit.
+
+    Mutation guard: reverting the reset condition to `outcome.error is None` (dropping
+    `and outcome.drained`) would make `trigger.should_fire` read `False` after this tick instead
+    of `True`.
+    """
+    provider, _, _ = make_provider(max_episodes_per_pass=1)
+    provider.write(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(3)])
+    trigger = EventCountTrigger(threshold=1)
+    trigger.record_event(ACME, now=0.0)
+    worker = ConsolidationWorker(
+        provider, [ACME], trigger=trigger, clock=lambda: 0.0, max_passes_per_scope=1, retry_delay=0.001
+    )
+
+    outcomes = await worker.run_once()
+
+    assert outcomes[0].error is None
+    assert outcomes[0].drained is False
+    assert trigger.should_fire(ACME, now=0.0) is True
+
+
+async def test_a_scope_that_drops_out_of_a_dynamic_source_has_its_trigger_reset():
+    """SM-L2 review: a dynamic `ScopeSource` (a callable) that stops naming a scope must not leave
+    that scope's trigger state alive for the rest of the worker's lifetime -- otherwise a
+    deployment with tenant churn grows a trigger's per-scope dict without bound. `run_once` must
+    call `reset` for a scope that disappears between ticks, on the tick it disappears.
+
+    `should_fire` always returns `False` here so the only possible source of a `reset` call is the
+    departed-scope diff, not the ordinary post-drain reset -- isolating exactly what this test
+    means to pin.
+
+    Mutation guard: dropping the departed-scope diff entirely would leave `spy.reset_calls` empty
+    after the second tick instead of `[ACME]`.
+    """
+    provider, _, _ = make_provider()
+    calls = {"n": 0}
+
+    def scopes():
+        calls["n"] += 1
+        return [ACME] if calls["n"] == 1 else []
+
+    spy = _SpyTrigger()
+    worker = ConsolidationWorker(provider, scopes, trigger=spy, clock=lambda: 0.0, retry_delay=0.001)
+
+    await worker.run_once()
+    assert spy.reset_calls == []
+
+    await worker.run_once()
+
+    assert spy.reset_calls == [ACME]
+
+
+async def test_an_async_trigger_raises_instead_of_silently_draining_everything():
+    """SM-L2 review round 2: `ConsolidationTrigger` is a synchronous Protocol, but nothing at the
+    type level stops a caller from passing one whose methods are `async def`. Called as a plain
+    function (exactly how `run_once` calls it), Python evaluates the *coroutine object* itself,
+    which is always truthy -- an async `should_fire` that means "not due" would otherwise drain
+    every scope on every tick instead of raising anywhere. This must fail loudly instead.
+
+    Reproduced first: confirmed via a standalone script that `bool(async_trigger.should_fire(...))`
+    is `True` regardless of what the coroutine would have returned if awaited.
+
+    Mutation guard: removing the `asyncio.iscoroutine` guard in `_reject_coroutine` would make
+    this pass with `outcomes` non-empty (every scope drained) instead of raising `TypeError`.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+
+    class AsyncTrigger:
+        async def record_event(self, scope, *, now, size=1.0):
+            pass
+
+        async def should_fire(self, scope, *, now):
+            return False  # would mean "not due" if this worker awaited it -- it does not
+
+        async def reset(self, scope):
+            pass
+
+    worker = ConsolidationWorker(provider, [ACME], trigger=AsyncTrigger(), clock=lambda: 0.0, retry_delay=0.001)
+
+    with pytest.raises(TypeError, match="coroutine"):
+        await worker.run_once()
 
 
 def test_max_retries_zero_is_accepted_as_fail_fast():

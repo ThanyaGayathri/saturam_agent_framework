@@ -14,9 +14,12 @@ cancel-and-await on stop, structurally the same as ``SchedulePoller``.
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Optional, Sequence, Union
 
+from egpt.memory.consolidation._validators import _positive, _reject_coroutine
+from egpt.memory.consolidation.triggers import ConsolidationTrigger
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.types import ConsolidationReport, Scope, entity_extraction_complete
 from egpt.utils.log import log_error, log_info, log_warning
@@ -32,12 +35,6 @@ _DEFAULT_STOP_TIMEOUT = 30.0
 
 def _resolve_scopes(source: ScopeSource) -> Sequence[Scope]:
     return source() if callable(source) else source
-
-
-def _positive(value: float, option: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ValueError(f"{option} must be a positive number, got {value!r}.")
-    return value
 
 
 def _positive_int(value: int, option: str) -> int:
@@ -112,6 +109,8 @@ class ConsolidationWorker:
         max_retries: int = 3,
         retry_delay: float = 5.0,
         stop_timeout: float = _DEFAULT_STOP_TIMEOUT,
+        trigger: Optional[ConsolidationTrigger] = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self.provider = provider
         self.scopes = scopes
@@ -122,6 +121,22 @@ class ConsolidationWorker:
         self.max_retries = _non_negative_int(max_retries, "max_retries")
         self.retry_delay = _positive(retry_delay, "retry_delay")
         self.stop_timeout = _positive(stop_timeout, "stop_timeout")
+        #: SM-L2's trigger policy (#123). `None` preserves SM-L1's original behaviour exactly --
+        #: every configured scope drains on every tick, regardless of whether anything changed.
+        #: Public like every other constructor-set attribute on this class (`poll_interval`,
+        #: `max_retries`, ...), but not meant to be reassigned after construction: `should_fire`
+        #: is looked up on `self.trigger` fresh every tick, so a swap mid-run would leave
+        #: `self._known_scopes` (below) keyed under the *old* trigger's state, orphaned with no
+        #: cleanup path. Construct a new `ConsolidationWorker` instead of swapping triggers on one.
+        self.trigger = trigger
+        self.clock = clock
+        #: Every scope `_resolve_scopes` returned as of the last tick, keyed by `.key()` -- only
+        #: populated (and consulted) when `trigger` is set. A dynamic `ScopeSource` can shrink
+        #: (tenant offboarded, scope no longer configured); without this, that scope's trigger
+        #: state (`EventCountTrigger`'s counter, `IdleTrigger`'s last-seen time, ...) would never
+        #: be cleared, since `reset` only ever runs for scopes the *current* resolution still
+        #: names -- unbounded growth over the worker's lifetime in a deployment with tenant churn.
+        self._known_scopes: Dict[str, Scope] = {}
         self._task: Optional["asyncio.Task[None]"] = None
         self._running = False
         self._wake: Optional[asyncio.Event] = None
@@ -141,15 +156,61 @@ class ConsolidationWorker:
         ``asyncio.run(worker.run_once())``.
 
         Calling this directly while the background loop (``start()``) is already running is
-        safe -- there is nothing here it can corrupt, and a scope's cursor tolerates concurrent
-        readers per :meth:`MemoryProvider.consolidate`'s own docstring -- but it duplicates work,
-        for the same reason a scope's cursor does not serialize concurrent callers on its own:
-        both read it before either advances it. Direct calls are for tests and one-shot
-        invocations; a caller running the loop should let it drive `run_once` on its own
-        schedule instead of also calling it manually.
+        safe when ``trigger`` is ``None`` -- there is nothing here it can corrupt, and a scope's
+        cursor tolerates concurrent readers per :meth:`MemoryProvider.consolidate`'s own
+        docstring -- but it duplicates work, for the same reason a scope's cursor does not
+        serialize concurrent callers on its own: both read it before either advances it. Direct
+        calls are for tests and one-shot invocations; a caller running the loop should let it
+        drive `run_once` on its own schedule instead of also calling it manually.
+
+        With ``trigger`` set, "safe to call concurrently" holds only as long as every
+        :class:`ConsolidationTrigger` method stays synchronous and side-effect-free across an
+        ``await``: two overlapping ``run_once`` calls both read-diff-write ``self._known_scopes``
+        with no ``await`` in between, so today's synchronous trigger contract cannot interleave
+        there -- but that stops being true the moment any trigger method does real ``await``ing
+        work of its own. Separately, two concurrent calls can each compute ``departed`` from the
+        same pre-update snapshot of ``self._known_scopes`` and both call ``trigger.reset`` for the
+        same departed scope -- harmless for every trigger built here (``dict.pop`` with a default
+        is idempotent), but a caller-supplied trigger backed by a distributed store must treat a
+        double ``reset`` for one scope as possible.
+
+        **Trigger-gated (SM-L2 #123)**: with ``self.trigger`` set, a scope is drained only when
+        ``trigger.should_fire`` says so as of ``self.clock()`` -- a scope that does not fire is
+        left out of the returned list entirely, not included with empty reports, so a caller
+        counting drained scopes never mistakes "not due" for "drained nothing". A scope drains to
+        completion (``outcome.drained``, no error) has the trigger reset afterward; one that
+        errors, or hits ``max_passes_per_scope`` with work still pending, keeps its accumulated
+        state, so the next tick's `should_fire` still reflects what is genuinely still unconsolidated
+        rather than reading as caught up when it is not.
+
+        A scope that drops out of a dynamic ``ScopeSource`` between ticks has its trigger state
+        reset too, on the tick it disappears -- otherwise a trigger keyed by scope (like
+        ``EventCountTrigger``'s per-scope counters) would keep dict entries alive for the rest of
+        the worker's lifetime for a scope nothing will ever resolve to again.
         """
         scopes = _resolve_scopes(self.scopes)
-        return list(await asyncio.gather(*(self._drain_scope(scope) for scope in scopes)))
+        if self.trigger is not None:
+            now = self.clock()
+            current_by_key = {scope.key(): scope for scope in scopes}
+            departed = [scope for key, scope in self._known_scopes.items() if key not in current_by_key]
+            for scope in departed:
+                # `reset` is typed `-> None`; capturing its "return value" here is deliberate, not
+                # a mistake mypy should flag -- the whole point is to catch a *runtime* Protocol
+                # violation (an async implementation) that the type system cannot rule out on its
+                # own. See `_reject_coroutine`'s docstring.
+                _reject_coroutine(self.trigger.reset(scope), self.trigger, "reset")  # type: ignore[func-returns-value]
+            self._known_scopes = current_by_key
+            scopes = [
+                scope
+                for scope in scopes
+                if _reject_coroutine(self.trigger.should_fire(scope, now=now), self.trigger, "should_fire")
+            ]
+        outcomes = list(await asyncio.gather(*(self._drain_scope(scope) for scope in scopes)))
+        if self.trigger is not None:
+            for outcome in outcomes:
+                if outcome.error is None and outcome.drained:
+                    _reject_coroutine(self.trigger.reset(outcome.scope), self.trigger, "reset")  # type: ignore[func-returns-value]
+        return outcomes
 
     async def _drain_scope(self, scope: Scope) -> ConsolidationOutcome:
         outcome = ConsolidationOutcome(scope=scope)

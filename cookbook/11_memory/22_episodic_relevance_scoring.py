@@ -11,7 +11,8 @@ Key concepts:
   A candidate reaching composite scoring by another path (graph traversal, a
   scan, a page already fused from a prior read) has no score attached.
   cosine_relevance/episode_relevance compute the same signal directly, so
-  SM-E7 (composite scoring, not yet built) can score any candidate.
+  SM-E7 (composite scoring, `26_episodic_composite_scoring.py`) can score
+  any candidate.
 - cosine_relevance takes two already-computed embeddings and is pure vector
   math: no I/O, no async twin, a similarity in [0.0, 1.0] on the same scale
   VectorSubstrate.search promises.
