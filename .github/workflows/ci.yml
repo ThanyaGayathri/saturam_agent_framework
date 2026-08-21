@@ -4,14 +4,11 @@ on:
   push:
     branches:
       - main
-  # TODO(follow-up PR): remove pull_request once workflow_dispatch is confirmed
-  # live on main. Keeping it here for this PR only, since workflow_dispatch
-  # doesn't become dispatchable in the Actions UI until this file lands on
-  # main, and removing pull_request in this same commit would strand this PR
-  # without any way to produce the required ci-success check.
-  pull_request:
-    branches:
-      - main
+  # No pull_request trigger: PR branches run CI via workflow_dispatch only, to cut Actions
+  # spend on this repo's high PR volume. workflow_dispatch became dispatchable in the Actions UI
+  # once #114 landed this file on main; this follow-up removes the pull_request trigger #114 kept
+  # around for its own PR (it couldn't have removed it in the same commit and still produced a
+  # ci-success check for itself).
   workflow_dispatch:
 
 concurrency:
