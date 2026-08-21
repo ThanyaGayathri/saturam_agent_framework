@@ -137,7 +137,7 @@ def test_report_details_does_not_duplicate_the_op_counts():
 
     _, report = pipe.distil(ACME, [episode("ada likes tea", episode_id="e1")])
 
-    assert set(report.details) == {"strategy", "complete", "ungrounded", "collisions"}
+    assert set(report.details) == {"strategy", "complete", "ungrounded", "collisions", "unresolved_deletes"}
 
 
 def test_an_ungrounded_candidate_is_dropped():
@@ -281,6 +281,27 @@ def test_an_update_target_out_of_range_degrades_to_add():
     assert report.updated == 0
     assert len(facts) == 1
     assert facts[0].record.content == "ada moved"
+
+
+def test_a_delete_target_out_of_range_degrades_to_noop():
+    """The DELETE counterpart of the UPDATE test above -- an unresolvable target writes nothing
+    and is counted as `noop`, separately named in `details["unresolved_deletes"]` rather than
+    conflated with a genuine NOOP decision."""
+    existing = fact("f1", "ada owns a car", source_episode_ids=["e0"])
+    vector = FakeVector()
+    vector.rows["acme"] = {"f1": existing}
+    pipe, _ = pipeline(
+        vector=vector,
+        extractor=StubExtractor([FactCandidate(statement="ada sold her car", source_indices=[0])]),
+        decider=StubDecider(MergeDecision(op="DELETE", target_index=99, statement="ada sold her car")),
+    )
+
+    facts, report = pipe.distil(ACME, [episode("ada sold her car", episode_id="e1")])
+
+    assert facts == []
+    assert report.noop == 1
+    assert report.deleted == 0
+    assert report.details["unresolved_deletes"] == 1
 
 
 def test_an_add_naming_a_target_index_does_not_merge_into_it():
@@ -495,6 +516,47 @@ def test_a_pipeline_with_no_vector_is_refused_at_construction():
             extractor=StubExtractor(),
             decider=StubDecider(MergeDecision(op="ADD", statement="x")),
         )
+
+
+def test_a_vector_missing_only_the_async_half_is_refused_at_construction():
+    """`search` alone is not enough -- a substrate missing `asearch` blocks `adistil`'s event
+    loop the same way a sync-only extractor/decider does."""
+
+    class SyncOnlyVector:
+        def search(self, scope, query, tier=None):
+            return []
+
+    with pytest.raises(MemoryOperationError):
+        FactExtractionPipeline(
+            vector=SyncOnlyVector(),
+            extractor=StubExtractor(),
+            decider=StubDecider(MergeDecision(op="ADD", statement="x")),
+        )
+
+
+def test_top_k_of_zero_is_refused_at_construction():
+    with pytest.raises(MemoryOperationError):
+        FactExtractionPipeline(
+            vector=FakeVector(),
+            extractor=StubExtractor(),
+            decider=StubDecider(MergeDecision(op="ADD", statement="x")),
+            top_k=0,
+        )
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_distil_over_no_episodes_is_a_clean_no_op(is_async):
+    """`consolidate`/`aconsolidate` call `_distil_facts` with whatever `_visible_episodes` kept,
+    which is legitimately empty -- this must report a clean, complete pass, not raise."""
+    pipe, _ = pipeline()
+
+    call = pipe.adistil(ACME, []) if is_async else pipe.distil(ACME, [])
+    facts, report = asyncio.run(call) if is_async else call
+
+    assert facts == []
+    assert report.episodes_read == 0
+    assert report.candidates == 0
+    assert report.details["complete"] is True
 
 
 def test_a_pipeline_missing_the_async_extractor_half_is_refused_at_construction():

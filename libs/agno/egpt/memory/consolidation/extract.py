@@ -328,7 +328,16 @@ class FactExtractionReport:
     ``added + updated + deleted + noop`` does not always equal ``candidates``: an ungrounded
     candidate (``details["ungrounded"]``) and a same-pass id collision (``details["collisions"]``,
     see ``FactExtractionPipeline._without_collisions``) are both dropped before they reach an op
-    count, since neither actually wrote anything.
+    count, since neither actually wrote anything. A DELETE whose ``target_index`` did not resolve
+    counts as ``noop``, not ``deleted`` (``details["unresolved_deletes"]`` names how many of the
+    ``noop`` total were this, rather than a genuine NOOP decision).
+
+    ``updated`` conflates two shapes: a **true retirement** (the merged source set differs from
+    the target's, two ``FactWrite``\\ s -- the old row's ``expired_at``/``superseded_by`` set, plus
+    a successor) and a **same-source-set re-upsert** (one ``FactWrite``, no retirement -- a re-run
+    over unchanged sources, or a NOOP the model mislabelled UPDATE). Both increment ``updated``
+    equally. A caller that needs the count of actual retirements should filter the returned
+    ``FactWrite``\\ s for ``record.expired_at is not None`` rather than read this field.
     """
 
     scope: Scope
@@ -362,6 +371,13 @@ class FactExtractionPipeline:
     check of its own. A substrate that leaks a retired row lets the model UPDATE/DELETE against a
     fact that is already superseded: ``_apply`` re-stamps ``expired_at``/``superseded_by`` on it
     without complaint, silently orphaning whatever the row's real successor was.
+
+    **Not safe for two concurrent passes on the same scope.** Both would search the same
+    pre-write store and could each decide to UPDATE/DELETE the same existing fact, which is
+    exactly the race ``_without_collisions`` catches *within* one call but cannot see across two.
+    ``CoLocatedMemoryProvider.consolidate``/``aconsolidate`` do not serialise calls to this
+    pipeline themselves; a caller driving it directly, or a scheduler running more than one worker
+    over the same scope, is responsible for that.
     """
 
     def __init__(
@@ -446,8 +462,13 @@ class FactExtractionPipeline:
         atomic pair, and writing only one half would retire a fact with no replacement, or land a
         successor with no record of what it replaced.
 
-        The dropped candidate is not lost: its source episodes stay live and unconsolidated, so
-        the next pass re-extracts and re-decides against whatever the store looks like by then.
+        The dropped candidate's writes are simply discarded, not deferred: ``consolidate`` /
+        ``aconsolidate`` advance the scan cursor over every episode this pass read regardless of
+        what ``distil``/``adistil`` did with it, so a dropped candidate's source episodes are
+        marked scanned and will **not** be re-extracted by a future pass on this same provider
+        instance. The episodes themselves are not deleted -- they stay readable on the episodic
+        tier -- but the fact this pass would have derived from them is gone for this consolidation
+        lineage unless new evidence (a fresh episode) triggers re-extraction later.
         """
         ids = [fw.record.id for fw in written]
         if any(i in used_ids for i in ids):
@@ -464,12 +485,17 @@ class FactExtractionPipeline:
         topics: Optional[List[str]],
         ts: int,
         now: int,
-    ) -> Tuple[List[FactWrite], str]:
+    ) -> Tuple[List[FactWrite], Literal["added", "updated", "deleted", "noop"]]:
         if decision.op == "NOOP":
             return [], "noop"
         if decision.op == "DELETE":
             target = self._resolve_target(decision, neighbors)
             if target is None:
+                # An unresolved target degrades to NOOP -- nothing to retire -- rather than
+                # guessing which neighbour was meant. The caller (`distil`/`adistil`) separately
+                # counts this in `details["unresolved_deletes"]`, since it already holds `decision`
+                # and can tell a genuine NOOP decision apart from a degraded DELETE without this
+                # method growing a second output channel for one caller's bookkeeping.
                 return [], "noop"
             retired = FactWrite(
                 record=MemoryRecord(
@@ -569,6 +595,7 @@ class FactExtractionPipeline:
         candidate_count = 0
         ungrounded = 0
         collisions = 0
+        unresolved_deletes = 0
         used_ids: Set[str] = set()
         now = now_epoch_s()  # one instant for the whole pass, not one per bucket
         for bucket_scope, bucket in self._buckets(selected):
@@ -597,6 +624,8 @@ class FactExtractionPipeline:
                     else self.decider.decide(candidate.statement, neighbors)
                 )
                 written, outcome = self._apply(decision, neighbors, source_ids, bucket_scope, candidate.topics, ts, now)
+                if decision.op == "DELETE" and outcome == "noop":
+                    unresolved_deletes += 1
                 written, collided = self._without_collisions(written, used_ids)
                 facts.extend(written)
                 if collided:
@@ -614,7 +643,12 @@ class FactExtractionPipeline:
             # No `**counts`: those four are already first-class `FactExtractionReport` fields
             # above, and a caller mutating `details["added"]` expecting `report.added` to follow
             # would be silently wrong with two copies of one number.
-            details=fact_extraction_details(complete=not truncated, ungrounded=ungrounded, collisions=collisions),
+            details=fact_extraction_details(
+                complete=not truncated,
+                ungrounded=ungrounded,
+                collisions=collisions,
+                unresolved_deletes=unresolved_deletes,
+            ),
         )
         return facts, report
 
@@ -629,6 +663,10 @@ class FactExtractionPipeline:
         is a model or a provider round trip, and fanning a capped pass out at once is how a
         consolidation lane exhausts a rate limit. Bounded concurrency belongs with the scheduler
         that knows the budget (SM-L1 #122), not with the pipeline that does not.
+
+        Mirrors :meth:`distil` line for line (``aextract``/``asearch``/``adecide`` in place of the
+        sync verbs) rather than sharing a body: a logic change here must be applied to both --
+        `grep` for the other before calling a fix to either one done.
         """
         require_scope(scope, method="adistil")
         selected, truncated = self._selected(episodes)
@@ -637,6 +675,7 @@ class FactExtractionPipeline:
         candidate_count = 0
         ungrounded = 0
         collisions = 0
+        unresolved_deletes = 0
         used_ids: Set[str] = set()
         now = now_epoch_s()  # one instant for the whole pass, not one per bucket
         for bucket_scope, bucket in self._buckets(selected):
@@ -659,6 +698,8 @@ class FactExtractionPipeline:
                     else await self.decider.adecide(candidate.statement, neighbors)
                 )
                 written, outcome = self._apply(decision, neighbors, source_ids, bucket_scope, candidate.topics, ts, now)
+                if decision.op == "DELETE" and outcome == "noop":
+                    unresolved_deletes += 1
                 written, collided = self._without_collisions(written, used_ids)
                 facts.extend(written)
                 if collided:
@@ -676,6 +717,11 @@ class FactExtractionPipeline:
             # No `**counts`: those four are already first-class `FactExtractionReport` fields
             # above, and a caller mutating `details["added"]` expecting `report.added` to follow
             # would be silently wrong with two copies of one number.
-            details=fact_extraction_details(complete=not truncated, ungrounded=ungrounded, collisions=collisions),
+            details=fact_extraction_details(
+                complete=not truncated,
+                ungrounded=ungrounded,
+                collisions=collisions,
+                unresolved_deletes=unresolved_deletes,
+            ),
         )
         return facts, report
