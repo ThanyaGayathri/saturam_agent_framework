@@ -121,8 +121,13 @@ for edge in graph_hits:
 
 print()
 print("--- both paths agree on provenance and confidence for the triple fact ---")
-vector_row = next(r for r in vector_hits if r.id == "ada-works-at-northstar")
-graph_row = next(r for r in graph_hits if r.id == "ada-works-at-northstar")
+vector_row = next((r for r in vector_hits if r.id == "ada-works-at-northstar"), None)
+graph_row = next((r for r in graph_hits if r.id == "ada-works-at-northstar"), None)
+if vector_row is None or graph_row is None:
+    raise RuntimeError(
+        "Expected 'ada-works-at-northstar' in both vector_hits and graph_hits -- got "
+        f"vector_row={vector_row!r}, graph_row={graph_row!r}."
+    )
 print(
     f"  vector: subject={vector_row.provenance.get('subject')!r} confidence={vector_row.metadata.get('confidence')}"
 )

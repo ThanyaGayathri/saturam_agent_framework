@@ -15,7 +15,8 @@ entity/relation passes that follow it, and rewiring it is a distinct, higher-ris
 acceptance criterion here asks for. What changed there is only the vector-leg payload -- see
 :func:`egpt.memory.schemas.semantic.fact_record`'s docstring for why.
 
-**One contract, one divergence.** Both share the same scope-grouping (``_by_scope``) and the same
+**One contract, one divergence.** Both share the same scope-grouping
+(:func:`~egpt.memory.validation.group_facts_by_scope`) and the same
 refusal-before-any-commit-propagates-bare rule. They diverge on one point: ``consolidate`` /
 ``aconsolidate`` chain a mid-batch refusal with ``raise PartialWriteError(receipt) from None``
 (``co_located.py``, both halves), while this store's ``write`` / ``awrite`` chain with ``from exc``,
@@ -25,7 +26,7 @@ reading a traceback from one path sees a cause the other path discards.
 """
 
 import asyncio
-from typing import Awaitable, Dict, List, Optional, Sequence, Tuple
+from typing import Awaitable, List, Optional, Sequence
 
 from egpt.memory.schemas.semantic import fact_record
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
@@ -38,25 +39,9 @@ from egpt.memory.types import (
     WriteReceipt,
     require_scope,
 )
-from egpt.memory.validation import reject_duplicate_ids
+from egpt.memory.validation import group_facts_by_scope, reject_duplicate_ids
 
 __all__ = ["SemanticFactStore"]
-
-
-def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
-    """Group facts under their own scope, not the caller's -- mirrors ``CoLocatedMemoryProvider._by_scope``.
-
-    A pass scoped wider than any one fact (a tenant-wide consolidation, or an SM-L3 extraction run
-    over several users' episodes) must file each fact under the scope it actually belongs to, or a
-    narrower fact is written under the wider scope and becomes readable by everyone it includes.
-
-    Keyed on the frozen ``Scope`` itself, never on ``.key()`` -- the object is hashable, and an
-    equality bug in a string function should not be able to misfile a write.
-    """
-    batched: Dict[Scope, List[FactWrite]] = {}
-    for fact in facts:
-        batched.setdefault(fact.record.scope, []).append(fact)
-    return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
 
 
 def _receipt(facts: Sequence[FactWrite]) -> WriteReceipt:
@@ -112,6 +97,15 @@ class SemanticFactStore:
         self.graph = graph
 
     def write(self, scope: Scope, facts: Sequence[FactWrite]) -> WriteReceipt:
+        """Dual-write ``facts``, returning what was accepted.
+
+        ``scope`` is validated (:func:`~egpt.memory.types.require_scope`) but is **not** the
+        scope any fact is written under -- each fact is filed under its own ``record.scope`` via
+        :func:`~egpt.memory.validation.group_facts_by_scope`, which can be narrower than ``scope``
+        when a caller passes a tenant-wide scope over several users' facts. ``scope`` exists so a
+        caller cannot skip the entry guard by constructing a batch with no scope of its own to
+        check -- ``FactWrite`` carries no top-level scope, only ``record.scope`` per fact.
+        """
         require_scope(scope, method="write")
         if not facts:
             return WriteReceipt()
@@ -120,7 +114,7 @@ class SemanticFactStore:
         receipt = _receipt(facts)
         committed_any = False
         try:
-            for fact_scope, batch in _by_scope(facts):
+            for fact_scope, batch in group_facts_by_scope(facts):
                 if self.vector is not None:
                     self.vector.upsert(fact_scope, [fact_record(f) for f in batch])
                     committed_any = True
@@ -138,10 +132,17 @@ class SemanticFactStore:
                 raise
             raise PartialWriteError(receipt) from exc
         except Exception as exc:
+            # No `committed_any` check here, unlike the branch above -- an exception this generic
+            # (a transport error, not a refusal this seam recognises) gives no reliable signal
+            # about which side of a fan-out it interrupted, so treating it as anything less than a
+            # partial write would be a guess. Matches `CoLocatedMemoryProvider.consolidate`'s own
+            # unconditional `except Exception` branch.
             raise PartialWriteError(receipt) from exc
         return receipt
 
     async def awrite(self, scope: Scope, facts: Sequence[FactWrite]) -> WriteReceipt:
+        """Async twin of :meth:`write`, making the same decisions -- see its docstring for
+        ``scope``'s role."""
         require_scope(scope, method="awrite")
         if not facts:
             return WriteReceipt()
@@ -150,7 +151,7 @@ class SemanticFactStore:
         receipt = _receipt(facts)
         committed_any = False
         try:
-            for fact_scope, batch in _by_scope(facts):
+            for fact_scope, batch in group_facts_by_scope(facts):
                 writes: List[Awaitable[None]] = []
                 if self.vector is not None:
                     writes.append(self.vector.aupsert(fact_scope, [fact_record(f) for f in batch]))
@@ -183,5 +184,7 @@ class SemanticFactStore:
                 raise
             raise PartialWriteError(receipt) from exc
         except Exception as exc:
+            # See `write`'s matching branch: no reliable signal about what a generic exception
+            # interrupted, so it is always a partial write.
             raise PartialWriteError(receipt) from exc
         return receipt

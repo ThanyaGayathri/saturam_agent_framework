@@ -275,6 +275,45 @@ def test_a_refusal_in_the_second_of_two_scopes_names_both_scopes_ids_for_retry()
     assert set(vector.rows["acme"]) >= {"ada-fact", "bob-fact"}
 
 
+async def test_an_async_refusal_in_the_second_of_two_scopes_names_both_scopes_ids_for_retry():
+    """The async twin of the test above -- not redundant with it. `awrite`'s per-scope loop body
+    is structurally different from `write`'s: it fans vector+graph out *concurrently* via
+    `asyncio.gather`, so scope B's vector leg has already committed by the time its graph leg's
+    refusal is observed (settle-then-propagate), whereas `write`'s sequential body only reaches
+    the graph call after the vector call already returned. A bug isolated to the async fan-out --
+    e.g. `committed_any` computed from the wrong side of the `gather` result -- would not be
+    caught by the sync test alone.
+    """
+    vector = FakeVector()
+
+    class RefusesBob(FakeGraph):
+        async def aupsert_facts(self, scope, facts):
+            if scope == ACME_BOB:
+                raise MemoryOperationError("bob's graph write refused", field_name="content")
+            await super().aupsert_facts(scope, facts)
+
+    graph = RefusesBob()
+    s = SemanticFactStore(vector=vector, graph=graph)
+    batch = [
+        fact(id_="ada-fact", scope=ACME, content="ada's fact"),
+        fact(id_="bob-fact", scope=ACME_BOB, content="bob's fact"),
+    ]
+    with pytest.raises(PartialWriteError) as excinfo:
+        await s.awrite(ACME, batch)
+
+    assert sorted(excinfo.value.receipt.event_ids) == ["ada-fact", "bob-fact"]
+    assert "ada-fact" in vector.rows["acme"], "scope A's vector leg had already committed"
+    # Scope B's *vector* leg committed too -- `gather` settles both concurrent writes in the group
+    # before this loop iteration decides anything, unlike the sync test's sequential body.
+    assert "bob-fact" in vector.rows["acme"], "scope B's vector leg had already committed"
+    assert "bob-fact" not in [f.record.id for f in graph.facts], "scope B's graph write never landed"
+
+    s2 = SemanticFactStore(vector=vector, graph=FakeGraph())
+    receipt = await s2.awrite(ACME, batch)
+    assert receipt.accepted == 2
+    assert set(vector.rows["acme"]) >= {"ada-fact", "bob-fact"}
+
+
 def test_the_partial_write_preserves_which_substrate_refused_and_why():
     """The refusal must survive as `__cause__` -- `from None` would discard which substrate
     refused and why, leaving only "partially applied" with no way to diagnose it."""
