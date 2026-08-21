@@ -12,6 +12,7 @@ triggered insight into the same vector/graph write loop a distilled fact uses.
 """
 
 import asyncio
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -21,12 +22,23 @@ from egpt.memory.consolidation.reflect import (
     REFLECTION_KEYS,
     REFLECTOR_ID,
     InsightSynthesizer,
+    LLMInsightSynthesizer,
     ReflectionPipeline,
     SynthesizedInsight,
     _envelope,
 )
 from egpt.memory.tiers import CONSOLIDATION_TARGET, MemoryTier
-from egpt.memory.types import NO_REFLECTION, MemoryEvent, MemoryOperationError, MemoryQuery, MemoryRecord, Scope
+from egpt.memory.types import (
+    NO_REFLECTION,
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    MemoryScopeRequiredError,
+    Scope,
+)
+from egpt.models.base import Model
+from egpt.models.response import ModelResponse
 from tests.unit.memory._fakes import FakeGraph, FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="ada")
@@ -213,6 +225,13 @@ def test_arun_snapshots_pending_before_the_await():
     (fact,) = report.insights
     assert fact.source_episode_ids == ["e1"], "must cite only what this call actually accumulated and showed"
     assert report.episodes_considered == 1
+    # `_consume` resets the *shared* trigger and pending dict unconditionally, so the intruder's
+    # own credit (added directly to the shared trigger, not to this call's `pending` snapshot) is
+    # discarded along with this call's -- documented as a known, accepted asymmetry in `arun`'s
+    # own docstring ("the snapshot protects citation correctness, not credit accumulation"),
+    # pinned explicitly here so a future change to close it is a deliberate, visible decision.
+    assert ACME.key() not in pipe._pending
+    assert pipe._trigger._accumulated(ACME) == 0.0
 
 
 def test_max_episodes_per_reflection_drops_the_oldest():
@@ -289,10 +308,11 @@ def test_max_episodes_per_reflection_is_validated(bad):
     assert excinfo.value.field_name == "max_episodes_per_reflection"
 
 
-def test_run_refuses_an_unscoped_call():
+@pytest.mark.parametrize("is_async", [False, True])
+def test_run_refuses_an_unscoped_call(is_async):
     pipe = ReflectionPipeline(StubSynthesizer())
-    with pytest.raises(Exception):
-        pipe.run(None, [episode("a")])
+    with pytest.raises(MemoryScopeRequiredError):
+        asyncio.run(pipe.arun(None, [episode("a")])) if is_async else pipe.run(None, [episode("a")])
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +351,41 @@ def test_envelope_refuses_case_insensitively_and_bare_opening_tags(content):
 
 def test_envelope_wraps_ordinary_content_untouched():
     assert _envelope(2, "hello world") == '<episode index="2">hello world</episode>'
+
+
+# ---------------------------------------------------------------------------
+# LLMInsightSynthesizer._extract -- against a mocked Model, following the same double
+# `test_episodic_importance.py` (SM-E5) uses for `ImportanceScorer`.
+# ---------------------------------------------------------------------------
+
+
+def _model_with_insight(has_insight=True, title="A title", text="An insight") -> MagicMock:
+    model = MagicMock(spec=Model)
+    model.supports_native_structured_outputs = True
+    model.supports_json_schema_outputs = False
+    parsed = SynthesizedInsight(has_insight=has_insight, title=title, insight=text)
+    model.response = MagicMock(return_value=ModelResponse(content=parsed, parsed=parsed))
+    return model
+
+
+def test_whitespace_only_title_or_insight_is_refused_not_accepted_as_blank():
+    """Regression (review round 2): a whitespace-only string (``"   "``) is truthy, so a plain
+    ``not parsed.title`` guard lets it through -- producing a written SEMANTIC record with a title
+    or insight a reader sees as blank."""
+    synth = LLMInsightSynthesizer(model=_model_with_insight(title="   ", text="real content"))
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        synth.synthesize([episode("a", "e1")])
+    assert excinfo.value.field_name == "insight"
+
+
+def test_a_real_title_and_insight_are_accepted():
+    synth = LLMInsightSynthesizer(model=_model_with_insight(title="Title", text="Body"))
+
+    result = synth.synthesize([episode("a", "e1")])
+
+    assert result.title == "Title"
+    assert result.insight == "Body"
 
 
 # ---------------------------------------------------------------------------
@@ -460,10 +515,65 @@ def test_a_synthesis_failure_does_not_block_the_rest_of_the_pass(is_async):
     report = asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
 
     assert report.semantic_written >= 1, "the ordinary dedup fact must still land"
-    assert report.details["reflection"]["triggered"] is False
+    # Regression (review round 2, Critical): this failure happens *after* `should_fire` already
+    # returned True (importance 0.9 over a 0.1 threshold), so `triggered` must be True -- the
+    # trigger really did fire and is left armed for a retry. An earlier revision hard-coded
+    # `triggered=False` here unconditionally, telling a caller "still building toward threshold"
+    # when it had in fact already crossed.
+    assert report.details["reflection"]["triggered"] is True
     assert report.details["reflection"]["complete"] is False
     assert "synthesis blew up" in report.details["reflection"]["error"]
     assert boom.calls == 1
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_pre_threshold_failure_reports_triggered_false(is_async):
+    """The other half of the round-2 Critical fix: a failure that happens *before* the trigger
+    ever fires (here, an invalid scope reaching the pipeline directly -- unreachable through
+    ``consolidate``, which validates scope earlier, but exercised via a pipeline that raises on
+    its own ``require_scope`` check) must report ``triggered=False``, not blame a fake threshold
+    crossing that never happened."""
+
+    class ScopeRefusingPipeline:
+        def run(self, scope, episodes):
+            raise MemoryOperationError("refused before any accumulation", field_name="scope")
+
+        async def arun(self, scope, episodes):
+            raise MemoryOperationError("refused before any accumulation", field_name="scope")
+
+    memory, _, _ = provider(synthesizer=None)
+    memory.reflection_pipeline = ScopeRefusingPipeline()
+    memory.write(ACME, [MemoryEvent(content="Acme shipped early", scope=ACME, metadata={"importance": 0.9})])
+
+    report = asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+    assert report.details["reflection"]["triggered"] is False
+    assert report.details["reflection"]["complete"] is False
+    assert "refused before any accumulation" in report.details["reflection"]["error"]
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_scope_required_error_propagates_rather_than_being_logged_and_swallowed(is_async):
+    """A ``MemoryScopeRequiredError`` is a caller-site bug (the scope handed to the pipeline was
+    never valid), not a runtime failure worth retrying -- catching it the same way as a synthesis
+    failure would turn a defect into an indefinitely-repeating, silently-logged no-op instead of
+    surfacing it to whoever can fix it. ``consolidate`` itself already validates ``scope`` before
+    reaching ``_reflect``, so this is reachable only through a ``reflection_pipeline`` that raises
+    it some other way -- exercised directly here."""
+
+    class ScopeBugPipeline:
+        def run(self, scope, episodes):
+            raise MemoryScopeRequiredError("run() requires a Scope and got NoneType", field_name="scope")
+
+        async def arun(self, scope, episodes):
+            raise MemoryScopeRequiredError("arun() requires a Scope and got NoneType", field_name="scope")
+
+    memory, _, _ = provider(synthesizer=None)
+    memory.reflection_pipeline = ScopeBugPipeline()
+    memory.write(ACME, [MemoryEvent(content="Acme shipped early", scope=ACME, metadata={"importance": 0.9})])
+
+    with pytest.raises(MemoryScopeRequiredError):
+        asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
 
 
 @pytest.mark.parametrize("is_async", [False, True])

@@ -41,7 +41,7 @@ from uuid import NAMESPACE_OID, uuid5
 
 from pydantic import BaseModel, Field
 
-from egpt.memory.consolidation.triggers import SizeTrigger, ThresholdSource
+from egpt.memory.consolidation.triggers import SizeTrigger, ThresholdSource, _validated_threshold
 from egpt.memory.graph.passes import select_current_episodes
 from egpt.memory.tiers import CONSOLIDATION_TARGET
 from egpt.memory.types import FactWrite, MemoryOperationError, MemoryRecord, Scope, require_scope
@@ -279,7 +279,11 @@ class LLMInsightSynthesizer:
             )
         if not parsed.has_insight:
             return None
-        if not parsed.title or not parsed.insight:
+        # `.strip()` before the truthiness check, not just `not parsed.title`: a whitespace-only
+        # string ("   ") is truthy, so it would pass this guard and reach `_to_fact` as a blank
+        # title/insight on a written SEMANTIC record -- the same silent-blank failure mode this
+        # guard exists to catch, just spelled with spaces instead of an empty string.
+        if not (parsed.title or "").strip() or not (parsed.insight or "").strip():
             raise MemoryOperationError(
                 "SynthesizedInsight reported has_insight=true with a blank title or insight; "
                 "both are required whenever an insight is reported.",
@@ -349,6 +353,15 @@ class ReflectionReport:
 #: distinct from ``co_located._FACT_NAMESPACE``: a dedup fact and an insight can in principle be
 #: distilled from the very same episode set, and sharing one namespace would let the two collide
 #: on one id for two different rows.
+#:
+#: **Load-bearing once any insight id has been generated against it in a real deployment --
+#: never change this literal string.** ``uuid5`` is deterministic in the seed string; changing it
+#: (including "fixing" it to read ``consolidation`` instead of ``consolidate``) changes every
+#: future id derived from an unchanged source set, so the *next* pass re-derives a different id
+#: for the same cluster and upserts a duplicate row instead of the original. Deliberately mirrors
+#: ``co_located._FACT_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.consolidate.fact")``'s own
+#: ``"egpt.memory.consolidate.<noun>"`` spelling (not the module's own dotted path) for exactly
+#: this reason -- one seed-string convention for both namespaces, not two.
 _INSIGHT_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.consolidate.insight")
 
 
@@ -396,7 +409,12 @@ class ReflectionPipeline:
         self.synthesizer = synthesizer
         self.max_episodes_per_reflection = max_episodes_per_reflection
         #: SM-L2's own trigger (module docstring), fed importance instead of size/event-count.
-        self._trigger = SizeTrigger(importance_threshold)
+        # Pre-validated under this constructor's own parameter name: `SizeTrigger.__init__`
+        # would otherwise raise "threshold must be a positive number", naming a parameter this
+        # constructor does not have -- `_validated_threshold` is the same helper `SizeTrigger`
+        # (and every other trigger in this package) already calls internally, imported directly
+        # rather than re-implemented so the two validations cannot drift.
+        self._trigger = SizeTrigger(_validated_threshold(importance_threshold, "importance_threshold"))
         #: Episodes accumulated per scope (keyed by ``Scope.key()``) since the last reset.
         self._pending: Dict[str, List[MemoryRecord]] = {}
 
@@ -443,10 +461,12 @@ class ReflectionPipeline:
             pending.sort(key=lambda e: (e.created_at or 0, e.id))
             overflow = len(pending) - self.max_episodes_per_reflection
             dropped, keep = pending[:overflow], pending[overflow:]
+            # In-place: `pending` already *is* `self._pending[key]` (from `setdefault` above), so
+            # this slice assignment mutates the stored list directly. No `self._pending[key] = ...`
+            # follows -- that would just rebind the same object to the same key.
             pending[:] = keep
             for episode in dropped:
                 self._trigger.record_event(scope, now=now, size=-_clamped_importance(episode))
-        self._pending[key] = pending
         return pending
 
     def _consume(self, scope: Scope) -> None:
@@ -468,22 +488,31 @@ class ReflectionPipeline:
         re-run), valid-time spanning every member's own bounds (open-ended if any member is), and
         provenance citing every episode this insight came from.
 
-        ``insight.title`` and ``insight.insight`` are both guaranteed non-empty here: the only
-        caller, :meth:`run`/:meth:`arun`, reaches this method only when ``synthesizer.synthesize``
-        returned non-``None``, and ``LLMInsightSynthesizer._extract`` refuses to return a
-        ``has_insight=True`` result with either blank (module docstring's citation requirement
-        would otherwise silently accept an empty insight). No fallback branch is needed for a case
-        that cannot occur -- an ``assert`` says so rather than leaving a dead branch a reader could
-        mistake for a real one.
+        ``insight.title``/``insight.insight`` are expected non-blank here: with
+        :class:`LLMInsightSynthesizer`, ``_extract`` already refused a ``has_insight=True`` result
+        carrying either blank (module docstring's citation requirement would otherwise silently
+        accept an empty insight). But :data:`InsightSynthesizer` is a ``Protocol`` any caller may
+        implement directly, bypassing ``_extract`` entirely -- so this is re-checked with a typed
+        refusal, not an ``assert`` (silently stripped under ``python -O``, and a poor fit for
+        input this method does not itself control) naming the actual offender rather than blaming
+        ``LLMInsightSynthesizer`` for a violation a different synthesizer caused.
         """
-        assert insight.title and insight.insight, (
-            "SynthesizedInsight.has_insight=True with a blank title/insight reached _to_fact; "
-            "LLMInsightSynthesizer._extract should have refused it before returning."
-        )
+        if not insight.title or not insight.insight:
+            raise MemoryOperationError(
+                "The synthesizer reported has_insight=True with a blank title or insight "
+                f"({insight!r}); both are required whenever an insight is reported.",
+                field_name="insight",
+            )
         source_ids = sorted(episode.id for episode in batch)
         content = f"{insight.title}\n{insight.insight}"
         return FactWrite(
             record=MemoryRecord(
+                # `"|"` assumes no episode id itself contains a `"|"` -- true for every id this
+                # codebase generates (`uuid4`/`uuid5` hex, or a caller-supplied id validated as
+                # non-empty by `MemoryRecord.__post_init__` but not charset-restricted). The same
+                # assumption `co_located._distil`'s own `FactWrite.record.id` derivation already
+                # makes for `_FACT_NAMESPACE`; kept identical here rather than diverging with a
+                # different separator for only this one namespace.
                 id=str(uuid5(_INSIGHT_NAMESPACE, "|".join(source_ids))),
                 tier=CONSOLIDATION_TARGET,
                 content=content,
@@ -527,9 +556,24 @@ class ReflectionPipeline:
         ``consolidate`` pass, extended to this stage rather than inventing a second retry policy.
         It does mean a *permanently* unsynthesizable cluster (a model that never returns a valid
         response for this content) retries every call indefinitely, with no backoff or give-up --
-        no bound exists here today. The caller decides how much that costs: see
-        ``CoLocatedMemoryProvider._reflect``'s docstring for why *that* caller catches this and
-        keeps retrying without blocking the rest of consolidation.
+        no bound exists here today (tracked: aicoe-tracker#191). The caller decides how much that
+        costs: see ``CoLocatedMemoryProvider._reflect``'s docstring for why *that* caller catches
+        this and keeps retrying without blocking the rest of consolidation.
+
+        **A raised exception is marked with ``reflection_triggered = True``** if and only if it
+        happened after :class:`SizeTrigger` had already fired for this call -- which is exactly
+        the window between the ``should_fire`` check above and :meth:`_consume` below, the only
+        place an exception can originate once execution reaches this point. A caller catching
+        broadly (``_reflect``/``_areflect``) reads that attribute to report
+        ``details["triggered"]`` correctly: ``True`` for a failure *after* the threshold crossed
+        (the trigger is still armed, a retry is pending), ``False`` for one *before* it was ever
+        evaluated (``require_scope``, ``_accumulate``) -- conflating the two, as an earlier
+        revision did by hard-coding ``False`` on every caught exception, told a downstream
+        scheduler "still building toward threshold" when the threshold had in fact already
+        crossed and nothing further would happen until the next pass retried. A bare attribute on
+        the exception, not a new wrapping exception type, so ``co_located.py`` gains no import
+        edge into this module for it -- see the module docstring on why this pipeline is
+        duck-typed there.
         """
         require_scope(scope, method="run")
         now = now_epoch_s()
@@ -538,7 +582,11 @@ class ReflectionPipeline:
             return self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
         total = self._accumulated_importance(pending)
         considered = len(pending)
-        insight = self.synthesizer.synthesize(pending)
+        try:
+            insight = self.synthesizer.synthesize(pending)
+        except Exception as exc:
+            exc.reflection_triggered = True  # type: ignore[attr-defined]
+            raise
         self._consume(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
         return self._report(scope, considered, total, insights, triggered=True)
@@ -554,6 +602,16 @@ class ReflectionPipeline:
         ``asynthesize``. Reading it again afterward would let the insight cite episodes it was
         never shown, or a trimmed episode it no longer holds. ``considered`` is computed from the
         same snapshot, before the ``await``, for the identical reason.
+
+        **The snapshot protects citation correctness, not credit accumulation.** A concurrent
+        ``arun`` call for this scope that appends a new episode *while this call is suspended*
+        still credits that episode's importance to :class:`SizeTrigger` (the trigger is shared
+        state, never snapshotted) -- but this call's own :meth:`_consume`, once it resumes, resets
+        that shared trigger to zero regardless, discarding the concurrent call's credit along with
+        this one's. ``ConsolidationWorker`` never calls ``aconsolidate`` twice concurrently for one
+        scope, so this is unreachable through the worker; it is reachable only through direct
+        concurrent calls to ``aconsolidate``/``arun``, which the interface docstring already
+        documents as tolerated-but-costing-duplicate-work rather than serialized.
         """
         require_scope(scope, method="arun")
         now = now_epoch_s()
@@ -562,7 +620,11 @@ class ReflectionPipeline:
             return self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
         total = self._accumulated_importance(pending)
         considered = len(pending)
-        insight = await self.synthesizer.asynthesize(pending)
+        try:
+            insight = await self.synthesizer.asynthesize(pending)
+        except Exception as exc:
+            exc.reflection_triggered = True  # type: ignore[attr-defined]
+            raise
         self._consume(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
         return self._report(scope, considered, total, insights, triggered=True)

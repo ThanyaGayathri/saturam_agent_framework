@@ -738,8 +738,10 @@ end to end: `report.details["reflection"]["triggered"]` is `True`, the insight i
 `OPENAI_API_KEY` was available in the environment that wrote this cookbook, the same gap
 `21_episode_importance.py` logs. `ReflectionPipeline`'s own decisions (accumulation, threshold
 crossing, provenance, sync/async parity) are covered against a stub synthesizer by
-`libs/agno/tests/unit/memory/test_consolidation_reflect.py`; this file is the only thing left
-unverified against a live provider. Re-run with a real key before relying on this entry as a full
-PASS.
+`libs/agno/tests/unit/memory/test_consolidation_reflect.py`, and `LLMInsightSynthesizer._extract`'s
+response-format handling is now also covered against a mocked `Model` in that same file -- what
+remains unverified is specifically the real-model response shape this mock cannot guarantee to
+match. Follow-up: [aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192).
+Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
 
 **Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.

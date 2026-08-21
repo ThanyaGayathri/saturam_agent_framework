@@ -57,6 +57,7 @@ from egpt.memory.types import (
     MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
+    MemoryScopeRequiredError,
     MemorySlice,
     PartialWriteError,
     ScanCursor,
@@ -125,11 +126,26 @@ def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:
     would (``reflect.py`` is not imported here at runtime -- see the module docstring's reasoning
     for keeping ``reflection_pipeline`` duck-typed -- so this is a local, minimal literal rather
     than a shared builder). ``reflector`` is ``None`` rather than a guessed producer id: nothing
-    was actually produced. ``triggered`` is ``False``: whatever this pass's accumulated importance
-    was, no insight came of it. ``error`` names why, for a scheduler or operator reading the report
+    was actually produced. ``error`` names why, for a scheduler or operator reading the report
     without needing to grep logs.
+
+    ``triggered`` reads ``exc.reflection_triggered`` (:meth:`ReflectionPipeline.run`'s docstring)
+    rather than being hard-coded -- an earlier revision hard-coded ``False`` here for every caught
+    exception, which was correct for a pre-threshold failure (``require_scope``, ``_accumulate``)
+    but wrong for the far more common case: a failure from ``synthesize``/``asynthesize`` itself,
+    which cannot happen until *after* the trigger has already fired. Reporting ``triggered=False``
+    on that path told a downstream scheduler "still building toward threshold" when the threshold
+    had in fact already crossed and the pipeline's own trigger was left armed, waiting on a retry.
+    ``getattr`` defaults to ``False`` for an exception that never passed through that attribute
+    assignment -- true of every pre-threshold failure, and of any exception a non-``reflect.py``
+    caller of this function might pass.
     """
-    return {"reflector": None, "complete": False, "triggered": False, "error": str(exc)}
+    return {
+        "reflector": None,
+        "complete": False,
+        "triggered": bool(getattr(exc, "reflection_triggered", False)),
+        "error": str(exc),
+    }
 
 
 def _positive_int(value: Any, option: str) -> int:
@@ -1133,11 +1149,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
         pass retries synthesis on the same accumulation -- the same "safe to retry" contract
         every other pass in this module already carries -- without blocking anything else in the
         meantime.
+
+        **``MemoryScopeRequiredError`` is not caught here -- it propagates.** Every other
+        exception this call can raise is a runtime failure worth retrying (a bad model response,
+        a network error, injected content the synthesizer refuses); a scope failing its own
+        validity check is a caller bug at the site that built it, not something a later pass can
+        fix by trying again. Catching it the same way as the rest would turn a call-site defect
+        into an indefinitely-repeating, silently-logged no-op instead of surfacing it to whoever
+        can actually fix it -- and in practice it is unreachable through ``consolidate``, which
+        already validates ``scope`` before calling this, so the guard is for a caller-supplied
+        ``reflection_pipeline`` reached some other way.
         """
         if self.reflection_pipeline is None:
             return [], NO_REFLECTION
         try:
             report = self.reflection_pipeline.run(scope, episodes)
+        except MemoryScopeRequiredError:
+            raise
         except Exception as exc:
             log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
             return [], reflection_failed_details(exc)
@@ -1151,6 +1179,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
             return [], NO_REFLECTION
         try:
             report = await self.reflection_pipeline.arun(scope, episodes)
+        except MemoryScopeRequiredError:
+            raise
         except Exception as exc:
             log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
             return [], reflection_failed_details(exc)
@@ -1270,7 +1300,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # distilled fact is, so a pass with no duplicate facts but a triggered reflection still
         # takes the `if facts:` path rather than needing a second, parallel write branch.
         insight_facts, reflection = self._reflect(scope, episodes)
-        facts = facts + insight_facts
+        facts += insight_facts
 
         if facts:
             self._check_distilled(facts)
@@ -1360,7 +1390,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         facts, merged = await asyncio.to_thread(self._distil, episodes)
         # Same fold-before-branch as the sync half, for the same reason -- see its comment.
         insight_facts, reflection = await self._areflect(scope, episodes)
-        facts = facts + insight_facts
+        facts += insight_facts
 
         if facts:
             self._check_distilled(facts)
