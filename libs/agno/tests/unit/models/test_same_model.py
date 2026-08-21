@@ -150,9 +150,13 @@ class TestTheLazyFillDoesNotBreakComparison:
 
     def test_a_caller_edit_after_construction_is_still_honoured(self):
         """``value -> value`` is unambiguously a caller edit -- the lazy-fill guard would not have
-        fired -- so it must be read, or an edited model would compare equal to its original."""
+        fired -- so it must be read, or an edited model would compare equal to its original.
+
+        The edit goes through `_set_connection_attr`, the one sanctioned way to patch a
+        connection attr post-construction -- `Model.__setattr__` blocks a raw second write.
+        """
         live = OpenAIResponses(id="gpt-5.5", base_url="https://tenant-a.internal/v1")
-        live.base_url = "https://tenant-b.internal/v1"
+        live._set_connection_attr("base_url", "https://tenant-b.internal/v1")
 
         assert same_model(OpenAIResponses(id="gpt-5.5", base_url="https://tenant-a.internal/v1"), live) is False
 
@@ -477,14 +481,49 @@ _PROVIDER_MUTATION_CASES = [
         "get_client",
         {},
     ),
+    # Added to close the coverage gap a second review round (2026-08-20) found: 11 of the ~44
+    # converted providers, including OpenAIChat itself -- the shared base ~24 others delegate
+    # through via super()._get_client_params(...) -- had no case here.
+    ("cerebras.cerebras", "Cerebras", {"CEREBRAS_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("dashscope.dashscope", "DashScope", {"DASHSCOPE_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("deepseek.deepseek", "DeepSeek", {"DEEPSEEK_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("groq.groq", "Groq", {"GROQ_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "langdb.langdb",
+        "LangDB",
+        {
+            "LANGDB_API_KEY": "sentinel",
+            "LANGDB_PROJECT_ID": "sentinel-project",
+            "LANGDB_API_BASE_URL": "https://sentinel.example/v1",
+        },
+        ("api_key", "project_id", "base_host_url"),
+        "_get_client_params",
+        {},
+    ),
+    ("meta.llama", "Llama", {"LLAMA_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("minimax.minimax", "MiniMax", {"MINIMAX_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("moonshot.moonshot", "MoonShot", {"MOONSHOT_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("n1n.n1n", "N1N", {"N1N_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    ("openai.chat", "OpenAIChat", {"OPENAI_API_KEY": "sentinel"}, ("api_key",), "_get_client_params", {}),
+    (
+        "openrouter.responses",
+        "OpenRouterResponses",
+        {"OPENROUTER_API_KEY": "sentinel"},
+        ("api_key",),
+        "_get_client_params",
+        {},
+    ),
 ]
+
 
 class TestNoProviderMutatesConnectionAttrsAfterClientBuild:
     """The gap two reviews of PR #108 (EGPT-171) flagged: only ``OpenAIResponses`` and
     ``Neosantara`` got an explicit "does not mutate self" regression assertion, out of ~44
     changed providers. Everything else relied on the one-time sweep the PR described, not on a
     test -- so a new provider (or an edit to an existing one) reintroducing the mutation would
-    pass CI silently. This is the runtime backstop `same_model`'s docstring now points to.
+    pass CI silently. This is the runtime backstop `same_model`'s docstring now points to,
+    alongside the structural guard on `Model.__setattr__` that raises the moment a provider
+    tries to reintroduce the mutation, rather than only failing here on the next test run.
 
     Each case sets the env var(s) a provider falls back to, builds an instance, snapshots the
     connection attrs before calling whichever method actually performs resolution, and asserts

@@ -19,10 +19,10 @@ from typing import Optional
 import pytest
 
 from egpt.agent._run import apply_run_model
+from egpt.models.base import same_model
 from egpt.providers import set_default_model_provider
 from egpt.providers.escalation import EscalatingModelProvider
 from egpt.providers.model_provider import ModelCapabilities, ModelResolveRequest, ProviderMode
-from egpt.models.base import same_model
 from egpt.run.base import RunContext, run_model
 from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider, FakeModel
 

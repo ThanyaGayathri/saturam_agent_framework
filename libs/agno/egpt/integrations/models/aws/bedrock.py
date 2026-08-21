@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from os import getenv
 from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Tuple, Type, Union
 
@@ -85,14 +85,6 @@ class AwsBedrock(Model):
     async_client: Optional[Any] = None
     async_session: Optional[Any] = None
 
-    # Not a connection attribute -- excluded from same_model's comparison and never set by a
-    # caller. Caches the env-resolved async credentials once per instance lifetime, mirroring
-    # get_client()'s "resolve once, reuse via self.client" caching without mutating a declared
-    # connection attribute (EGPT-171).
-    _resolved_async_aws_credentials: Optional[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]] = (
-        field(default=None, init=False, repr=False, compare=False)
-    )
-
     def __post_init__(self):
         super().__post_init__()
         if self.append_trailing_user_message is None:
@@ -175,15 +167,13 @@ class AwsBedrock(Model):
         if self.async_session is None:
             self.async_session = aioboto3.Session()
 
-        if self._resolved_async_aws_credentials is None:
-            self._resolved_async_aws_credentials = (
-                self.aws_access_key_id or getenv("AWS_ACCESS_KEY_ID"),
-                self.aws_secret_access_key or getenv("AWS_SECRET_ACCESS_KEY"),
-                self.aws_session_token or getenv("AWS_SESSION_TOKEN"),
-                self.aws_region or getenv("AWS_REGION"),
-            )
-
-        aws_access_key_id, aws_secret_access_key, aws_session_token, aws_region = self._resolved_async_aws_credentials
+        # Resolved fresh on every call, mirroring get_client()'s per-field fallback, so
+        # credentials rotated via env vars (e.g. STS-issued temporary creds) are picked up
+        # rather than pinned to whatever was observed on the first call (EGPT-171).
+        aws_access_key_id = self.aws_access_key_id or getenv("AWS_ACCESS_KEY_ID")
+        aws_secret_access_key = self.aws_secret_access_key or getenv("AWS_SECRET_ACCESS_KEY")
+        aws_session_token = self.aws_session_token or getenv("AWS_SESSION_TOKEN")
+        aws_region = self.aws_region or getenv("AWS_REGION")
 
         client_kwargs: Dict[str, Any] = {
             "service_name": "bedrock-runtime",

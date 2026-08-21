@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, Type, Union
 
 from pydantic import BaseModel
 
-from egpt.exceptions import ModelAuthenticationError, ModelProviderError
+from egpt.exceptions import ModelProviderError
 from egpt.models.message import Citations, UrlCitation
 from egpt.models.metrics import MessageMetrics
 from egpt.models.response import ModelResponse
@@ -59,12 +59,7 @@ class Perplexity(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        api_key = self.api_key or getenv("PERPLEXITY_API_KEY")
-        if not api_key:
-            raise ModelAuthenticationError(
-                message="PERPLEXITY_API_KEY not set. Please set the PERPLEXITY_API_KEY environment variable.",
-                model_name=self.name,
-            )
+        api_key = self._resolve_required_api_key("PERPLEXITY_API_KEY")
         return super()._get_client_params(api_key=api_key)
 
     def get_request_params(

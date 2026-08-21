@@ -1,8 +1,6 @@
 from dataclasses import dataclass
-from os import getenv
 from typing import Any, Dict, Optional
 
-from egpt.exceptions import ModelAuthenticationError
 from egpt.integrations.models.openai_like import OpenAILike
 
 
@@ -32,10 +30,5 @@ class Siliconflow(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        api_key = self.api_key or getenv("SILICONFLOW_API_KEY")
-        if not api_key:
-            raise ModelAuthenticationError(
-                message="SILICONFLOW_API_KEY not set. Please set the SILICONFLOW_API_KEY environment variable.",
-                model_name=self.name,
-            )
+        api_key = self._resolve_required_api_key("SILICONFLOW_API_KEY")
         return super()._get_client_params(api_key=api_key)

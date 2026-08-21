@@ -1,11 +1,9 @@
 from dataclasses import dataclass
-from os import getenv
 from typing import Any, Dict, List, Optional, Type, Union
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from pydantic import BaseModel
 
-from egpt.exceptions import ModelAuthenticationError
 from egpt.integrations.models.openai_like import OpenAILike
 from egpt.models.message import Message
 from egpt.models.response import ModelResponse
@@ -45,14 +43,7 @@ class OpenRouter(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        # Fetch API key from env if not already set
-        api_key = self.api_key or getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ModelAuthenticationError(
-                message="OPENROUTER_API_KEY not set. Please set the OPENROUTER_API_KEY environment variable.",
-                model_name=self.name,
-            )
-
+        api_key = self._resolve_required_api_key("OPENROUTER_API_KEY")
         return super()._get_client_params(api_key=api_key)
 
     def get_request_params(

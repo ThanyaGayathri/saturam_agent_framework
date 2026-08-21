@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from os import getenv
 from typing import Any, Dict, Optional
 
 try:
@@ -7,7 +6,6 @@ try:
 except ImportError:
     raise ImportError("`openai` not installed. Please install using `pip install openai`")
 
-from egpt.exceptions import ModelAuthenticationError
 from egpt.integrations.models._utils.llama import format_message
 from egpt.integrations.models.meta.llama import Message
 from egpt.integrations.models.openai_like import OpenAILike
@@ -57,12 +55,7 @@ class LlamaOpenAI(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        api_key = self.api_key or getenv("LLAMA_API_KEY")
-        if not api_key:
-            raise ModelAuthenticationError(
-                message="LLAMA_API_KEY not set. Please set the LLAMA_API_KEY environment variable.",
-                model_name=self.name,
-            )
+        api_key = self._resolve_required_api_key("LLAMA_API_KEY")
         return super()._get_client_params(api_key=api_key)
 
     def _format_message(self, message: Message) -> Dict[str, Any]:
