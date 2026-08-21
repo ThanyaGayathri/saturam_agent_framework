@@ -740,3 +740,35 @@ asked about invoicing") produced its own fact with `near_duplicate_facts_folded=
 semantic fact count is 2, confirming the dedup stage does not over-merge.
 
 **Requires:** No database, no API key. Run with `.venvs/demo`.
+
+---
+
+### 30_episodic_contiguity_retrieval.py
+
+**Status:** PASS
+
+**Description:** Temporal-contiguity retrieval (SM-E8 #115) -- `temporal_neighbors` on a
+six-episode session names the radius-2 neighbors of a hit, `ContiguityBuffer(capacity=4)`
+accumulates them across the pass and deduplicates a second hit's overlapping neighbors, and
+`blend_contiguity`/`contiguity_bonus` blend a neighbor's distance from its hit into its own
+`composite_episodic_score`.
+
+**Result:** Ran to completion. `temporal_neighbors` returned the expected four neighbors, nearest
+first (`ep-1`/`ep-3` at distance +/-1, `ep-0`/`ep-4` at distance +/-2). The buffer filled to its
+4-item capacity with zero evictions on the first hit's lookup. The second hit's neighbor lookup
+(`ep-2` at distance -1, `ep-4` at distance +1) deduplicated `ep-4` (already buffered from the
+first hit) but genuinely added `ep-2` (the *first* hit itself, new from the second hit's
+perspective) -- pushing the buffer past capacity and evicting `ep-1`, the oldest entry. The
+buffer's size stays at 4/4 either way, so this is not visible from the length alone; the cookbook
+now prints the newly-buffered and evicted ids explicitly to make both true.
+The fixture showed an unrelated later-session episode (base score 0.650) outranking the hit's own
+temporal continuation (base score 0.500) under relevance/importance alone, and the ranking
+reversing once the continuation's contiguity bonus (0.200 at distance +1) was blended in (0.700 >
+0.650) -- the improved-temporal-recall behavior the acceptance criteria ask for. The refusal
+section confirmed a negative radius, a hit absent from the candidate pool, a zero-capacity buffer,
+and a distance-0 contiguity bonus are all refused with a named field.
+
+**Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `29_` to `30_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py` first.**
+Per this file's own convention, whoever merges second renumbers.

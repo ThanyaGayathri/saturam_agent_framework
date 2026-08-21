@@ -13,8 +13,12 @@ from egpt.memory.config import (
 from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker
 from egpt.memory.episodic import (
     DEFAULT_BASE_HALF_LIFE_S,
+    DEFAULT_CONTIGUITY_BUFFER_CAPACITY,
+    DEFAULT_CONTIGUITY_RADIUS,
     DEFAULT_IMP_FACTOR,
     DEFAULT_PRUNE_THRESHOLD,
+    ContiguityBuffer,
+    ContiguityNeighbor,
     ImportanceScore,
     ImportanceScorer,
     episode_decay_score,
@@ -23,6 +27,8 @@ from egpt.memory.episodic import (
     recency_decay,
     reinforce,
     select_for_forgetting,
+    temporal_neighbors,
+    temporal_order_key,
 )
 
 # `forget` (the single-episode archive function) is imported from its submodule directly, not
@@ -32,9 +38,13 @@ from egpt.memory.episodic import (
 from egpt.memory.episodic.forget import forget
 from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.episodic.score import (
+    DEFAULT_CONTIGUITY_DECAY,
+    DEFAULT_CONTIGUITY_WEIGHT,
     DEFAULT_EPISODIC_SCORE_WEIGHTS,
     EpisodicScoreWeights,
+    blend_contiguity,
     composite_episodic_score,
+    contiguity_bonus,
 )
 from egpt.memory.episodic.segment import (
     DEFAULT_MAX_TURNS_PER_EPISODE,
@@ -257,6 +267,17 @@ __all__ = [
     "DEFAULT_EPISODIC_SCORE_WEIGHTS",
     "EpisodicScoreWeights",
     "composite_episodic_score",
+    # Temporal-contiguity retrieval (SM-E8)
+    "DEFAULT_CONTIGUITY_BUFFER_CAPACITY",
+    "DEFAULT_CONTIGUITY_DECAY",
+    "DEFAULT_CONTIGUITY_RADIUS",
+    "DEFAULT_CONTIGUITY_WEIGHT",
+    "ContiguityBuffer",
+    "ContiguityNeighbor",
+    "blend_contiguity",
+    "contiguity_bonus",
+    "temporal_neighbors",
+    "temporal_order_key",
     # Episode forgetting / pruning (SM-E9)
     "DEFAULT_PRUNE_THRESHOLD",
     "forget",

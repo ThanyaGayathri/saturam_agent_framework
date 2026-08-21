@@ -13,9 +13,13 @@ import math
 import pytest
 
 from egpt.memory.episodic.score import (
+    DEFAULT_CONTIGUITY_DECAY,
+    DEFAULT_CONTIGUITY_WEIGHT,
     DEFAULT_EPISODIC_SCORE_WEIGHTS,
     EpisodicScoreWeights,
+    blend_contiguity,
     composite_episodic_score,
+    contiguity_bonus,
 )
 from egpt.memory.types import MemoryOperationError
 
@@ -189,3 +193,109 @@ def test_default_weights_rank_a_stale_important_episode_over_a_fresh_unimportant
         for name, (relevance, recency, importance) in episodes.items()
     }
     assert scored["stale_important_incident"] > scored["fresh_unimportant_ping"]
+
+
+# -- contiguity_bonus (SM-E8 #115) ----------------------------------------------------------------
+
+
+def test_contiguity_bonus_at_distance_one_is_the_full_weight():
+    assert contiguity_bonus(1, weight=0.2, decay=0.5) == pytest.approx(0.2)
+    assert contiguity_bonus(-1, weight=0.2, decay=0.5) == pytest.approx(0.2)
+
+
+def test_contiguity_bonus_decays_with_each_additional_hop():
+    assert contiguity_bonus(2, weight=0.2, decay=0.5) == pytest.approx(0.1)
+    assert contiguity_bonus(3, weight=0.2, decay=0.5) == pytest.approx(0.05)
+
+
+def test_contiguity_bonus_is_symmetric_in_the_sign_of_distance():
+    assert contiguity_bonus(3, weight=0.2, decay=0.5) == pytest.approx(contiguity_bonus(-3, weight=0.2, decay=0.5))
+
+
+def test_contiguity_bonus_zero_decay_gives_a_flat_bonus_at_distance_one_only():
+    assert contiguity_bonus(1, weight=0.2, decay=0.0) == pytest.approx(0.2)
+    assert contiguity_bonus(2, weight=0.2, decay=0.0) == pytest.approx(0.0)
+
+
+def test_contiguity_bonus_one_decay_never_fades():
+    assert contiguity_bonus(1, weight=0.2, decay=1.0) == pytest.approx(0.2)
+    assert contiguity_bonus(50, weight=0.2, decay=1.0) == pytest.approx(0.2)
+
+
+def test_contiguity_bonus_defaults():
+    assert DEFAULT_CONTIGUITY_WEIGHT == 0.2
+    assert DEFAULT_CONTIGUITY_DECAY == 0.5
+    assert contiguity_bonus(1) == pytest.approx(0.2)
+
+
+def test_contiguity_bonus_rejects_distance_zero():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        contiguity_bonus(0)
+    assert exc_info.value.field_name == "distance"
+
+
+def test_contiguity_bonus_rejects_a_negative_weight():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        contiguity_bonus(1, weight=-0.1)
+    assert exc_info.value.field_name == "weight"
+
+
+def test_contiguity_bonus_rejects_a_nonfinite_weight():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        contiguity_bonus(1, weight=math.nan)
+    assert exc_info.value.field_name == "weight"
+
+
+@pytest.mark.parametrize("bad_decay", [-0.1, 1.1, math.nan, math.inf])
+def test_contiguity_bonus_rejects_a_decay_outside_unit_interval(bad_decay):
+    with pytest.raises(MemoryOperationError) as exc_info:
+        contiguity_bonus(1, decay=bad_decay)
+    assert exc_info.value.field_name == "decay"
+
+
+# -- blend_contiguity (SM-E8 #115) ----------------------------------------------------------------
+
+
+def test_blend_contiguity_adds_the_bonus_to_the_base_score():
+    assert blend_contiguity(0.5, distance=1, weight=0.2, decay=0.5) == pytest.approx(0.7)
+
+
+def test_blend_contiguity_farther_neighbors_get_a_smaller_boost():
+    near = blend_contiguity(0.5, distance=1, weight=0.2, decay=0.5)
+    far = blend_contiguity(0.5, distance=2, weight=0.2, decay=0.5)
+    assert near > far > 0.5
+
+
+def test_blend_contiguity_rejects_a_nonfinite_base_score():
+    for bad in (math.nan, math.inf, -math.inf):
+        with pytest.raises(MemoryOperationError) as exc_info:
+            blend_contiguity(bad, distance=1)
+        assert exc_info.value.field_name == "base_score"
+
+
+def test_blend_contiguity_accepts_a_negative_finite_base_score():
+    # Only finiteness is checked -- a negative-but-finite base_score (e.g. an uncentered cosine
+    # similarity a caller passed instead of composite_episodic_score's [0.0, 1.0] output) is not
+    # refused, and the bonus is added to it as-is.
+    assert blend_contiguity(-0.4, distance=1, weight=0.2, decay=0.5) == pytest.approx(-0.2)
+
+
+def test_blend_contiguity_propagates_contiguity_bonus_errors():
+    with pytest.raises(MemoryOperationError) as exc_info:
+        blend_contiguity(0.5, distance=0)
+    assert exc_info.value.field_name == "distance"
+
+
+def test_blend_contiguity_is_not_renormalized_to_unit_interval():
+    # A single-signal weight set puts composite_episodic_score's own ceiling at exactly 1.0
+    # (relevance=1.0, every other weight 0.0). Adding a full-weight contiguity bonus on top of
+    # that lands above 1.0, deliberately -- blend_contiguity does not divide back down, the same
+    # choice composite_episodic_score's own docstring makes for its weighted sum (see "Not itself
+    # renormalized to [0.0, 1.0]" there). A caller wiring a blended score back into a ranking that
+    # assumes a unit-interval score must account for that itself.
+    weights = EpisodicScoreWeights(relevance=1.0, recency=0.0, importance=0.0)
+    at_the_composite_ceiling = composite_episodic_score(1.0, recency=0.0, importance=0.0, weights=weights)
+    assert at_the_composite_ceiling == pytest.approx(1.0)
+    blended = blend_contiguity(at_the_composite_ceiling, distance=1, weight=0.2, decay=0.5)
+    assert blended > 1.0
+    assert blended == pytest.approx(1.2)

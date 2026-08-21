@@ -124,6 +124,17 @@ This section demonstrates how EGPT agents persist and use user memories across r
   (facts, this stage) reported separately from `duplicates_merged` (episodes, `_distil`'s own
   grouping). Vector-only, so it runs with no database and no API key.
 
+- `30_episodic_contiguity_retrieval.py`: Temporal-contiguity retrieval (SM-E8) --
+  `temporal_neighbors` names a hit's +/- n neighbors in temporal order (occurred_at, falling back
+  to created_at), `ContiguityBuffer` accumulates them across a pass in a bounded, deduplicating
+  FIFO, and `blend_contiguity`/`contiguity_bonus` turn a buffered neighbor's distance from its
+  hit into a bonus on top of its own `composite_episodic_score` (`26_`). A six-episode fixture
+  shows an unrelated episode outranking the hit's own temporal continuation on relevance alone,
+  and the ranking reversing once the continuation's contiguity bonus is blended in. Wiring
+  contiguity into live retrieval is SM-H5's (#135). Runs with no database and no API key.
+  **Renumbered from `29_` to `30_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py` first.
+  Per this file's own convention, whoever merges second renumbers.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
