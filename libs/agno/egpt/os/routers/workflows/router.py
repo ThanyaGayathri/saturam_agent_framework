@@ -55,6 +55,7 @@ from egpt.os.utils import (
     resolve_tenant_id,
     resolve_workflow,
     tenant_for_direct_read,
+    tenant_for_ws_hydration,
 )
 from egpt.registry.policy import PolicyViolationError
 from egpt.run.base import RunStatus
@@ -102,9 +103,20 @@ async def handle_workflow_via_websocket(
             return
 
         # Get workflow from OS — supports both static and factory components
+        in_memory = os.workflows is not None and any(getattr(w, "id", None) == workflow_id for w in os.workflows)
         is_factory = os.workflows and any(
             isinstance(w, WorkflowFactory) and w.id == workflow_id for w in (os.workflows or [])
         )
+        # The tenant that actually scopes the DB read below (aicoe-tracker#174). Resolved once,
+        # ahead of both branches, via the same fail-closed contract HTTP hydration uses --
+        # deliberately not resolve_tenant_id, whose user_id fallback exists for ModelPolicy
+        # selection (the ctx.tenant_id built in the factory branch below) and must never widen
+        # or misdirect a component read.
+        try:
+            hydration_tenant_id = tenant_for_ws_hydration(ws_user_context, in_memory=in_memory, db=os.db)
+        except HTTPException as e:
+            await websocket.send_text(json.dumps({"event": "error", "error": str(e.detail)}))
+            return
         if is_factory:
             from egpt.factory import RequestContext, TrustedContext
 
@@ -122,6 +134,8 @@ async def handle_workflow_via_websocket(
                 session_id=session_id,
                 input=factory_input,
                 trusted=trusted,
+                # ModelPolicy/budget tenant only -- see tenant_for_ws_hydration for why this
+                # must not be reused to scope the DB read below.
                 tenant_id=resolve_tenant_id(
                     trusted.claims,
                     user_id,
@@ -136,21 +150,12 @@ async def handle_workflow_via_websocket(
                     registry=os.registry,
                     create_fresh=True,
                     ctx=ctx,
-                    # The websocket has no Request for os.tenancy to read, so hydration scopes
-                    # to the same factory-context tenant the ctx above carries (EGPT-2.5).
-                    tenant_id=ctx.tenant_id,
+                    tenant_id=hydration_tenant_id,
                 )
             except Exception as e:
                 await websocket.send_text(json.dumps({"event": "error", "error": f"Factory error: {e}"}))
                 return
         else:
-            # Same claims-derived tenant as the factory branch (EGPT-2.5): a websocket carries
-            # no Request, so the middleware-written request.state.tenant_id does not exist here.
-            ws_tenant_id = resolve_tenant_id(
-                ws_user_context.get("payload", {}) if ws_user_context else {},
-                user_id,
-                verified_user_id=ws_user_context.get("user_id") if ws_user_context else None,
-            )
             try:
                 workflow = get_workflow_by_id(
                     workflow_id=workflow_id,
@@ -158,7 +163,7 @@ async def handle_workflow_via_websocket(
                     db=os.db,
                     registry=os.registry,
                     create_fresh=True,
-                    tenant_id=ws_tenant_id,
+                    tenant_id=hydration_tenant_id,
                 )
             except Exception as e:
                 await websocket.send_text(json.dumps({"event": "error", "error": f"Error resolving workflow: {e}"}))
@@ -235,10 +240,18 @@ class WebSocketAuthContext:
     # by the user-scoped-DB work stay dormant — RBAC still applies but the
     # handler treats reconnect as session-id-optional.
     user_isolation_enabled: bool = False
-    # Claims-derived tenant (EGPT-2.5): a websocket carries no Request, so the
-    # middleware-written request.state.tenant_id does not exist here. The dispatcher
-    # resolves it from the verified JWT payload, same as the start-workflow path.
+    # Claims-derived tenant (EGPT-2.5/aicoe-tracker#174): a websocket carries no Request, so
+    # the middleware-written request.state.tenant_id does not exist here. The dispatcher reads
+    # this off websocket_user_context["tenant_id"], populated the same way AuthMiddleware
+    # populates request.state.tenant_id -- the configured claim, verbatim, with no fallback to
+    # user_id. Pass this (with tenancy_enabled below) through tenant_for_ws_hydration before
+    # using it to scope a DB read; do not use it to scope one directly.
     tenant_id: Optional[str] = None
+    # Whether this deployment has opted into tenancy (a tenant_id_claim is configured) --
+    # mirrors egpt.os.tenancy.tenancy_enabled(request), which has no app.state to read here
+    # either. Required by tenant_for_ws_hydration to fail closed the same way HTTP hydration
+    # does when tenant_id above is None.
+    tenancy_enabled: bool = False
 
 
 async def handle_workflow_subscription(
@@ -322,6 +335,22 @@ async def handle_workflow_subscription(
         if buffer_status is None:
             # Run not in buffer - check database
             if workflow_id and session_id:
+                in_memory = os.workflows is not None and any(
+                    getattr(w, "id", None) == workflow_id for w in os.workflows
+                )
+                try:
+                    # Fail-closed hydration tenant (aicoe-tracker#174): ctx.tenant_id/
+                    # ctx.tenancy_enabled come straight off the dispatcher's
+                    # websocket_user_context, with no user_id fallback -- see
+                    # tenant_for_ws_hydration.
+                    hydration_tenant_id = tenant_for_ws_hydration(
+                        {"tenant_id": ctx.tenant_id, "tenancy_enabled": ctx.tenancy_enabled},
+                        in_memory=in_memory,
+                        db=os.db,
+                    )
+                except HTTPException as e:
+                    await websocket.send_text(json.dumps({"event": "error", "error": str(e.detail)}))
+                    return
                 try:
                     workflow = get_workflow_by_id(
                         workflow_id=workflow_id,
@@ -329,9 +358,7 @@ async def handle_workflow_subscription(
                         db=os.db,
                         registry=os.registry,
                         create_fresh=True,
-                        # Claims-derived tenant from the dispatcher (EGPT-2.5); scopes the
-                        # DB hydration the same way the start-workflow path does.
-                        tenant_id=ctx.tenant_id,
+                        tenant_id=hydration_tenant_id,
                     )
                 except FactoryContextRequired:
                     workflow = None
@@ -519,15 +546,26 @@ async def handle_workflow_continue_via_websocket(
                 await websocket.send_text(json.dumps({"event": "error", "error": f"Run {run_id} not found"}))
                 return
 
+        in_memory = os.workflows is not None and any(getattr(w, "id", None) == workflow_id for w in os.workflows)
+        try:
+            # Fail-closed hydration tenant (aicoe-tracker#174) -- see
+            # handle_workflow_subscription for why this isn't ws_auth.tenant_id directly.
+            hydration_tenant_id = tenant_for_ws_hydration(
+                {"tenant_id": ws_auth.tenant_id, "tenancy_enabled": ws_auth.tenancy_enabled} if ws_auth else None,
+                in_memory=in_memory,
+                db=os.db,
+            )
+        except HTTPException as e:
+            await websocket.send_text(json.dumps({"event": "error", "error": str(e.detail)}))
+            return
+
         workflow = get_workflow_by_id(
             workflow_id=workflow_id,
             workflows=os.workflows,
             db=os.db,
             registry=os.registry,
             create_fresh=True,
-            # Claims-derived tenant from the dispatcher (EGPT-2.5); scopes the DB
-            # hydration the same way the start-workflow path does.
-            tenant_id=ws_auth.tenant_id if ws_auth else None,
+            tenant_id=hydration_tenant_id,
         )
         if not workflow:
             await websocket.send_text(json.dumps({"event": "error", "error": f"Workflow {workflow_id} not found"}))

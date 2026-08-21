@@ -15,7 +15,13 @@ from fastapi import HTTPException
 from egpt.agent.agent import Agent
 from egpt.db.base import BaseDb
 from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
-from egpt.os.utils import get_agent_by_id_async, resolve_agent, tenant_for_direct_read
+from egpt.os.utils import (
+    get_agent_by_id_async,
+    resolve_agent,
+    resolve_tenant_id,
+    tenant_for_direct_read,
+    tenant_for_ws_hydration,
+)
 from egpt.registry import Registry
 from egpt.registry.hydrate import ComponentConfigCache
 
@@ -196,3 +202,54 @@ class TestTenantForDirectRead:
     def test_no_db_means_no_gate(self):
         """A path that cannot reach the DB has nothing to scope."""
         assert tenant_for_direct_read(_request(tenancy_on=True), db=None) is None
+
+
+class TestTenantForWsHydration:
+    """The WebSocket counterpart of tenant_for_direct_read (aicoe-tracker#174).
+
+    A websocket has no Request for current_tenant_id to read, so this reads
+    ws_user_context["tenant_id"]/["tenancy_enabled"] instead -- populated by the WS
+    dispatcher the same way AuthMiddleware populates request.state.tenant_id, with no
+    fallback to user_id. Same fail-closed contract as tenant_for_direct_read otherwise.
+    """
+
+    def test_tenancy_on_and_no_tenant_is_a_403(self):
+        with pytest.raises(HTTPException) as excinfo:
+            tenant_for_ws_hydration({"tenancy_enabled": True}, in_memory=False, db=_mock_db())
+        assert excinfo.value.status_code == 403
+        assert excinfo.value.detail == TENANCY_REQUIRED_DETAIL
+
+    def test_an_in_memory_component_is_exempt(self):
+        tenant = tenant_for_ws_hydration({"tenancy_enabled": True}, in_memory=True, db=_mock_db())
+        assert tenant is None
+
+    def test_tenancy_off_keeps_todays_unscoped_behavior(self):
+        assert tenant_for_ws_hydration({"tenancy_enabled": False}, in_memory=False, db=_mock_db()) is None
+
+    def test_the_context_tenant_is_returned(self):
+        ctx = {"tenant_id": "acme", "tenancy_enabled": True}
+        assert tenant_for_ws_hydration(ctx, in_memory=False, db=_mock_db()) == "acme"
+
+    def test_no_db_means_no_gate(self):
+        assert tenant_for_ws_hydration({"tenancy_enabled": True}, in_memory=False, db=None) is None
+
+    def test_none_context_is_treated_as_unauthenticated_and_unscoped(self):
+        """A connection with no ws_user_context at all (never authenticated) is not tenancy-on."""
+        assert tenant_for_ws_hydration(None, in_memory=False, db=_mock_db()) is None
+
+    def test_never_falls_back_to_user_id_like_resolve_tenant_id_does(self):
+        """Regression for aicoe-tracker#174.
+
+        A principal with a verified identity but no tenant claim must not be silently scoped
+        to their own user_id on the WS path -- that is exactly the divergence from the HTTP
+        resolver the issue describes. resolve_tenant_id's fallback is confirmed separately so
+        this test documents the two functions genuinely disagree on this input, and that
+        tenant_for_ws_hydration takes the fail-closed side.
+        """
+        claims = {}
+        assert resolve_tenant_id(claims, "bob", verified_user_id="bob") == "bob"
+
+        ctx = {"tenancy_enabled": True}  # no "tenant_id": the claim was absent, as above
+        with pytest.raises(HTTPException) as excinfo:
+            tenant_for_ws_hydration(ctx, in_memory=False, db=_mock_db())
+        assert excinfo.value.status_code == 403

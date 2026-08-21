@@ -55,7 +55,7 @@ from egpt.os.scopes import (
 from egpt.os.service_accounts import TOKEN_PREFIX as SERVICE_ACCOUNT_TOKEN_PREFIX
 from egpt.os.service_accounts import VerificationStatus
 from egpt.os.settings import EgptServingSettings
-from egpt.os.utils import resolve_tenant_id, resolve_ws_jwt_config
+from egpt.os.utils import resolve_ws_jwt_config
 from egpt.team.factory import TeamFactory
 from egpt.utils.log import logger
 
@@ -343,8 +343,12 @@ def get_websocket_router(
 
         await websocket_manager.connect(websocket, requires_auth=requires_auth)
 
-        # Store user context from the authenticated identity (JWT or service account)
-        websocket_user_context: Dict[str, Any] = {}
+        # Store user context from the authenticated identity (JWT or service account).
+        # tenancy_enabled mirrors what egpt.os.tenancy.tenancy_enabled(request) reads off
+        # app.state on the HTTP path -- there is no Request here for it to read, so
+        # tenant_for_ws_hydration (egpt.os.utils) takes it as an explicit override instead of
+        # deriving it. Set once, independent of which auth branch below fires.
+        websocket_user_context: Dict[str, Any] = {"tenancy_enabled": bool(ws_tenant_id_claim)}
 
         def scope_enforcement_active() -> bool:
             # JWT deployments always enforce scopes. Service-account identities do
@@ -381,6 +385,12 @@ def get_websocket_router(
                             # attribution gates that police JWTs apply to PATs.
                             websocket_user_context["user_id"] = account.principal
                             websocket_user_context["scopes"] = list(account.scopes)
+                            # Same as the HTTP path (egpt/os/service_accounts.py sets
+                            # request.state.tenant_id = account.tenant_id): the account's minted
+                            # tenant, verbatim, with no fallback -- None stays None rather than
+                            # becoming the principal.
+                            if account.tenant_id:
+                                websocket_user_context["tenant_id"] = account.tenant_id
                             await websocket_manager.authenticate_websocket(websocket)
                             await websocket.send_text(
                                 json.dumps(
@@ -584,15 +594,16 @@ def get_websocket_router(
 
                     # Pass auth context out-of-band so the handler doesn't
                     # have to read internal flags out of the client message.
+                    # tenant_id/tenancy_enabled come straight off websocket_user_context
+                    # (aicoe-tracker#174) -- not resolve_tenant_id, whose user_id fallback must
+                    # never scope a component DB read. The handler runs this fail-closed
+                    # through tenant_for_ws_hydration before using it.
                     ws_auth = WebSocketAuthContext(
                         jwt_enabled=scope_enforcement_active(),
                         is_admin=is_admin,
                         user_isolation_enabled=ws_user_isolation_enabled,
-                        tenant_id=resolve_tenant_id(
-                            websocket_user_context.get("payload", {}),
-                            message.get("user_id"),
-                            verified_user_id=websocket_user_context.get("user_id"),
-                        ),
+                        tenant_id=websocket_user_context.get("tenant_id"),
+                        tenancy_enabled=bool(websocket_user_context.get("tenancy_enabled")),
                     )
                     await handle_workflow_subscription(websocket, message, os, ws_auth=ws_auth)
 
@@ -627,15 +638,13 @@ def get_websocket_router(
                         else:
                             message["user_id"] = auth_user_id
 
+                    # tenant_id/tenancy_enabled: see the reconnect branch above.
                     ws_auth = WebSocketAuthContext(
                         jwt_enabled=scope_enforcement_active(),
                         is_admin=is_admin,
                         user_isolation_enabled=ws_user_isolation_enabled,
-                        tenant_id=resolve_tenant_id(
-                            websocket_user_context.get("payload", {}),
-                            message.get("user_id"),
-                            verified_user_id=websocket_user_context.get("user_id"),
-                        ),
+                        tenant_id=websocket_user_context.get("tenant_id"),
+                        tenancy_enabled=bool(websocket_user_context.get("tenancy_enabled")),
                     )
                     await handle_workflow_continue_via_websocket(websocket, message, os, ws_auth=ws_auth)
 
