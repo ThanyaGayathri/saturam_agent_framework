@@ -388,7 +388,12 @@ def get_websocket_router(
                             # Same as the HTTP path (egpt/os/service_accounts.py sets
                             # request.state.tenant_id = account.tenant_id): the account's minted
                             # tenant, verbatim, with no fallback -- None stays None rather than
-                            # becoming the principal.
+                            # becoming the principal. Reset first: a connection can send
+                            # "authenticate" more than once, and a stale tenant_id from a prior
+                            # identity on this same connection must not survive re-auth as an
+                            # untenanted one -- that would silently widen the fail-closed check
+                            # tenant_for_ws_hydration exists to enforce.
+                            websocket_user_context.pop("tenant_id", None)
                             if account.tenant_id:
                                 websocket_user_context["tenant_id"] = account.tenant_id
                             await websocket_manager.authenticate_websocket(websocket)
@@ -459,6 +464,10 @@ def get_websocket_router(
                             # Same rule as the HTTP middleware: only a non-empty string is a
                             # usable tenant, and anything else stays None rather than being
                             # coerced -- None means unscoped, so a bad claim must not widen.
+                            # Reset first: see the service-account branch above for why a stale
+                            # tenant_id from a prior authenticate on this connection must not
+                            # survive.
+                            websocket_user_context.pop("tenant_id", None)
                             if ws_tenant_id_claim:
                                 raw_tenant = payload.get(ws_tenant_id_claim)
                                 if isinstance(raw_tenant, str) and raw_tenant.strip():

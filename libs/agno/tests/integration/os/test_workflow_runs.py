@@ -267,10 +267,10 @@ def _issue_token(secret: str, os_id: str, sub: str, scopes: list[str]) -> str:
     )
 
 
-def _authenticate_ws(ws, token: str, expected_user_id: str) -> None:
-    connection_event = json.loads(ws.receive_text())
-    assert connection_event["event"] == "connected"
-
+def _reauthenticate_ws(ws, token: str, expected_user_id: str) -> None:
+    """Send an ``authenticate`` action without expecting the connection-open ``connected``
+    frame first -- for a connection that has already authenticated at least once.
+    """
     ws.send_text(json.dumps({"action": "authenticate", "token": token}))
 
     for _ in range(5):
@@ -278,6 +278,12 @@ def _authenticate_ws(ws, token: str, expected_user_id: str) -> None:
         if frame.get("event") == "authenticated" and frame.get("user_id") == expected_user_id:
             return
     raise AssertionError(f"Did not receive authenticated event for user_id={expected_user_id}")
+
+
+def _authenticate_ws(ws, token: str, expected_user_id: str) -> None:
+    connection_event = json.loads(ws.receive_text())
+    assert connection_event["event"] == "connected"
+    _reauthenticate_ws(ws, token, expected_user_id)
 
 
 def _drain_until(ws, predicate, max_frames: int = 20) -> str:
@@ -496,6 +502,46 @@ def test_http_and_ws_refuse_the_same_untenanted_principal(db_workflow_tenancy_cl
         error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
 
     assert error_frame["error"] == http_response.json()["detail"]
+
+
+def test_ws_reauthenticate_clears_a_stale_tenant(db_workflow_tenancy_client):
+    """Regression: re-authenticating on the same connection must not leak a prior tenant.
+
+    websocket_user_context["tenant_id"] is cached at authenticate-time, not recomputed per
+    dispatch. A connection can send "authenticate" more than once (token refresh, or a client
+    re-authenticating as a different principal without reconnecting); the second authenticate
+    must fully replace the tenant, not merely leave the first one in place when the new token
+    happens to carry no claim.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    tenanted_token = _issue_tenant_token(secret, os_id, sub="alice", scopes=["workflows:run"], tenant_id="acme")
+    untenanted_token = _issue_tenant_token(secret, os_id, sub="bob", scopes=["workflows:run"])
+
+    async def fake_arun(*_args, **kwargs):
+        run_websocket = kwargs.get("websocket")
+        if run_websocket is not None:
+            await run_websocket.send_text(json.dumps({"event": "WorkflowStarted", "workflow_id": "db-ws-workflow"}))
+
+    # If arun is ever reached, hydration silently succeeded under the stale "acme" tenant --
+    # the leak this test guards against. Patched (rather than left to run for real) so a
+    # regression fails the assertion below instead of hanging the test on a frame that would
+    # never arrive from a workflow with no steps.
+    with patch.object(Workflow, "arun", new_callable=AsyncMock, side_effect=fake_arun):
+        with client.websocket_connect("/workflows/ws") as ws:
+            _authenticate_ws(ws, tenanted_token, expected_user_id="alice")
+            _reauthenticate_ws(ws, untenanted_token, expected_user_id="bob")
+
+            ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+            frame = json.loads(_drain_until(ws, lambda f: "WorkflowStarted" in f or '"event": "error"' in f))
+
+    assert frame["event"] == "error", (
+        f"Expected the stale 'acme' tenant from the first authenticate to be cleared and the "
+        f"untenanted second identity refused, got: {frame}"
+    )
+    assert frame["error"] == TENANCY_REQUIRED_DETAIL
 
 
 # =============================================================================

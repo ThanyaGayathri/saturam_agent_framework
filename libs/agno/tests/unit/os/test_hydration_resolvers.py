@@ -207,35 +207,30 @@ class TestTenantForDirectRead:
 class TestTenantForWsHydration:
     """The WebSocket counterpart of tenant_for_direct_read (aicoe-tracker#174).
 
-    A websocket has no Request for current_tenant_id to read, so this reads
-    ws_user_context["tenant_id"]/["tenancy_enabled"] instead -- populated by the WS
-    dispatcher the same way AuthMiddleware populates request.state.tenant_id, with no
-    fallback to user_id. Same fail-closed contract as tenant_for_direct_read otherwise.
+    A websocket has no Request for current_tenant_id to read, so callers pass the
+    tenant_id/tenancy_enabled the WS dispatcher already resolved -- populated the same way
+    AuthMiddleware populates request.state.tenant_id, with no fallback to user_id. Same
+    fail-closed contract as tenant_for_direct_read otherwise.
     """
 
     def test_tenancy_on_and_no_tenant_is_a_403(self):
         with pytest.raises(HTTPException) as excinfo:
-            tenant_for_ws_hydration({"tenancy_enabled": True}, in_memory=False, db=_mock_db())
+            tenant_for_ws_hydration(None, True, in_memory=False, db=_mock_db())
         assert excinfo.value.status_code == 403
         assert excinfo.value.detail == TENANCY_REQUIRED_DETAIL
 
     def test_an_in_memory_component_is_exempt(self):
-        tenant = tenant_for_ws_hydration({"tenancy_enabled": True}, in_memory=True, db=_mock_db())
+        tenant = tenant_for_ws_hydration(None, True, in_memory=True, db=_mock_db())
         assert tenant is None
 
     def test_tenancy_off_keeps_todays_unscoped_behavior(self):
-        assert tenant_for_ws_hydration({"tenancy_enabled": False}, in_memory=False, db=_mock_db()) is None
+        assert tenant_for_ws_hydration(None, False, in_memory=False, db=_mock_db()) is None
 
-    def test_the_context_tenant_is_returned(self):
-        ctx = {"tenant_id": "acme", "tenancy_enabled": True}
-        assert tenant_for_ws_hydration(ctx, in_memory=False, db=_mock_db()) == "acme"
+    def test_the_tenant_is_returned(self):
+        assert tenant_for_ws_hydration("acme", True, in_memory=False, db=_mock_db()) == "acme"
 
     def test_no_db_means_no_gate(self):
-        assert tenant_for_ws_hydration({"tenancy_enabled": True}, in_memory=False, db=None) is None
-
-    def test_none_context_is_treated_as_unauthenticated_and_unscoped(self):
-        """A connection with no ws_user_context at all (never authenticated) is not tenancy-on."""
-        assert tenant_for_ws_hydration(None, in_memory=False, db=_mock_db()) is None
+        assert tenant_for_ws_hydration(None, True, in_memory=False, db=None) is None
 
     def test_never_falls_back_to_user_id_like_resolve_tenant_id_does(self):
         """Regression for aicoe-tracker#174.
@@ -249,7 +244,7 @@ class TestTenantForWsHydration:
         claims = {}
         assert resolve_tenant_id(claims, "bob", verified_user_id="bob") == "bob"
 
-        ctx = {"tenancy_enabled": True}  # no "tenant_id": the claim was absent, as above
+        # tenant_id=None: the claim was absent, as above -- not "bob".
         with pytest.raises(HTTPException) as excinfo:
-            tenant_for_ws_hydration(ctx, in_memory=False, db=_mock_db())
+            tenant_for_ws_hydration(None, True, in_memory=False, db=_mock_db())
         assert excinfo.value.status_code == 403
