@@ -235,6 +235,46 @@ def test_a_refusal_after_the_vector_leg_committed_is_a_partial_write():
     assert vector.rows["acme"], "the vector leg had already committed"
 
 
+def test_a_refusal_in_the_second_of_two_scopes_names_both_scopes_ids_for_retry():
+    """Major finding: scope A (ada) commits both legs cleanly; scope B's (bob) graph write then
+    refuses. `_by_scope` batches per scope, so scope A's commit and scope B's refusal happen in
+    separate loop iterations of the same call -- the receipt must still carry *both* facts' ids,
+    because `PartialWriteError`'s own contract is "retry with these ids", and a retry that dropped
+    scope A's already-committed id would never re-confirm it landed.
+
+    A retry against a store whose graph no longer refuses must then succeed cleanly and not raise
+    on re-upserting scope A -- the "safe to retry the whole batch" guarantee both `VectorSubstrate
+    .upsert` and `GraphSubstrate.upsert_facts` make by being upsert-**by id**.
+    """
+    vector = FakeVector()
+
+    class RefusesBob(FakeGraph):
+        def upsert_facts(self, scope, facts):
+            if scope == ACME_BOB:
+                raise MemoryOperationError("bob's graph write refused", field_name="content")
+            super().upsert_facts(scope, facts)
+
+    graph = RefusesBob()
+    s = SemanticFactStore(vector=vector, graph=graph)
+    batch = [
+        fact(id_="ada-fact", scope=ACME, content="ada's fact"),
+        fact(id_="bob-fact", scope=ACME_BOB, content="bob's fact"),
+    ]
+    with pytest.raises(PartialWriteError) as excinfo:
+        s.write(ACME, batch)
+
+    assert sorted(excinfo.value.receipt.event_ids) == ["ada-fact", "bob-fact"]
+    assert "ada-fact" in vector.rows["acme"], "scope A's vector leg had already committed"
+    assert "bob-fact" not in [f.record.id for f in graph.facts], "scope B's graph write never landed"
+
+    # Retry the same batch against a store whose graph is no longer refusing -- upsert-by-id makes
+    # re-writing scope A's already-committed fact a no-op, not a conflict.
+    s2 = SemanticFactStore(vector=vector, graph=FakeGraph())
+    receipt = s2.write(ACME, batch)
+    assert receipt.accepted == 2
+    assert set(vector.rows["acme"]) >= {"ada-fact", "bob-fact"}
+
+
 def test_the_partial_write_preserves_which_substrate_refused_and_why():
     """The refusal must survive as `__cause__` -- `from None` would discard which substrate
     refused and why, leaving only "partially applied" with no way to diagnose it."""
@@ -365,9 +405,9 @@ async def test_awrite_writes_vector_and_graph_concurrently_not_sequentially():
     await task
 
 
-def test_an_empty_awrite_batch_is_a_no_op():
+async def test_an_empty_awrite_batch_is_a_no_op():
     s, vector, graph = store()
-    receipt = asyncio.run(s.awrite(ACME, []))
+    receipt = await s.awrite(ACME, [])
     assert receipt == WriteReceipt()
     assert vector.calls == []
     assert graph.calls == []

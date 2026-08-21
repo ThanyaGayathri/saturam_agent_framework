@@ -14,6 +14,14 @@ store: it is a heavily tested control flow sharing one ``receipt`` across the fa
 entity/relation passes that follow it, and rewiring it is a distinct, higher-risk change no
 acceptance criterion here asks for. What changed there is only the vector-leg payload -- see
 :func:`egpt.memory.schemas.semantic.fact_record`'s docstring for why.
+
+**One contract, one divergence.** Both share the same scope-grouping (``_by_scope``) and the same
+refusal-before-any-commit-propagates-bare rule. They diverge on one point: ``consolidate`` /
+``aconsolidate`` chain a mid-batch refusal with ``raise PartialWriteError(receipt) from None``
+(``co_located.py``, both halves), while this store's ``write`` / ``awrite`` chain with ``from exc``,
+preserving which substrate refused and why. Not a bug in either -- ``consolidate``'s choice predates
+this ticket and changing it is the same out-of-scope risk as rewiring its fan-out -- but a caller
+reading a traceback from one path sees a cause the other path discards.
 """
 
 import asyncio
@@ -52,16 +60,14 @@ def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]
 
 
 def _receipt(facts: Sequence[FactWrite]) -> WriteReceipt:
-    seen: set = set()
-    tiers: List[MemoryTier] = []
-    for fact in facts:
-        if fact.record.tier not in seen:
-            seen.add(fact.record.tier)
-            tiers.append(fact.record.tier)
+    # Always exactly `[MemoryTier.SEMANTIC]`, never built by scanning `facts` for distinct tiers --
+    # `_require_semantic_tier` (called before this, in both `write`/`awrite`) already guarantees
+    # every fact carries that one tier, so a second pass rediscovering what the guard already
+    # proved would be dead weight, not a second source of truth.
     return WriteReceipt(
         accepted=len(facts),
         event_ids=[f.record.id for f in facts],
-        tiers_written=tiers,
+        tiers_written=[MemoryTier.SEMANTIC],
     )
 
 
