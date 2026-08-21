@@ -15,6 +15,7 @@ every time.
 """
 
 from egpt.memory.consolidation.extract import (
+    STRATEGY_ID,
     ExtractedFacts,
     FactCandidate,
     FactExtractionPipeline,
@@ -24,6 +25,7 @@ from egpt.memory.consolidation.extract import (
     LLMMergeDecider,
     MergeDecider,
     MergeDecision,
+    fact_extraction_details,
 )
 from egpt.memory.consolidation.triggers import (
     AnyTrigger,
@@ -38,6 +40,7 @@ from egpt.memory.consolidation.triggers import (
 from egpt.memory.consolidation.worker import ConsolidationOutcome, ConsolidationWorker
 
 __all__ = [
+    "STRATEGY_ID",
     "AnyTrigger",
     "ConsolidationOutcome",
     "ConsolidationTrigger",
@@ -51,9 +54,11 @@ __all__ = [
     "IdleTrigger",
     "LLMFactExtractor",
     "LLMMergeDecider",
+    "LatencyTrigger",
     "MergeDecider",
     "MergeDecision",
     "PerTenantThreshold",
     "SizeTrigger",
     "ThresholdSource",
+    "fact_extraction_details",
 ]

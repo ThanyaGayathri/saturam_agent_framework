@@ -34,6 +34,7 @@ from typing import (
     Optional,
     Protocol,
     Sequence,
+    Set,
     Tuple,
     runtime_checkable,
 )
@@ -52,6 +53,7 @@ from egpt.memory.types import (
     Scope,
     require_scope,
 )
+from egpt.memory.validation import assert_scope_isolation
 from egpt.utils.dttm import now_epoch_s
 
 if TYPE_CHECKING:
@@ -313,7 +315,13 @@ def fact_extraction_details(complete: bool = True, **extra: Any) -> Dict[str, An
 
 @dataclass
 class FactExtractionReport:
-    """What one pass read, decided, and wrote."""
+    """What one pass read, decided, and wrote.
+
+    ``added + updated + deleted + noop`` does not always equal ``candidates``: an ungrounded
+    candidate (``details["ungrounded"]``) and a same-pass id collision (``details["collisions"]``,
+    see ``FactExtractionPipeline._without_collisions``) are both dropped before they reach an op
+    count, since neither actually wrote anything.
+    """
 
     scope: Scope
     episodes_read: int = 0
@@ -403,6 +411,30 @@ class FactExtractionPipeline:
             return None
         return neighbors[index]
 
+    @staticmethod
+    def _without_collisions(written: List[FactWrite], used_ids: Set[str]) -> Tuple[List[FactWrite], bool]:
+        """Drop a candidate's writes as one unit if any id in them was already used earlier in
+        this call, rather than let a duplicate id reach ``reject_duplicate_ids`` and abort the
+        *whole* pass over one candidate's collision.
+
+        Defense-in-depth, not the only guard: ``_apply``'s id derivation is chosen so this should
+        rarely fire (an ADD's id folds in its statement precisely so two distinct atomic facts
+        sharing one source episode do not collide). But two candidates can still converge on one
+        UPDATE/DELETE target, or a hand-rolled decider can produce ids this pipeline did not
+        anticipate -- and nothing here can prevent that at the call site the way it can at the id
+        derivation. Whole-unit, not id-by-id: an UPDATE's retirement and its successor are one
+        atomic pair, and writing only one half would retire a fact with no replacement, or land a
+        successor with no record of what it replaced.
+
+        The dropped candidate is not lost: its source episodes stay live and unconsolidated, so
+        the next pass re-extracts and re-decides against whatever the store looks like by then.
+        """
+        ids = [fw.record.id for fw in written]
+        if any(i in used_ids for i in ids):
+            return [], True
+        used_ids.update(ids)
+        return written, False
+
     def _apply(
         self,
         decision: MergeDecision,
@@ -444,12 +476,28 @@ class FactExtractionPipeline:
         # not silently fold into that fact's provenance; ADD means new, regardless of what else the
         # model returned alongside it.
         target = self._resolve_target(decision, neighbors) if decision.op == "UPDATE" else None
+        # `or []`, not a refusal: a target with no `source_episode_ids` key is a fact from before
+        # this pipeline existed (or from a provider that never populated it), and there is no
+        # provenance to recover -- an empty list is the honest answer, not a bug to raise on.
         merged_sources = (
             list(dict.fromkeys([*(target.provenance.get("source_episode_ids") or []), *source_ids]))
             if target is not None
             else list(source_ids)
         )
-        new_id = str(uuid5(_FACT_NAMESPACE, "|".join(sorted(merged_sources))))
+        if target is not None:
+            # UPDATE: derived from the merged source set alone, so a re-run over the same episodes
+            # upserts the same successor row even if the model's exact phrasing drifts between
+            # passes -- one lineage per source set, matching `_distil`'s own id derivation.
+            new_id = str(uuid5(_FACT_NAMESPACE, "|".join(sorted(merged_sources))))
+        else:
+            # ADD: the statement is part of the id. Two distinct atomic facts routinely share one
+            # source set -- the extraction prompt asks for exactly that ("one fact per idea; split
+            # compound statements") -- and a source-only id collided them into one row, silently
+            # dropping the first (finding: same-pass id collision aborted the whole consolidation
+            # pass via `reject_duplicate_ids`, reproduced with two facts grounded in one episode).
+            # A genuine re-extraction of the same statement from the same sources still upserts
+            # the same row; two different statements from the same sources no longer can.
+            new_id = str(uuid5(_FACT_NAMESPACE, "|".join(sorted(merged_sources)) + "|" + decision.statement))
         new_fact = FactWrite(
             record=MemoryRecord(
                 id=new_id,
@@ -499,21 +547,27 @@ class FactExtractionPipeline:
         facts: List[FactWrite] = []
         counts = {"added": 0, "updated": 0, "deleted": 0, "noop": 0}
         candidate_count = 0
+        ungrounded = 0
+        collisions = 0
+        used_ids: Set[str] = set()
+        now = now_epoch_s()  # one instant for the whole pass, not one per bucket
         for bucket_scope, bucket in self._buckets(selected):
-            if not bucket:
-                continue
             candidates = self.extractor.extract(bucket)
-            now = now_epoch_s()
             for candidate in candidates:
                 candidate_count += 1
                 source_ids = [bucket[i].id for i in candidate.source_indices if 0 <= i < len(bucket)]
                 if not source_ids:
-                    continue  # ungrounded candidate; not attributable to any episode this pass read
-                ts = max(
+                    ungrounded += 1  # not attributable to any episode this pass read
+                    continue
+                # Earliest cited episode, not latest: `_distil`'s own rationale applies here too --
+                # a fact claiming to become true later than the oldest evidence it cites answers a
+                # point-in-time read wrongly for the interval in between.
+                ts = min(
                     (bucket[i].created_at or now for i in candidate.source_indices if 0 <= i < len(bucket)), default=now
                 )
                 query = MemoryQuery(text=candidate.statement, tiers=[MemoryTier.SEMANTIC], limit=self.top_k)
                 neighbors = self.vector.search(bucket_scope, query, tier=MemoryTier.SEMANTIC)
+                assert_scope_isolation(bucket_scope, neighbors, method="distil")
                 # Nothing to compare against is unambiguously new -- decided here, once, rather
                 # than trusting every `MergeDecider` to shortcut it identically (`LLMMergeDecider`
                 # does too, defensively, but a hand-rolled one is not required to).
@@ -523,8 +577,12 @@ class FactExtractionPipeline:
                     else self.decider.decide(candidate.statement, neighbors)
                 )
                 written, outcome = self._apply(decision, neighbors, source_ids, bucket_scope, candidate.topics, ts, now)
+                written, collided = self._without_collisions(written, used_ids)
                 facts.extend(written)
-                counts[outcome] += 1
+                if collided:
+                    collisions += 1
+                else:
+                    counts[outcome] += 1
         report = FactExtractionReport(
             scope=scope,
             episodes_read=len(selected),
@@ -533,42 +591,59 @@ class FactExtractionPipeline:
             updated=counts["updated"],
             deleted=counts["deleted"],
             noop=counts["noop"],
-            details=fact_extraction_details(complete=not truncated, **counts),
+            details=fact_extraction_details(
+                complete=not truncated, ungrounded=ungrounded, collisions=collisions, **counts
+            ),
         )
         return facts, report
 
     async def adistil(
         self, scope: Scope, episodes: Sequence[MemoryRecord]
     ) -> Tuple[List[FactWrite], FactExtractionReport]:
-        """Async variant of :meth:`distil`, making the same decisions through the same helpers."""
+        """Async variant of :meth:`distil`, making the same decisions through the same helpers.
+
+        Sequential per candidate -- one extract call per bucket, then one search and one decide
+        per candidate in series -- not gathered. Same rationale as
+        ``EntityExtractionPipeline.arun``/``RelationExtractionPipeline.arun``: every one of those
+        is a model or a provider round trip, and fanning a capped pass out at once is how a
+        consolidation lane exhausts a rate limit. Bounded concurrency belongs with the scheduler
+        that knows the budget (SM-L1 #122), not with the pipeline that does not.
+        """
         require_scope(scope, method="adistil")
         selected, truncated = self._selected(episodes)
         facts: List[FactWrite] = []
         counts = {"added": 0, "updated": 0, "deleted": 0, "noop": 0}
         candidate_count = 0
+        ungrounded = 0
+        collisions = 0
+        used_ids: Set[str] = set()
+        now = now_epoch_s()  # one instant for the whole pass, not one per bucket
         for bucket_scope, bucket in self._buckets(selected):
-            if not bucket:
-                continue
             candidates = await self.extractor.aextract(bucket)
-            now = now_epoch_s()
             for candidate in candidates:
                 candidate_count += 1
                 source_ids = [bucket[i].id for i in candidate.source_indices if 0 <= i < len(bucket)]
                 if not source_ids:
+                    ungrounded += 1
                     continue
-                ts = max(
+                ts = min(
                     (bucket[i].created_at or now for i in candidate.source_indices if 0 <= i < len(bucket)), default=now
                 )
                 query = MemoryQuery(text=candidate.statement, tiers=[MemoryTier.SEMANTIC], limit=self.top_k)
                 neighbors = await self.vector.asearch(bucket_scope, query, tier=MemoryTier.SEMANTIC)
+                assert_scope_isolation(bucket_scope, neighbors, method="adistil")
                 decision = (
                     MergeDecision(op="ADD", target_index=None, statement=candidate.statement)
                     if not neighbors
                     else await self.decider.adecide(candidate.statement, neighbors)
                 )
                 written, outcome = self._apply(decision, neighbors, source_ids, bucket_scope, candidate.topics, ts, now)
+                written, collided = self._without_collisions(written, used_ids)
                 facts.extend(written)
-                counts[outcome] += 1
+                if collided:
+                    collisions += 1
+                else:
+                    counts[outcome] += 1
         report = FactExtractionReport(
             scope=scope,
             episodes_read=len(selected),
@@ -577,6 +652,8 @@ class FactExtractionPipeline:
             updated=counts["updated"],
             deleted=counts["deleted"],
             noop=counts["noop"],
-            details=fact_extraction_details(complete=not truncated, **counts),
+            details=fact_extraction_details(
+                complete=not truncated, ungrounded=ungrounded, collisions=collisions, **counts
+            ),
         )
         return facts, report

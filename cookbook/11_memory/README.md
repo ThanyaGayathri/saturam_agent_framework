@@ -115,6 +115,15 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `26_` to `28_`: `feat/SM-E7` (#109) and `feat/SM-E9` (#112) both merged to
   `main` first and took `26_`/`27_` while this branch was still catching up.**
 
+- `29_fact_extraction_merge.py`: Fact extraction + merge decision (SM-L3) -- `_distil`'s
+  deterministic dedup (SM-C1) replaced by `FactExtractionPipeline`, opt-in via `fact_pipeline`: a
+  model extracts atomic candidate facts, compares each against the top-k most similar existing
+  facts, and picks ADD/UPDATE/DELETE/NOOP. The second `consolidate()` call is the point -- a
+  changed circumstance retires the old fact (`expired_at`/`superseded_by`, transaction time) rather
+  than leaving two contradictory "current" facts standing. Needs `./cookbook/scripts/run_neo4j.sh`,
+  `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY` -- extraction and the merge decision
+  are each a model call.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

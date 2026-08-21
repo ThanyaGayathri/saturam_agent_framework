@@ -287,6 +287,92 @@ def test_an_add_naming_a_target_index_does_not_merge_into_it():
     assert facts[0].record.provenance["source_episode_ids"] == ["e1"]
 
 
+def test_two_distinct_facts_from_one_episode_do_not_collide():
+    """The extraction prompt asks for exactly this ("one fact per idea; split compound
+    statements"), so two ADDs citing the same single episode is the ordinary case, not an edge
+    case. A source-only id collided them into one row and, worse, aborted the whole consolidation
+    pass when both reached `reject_duplicate_ids` in the same write batch."""
+    extractor = StubExtractor(
+        [
+            FactCandidate(statement="ada prefers async standups", source_indices=[0]),
+            FactCandidate(statement="ada works remotely", source_indices=[0]),
+        ]
+    )
+    pipe, _ = pipeline(
+        extractor=extractor,
+        decider=StubDecider(lambda statement, neighbors: MergeDecision(op="ADD", statement=statement)),
+    )
+
+    facts, report = pipe.distil(ACME, [episode("ada said stuff", episode_id="e1")])
+
+    assert report.added == 2
+    ids = [f.record.id for f in facts]
+    assert len(ids) == len(set(ids)), "two distinct facts from one episode must not share an id"
+    contents = {f.record.content for f in facts}
+    assert contents == {"ada prefers async standups", "ada works remotely"}
+
+
+def test_two_candidates_converging_on_one_update_target_do_not_abort_the_pass():
+    """Defense-in-depth: even when an id collision does happen (two candidates each deciding
+    UPDATE against the same existing fact), the pipeline drops the second unit rather than
+    returning a duplicate id that would abort the whole `consolidate` pass at the write layer."""
+    existing = fact("f1", "ada lives in Berlin", source_episode_ids=["e0"])
+    vector = FakeVector()
+    vector.rows["acme"] = {"f1": existing}
+    extractor = StubExtractor(
+        [
+            FactCandidate(statement="ada moved to Lisbon", source_indices=[0]),
+            FactCandidate(statement="ada now lives in Lisbon", source_indices=[0]),
+        ]
+    )
+    decider = StubDecider(lambda statement, neighbors: MergeDecision(op="UPDATE", target_index=0, statement=statement))
+    pipe, _ = pipeline(vector=vector, extractor=extractor, decider=decider)
+
+    facts, report = pipe.distil(ACME, [episode("ada moved", episode_id="e1")])
+
+    ids = [f.record.id for f in facts]
+    assert len(ids) == len(set(ids)), "a collision must never reach the caller as a duplicate id"
+    assert report.updated == 1
+    assert report.details["collisions"] == 1
+
+
+def test_ts_is_the_earliest_cited_episode_not_the_latest():
+    """Matches `_distil`'s own rationale: a fact claiming to become true later than the oldest
+    evidence it cites answers a point-in-time read wrongly for the interval in between."""
+    extractor = StubExtractor([FactCandidate(statement="ada prefers async standups", source_indices=[0, 1])])
+    pipe, _ = pipeline(
+        extractor=extractor, decider=StubDecider(MergeDecision(op="ADD", statement="ada prefers async standups"))
+    )
+    eps = [
+        episode("ada mentioned async standups", episode_id="e1", created_at=100),
+        episode("ada confirmed async standups again", episode_id="e2", created_at=900),
+    ]
+
+    facts, _ = pipe.distil(ACME, eps)
+
+    assert facts[0].record.t_valid == 100
+
+
+def test_a_neighbor_outside_the_call_scope_is_refused():
+    """A backend that leaks another scope's row into `search` must not have that row silently
+    drive a merge decision or land in a `FactWrite` filed under the wrong scope."""
+
+    class LeakyVector(FakeVector):
+        def search(self, scope, query, tier=None):
+            return [fact("f1", "bob's secret", scope=BOB)]
+
+        async def asearch(self, scope, query, tier=None):
+            return self.search(scope, query, tier)
+
+    pipe, _ = pipeline(
+        vector=LeakyVector(),
+        extractor=StubExtractor([FactCandidate(statement="ada said something", source_indices=[0])]),
+    )
+
+    with pytest.raises(MemoryOperationError):
+        pipe.distil(ACME, [episode("ada said something", episode_id="e1")])
+
+
 # ---------------------------------------------------------------------------
 # AC 3 -- applied to vector + graph, through consolidate
 # ---------------------------------------------------------------------------
@@ -346,6 +432,34 @@ def test_a_wired_update_retires_the_superseded_row_end_to_end():
     live = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC and r.is_current_belief()]
     assert len(live) == 1, "SM-L3 makes this 1, where the deterministic-dedup default leaves 2"
     assert report.details["supersede"] == STRATEGY_ID
+
+
+# ---------------------------------------------------------------------------
+# Package exports
+# ---------------------------------------------------------------------------
+
+
+def test_the_package_all_matches_its_own_names():
+    """`__all__` naming an attribute the module does not have is one bug; the module having an
+    attribute `__all__` does not name is another -- both mean `from egpt.memory.consolidation
+    import *` disagrees with what direct import gives a caller. Inserting the new SM-L3 names
+    alphabetically at `L` silently dropped `LatencyTrigger`, which this catches."""
+    import egpt.memory.consolidation as pkg
+
+    for name in pkg.__all__:
+        assert hasattr(pkg, name), f"{name!r} is in __all__ but not a package attribute"
+    exported = {name for name in dir(pkg) if not name.startswith("_")}
+    modules = {name for name in exported if isinstance(getattr(pkg, name), type(pkg))}
+    assert exported - modules == set(pkg.__all__)
+
+
+def test_strategy_id_and_details_builder_are_reachable_from_the_package():
+    """A caller importing the package API (not reaching into `.extract` directly) needs these to
+    read `report.details["derived_by"]` or build a matching details payload of their own."""
+    import egpt.memory.consolidation as pkg
+
+    assert pkg.STRATEGY_ID == STRATEGY_ID
+    assert pkg.fact_extraction_details() == {"strategy": STRATEGY_ID, "complete": True}
 
 
 # ---------------------------------------------------------------------------

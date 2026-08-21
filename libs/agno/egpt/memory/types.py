@@ -1234,6 +1234,13 @@ class ConsolidationReport:
     scope: Scope
     episodic_scanned: int = 0
     semantic_written: int = 0
+    #: What counts as "merged" is the extraction strategy's to define, and the two shipped
+    #: strategies mean different things by it. ``_distil``'s deterministic dedup (SM-C1 #89, the
+    #: default when no strategy is wired) counts extra *episodes* folded into a content-overlap
+    #: group. A wired ``FactExtractionPipeline`` (SM-L3 #124) has no notion of a group to subtract
+    #: one from; it counts UPDATE and NOOP decisions instead, as the closest analogue -- episodes
+    #: that did not become a brand-new fact. Compare within one ``details["derived_by"]``, not
+    #: across two.
     duplicates_merged: int = 0
     contradictions_resolved: int = 0
     details: Dict[str, Any] = field(default_factory=dict)
