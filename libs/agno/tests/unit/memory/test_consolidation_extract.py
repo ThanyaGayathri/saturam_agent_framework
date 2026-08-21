@@ -21,6 +21,7 @@ from egpt.memory.consolidation.extract import (
     FactExtractionPipeline,
     MergeDecision,
 )
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     NO_SUPERSEDE,
@@ -123,6 +124,20 @@ def test_a_grounded_candidate_becomes_a_fact_write(is_async):
     assert facts[0].record.provenance["source_episode_ids"] == ["e1"]
     assert report.candidates == 1
     assert report.added == 1
+
+
+def test_report_details_does_not_duplicate_the_op_counts():
+    """`report.added` etc. are the one place op counts live -- `details` used to also carry them
+    via `**counts`, so a caller mutating `details["added"]` would silently disagree with
+    `report.added`, which nothing here re-derives from `details`."""
+    pipe, _ = pipeline(
+        extractor=StubExtractor([FactCandidate(statement="ada likes tea", source_indices=[0])]),
+        decider=StubDecider(MergeDecision(op="ADD", statement="ada likes tea")),
+    )
+
+    _, report = pipe.distil(ACME, [episode("ada likes tea", episode_id="e1")])
+
+    assert set(report.details) == {"strategy", "complete", "ungrounded", "collisions"}
 
 
 def test_an_ungrounded_candidate_is_dropped():
@@ -353,9 +368,10 @@ def test_ts_is_the_earliest_cited_episode_not_the_latest():
     assert facts[0].record.t_valid == 100
 
 
-def test_a_neighbor_outside_the_call_scope_is_refused():
-    """A backend that leaks another scope's row into `search` must not have that row silently
-    drive a merge decision or land in a `FactWrite` filed under the wrong scope."""
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_neighbor_outside_the_call_scope_is_refused(is_async):
+    """A backend that leaks another scope's row into `search`/`asearch` must not have that row
+    silently drive a merge decision or land in a `FactWrite` filed under the wrong scope."""
 
     class LeakyVector(FakeVector):
         def search(self, scope, query, tier=None):
@@ -370,7 +386,10 @@ def test_a_neighbor_outside_the_call_scope_is_refused():
     )
 
     with pytest.raises(MemoryOperationError):
-        pipe.distil(ACME, [episode("ada said something", episode_id="e1")])
+        if is_async:
+            asyncio.run(pipe.adistil(ACME, [episode("ada said something", episode_id="e1")]))
+        else:
+            pipe.distil(ACME, [episode("ada said something", episode_id="e1")])
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +486,17 @@ def test_strategy_id_and_details_builder_are_reachable_from_the_package():
 # ---------------------------------------------------------------------------
 
 
+def test_a_pipeline_with_no_vector_is_refused_at_construction():
+    """`vector=None` (or any object missing `search`/`asearch`) must fail at construction, not
+    three frames deep in the first `distil` call with a bare `AttributeError`."""
+    with pytest.raises(MemoryOperationError):
+        FactExtractionPipeline(
+            vector=None,
+            extractor=StubExtractor(),
+            decider=StubDecider(MergeDecision(op="ADD", statement="x")),
+        )
+
+
 def test_a_pipeline_missing_the_async_extractor_half_is_refused_at_construction():
     class SyncOnlyExtractor:
         def extract(self, episodes):
@@ -494,7 +524,7 @@ def test_fact_pipeline_missing_the_async_half_is_refused_by_the_provider():
         def distil(self, scope, episodes):
             return [], None
 
-    with pytest.raises(Exception):
+    with pytest.raises(MemoryProviderConfigError):
         CoLocatedMemoryProvider(vector=FakeVector(), graph=FakeGraph(), fact_pipeline=SyncOnlyPipeline())
 
 

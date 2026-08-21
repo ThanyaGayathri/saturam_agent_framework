@@ -89,6 +89,10 @@ _DUPLICATE_THRESHOLD = 0.8
 #: Namespace for deriving a fact id from its source episodes, so a re-run upserts the same row.
 _FACT_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.consolidate.fact")
 
+#: ``derived_by`` for `_distil`'s deterministic dedup -- one constant rather than the bare string
+#: literal repeated at every site that names this strategy, so a rename cannot miss one.
+_DETERMINISTIC_DEDUP_STRATEGY_ID = "co_located.deterministic_dedup"
+
 #: Cap on simultaneous backend calls in one gathered write. Unbounded fan-out against a real
 #: engine is thousands of concurrent round trips, which exhausts a pool rather than going fast.
 _MAX_CONCURRENT_WRITES = 16
@@ -132,11 +136,12 @@ def _positive_int(value: Any, option: str) -> int:
     return value
 
 
-#: Carries the candidate's own type through to the return type, so ``self.entity_pipeline`` and
-#: ``self.relation_pipeline`` keep their concrete `Optional["EntityExtractionPipeline"]` /
-#: `Optional["RelationExtractionPipeline"]` annotations at the call sites below instead of both
+#: Carries the candidate's own type through to the return type, so ``self.entity_pipeline``,
+#: ``self.relation_pipeline`` and ``self.fact_pipeline`` keep their concrete
+#: `Optional["EntityExtractionPipeline"]` / `Optional["RelationExtractionPipeline"]` /
+#: `Optional["FactExtractionPipeline"]` annotations at the call sites below instead of all three
 #: widening to `Optional[Any]` -- which would silence mypy on a wrong argument type or a missing
-#: method on either field.
+#: method on any of them.
 _P = TypeVar("_P")
 
 
@@ -994,7 +999,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         created_at=max((m.created_at for m in group if m.created_at is not None), default=now),
                     ),
                     source_episode_ids=source_ids,
-                    derived_by="co_located.deterministic_dedup",
+                    derived_by=_DETERMINISTIC_DEDUP_STRATEGY_ID,
                 )
             )
         return facts, merged
@@ -1008,7 +1013,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         merged: int,
         entities: EntitySummary,
         relations: RelationSummary,
-        derived_by: str = "co_located.deterministic_dedup",
+        derived_by: str = _DETERMINISTIC_DEDUP_STRATEGY_ID,
         supersede: str = NO_SUPERSEDE,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
@@ -1190,6 +1195,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """Which strategy runs -- ``fact_pipeline`` when wired, ``_distil``'s dedup default
         otherwise -- and the ``(derived_by, supersede)`` pair the report names it with.
 
+        ``supersede`` is a **capability** flag, not an occurrence one: :data:`FACT_PIPELINE_STRATEGY_ID`
+        means this pass *could* retire a fact, not that it *did*. A pass whose every candidate was
+        ADD or NOOP reports the same value as one that retired ten -- distinguishing them needs
+        ``report.deleted`` plus the retirement half of ``report.updated`` from
+        :class:`~egpt.memory.consolidation.extract.FactExtractionReport` directly, which this
+        method's own ``merged`` return does not carry either. :data:`NO_SUPERSEDE`, by contrast, is
+        unambiguous: no pipeline wired, no retirement is possible this pass or any other.
+
         ``merged`` is redefined for the pipeline path: ``_distil`` counts extra *episodes* folded
         into a group; the pipeline counts UPDATE and NOOP decisions, which is the closest existing
         analogue (episodes that did not become a brand-new fact) since it has no notion of a
@@ -1199,7 +1212,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             facts, report = self.fact_pipeline.distil(scope, episodes)
             return facts, report.updated + report.noop, FACT_PIPELINE_STRATEGY_ID, FACT_PIPELINE_STRATEGY_ID
         facts, merged = self._distil(episodes)
-        return facts, merged, "co_located.deterministic_dedup", NO_SUPERSEDE
+        return facts, merged, _DETERMINISTIC_DEDUP_STRATEGY_ID, NO_SUPERSEDE
 
     async def _adistil_facts(
         self, scope: Scope, episodes: Sequence[MemoryRecord]
@@ -1211,7 +1224,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Off the loop, matching `aconsolidate`'s existing `_distil` call: quadratic and measured
         # seconds of pure CPU at the cap, during which no other coroutine in the process runs.
         facts, merged = await asyncio.to_thread(self._distil, episodes)
-        return facts, merged, "co_located.deterministic_dedup", NO_SUPERSEDE
+        return facts, merged, _DETERMINISTIC_DEDUP_STRATEGY_ID, NO_SUPERSEDE
 
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="consolidate")

@@ -1067,7 +1067,11 @@ def consolidation_details(
     """Build a ``ConsolidationReport.details`` payload carrying every :data:`CONSOLIDATION_KEYS`.
 
     ``complete`` is what a scheduler actually needs: whether the tier was drained. ``supersede``
-    is the other thing it cannot infer -- whether the pass retires the rows it subsumes.
+    is the other thing it cannot infer -- **whether this pass's strategy is *capable* of retiring
+    the rows it subsumes**, not whether it did so on this particular pass. A pass whose every
+    decision happened to be ADD or NOOP reports the same ``supersede`` value as one that retired
+    several; telling those apart needs the strategy's own report (e.g.
+    ``FactExtractionReport.deleted``/``.updated``), not this field.
     ``entities`` is the third: whether the pass populated the graph's nodes (SM-G2 #100), which a
     provider with no extractor did not, and which reads identically to "nothing to extract" unless
     it is said. All three in the floor rather than as adapter extras, because one provider silently

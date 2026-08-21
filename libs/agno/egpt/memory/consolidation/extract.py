@@ -121,7 +121,10 @@ _MERGE_SYSTEM = (
     "fact that already covers it.\n\n"
     "A changed preference or circumstance is an UPDATE of the existing fact, not an ADD of a "
     "second, contradictory one. Prefer NOOP/UPDATE over ADD when an existing fact covers the "
-    "same topic.\n"
+    "same topic.\n\n"
+    "`statement` is always required by the response schema, but is only ever stored for ADD and "
+    "UPDATE. For DELETE and NOOP, put the candidate's own statement there -- it is not read, but "
+    "the field cannot be left empty.\n"
 )
 
 
@@ -146,6 +149,11 @@ class MergeDecision(BaseModel):
 
     ``target_index`` indexes the numbered EXISTING facts shown in the prompt, resolved to a real
     id by :class:`FactExtractionPipeline` -- never asked of the model directly (module docstring).
+
+    ``statement`` has no default because the response schema requires every field, but
+    ``FactExtractionPipeline._apply`` only ever reads it for ADD/UPDATE -- DELETE uses the
+    existing fact's own content and NOOP writes nothing. ``_MERGE_SYSTEM`` tells the model what to
+    put there for the other two ops, for a hand-rolled :class:`MergeDecider` to match.
     """
 
     op: Literal["ADD", "UPDATE", "DELETE", "NOOP"]
@@ -347,6 +355,13 @@ class FactExtractionPipeline:
     existing facts" (module docstring) comes from. A graph-only deployment has no vector leg to
     search and cannot use this pipeline -- ``consolidate`` already requires a vector substrate to
     enumerate episodes at all (``_check_consolidatable``), so this is not a new constraint.
+
+    **``vector.search``/``asearch`` must return current belief only** (``expired_at IS NULL``) --
+    the port's own contract (``VectorSubstrate.search``'s docstring), restated here because this
+    is the one caller in the tree that hands a search result straight to an LLM decision with no
+    check of its own. A substrate that leaks a retired row lets the model UPDATE/DELETE against a
+    fact that is already superseded: ``_apply`` re-stamps ``expired_at``/``superseded_by`` on it
+    without complaint, silently orphaning whatever the row's real successor was.
     """
 
     def __init__(
@@ -357,7 +372,12 @@ class FactExtractionPipeline:
         top_k: int = DEFAULT_TOP_K,
         max_episodes_per_pass: int = DEFAULT_MAX_EPISODES_PER_PASS,
     ) -> None:
+        # One loop over all three, matching `EntityExtractionPipeline.__init__`'s reasoning
+        # (graph/embedder/extractor there): a deployment missing one fails at construction, not on
+        # the first `distil` call three frames from the mistake -- `vector=None` included, which
+        # otherwise reaches `AttributeError: 'NoneType' object has no attribute 'search'`.
         for name, candidate, verbs in (
+            ("vector", vector, ("search", "asearch")),
             ("extractor", extractor, ("extract", "aextract")),
             ("decider", decider, ("decide", "adecide")),
         ):
@@ -591,9 +611,10 @@ class FactExtractionPipeline:
             updated=counts["updated"],
             deleted=counts["deleted"],
             noop=counts["noop"],
-            details=fact_extraction_details(
-                complete=not truncated, ungrounded=ungrounded, collisions=collisions, **counts
-            ),
+            # No `**counts`: those four are already first-class `FactExtractionReport` fields
+            # above, and a caller mutating `details["added"]` expecting `report.added` to follow
+            # would be silently wrong with two copies of one number.
+            details=fact_extraction_details(complete=not truncated, ungrounded=ungrounded, collisions=collisions),
         )
         return facts, report
 
@@ -652,8 +673,9 @@ class FactExtractionPipeline:
             updated=counts["updated"],
             deleted=counts["deleted"],
             noop=counts["noop"],
-            details=fact_extraction_details(
-                complete=not truncated, ungrounded=ungrounded, collisions=collisions, **counts
-            ),
+            # No `**counts`: those four are already first-class `FactExtractionReport` fields
+            # above, and a caller mutating `details["added"]` expecting `report.added` to follow
+            # would be silently wrong with two copies of one number.
+            details=fact_extraction_details(complete=not truncated, ungrounded=ungrounded, collisions=collisions),
         )
         return facts, report
