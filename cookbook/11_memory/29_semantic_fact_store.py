@@ -50,10 +50,11 @@ config = MemoryProviderConfig(
 )
 
 provider = build_memory_provider(config)
-assert provider.vector is not None and provider.graph is not None, (
-    "This cookbook needs both substrates -- check EGPT_MEMORY_PG_URL / NEO4J_URI and that "
-    "./cookbook/scripts/run_pgvector.sh and ./cookbook/scripts/run_neo4j.sh are both running."
-)
+if provider.vector is None or provider.graph is None:
+    raise RuntimeError(
+        "This cookbook needs both substrates -- check EGPT_MEMORY_PG_URL / NEO4J_URI and that "
+        "./cookbook/scripts/run_pgvector.sh and ./cookbook/scripts/run_neo4j.sh are both running."
+    )
 
 SEPT_2020 = 1_600_000_000  # 2020-09-13T12:26:40 UTC
 
