@@ -3372,6 +3372,75 @@ def same_model(candidate: Any, existing: Any) -> bool:
     )
 
 
+def carry_over_pin(pin: Any) -> Any:
+    """The pin a `deep_copy` should record, given the original's.
+
+    Returns a *copy* rather than the original object. The pin is not inert state: `mode_a`'s
+    resolver returns `request.requested` as the serving model (`providers/mode_a.py:277`), so the
+    pinned object is what a run actually calls -- and `_get_client_params` writes environment
+    credentials onto the model it is given (aicoe-tracker#171). Sharing one object across copies
+    therefore lets one request's client build write `api_key`/`base_url` into the pin every other
+    copy resolves to. That is a cross-tenant hazard on the hottest path in the system: `os/utils.py`
+    deep-copies an agent per request, and `team/_utils.py` copies every member.
+
+    Shallow rather than deep, and the guarantee is narrower than "the copies are independent":
+    a shallow copy isolates *top-level rebinds* and shares every nested mutable. That is the right
+    depth here because every credential path assigns a scalar attribute -- `_get_client_params`
+    does `self.api_key = getenv(...)`, `get_client()` does `self.client = ...` -- so the tenancy
+    hazard this helper exists to close is isolated, and a deep copy would duplicate the clients
+    and connection pools `deep_copy_field` deliberately shares by reference.
+
+    What it does **not** isolate is a provider that mutates a container in place. There is one in
+    tree: `openai/responses.py`'s `_set_reasoning_request_param` aliases `self.reasoning` into its
+    request params and writes `effort`/`summary` into it, so copies sharing that dict see each
+    other's writes (only when `reasoning` is non-empty -- `self.reasoning or {}` makes an empty
+    one falsy and builds a fresh dict). Harmless today, since `reasoning` carries no credential
+    and the sharing predates this helper. It stops being harmless the day a provider writes into
+    a container that does hold one (`default_headers["Authorization"]`, `client_params`), so a
+    new provider doing that needs a deeper copy here rather than a shallow one.
+
+    The copy also still satisfies `same_model` against the original -- class, id and the
+    connection fields all survive it -- which matters because a pin that compared unequal would
+    read as a fresh caller pin and re-pin the copy on its next resolve.
+
+    Falls back to the original object if a model cannot be copied. A shared pin is the status quo
+    ante and still resolves correctly; refusing to copy an exotic `Model` subclass would break
+    `deep_copy` outright, which is the worse failure.
+    """
+    if pin is None:
+        return None
+
+    from copy import copy as _shallow_copy
+
+    # `copy.copy` first: every in-tree `Model` is a dataclass, so this is the live path for all
+    # 51 subclasses. `model_copy` is kept only for a third-party pydantic-based `Model`, and it
+    # is tried *after* -- ordering it first meant a subclass whose `model_copy(self)` omits
+    # `deep=` raised `TypeError`, got swallowed, and returned the shared original, re-admitting
+    # this helper's own hazard in a case where `copy.copy` would have worked (#107 review).
+    try:
+        return _shallow_copy(pin)
+    except Exception:
+        pass
+
+    try:
+        model_copy = getattr(pin, "model_copy", None)
+        if callable(model_copy):
+            return model_copy(deep=False)
+        raise TypeError(f"{type(pin).__name__} is neither copyable nor a pydantic model")
+    except Exception as e:
+        # Falling back to the shared object re-admits the very hazard this helper exists to
+        # close (aicoe-tracker#172), so it is logged rather than swallowed: a deployment hitting
+        # this is one `_get_client_params` call away from one request's credential landing in
+        # another's pin. Still a fallback rather than a raise -- a shared pin resolves correctly
+        # and is the status quo ante, while refusing to copy an exotic Model subclass would break
+        # `deep_copy` outright. Mirrors `deep_copy_field`'s log-and-degrade in `agent/_utils.py`.
+        log_warning(
+            f"Could not copy the pinned model {type(pin).__name__}; the copy will share the "
+            f"original's pin, which is unsafe if anything mutates it (aicoe-tracker#171): {e}"
+        )
+        return pin
+
+
 def update_pins_a_new_model(update: Optional[Dict[str, Any]], new_model: Any, existing_model: Any) -> bool:
     """Whether an `update` dict passed to `deep_copy` states a fresh user pin.
 

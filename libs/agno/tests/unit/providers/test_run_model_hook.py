@@ -23,6 +23,7 @@ from egpt.run.base import run_model
 from egpt.providers import set_default_model_provider
 from egpt.providers.escalation import EscalatingModelProvider
 from egpt.providers.model_provider import ModelCapabilities, ModelResolveRequest, ProviderMode
+from egpt.models.base import same_model
 from egpt.run.base import RunContext
 from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider, FakeModel
 
@@ -1270,6 +1271,101 @@ class TestConnectionAwarePinningThroughDeepCopy:
 
         return Agent(model=model, telemetry=False)
 
+    def test_building_a_client_on_one_copy_does_not_reach_another(self, responses_cls, monkeypatch):
+        """The aicoe-tracker#172 leak, end to end through the real credential-fill path.
+
+        The mutation test in `test_same_model.py` uses `BareModel`, which does not declare
+        `api_key` as a dataclass field -- so it sets a plain attribute and never exercises
+        `_get_client_params`. This drives the real one: `get_client()` on a real provider writes
+        the environment's key onto the model it is called on (aicoe-tracker#171, still open).
+
+        Before the fix, every copy's `_user_pinned_model` was the *same object*, and `mode_a`
+        returns that object as the serving model -- so one request's client build wrote a
+        credential into the pin every other copy resolved to. Raised in review of #107 as the
+        highest-value coverage gap.
+        """
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+
+        agent = self._agent(responses_cls(id="gpt-5.5"))
+        first, second = agent.deep_copy(), agent.deep_copy()
+
+        first._user_pinned_model.get_client()
+
+        assert first._user_pinned_model.api_key == "sk-tenant-one", (
+            "the copy that built the client is the one that should carry the filled key"
+        )
+        assert second._user_pinned_model.api_key is None, (
+            "a sibling copy's pin must not acquire another request's credential"
+        )
+        assert agent._user_pinned_model.api_key is None, "nor may the original the copies were made from"
+
+    def test_a_team_copys_pin_is_isolated_from_a_real_credential_fill(self, responses_cls, monkeypatch):
+        """The Team half of the leak, on a real provider.
+
+        `test_same_model.py`'s Team cases use `BareModel`, which does not declare `api_key` as a
+        dataclass field -- so they set a plain attribute and assert on `getattr(..., None)`, which
+        cannot tell "isolated" from "attribute absent". This drives the real credential-fill path
+        through the Team copy site, which had no real-provider coverage. Raised in review of #107.
+        """
+        from egpt.team import Team
+
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+
+        team = Team(members=[], name="t", model=responses_cls(id="gpt-5.5"), telemetry=False)
+        first, second = team.deep_copy(), team.deep_copy()
+
+        first._user_pinned_model.get_client()
+
+        assert first._user_pinned_model.api_key == "sk-tenant-one"
+        assert second._user_pinned_model.api_key is None, (
+            "a sibling Team copy's pin must not acquire another request's credential"
+        )
+        assert team._user_pinned_model.api_key is None
+
+    def test_a_copys_pin_and_live_model_stay_one_object(self, responses_cls):
+        """`get_models` aliases the pin to the live model in `__init__`, and a copy must keep it.
+
+        Copying the pin alone splits that alias, and nothing on the run path heals it --
+        `initialize_agent` calls `set_default_model`, which early-returns when a model is already
+        set, so `get_models` never runs again. The copy would then carry two `Model` objects that
+        drift: a post-copy `copy.model.temperature = ...` is invisible to a pin-honouring
+        provider, which serves the *pin*. Silent, and on the per-request copy path.
+
+        Found in the third review round of #107 -- all 144 tests in the touched suites passed
+        with the split present, so it was entirely uncovered.
+        """
+        agent = self._agent(responses_cls(id="gpt-5.5"))
+        assert agent._user_pinned_model is agent.model, "precondition: __init__ aliases them"
+
+        copy = agent.deep_copy()
+
+        assert copy._user_pinned_model is copy.model, (
+            "the copy must hold one object, not a pin and a live model that can drift"
+        )
+        copy.model.temperature = 0.95
+        assert copy._user_pinned_model.temperature == 0.95, (
+            "a setting applied to the copy's model must be what a pin-honouring provider serves"
+        )
+
+    def test_keeping_them_aliased_still_isolates_the_copy(self, responses_cls, monkeypatch):
+        """The alias must not be restored by pointing back at the *original's* object.
+
+        Healing the split by sharing `agent.model` would undo #172 entirely. The copy gets its
+        own object that is aliased to its own pin -- so a client build on one copy reaches
+        neither its siblings nor the original.
+        """
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+
+        agent = self._agent(responses_cls(id="gpt-5.5"))
+        first, second = agent.deep_copy(), agent.deep_copy()
+
+        assert first.model is not agent.model and first.model is not second.model
+
+        first.model.get_client()
+
+        assert second.model.api_key is None, "a sibling copy's model must stay clean"
+        assert agent.model.api_key is None, "and so must the shared original's"
+
     def test_a_model_at_another_tenants_endpoint_is_a_fresh_pin(self, responses_cls):
         """The round-1 finding, through the public API. Same class, same id, different endpoint and
         key: the copy must take the caller's model as its pin, not keep tenant A's."""
@@ -1343,8 +1439,16 @@ class TestConnectionAwarePinningThroughDeepCopy:
 
         fresh = agent.deep_copy(update={"model": responses_cls(id="gpt-5.5")})
 
-        assert fresh._user_pinned_model is agent._user_pinned_model, (
+        # `same_model`, not `is`: the carry-over branch fired, which is what this asserts. Since
+        # aicoe-tracker#172 a copy derives its *own* pin object rather than aliasing the original's, so
+        # identity here would test the sharing mechanism rather than the pinning decision -- and
+        # the sharing is exactly what was removed (one request's client build wrote environment
+        # credentials into the pin every other copy resolved to).
+        assert same_model(fresh._user_pinned_model, agent._user_pinned_model), (
             "an identical reconstruction is the model already in use, so the original pin stands"
+        )
+        assert fresh._user_pinned_model is not agent._user_pinned_model, (
+            "and the copy carries its own pin object, not a shared alias"
         )
 
 
