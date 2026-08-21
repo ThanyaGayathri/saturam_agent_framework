@@ -224,6 +224,22 @@ def test_buffer_accumulates_enqueued_neighbors():
     assert "ep-3" in buffer
 
 
+def test_buffer_neighbors_returns_oldest_enqueued_first():
+    # neighbors() is documented "oldest-enqueued first" -- pin the actual sequence, not just
+    # membership, since a caller (SM-H5) iterating it for ranked output relies on that order.
+    # Enqueued out of lexicographic id order on purpose: "ep-2" first, then "ep-0", then "ep-1"
+    # -- so a mutation that returns membership sorted by id (which would coincidentally match
+    # insertion order if enqueued id-ascending) is distinguishable from the real FIFO contract.
+    buffer = ContiguityBuffer(capacity=10)
+    session = a_session(5)
+    first = ContiguityNeighbor(episode=session[2], distance=1, hit_id="hit-a")
+    second = ContiguityNeighbor(episode=session[0], distance=1, hit_id="hit-a")
+    third = ContiguityNeighbor(episode=session[1], distance=1, hit_id="hit-b")
+    buffer.enqueue([first])
+    buffer.enqueue([second, third])
+    assert [n.episode.id for n in buffer.neighbors()] == ["ep-2", "ep-0", "ep-1"]
+
+
 def test_buffer_evicts_oldest_first_past_capacity():
     buffer = ContiguityBuffer(capacity=3)
     session = a_session(10)

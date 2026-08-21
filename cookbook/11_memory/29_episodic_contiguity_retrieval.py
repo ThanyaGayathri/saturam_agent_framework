@@ -103,11 +103,20 @@ for neighbor in buffer.neighbors():
     )
 print(f"Evicted to stay within capacity: {[n.episode.id for n in evicted]}")
 
-# A second hit's neighbors that overlap the first hit's are deduplicated, not re-added.
+# A second hit's neighbors that overlap the first hit's are deduplicated (not re-added), but a
+# neighbor the second hit names for the first time still enqueues and can evict -- ep-2 (the
+# first hit itself) is new to the buffer from the second hit's perspective, so it pushes the
+# buffer over capacity and evicts ep-1, the oldest entry.
+before_second_enqueue = {n.episode.id for n in buffer.neighbors()}
 second_hit = session[3]
 second_neighbors = temporal_neighbors(second_hit, session, radius=1)
-buffer.enqueue(second_neighbors)
+second_evicted = buffer.enqueue(second_neighbors)
+after_second_enqueue = {n.episode.id for n in buffer.neighbors()}
 print(f"After a second hit ({second_hit.id})'s neighbors: {len(buffer)}/4 buffered")
+print(
+    f"  newly buffered from this enqueue: {sorted(after_second_enqueue - before_second_enqueue)}"
+)
+print(f"  evicted by this enqueue: {[n.episode.id for n in second_evicted]}")
 
 # ---------------------------------------------------------------------------
 # 4. Blending a neighbor's distance into its composite score

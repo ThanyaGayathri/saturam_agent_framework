@@ -734,8 +734,12 @@ accumulates them across the pass and deduplicates a second hit's overlapping nei
 
 **Result:** Ran to completion. `temporal_neighbors` returned the expected four neighbors, nearest
 first (`ep-1`/`ep-3` at distance +/-1, `ep-0`/`ep-4` at distance +/-2). The buffer filled to its
-4-item capacity with zero evictions on the first hit's lookup, and the second hit's neighbor
-lookup added nothing new (every id it named was already buffered), demonstrating deduplication.
+4-item capacity with zero evictions on the first hit's lookup. The second hit's neighbor lookup
+(`ep-2` at distance -1, `ep-4` at distance +1) deduplicated `ep-4` (already buffered from the
+first hit) but genuinely added `ep-2` (the *first* hit itself, new from the second hit's
+perspective) -- pushing the buffer past capacity and evicting `ep-1`, the oldest entry. The
+buffer's size stays at 4/4 either way, so this is not visible from the length alone; the cookbook
+now prints the newly-buffered and evicted ids explicitly to make both true.
 The fixture showed an unrelated later-session episode (base score 0.650) outranking the hit's own
 temporal continuation (base score 0.500) under relevance/importance alone, and the ranking
 reversing once the continuation's contiguity bonus (0.200 at distance +1) was blended in (0.700 >

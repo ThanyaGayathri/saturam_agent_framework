@@ -273,6 +273,13 @@ def test_blend_contiguity_rejects_a_nonfinite_base_score():
         assert exc_info.value.field_name == "base_score"
 
 
+def test_blend_contiguity_accepts_a_negative_finite_base_score():
+    # Only finiteness is checked -- a negative-but-finite base_score (e.g. an uncentered cosine
+    # similarity a caller passed instead of composite_episodic_score's [0.0, 1.0] output) is not
+    # refused, and the bonus is added to it as-is.
+    assert blend_contiguity(-0.4, distance=1, weight=0.2, decay=0.5) == pytest.approx(-0.2)
+
+
 def test_blend_contiguity_propagates_contiguity_bonus_errors():
     with pytest.raises(MemoryOperationError) as exc_info:
         blend_contiguity(0.5, distance=0)

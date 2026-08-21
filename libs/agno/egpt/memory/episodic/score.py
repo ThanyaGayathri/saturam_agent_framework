@@ -235,8 +235,14 @@ def blend_contiguity(
     it. Wiring this into live retrieval ranking is SM-H5's (#135), not this module's -- see the
     module docstring.
 
+    A negative ``base_score`` is accepted, not refused: nothing here requires the ``[0.0, 1.0]``
+    range :func:`composite_episodic_score` produces, since a caller can legitimately pass a raw
+    signal (e.g. an uncentered cosine similarity) that goes negative. Only finiteness is
+    checked -- see Raises.
+
     Raises:
-        MemoryOperationError: ``base_score`` is non-finite (``field_name="base_score"``), or
+        MemoryOperationError: ``base_score`` is non-finite (``field_name="base_score"``; a
+            negative-but-finite ``base_score`` is valid and returned as-is plus the bonus), or
             propagated from :func:`contiguity_bonus` for a bad ``distance``/``weight``/``decay``.
     """
     if not math.isfinite(base_score):

@@ -34,9 +34,8 @@ also :mod:`.score`, not this module -- this module only decides *which* episodes
 and how many a pass may hold onto.
 """
 
-from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, OrderedDict, Sequence, Tuple
 
 from egpt.memory.schemas.episodic import EpisodicRecord
 from egpt.memory.types import MemoryOperationError
@@ -123,14 +122,16 @@ def temporal_neighbors(
     order) or an unordered candidate list would otherwise get neighbors that are silently wrong
     rather than refused.
 
-    **Cost, for a caller wiring this into a live retrieval pass (SM-H5):** every call re-sorts
-    and re-indexes the whole ``episodes`` pool from scratch (``O(n log n)``, plus the
+    **Cost, for a caller wiring this into a live retrieval pass (SM-H5, #135):** every call
+    re-sorts and re-indexes the whole ``episodes`` pool from scratch (``O(n log n)``, plus the
     duplicate-id scan below) -- there is no cross-call cache, and calling this once per hit
     against the same session-scoped pool repeats that sort once per hit rather than once per
     pass. That is a deliberate simplicity choice for a first pure implementation, not a promise
-    that it stays cheap at a large pool/hit-count combination; a caller sorting once and calling
-    a position-lookup helper per hit would avoid the repeated work, but that batching is not
-    this function's shape today.
+    that it stays cheap at a large pool/hit-count combination. **SM-H5's own implementor should
+    treat "sort ``episodes`` once per pass, look up each hit's position against that one sorted
+    list" as the concrete optimisation to make at that call site** -- this function's per-call
+    contract (accept an unsorted pool, sort defensively) makes that decision point unavoidable to
+    notice rather than something a caller of this pure module can silently skip.
 
     ``hit`` must appear in ``episodes`` (compared by ``id``), and every episode in ``episodes``
     must carry a distinct ``id`` -- a neighbor is a position relative to the hit *within this
@@ -220,7 +221,7 @@ class ContiguityBuffer:
                 field_name="capacity",
             )
         self._capacity = capacity
-        self._by_id: "OrderedDict[str, ContiguityNeighbor]" = OrderedDict()
+        self._by_id: OrderedDict[str, ContiguityNeighbor] = OrderedDict()
 
     def __len__(self) -> int:
         return len(self._by_id)
