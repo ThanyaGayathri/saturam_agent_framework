@@ -26,12 +26,12 @@ SM-L3's extraction strategy to own, not a normalization helper's.
 """
 
 from dataclasses import replace
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 from uuid import NAMESPACE_OID, uuid5
 
-from egpt.memory.types import FactWrite, MemoryOperationError, Scope, normalize_entity_name
+from egpt.memory.types import FactWrite, MemoryOperationError, MemoryRecord, Scope, normalize_entity_name
 
-__all__ = ["merge_near_duplicate_facts"]
+__all__ = ["FACT_ID_NAMESPACE", "merge_near_duplicate_facts"]
 
 #: The namespace ``_distil`` derives a fact's id from (``uuid5(_FACT_NAMESPACE, "|".join(sorted
 #: (source_episode_ids)))``). Defined here, not in ``adapters/co_located.py``, because this
@@ -60,6 +60,36 @@ def _dedup_key(fact: FactWrite) -> Tuple[Scope, str]:
     return fact.record.scope, normalized
 
 
+def _merged_bounds(
+    survivor: MemoryRecord, absorbed: MemoryRecord
+) -> Tuple[Optional[int], Optional[int], Optional[int]]:
+    """``(t_valid, t_invalid, created_at)`` for a fold, by the same envelope rule ``_distil``
+    uses when it first builds a fact from a *group* of episodes -- applied here pairwise, since a
+    fold combines exactly two already-built facts.
+
+    A fact is true for as long as *either* member's evidence says it is (review finding 1,
+    PR #116): keeping only the survivor's bounds silently narrowed the window to whichever fact a
+    bucket iteration order happened to visit first, the same class of bug ``_distil``'s own
+    min/max envelope exists to prevent one level up.
+
+    - ``t_valid``: earliest of the two, ignoring an unset one -- ``None`` only if both are unset.
+    - ``t_invalid``: latest of the two, but ``None`` (open-ended) if *either* is -- open-ended
+      always wins, or a bounded fact folding with an open-ended one would falsely stop being true.
+    - ``created_at``: latest of the two, ignoring an unset one -- "when the system most recently
+      had evidence for this," matching ``_distil``'s own choice for the same field.
+    """
+    valids = [t for t in (survivor.t_valid, absorbed.t_valid) if t is not None]
+    t_valid = min(valids) if valids else None
+    t_invalid = (
+        None
+        if survivor.t_invalid is None or absorbed.t_invalid is None
+        else max(survivor.t_invalid, absorbed.t_invalid)
+    )
+    createds = [t for t in (survivor.created_at, absorbed.created_at) if t is not None]
+    created_at = max(createds) if createds else None
+    return t_valid, t_invalid, created_at
+
+
 def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWrite], int]:
     """Fold facts whose content is identical after normalization into one, per scope.
 
@@ -76,15 +106,35 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
 
     **The survivor's id is re-derived from the combined provenance**, the same way `_distil` first
     derived it (``uuid5(FACT_ID_NAMESPACE, "|".join(sorted(source_episode_ids)))``) -- not left as
-    whichever fact happened to survive. Content and bounds are still taken from the first fact
-    encountered, unchanged; only the id follows the union, because the id is `_distil`'s
-    "re-running this pass upserts the same row" guarantee, and that guarantee is keyed on
-    provenance, not on which fact a bucket iteration order happened to visit first (review
-    finding 3, PR #116).
+    whichever fact happened to survive. Content is still taken from the first fact encountered,
+    unchanged; the id follows the union, because the id is `_distil`'s "re-running this pass
+    upserts the same row" guarantee, and that guarantee is keyed on provenance, not on which fact
+    a bucket iteration order happened to visit first (review finding 3, PR #116).
+
+    **Bi-temporal bounds and topics are unioned too, by `_merged_bounds` and set union
+    respectively** -- not left as the survivor's alone (review finding 1 and finding 3, PR #116):
+    a folded fact must stay true for as long as *either* member's evidence says it is, the same
+    invariant `_distil` enforces one level up when it first builds a fact from a group of
+    episodes.
+
+    **`subject`/`predicate`/`object`/`confidence` are not merged, and stay the survivor's alone.**
+    Unlike bounds and topics, there is no well-defined union for two SPO triples or two confidence
+    scores -- `_distil` never populates them today (`FactWrite.is_triple()` needs an extraction
+    pass this module deliberately does not have, per its own module docstring), so this is a
+    forward note rather than a live gap: whichever ticket makes `_distil`'s output carry SPO
+    (SM-L3 #124) needs a merge rule for this fold too, and does not have one yet (review finding
+    5, PR #116).
 
     ``facts`` arrives in ``_distil``'s deterministic group order, so which fact contributes
     content is deterministic too -- re-running this stage on the same input never picks a
     different one.
+
+    **No async twin, deliberately (CLAUDE.md's sync/async rule).** That rule targets I/O-bound
+    API; this is a pure, in-memory fold over a list `_distil` already materialized, with no
+    `await` anywhere in it -- the same reasoning `aconsolidate` applies to `_distil` itself
+    (offloaded via `asyncio.to_thread` there only because it is quadratic and CPU-bound at scale;
+    this fold runs on `_distil`'s already-small output and needs no such offload, see the call
+    site's comment in `co_located.py`).
 
     Returns the folded facts, in first-occurrence order, and how many were folded away.
     """
@@ -104,13 +154,20 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
         survivor = kept[existing_index]
         combined_ids = sorted(set(survivor.source_episode_ids) | set(fact.source_episode_ids))
         folded_id = str(uuid5(FACT_ID_NAMESPACE, "|".join(combined_ids)))
+        t_valid, t_invalid, created_at = _merged_bounds(survivor.record, fact.record)
+        survivor_topics = survivor.record.topics or []
+        merged_topics = survivor_topics + [t for t in (fact.record.topics or []) if t not in survivor_topics]
         kept[existing_index] = replace(
             survivor,
             source_episode_ids=combined_ids,
             record=replace(
                 survivor.record,
                 id=folded_id,
+                topics=merged_topics or None,
                 provenance={**survivor.record.provenance, "source_episode_ids": combined_ids},
+                t_valid=t_valid,
+                t_invalid=t_invalid,
+                created_at=created_at,
             ),
         )
 

@@ -1280,6 +1280,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Off the loop: `_distil` is quadratic and measured seconds of pure CPU at the cap, during
         # which no other coroutine in the process runs.
         facts, merged = await asyncio.to_thread(self._distil, episodes)
+        # Not offloaded like `_distil` above: this folds `_distil`'s already-small output list in
+        # memory, with no quadratic term and nothing to await -- see `merge_near_duplicate_facts`'s
+        # own docstring for why it carries no async twin (review finding 4, PR #116).
         facts, folded = merge_near_duplicate_facts(facts)
 
         if facts:

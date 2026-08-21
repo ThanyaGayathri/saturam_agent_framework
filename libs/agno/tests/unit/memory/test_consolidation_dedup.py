@@ -14,7 +14,16 @@ ACME = Scope(tenant_id="acme", user_id="u1")
 GLOBEX = Scope(tenant_id="globex", user_id="u1")
 
 
-def fact(content, source_episode_ids, scope=ACME, fact_id=None):
+def fact(
+    content,
+    source_episode_ids,
+    scope=ACME,
+    fact_id=None,
+    t_valid=None,
+    t_invalid=None,
+    created_at=None,
+    topics=None,
+):
     fact_id = fact_id or "|".join(source_episode_ids)
     return FactWrite(
         record=MemoryRecord(
@@ -23,6 +32,10 @@ def fact(content, source_episode_ids, scope=ACME, fact_id=None):
             content=content,
             scope=scope,
             provenance={"source_episode_ids": source_episode_ids},
+            t_valid=t_valid,
+            t_invalid=t_invalid,
+            created_at=created_at,
+            topics=topics,
         ),
         source_episode_ids=source_episode_ids,
         derived_by="co_located.deterministic_dedup",
@@ -131,3 +144,61 @@ def test_an_empty_batch_merges_nothing():
 
     assert kept == []
     assert merged == 0
+
+
+def test_folding_widens_the_valid_time_window_to_the_earlier_bound():
+    """A fact must stay true from the *earliest* evidence either member carries (review finding 1,
+    PR #116) -- keeping only the survivor's `t_valid` silently narrowed the window."""
+    facts = [
+        fact("the deploy failed", ["a"], t_valid=100, t_invalid=200),
+        fact("the deploy failed!", ["b"], t_valid=50, t_invalid=300),
+    ]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    assert (kept[0].record.t_valid, kept[0].record.t_invalid) == (50, 300)
+
+
+def test_folding_stays_open_ended_if_either_member_is():
+    """`t_invalid=None` (open-ended) from either member must win, mirroring `_distil`'s own
+    "any member unbounded keeps the whole fact open" rule."""
+    facts = [
+        fact("the deploy failed", ["a"], t_valid=100, t_invalid=None),
+        fact("the deploy failed!", ["b"], t_valid=50, t_invalid=300),
+    ]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    assert kept[0].record.t_invalid is None
+    assert kept[0].record.t_valid == 50
+
+
+def test_folding_takes_the_later_created_at():
+    facts = [
+        fact("the deploy failed", ["a"], created_at=100),
+        fact("the deploy failed!", ["b"], created_at=300),
+    ]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    assert kept[0].record.created_at == 300
+
+
+def test_folding_unions_topics_without_duplicating_the_shared_one():
+    facts = [
+        fact("the deploy failed", ["a"], topics=["deploys", "incidents"]),
+        fact("the deploy failed!", ["b"], topics=["incidents", "oncall"]),
+    ]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    assert kept[0].record.topics == ["deploys", "incidents", "oncall"]
+
+
+def test_folding_with_no_bounds_or_topics_on_either_side_stays_unset():
+    facts = [fact("the deploy failed", ["a"]), fact("the deploy failed!", ["b"])]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    r = kept[0].record
+    assert (r.t_valid, r.t_invalid, r.created_at, r.topics) == (None, None, None, None)
