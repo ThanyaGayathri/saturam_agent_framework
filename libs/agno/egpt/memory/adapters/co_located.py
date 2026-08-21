@@ -1134,6 +1134,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         yet crossed the threshold -- that reads as ``details["triggered"] is False`` on a real
         report, which a scheduler needs to tell apart from "reflection was never configured".
 
+        **Folding an insight into ``facts`` changes what an entity/relation failure looks like on
+        an otherwise-duplicate-free pass.** Before reflection existed, a pass with no duplicate
+        episodes took the ``else:`` branch below -- no receipt, so an entity/relation failure
+        propagated bare. A triggered insight makes ``facts`` non-empty even when ``_distil`` found
+        nothing to dedupe, routing that same pass through the ``if facts:`` branch instead, where
+        an entity/relation failure is wrapped into ``PartialWriteError(receipt)`` -- ``receipt``
+        naming only the insight fact's id, since that is the only thing this pass actually wrote.
+        Deliberate, not incidental: an insight *is* a committed write by the time entities/
+        relations run, exactly the condition that branch exists to detect, and a caller catching
+        bare exceptions from ``consolidate`` on a reflection-configured provider must be ready for
+        this.
+
         **A synthesis failure here must not fail this whole pass.** Unlike entities/relations
         (whose failure after a fact write is wrapped into ``PartialWriteError`` and propagated),
         this call runs *before* ``if facts:`` -- nothing has committed yet, so an uncaught

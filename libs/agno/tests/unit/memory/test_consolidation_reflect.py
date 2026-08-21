@@ -234,6 +234,37 @@ def test_arun_snapshots_pending_before_the_await():
     assert pipe._trigger._accumulated(ACME) == 0.0
 
 
+def test_run_also_snapshots_pending_symmetrically_with_arun():
+    """Regression (review round 3): ``run`` (sync) did not snapshot ``pending`` into a fresh list
+    the way ``arun`` does -- asymmetric, and a synthesizer that mutates the sequence it was handed
+    (legitimate to do synchronously, inside its own ``synthesize`` call, with no concurrency
+    required to reach it) would corrupt what ``_to_fact`` cites afterward. Mirrors
+    ``test_arun_snapshots_pending_before_the_await`` but drives the mutation synchronously, from
+    inside ``synthesize`` itself, rather than through an ``await`` boundary."""
+
+    class MutatingSynthesizer:
+        def __init__(self, pipe_ref):
+            self._pipe_ref = pipe_ref
+
+        def synthesize(self, episodes):
+            live = self._pipe_ref._pending.get(ACME.key())
+            if live is not None:
+                live.append(episode("intruder", "e-intruder", importance=0.1))
+            return insight()
+
+        async def asynthesize(self, episodes):
+            raise AssertionError("only the sync half is exercised by this test")
+
+    pipe = ReflectionPipeline(MutatingSynthesizer(None), importance_threshold=0.5)
+    pipe.synthesizer._pipe_ref = pipe
+
+    report = pipe.run(ACME, [episode("a", "e1", importance=0.6)])
+
+    (fact,) = report.insights
+    assert fact.source_episode_ids == ["e1"], "must cite only what this call actually accumulated and showed"
+    assert report.episodes_considered == 1
+
+
 def test_max_episodes_per_reflection_drops_the_oldest():
     """A scope that never reaches the threshold must not accumulate forever -- the cap keeps only
     the most recently created episodes once it is exceeded."""
@@ -497,6 +528,94 @@ class BoomSynthesizer:
     async def asynthesize(self, episodes):
         self.calls += 1
         raise RuntimeError("synthesis blew up")
+
+
+class _SlottedError(Exception):
+    """Stands in for a real C-extension/driver exception type that refuses an arbitrary attribute
+    assignment with its own `AttributeError`. Plain `__slots__` on a pure-Python subclass cannot
+    reproduce this -- every exception still inherits `BaseException`'s implicit `__dict__` in
+    CPython, so `some_exception.foo = 1` always succeeds regardless of `__slots__` -- hence the
+    explicit `__setattr__` override to force the same refusal a real slotted C type would give."""
+
+    def __setattr__(self, name, value):
+        if name == "reflection_triggered":
+            raise AttributeError(f"cannot set {name!r} on this exception type")
+        super().__setattr__(name, value)
+
+
+class SlottedBoomSynthesizer:
+    """Raises an exception that cannot accept `reflection_triggered` -- regression coverage
+    (review round 3) for the guard around that attribute assignment."""
+
+    def synthesize(self, episodes):
+        raise _SlottedError("synthesis blew up (slotted)")
+
+    async def asynthesize(self, episodes):
+        raise _SlottedError("synthesis blew up (slotted)")
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_marking_a_slotted_exception_does_not_replace_it(is_async):
+    """The original exception must still propagate, unmasked by an `AttributeError` from the
+    `reflection_triggered` assignment itself failing on a slotted exception type."""
+    pipe = ReflectionPipeline(SlottedBoomSynthesizer(), importance_threshold=0.1)
+
+    call = pipe.arun(ACME, [episode("a", "e1", importance=0.9)]) if is_async else None
+    with pytest.raises(_SlottedError, match="synthesis blew up"):
+        asyncio.run(call) if is_async else pipe.run(ACME, [episode("a", "e1", importance=0.9)])
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_write_failure_recovers_on_retry_via_the_same_idempotent_id(is_async):
+    """Regression (review round 3): a review characterized `_consume` running before the write
+    confirms as "insight permanently lost, no retry path." Reproduced directly instead: the
+    vector-scan cursor never advances on a raised exception, so a retried `consolidate` call on
+    the same episodes re-accumulates, re-crosses the threshold, and re-synthesizes into a
+    `FactWrite` whose id is derived from the source episode set alone -- the retried write lands
+    the insight rather than losing it. What is real and now documented: the retry costs a second
+    synthesis call."""
+
+    class CountingVector(FakeVector):
+        def __init__(self):
+            super().__init__()
+            self.fail_next = False
+
+        def upsert(self, scope, records):
+            if self.fail_next:
+                self.fail_next = False
+                raise RuntimeError("simulated write failure")
+            return super().upsert(scope, records)
+
+        async def aupsert(self, scope, records):
+            if self.fail_next:
+                self.fail_next = False
+                raise RuntimeError("simulated write failure")
+            return await super().aupsert(scope, records)
+
+    synth = StubSynthesizer(result=insight())
+    vector = CountingVector()
+    graph = FakeGraph()
+    pipe = ReflectionPipeline(synth, importance_threshold=0.1)
+    memory = CoLocatedMemoryProvider(
+        vector=vector, graph=graph, config=MemoryProviderConfig(provider="co_located"), reflection_pipeline=pipe
+    )
+    memory.write(ACME, [MemoryEvent(content="Acme shipped early", scope=ACME, id="e1", metadata={"importance": 0.9})])
+
+    vector.fail_next = True
+    with pytest.raises(Exception):
+        asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+    assert len(synth.calls) == 1
+
+    report = asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+    assert report.details["reflection"]["triggered"] is True
+    assert len(synth.calls) == 2, "the retry costs a second synthesis call, not a free replay"
+    insight_rows = [
+        r
+        for r in vector.rows.get(ACME.tenant_id, {}).values()
+        if r.tier is MemoryTier.SEMANTIC and r.metadata.get("kind") == "insight"
+    ]
+    assert len(insight_rows) == 1, "the retry must upsert the same id, not fail to land at all"
 
 
 @pytest.mark.parametrize("is_async", [False, True])

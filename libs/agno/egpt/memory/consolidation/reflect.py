@@ -41,7 +41,7 @@ from uuid import NAMESPACE_OID, uuid5
 
 from pydantic import BaseModel, Field
 
-from egpt.memory.consolidation.triggers import SizeTrigger, ThresholdSource, _validated_threshold
+from egpt.memory.consolidation.triggers import SizeTrigger, ThresholdSource, validated_threshold
 from egpt.memory.graph.passes import select_current_episodes
 from egpt.memory.tiers import CONSOLIDATION_TARGET
 from egpt.memory.types import FactWrite, MemoryOperationError, MemoryRecord, Scope, require_scope
@@ -411,10 +411,10 @@ class ReflectionPipeline:
         #: SM-L2's own trigger (module docstring), fed importance instead of size/event-count.
         # Pre-validated under this constructor's own parameter name: `SizeTrigger.__init__`
         # would otherwise raise "threshold must be a positive number", naming a parameter this
-        # constructor does not have -- `_validated_threshold` is the same helper `SizeTrigger`
+        # constructor does not have -- `validated_threshold` is the same helper `SizeTrigger`
         # (and every other trigger in this package) already calls internally, imported directly
         # rather than re-implemented so the two validations cannot drift.
-        self._trigger = SizeTrigger(_validated_threshold(importance_threshold, "importance_threshold"))
+        self._trigger = SizeTrigger(validated_threshold(importance_threshold, "importance_threshold"))
         #: Episodes accumulated per scope (keyed by ``Scope.key()``) since the last reset.
         self._pending: Dict[str, List[MemoryRecord]] = {}
 
@@ -573,11 +573,28 @@ class ReflectionPipeline:
         crossed and nothing further would happen until the next pass retried. A bare attribute on
         the exception, not a new wrapping exception type, so ``co_located.py`` gains no import
         edge into this module for it -- see the module docstring on why this pipeline is
-        duck-typed there.
+        duck-typed there. Assigning it is itself guarded: a C-extension exception type using
+        ``__slots__`` can refuse an arbitrary attribute with its own ``AttributeError``, which
+        must not replace the exception this block is already propagating.
+
+        **``_consume`` runs before the caller's write is confirmed.** ``co_located.consolidate``
+        folds ``report.insights`` into its own write loop *after* this method has already
+        returned, so a write failure there does not roll anything back here. This does not lose
+        the insight: the vector-scan cursor never advances on a raised exception (``consolidate``
+        propagates before reaching ``_advance_cursor``), so the *same* un-advanced episodes are
+        handed to the next pass, re-accumulate (nothing here retains state across the failure to
+        conflict with that), re-cross the threshold identically, and re-synthesize into a
+        ``FactWrite`` whose id is derived from the source episode set alone -- unchanged by
+        content -- so the retried write upserts the same row rather than duplicating it (verified:
+        a forced write failure followed by a retry on the same episodes lands the insight
+        correctly). What is real: the retry costs a **second synthesis call** (an LLM call, unlike
+        the free-to-recompute dedup facts in ``_distil``), and if the synthesizer is
+        non-deterministic, the retried wording may differ from the failed attempt's. Tracked:
+        aicoe-tracker#193.
         """
         require_scope(scope, method="run")
         now = now_epoch_s()
-        pending = self._accumulate(scope, self._selected(episodes), now)
+        pending = list(self._accumulate(scope, self._selected(episodes), now))
         if not self._trigger.should_fire(scope, now=now):
             return self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
         total = self._accumulated_importance(pending)
@@ -585,7 +602,10 @@ class ReflectionPipeline:
         try:
             insight = self.synthesizer.synthesize(pending)
         except Exception as exc:
-            exc.reflection_triggered = True  # type: ignore[attr-defined]
+            try:
+                exc.reflection_triggered = True  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                pass
             raise
         self._consume(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
@@ -612,6 +632,9 @@ class ReflectionPipeline:
         scope, so this is unreachable through the worker; it is reachable only through direct
         concurrent calls to ``aconsolidate``/``arun``, which the interface docstring already
         documents as tolerated-but-costing-duplicate-work rather than serialized.
+
+        See :meth:`run`'s docstring for the attribute-assignment guard and the
+        ``_consume``-before-write-confirmation note -- both apply identically here.
         """
         require_scope(scope, method="arun")
         now = now_epoch_s()
@@ -623,7 +646,10 @@ class ReflectionPipeline:
         try:
             insight = await self.synthesizer.asynthesize(pending)
         except Exception as exc:
-            exc.reflection_triggered = True  # type: ignore[attr-defined]
+            try:
+                exc.reflection_triggered = True  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                pass
             raise
         self._consume(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
