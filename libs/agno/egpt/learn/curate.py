@@ -183,7 +183,15 @@ class Curator:
         return unique
 
     def _normalize(self, text: str) -> str:
-        """Normalize text for comparison."""
+        """Normalize text for comparison.
+
+        Reused, not reinvented, outside this class: :func:`egpt.memory.types.normalize_entity_name`
+        (SM-G8 #106) restates this transform rather than import it -- this method is private on a
+        class that needs a wired ``LearningMachine``, which the memory package's callers do not
+        have. ``test_entity_normalization_matches_the_curator`` pins the two in agreement.
+        :func:`egpt.memory.consolidation.dedup.merge_near_duplicate_facts` (SM-L4 #125) then reuses
+        ``normalize_entity_name`` itself, rather than adding a third restatement.
+        """
         import re
 
         text = text.lower().strip()

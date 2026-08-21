@@ -1588,15 +1588,32 @@ class TestHeavyResourcesUnit:
 
         assert copy.memory_manager is mm
 
-    def test_model_is_shared(self):
-        """Model should be shared."""
+    def test_model_wrapper_is_per_copy_but_its_client_is_shared(self):
+        """The expensive part of a model -- its client and pool -- is still shared.
+
+        This test used to assert `copy.model is model`. That is no longer true, and the
+        change is deliberate: `_user_pinned_model` is aliased to `agent.model`, and a copy
+        that shares the original's `Model` shares its pin, so one request's client build
+        writes credentials into every other copy's pin (aicoe-tracker#171, #172).
+
+        What this class exists to protect is that `deep_copy` does not duplicate heavy
+        resources. That property is intact -- the `Model` is a thin wrapper copied shallowly,
+        so the client and connection pool underneath it are still shared by reference. The
+        assertion is retargeted from the object identity to the resource it was standing in
+        for.
+        """
         from egpt.integrations.models.openai import OpenAIChat
 
         model = OpenAIChat(id="gpt-4o-mini")
         agent = Agent(name="test", id="test-id", model=model)
+        client = model.get_client()
+
         copy = agent.deep_copy()
 
-        assert copy.model is model
+        assert copy.model is not model, "a shared Model would mean a shared pin"
+        assert copy.model.client is client, "but the client must not be rebuilt per copy"
+        assert copy.model.async_client is model.async_client
+        assert copy._user_pinned_model is copy.model, "and the copy's own alias holds"
 
     def test_reasoning_model_is_shared(self):
         """Reasoning model should be shared."""

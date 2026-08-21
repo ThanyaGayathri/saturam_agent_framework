@@ -115,7 +115,16 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `26_` to `28_`: `feat/SM-E7` (#109) and `feat/SM-E9` (#112) both merged to
   `main` first and took `26_`/`27_` while this branch was still catching up.**
 
-- `29_semantic_fact_store.py`: The semantic fact store (SM-S1) -- `SemanticFactStore` dual-writes a
+- `29_near_duplicate_fact_dedup.py`: Near-duplicate fact folding during consolidation (SM-L4) --
+  two episodes that are the same fact once normalized ("the deploy failed!" / "the deploy
+  failed") but that `_distil`'s raw token-overlap grouping treats as distinct, folded by
+  `consolidation.dedup.merge_near_duplicate_facts` immediately after `_distil` runs. Shows
+  provenance kept from every source episode, the bi-temporal window widened to the earlier bound
+  either member carries, topics unioned, and `ConsolidationReport.near_duplicate_facts_folded`
+  (facts, this stage) reported separately from `duplicates_merged` (episodes, `_distil`'s own
+  grouping). Vector-only, so it runs with no database and no API key.
+
+- `30_semantic_fact_store.py`: The semantic fact store (SM-S1) -- `SemanticFactStore` dual-writes a
   batch of `FactWrite`s to both substrates from one call, and this shows the acceptance criterion
   directly: a fact retrieved through `VectorSubstrate.search` and the same fact retrieved through
   `GraphSubstrate.recall_facts` carry the same subject/predicate/object/confidence/derived_by,
@@ -124,6 +133,8 @@ This section demonstrates how EGPT agents persist and use user memories across r
   episodes is SM-L3's (#124), not shown here -- the `FactWrite`s are handed to the store directly.
   Needs both `./cookbook/scripts/run_pgvector.sh` and `./cookbook/scripts/run_neo4j.sh`; no API key.
   Runs with `.venvs/demo`.
+  **Renumbered from `29_` to `30_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py` first.
+  Per this file's own convention, whoever merges second renumbers.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

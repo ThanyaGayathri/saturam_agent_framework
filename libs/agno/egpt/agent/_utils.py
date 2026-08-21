@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from egpt.agent.agent import Agent
 
 from egpt.filters import FilterExpr
-from egpt.models.base import update_pins_a_new_model
+from egpt.models.base import carry_over_pin, update_pins_a_new_model
 from egpt.utils.log import log_debug, log_error, log_warning
 
 
@@ -222,8 +222,34 @@ def deep_copy(agent: Agent, *, update: Optional[Dict[str, Any]] = None) -> Agent
         # pin, `__init__` records that same id, so the fresh-pin and carry-over branches agree.
         # Verified by removing it, which changes no behaviour and fails no test. Left out
         # deliberately: a clause nothing can reach reads as protection while providing none.
+        # `update={"model": None}` means "do not change the model", not "clear the pin"
+        # (aicoe-tracker#172). Both readings are defensible, so this is the recorded decision rather than an
+        # accident of the guard: a pin is a tenancy-sensitive control, and the safe direction for
+        # an ambiguous input is to keep the caller's explicit choice. Clearing it would hand the
+        # copy to whatever policy the provider defaults to -- a model no caller chose. A caller
+        # who wants a different model passes one; there is no way to *ask* to be un-pinned, which
+        # is deliberate.
+        #
+        # `carry_over_pin`, not the object itself: the pin must not be shared across copies. See
+        # the helper for why (mode_a returns the pinned object as the serving model, and
+        # `_get_client_params` mutates it).
         if not update_pins_a_new_model(update, new_agent.model, agent.model):
-            new_agent._user_pinned_model = agent._user_pinned_model
+            # When the original's pin *is* its live model -- the ordinary case, since
+            # `get_models` aliases them in `__init__` -- the copy must keep them one object too.
+            # Copying the pin alone splits the alias, and nothing on the run path heals it
+            # (`initialize_agent` calls `set_default_model`, which early-returns when a model is
+            # already set). The copy would then hold two Models that drift: a post-copy
+            # `copy.model.temperature = ...` is invisible to a pin-honouring provider, which
+            # serves the pin. Found in the third review round of #107.
+            #
+            # Assigning `.model` as well also *strengthens* the fix this helper exists for: the
+            # credential filled by one copy's client build no longer lands in the shared
+            # `agent.model` either. Guarded on the copy still sharing the original's model, so an
+            # `update={"model": X}` that supplied its own is left alone.
+            carried = carry_over_pin(agent._user_pinned_model)
+            if agent._user_pinned_model is agent.model and new_agent.model is agent.model:
+                new_agent.model = carried
+            new_agent._user_pinned_model = carried
         log_debug(f"Created new {agent.__class__.__name__}")
         return new_agent
     except Exception as e:
