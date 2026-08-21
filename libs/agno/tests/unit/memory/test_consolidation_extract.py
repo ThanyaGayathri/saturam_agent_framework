@@ -483,14 +483,19 @@ def test_the_package_all_matches_its_own_names():
     """`__all__` naming an attribute the module does not have is one bug; the module having an
     attribute `__all__` does not name is another -- both mean `from egpt.memory.consolidation
     import *` disagrees with what direct import gives a caller. Inserting the new SM-L3 names
-    alphabetically at `L` silently dropped `LatencyTrigger`, which this catches."""
+    alphabetically at `L` silently dropped `LatencyTrigger`, which this catches.
+
+    `FACT_ID_NAMESPACE` (SM-L4 #125) is the one documented exception: imported here so
+    `co_located.py` and `dedup.py` cannot drift on its value, deliberately *not* in `__all__`
+    because it is `dedup.py`'s own internal implementation detail, not stable public API (see the
+    package `__init__.py`'s own comment above the import)."""
     import egpt.memory.consolidation as pkg
 
     for name in pkg.__all__:
         assert hasattr(pkg, name), f"{name!r} is in __all__ but not a package attribute"
     exported = {name for name in dir(pkg) if not name.startswith("_")}
     modules = {name for name in exported if isinstance(getattr(pkg, name), type(pkg))}
-    assert exported - modules == set(pkg.__all__)
+    assert exported - modules - {"FACT_ID_NAMESPACE"} == set(pkg.__all__)
 
 
 def test_strategy_id_and_details_builder_are_reachable_from_the_package():

@@ -1240,11 +1240,22 @@ class ConsolidationReport:
     semantic_written: int = 0
     #: What counts as "merged" is the extraction strategy's to define, and the two shipped
     #: strategies mean different things by it. ``_distil``'s deterministic dedup (SM-C1 #89, the
-    #: default when no strategy is wired) counts extra *episodes* folded into a content-overlap
-    #: group. A wired ``FactExtractionPipeline`` (SM-L3 #124) has no notion of a group to subtract
-    #: one from; it counts UPDATE and NOOP decisions instead, as the closest analogue -- episodes
-    #: that did not become a brand-new fact. Compare within one ``details["derived_by"]``, not
-    #: across two.
+    #: default when no strategy is wired) counts extra *episodes* absorbed into a group it kept, by
+    #: Jaccard token overlap. A wired ``FactExtractionPipeline`` (SM-L3 #124) has no notion of a
+    #: group to subtract one from; it counts UPDATE and NOOP decisions instead, as the closest
+    #: analogue -- episodes that did not become a brand-new fact. Compare within one
+    #: ``details["derived_by"]``, not across two. Either way this is a count of *episodes*, not
+    #: facts -- see ``near_duplicate_facts_folded`` for the fact-level count, kept separate because
+    #: the two are different units and summing them into one field would make neither
+    #: reconstructable from the report.
     duplicates_merged: int = 0
+    #: Facts `consolidation.dedup.merge_near_duplicate_facts` (SM-L4 #125) folded into a survivor
+    #: *after* `_distil` ran, by exact-match-after-normalization. Zero either because `_distil`'s
+    #: own grouping already caught every duplicate in the pass (the common case on that path), or
+    #: because a wired `FactExtractionPipeline` (SM-L3 #124) ran instead of `_distil` and this
+    #: fold never runs over its output at all -- see
+    #: `CoLocatedMemoryProvider._distil_facts`'s docstring for why running it there would be
+    #: unsafe, not merely redundant.
+    near_duplicate_facts_folded: int = 0
     contradictions_resolved: int = 0
     details: Dict[str, Any] = field(default_factory=dict)

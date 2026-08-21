@@ -446,6 +446,20 @@ def test_consolidation_writes_the_fact_to_both_substrates():
     assert any(r.tier is MemoryTier.SEMANTIC for r in vector.rows["acme"].values())
 
 
+def test_consolidations_vector_leg_carries_the_same_confidence_and_derived_by_the_graph_leg_does():
+    """SM-S1 (#118): a fact retrieved through `search` must carry what `recall_facts` already
+    surfaces from the graph leg, or the same fact reads as two different shapes depending which
+    substrate answered."""
+    p, vector, graph = provider()
+    p.write(ACME, [event("the deploy failed on friday")])
+
+    p.consolidate(ACME)
+
+    stored = next(r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC)
+    assert stored.metadata["derived_by"] == graph.facts[0].derived_by == "co_located.deterministic_dedup"
+    assert stored.metadata["confidence"] == graph.facts[0].confidence
+
+
 def test_a_distilled_fact_goes_through_the_fact_path_not_the_episode_path():
     """Finding F9: a fact written as a pseudo-episode loses the shape SM-R7 needs."""
     p, _, graph = provider()
@@ -490,6 +504,59 @@ def test_distinct_episodes_stay_distinct():
     assert report.duplicates_merged == 0
 
 
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_facts_that_differ_only_by_punctuation_still_merge(half, monkeypatch):
+    """SM-L4 (#125): `_distil`'s raw ``text.lower().split()`` tokenizer treats "failed!" and
+    "failed" as unrelated tokens, so two episodes that are the same fact once normalized would
+    form two Jaccard groups on their own. ``consolidation.dedup.merge_near_duplicate_facts`` folds
+    them after ``_distil`` runs -- forced apart here (rather than relying on real near-punctuation
+    content) by monkeypatching ``_DUPLICATE_THRESHOLD`` to 1.1, so only that later stage can be
+    responsible for the merge this test asserts. Parametrised over both halves because the fold
+    is wired into `consolidate` and `aconsolidate` separately, and a divergence between them would
+    otherwise only surface in the one this test happened not to run.
+    """
+    import egpt.memory.adapters.co_located as co_located
+
+    monkeypatch.setattr(co_located, "_DUPLICATE_THRESHOLD", 1.1)
+    p, vector, graph = provider()
+    p.write(ACME, [event("the deploy failed!", id="a"), event("the deploy failed", id="b")])
+
+    report = p.consolidate(ACME) if half == "sync" else await p.aconsolidate(ACME)
+
+    assert report.semantic_written == 1
+    # `_distil` groups nothing here (threshold forced above 1.0): the merge is entirely this
+    # stage's, so it must show up as `near_duplicate_facts_folded`, not `duplicates_merged` --
+    # the two are different units (facts folded vs. episodes absorbed) and must not be conflated.
+    assert report.duplicates_merged == 0
+    assert report.near_duplicate_facts_folded == 1
+    (fact,) = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+    assert sorted(fact.provenance["source_episode_ids"]) == ["a", "b"]
+    assert sorted(graph.facts[0].source_episode_ids) == ["a", "b"]
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_near_duplicate_facts_from_different_users_never_merge(half, monkeypatch):
+    """The fold must respect scope isolation exactly like `_distil`'s own grouping does.
+
+    Parametrised like the adjacent punctuation test: the fold is wired into `consolidate` and
+    `aconsolidate` independently, so only exercising one half leaves the other unchecked.
+    """
+    import egpt.memory.adapters.co_located as co_located
+
+    monkeypatch.setattr(co_located, "_DUPLICATE_THRESHOLD", 1.1)
+    p, vector, _ = provider()
+    other = Scope(tenant_id="acme", user_id="u2")
+    p.write(ACME, [event("the deploy failed!", id="a")])
+    p.write(other, [event("the deploy failed", id="b", scope=other)])
+
+    tenant = Scope(tenant_id="acme")
+    report = p.consolidate(tenant) if half == "sync" else await p.aconsolidate(tenant)
+
+    assert report.semantic_written == 2
+    assert report.duplicates_merged == 0
+    assert report.near_duplicate_facts_folded == 0
+
+
 def test_contradictions_resolved_stays_zero_and_says_why():
     """Resolution needs extraction to know two facts disagree -- that is SM-L5's."""
     p, _, _ = provider()
@@ -532,6 +599,19 @@ async def test_sync_and_async_reads_agree():
     async_ids = [r.id for r in (await p.aread(ACME, query)).records]
 
     assert sync_ids == async_ids
+
+
+async def test_aconsolidations_vector_leg_carries_the_same_confidence_and_derived_by_the_graph_leg_does():
+    """The async half of `test_consolidations_vector_leg_carries_...` -- the two call sites in
+    `aconsolidate` and `consolidate` must make the same decision (SM-S1 #118)."""
+    p, vector, graph = provider()
+    await p.awrite(ACME, [event("the deploy failed on friday")])
+
+    await p.aconsolidate(ACME)
+
+    stored = next(r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC)
+    assert stored.metadata["derived_by"] == graph.facts[0].derived_by == "co_located.deterministic_dedup"
+    assert stored.metadata["confidence"] == graph.facts[0].confidence
 
 
 async def test_sync_and_async_consolidation_agree():

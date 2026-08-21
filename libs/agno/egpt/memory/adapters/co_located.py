@@ -29,7 +29,7 @@ import asyncio
 import inspect
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar, Union
-from uuid import NAMESPACE_OID, uuid4, uuid5
+from uuid import uuid4, uuid5
 
 from egpt.memory.config import (
     MemoryProviderConfig,
@@ -37,9 +37,11 @@ from egpt.memory.config import (
     register_provider,
     resolve_substrate,
 )
+from egpt.memory.consolidation import FACT_ID_NAMESPACE, merge_near_duplicate_facts
 from egpt.memory.consolidation.extract import STRATEGY_ID as FACT_PIPELINE_STRATEGY_ID
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.schemas.semantic import fact_record
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
@@ -72,7 +74,12 @@ from egpt.memory.types import (
     fusion_diagnostics,
     require_scope,
 )
-from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
+from egpt.memory.validation import (
+    assert_scope_isolation,
+    group_facts_by_scope,
+    reject_duplicate_ids,
+    reject_foreign_scopes,
+)
 from egpt.utils.dttm import now_epoch_s
 
 if TYPE_CHECKING:
@@ -83,11 +90,16 @@ if TYPE_CHECKING:
 __all__ = ["CoLocatedMemoryProvider"]
 
 #: Jaccard threshold above which two episodes are treated as the same thing.
-#: Deterministic and crude on purpose; real extraction is SM-L3 (#124) / SM-L4 (#125).
+#: Deterministic and crude on purpose; real extraction is SM-L3's (#124). What punctuation-only
+#: differences slip past this raw tokenizer, ``consolidation.dedup.merge_near_duplicate_facts``
+#: (SM-L4 #125) folds after ``_distil`` builds the fact group -- see that module's docstring.
 _DUPLICATE_THRESHOLD = 0.8
 
 #: Namespace for deriving a fact id from its source episodes, so a re-run upserts the same row.
-_FACT_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.consolidate.fact")
+#: Defined in ``consolidation.dedup``, not here: that module re-derives a folded fact's id from
+#: its combined provenance using this same namespace (review finding 3, PR #116), so importing it
+#: rather than keeping a second copy is what keeps the two derivations from drifting apart.
+_FACT_NAMESPACE = FACT_ID_NAMESPACE
 
 #: ``derived_by`` for `_distil`'s deterministic dedup -- one constant rather than the bare string
 #: literal repeated at every site that names this strategy, so a rename cannot miss one.
@@ -1011,6 +1023,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         episodes: Sequence[MemoryRecord],
         facts: Sequence[FactWrite],
         merged: int,
+        folded: int,
         entities: EntitySummary,
         relations: RelationSummary,
         derived_by: str = _DETERMINISTIC_DEDUP_STRATEGY_ID,
@@ -1021,7 +1034,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
             scope=scope,
             episodic_scanned=len(scanned),
             semantic_written=len(facts),
+            # `merged` counts *episodes* `_distil` absorbed; `folded` counts *facts*
+            # `merge_near_duplicate_facts` (SM-L4 #125) folded afterwards -- different units, kept
+            # in separate fields rather than summed into one that neither could be recovered from.
             duplicates_merged=merged,
+            near_duplicate_facts_folded=folded,
             # Zero by design: knowing two facts *disagree* needs extraction, which is SM-L5's
             # (#126). `fact_pipeline`'s UPDATE/DELETE resolve a *candidate against its own*
             # similar facts, not two already-stored facts against each other -- a narrower
@@ -1104,22 +1121,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     @staticmethod
     def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
-        """Batch facts by their own scope, because that is the scope they must be written under.
+        """Batch facts by their own scope -- ``egpt.memory.validation.group_facts_by_scope``.
 
-        ``VectorSubstrate.upsert(scope, records)`` stores *within* the call scope, so passing the
-        pass-wide scope would file a fact derived from one user's episodes under the whole tenant
-        -- readable by every user in it. On the ``write`` path the two always agree, because
-        ``_prepare`` stamps the call scope onto every record; consolidate is the only path where a
-        record carries a narrower scope than the call.
-
-        Keyed on the frozen ``Scope`` itself, never on ``key()``. ``key()`` is now escaped and
-        injective, but grouping identity should not depend on a string function at all -- the
-        object is hashable, and an equality bug there is a misfiled write.
+        Kept as a thin alias rather than inlined at each call site: both call sites below read as
+        ``self._by_scope(facts)`` in a diff against the pre-extraction version, so the behavior
+        change this ticket makes is visible as none. See the shared function's docstring for why
+        this must key on each fact's own scope rather than the call scope.
         """
-        batched: Dict[Scope, List[FactWrite]] = {}
-        for fact in facts:
-            batched.setdefault(fact.record.scope, []).append(fact)
-        return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
+        return group_facts_by_scope(facts)
 
     def _fact_targets(self, facts: Sequence[FactWrite]) -> Tuple[bool, bool]:
         """Which substrates the consolidation target tier routes to, per ``TIER_POLICY``.
@@ -1162,6 +1171,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ``_distil``'s grouping partitions its input, so no two groups can derive one fact id today
         -- but that is a property of the current strategy, which SM-L3 (#124) replaces, and an
         un-enforced invariant one refactor from reopening a duplicate-row hole is worth one call.
+
+        Called on ``_distil``'s output *after* ``consolidation.dedup.merge_near_duplicate_facts``
+        (SM-L4 #125) has already folded it, not on ``_distil``'s raw groups -- the fold re-derives
+        a folded fact's id from its combined provenance, so this still checks the ids that are
+        actually about to be written, the same guarantee it always gave (review finding 9,
+        PR #116).
         """
         reject_duplicate_ids([fact.record for fact in facts])
 
@@ -1191,7 +1206,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
             failures.append(exc)
         self._raise_write_failure(failures, receipt)
 
-    def _distil_facts(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], int, str, str]:
+    def _distil_facts(
+        self, scope: Scope, episodes: Sequence[MemoryRecord]
+    ) -> Tuple[List[FactWrite], int, int, str, str]:
         """Which strategy runs -- ``fact_pipeline`` when wired, ``_distil``'s dedup default
         otherwise -- and the ``(derived_by, supersede)`` pair the report names it with.
 
@@ -1207,24 +1224,40 @@ class CoLocatedMemoryProvider(MemoryProvider):
         into a group; the pipeline counts UPDATE and NOOP decisions, which is the closest existing
         analogue (episodes that did not become a brand-new fact) since it has no notion of a
         "group" to subtract one from.
+
+        ``merge_near_duplicate_facts`` (SM-L4 #125) runs only on the ``_distil`` default path,
+        never over a wired ``fact_pipeline``'s output -- and always ``folded=0`` there, not "not
+        run this pass". Two reasons: ``dedup.py``'s own module docstring already scopes the
+        embedding/LLM-driven case to this ticket ("SM-L3 owns embedding-similarity dedup"), so a
+        wired pipeline already decided ADD/UPDATE/DELETE/NOOP against existing facts itself and
+        running a second, cruder content-equality fold over its output is redundant at best. Worse
+        than redundant: ``merge_near_duplicate_facts`` unconditionally resets
+        ``expired_at``/``superseded_by`` to ``None`` on every fold, documented as safe only because
+        ``_distil``'s output never sets them -- a pipeline's UPDATE/DELETE retirement copies do,
+        and folding one into an unrelated same-content fact would silently un-retire it.
         """
         if self.fact_pipeline is not None:
             facts, report = self.fact_pipeline.distil(scope, episodes)
-            return facts, report.updated + report.noop, FACT_PIPELINE_STRATEGY_ID, FACT_PIPELINE_STRATEGY_ID
+            return facts, report.updated + report.noop, 0, FACT_PIPELINE_STRATEGY_ID, FACT_PIPELINE_STRATEGY_ID
         facts, merged = self._distil(episodes)
-        return facts, merged, _DETERMINISTIC_DEDUP_STRATEGY_ID, NO_SUPERSEDE
+        facts, folded = merge_near_duplicate_facts(facts)
+        return facts, merged, folded, _DETERMINISTIC_DEDUP_STRATEGY_ID, NO_SUPERSEDE
 
     async def _adistil_facts(
         self, scope: Scope, episodes: Sequence[MemoryRecord]
-    ) -> Tuple[List[FactWrite], int, str, str]:
+    ) -> Tuple[List[FactWrite], int, int, str, str]:
         """Async variant of :meth:`_distil_facts`, making the same decisions."""
         if self.fact_pipeline is not None:
             facts, report = await self.fact_pipeline.adistil(scope, episodes)
-            return facts, report.updated + report.noop, FACT_PIPELINE_STRATEGY_ID, FACT_PIPELINE_STRATEGY_ID
+            return facts, report.updated + report.noop, 0, FACT_PIPELINE_STRATEGY_ID, FACT_PIPELINE_STRATEGY_ID
         # Off the loop, matching `aconsolidate`'s existing `_distil` call: quadratic and measured
         # seconds of pure CPU at the cap, during which no other coroutine in the process runs.
         facts, merged = await asyncio.to_thread(self._distil, episodes)
-        return facts, merged, _DETERMINISTIC_DEDUP_STRATEGY_ID, NO_SUPERSEDE
+        # Not offloaded: a pure in-memory fold over `_distil`'s already-small output, no `await`
+        # anywhere in it (matching `merge_near_duplicate_facts`'s own docstring and the sync call
+        # site's identical reasoning).
+        facts, folded = merge_near_duplicate_facts(facts)
+        return facts, merged, folded, _DETERMINISTIC_DEDUP_STRATEGY_ID, NO_SUPERSEDE
 
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="consolidate")
@@ -1245,7 +1278,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ]
         assert_scope_isolation(scope, scanned, method="consolidate")
         episodes = self._visible_episodes(scope, scanned, instant)
-        facts, merged, derived_by, supersede = self._distil_facts(scope, episodes)
+        facts, merged, folded, derived_by, supersede = self._distil_facts(scope, episodes)
 
         if facts:
             self._check_distilled(facts)
@@ -1264,7 +1297,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
-                        vector.upsert(fact_scope, [f.record for f in batch])
+                        # `fact_record`, not `f.record`: the vector row must carry the same
+                        # subject/predicate/object/confidence/derived_by a graph `recall_facts`
+                        # read already surfaces, or the same fact reads as two different shapes
+                        # depending which leg answered (SM-S1 #118).
+                        vector.upsert(fact_scope, [fact_record(f) for f in batch])
                         committed_any = True
                     if to_graph and self.graph is not None:
                         self._graph_fact_batch(fact_scope, batch, receipt)
@@ -1312,7 +1349,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # is the caller-hands-the-termination-condition failure mode the interface docstring warns
         # about, reincarnated one layer down.
         self._advance_cursor(cursor_key, scanned)
-        return self._report(scope, scanned, episodes, facts, merged, entities, relations, derived_by, supersede)
+        return self._report(scope, scanned, episodes, facts, merged, folded, entities, relations, derived_by, supersede)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1330,7 +1367,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ]
         assert_scope_isolation(scope, scanned, method="aconsolidate")
         episodes = await self._avisible_episodes(scope, scanned, instant)
-        facts, merged, derived_by, supersede = await self._adistil_facts(scope, episodes)
+        facts, merged, folded, derived_by, supersede = await self._adistil_facts(scope, episodes)
 
         if facts:
             self._check_distilled(facts)
@@ -1344,7 +1381,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
-                        await vector.aupsert(fact_scope, [f.record for f in batch])
+                        # See the sync half's comment: `fact_record` keeps the vector leg's shape
+                        # in step with what `recall_facts` already returns from the graph leg.
+                        await vector.aupsert(fact_scope, [fact_record(f) for f in batch])
                         committed_any = True
                     if to_graph and self.graph is not None:
                         await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)
@@ -1375,7 +1414,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
         self._advance_cursor(cursor_key, scanned)
-        return self._report(scope, scanned, episodes, facts, merged, entities, relations, derived_by, supersede)
+        return self._report(scope, scanned, episodes, facts, merged, folded, entities, relations, derived_by, supersede)
 
 
 @register_provider("co_located")

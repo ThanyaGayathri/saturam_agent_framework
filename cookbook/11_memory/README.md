@@ -115,7 +115,41 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `26_` to `28_`: `feat/SM-E7` (#109) and `feat/SM-E9` (#112) both merged to
   `main` first and took `26_`/`27_` while this branch was still catching up.**
 
-- `29_fact_extraction_merge.py`: Fact extraction + merge decision (SM-L3) -- `_distil`'s
+- `29_near_duplicate_fact_dedup.py`: Near-duplicate fact folding during consolidation (SM-L4) --
+  two episodes that are the same fact once normalized ("the deploy failed!" / "the deploy
+  failed") but that `_distil`'s raw token-overlap grouping treats as distinct, folded by
+  `consolidation.dedup.merge_near_duplicate_facts` immediately after `_distil` runs. Shows
+  provenance kept from every source episode, the bi-temporal window widened to the earlier bound
+  either member carries, topics unioned, and `ConsolidationReport.near_duplicate_facts_folded`
+  (facts, this stage) reported separately from `duplicates_merged` (episodes, `_distil`'s own
+  grouping). Vector-only, so it runs with no database and no API key.
+
+- `30_episodic_contiguity_retrieval.py`: Temporal-contiguity retrieval (SM-E8) --
+  `temporal_neighbors` names a hit's +/- n neighbors in temporal order (occurred_at, falling back
+  to created_at), `ContiguityBuffer` accumulates them across a pass in a bounded, deduplicating
+  FIFO, and `blend_contiguity`/`contiguity_bonus` turn a buffered neighbor's distance from its
+  hit into a bonus on top of its own `composite_episodic_score` (`26_`). A six-episode fixture
+  shows an unrelated episode outranking the hit's own temporal continuation on relevance alone,
+  and the ranking reversing once the continuation's contiguity bonus is blended in. Wiring
+  contiguity into live retrieval is SM-H5's (#135). Runs with no database and no API key.
+  **Renumbered from `29_` to `30_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py` first.
+  Per this file's own convention, whoever merges second renumbers.**
+
+- `31_semantic_fact_store.py`: The semantic fact store (SM-S1) -- `SemanticFactStore` dual-writes a
+  batch of `FactWrite`s to both substrates from one call, and this shows the acceptance criterion
+  directly: a fact retrieved through `VectorSubstrate.search` and the same fact retrieved through
+  `GraphSubstrate.recall_facts` carry the same subject/predicate/object/confidence/derived_by,
+  because `egpt.memory.schemas.semantic.fact_record` projects them identically onto both legs. Also
+  shows an untripled fact (no SPO) storing fine on the vector leg alone. Fact *extraction* from raw
+  episodes is SM-L3's (#124), not shown here -- the `FactWrite`s are handed to the store directly.
+  Needs both `./cookbook/scripts/run_pgvector.sh` and `./cookbook/scripts/run_neo4j.sh`; no API key.
+  Runs with `.venvs/demo`.
+  **Renumbered from `29_` to `30_` to `31_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`
+  first, then `feat/SM-E8` took `30_episodic_contiguity_retrieval.py` while this branch was still
+  catching up. Per this file's own convention, whoever merges second renumbers -- twice, this
+  time.**
+
+- `32_fact_extraction_merge.py`: Fact extraction + merge decision (SM-L3) -- `_distil`'s
   deterministic dedup (SM-C1) replaced by `FactExtractionPipeline`, opt-in via `fact_pipeline`: a
   model extracts atomic candidate facts, compares each against the top-k most similar existing
   facts, and picks ADD/UPDATE/DELETE/NOOP. The second `consolidate()` call is the point -- a
@@ -123,6 +157,10 @@ This section demonstrates how EGPT agents persist and use user memories across r
   than leaving two contradictory "current" facts standing. Needs `./cookbook/scripts/run_neo4j.sh`,
   `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY` -- extraction and the merge decision
   are each a model call.
+  **Renumbered from `29_` to `32_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`, then
+  `feat/SM-E8` took `30_episodic_contiguity_retrieval.py`, then `feat/SM-S1` took
+  `31_semantic_fact_store.py`, all while this branch was still catching up. Per this file's own
+  convention, whoever merges second renumbers -- three times, this time.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
