@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from egpt.team.team import Team
 
 from egpt.filters import FilterExpr
-from egpt.models.base import update_pins_a_new_model
+from egpt.models.base import carry_over_pin, update_pins_a_new_model
 from egpt.utils.log import log_debug, log_error, log_warning
 
 
@@ -177,8 +177,16 @@ def deep_copy(team: Team, *, update: Optional[Dict[str, Any]] = None) -> Team:
         # case, both directions of the identity bug, why the connection fields are compared, and
         # why the pin itself is not -- lives with the helper in `egpt/models/base.py`; a Team
         # copies every member the same way, so the same reasoning applies per member.
+        # Same two decisions as the Agent path, shared so they cannot drift: an
+        # `update={"model": None}` keeps the pin rather than clearing it, and the pin is copied
+        # rather than shared. See `agent/_utils.py` and `carry_over_pin` (aicoe-tracker#172).
         if not update_pins_a_new_model(update, new_team.model, team.model):
-            new_team._user_pinned_model = team._user_pinned_model
+            # Mirrors `agent/_utils.py`: keep the pin and the live model one object when the
+            # original had them aliased, so the copy's two Models cannot drift apart.
+            carried = carry_over_pin(team._user_pinned_model)
+            if team._user_pinned_model is team.model and new_team.model is team.model:
+                new_team.model = carried
+            new_team._user_pinned_model = carried
 
         log_debug(f"Created new {team.__class__.__name__}")
         return new_team

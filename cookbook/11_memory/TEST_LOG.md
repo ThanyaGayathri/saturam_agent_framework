@@ -722,7 +722,28 @@ renumbers.
 
 ---
 
-### 29_episodic_contiguity_retrieval.py
+### 29_near_duplicate_fact_dedup.py
+
+**Status:** PASS
+
+**Description:** The SM-L4 dedup stage (`consolidation.dedup.merge_near_duplicate_facts`) folding
+two episodes -- "the deploy failed!" and "the deploy failed" -- that are the same fact once
+normalized but that `_distil`'s raw token-overlap grouping (jaccard 0.5, below the 0.8 threshold)
+treats as distinct, followed by a third, genuinely distinct episode that does not fold.
+
+**Result:** Ran to completion. First pass: 2 episodes scanned, 1 semantic fact written,
+`duplicates_merged=0` (`_distil`'s own grouping caught nothing), `near_duplicate_facts_folded=1`
+(this stage caught the punctuation-only difference). The surviving fact carries both source
+episode ids, `t_valid=50` (the earlier of the two episodes' 100 and 50, not just the survivor's
+own), and topics unioned from both episodes. Second pass: the third, distinct episode ("customer
+asked about invoicing") produced its own fact with `near_duplicate_facts_folded=0`, and the total
+semantic fact count is 2, confirming the dedup stage does not over-merge.
+
+**Requires:** No database, no API key. Run with `.venvs/demo`.
+
+---
+
+### 30_episodic_contiguity_retrieval.py
 
 **Status:** PASS
 
@@ -748,3 +769,6 @@ section confirmed a negative radius, a hit absent from the candidate pool, a zer
 and a distance-0 contiguity bonus are all refused with a named field.
 
 **Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `29_` to `30_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py` first.**
+Per this file's own convention, whoever merges second renumbers.

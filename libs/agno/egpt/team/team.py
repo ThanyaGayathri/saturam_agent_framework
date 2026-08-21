@@ -1854,6 +1854,26 @@ class Team:
     ###########################################################################
 
     def deep_copy(self, *, update: Optional[Dict[str, Any]] = None) -> "Team":
+        """Create a copy of this team with isolated per-run state.
+
+        Heavy resources (db, model, knowledge, memory; members are copied) are shared by reference; mutable per-team state is copied.
+
+        ``update={"model": None}`` means **do not change the model**, not "clear the pin"
+        (aicoe-tracker#172). Both readings are defensible, so this is a recorded decision rather
+        than a side effect of the guard: a pin is a tenancy-sensitive control, and the safe
+        direction for an ambiguous input is to keep the caller's explicit choice. Clearing it
+        would hand the copy to whatever the provider's default policy picks -- a model no caller
+        chose. There is deliberately no way to *ask* to be un-pinned; pass a model instead.
+
+        The copy carries its own pin object rather than aliasing the original's, so one copy's
+        client build cannot write a credential into another's pin.
+
+        Args:
+            update: Fields to override on the new team.
+
+        Returns:
+            Team: A new team with copied state.
+        """
         return _utils.deep_copy(self, update=update)
 
 
