@@ -13,10 +13,11 @@ graph backend calls it from ``cypher.scope_predicate``, and ADR 0001 lets an int
 green without a second copy of the guard.
 """
 
-from typing import Any, Sequence, Set, Union
+from typing import Any, Dict, List, Sequence, Set, Tuple, Union
 
 from egpt.memory.types import (
     SCOPE_SLOTS,
+    FactWrite,
     MemoryEvent,
     MemoryOperationError,
     MemoryRecord,
@@ -27,9 +28,34 @@ from egpt.memory.types import (
 __all__ = [
     "MEMORY_DATA_ACCESS_METHODS",
     "assert_scope_isolation",
+    "group_facts_by_scope",
     "reject_duplicate_ids",
     "reject_foreign_scopes",
 ]
+
+
+def group_facts_by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
+    """Batch facts by their own scope, because that is the scope they must be written under.
+
+    ``VectorSubstrate.upsert(scope, records)`` and ``GraphSubstrate.upsert_facts(scope, facts)``
+    both store *within* the call scope, so passing a pass-wide scope would file a fact derived
+    from one user's episodes under the whole tenant -- readable by every user in it.
+    ``CoLocatedMemoryProvider.consolidate`` is one caller (its ``write`` path never needs this: a
+    fact-write's scope and the call scope always agree there, since ``_prepare`` stamps the call
+    scope onto every record); ``egpt.memory.semantic.SemanticFactStore`` -- SM-L3's (#124) intended
+    caller -- is the second. Shared here rather than kept as two copies of one decision: the two
+    were identical when this function was extracted, and a caller-count of two is already the
+    point where a fix to one and not the other silently drifts.
+
+    Keyed on the frozen ``Scope`` itself, never on ``.key()``. ``.key()`` is escaped and injective,
+    but grouping identity should not depend on a string function at all -- the object is hashable,
+    and an equality bug there is a misfiled write.
+    """
+    batched: Dict[Scope, List[FactWrite]] = {}
+    for fact in facts:
+        batched.setdefault(fact.record.scope, []).append(fact)
+    return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
+
 
 #: Every method on the seam that reaches stored memory, both halves of each verb.
 #:

@@ -135,6 +135,20 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `29_` to `30_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py` first.
   Per this file's own convention, whoever merges second renumbers.**
 
+- `31_semantic_fact_store.py`: The semantic fact store (SM-S1) -- `SemanticFactStore` dual-writes a
+  batch of `FactWrite`s to both substrates from one call, and this shows the acceptance criterion
+  directly: a fact retrieved through `VectorSubstrate.search` and the same fact retrieved through
+  `GraphSubstrate.recall_facts` carry the same subject/predicate/object/confidence/derived_by,
+  because `egpt.memory.schemas.semantic.fact_record` projects them identically onto both legs. Also
+  shows an untripled fact (no SPO) storing fine on the vector leg alone. Fact *extraction* from raw
+  episodes is SM-L3's (#124), not shown here -- the `FactWrite`s are handed to the store directly.
+  Needs both `./cookbook/scripts/run_pgvector.sh` and `./cookbook/scripts/run_neo4j.sh`; no API key.
+  Runs with `.venvs/demo`.
+  **Renumbered from `29_` to `30_` to `31_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`
+  first, then `feat/SM-E8` took `30_episodic_contiguity_retrieval.py` while this branch was still
+  catching up. Per this file's own convention, whoever merges second renumbers -- twice, this
+  time.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

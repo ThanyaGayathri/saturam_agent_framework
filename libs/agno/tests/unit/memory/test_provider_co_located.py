@@ -446,6 +446,20 @@ def test_consolidation_writes_the_fact_to_both_substrates():
     assert any(r.tier is MemoryTier.SEMANTIC for r in vector.rows["acme"].values())
 
 
+def test_consolidations_vector_leg_carries_the_same_confidence_and_derived_by_the_graph_leg_does():
+    """SM-S1 (#118): a fact retrieved through `search` must carry what `recall_facts` already
+    surfaces from the graph leg, or the same fact reads as two different shapes depending which
+    substrate answered."""
+    p, vector, graph = provider()
+    p.write(ACME, [event("the deploy failed on friday")])
+
+    p.consolidate(ACME)
+
+    stored = next(r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC)
+    assert stored.metadata["derived_by"] == graph.facts[0].derived_by == "co_located.deterministic_dedup"
+    assert stored.metadata["confidence"] == graph.facts[0].confidence
+
+
 def test_a_distilled_fact_goes_through_the_fact_path_not_the_episode_path():
     """Finding F9: a fact written as a pseudo-episode loses the shape SM-R7 needs."""
     p, _, graph = provider()
@@ -585,6 +599,19 @@ async def test_sync_and_async_reads_agree():
     async_ids = [r.id for r in (await p.aread(ACME, query)).records]
 
     assert sync_ids == async_ids
+
+
+async def test_aconsolidations_vector_leg_carries_the_same_confidence_and_derived_by_the_graph_leg_does():
+    """The async half of `test_consolidations_vector_leg_carries_...` -- the two call sites in
+    `aconsolidate` and `consolidate` must make the same decision (SM-S1 #118)."""
+    p, vector, graph = provider()
+    await p.awrite(ACME, [event("the deploy failed on friday")])
+
+    await p.aconsolidate(ACME)
+
+    stored = next(r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC)
+    assert stored.metadata["derived_by"] == graph.facts[0].derived_by == "co_located.deterministic_dedup"
+    assert stored.metadata["confidence"] == graph.facts[0].confidence
 
 
 async def test_sync_and_async_consolidation_agree():

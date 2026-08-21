@@ -37,6 +37,7 @@ from egpt.memory.config import (
 from egpt.memory.consolidation import FACT_ID_NAMESPACE, merge_near_duplicate_facts
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.schemas.semantic import fact_record
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
@@ -68,7 +69,12 @@ from egpt.memory.types import (
     fusion_diagnostics,
     require_scope,
 )
-from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
+from egpt.memory.validation import (
+    assert_scope_isolation,
+    group_facts_by_scope,
+    reject_duplicate_ids,
+    reject_foreign_scopes,
+)
 from egpt.utils.dttm import now_epoch_s
 
 if TYPE_CHECKING:
@@ -1085,22 +1091,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     @staticmethod
     def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
-        """Batch facts by their own scope, because that is the scope they must be written under.
+        """Batch facts by their own scope -- ``egpt.memory.validation.group_facts_by_scope``.
 
-        ``VectorSubstrate.upsert(scope, records)`` stores *within* the call scope, so passing the
-        pass-wide scope would file a fact derived from one user's episodes under the whole tenant
-        -- readable by every user in it. On the ``write`` path the two always agree, because
-        ``_prepare`` stamps the call scope onto every record; consolidate is the only path where a
-        record carries a narrower scope than the call.
-
-        Keyed on the frozen ``Scope`` itself, never on ``key()``. ``key()`` is now escaped and
-        injective, but grouping identity should not depend on a string function at all -- the
-        object is hashable, and an equality bug there is a misfiled write.
+        Kept as a thin alias rather than inlined at each call site: both call sites below read as
+        ``self._by_scope(facts)`` in a diff against the pre-extraction version, so the behavior
+        change this ticket makes is visible as none. See the shared function's docstring for why
+        this must key on each fact's own scope rather than the call scope.
         """
-        batched: Dict[Scope, List[FactWrite]] = {}
-        for fact in facts:
-            batched.setdefault(fact.record.scope, []).append(fact)
-        return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
+        return group_facts_by_scope(facts)
 
     def _fact_targets(self, facts: Sequence[FactWrite]) -> Tuple[bool, bool]:
         """Which substrates the consolidation target tier routes to, per ``TIER_POLICY``.
@@ -1217,7 +1215,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
-                        vector.upsert(fact_scope, [f.record for f in batch])
+                        # `fact_record`, not `f.record`: the vector row must carry the same
+                        # subject/predicate/object/confidence/derived_by a graph `recall_facts`
+                        # read already surfaces, or the same fact reads as two different shapes
+                        # depending which leg answered (SM-S1 #118).
+                        vector.upsert(fact_scope, [fact_record(f) for f in batch])
                         committed_any = True
                     if to_graph and self.graph is not None:
                         self._graph_fact_batch(fact_scope, batch, receipt)
@@ -1303,7 +1305,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
-                        await vector.aupsert(fact_scope, [f.record for f in batch])
+                        # See the sync half's comment: `fact_record` keeps the vector leg's shape
+                        # in step with what `recall_facts` already returns from the graph leg.
+                        await vector.aupsert(fact_scope, [fact_record(f) for f in batch])
                         committed_any = True
                     if to_graph and self.graph is not None:
                         await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)

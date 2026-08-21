@@ -772,3 +772,34 @@ and a distance-0 contiguity bonus are all refused with a named field.
 
 **Renumbered from `29_` to `30_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py` first.**
 Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 31_semantic_fact_store.py
+
+**Status:** PASS
+
+**Description:** The semantic fact store (SM-S1 #118) -- `SemanticFactStore.write` dual-writing a
+triple fact ("Ada works_at NorthStar Analytics", confidence 0.95, provenance to two source
+episodes) and an untripled fact ("Ada prefers async standups") to a real pgvector
+(`smv1-pgvector-5532`) and a real Neo4j 5 Community (`smg1-neo4j`), then reading the triple fact
+back through both `VectorSubstrate.search` and `GraphSubstrate.recall_facts` directly (not through
+the fused `provider.read`, which would blur which leg answered).
+
+**Result:** Ran to completion against both real engines. Both legs returned
+`provenance["subject"] == "Ada"`, `metadata["confidence"] == 0.95` and
+`metadata["derived_by"] == "sm_l3.extract"` for the triple fact -- the acceptance criterion
+("representable in both vector and graph", "retrievable via both paths") holds end to end, not only
+against the in-memory doubles the unit suite uses. The untripled fact stored and searched fine on
+the vector leg with no subject/predicate/object keys in its provenance. The graph leg's
+`recall_facts(entities=["Ada"])` also surfaced an unrelated pre-existing edge from an earlier
+cookbook run sharing this scope (`Ada --[works_at]--> Acme Corp`, from `25_semantic_subgraph.py`'s
+fixture data on the shared dev database) -- expected cross-run residue, not a defect.
+
+**Requires:** `./cookbook/scripts/run_pgvector.sh` and `./cookbook/scripts/run_neo4j.sh`; no API
+key. Run with `.venvs/demo`.
+
+**Renumbered from `29_` to `30_` to `31_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`
+first, then `feat/SM-E8` took `30_episodic_contiguity_retrieval.py` while this branch was still
+catching up.** Per this file's own convention, whoever merges second renumbers -- twice, this
+time.
