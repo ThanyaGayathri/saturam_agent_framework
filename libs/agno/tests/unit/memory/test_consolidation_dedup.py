@@ -23,6 +23,8 @@ def fact(
     t_invalid=None,
     created_at=None,
     topics=None,
+    expired_at=None,
+    superseded_by=None,
 ):
     fact_id = fact_id or "|".join(source_episode_ids)
     return FactWrite(
@@ -36,6 +38,8 @@ def fact(
             t_invalid=t_invalid,
             created_at=created_at,
             topics=topics,
+            expired_at=expired_at,
+            superseded_by=superseded_by,
         ),
         source_episode_ids=source_episode_ids,
         derived_by="co_located.deterministic_dedup",
@@ -192,7 +196,38 @@ def test_folding_unions_topics_without_duplicating_the_shared_one():
 
     kept, _ = merge_near_duplicate_facts(facts)
 
-    assert kept[0].record.topics == ["deploys", "incidents", "oncall"]
+    # `set(...)`, not a list-equality on a specific order: the union is scan-order-independent
+    # (`sorted(set(...))`), and an order-sensitive assertion here would fail on a future
+    # `_distil` sort-order change with no correctness bug in this function (review finding 7,
+    # PR #116).
+    assert set(kept[0].record.topics) == {"deploys", "incidents", "oncall"}
+
+
+def test_folding_unions_topics_when_only_the_survivor_has_any():
+    """Asymmetric case: the survivor carries topics, the absorbed fact has none (review
+    finding 6, PR #116)."""
+    facts = [
+        fact("the deploy failed", ["a"], topics=["deploys"]),
+        fact("the deploy failed!", ["b"], topics=None),
+    ]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    assert kept[0].record.topics == ["deploys"]
+
+
+def test_folding_unions_topics_when_only_the_absorbed_fact_has_any():
+    """The reverse asymmetric case: the absorbed fact carries topics the survivor lacks entirely
+    -- they must not be lost just because the survivor started with none (review finding 6,
+    PR #116)."""
+    facts = [
+        fact("the deploy failed", ["a"], topics=None),
+        fact("the deploy failed!", ["b"], topics=["deploys"]),
+    ]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    assert kept[0].record.topics == ["deploys"]
 
 
 def test_folding_with_no_bounds_or_topics_on_either_side_stays_unset():
@@ -202,3 +237,17 @@ def test_folding_with_no_bounds_or_topics_on_either_side_stays_unset():
 
     r = kept[0].record
     assert (r.t_valid, r.t_invalid, r.created_at, r.topics) == (None, None, None, None)
+
+
+def test_folding_resets_expired_at_and_superseded_by_on_the_survivor():
+    """No current caller passes an already-expired/superseded fact into a fold -- `_distil`'s
+    output is always fresh -- but the fold must not silently inherit a survivor's stale expiry
+    if some future caller ever does (review finding 5, PR #116)."""
+    facts = [
+        fact("the deploy failed", ["a"], expired_at=999, superseded_by="old-fact-id"),
+        fact("the deploy failed!", ["b"]),
+    ]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    assert (kept[0].record.expired_at, kept[0].record.superseded_by) == (None, None)

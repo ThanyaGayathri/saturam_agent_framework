@@ -23,6 +23,11 @@ within one pass; a second, differently-thresholded fuzzy pass here would leave t
 disagreeing about "duplicate" for the same input. Embedding similarity is the other half the
 issue names, and validating it needs a real embedder wired against a real backend -- that is
 SM-L3's extraction strategy to own, not a normalization helper's.
+
+.. todo:: SM-L3 (aicoe-tracker#124) owns embedding-similarity dedup -- the semantically
+   near-duplicate, textually different case this module's exact-match key cannot catch. Not
+   forgotten; deferred here because validating it needs a real embedder wired against a real
+   backend, which this module has neither of (review finding 2, PR #116).
 """
 
 from dataclasses import replace
@@ -125,6 +130,9 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
     (SM-L3 #124) needs a merge rule for this fold too, and does not have one yet (review finding
     5, PR #116).
 
+    .. todo:: SM-L3 (aicoe-tracker#124) -- add a merge rule for `subject`/`predicate`/`object`/
+       `confidence` once `_distil`'s output carries SPO (review finding 8, PR #116).
+
     ``facts`` arrives in ``_distil``'s deterministic group order, so which fact contributes
     content is deterministic too -- re-running this stage on the same input never picks a
     different one.
@@ -140,7 +148,7 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
     """
     kept: List[FactWrite] = []
     index_by_key: Dict[Tuple[Scope, str], int] = {}
-    merged = 0
+    folded = 0
 
     for fact in facts:
         key = _dedup_key(fact)
@@ -150,13 +158,16 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
             kept.append(fact)
             continue
 
-        merged += 1
+        folded += 1
         survivor = kept[existing_index]
         combined_ids = sorted(set(survivor.source_episode_ids) | set(fact.source_episode_ids))
         folded_id = str(uuid5(FACT_ID_NAMESPACE, "|".join(combined_ids)))
         t_valid, t_invalid, created_at = _merged_bounds(survivor.record, fact.record)
-        survivor_topics = survivor.record.topics or []
-        merged_topics = survivor_topics + [t for t in (fact.record.topics or []) if t not in survivor_topics]
+        # `sorted(set(...))` rather than an order-preserving scan: insertion order tied to which
+        # fact `_distil`'s grouping happened to place first is not a property this fold's callers
+        # depend on, and preserving it made the topics list -- and the test asserting it --
+        # brittle to a future change in `_distil`'s own sort order (review findings 4/7, PR #116).
+        merged_topics = sorted(set(survivor.record.topics or []) | set(fact.record.topics or []))
         kept[existing_index] = replace(
             survivor,
             source_episode_ids=combined_ids,
@@ -168,7 +179,12 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
                 t_valid=t_valid,
                 t_invalid=t_invalid,
                 created_at=created_at,
+                # Both callers pass fresh `_distil` output, where these are always `None` --
+                # reset explicitly rather than relying on that, so a folded fact can never
+                # inherit a survivor's stale expiry/supersession (review finding 5, PR #116).
+                expired_at=None,
+                superseded_by=None,
             ),
         )
 
-    return kept, merged
+    return kept, folded

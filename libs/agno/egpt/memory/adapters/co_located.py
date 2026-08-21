@@ -1143,6 +1143,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ``_distil``'s grouping partitions its input, so no two groups can derive one fact id today
         -- but that is a property of the current strategy, which SM-L3 (#124) replaces, and an
         un-enforced invariant one refactor from reopening a duplicate-row hole is worth one call.
+
+        Called on ``_distil``'s output *after* ``consolidation.dedup.merge_near_duplicate_facts``
+        (SM-L4 #125) has already folded it, not on ``_distil``'s raw groups -- the fold re-derives
+        a folded fact's id from its combined provenance, so this still checks the ids that are
+        actually about to be written, the same guarantee it always gave (review finding 9,
+        PR #116).
         """
         reject_duplicate_ids([fact.record for fact in facts])
 

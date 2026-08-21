@@ -28,13 +28,17 @@ from egpt.memory.consolidation.triggers import (
 )
 from egpt.memory.consolidation.worker import ConsolidationOutcome, ConsolidationWorker
 
+#: `FACT_ID_NAMESPACE` is deliberately not re-exported here: it is `dedup.py`'s own internal
+#: implementation detail (the id-derivation namespace), imported by `co_located.py` directly
+#: (`from egpt.memory.consolidation import FACT_ID_NAMESPACE`, which works regardless of `__all__`
+#: -- that list only governs `import *`) so the two modules cannot drift on its value, not because
+#: it is meant to be this package's stable public API (review finding 1, PR #116).
 __all__ = [
     "AnyTrigger",
     "ConsolidationOutcome",
     "ConsolidationTrigger",
     "ConsolidationWorker",
     "EventCountTrigger",
-    "FACT_ID_NAMESPACE",
     "IdleTrigger",
     "LatencyTrigger",
     "PerTenantThreshold",
