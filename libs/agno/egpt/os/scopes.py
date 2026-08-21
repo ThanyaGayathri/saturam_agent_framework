@@ -72,6 +72,11 @@ class AgentOSScope(str, Enum):
     - service_accounts:read - List service accounts
     - service_accounts:write - Mint service account tokens
     - service_accounts:delete - Revoke service account tokens
+    - components:read - View components and their configs
+    - components:write - Create and update components and configs
+    - components:delete - Delete components and configs
+    - components:audit - View a component's audit history (opt-in via
+      components_audit_scope_enabled; falls back to components:read when disabled)
 
     Per-Resource Scopes (with resource ID):
     - agents:<agent-id>:read - Read specific agent
@@ -448,12 +453,18 @@ def get_a2a_scope_mappings(prefix: str = "/a2a") -> Dict[str, List[str]]:
     }
 
 
-def get_default_scope_mappings() -> Dict[str, List[str]]:
+def get_default_scope_mappings(*, components_audit_scope_enabled: bool = False) -> Dict[str, List[str]]:
     """
     Get default scope mappings for EgptOS endpoints.
 
     Returns a dictionary mapping route patterns (with HTTP methods) to required scope templates.
     Format: "METHOD /path/pattern": ["resource:action"]
+
+    Args:
+        components_audit_scope_enabled: When True, ``GET /components/*/audit`` requires the
+            dedicated ``components:audit`` scope instead of reusing ``components:read``
+            (aicoe-tracker#170). Defaults to False so existing ``components:read``-only tokens
+            keep working until a deployment opts in.
     """
     mappings: Dict[str, List[str]] = {
         # Config endpoints (legacy scope: system:read)
@@ -567,14 +578,14 @@ def get_default_scope_mappings() -> Dict[str, List[str]]:
         "GET /registry": ["registry:read"],
         # Component endpoints (Studio)
         "GET /components": ["components:read"],
-        # Literal component routes (EGPT-2.8 portability, EGPT-2.9 dry-run validation). These sit
-        # ABOVE the wildcards on purpose: the fallback below takes the first pattern that
-        # fnmatches, in insertion order, so "GET /components/*" would otherwise swallow the export
-        # route and decide its scope by accident rather than by decision. No "POST /components/*"
-        # entry exists today, so the two POSTs here are not yet at risk -- keeping them in this
-        # block is what makes that survive the day one is added. Reordering this dict silently
-        # changes authorization.
+        # Literal component routes (EGPT-2.8 portability, EGPT-2.9 dry-run validation, EGPT-2.6
+        # audit scope split). get_required_scopes_for_route() resolves these by specificity
+        # (longest path first), not by dict order, so a wildcard like "GET /components/*" can no
+        # longer accidentally swallow a more specific route regardless of where either is
+        # declared. They're still grouped above the wildcards here as a readability convention --
+        # keeping every literal route in one place -- not because ordering is load-bearing.
         "GET /components/*/export": ["components:read"],
+        "GET /components/*/audit": ["components:audit"] if components_audit_scope_enabled else ["components:read"],
         "POST /components/import": ["components:write"],
         # Write, not read: the dry run evaluates the same capability allow-list a write does, so a
         # read-only caller has no business probing which models the tenant policy permits.
@@ -590,7 +601,6 @@ def get_default_scope_mappings() -> Dict[str, List[str]]:
         "PATCH /components/*/configs/*": ["components:write"],
         "DELETE /components/*/configs/*": ["components:delete"],
         "POST /components/*/configs/*/set-current": ["components:write"],
-        "GET /components/*/audit": ["components:read"],
     }
     # A2A interface routes under the default prefix. App startup additionally merges
     # entries for any A2A interface mounted under a custom prefix (see
@@ -611,6 +621,14 @@ def get_required_scopes_for_route(scope_mappings: Dict[str, List[str]], method: 
     Returns:
         List of required scopes. Empty list [] means no scopes required (allow access).
         Routes not present in scope_mappings also return [], allowing access.
+
+    ``path`` is expected to already be a canonical route path -- URL variants (a trailing
+    slash, query strings, case, ``..`` traversal) are normalized or redirected upstream by
+    FastAPI/routing before a request ever reaches this function. A trailing slash in
+    particular resolves to a *weaker* scope here (e.g. "/components/*" instead of the more
+    specific "/components/*/audit"), which looks alarming in isolation but is not reachable
+    as a bypass: FastAPI answers that form with a 307 redirect to the canonical path, which
+    is then re-resolved correctly.
     """
     route_key = f"{method} {path}"
 
@@ -618,8 +636,16 @@ def get_required_scopes_for_route(scope_mappings: Dict[str, List[str]], method: 
     if route_key in scope_mappings:
         return scope_mappings[route_key]
 
-    # Then try pattern matching
-    for pattern, scopes in scope_mappings.items():
+    # Then try pattern matching, most specific pattern first. A shorter wildcard (e.g.
+    # "/components/*") and a longer literal route (e.g. "/components/*/audit") can both
+    # fnmatch the same request path; resolving by specificity rather than dict insertion
+    # order means the mapping's declaration order no longer decides authorization. Note
+    # `sorted` is stable, so two patterns of equal specificity still fall back to insertion
+    # order between themselves -- harmless today (no two same-length patterns for the same
+    # method can match the same concrete path), but not a guarantee this sort provides on
+    # its own if a colliding route is ever added.
+    candidates = sorted(scope_mappings.items(), key=lambda item: len(item[0].split(" ", 1)[1]), reverse=True)
+    for pattern, scopes in candidates:
         pattern_method, pattern_path = pattern.split(" ", 1)
 
         if pattern_method != method:

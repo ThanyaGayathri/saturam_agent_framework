@@ -27,10 +27,12 @@ from egpt.db.base import ComponentType
 from egpt.db.component_audit import ComponentAuditAction
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
+from egpt.os.settings import EgptServingSettings
 
 jwt = pytest.importorskip("jwt", reason="pyjwt is required for the audit integration suite")
 
 JWT_SECRET = "test-secret-key-for-audit-tests-0123456789"
+SECURITY_KEY = "test-security-key-for-audit-scope-split-0123456789"
 OS_ID = "audit-test-os"
 TENANT_CLAIM = "tid"
 
@@ -101,6 +103,50 @@ def client(audit_db) -> TestClient:
     return TestClient(os_app.get_app())
 
 
+@pytest.fixture
+def client_with_audit_scope_split(audit_db) -> TestClient:
+    """The same real EgptOS as `client`, but with the aicoe-tracker#170 split turned on."""
+    os_app = EgptOS(
+        id=OS_ID,
+        db=audit_db,
+        authorization=True,
+        authorization_config=AuthorizationConfig(
+            verification_keys=[JWT_SECRET],
+            algorithm="HS256",
+            audience=OS_ID,
+            tenant_id_claim=TENANT_CLAIM,
+        ),
+        settings=EgptServingSettings(components_audit_scope_enabled=True),
+    )
+    return TestClient(os_app.get_app())
+
+
+@pytest.fixture
+def security_key_client_with_audit_scope_split(audit_db) -> TestClient:
+    """No JWT config at all -- `os_security_key` alone makes `EgptOS.get_app()` install
+    `AuthMiddleware`, so a PAT sent here is authenticated through the AuthMiddleware-dispatched
+    service-account path (mirrors `test_service_accounts.py::TestServiceAccountsInSecurityKeyMode`)."""
+    os_app = EgptOS(
+        id=OS_ID,
+        db=audit_db,
+        settings=EgptServingSettings(components_audit_scope_enabled=True, os_security_key=SECURITY_KEY),
+    )
+    return TestClient(os_app.get_app())
+
+
+@pytest.fixture
+def open_client_with_audit_scope_split(audit_db) -> TestClient:
+    """No `os_security_key`, no JWT config: no auth middleware is installed at all, so a PAT
+    sent here is authenticated entirely by `auth.py`'s `_authenticate_service_account`
+    no-middleware fallback (mirrors `test_service_accounts.py::TestServiceAccountsOnOpenInstance`)."""
+    os_app = EgptOS(
+        id=OS_ID,
+        db=audit_db,
+        settings=EgptServingSettings(components_audit_scope_enabled=True),
+    )
+    return TestClient(os_app.get_app())
+
+
 # --- helpers ---------------------------------------------------------------
 
 
@@ -140,6 +186,81 @@ def walk_the_lifecycle(client):
     client.post("/components/agent-a/configs", json={"config": AGENT_CONFIG}, headers=auth())
     client.patch("/components/agent-a/configs/2", json={"stage": "published"}, headers=auth())
     client.post("/components/agent-a/configs/1/set-current", headers=auth())
+
+
+def create_component_unauthenticated(client, component_id="agent-a", stage="draft"):
+    """Create a component with no Authorization header at all -- for
+    `open_client_with_audit_scope_split`, which installs no auth middleware at all, so a plain
+    unauthenticated request is enough to seed the component."""
+    return client.post(
+        "/components",
+        json={
+            "name": component_id,
+            "component_id": component_id,
+            "component_type": "agent",
+            "config": AGENT_CONFIG,
+            "stage": stage,
+        },
+    )
+
+
+def create_component_with_security_key(client, component_id="agent-a", stage="draft"):
+    """Create a component authenticated as the security key -- for
+    `security_key_client_with_audit_scope_split`. AuthMiddleware is installed once
+    `os_security_key` is set, and it requires *some* Authorization header on every route
+    (confirmed: an unauthenticated request there gets 401 'Authorization header required'), so
+    the admin bypass is needed just to seed the component."""
+    response = client.post(
+        "/components",
+        json={
+            "name": component_id,
+            "component_id": component_id,
+            "component_type": "agent",
+            "config": AGENT_CONFIG,
+            "stage": stage,
+        },
+        headers={"Authorization": f"Bearer {SECURITY_KEY}"},
+    )
+    assert response.status_code == 201, response.text
+    return response
+
+
+def mint_pat_with_security_key(client, scopes: List[str], name: str = "audit-scope-split-pat") -> str:
+    """Mint a PAT via the real /service-accounts route, authenticated as the security key
+    (the AuthMiddleware-dispatched admin bypass) -- used against `security_key_client_with_audit_scope_split`."""
+    response = client.post(
+        "/service-accounts",
+        headers={"Authorization": f"Bearer {SECURITY_KEY}"},
+        json={"name": name, "scopes": [{"scope": scope} for scope in scopes]},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["token"]
+
+
+def insert_pat(db, scopes: List[str]) -> str:
+    """Insert a ServiceAccount row directly and return its plaintext PAT.
+
+    Used against `open_client_with_audit_scope_split`: an open instance refuses anonymous
+    minting (a token minted with no auth would be a durable credential surviving a later
+    lockdown), so a PAT that reaches an open instance is simulated the same way
+    `test_service_accounts.py::TestServiceAccountsOnOpenInstance` does -- inserted as if it had
+    been minted earlier under a security key or JWT.
+    """
+    from uuid import uuid4
+
+    from egpt.db.schemas.service_accounts import ServiceAccount
+    from egpt.os.service_accounts import generate_token
+
+    plaintext, token_hash, token_prefix = generate_token()
+    account = ServiceAccount(
+        id=str(uuid4()),
+        name="audit-scope-split-pat",
+        token_hash=token_hash,
+        token_prefix=token_prefix,
+        scopes=scopes,
+    )
+    db.create_service_account(account.to_dict())
+    return plaintext
 
 
 # =============================================================================
@@ -351,6 +472,75 @@ class TestScopes:
         response = client.get("/components/agent-a/audit", headers=auth(scopes=["components:write"]))
 
         assert response.status_code == 403
+
+
+class TestScopesWithAuditSplitEnabled:
+    """aicoe-tracker#170: with the split turned on, components:read alone no longer suffices."""
+
+    def test_components_read_alone_is_refused(self, client_with_audit_scope_split):
+        create_component(client_with_audit_scope_split)
+
+        response = client_with_audit_scope_split.get(
+            "/components/agent-a/audit", headers=auth(scopes=["components:read"])
+        )
+
+        assert response.status_code == 403
+
+    def test_components_audit_is_enough(self, client_with_audit_scope_split):
+        create_component(client_with_audit_scope_split)
+
+        response = client_with_audit_scope_split.get(
+            "/components/agent-a/audit", headers=auth(scopes=["components:audit"])
+        )
+
+        assert response.status_code == 200
+
+
+class TestScopesWithAuditSplitEnabledViaServiceAccountBearer:
+    """aicoe-tracker#170: the split must also be enforced against a real PAT, not only a JWT --
+    on both non-JWT enforcement surfaces, since `check_route_scopes`/`get_required_scopes_for_route`
+    is order-sensitive and neither surface was previously exercised for the audit route by a real
+    bearer token (see PR #106 review)."""
+
+    def test_components_read_alone_is_refused_via_auth_middleware_dispatch(
+        self, security_key_client_with_audit_scope_split
+    ):
+        client = security_key_client_with_audit_scope_split
+        create_component_with_security_key(client)
+        pat = mint_pat_with_security_key(client, scopes=["components:read"])
+
+        response = client.get("/components/agent-a/audit", headers={"Authorization": f"Bearer {pat}"})
+
+        assert response.status_code == 403
+
+    def test_components_audit_is_enough_via_auth_middleware_dispatch(self, security_key_client_with_audit_scope_split):
+        client = security_key_client_with_audit_scope_split
+        create_component_with_security_key(client)
+        pat = mint_pat_with_security_key(client, scopes=["components:audit"])
+
+        response = client.get("/components/agent-a/audit", headers={"Authorization": f"Bearer {pat}"})
+
+        assert response.status_code == 200
+
+    def test_components_read_alone_is_refused_via_no_middleware_fallback(
+        self, open_client_with_audit_scope_split, audit_db
+    ):
+        client = open_client_with_audit_scope_split
+        create_component_unauthenticated(client)
+        pat = insert_pat(audit_db, scopes=["components:read"])
+
+        response = client.get("/components/agent-a/audit", headers={"Authorization": f"Bearer {pat}"})
+
+        assert response.status_code == 403
+
+    def test_components_audit_is_enough_via_no_middleware_fallback(self, open_client_with_audit_scope_split, audit_db):
+        client = open_client_with_audit_scope_split
+        create_component_unauthenticated(client)
+        pat = insert_pat(audit_db, scopes=["components:audit"])
+
+        response = client.get("/components/agent-a/audit", headers={"Authorization": f"Bearer {pat}"})
+
+        assert response.status_code == 200
 
 
 # =============================================================================

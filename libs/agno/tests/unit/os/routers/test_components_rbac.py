@@ -63,6 +63,10 @@ ROUTES: List[tuple] = [
     ("POST", "/components/validate", "components:write"),
 ]
 
+# Every route except the audit one: used by TestComponentsAuditScopeSplit to confirm enabling
+# the split leaves every OTHER route's scope requirement untouched.
+NON_AUDIT_ROUTES: List[tuple] = [route for route in ROUTES if route[1] != "/components/agent-1/audit"]
+
 # Bodies that satisfy each write route's request model. Deliberately config-less: a request
 # with no config exercises the branch that used to skip the tenant-scoped existence check.
 BODIES: Dict[str, Dict[str, Any]] = {
@@ -102,6 +106,7 @@ def build_client(
     tenant_id: Optional[str] = None,
     tenant_claim: Optional[str] = None,
     mount_prefix: Optional[str] = None,
+    components_audit_scope_enabled: bool = False,
 ) -> TestClient:
     """An app whose principal is whatever the arguments say, with no real auth in the way.
 
@@ -117,7 +122,8 @@ def build_client(
         request.state.tenant_id = tenant_id
         return await call_next(request)
 
-    app.include_router(get_components_router(os_db=db, settings=EgptServingSettings()))
+    settings = EgptServingSettings(components_audit_scope_enabled=components_audit_scope_enabled)
+    app.include_router(get_components_router(os_db=db, settings=settings))
 
     if mount_prefix is not None:
         parent = FastAPI()
@@ -219,6 +225,40 @@ class TestScopeEnforcement:
         filtered-access fallback in check_route_scopes must not fire for it."""
         client = build_client(mock_db, authorization_enabled=True, scopes=["components:agent-1:read"])
         assert call(client, "GET", "/components").status_code == 403
+
+
+class TestComponentsAuditScopeSplit:
+    """aicoe-tracker#170: opting in to `components_audit_scope_enabled` swaps the audit route's
+    required scope from `components:read` to `components:audit`, and nothing else."""
+
+    def test_components_read_alone_is_refused(self, mock_db):
+        client = build_client(
+            mock_db, authorization_enabled=True, scopes=["components:read"], components_audit_scope_enabled=True
+        )
+        response = call(client, "GET", "/components/agent-1/audit")
+        assert response.status_code == 403
+        assert "components:audit" in response.json()["detail"]
+
+    def test_components_audit_admits(self, mock_db):
+        client = build_client(
+            mock_db, authorization_enabled=True, scopes=["components:audit"], components_audit_scope_enabled=True
+        )
+        assert call(client, "GET", "/components/agent-1/audit").status_code != 403
+
+    @pytest.mark.parametrize("method,path,scope", NON_AUDIT_ROUTES)
+    def test_other_routes_are_unaffected(self, mock_db, method, path, scope):
+        client = build_client(mock_db, authorization_enabled=True, scopes=[scope], components_audit_scope_enabled=True)
+        assert call(client, method, path).status_code != 403
+
+    def test_default_behaviour_is_unchanged_when_the_flag_is_off(self, mock_db):
+        client = build_client(mock_db, authorization_enabled=True, scopes=["components:read"])
+        assert call(client, "GET", "/components/agent-1/audit").status_code != 403
+
+    def test_components_audit_alone_is_refused_when_flag_disabled(self, mock_db):
+        """No OR-fallback to components:read: an audit-only token is refused, the mirror
+        case of test_default_behaviour_is_unchanged_when_the_flag_is_off."""
+        client = build_client(mock_db, authorization_enabled=True, scopes=["components:audit"])
+        assert call(client, "GET", "/components/agent-1/audit").status_code == 403
 
 
 class TestMountPrefixCannotBypass:
