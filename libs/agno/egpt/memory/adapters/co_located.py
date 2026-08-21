@@ -49,6 +49,7 @@ from egpt.memory.tiers import (
 )
 from egpt.memory.types import (
     NO_ENTITIES,
+    NO_REFLECTION,
     NO_RELATIONS,
     ConsolidationReport,
     FactWrite,
@@ -69,6 +70,7 @@ from egpt.memory.types import (
 )
 from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
 from egpt.utils.dttm import now_epoch_s
+from egpt.utils.log import log_warning
 
 if TYPE_CHECKING:
     from egpt.memory.consolidation.reflect import ReflectionPipeline
@@ -110,15 +112,24 @@ EntitySummary = Union[Dict[str, Any], str]
 RelationSummary = Union[Dict[str, Any], str]
 
 #: The ``details["reflection"]`` counterpart to :data:`EntitySummary` (SM-L6 #127): a
-#: ``reflection_details`` payload from a wired pipeline, or :data:`NO_REFLECTION` from an unwired
-#: one. Same free-extra-key treatment as :data:`RelationSummary` -- not a
-#: ``types.CONSOLIDATION_KEYS`` floor member.
+#: ``reflection_details`` payload from a wired pipeline, or
+#: :data:`~egpt.memory.types.NO_REFLECTION` from an unwired one. Same free-extra-key treatment as
+#: :data:`RelationSummary` -- not a ``types.CONSOLIDATION_KEYS`` floor member.
 ReflectionSummary = Union[Dict[str, Any], str]
 
-#: The honest default for ``reflection``: a pass with no reflection pipeline synthesized none,
-#: which a scheduler cannot tell from a pass whose accumulated importance never crossed the
-#: threshold.
-NO_REFLECTION = "not reflected -- no reflection pipeline wired (SM-L6 #127)"
+
+def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:
+    """The ``details["reflection"]`` shape for a pass whose reflection call raised.
+
+    Carries the same three keys :func:`~egpt.memory.consolidation.reflect.reflection_details`
+    would (``reflect.py`` is not imported here at runtime -- see the module docstring's reasoning
+    for keeping ``reflection_pipeline`` duck-typed -- so this is a local, minimal literal rather
+    than a shared builder). ``reflector`` is ``None`` rather than a guessed producer id: nothing
+    was actually produced. ``triggered`` is ``False``: whatever this pass's accumulated importance
+    was, no insight came of it. ``error`` names why, for a scheduler or operator reading the report
+    without needing to grep logs.
+    """
+    return {"reflector": None, "complete": False, "triggered": False, "error": str(exc)}
 
 
 def _positive_int(value: Any, option: str) -> int:
@@ -1106,10 +1117,30 @@ class CoLocatedMemoryProvider(MemoryProvider):
         pipeline is configured, never merely because this pass's accumulated importance had not
         yet crossed the threshold -- that reads as ``details["triggered"] is False`` on a real
         report, which a scheduler needs to tell apart from "reflection was never configured".
+
+        **A synthesis failure here must not fail this whole pass.** Unlike entities/relations
+        (whose failure after a fact write is wrapped into ``PartialWriteError`` and propagated),
+        this call runs *before* ``if facts:`` -- nothing has committed yet, so an uncaught
+        exception would previously propagate bare out of ``consolidate`` and block dedup facts,
+        entity extraction, and relation extraction for the *entire* scope on every future pass,
+        for as long as the same episodes keep failing to synthesize (reproduced: a synthesizer
+        that always raises wrote zero semantic rows across three consecutive passes, including
+        the ordinary dedup fact for an unrelated episode). Reflection is an optional, additive
+        stage; the mandatory dedup/entity/relation work must not go down with it -- the same
+        each-child-independent guarantee ``AnyTrigger`` (SM-L2 #123, ``triggers.py``) already
+        makes for its own children. Caught and logged here, not swallowed silently: the pipeline's
+        own trigger is left armed (``_consume`` was never reached inside ``run``), so the next
+        pass retries synthesis on the same accumulation -- the same "safe to retry" contract
+        every other pass in this module already carries -- without blocking anything else in the
+        meantime.
         """
         if self.reflection_pipeline is None:
             return [], NO_REFLECTION
-        report = self.reflection_pipeline.run(scope, episodes)
+        try:
+            report = self.reflection_pipeline.run(scope, episodes)
+        except Exception as exc:
+            log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
+            return [], reflection_failed_details(exc)
         return report.insights, report.details
 
     async def _areflect(
@@ -1118,7 +1149,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """Async variant of :meth:`_reflect`, making the same decisions."""
         if self.reflection_pipeline is None:
             return [], NO_REFLECTION
-        report = await self.reflection_pipeline.arun(scope, episodes)
+        try:
+            report = await self.reflection_pipeline.arun(scope, episodes)
+        except Exception as exc:
+            log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
+            return [], reflection_failed_details(exc)
         return report.insights, report.details
 
     @staticmethod

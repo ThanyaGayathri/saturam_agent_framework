@@ -176,21 +176,53 @@ _SYSTEM_PROMPT = dedent(f"""\
 
 
 def _envelope(index: int, content: str) -> str:
-    """Wrap one episode for the prompt, refusing content that could close the envelope early.
+    """Wrap one episode for the prompt, refusing content that could forge an envelope boundary.
 
     Same guard ``ImportanceScorer._require_content`` (``episodic/importance.py``) applies to a
-    single episode, repeated per member here: episode content is a caller's data, not a caller's
-    instruction, and a literal ``</episode>`` inside it would let whatever follows escape the tag
-    and be read as part of the prompt instead of as the thing being reflected on.
+    single episode, extended here for a cluster of them. Two things a caller's content must not be
+    able to do, neither just the literal case a naive check would catch:
+
+    - **Close this episode's envelope early** (``</episode>``), letting whatever follows escape it
+      and be read as part of the prompt instead of as the thing being reflected on.
+    - **Open a second, unmatched envelope** (a bare ``<episode ...>`` with no closing tag of its
+      own), forging a tag the model has no way to tell apart from one this function actually
+      wrote -- content claiming to be episode 99 when only three were ever passed.
+
+    Checked case-insensitively: an LLM does not parse XML-like tags case-strictly, so
+    ``</Episode>`` or ``<EPISODE index="9">`` close or forge the envelope exactly as their
+    lowercase spelling would, and a check that only matched the lowercase form is a guard with a
+    known bypass rather than a closed class.
     """
-    if not isinstance(content, str) or "</episode>" in content:
+    if not isinstance(content, str):
         raise MemoryOperationError(
-            f"Episode at index {index} is missing content or contains a literal '</episode>', "
-            "which would close its envelope early and place whatever follows outside it. Remove "
+            f"Episode at index {index} is missing content.",
+            field_name="content",
+        )
+    lowered = content.lower()
+    if "</episode>" in lowered or "<episode" in lowered:
+        raise MemoryOperationError(
+            f"Episode at index {index} contains an '<episode' or '</episode>' tag (any case), "
+            "which would close its envelope early or forge a second one, placing arbitrary "
+            "content outside the boundary that marks it as data rather than instruction. Remove "
             "or escape the tag before reflecting.",
             field_name="content",
         )
     return f'<episode index="{index}">{content}</episode>'
+
+
+def _clamped_importance(episode: MemoryRecord) -> float:
+    """An episode's importance, floored at ``0.0``.
+
+    SM-E5 normalizes ``ImportanceScorer``'s own output to ``[0, 1]``, but
+    ``MemoryRecord.metadata["importance"]`` is a plain dict entry with nothing at the type level
+    stopping a caller from setting it negative. ``x or 0.0`` alone does not catch that -- a
+    negative float is truthy, so it passes through unclamped and *decrements*
+    :class:`SizeTrigger`'s running total on every call site that sums importance, which can
+    prevent a scope from ever reaching the threshold. Floored here, once, for both call sites
+    (:meth:`ReflectionPipeline._accumulate` and :meth:`ReflectionPipeline._accumulated_importance`)
+    rather than trusted at either.
+    """
+    return max(float(episode.metadata.get("importance") or 0.0), 0.0)
 
 
 class LLMInsightSynthesizer:
@@ -384,7 +416,16 @@ class ReflectionPipeline:
 
     def _accumulate(self, scope: Scope, episodes: Sequence[MemoryRecord], now: float) -> List[MemoryRecord]:
         """Fold ``episodes`` into ``scope``'s pending set and feed each new one's importance to
-        the trigger. Returns the full pending set so far, for the caller to cite if it fires."""
+        the trigger. Returns the full pending set so far, for the caller to cite if it fires.
+
+        **The trigger's running total is kept in sync with what ``pending`` actually holds**,
+        including through the cap trim below: crediting importance as an episode is added but
+        never debiting it if that same episode is later dropped for being the oldest would let
+        the trigger fire on credit from episodes the synthesizer will never see, so a dropped
+        episode's contribution is explicitly reversed via a negative ``record_event``
+        (:class:`SizeTrigger` accumulates by plain addition, so a negative delta is a legitimate
+        way to decrement it -- there is no separate "uncount" verb to call instead).
+        """
         key = scope.key()
         pending = self._pending.setdefault(key, [])
         seen = {episode.id for episode in pending}
@@ -393,15 +434,18 @@ class ReflectionPipeline:
                 continue
             seen.add(episode.id)
             pending.append(episode)
-            importance = episode.metadata.get("importance") or 0.0
-            self._trigger.record_event(scope, now=now, size=float(importance))
+            self._trigger.record_event(scope, now=now, size=_clamped_importance(episode))
         if len(pending) > self.max_episodes_per_reflection:
             # Oldest dropped first (`created_at` unset sorts as oldest, same choice `_distil`'s
             # own grouping makes): a scope that never reaches the threshold must not grow this
             # list forever, and what a late insight cites is whatever most recently mattered, not
             # whatever happened to arrive first.
             pending.sort(key=lambda e: (e.created_at or 0, e.id))
-            del pending[: len(pending) - self.max_episodes_per_reflection]
+            overflow = len(pending) - self.max_episodes_per_reflection
+            dropped, keep = pending[:overflow], pending[overflow:]
+            pending[:] = keep
+            for episode in dropped:
+                self._trigger.record_event(scope, now=now, size=-_clamped_importance(episode))
         self._pending[key] = pending
         return pending
 
@@ -415,16 +459,29 @@ class ReflectionPipeline:
 
     @staticmethod
     def _accumulated_importance(pending: Sequence[MemoryRecord]) -> float:
-        return sum(float(episode.metadata.get("importance") or 0.0) for episode in pending)
+        return sum(_clamped_importance(episode) for episode in pending)
 
     @staticmethod
     def _to_fact(scope: Scope, batch: Sequence[MemoryRecord], insight: SynthesizedInsight) -> FactWrite:
         """The write shape for one synthesized insight, mirroring ``co_located._distil``'s own
         envelope derivation for a distilled fact: id derived from the source set (idempotent
         re-run), valid-time spanning every member's own bounds (open-ended if any member is), and
-        provenance citing every episode this insight came from."""
+        provenance citing every episode this insight came from.
+
+        ``insight.title`` and ``insight.insight`` are both guaranteed non-empty here: the only
+        caller, :meth:`run`/:meth:`arun`, reaches this method only when ``synthesizer.synthesize``
+        returned non-``None``, and ``LLMInsightSynthesizer._extract`` refuses to return a
+        ``has_insight=True`` result with either blank (module docstring's citation requirement
+        would otherwise silently accept an empty insight). No fallback branch is needed for a case
+        that cannot occur -- an ``assert`` says so rather than leaving a dead branch a reader could
+        mistake for a real one.
+        """
+        assert insight.title and insight.insight, (
+            "SynthesizedInsight.has_insight=True with a blank title/insight reached _to_fact; "
+            "LLMInsightSynthesizer._extract should have refused it before returning."
+        )
         source_ids = sorted(episode.id for episode in batch)
-        content = f"{insight.title}\n{insight.insight}" if insight.title else str(insight.insight)
+        content = f"{insight.title}\n{insight.insight}"
         return FactWrite(
             record=MemoryRecord(
                 id=str(uuid5(_INSIGHT_NAMESPACE, "|".join(source_ids))),
@@ -433,6 +490,9 @@ class ReflectionPipeline:
                 scope=scope,
                 provenance={"source_episode_ids": source_ids},
                 t_valid=min((e.t_valid for e in batch if e.t_valid is not None), default=None),
+                # mypy cannot narrow the generator's element type past the `any(... is None)`
+                # guard immediately to its left, even though that guard is exactly what makes the
+                # `max` below only ever see `int`s.
                 t_invalid=(None if any(e.t_invalid is None for e in batch) else max(e.t_invalid for e in batch)),  # type: ignore[type-var]
                 created_at=now_epoch_s(),
                 metadata={"kind": "insight"},
@@ -455,29 +515,54 @@ class ReflectionPipeline:
     # -- the pass ---------------------------------------------------------------
 
     def run(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ReflectionReport:
-        """Accumulate, and synthesize if the accumulation just crossed the threshold."""
+        """Accumulate, and synthesize if the accumulation just crossed the threshold.
+
+        **A synthesizer exception propagates, and leaves the trigger armed.** ``_consume`` is
+        reached only after :meth:`InsightSynthesizer.synthesize` returns, so a raise there skips
+        it: the accumulation and the trigger's running total are both left exactly as they were,
+        and the *next* call to :meth:`run` for this scope re-evaluates the same threshold-crossed
+        state and retries synthesis on the same (possibly since-grown) cluster. This is
+        deliberate, not an oversight -- the same "a failed pass is safe to retry" contract
+        :class:`~egpt.memory.consolidation.worker.ConsolidationWorker` already gives every
+        ``consolidate`` pass, extended to this stage rather than inventing a second retry policy.
+        It does mean a *permanently* unsynthesizable cluster (a model that never returns a valid
+        response for this content) retries every call indefinitely, with no backoff or give-up --
+        no bound exists here today. The caller decides how much that costs: see
+        ``CoLocatedMemoryProvider._reflect``'s docstring for why *that* caller catches this and
+        keeps retrying without blocking the rest of consolidation.
+        """
         require_scope(scope, method="run")
         now = now_epoch_s()
         pending = self._accumulate(scope, self._selected(episodes), now)
         if not self._trigger.should_fire(scope, now=now):
             return self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
         total = self._accumulated_importance(pending)
-        insight = self.synthesizer.synthesize(pending)
         considered = len(pending)
+        insight = self.synthesizer.synthesize(pending)
         self._consume(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
         return self._report(scope, considered, total, insights, triggered=True)
 
     async def arun(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ReflectionReport:
-        """Async variant of :meth:`run`, making the same decisions through the same helpers."""
+        """Async variant of :meth:`run`, making the same decisions through the same helpers --
+        see :meth:`run`'s docstring for what a synthesizer exception leaves behind.
+
+        ``pending`` is snapshotted into a fresh list before the ``await``: :meth:`_accumulate`
+        returns the very list object stored in ``self._pending[key]``, and a concurrent ``arun``
+        call for the *same* scope can mutate that object in place (append a newly-arrived episode,
+        or the cap-trim's own ``sort``/``del``) while this call is suspended inside
+        ``asynthesize``. Reading it again afterward would let the insight cite episodes it was
+        never shown, or a trimmed episode it no longer holds. ``considered`` is computed from the
+        same snapshot, before the ``await``, for the identical reason.
+        """
         require_scope(scope, method="arun")
         now = now_epoch_s()
-        pending = self._accumulate(scope, self._selected(episodes), now)
+        pending = list(self._accumulate(scope, self._selected(episodes), now))
         if not self._trigger.should_fire(scope, now=now):
             return self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
         total = self._accumulated_importance(pending)
-        insight = await self.synthesizer.asynthesize(pending)
         considered = len(pending)
+        insight = await self.synthesizer.asynthesize(pending)
         self._consume(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
         return self._report(scope, considered, total, insights, triggered=True)
