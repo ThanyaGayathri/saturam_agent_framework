@@ -27,10 +27,37 @@ SM-L3's extraction strategy to own, not a normalization helper's.
 
 from dataclasses import replace
 from typing import Dict, List, Sequence, Tuple
+from uuid import NAMESPACE_OID, uuid5
 
-from egpt.memory.types import FactWrite, Scope, normalize_entity_name
+from egpt.memory.types import FactWrite, MemoryOperationError, Scope, normalize_entity_name
 
 __all__ = ["merge_near_duplicate_facts"]
+
+#: The namespace ``_distil`` derives a fact's id from (``uuid5(_FACT_NAMESPACE, "|".join(sorted
+#: (source_episode_ids)))``). Defined here, not in ``adapters/co_located.py``, because this
+#: module re-derives it for a folded fact's now-larger provenance set -- a second constant with
+#: the same value would only need to match the first by convention, which is exactly the kind of
+#: invariant review finding 3 (PR #116) flagged as silently breakable.
+FACT_ID_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.consolidate.fact")
+
+
+def _dedup_key(fact: FactWrite) -> Tuple[Scope, str]:
+    """The grouping key: ``(scope, normalized content)``.
+
+    ``normalize_entity_name`` refuses content that normalizes to the empty string -- correct for
+    its own caller (an *entity* whose name is empty has nothing to key on), wrong for this one:
+    all-punctuation *fact* content is a real, if degenerate, thing an extractor can hand this
+    stage, and refusing it here aborted the entire consolidation pass on every retry (review
+    finding 1, PR #116). Falling back to the fact's own id keeps two different all-punctuation
+    facts apart -- a shared ``""`` key would wrongly fold them into one -- at the cost of never
+    folding two *genuinely* identical all-punctuation facts, which is an acceptable trade: content
+    this degenerate is not a meaningful duplicate to begin with.
+    """
+    try:
+        normalized = normalize_entity_name(fact.record.content)
+    except MemoryOperationError:
+        normalized = fact.record.id
+    return fact.record.scope, normalized
 
 
 def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWrite], int]:
@@ -47,10 +74,17 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
     ``record.provenance["source_episode_ids"]`` are kept in sync -- ``_distil`` writes both, so a
     stage after it must too, or one becomes stale the moment it disagrees with the other.
 
-    The first fact encountered for a key survives unchanged (content, bounds, id); later ones in
-    the same group only contribute their provenance. ``facts`` arrives in ``_distil``'s
-    deterministic group order, so which one survives is deterministic too -- re-running this stage
-    on the same input never picks a different survivor.
+    **The survivor's id is re-derived from the combined provenance**, the same way `_distil` first
+    derived it (``uuid5(FACT_ID_NAMESPACE, "|".join(sorted(source_episode_ids)))``) -- not left as
+    whichever fact happened to survive. Content and bounds are still taken from the first fact
+    encountered, unchanged; only the id follows the union, because the id is `_distil`'s
+    "re-running this pass upserts the same row" guarantee, and that guarantee is keyed on
+    provenance, not on which fact a bucket iteration order happened to visit first (review
+    finding 3, PR #116).
+
+    ``facts`` arrives in ``_distil``'s deterministic group order, so which fact contributes
+    content is deterministic too -- re-running this stage on the same input never picks a
+    different one.
 
     Returns the folded facts, in first-occurrence order, and how many were folded away.
     """
@@ -59,7 +93,7 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
     merged = 0
 
     for fact in facts:
-        key = (fact.record.scope, normalize_entity_name(fact.record.content))
+        key = _dedup_key(fact)
         existing_index = index_by_key.get(key)
         if existing_index is None:
             index_by_key[key] = len(kept)
@@ -69,11 +103,13 @@ def merge_near_duplicate_facts(facts: Sequence[FactWrite]) -> Tuple[List[FactWri
         merged += 1
         survivor = kept[existing_index]
         combined_ids = sorted(set(survivor.source_episode_ids) | set(fact.source_episode_ids))
+        folded_id = str(uuid5(FACT_ID_NAMESPACE, "|".join(combined_ids)))
         kept[existing_index] = replace(
             survivor,
             source_episode_ids=combined_ids,
             record=replace(
                 survivor.record,
+                id=folded_id,
                 provenance={**survivor.record.provenance, "source_episode_ids": combined_ids},
             ),
         )

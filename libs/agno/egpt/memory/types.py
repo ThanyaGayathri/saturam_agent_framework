@@ -1234,6 +1234,14 @@ class ConsolidationReport:
     scope: Scope
     episodic_scanned: int = 0
     semantic_written: int = 0
+    #: Episodes `_distil` absorbed into a group it kept, by Jaccard token overlap. A count of
+    #: *episodes*, not facts -- see `near_duplicate_facts_folded` for the fact-level count, kept
+    #: separate because the two are different units and summing them into one field would make
+    #: neither reconstructable from the report.
     duplicates_merged: int = 0
+    #: Facts `consolidation.dedup.merge_near_duplicate_facts` (SM-L4 #125) folded into a survivor
+    #: *after* `_distil` ran, by exact-match-after-normalization. Zero whenever `_distil`'s own
+    #: grouping already caught every duplicate in the pass, which is the common case.
+    near_duplicate_facts_folded: int = 0
     contradictions_resolved: int = 0
     details: Dict[str, Any] = field(default_factory=dict)

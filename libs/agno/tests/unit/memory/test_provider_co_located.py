@@ -510,14 +510,23 @@ async def test_facts_that_differ_only_by_punctuation_still_merge(half, monkeypat
     report = p.consolidate(ACME) if half == "sync" else await p.aconsolidate(ACME)
 
     assert report.semantic_written == 1
-    assert report.duplicates_merged == 1
+    # `_distil` groups nothing here (threshold forced above 1.0): the merge is entirely this
+    # stage's, so it must show up as `near_duplicate_facts_folded`, not `duplicates_merged` --
+    # the two are different units (facts folded vs. episodes absorbed) and must not be conflated.
+    assert report.duplicates_merged == 0
+    assert report.near_duplicate_facts_folded == 1
     (fact,) = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
     assert sorted(fact.provenance["source_episode_ids"]) == ["a", "b"]
     assert sorted(graph.facts[0].source_episode_ids) == ["a", "b"]
 
 
-def test_near_duplicate_facts_from_different_users_never_merge(monkeypatch):
-    """The fold must respect scope isolation exactly like `_distil`'s own grouping does."""
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_near_duplicate_facts_from_different_users_never_merge(half, monkeypatch):
+    """The fold must respect scope isolation exactly like `_distil`'s own grouping does.
+
+    Parametrised like the adjacent punctuation test: the fold is wired into `consolidate` and
+    `aconsolidate` independently, so only exercising one half leaves the other unchecked.
+    """
     import egpt.memory.adapters.co_located as co_located
 
     monkeypatch.setattr(co_located, "_DUPLICATE_THRESHOLD", 1.1)
@@ -526,10 +535,12 @@ def test_near_duplicate_facts_from_different_users_never_merge(monkeypatch):
     p.write(ACME, [event("the deploy failed!", id="a")])
     p.write(other, [event("the deploy failed", id="b", scope=other)])
 
-    report = p.consolidate(Scope(tenant_id="acme"))
+    tenant = Scope(tenant_id="acme")
+    report = p.consolidate(tenant) if half == "sync" else await p.aconsolidate(tenant)
 
     assert report.semantic_written == 2
     assert report.duplicates_merged == 0
+    assert report.near_duplicate_facts_folded == 0
 
 
 def test_contradictions_resolved_stays_zero_and_says_why():

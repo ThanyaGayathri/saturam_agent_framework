@@ -26,7 +26,7 @@ import asyncio
 import inspect
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar, Union
-from uuid import NAMESPACE_OID, uuid4, uuid5
+from uuid import uuid4, uuid5
 
 from egpt.memory.config import (
     MemoryProviderConfig,
@@ -34,7 +34,7 @@ from egpt.memory.config import (
     register_provider,
     resolve_substrate,
 )
-from egpt.memory.consolidation.dedup import merge_near_duplicate_facts
+from egpt.memory.consolidation import FACT_ID_NAMESPACE, merge_near_duplicate_facts
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
@@ -84,7 +84,10 @@ __all__ = ["CoLocatedMemoryProvider"]
 _DUPLICATE_THRESHOLD = 0.8
 
 #: Namespace for deriving a fact id from its source episodes, so a re-run upserts the same row.
-_FACT_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.consolidate.fact")
+#: Defined in ``consolidation.dedup``, not here: that module re-derives a folded fact's id from
+#: its combined provenance using this same namespace (review finding 3, PR #116), so importing it
+#: rather than keeping a second copy is what keeps the two derivations from drifting apart.
+_FACT_NAMESPACE = FACT_ID_NAMESPACE
 
 #: Cap on simultaneous backend calls in one gathered write. Unbounded fan-out against a real
 #: engine is thousands of concurrent round trips, which exhausts a pool rather than going fast.
@@ -989,6 +992,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         episodes: Sequence[MemoryRecord],
         facts: Sequence[FactWrite],
         merged: int,
+        folded: int,
         entities: EntitySummary,
         relations: RelationSummary,
     ) -> ConsolidationReport:
@@ -997,7 +1001,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
             scope=scope,
             episodic_scanned=len(scanned),
             semantic_written=len(facts),
+            # `merged` counts *episodes* `_distil` absorbed; `folded` counts *facts*
+            # `merge_near_duplicate_facts` (SM-L4 #125) folded afterwards -- different units, kept
+            # in separate fields rather than summed into one that neither could be recovered from.
             duplicates_merged=merged,
+            near_duplicate_facts_folded=folded,
             # Zero by design: knowing two facts *disagree* needs extraction, which is SM-L5's
             # (#126).
             contradictions_resolved=0,
@@ -1185,7 +1193,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
         episodes = self._visible_episodes(scope, scanned, instant)
         facts, merged = self._distil(episodes)
         facts, folded = merge_near_duplicate_facts(facts)
-        merged += folded
 
         if facts:
             self._check_distilled(facts)
@@ -1252,7 +1259,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # is the caller-hands-the-termination-condition failure mode the interface docstring warns
         # about, reincarnated one layer down.
         self._advance_cursor(cursor_key, scanned)
-        return self._report(scope, scanned, episodes, facts, merged, entities, relations)
+        return self._report(scope, scanned, episodes, facts, merged, folded, entities, relations)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1274,7 +1281,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # which no other coroutine in the process runs.
         facts, merged = await asyncio.to_thread(self._distil, episodes)
         facts, folded = merge_near_duplicate_facts(facts)
-        merged += folded
 
         if facts:
             self._check_distilled(facts)
@@ -1319,7 +1325,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
         self._advance_cursor(cursor_key, scanned)
-        return self._report(scope, scanned, episodes, facts, merged, entities, relations)
+        return self._report(scope, scanned, episodes, facts, merged, folded, entities, relations)
 
 
 @register_provider("co_located")

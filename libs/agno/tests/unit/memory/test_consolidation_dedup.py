@@ -4,7 +4,9 @@
 here is the stage that runs after it, on the facts it already produced.
 """
 
-from egpt.memory.consolidation.dedup import merge_near_duplicate_facts
+from uuid import uuid5
+
+from egpt.memory.consolidation.dedup import FACT_ID_NAMESPACE, merge_near_duplicate_facts
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import FactWrite, MemoryRecord, Scope
 
@@ -69,14 +71,59 @@ def test_identical_content_across_scopes_never_merges():
     assert {f.record.scope for f in kept} == {ACME, GLOBEX}
 
 
-def test_the_first_occurrence_survives_with_its_own_content_and_id():
+def test_the_first_occurrence_survives_with_its_own_content():
     facts = [fact("the deploy failed", ["a"], fact_id="fact-a"), fact("the deploy failed!", ["b"], fact_id="fact-b")]
 
     kept, _ = merge_near_duplicate_facts(facts)
 
     assert len(kept) == 1
-    assert kept[0].record.id == "fact-a"
     assert kept[0].record.content == "the deploy failed"
+
+
+def test_the_folded_facts_id_is_rederived_from_the_combined_provenance():
+    """`_distil` derives a fact's id from its source episodes so a re-run upserts the same row
+    (review finding 3, PR #116). A folded fact's provenance grows beyond either input fact's own
+    set, so keeping either original id would break that invariant for the very first re-run.
+    """
+    facts = [fact("the deploy failed", ["a"], fact_id="fact-a"), fact("the deploy failed!", ["b"], fact_id="fact-b")]
+
+    kept, _ = merge_near_duplicate_facts(facts)
+
+    assert kept[0].record.id == str(uuid5(FACT_ID_NAMESPACE, "a|b"))
+    assert kept[0].record.id not in ("fact-a", "fact-b")
+
+
+def test_rederiving_the_id_is_order_independent_like_distils_own_derivation():
+    """Two episodes folding in either scan order must upsert the same row."""
+    forward = [fact("the deploy failed", ["a"], fact_id="fact-a"), fact("the deploy failed!", ["b"], fact_id="fact-b")]
+    backward = [fact("the deploy failed!", ["b"], fact_id="fact-b"), fact("the deploy failed", ["a"], fact_id="fact-a")]
+
+    kept_forward, _ = merge_near_duplicate_facts(forward)
+    kept_backward, _ = merge_near_duplicate_facts(backward)
+
+    assert kept_forward[0].record.id == kept_backward[0].record.id
+
+
+def test_all_punctuation_content_does_not_raise():
+    """`normalize_entity_name` refuses content that normalises to "" -- correct for an *entity*
+    name, wrong for a fact's content, where it used to abort the whole consolidation pass on every
+    retry (review finding 1, PR #116)."""
+    facts = [fact("...", ["a"]), fact("the deploy failed", ["b"])]
+
+    kept, merged = merge_near_duplicate_facts(facts)
+
+    assert merged == 0
+    assert len(kept) == 2
+
+
+def test_two_different_all_punctuation_facts_stay_separate():
+    """A shared `""` normalization key would wrongly fold unrelated degenerate facts into one."""
+    facts = [fact("...", ["a"]), fact("---", ["b"])]
+
+    kept, merged = merge_near_duplicate_facts(facts)
+
+    assert merged == 0
+    assert len(kept) == 2
 
 
 def test_an_empty_batch_merges_nothing():

@@ -15,7 +15,7 @@ configured scopes are worth draining on a given tick, rather than draining every
 every time.
 """
 
-from egpt.memory.consolidation.dedup import merge_near_duplicate_facts
+from egpt.memory.consolidation.dedup import FACT_ID_NAMESPACE, merge_near_duplicate_facts
 from egpt.memory.consolidation.triggers import (
     AnyTrigger,
     ConsolidationTrigger,
@@ -34,6 +34,7 @@ __all__ = [
     "ConsolidationTrigger",
     "ConsolidationWorker",
     "EventCountTrigger",
+    "FACT_ID_NAMESPACE",
     "IdleTrigger",
     "LatencyTrigger",
     "PerTenantThreshold",
