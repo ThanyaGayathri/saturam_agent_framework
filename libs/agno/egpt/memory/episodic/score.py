@@ -42,6 +42,7 @@ than the ``"weights.<name>"`` dotted path this module used before this was raise
 
 import math
 from dataclasses import dataclass
+from typing import Optional
 
 from egpt.memory.types import MemoryOperationError
 
@@ -90,13 +91,24 @@ def _require_unit_signal(value: float, field_name: str) -> float:
     return value
 
 
-def _require_nonnegative_finite_weight(value: float, field_name: str) -> float:
+def _require_nonnegative_finite_weight(value: float, field_name: str, *, raised_as: Optional[str] = None) -> float:
+    """Shared by :func:`composite_episodic_score` (one call per signal weight) and
+    :func:`contiguity_bonus` (one call for its single ``weight``) -- both need the identical
+    finite-and-non-negative check, just against a different raised ``field_name``.
+
+    ``raised_as`` overrides the ``field_name`` the raised error carries: :func:`composite_episodic_score`
+    leaves it unset and gets ``f"{field_name}_weight"`` (e.g. ``"relevance_weight"``, matching the
+    package-wide bare-name convention this module's own docstring documents); a caller whose
+    parameter is already named plainly (:func:`contiguity_bonus`'s ``weight``) passes
+    ``raised_as=field_name`` so the raised name matches the parameter name exactly rather than
+    growing a redundant ``"weight_weight"`` suffix.
+    """
     if not math.isfinite(value) or value < 0.0:
         raise MemoryOperationError(
-            f"The {field_name} weight must be a finite, non-negative value, got {value!r}: NaN "
-            "or infinite poisons the composite, and a negative weight inverts that signal's "
-            "contribution -- a more relevant/recent/important episode would score lower.",
-            field_name=f"{field_name}_weight",
+            f"{field_name} must be a finite, non-negative value, got {value!r}: NaN or infinite "
+            "poisons whatever it scales, and a negative weight silently inverts that "
+            "contribution instead of just scaling it down.",
+            field_name=raised_as if raised_as is not None else f"{field_name}_weight",
         )
     return value
 
@@ -195,13 +207,7 @@ def contiguity_bonus(
             "distance must not be 0: the hit itself is not its own contiguity neighbor.",
             field_name="distance",
         )
-    if not math.isfinite(weight) or weight < 0.0:
-        raise MemoryOperationError(
-            f"weight must be a finite, non-negative value, got {weight!r}: NaN or infinite "
-            "poisons the bonus, and a negative weight inverts a neighbor's contiguity boost into "
-            "a penalty.",
-            field_name="weight",
-        )
+    _require_nonnegative_finite_weight(weight, "weight", raised_as="weight")
     if not math.isfinite(decay) or not 0.0 <= decay <= 1.0:
         raise MemoryOperationError(
             f"decay must be a finite value within [0.0, 1.0], got {decay!r}: above 1.0 the bonus "

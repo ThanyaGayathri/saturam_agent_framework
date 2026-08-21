@@ -277,3 +277,18 @@ def test_blend_contiguity_propagates_contiguity_bonus_errors():
     with pytest.raises(MemoryOperationError) as exc_info:
         blend_contiguity(0.5, distance=0)
     assert exc_info.value.field_name == "distance"
+
+
+def test_blend_contiguity_is_not_renormalized_to_unit_interval():
+    # A single-signal weight set puts composite_episodic_score's own ceiling at exactly 1.0
+    # (relevance=1.0, every other weight 0.0). Adding a full-weight contiguity bonus on top of
+    # that lands above 1.0, deliberately -- blend_contiguity does not divide back down, the same
+    # choice composite_episodic_score's own docstring makes for its weighted sum (see "Not itself
+    # renormalized to [0.0, 1.0]" there). A caller wiring a blended score back into a ranking that
+    # assumes a unit-interval score must account for that itself.
+    weights = EpisodicScoreWeights(relevance=1.0, recency=0.0, importance=0.0)
+    at_the_composite_ceiling = composite_episodic_score(1.0, recency=0.0, importance=0.0, weights=weights)
+    assert at_the_composite_ceiling == pytest.approx(1.0)
+    blended = blend_contiguity(at_the_composite_ceiling, distance=1, weight=0.2, decay=0.5)
+    assert blended > 1.0
+    assert blended == pytest.approx(1.2)

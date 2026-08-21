@@ -75,6 +75,27 @@ def test_finds_neighbors_on_both_sides_within_radius():
     assert by_id == {"ep-1": -2, "ep-2": -1, "ep-4": 1, "ep-5": 2}
 
 
+def test_single_element_pool_has_no_neighbors():
+    hit = an_episode("ep-1", occurred_at=0, created_at=0)
+    assert temporal_neighbors(hit, [hit], radius=5) == []
+
+
+def test_falls_back_to_created_at_for_a_mixed_pool():
+    # A pool where only some episodes carry occurred_at -- the ones that don't still order (and
+    # neighbor) correctly by created_at, not by being sorted arbitrarily or excluded.
+    hit = an_episode("ep-2", occurred_at=2 * HOUR, created_at=2 * HOUR)
+    session = [
+        an_episode("ep-0", occurred_at=None, created_at=0),
+        an_episode("ep-1", occurred_at=1 * HOUR, created_at=1 * HOUR),
+        hit,
+        an_episode("ep-3", occurred_at=None, created_at=3 * HOUR),
+        an_episode("ep-4", occurred_at=4 * HOUR, created_at=4 * HOUR),
+    ]
+    neighbors = temporal_neighbors(hit, session, radius=2)
+    by_id = {n.episode.id: n.distance for n in neighbors}
+    assert by_id == {"ep-0": -2, "ep-1": -1, "ep-3": 1, "ep-4": 2}
+
+
 def test_neighbors_are_ordered_nearest_to_farthest_before_then_after():
     session = a_session(7)
     hit = session[3]
@@ -95,10 +116,16 @@ def test_every_neighbor_carries_the_hit_id():
 
 
 def test_never_includes_the_hit_itself():
-    session = a_session(5)
+    session = a_session(5)  # ep-0 .. ep-4
     hit = session[2]
     neighbors = temporal_neighbors(hit, session, radius=10)
     assert hit.id not in {n.episode.id for n in neighbors}
+    # radius=10 against a 5-episode session clips at both edges (see
+    # test_clips_at_the_start_of_the_session / test_clips_at_the_end_of_the_session for the
+    # single-edge cases) -- every remaining episode becomes a neighbor at its true distance from
+    # the hit, not a clamped or truncated one.
+    by_id = {n.episode.id: n.distance for n in neighbors}
+    assert by_id == {"ep-0": -2, "ep-1": -1, "ep-3": 1, "ep-4": 2}
 
 
 def test_clips_at_the_start_of_the_session():
@@ -206,6 +233,18 @@ def test_buffer_evicts_oldest_first_past_capacity():
     # The first 7 enqueued (of 10) are evicted, oldest (ep-0) first.
     assert [n.episode.id for n in evicted] == [f"ep-{i}" for i in range(7)]
     assert {n.episode.id for n in buffer.neighbors()} == {"ep-7", "ep-8", "ep-9"}
+
+
+def test_buffer_capacity_one_evicts_immediately_on_the_second_distinct_id():
+    buffer = ContiguityBuffer(capacity=1)
+    session = a_session(3)
+    evicted_first = buffer.enqueue([ContiguityNeighbor(episode=session[0], distance=1, hit_id="hit")])
+    assert len(buffer) == 1
+    assert evicted_first == []
+    evicted_second = buffer.enqueue([ContiguityNeighbor(episode=session[1], distance=1, hit_id="hit")])
+    assert len(buffer) == 1
+    assert [n.episode.id for n in evicted_second] == ["ep-0"]
+    assert {n.episode.id for n in buffer.neighbors()} == {"ep-1"}
 
 
 def test_buffer_never_exceeds_capacity_across_many_enqueue_calls():

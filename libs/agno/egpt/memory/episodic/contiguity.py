@@ -71,7 +71,13 @@ def temporal_order_key(episode: EpisodicRecord) -> Tuple[int, str]:
     a missing valid time still orders relative to the rest of the batch instead of raising or
     sorting arbitrarily. ``id`` breaks ties the same way ``VectorSubstrate.scan``'s cursor does,
     for the same reason: a batched write can put more than one episode at the same whole-second
-    timestamp.
+    timestamp. The tie-break is a **plain lexicographic string comparison** on ``id`` -- it makes
+    the sort deterministic (two episodes at the same timestamp always land in the same relative
+    order across repeated calls), not a claim that lexicographic id order means anything about
+    which happened first. An id scheme that is not itself roughly time-ordered (e.g. a random
+    UUID rather than a ULID/monotonic id) gets an arbitrary but stable order among same-timestamp
+    ties -- exactly the same residual :meth:`~egpt.memory.substrates.VectorSubstrate.scan`'s own
+    ``(created_at, id)`` cursor carries, not a new one introduced here.
 
     Raises:
         MemoryOperationError: both ``occurred_at`` and ``created_at`` are unset -- the same
@@ -116,6 +122,15 @@ def temporal_neighbors(
     ``episodes`` parameter: a caller forwarding a substrate ``scan`` page (transaction-time
     order) or an unordered candidate list would otherwise get neighbors that are silently wrong
     rather than refused.
+
+    **Cost, for a caller wiring this into a live retrieval pass (SM-H5):** every call re-sorts
+    and re-indexes the whole ``episodes`` pool from scratch (``O(n log n)``, plus the
+    duplicate-id scan below) -- there is no cross-call cache, and calling this once per hit
+    against the same session-scoped pool repeats that sort once per hit rather than once per
+    pass. That is a deliberate simplicity choice for a first pure implementation, not a promise
+    that it stays cheap at a large pool/hit-count combination; a caller sorting once and calling
+    a position-lookup helper per hit would avoid the repeated work, but that batching is not
+    this function's shape today.
 
     ``hit`` must appear in ``episodes`` (compared by ``id``), and every episode in ``episodes``
     must carry a distinct ``id`` -- a neighbor is a position relative to the hit *within this
