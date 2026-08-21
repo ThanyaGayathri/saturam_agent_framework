@@ -55,7 +55,7 @@ assert provider.vector is not None and provider.graph is not None, (
     "./cookbook/scripts/run_pgvector.sh and ./cookbook/scripts/run_neo4j.sh are both running."
 )
 
-MARCH = 1_600_000_000
+SEPT_2020 = 1_600_000_000  # 2020-09-13T12:26:40 UTC
 
 store = SemanticFactStore(vector=provider.vector, graph=provider.graph)
 
@@ -71,7 +71,7 @@ receipt = store.write(
                 tier=MemoryTier.SEMANTIC,
                 content="Ada works at NorthStar Analytics",
                 scope=ACME_ADA,
-                t_valid=MARCH,
+                t_valid=SEPT_2020,
             ),
             subject="Ada",
             predicate="works_at",
@@ -86,7 +86,7 @@ receipt = store.write(
                 tier=MemoryTier.SEMANTIC,
                 content="Ada prefers async standups over live ones",
                 scope=ACME_ADA,
-                t_valid=MARCH,
+                t_valid=SEPT_2020,
             ),
             confidence=0.7,
             source_episode_ids=["ep-3"],

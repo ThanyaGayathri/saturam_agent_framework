@@ -16,7 +16,8 @@ acceptance criterion here asks for. What changed there is only the vector-leg pa
 :func:`egpt.memory.schemas.semantic.fact_record`'s docstring for why.
 """
 
-from typing import List, Optional, Sequence, Tuple
+import asyncio
+from typing import Awaitable, Dict, List, Optional, Sequence, Tuple
 
 from egpt.memory.schemas.semantic import fact_record
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
@@ -44,22 +45,41 @@ def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]
     Keyed on the frozen ``Scope`` itself, never on ``.key()`` -- the object is hashable, and an
     equality bug in a string function should not be able to misfile a write.
     """
-    batched: dict = {}
+    batched: Dict[Scope, List[FactWrite]] = {}
     for fact in facts:
         batched.setdefault(fact.record.scope, []).append(fact)
     return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
 
 
 def _receipt(facts: Sequence[FactWrite]) -> WriteReceipt:
+    seen: set = set()
     tiers: List[MemoryTier] = []
     for fact in facts:
-        if fact.record.tier not in tiers:
+        if fact.record.tier not in seen:
+            seen.add(fact.record.tier)
             tiers.append(fact.record.tier)
     return WriteReceipt(
         accepted=len(facts),
         event_ids=[f.record.id for f in facts],
         tiers_written=tiers,
     )
+
+
+def _require_semantic_tier(facts: Sequence[FactWrite]) -> None:
+    """Refuse a batch carrying a non-SEMANTIC fact.
+
+    The class name states the constraint; nothing enforced it. SM-L3's extraction pass builds
+    ``FactWrite``\\ s from an LLM's ADD/UPDATE/DELETE/NOOP decision, and a tier bug there -- an
+    extractor that stamped the wrong ``MemoryTier`` on one candidate -- would otherwise dual-write
+    silently under the wrong tier rather than surface at the one seam positioned to catch it.
+    """
+    offenders = sorted({f.record.tier.value for f in facts if f.record.tier is not MemoryTier.SEMANTIC})
+    if offenders:
+        raise MemoryOperationError(
+            f"SemanticFactStore only accepts SEMANTIC-tier facts; got {offenders}. A fact belongs "
+            "to a different tier's store, or was stamped with the wrong MemoryTier upstream.",
+            field_name="tier",
+        )
 
 
 class SemanticFactStore:
@@ -76,6 +96,9 @@ class SemanticFactStore:
     ``fact.record`` directly -- the projection that makes a fact retrieved through
     ``VectorSubstrate.search`` carry the same subject/predicate/object/confidence/derived_by a
     ``GraphSubstrate.recall_facts`` read already does.
+
+    Every fact must carry :attr:`~egpt.memory.tiers.MemoryTier.SEMANTIC` -- the class name states
+    it, :func:`_require_semantic_tier` enforces it.
     """
 
     def __init__(self, vector: Optional[VectorSubstrate], graph: Optional[GraphSubstrate]) -> None:
@@ -87,6 +110,7 @@ class SemanticFactStore:
         if not facts:
             return WriteReceipt()
         reject_duplicate_ids([fact.record for fact in facts])
+        _require_semantic_tier(facts)
         receipt = _receipt(facts)
         committed_any = False
         try:
@@ -99,13 +123,14 @@ class SemanticFactStore:
                     committed_any = True
         except PartialWriteError:
             raise
-        except MemoryOperationError:
+        except MemoryOperationError as exc:
             # A refusal before anything committed is just a refusal, matching
             # `CoLocatedMemoryProvider.write`'s rule. Once one substrate has taken the batch, the
-            # other's refusal makes this a partial write like any other.
+            # other's refusal makes this a partial write like any other -- and `from exc` keeps
+            # which substrate refused and why, rather than discarding it.
             if not committed_any:
                 raise
-            raise PartialWriteError(receipt) from None
+            raise PartialWriteError(receipt) from exc
         except Exception as exc:
             raise PartialWriteError(receipt) from exc
         return receipt
@@ -115,22 +140,42 @@ class SemanticFactStore:
         if not facts:
             return WriteReceipt()
         reject_duplicate_ids([fact.record for fact in facts])
+        _require_semantic_tier(facts)
         receipt = _receipt(facts)
         committed_any = False
         try:
             for fact_scope, batch in _by_scope(facts):
+                writes: List[Awaitable[None]] = []
                 if self.vector is not None:
-                    await self.vector.aupsert(fact_scope, [fact_record(f) for f in batch])
-                    committed_any = True
+                    writes.append(self.vector.aupsert(fact_scope, [fact_record(f) for f in batch]))
                 if self.graph is not None:
-                    await self.graph.aupsert_facts(fact_scope, batch)
+                    writes.append(self.graph.aupsert_facts(fact_scope, batch))
+                if not writes:
+                    continue
+                # Concurrent, not sequential: vector (pgvector) and graph (Neo4j) are independent
+                # backends with no ordering dependency between them, so awaiting one after the
+                # other doubles per-scope latency on any deployment with both substrates wired.
+                # `return_exceptions=True` settles both before this group decides anything, matching
+                # `CoLocatedMemoryProvider._gather_writes`'s settle-then-propagate rule -- a bare
+                # `asyncio.gather` without it would leave a sibling write's outcome unobserved.
+                results = await asyncio.gather(*writes, return_exceptions=True)
+                failures = [r for r in results if isinstance(r, BaseException)]
+                if len(failures) < len(writes):
                     committed_any = True
+                if failures:
+                    # A refusal wins over a transport error as the surfaced cause, mirroring
+                    # `CoLocatedMemoryProvider._raise_write_failure`: a batch that got both a refusal
+                    # and a transport error from its two concurrent legs should not report "retry
+                    # me" on one run and "this will never work" on the next depending on which leg's
+                    # future happened to be inspected first.
+                    refusal = next((f for f in failures if isinstance(f, MemoryOperationError)), None)
+                    raise refusal or failures[0]
         except PartialWriteError:
             raise
-        except MemoryOperationError:
+        except MemoryOperationError as exc:
             if not committed_any:
                 raise
-            raise PartialWriteError(receipt) from None
+            raise PartialWriteError(receipt) from exc
         except Exception as exc:
             raise PartialWriteError(receipt) from exc
         return receipt

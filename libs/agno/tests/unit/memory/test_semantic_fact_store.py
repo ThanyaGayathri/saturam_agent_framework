@@ -173,6 +173,21 @@ def test_a_vector_only_deployment_still_writes():
     assert receipt.accepted == 1
 
 
+def test_a_no_substrate_deployment_returns_a_receipt_reflecting_the_batch_not_a_commit():
+    """Neither substrate is wired, so nothing is written -- but `accepted` describes the batch
+    size, matching every other write on this seam, not how many rows landed anywhere."""
+    s = SemanticFactStore(vector=None, graph=None)
+    receipt = s.write(ACME, [fact()])
+    assert receipt.accepted == 1
+    assert receipt.tiers_written == [MemoryTier.SEMANTIC]
+
+
+async def test_an_async_no_substrate_deployment_returns_a_receipt_reflecting_the_batch():
+    s = SemanticFactStore(vector=None, graph=None)
+    receipt = await s.awrite(ACME, [fact()])
+    assert receipt.accepted == 1
+
+
 def test_facts_are_grouped_and_written_under_their_own_scope_not_a_wider_call_scope():
     s, vector, graph = store()
     tenant_wide = Scope(tenant_id="acme")
@@ -220,22 +235,76 @@ def test_a_refusal_after_the_vector_leg_committed_is_a_partial_write():
     assert vector.rows["acme"], "the vector leg had already committed"
 
 
+def test_the_partial_write_preserves_which_substrate_refused_and_why():
+    """The refusal must survive as `__cause__` -- `from None` would discard which substrate
+    refused and why, leaving only "partially applied" with no way to diagnose it."""
+    vector = FakeVector()
+
+    class RefusingGraph(FakeGraph):
+        def upsert_facts(self, scope, facts):
+            raise MemoryOperationError("refused for a specific reason", field_name="content")
+
+    s = SemanticFactStore(vector=vector, graph=RefusingGraph())
+    with pytest.raises(PartialWriteError) as excinfo:
+        s.write(ACME, [fact()])
+    assert isinstance(excinfo.value.__cause__, MemoryOperationError)
+    assert "refused for a specific reason" in str(excinfo.value.__cause__)
+
+
+async def test_the_async_partial_write_preserves_which_substrate_refused_and_why():
+    class RefusingGraph(FakeGraph):
+        async def aupsert_facts(self, scope, facts):
+            raise MemoryOperationError("refused for a specific reason", field_name="content")
+
+    s = SemanticFactStore(vector=FakeVector(), graph=RefusingGraph())
+    with pytest.raises(PartialWriteError) as excinfo:
+        await s.awrite(ACME, [fact()])
+    assert isinstance(excinfo.value.__cause__, MemoryOperationError)
+    assert "refused for a specific reason" in str(excinfo.value.__cause__)
+
+
+def test_a_non_semantic_fact_is_refused():
+    s, vector, graph = store()
+    non_semantic = FactWrite(
+        record=MemoryRecord(id="e1", tier=MemoryTier.EPISODIC, content="oops", scope=ACME),
+    )
+    with pytest.raises(MemoryOperationError, match="SEMANTIC"):
+        s.write(ACME, [non_semantic])
+    assert vector.calls == []
+    assert graph.calls == []
+
+
+async def test_an_async_non_semantic_fact_is_refused():
+    s, vector, graph = store()
+    non_semantic = FactWrite(
+        record=MemoryRecord(id="e1", tier=MemoryTier.EPISODIC, content="oops", scope=ACME),
+    )
+    with pytest.raises(MemoryOperationError, match="SEMANTIC"):
+        await s.awrite(ACME, [non_semantic])
+    assert vector.calls == []
+    assert graph.calls == []
+
+
 def test_write_requires_a_scope():
     s, _, _ = store()
     with pytest.raises(MemoryScopeRequiredError):
         s.write(None, [fact()])
 
 
-@pytest.mark.parametrize("is_async", [False, True])
-def test_awrite_makes_the_same_decisions_as_write(is_async):
-    """Sync/async parity: same batch, same receipt shape, same stored rows."""
+async def test_awrite_requires_a_scope():
+    """The async twin of `test_write_requires_a_scope` -- every scope guard needs both."""
+    s, _, _ = store()
+    with pytest.raises(MemoryScopeRequiredError):
+        await s.awrite(None, [fact()])
+
+
+def test_write_makes_the_vector_row_match_the_graph_shape():
+    """Sync half: same assertion `test_the_vector_row_carries_the_same_shape_recall_facts_returns`
+    makes, restated here so the sync/async pair is visible side by side."""
     s, vector, graph = store()
     facts = [fact(subject="ada", predicate="works_at", object="acme", confidence=0.9, derived_by="x")]
 
-    if is_async:
-        receipt = asyncio.run(s.awrite(ACME, facts))
-    else:
-        receipt = s.write(ACME, facts)
+    receipt = s.write(ACME, facts)
 
     assert receipt.accepted == 1
     stored = vector.rows["acme"]["f1"]
@@ -243,13 +312,57 @@ def test_awrite_makes_the_same_decisions_as_write(is_async):
     assert stored.metadata["confidence"] == 0.9
 
 
-def test_awrite_calls_the_async_verbs():
+async def test_awrite_makes_the_vector_row_match_the_graph_shape():
+    """The async twin: same batch, same receipt shape, same stored row as the sync half above."""
+    s, vector, graph = store()
+    facts = [fact(subject="ada", predicate="works_at", object="acme", confidence=0.9, derived_by="x")]
+
+    receipt = await s.awrite(ACME, facts)
+
+    assert receipt.accepted == 1
+    stored = vector.rows["acme"]["f1"]
+    assert stored.provenance["subject"] == "ada"
+    assert stored.metadata["confidence"] == 0.9
+
+
+async def test_awrite_calls_the_async_verbs():
     """`awrite` must delegate to `aupsert`/`aupsert_facts`, not silently block on a sync call."""
     s, vector, graph = store()
-    asyncio.run(s.awrite(ACME, [fact()]))
+    await s.awrite(ACME, [fact()])
 
     assert "aupsert" in vector.calls
     assert "aupsert_facts" in graph.calls
+
+
+async def test_awrite_writes_vector_and_graph_concurrently_not_sequentially():
+    """Major finding: `awrite` awaited vector then graph in series. A slow leg must not block
+    starting the other -- if the graph write starts only after the vector write's coroutine has
+    already finished awaiting, they were not concurrent."""
+    started = []
+    released = asyncio.Event()
+
+    class SlowVector(FakeVector):
+        async def aupsert(self, scope, records):
+            started.append("vector")
+            await released.wait()
+            return await super().aupsert(scope, records)
+
+    class SlowGraph(FakeGraph):
+        async def aupsert_facts(self, scope, facts):
+            started.append("graph")
+            await released.wait()
+            return await super().aupsert_facts(scope, facts)
+
+    s = SemanticFactStore(vector=SlowVector(), graph=SlowGraph())
+    task = asyncio.ensure_future(s.awrite(ACME, [fact()]))
+    # Both legs must have registered as *started* before either is allowed to finish -- a
+    # sequential implementation starts the graph leg only after the vector leg's `await` returns,
+    # so `started` would still be `["vector"]` at this point under the old code.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert sorted(started) == ["graph", "vector"]
+    released.set()
+    await task
 
 
 def test_an_empty_awrite_batch_is_a_no_op():
