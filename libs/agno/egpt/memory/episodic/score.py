@@ -9,6 +9,14 @@ This module only combines already-computed signals; producing them is SM-E4/SM-E
 and wiring the composite into retrieval ranking is SM-H5's (#135) -- see
 ``docs/adr/0003-symbiotic-memory.md`` section B.1.
 
+Also holds SM-E8's (#115) contiguity blend -- ``contiguity_bonus``/``blend_contiguity`` -- the
+second stage of temporal-contiguity retrieval, turning a
+:class:`~egpt.memory.episodic.contiguity.ContiguityNeighbor`'s distance from a hit into a bonus
+on top of its own composite score. Naming the neighbors themselves is
+:mod:`egpt.memory.episodic.contiguity`'s job, not this module's; this module only owns "how much
+a given distance is worth," the same combine-already-computed-signals boundary the rest of this
+module keeps.
+
 **Default weights are not equal-weighted.** ADR 0003 B.1 ratifies SM-R8's measured finding that
 an additive per-query recency rescore on the fused hot path *hurts* retrieval quality
 (``recency_weight`` monotonically degrades 0.8934 -> 0.7265, ``benchmarks/memory_retrieval/
@@ -34,10 +42,19 @@ than the ``"weights.<name>"`` dotted path this module used before this was raise
 
 import math
 from dataclasses import dataclass
+from typing import Optional
 
 from egpt.memory.types import MemoryOperationError
 
-__all__ = ["DEFAULT_EPISODIC_SCORE_WEIGHTS", "EpisodicScoreWeights", "composite_episodic_score"]
+__all__ = [
+    "DEFAULT_CONTIGUITY_DECAY",
+    "DEFAULT_CONTIGUITY_WEIGHT",
+    "DEFAULT_EPISODIC_SCORE_WEIGHTS",
+    "EpisodicScoreWeights",
+    "blend_contiguity",
+    "composite_episodic_score",
+    "contiguity_bonus",
+]
 
 
 @dataclass(frozen=True)
@@ -74,13 +91,24 @@ def _require_unit_signal(value: float, field_name: str) -> float:
     return value
 
 
-def _require_nonnegative_finite_weight(value: float, field_name: str) -> float:
+def _require_nonnegative_finite_weight(value: float, field_name: str, *, raised_as: Optional[str] = None) -> float:
+    """Shared by :func:`composite_episodic_score` (one call per signal weight) and
+    :func:`contiguity_bonus` (one call for its single ``weight``) -- both need the identical
+    finite-and-non-negative check, just against a different raised ``field_name``.
+
+    ``raised_as`` overrides the ``field_name`` the raised error carries: :func:`composite_episodic_score`
+    leaves it unset and gets ``f"{field_name}_weight"`` (e.g. ``"relevance_weight"``, matching the
+    package-wide bare-name convention this module's own docstring documents); a caller whose
+    parameter is already named plainly (:func:`contiguity_bonus`'s ``weight``) passes
+    ``raised_as=field_name`` so the raised name matches the parameter name exactly rather than
+    growing a redundant ``"weight_weight"`` suffix.
+    """
     if not math.isfinite(value) or value < 0.0:
         raise MemoryOperationError(
-            f"The {field_name} weight must be a finite, non-negative value, got {value!r}: NaN "
-            "or infinite poisons the composite, and a negative weight inverts that signal's "
-            "contribution -- a more relevant/recent/important episode would score lower.",
-            field_name=f"{field_name}_weight",
+            f"{field_name} must be a finite, non-negative value, got {value!r}: NaN or infinite "
+            "poisons whatever it scales, and a negative weight silently inverts that "
+            "contribution instead of just scaling it down.",
+            field_name=raised_as if raised_as is not None else f"{field_name}_weight",
         )
     return value
 
@@ -136,3 +164,90 @@ def composite_episodic_score(
     _require_nonnegative_finite_weight(weights.recency, "recency")
     _require_nonnegative_finite_weight(weights.importance, "importance")
     return weights.relevance * relevance + weights.recency * recency + weights.importance * importance
+
+
+#: EM-LLM's own contiguity weight is not restated numerically anywhere reachable (2407.09450
+#: tunes it per benchmark) -- 0.2 is this module's own default: a neighbor one hop from a hit
+#: adds a fifth of a full relevance/importance signal to the composite, present in the ranking
+#: but not enough on its own to outrank a directly relevant hit under
+#: :data:`DEFAULT_EPISODIC_SCORE_WEIGHTS` (relevance and importance both at 1.0).
+DEFAULT_CONTIGUITY_WEIGHT: float = 0.2
+
+#: The bonus halves each additional hop from the hit, matching EM-LLM's framing of contiguity as
+#: a fading association rather than a flat "any neighbor counts equally" boost.
+DEFAULT_CONTIGUITY_DECAY: float = 0.5
+
+
+def contiguity_bonus(
+    distance: int,
+    weight: float = DEFAULT_CONTIGUITY_WEIGHT,
+    decay: float = DEFAULT_CONTIGUITY_DECAY,
+) -> float:
+    """``weight * decay ** (abs(distance) - 1)``: the composite-score bonus a buffered
+    :class:`~egpt.memory.episodic.contiguity.ContiguityNeighbor` earns for sitting ``distance``
+    positions from the retrieval hit that pulled it in (SM-E8 #115).
+
+    ``abs(distance) - 1`` rather than ``abs(distance)``, so the nearest neighbor (``distance``
+    of ``1`` or ``-1``) earns the full ``weight`` and every additional hop decays from there.
+    ``distance`` is never ``0`` for a buffered neighbor --
+    :func:`~egpt.memory.episodic.contiguity.temporal_neighbors` never produces one, since the hit
+    is not its own neighbor -- so this function refuses ``0`` rather than defining what "the
+    hit's own contiguity bonus" would mean.
+
+    Raises:
+        MemoryOperationError: ``distance`` is ``0`` (``field_name="distance"``); ``weight`` is
+            negative or non-finite (``field_name="weight"``, the same refusal
+            :func:`composite_episodic_score` gives a bad weight); or ``decay`` is outside
+            ``[0.0, 1.0]`` or non-finite (``field_name="decay"`` -- above ``1.0`` the bonus would
+            grow with distance from the hit instead of fading, which is not what contiguity
+            means).
+    """
+    if distance == 0:
+        raise MemoryOperationError(
+            "distance must not be 0: the hit itself is not its own contiguity neighbor.",
+            field_name="distance",
+        )
+    _require_nonnegative_finite_weight(weight, "weight", raised_as="weight")
+    if not math.isfinite(decay) or not 0.0 <= decay <= 1.0:
+        raise MemoryOperationError(
+            f"decay must be a finite value within [0.0, 1.0], got {decay!r}: above 1.0 the bonus "
+            "grows with distance from the hit instead of fading, which is not contiguity.",
+            field_name="decay",
+        )
+    return weight * (decay ** (abs(distance) - 1))
+
+
+def blend_contiguity(
+    base_score: float,
+    distance: int,
+    weight: float = DEFAULT_CONTIGUITY_WEIGHT,
+    decay: float = DEFAULT_CONTIGUITY_DECAY,
+) -> float:
+    """``base_score + contiguity_bonus(distance, weight, decay)`` (SM-E8 #115).
+
+    ``base_score`` is typically a buffered neighbor's own :func:`composite_episodic_score` --
+    scored like any other candidate, then boosted for sitting near a hit in temporal order --
+    but this function does not require that; it adds a finite bonus to whatever finite score it
+    is given, the same already-computed-signal boundary :func:`composite_episodic_score` itself
+    keeps (see this module's docstring). Not renormalized, for the same reason
+    :func:`composite_episodic_score` is not: a caller who tuned ``weight`` against an
+    un-normalized composite would get a different bonus back if this function silently rescaled
+    it. Wiring this into live retrieval ranking is SM-H5's (#135), not this module's -- see the
+    module docstring.
+
+    A negative ``base_score`` is accepted, not refused: nothing here requires the ``[0.0, 1.0]``
+    range :func:`composite_episodic_score` produces, since a caller can legitimately pass a raw
+    signal (e.g. an uncentered cosine similarity) that goes negative. Only finiteness is
+    checked -- see Raises.
+
+    Raises:
+        MemoryOperationError: ``base_score`` is non-finite (``field_name="base_score"``; a
+            negative-but-finite ``base_score`` is valid and returned as-is plus the bonus), or
+            propagated from :func:`contiguity_bonus` for a bad ``distance``/``weight``/``decay``.
+    """
+    if not math.isfinite(base_score):
+        raise MemoryOperationError(
+            f"base_score must be finite, got {base_score!r}.",
+            field_name="base_score",
+        )
+    return base_score + contiguity_bonus(distance, weight, decay)
