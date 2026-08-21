@@ -74,9 +74,8 @@ session = [
     ),
     EpisodicRecord(id="ep-5", tenant_id="acme", content="lunch", occurred_at=5 * HOUR),
 ]
-hit = session[
-    2
-]  # "shipped the composite scorer" -- the episode a relevance search surfaced
+# "shipped the composite scorer" -- the episode a relevance search surfaced
+hit = session[2]
 
 # ---------------------------------------------------------------------------
 # 2. Its temporal neighbors

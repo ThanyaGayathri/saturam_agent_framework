@@ -29,10 +29,10 @@ from egpt.memory.types import MemoryOperationError
 HOUR = 3600
 
 
-def an_episode(id: str, **overrides) -> EpisodicRecord:
-    defaults = dict(tenant_id="acme", content=f"episode {id}", created_at=0)
+def an_episode(episode_id: str, **overrides) -> EpisodicRecord:
+    defaults = dict(tenant_id="acme", content=f"episode {episode_id}", created_at=0)
     defaults.update(overrides)
-    return EpisodicRecord(id=id, **defaults)
+    return EpisodicRecord(id=episode_id, **defaults)
 
 
 def a_session(count: int, start: int = 0, step: int = HOUR):
@@ -161,6 +161,30 @@ def test_rejects_a_hit_against_an_empty_pool():
     assert exc_info.value.field_name == "hit"
 
 
+def test_rejects_a_duplicate_episode_id_in_the_pool():
+    session = a_session(5)
+    duplicate = an_episode("ep-2", occurred_at=99 * HOUR, created_at=99 * HOUR)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        temporal_neighbors(session[0], [*session, duplicate], radius=1)
+    assert exc_info.value.field_name == "episodes"
+
+
+def test_radius_zero_skips_the_duplicate_id_check():
+    # radius=0 never builds index_by_id (no neighbors to locate), so a duplicate elsewhere in the
+    # pool that a nonzero radius would refuse is not this call's problem to reconcile.
+    session = a_session(5)
+    duplicate = an_episode("ep-3", occurred_at=99 * HOUR, created_at=99 * HOUR)
+    assert temporal_neighbors(session[0], [*session, duplicate], radius=0) == []
+
+
+def test_radius_zero_still_rejects_a_hit_absent_from_the_pool():
+    session = a_session(5)
+    stranger = an_episode("ep-stranger", occurred_at=10 * HOUR, created_at=10 * HOUR)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        temporal_neighbors(stranger, session, radius=0)
+    assert exc_info.value.field_name == "hit"
+
+
 # -- ContiguityBuffer: the buffer is bounded ------------------------------------------------------
 
 
@@ -195,8 +219,9 @@ def test_buffer_never_exceeds_capacity_across_many_enqueue_calls():
 def test_buffer_deduplicates_a_neighbor_shared_by_two_hits():
     session = a_session(6)  # ep-0 .. ep-5
     buffer = ContiguityBuffer(capacity=10)
-    # Adjacent hits at radius 2 share neighbors: ep-2's radius-2 neighborhood includes ep-1/ep-4,
-    # and so does ep-3's (ep-1 at distance -2, ep-4 at distance +1).
+    # session[2]'s radius-2 neighborhood is ep-0/ep-1/ep-3/ep-4; session[3]'s is
+    # ep-1/ep-2/ep-4/ep-5. ep-1 and ep-4 are in *both* neighborhoods -- the shared neighbors this
+    # test's dedup assertion below is about.
     buffer.enqueue(temporal_neighbors(session[2], session, radius=2))
     assert len(buffer) == 4  # ep-0, ep-1, ep-3, ep-4
     evicted = buffer.enqueue(temporal_neighbors(session[3], session, radius=2))
@@ -204,6 +229,13 @@ def test_buffer_deduplicates_a_neighbor_shared_by_two_hits():
     # from session[2]'s enqueue, so only ep-2 and ep-5 are actually new.
     assert len(buffer) == 6
     assert evicted == []
+    # First-occurrence-wins: ep-1/ep-4 keep the distance/hit_id session[2]'s enqueue gave them
+    # (distance -1/+2 from ep-2), not session[3]'s (which would have been -2/+1 from ep-3).
+    by_id = {n.episode.id: n for n in buffer.neighbors()}
+    assert by_id["ep-1"].hit_id == session[2].id
+    assert by_id["ep-1"].distance == -1
+    assert by_id["ep-4"].hit_id == session[2].id
+    assert by_id["ep-4"].distance == 2
 
 
 def test_buffer_rejects_nonpositive_capacity():
@@ -222,6 +254,19 @@ def test_buffer_contains_and_neighbors_reflect_state():
     assert "ep-1" in buffer
     assert "ep-missing" not in buffer
     assert len(buffer.neighbors()) == 1
+
+
+def test_buffer_contains_a_non_string_object_is_false_not_a_type_error():
+    # __contains__ is typed `object`, matching Python's protocol -- a caller checking membership
+    # of something that isn't an episode id string gets False, not a TypeError. An unhashable
+    # value (a list) is the case that actually distinguishes this from a bare `in self._by_id`:
+    # a plain dict membership check raises TypeError on an unhashable key, where this method
+    # must not.
+    buffer = ContiguityBuffer(capacity=5)
+    assert 42 not in buffer
+    assert None not in buffer
+    assert object() not in buffer
+    assert ["ep-1"] not in buffer
 
 
 # -- Improves temporal recall on a fixture ---------------------------------------------------------

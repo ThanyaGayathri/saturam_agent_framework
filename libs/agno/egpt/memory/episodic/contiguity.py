@@ -36,7 +36,7 @@ and how many a pass may hold onto.
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 from egpt.memory.schemas.episodic import EpisodicRecord
 from egpt.memory.types import MemoryOperationError
@@ -117,16 +117,19 @@ def temporal_neighbors(
     order) or an unordered candidate list would otherwise get neighbors that are silently wrong
     rather than refused.
 
-    ``hit`` must appear in ``episodes`` (compared by ``id``) -- a neighbor is a position relative
-    to the hit *within this candidate pool*, so a hit that never made it into the pool has no
-    position to be relative to.
+    ``hit`` must appear in ``episodes`` (compared by ``id``), and every episode in ``episodes``
+    must carry a distinct ``id`` -- a neighbor is a position relative to the hit *within this
+    candidate pool*, so a hit that never made it into the pool has no position to be relative
+    to, and a duplicated id makes "the hit's position" ambiguous (it would silently resolve to
+    whichever copy sorts last).
 
     Returns up to ``2 * radius`` neighbors (fewer at either edge of ``episodes``), ordered
     nearest-to-farthest by absolute distance and, at each distance, before-then-after -- the
     order EM-LLM's own buffer fills a hit's neighbors in. Never includes ``hit`` itself.
 
     Raises:
-        MemoryOperationError: ``radius`` is negative (``field_name="radius"``), or ``hit.id``
+        MemoryOperationError: ``radius`` is negative (``field_name="radius"``); two or more
+            episodes in ``episodes`` share an ``id`` (``field_name="episodes"``); or ``hit.id``
             does not appear in ``episodes`` (``field_name="hit"``).
     """
     if radius < 0:
@@ -135,8 +138,30 @@ def temporal_neighbors(
             "neither side of the hit, which is not a bound this function defines.",
             field_name="radius",
         )
+    if radius == 0:
+        # A hit still has to be *in* the pool to have a position -- checked below, at the same
+        # cost regardless of radius -- but there is nothing to sort or index for zero neighbors,
+        # and building `index_by_id` first would raise on a duplicate id no radius-0 caller asked
+        # this function to reconcile.
+        if not any(episode.id == hit.id for episode in episodes):
+            raise MemoryOperationError(
+                f"hit {hit.id!r} does not appear in episodes: a neighbor is a position relative "
+                "to the hit within this candidate pool, so a hit missing from the pool has no "
+                "position to be relative to.",
+                field_name="hit",
+            )
+        return []
     ordered = sorted(episodes, key=temporal_order_key)
-    index_by_id = {episode.id: position for position, episode in enumerate(ordered)}
+    index_by_id: Dict[str, int] = {}
+    for position, episode in enumerate(ordered):
+        if episode.id in index_by_id:
+            raise MemoryOperationError(
+                f"episodes contains two entries with id {episode.id!r}: a neighbor is a position "
+                "in this candidate pool, and a duplicated id makes the hit's own position "
+                "ambiguous.",
+                field_name="episodes",
+            )
+        index_by_id[episode.id] = position
     if hit.id not in index_by_id:
         raise MemoryOperationError(
             f"hit {hit.id!r} does not appear in episodes: a neighbor is a position relative to "
@@ -185,8 +210,13 @@ class ContiguityBuffer:
     def __len__(self) -> int:
         return len(self._by_id)
 
-    def __contains__(self, episode_id: str) -> bool:
-        return episode_id in self._by_id
+    def __contains__(self, episode_id: object) -> bool:
+        """Whether ``episode_id`` (an episode's ``.id`` string, e.g. ``"ep-1" in buffer``) is
+        buffered. Typed ``object``, matching Python's ``__contains__`` protocol, rather than
+        ``str``: a caller holding an ``object``-typed value (or checking membership of something
+        that is not a string at all) must get ``False``, not a narrower signature it violates.
+        """
+        return isinstance(episode_id, str) and episode_id in self._by_id
 
     def neighbors(self) -> List[ContiguityNeighbor]:
         """Every buffered neighbor, oldest-enqueued first."""
