@@ -1075,7 +1075,11 @@ def consolidation_details(
     """Build a ``ConsolidationReport.details`` payload carrying every :data:`CONSOLIDATION_KEYS`.
 
     ``complete`` is what a scheduler actually needs: whether the tier was drained. ``supersede``
-    is the other thing it cannot infer -- whether the pass retires the rows it subsumes.
+    is the other thing it cannot infer -- **whether this pass's strategy is *capable* of retiring
+    the rows it subsumes**, not whether it did so on this particular pass. A pass whose every
+    decision happened to be ADD or NOOP reports the same ``supersede`` value as one that retired
+    several; telling those apart needs the strategy's own report (e.g.
+    ``FactExtractionReport.deleted``/``.updated``), not this field.
     ``entities`` is the third: whether the pass populated the graph's nodes (SM-G2 #100), which a
     provider with no extractor did not, and which reads identically to "nothing to extract" unless
     it is said. All three in the floor rather than as adapter extras, because one provider silently
@@ -1242,6 +1246,24 @@ class ConsolidationReport:
     scope: Scope
     episodic_scanned: int = 0
     semantic_written: int = 0
+    #: What counts as "merged" is the extraction strategy's to define, and the two shipped
+    #: strategies mean different things by it. ``_distil``'s deterministic dedup (SM-C1 #89, the
+    #: default when no strategy is wired) counts extra *episodes* absorbed into a group it kept, by
+    #: Jaccard token overlap. A wired ``FactExtractionPipeline`` (SM-L3 #124) has no notion of a
+    #: group to subtract one from; it counts UPDATE and NOOP decisions instead, as the closest
+    #: analogue -- episodes that did not become a brand-new fact. Compare within one
+    #: ``details["derived_by"]``, not across two. Either way this is a count of *episodes*, not
+    #: facts -- see ``near_duplicate_facts_folded`` for the fact-level count, kept separate because
+    #: the two are different units and summing them into one field would make neither
+    #: reconstructable from the report.
     duplicates_merged: int = 0
+    #: Facts `consolidation.dedup.merge_near_duplicate_facts` (SM-L4 #125) folded into a survivor
+    #: *after* `_distil` ran, by exact-match-after-normalization. Zero either because `_distil`'s
+    #: own grouping already caught every duplicate in the pass (the common case on that path), or
+    #: because a wired `FactExtractionPipeline` (SM-L3 #124) ran instead of `_distil` and this
+    #: fold never runs over its output at all -- see
+    #: `CoLocatedMemoryProvider._distil_facts`'s docstring for why running it there would be
+    #: unsafe, not merely redundant.
+    near_duplicate_facts_folded: int = 0
     contradictions_resolved: int = 0
     details: Dict[str, Any] = field(default_factory=dict)

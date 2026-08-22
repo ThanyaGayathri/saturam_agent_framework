@@ -722,7 +722,124 @@ renumbers.
 
 ---
 
-### 29_reflection.py
+### 29_near_duplicate_fact_dedup.py
+
+**Status:** PASS
+
+**Description:** The SM-L4 dedup stage (`consolidation.dedup.merge_near_duplicate_facts`) folding
+two episodes -- "the deploy failed!" and "the deploy failed" -- that are the same fact once
+normalized but that `_distil`'s raw token-overlap grouping (jaccard 0.5, below the 0.8 threshold)
+treats as distinct, followed by a third, genuinely distinct episode that does not fold.
+
+**Result:** Ran to completion. First pass: 2 episodes scanned, 1 semantic fact written,
+`duplicates_merged=0` (`_distil`'s own grouping caught nothing), `near_duplicate_facts_folded=1`
+(this stage caught the punctuation-only difference). The surviving fact carries both source
+episode ids, `t_valid=50` (the earlier of the two episodes' 100 and 50, not just the survivor's
+own), and topics unioned from both episodes. Second pass: the third, distinct episode ("customer
+asked about invoicing") produced its own fact with `near_duplicate_facts_folded=0`, and the total
+semantic fact count is 2, confirming the dedup stage does not over-merge.
+
+**Requires:** No database, no API key. Run with `.venvs/demo`.
+
+---
+
+### 30_episodic_contiguity_retrieval.py
+
+**Status:** PASS
+
+**Description:** Temporal-contiguity retrieval (SM-E8 #115) -- `temporal_neighbors` on a
+six-episode session names the radius-2 neighbors of a hit, `ContiguityBuffer(capacity=4)`
+accumulates them across the pass and deduplicates a second hit's overlapping neighbors, and
+`blend_contiguity`/`contiguity_bonus` blend a neighbor's distance from its hit into its own
+`composite_episodic_score`.
+
+**Result:** Ran to completion. `temporal_neighbors` returned the expected four neighbors, nearest
+first (`ep-1`/`ep-3` at distance +/-1, `ep-0`/`ep-4` at distance +/-2). The buffer filled to its
+4-item capacity with zero evictions on the first hit's lookup. The second hit's neighbor lookup
+(`ep-2` at distance -1, `ep-4` at distance +1) deduplicated `ep-4` (already buffered from the
+first hit) but genuinely added `ep-2` (the *first* hit itself, new from the second hit's
+perspective) -- pushing the buffer past capacity and evicting `ep-1`, the oldest entry. The
+buffer's size stays at 4/4 either way, so this is not visible from the length alone; the cookbook
+now prints the newly-buffered and evicted ids explicitly to make both true.
+The fixture showed an unrelated later-session episode (base score 0.650) outranking the hit's own
+temporal continuation (base score 0.500) under relevance/importance alone, and the ranking
+reversing once the continuation's contiguity bonus (0.200 at distance +1) was blended in (0.700 >
+0.650) -- the improved-temporal-recall behavior the acceptance criteria ask for. The refusal
+section confirmed a negative radius, a hit absent from the candidate pool, a zero-capacity buffer,
+and a distance-0 contiguity bonus are all refused with a named field.
+
+**Requires:** nothing -- no database, no API key. Run with `.venv` or `.venvs/demo`.
+
+**Renumbered from `29_` to `30_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py` first.**
+Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 31_semantic_fact_store.py
+
+**Status:** PASS
+
+**Description:** The semantic fact store (SM-S1 #118) -- `SemanticFactStore.write` dual-writing a
+triple fact ("Ada works_at NorthStar Analytics", confidence 0.95, provenance to two source
+episodes) and an untripled fact ("Ada prefers async standups") to a real pgvector
+(`smv1-pgvector-5532`) and a real Neo4j 5 Community (`smg1-neo4j`), then reading the triple fact
+back through both `VectorSubstrate.search` and `GraphSubstrate.recall_facts` directly (not through
+the fused `provider.read`, which would blur which leg answered).
+
+**Result:** Ran to completion against both real engines. Both legs returned
+`provenance["subject"] == "Ada"`, `metadata["confidence"] == 0.95` and
+`metadata["derived_by"] == "sm_l3.extract"` for the triple fact -- the acceptance criterion
+("representable in both vector and graph", "retrievable via both paths") holds end to end, not only
+against the in-memory doubles the unit suite uses. The untripled fact stored and searched fine on
+the vector leg with no subject/predicate/object keys in its provenance. The graph leg's
+`recall_facts(entities=["Ada"])` also surfaced an unrelated pre-existing edge from an earlier
+cookbook run sharing this scope (`Ada --[works_at]--> Acme Corp`, from `25_semantic_subgraph.py`'s
+fixture data on the shared dev database) -- expected cross-run residue, not a defect.
+
+**Requires:** `./cookbook/scripts/run_pgvector.sh` and `./cookbook/scripts/run_neo4j.sh`; no API
+key. Run with `.venvs/demo`.
+
+**Renumbered from `29_` to `30_` to `31_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`
+first, then `feat/SM-E8` took `30_episodic_contiguity_retrieval.py` while this branch was still
+catching up.** Per this file's own convention, whoever merges second renumbers -- twice, this
+time.
+
+---
+
+### 32_fact_extraction_merge.py
+
+**Status:** NOT RUN -- no model credentials in this environment
+
+**Description:** `FactExtractionPipeline`'s mem0-style extract-and-merge (SM-L3 #124): a first
+`consolidate()` pass with nothing to compare against (ADD), then a second pass after a follow-up
+episode changes ada's city, which should retire the Berlin fact (`expired_at` + `superseded_by`)
+and add a Lisbon one rather than leave both as current belief.
+
+**Result:** Not exercised end to end. `smg1-neo4j` (`bolt://localhost:7691`) and a pgvector
+container on `localhost:5532` were both already running on this host and reachable, but neither an
+`OPENAI_API_KEY` nor Azure credentials (`AZURE_OPENAI_*`) were present in this environment, and
+extraction and the merge decision are each a model call this file cannot fake -- unlike `17_`/`19_`,
+there was no Azure fallback available to swap in either. Verified instead: the file parses
+(`ast.parse`), imports cleanly, and passes `ruff format`/`ruff check`. The pipeline itself is
+covered end to end against doubles in `libs/agno/tests/unit/memory/test_consolidation_extract.py`
+(33 tests, including the ADD/UPDATE/DELETE/NOOP ops and the bi-temporal retirement fields this file
+prints). Whoever next has a key should run it and update this entry -- the same caveat `17_`'s
+"Model note" pins for its own `OPENAI_API_KEY` path.
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`, `./cookbook/scripts/run_pgvector.sh`, and an
+`OPENAI_API_KEY`. Extraction is one model call per pass, the merge decision one more per candidate.
+
+**Note:** the file writes to its own `memory_vectors_sm_l3` table, for the same reason `17_`'s
+note gives for `memory_vectors_sm_g2`.
+
+**Renumbered from `29_` to `32_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`, then
+`feat/SM-E8` took `30_episodic_contiguity_retrieval.py`, then `feat/SM-S1` took
+`31_semantic_fact_store.py`, all while this branch was still catching up.** Per this file's own
+convention, whoever merges second renumbers -- three times, this time.
+
+---
+
+### 33_reflection.py
 
 **Status:** PARTIAL
 
@@ -745,3 +862,9 @@ match. Follow-up: [aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-track
 Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
 
 **Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
+
+**Renumbered from `29_` to `33_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`, then
+`feat/SM-E8` took `30_episodic_contiguity_retrieval.py`, then `feat/SM-S1` took
+`31_semantic_fact_store.py`, then `feat/SM-L3` took `32_fact_extraction_merge.py`, all while this
+branch was still catching up.** Per this file's own convention, whoever merges second renumbers --
+four times, this time.
