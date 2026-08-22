@@ -3,19 +3,21 @@ path, idempotent and retryable.
 
 This package is deliberately thin. The consolidation *stages* -- fact extraction (SM-L3 #124,
 `extract.py`), near-duplicate fact folding (SM-L4 #125, `dedup.py`), contradiction resolution
-(SM-L5 #126), reflection (SM-L6 #127), episodic->semantic (SM-L7 #128), summarization (SM-L8
-#129) -- extraction and folding are the first two to ship; the rest are still
-`CoLocatedMemoryProvider._distil`'s deterministic-dedup default (SM-C1 #89), now followed by
-`dedup`'s near-duplicate fold, when no `fact_pipeline` (SM-L3) is wired -- a wired pipeline
-already decides ADD/UPDATE/DELETE/NOOP against existing facts itself and skips the fold (see
+(SM-L5 #126), episodic->semantic (SM-L7 #128), summarization (SM-L8 #129) -- extraction and
+folding are the first two to ship, plus reflection (SM-L6 #127, `reflect.py`); the rest are still
+`CoLocatedMemoryProvider._distil_facts`'s deterministic-dedup default (SM-C1 #89), now followed by
+`dedup`'s near-duplicate fold, when no `fact_pipeline` (SM-L3) is wired -- a wired pipeline already
+decides ADD/UPDATE/DELETE/NOOP against existing facts itself and skips the fold (see
 `co_located.CoLocatedMemoryProvider._distil_facts`'s docstring for why). What lives here does not
-know or care which stages `consolidate` runs: it calls the method, retries a failure, and calls
-it again while a pass reports itself incomplete. A future stage lands inside `consolidate` and
-this package's contract does not change.
+know or care which stages `consolidate` runs: it calls the method, retries a failure, and calls it
+again while a pass reports itself incomplete. A future stage lands inside `consolidate` and this
+package's contract does not change.
 
 `triggers` (SM-L2 #123) is the policy layer on top: it decides which of `ConsolidationWorker`'s
 configured scopes are worth draining on a given tick, rather than draining every one of them
-every time.
+every time. `reflect.ReflectionPipeline` reuses `SizeTrigger` from that same policy layer for its
+own, narrower question -- once a scope *is* being drained, whether its episodes' accumulated
+importance is worth synthesizing into an insight.
 """
 
 from egpt.memory.consolidation.dedup import FACT_ID_NAMESPACE, merge_near_duplicate_facts
@@ -31,6 +33,15 @@ from egpt.memory.consolidation.extract import (
     MergeDecider,
     MergeDecision,
     fact_extraction_details,
+)
+from egpt.memory.consolidation.reflect import (
+    DEFAULT_IMPORTANCE_THRESHOLD,
+    DEFAULT_MAX_EPISODES_PER_REFLECTION,
+    InsightSynthesizer,
+    LLMInsightSynthesizer,
+    ReflectionPipeline,
+    ReflectionReport,
+    SynthesizedInsight,
 )
 from egpt.memory.consolidation.triggers import (
     AnyTrigger,
@@ -55,6 +66,8 @@ __all__ = [
     "ConsolidationOutcome",
     "ConsolidationTrigger",
     "ConsolidationWorker",
+    "DEFAULT_IMPORTANCE_THRESHOLD",
+    "DEFAULT_MAX_EPISODES_PER_REFLECTION",
     "EventCountTrigger",
     "ExtractedFacts",
     "FactCandidate",
@@ -62,13 +75,18 @@ __all__ = [
     "FactExtractionReport",
     "FactExtractor",
     "IdleTrigger",
+    "InsightSynthesizer",
     "LLMFactExtractor",
+    "LLMInsightSynthesizer",
     "LLMMergeDecider",
     "LatencyTrigger",
     "MergeDecider",
     "MergeDecision",
     "PerTenantThreshold",
+    "ReflectionPipeline",
+    "ReflectionReport",
     "SizeTrigger",
+    "SynthesizedInsight",
     "ThresholdSource",
     "fact_extraction_details",
     "merge_near_duplicate_facts",

@@ -51,6 +51,7 @@ __all__ = [
     "MemoryScopeRequiredError",
     "MemorySlice",
     "NO_ENTITIES",
+    "NO_REFLECTION",
     "NO_RELATIONS",
     "normalize_entity_name",
     "PartialWriteError",
@@ -1045,6 +1046,13 @@ NO_ENTITIES = "not extracted -- no entity pipeline wired (SM-G2 #100)"
 #: :data:`CONSOLIDATION_KEYS` floor member -- promoting it is a separate, deliberate decision this
 #: ticket does not make (see ``co_located.RelationSummary``'s docstring).
 NO_RELATIONS = "not extracted -- no relation pipeline wired (SM-G3 #101)"
+
+#: The ``reflection`` counterpart to :data:`NO_ENTITIES` (SM-L6 #127): a pass with no reflection
+#: pipeline synthesized none, which a scheduler cannot tell from a pass whose accumulated
+#: importance never crossed the threshold. ``details["reflection"]`` is a free extra key on
+#: ``consolidation_details``, same treatment as ``details["relations"]`` -- see
+#: ``co_located.ReflectionSummary``'s docstring.
+NO_REFLECTION = "not reflected -- no reflection pipeline wired (SM-L6 #127)"
 
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.

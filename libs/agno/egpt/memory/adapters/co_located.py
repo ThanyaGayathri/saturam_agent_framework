@@ -55,6 +55,7 @@ from egpt.memory.tiers import (
 )
 from egpt.memory.types import (
     NO_ENTITIES,
+    NO_REFLECTION,
     NO_RELATIONS,
     NO_SUPERSEDE,
     ConsolidationReport,
@@ -63,6 +64,7 @@ from egpt.memory.types import (
     MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
+    MemoryScopeRequiredError,
     MemorySlice,
     PartialWriteError,
     ScanCursor,
@@ -81,9 +83,11 @@ from egpt.memory.validation import (
     reject_foreign_scopes,
 )
 from egpt.utils.dttm import now_epoch_s
+from egpt.utils.log import log_warning
 
 if TYPE_CHECKING:
     from egpt.memory.consolidation.extract import FactExtractionPipeline
+    from egpt.memory.consolidation.reflect import ReflectionPipeline
     from egpt.memory.graph.entities import EntityExtractionPipeline
     from egpt.memory.graph.relations import RelationExtractionPipeline
 
@@ -129,6 +133,41 @@ EntitySummary = Union[Dict[str, Any], str]
 #: that floor is shared by every provider this seam will ever grow, and widening it is a
 #: deliberate, separately-reviewable decision this ticket does not make.
 RelationSummary = Union[Dict[str, Any], str]
+
+#: The ``details["reflection"]`` counterpart to :data:`EntitySummary` (SM-L6 #127): a
+#: ``reflection_details`` payload from a wired pipeline, or
+#: :data:`~egpt.memory.types.NO_REFLECTION` from an unwired one. Same free-extra-key treatment as
+#: :data:`RelationSummary` -- not a ``types.CONSOLIDATION_KEYS`` floor member.
+ReflectionSummary = Union[Dict[str, Any], str]
+
+
+def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:
+    """The ``details["reflection"]`` shape for a pass whose reflection call raised.
+
+    Carries the same three keys :func:`~egpt.memory.consolidation.reflect.reflection_details`
+    would (``reflect.py`` is not imported here at runtime -- see the module docstring's reasoning
+    for keeping ``reflection_pipeline`` duck-typed -- so this is a local, minimal literal rather
+    than a shared builder). ``reflector`` is ``None`` rather than a guessed producer id: nothing
+    was actually produced. ``error`` names why, for a scheduler or operator reading the report
+    without needing to grep logs.
+
+    ``triggered`` reads ``exc.reflection_triggered`` (:meth:`ReflectionPipeline.run`'s docstring)
+    rather than being hard-coded -- an earlier revision hard-coded ``False`` here for every caught
+    exception, which was correct for a pre-threshold failure (``require_scope``, ``_accumulate``)
+    but wrong for the far more common case: a failure from ``synthesize``/``asynthesize`` itself,
+    which cannot happen until *after* the trigger has already fired. Reporting ``triggered=False``
+    on that path told a downstream scheduler "still building toward threshold" when the threshold
+    had in fact already crossed and the pipeline's own trigger was left armed, waiting on a retry.
+    ``getattr`` defaults to ``False`` for an exception that never passed through that attribute
+    assignment -- true of every pre-threshold failure, and of any exception a non-``reflect.py``
+    caller of this function might pass.
+    """
+    return {
+        "reflector": None,
+        "complete": False,
+        "triggered": bool(getattr(exc, "reflection_triggered", False)),
+        "error": str(exc),
+    }
 
 
 def _positive_int(value: Any, option: str) -> int:
@@ -251,6 +290,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         max_concurrent_writes: int = _MAX_CONCURRENT_WRITES,
         entity_pipeline: Optional["EntityExtractionPipeline"] = None,
         relation_pipeline: Optional["RelationExtractionPipeline"] = None,
+        reflection_pipeline: Optional["ReflectionPipeline"] = None,
         fact_pipeline: Optional["FactExtractionPipeline"] = None,
     ) -> None:
         if vector is None and graph is None:
@@ -271,6 +311,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #: extraction. Same duck-typed, opt-in shape as ``entity_pipeline`` and the same reason:
         #: an LLM pass per episode that a provider must be asked for, not upgraded into.
         self.relation_pipeline = _checked_pipeline(relation_pipeline, option="relation_pipeline")
+        #: SM-L6's (#127) importance-gated reflection, run by ``consolidate`` right after entity
+        #: and relation extraction. Same duck-typed, opt-in shape and the same reason: an LLM pass
+        #: a provider must be asked for, not upgraded into -- and unlike those two, it produces
+        #: ``FactWrite`` candidates the caller writes through the same SEMANTIC path as a
+        #: distilled fact, rather than writing to the graph itself (see ``reflect.py``'s docstring).
+        self.reflection_pipeline = _checked_pipeline(reflection_pipeline, option="reflection_pipeline")
         #: SM-L3's (#124) mem0-style extract-and-merge, replacing ``_distil``'s deterministic
         #: dedup for the pass it runs on. ``None`` by default for the same reason as the two
         #: pipelines above: extraction and the merge decision are each an LLM pass, so a provider
@@ -1026,6 +1072,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         folded: int,
         entities: EntitySummary,
         relations: RelationSummary,
+        reflection: ReflectionSummary,
         derived_by: str = _DETERMINISTIC_DEDUP_STRATEGY_ID,
         supersede: str = NO_SUPERSEDE,
     ) -> ConsolidationReport:
@@ -1053,10 +1100,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 complete=not hit_cap,
                 supersede=supersede,
                 entities=entities,
-                # `relations` is a free extra key, not a `CONSOLIDATION_KEYS` floor member (see
-                # `RelationSummary`'s docstring): promoting it is a separate, deliberate decision
-                # this ticket does not make.
+                # `relations` and `reflection` are free extra keys, not `CONSOLIDATION_KEYS` floor
+                # members (see `RelationSummary`'s docstring): promoting either is a separate,
+                # deliberate decision this ticket does not make.
                 relations=relations,
+                reflection=reflection,
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
                 # Renamed from `tail_unreachable` (SM-C1): that name stopped being true once
                 # `_advance_cursor` shipped -- the tail is reachable, by calling `consolidate` again
@@ -1118,6 +1166,84 @@ class CoLocatedMemoryProvider(MemoryProvider):
         if self.relation_pipeline is None:
             return NO_RELATIONS
         return (await self.relation_pipeline.arun(scope, episodes)).details
+
+    def _reflect(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], ReflectionSummary]:
+        """Run SM-L6's (#127) reflection over the episodes this pass kept.
+
+        Returns the candidate insight ``FactWrite``s alongside the report details, rather than
+        writing them here -- unlike :meth:`_entities`/:meth:`_relations`, which own a dedicated
+        graph port and write inside themselves, an insight is a SEMANTIC fact that must go through
+        the exact same vector/graph write loop a distilled fact does (``reflect.py``'s "one write
+        model"), so the caller folds it into ``facts`` before that loop runs.
+
+        Same wired-vs-never-wired distinction as :meth:`_entities`: ``NO_REFLECTION`` only when no
+        pipeline is configured, never merely because this pass's accumulated importance had not
+        yet crossed the threshold -- that reads as ``details["triggered"] is False`` on a real
+        report, which a scheduler needs to tell apart from "reflection was never configured".
+
+        **Folding an insight into ``facts`` changes what an entity/relation failure looks like on
+        an otherwise-duplicate-free pass.** Before reflection existed, a pass with no duplicate
+        episodes took the ``else:`` branch below -- no receipt, so an entity/relation failure
+        propagated bare. A triggered insight makes ``facts`` non-empty even when ``_distil`` found
+        nothing to dedupe, routing that same pass through the ``if facts:`` branch instead, where
+        an entity/relation failure is wrapped into ``PartialWriteError(receipt)`` -- ``receipt``
+        naming only the insight fact's id, since that is the only thing this pass actually wrote.
+        Deliberate, not incidental: an insight *is* a committed write by the time entities/
+        relations run, exactly the condition that branch exists to detect, and a caller catching
+        bare exceptions from ``consolidate`` on a reflection-configured provider must be ready for
+        this.
+
+        **A synthesis failure here must not fail this whole pass.** Unlike entities/relations
+        (whose failure after a fact write is wrapped into ``PartialWriteError`` and propagated),
+        this call runs *before* ``if facts:`` -- nothing has committed yet, so an uncaught
+        exception would previously propagate bare out of ``consolidate`` and block dedup facts,
+        entity extraction, and relation extraction for the *entire* scope on every future pass,
+        for as long as the same episodes keep failing to synthesize (reproduced: a synthesizer
+        that always raises wrote zero semantic rows across three consecutive passes, including
+        the ordinary dedup fact for an unrelated episode). Reflection is an optional, additive
+        stage; the mandatory dedup/entity/relation work must not go down with it -- the same
+        each-child-independent guarantee ``AnyTrigger`` (SM-L2 #123, ``triggers.py``) already
+        makes for its own children. Caught and logged here, not swallowed silently: the pipeline's
+        own trigger is left armed (``_consume`` was never reached inside ``run``), so the next
+        pass retries synthesis on the same accumulation -- the same "safe to retry" contract
+        every other pass in this module already carries -- without blocking anything else in the
+        meantime.
+
+        **``MemoryScopeRequiredError`` is not caught here -- it propagates.** Every other
+        exception this call can raise is a runtime failure worth retrying (a bad model response,
+        a network error, injected content the synthesizer refuses); a scope failing its own
+        validity check is a caller bug at the site that built it, not something a later pass can
+        fix by trying again. Catching it the same way as the rest would turn a call-site defect
+        into an indefinitely-repeating, silently-logged no-op instead of surfacing it to whoever
+        can actually fix it -- and in practice it is unreachable through ``consolidate``, which
+        already validates ``scope`` before calling this, so the guard is for a caller-supplied
+        ``reflection_pipeline`` reached some other way.
+        """
+        if self.reflection_pipeline is None:
+            return [], NO_REFLECTION
+        try:
+            report = self.reflection_pipeline.run(scope, episodes)
+        except MemoryScopeRequiredError:
+            raise
+        except Exception as exc:
+            log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
+            return [], reflection_failed_details(exc)
+        return report.insights, report.details
+
+    async def _areflect(
+        self, scope: Scope, episodes: Sequence[MemoryRecord]
+    ) -> Tuple[List[FactWrite], ReflectionSummary]:
+        """Async variant of :meth:`_reflect`, making the same decisions."""
+        if self.reflection_pipeline is None:
+            return [], NO_REFLECTION
+        try:
+            report = await self.reflection_pipeline.arun(scope, episodes)
+        except MemoryScopeRequiredError:
+            raise
+        except Exception as exc:
+            log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
+            return [], reflection_failed_details(exc)
+        return report.insights, report.details
 
     @staticmethod
     def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
@@ -1279,6 +1405,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         assert_scope_isolation(scope, scanned, method="consolidate")
         episodes = self._visible_episodes(scope, scanned, instant)
         facts, merged, folded, derived_by, supersede = self._distil_facts(scope, episodes)
+        # Folded in before the `if facts:` branch below, deliberately: an insight is written
+        # through the exact same vector/graph loop, receipt, and `PartialWriteError` accounting a
+        # distilled fact is, so a pass with no duplicate facts but a triggered reflection still
+        # takes the `if facts:` path rather than needing a second, parallel write branch.
+        insight_facts, reflection = self._reflect(scope, episodes)
+        facts += insight_facts
 
         if facts:
             self._check_distilled(facts)
@@ -1349,7 +1481,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # is the caller-hands-the-termination-condition failure mode the interface docstring warns
         # about, reincarnated one layer down.
         self._advance_cursor(cursor_key, scanned)
-        return self._report(scope, scanned, episodes, facts, merged, folded, entities, relations, derived_by, supersede)
+        return self._report(
+            scope, scanned, episodes, facts, merged, folded, entities, relations, reflection, derived_by, supersede
+        )
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1368,6 +1502,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
         assert_scope_isolation(scope, scanned, method="aconsolidate")
         episodes = await self._avisible_episodes(scope, scanned, instant)
         facts, merged, folded, derived_by, supersede = await self._adistil_facts(scope, episodes)
+        # Same fold-before-branch as the sync half, for the same reason -- see its comment.
+        insight_facts, reflection = await self._areflect(scope, episodes)
+        facts += insight_facts
 
         if facts:
             self._check_distilled(facts)
@@ -1414,7 +1551,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
         self._advance_cursor(cursor_key, scanned)
-        return self._report(scope, scanned, episodes, facts, merged, folded, entities, relations, derived_by, supersede)
+        return self._report(
+            scope, scanned, episodes, facts, merged, folded, entities, relations, reflection, derived_by, supersede
+        )
 
 
 @register_provider("co_located")
@@ -1457,6 +1596,10 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
         # Same reasoning as `entity_pipeline`, one line up: a model is all `RelationExtractionPipeline`
         # needs, but naming one here would put model selection in provider config.
         relation_pipeline=config.options.get("relation_pipeline"),
+        # Same reasoning again: a model (wrapped in an `InsightSynthesizer`) is all
+        # `ReflectionPipeline` needs, but naming one here would put model selection in provider
+        # config.
+        reflection_pipeline=config.options.get("reflection_pipeline"),
         # Same reasoning again: `FactExtractionPipeline` (SM-L3 #124) needs a model and the
         # already-resolved vector substrate, neither of which belongs in provider config.
         fact_pipeline=config.options.get("fact_pipeline"),

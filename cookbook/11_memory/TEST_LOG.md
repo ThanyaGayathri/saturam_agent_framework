@@ -836,3 +836,35 @@ note gives for `memory_vectors_sm_g2`.
 `feat/SM-E8` took `30_episodic_contiguity_retrieval.py`, then `feat/SM-S1` took
 `31_semantic_fact_store.py`, all while this branch was still catching up.** Per this file's own
 convention, whoever merges second renumbers -- three times, this time.
+
+---
+
+### 33_reflection.py
+
+**Status:** PARTIAL
+
+**Description:** Importance-gated reflection (SM-L6): wires a `ReflectionPipeline` (threshold 1.2)
+into `CoLocatedMemoryProvider`, writes three episodes about the same incident (importances
+0.5/0.6/0.4, summing past the threshold), consolidates, and reads the synthesized insight back
+through the ordinary SEMANTIC-tier read path, showing it still carries `source_episode_ids` for
+all three episodes.
+
+**Result:** Verified structurally with a mocked `Model.response` (no network) -- the script runs
+end to end: `report.details["reflection"]["triggered"]` is `True`, the insight is retrievable via
+`memory.read`, and its provenance names all three episode ids. **Not run against a real model**: no
+`OPENAI_API_KEY` was available in the environment that wrote this cookbook, the same gap
+`21_episode_importance.py` logs. `ReflectionPipeline`'s own decisions (accumulation, threshold
+crossing, provenance, sync/async parity) are covered against a stub synthesizer by
+`libs/agno/tests/unit/memory/test_consolidation_reflect.py`, and `LLMInsightSynthesizer._extract`'s
+response-format handling is now also covered against a mocked `Model` in that same file -- what
+remains unverified is specifically the real-model response shape this mock cannot guarantee to
+match. Follow-up: [aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192).
+Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
+
+**Renumbered from `29_` to `33_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`, then
+`feat/SM-E8` took `30_episodic_contiguity_retrieval.py`, then `feat/SM-S1` took
+`31_semantic_fact_store.py`, then `feat/SM-L3` took `32_fact_extraction_merge.py`, all while this
+branch was still catching up.** Per this file's own convention, whoever merges second renumbers --
+four times, this time.

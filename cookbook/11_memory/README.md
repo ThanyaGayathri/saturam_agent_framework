@@ -162,6 +162,18 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `31_semantic_fact_store.py`, all while this branch was still catching up. Per this file's own
   convention, whoever merges second renumbers -- three times, this time.**
 
+- `33_reflection.py`: Importance-gated insight synthesis (SM-L6) -- `ReflectionPipeline` accumulates
+  episode importance (SM-E5) per scope across passes, reusing SM-L2's `SizeTrigger` policy, and once
+  the accumulation crosses a threshold asks an `LLMInsightSynthesizer` to distill the cluster into
+  one insight or decline. A synthesized insight becomes a `FactWrite` citing every source episode
+  and lands on the SEMANTIC tier through the same write path a deduped fact uses -- retrievable
+  through an ordinary read. Requires a real model (`OPENAI_API_KEY`); no database.
+  **Renumbered from `29_` to `33_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`, then
+  `feat/SM-E8` took `30_episodic_contiguity_retrieval.py`, then `feat/SM-S1` took
+  `31_semantic_fact_store.py`, then `feat/SM-L3` took `32_fact_extraction_merge.py`, all while this
+  branch was still catching up. Per this file's own convention, whoever merges second renumbers --
+  four times, this time.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
