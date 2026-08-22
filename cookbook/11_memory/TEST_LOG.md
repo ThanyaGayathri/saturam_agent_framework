@@ -803,3 +803,36 @@ key. Run with `.venvs/demo`.
 first, then `feat/SM-E8` took `30_episodic_contiguity_retrieval.py` while this branch was still
 catching up.** Per this file's own convention, whoever merges second renumbers -- twice, this
 time.
+
+---
+
+### 32_fact_extraction_merge.py
+
+**Status:** NOT RUN -- no model credentials in this environment
+
+**Description:** `FactExtractionPipeline`'s mem0-style extract-and-merge (SM-L3 #124): a first
+`consolidate()` pass with nothing to compare against (ADD), then a second pass after a follow-up
+episode changes ada's city, which should retire the Berlin fact (`expired_at` + `superseded_by`)
+and add a Lisbon one rather than leave both as current belief.
+
+**Result:** Not exercised end to end. `smg1-neo4j` (`bolt://localhost:7691`) and a pgvector
+container on `localhost:5532` were both already running on this host and reachable, but neither an
+`OPENAI_API_KEY` nor Azure credentials (`AZURE_OPENAI_*`) were present in this environment, and
+extraction and the merge decision are each a model call this file cannot fake -- unlike `17_`/`19_`,
+there was no Azure fallback available to swap in either. Verified instead: the file parses
+(`ast.parse`), imports cleanly, and passes `ruff format`/`ruff check`. The pipeline itself is
+covered end to end against doubles in `libs/agno/tests/unit/memory/test_consolidation_extract.py`
+(33 tests, including the ADD/UPDATE/DELETE/NOOP ops and the bi-temporal retirement fields this file
+prints). Whoever next has a key should run it and update this entry -- the same caveat `17_`'s
+"Model note" pins for its own `OPENAI_API_KEY` path.
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`, `./cookbook/scripts/run_pgvector.sh`, and an
+`OPENAI_API_KEY`. Extraction is one model call per pass, the merge decision one more per candidate.
+
+**Note:** the file writes to its own `memory_vectors_sm_l3` table, for the same reason `17_`'s
+note gives for `memory_vectors_sm_g2`.
+
+**Renumbered from `29_` to `32_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`, then
+`feat/SM-E8` took `30_episodic_contiguity_retrieval.py`, then `feat/SM-S1` took
+`31_semantic_fact_store.py`, all while this branch was still catching up.** Per this file's own
+convention, whoever merges second renumbers -- three times, this time.

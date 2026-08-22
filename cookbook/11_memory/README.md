@@ -149,6 +149,19 @@ This section demonstrates how EGPT agents persist and use user memories across r
   catching up. Per this file's own convention, whoever merges second renumbers -- twice, this
   time.**
 
+- `32_fact_extraction_merge.py`: Fact extraction + merge decision (SM-L3) -- `_distil`'s
+  deterministic dedup (SM-C1) replaced by `FactExtractionPipeline`, opt-in via `fact_pipeline`: a
+  model extracts atomic candidate facts, compares each against the top-k most similar existing
+  facts, and picks ADD/UPDATE/DELETE/NOOP. The second `consolidate()` call is the point -- a
+  changed circumstance retires the old fact (`expired_at`/`superseded_by`, transaction time) rather
+  than leaving two contradictory "current" facts standing. Needs `./cookbook/scripts/run_neo4j.sh`,
+  `./cookbook/scripts/run_pgvector.sh`, and an `OPENAI_API_KEY` -- extraction and the merge decision
+  are each a model call.
+  **Renumbered from `29_` to `32_`: `feat/SM-L4` took `29_near_duplicate_fact_dedup.py`, then
+  `feat/SM-E8` took `30_episodic_contiguity_retrieval.py`, then `feat/SM-S1` took
+  `31_semantic_fact_store.py`, all while this branch was still catching up. Per this file's own
+  convention, whoever merges second renumbers -- three times, this time.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
