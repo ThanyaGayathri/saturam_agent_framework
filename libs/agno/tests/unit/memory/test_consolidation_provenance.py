@@ -77,6 +77,17 @@ def test_provenance_report_flags_a_dangling_citation():
     assert report.is_valid is False
 
 
+def test_provenance_report_counts_a_fact_once_regardless_of_how_many_citations_dangle():
+    # provenance_report counts facts, not citations (dangling_source_episode_ids's own docstring
+    # names this split) -- a fact with three dangling citations must still contribute exactly one
+    # entry to `dangling` and one unit to the denominator `validity` divides by, not three.
+    facts = [a_fact("f1", ["ghost-a", "ghost-b", "ghost-c"]), a_fact("f2", ["e1"])]
+    report = provenance_report(facts, {"e1"})
+    assert report.checked == 2
+    assert report.dangling == ("f1",)
+    assert report.validity == 0.5
+
+
 def test_provenance_report_a_fact_is_dangling_if_any_one_citation_is_missing():
     facts = [a_fact("f1", ["e1", "ghost"])]
     report = provenance_report(facts, {"e1"})
@@ -120,6 +131,13 @@ def test_provenance_report_is_a_frozen_dataclass():
 def test_provenance_report_refuses_more_dangling_than_checked():
     # ProvenanceReport(checked=0, dangling=("f1",)) would otherwise report validity == 1.0 (the
     # vacuous-empty-batch branch) *and* is_valid is False at once -- a contradiction a caller
-    # asserting only `validity == 1.0` would not catch.
-    with pytest.raises(ValueError):
+    # asserting only `validity == 1.0` would not catch. `match=` (round-3 review) pins which of
+    # __post_init__'s two ValueErrors fired -- without it, a future change that raises the wrong
+    # one (e.g. the `checked < 0` guard) would still pass this test silently.
+    with pytest.raises(ValueError, match="dangling.*cannot exceed checked"):
         ProvenanceReport(checked=0, dangling=("f1",))
+
+
+def test_provenance_report_refuses_a_negative_checked_count():
+    with pytest.raises(ValueError, match="checked must be >= 0"):
+        ProvenanceReport(checked=-1, dangling=())

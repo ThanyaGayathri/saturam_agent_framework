@@ -17,6 +17,7 @@ from egpt.memory.config import (
     build_memory_provider,
     registered_providers,
 )
+from egpt.memory.consolidation.extract import FactExtractionReport
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FUSION_KEYS,
@@ -1801,6 +1802,53 @@ def test_consolidation_does_not_retire_and_says_so():
     live = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC and r.is_current_belief()]
     assert len(live) == 2, "the known limitation: SM-L3 (#124) makes this 1"
     assert "invalidate" not in graph.calls and "upsert_facts" in graph.calls
+
+
+def test_consolidation_reports_provenance_validity_for_the_deterministic_dedup_default():
+    """SM-L7 (#128): `consolidate`'s report now carries `details["provenance_validity"]`, computed
+    against the episodes this pass actually scanned -- a real production call site for
+    `provenance_report`, not only a library function exercised in its own unit tests. The
+    deterministic-dedup default path's facts all cite real, just-scanned episodes, so this is the
+    ordinary, expected 1.0 case."""
+    p, vector, graph = provider()
+    p.write(ACME, [event("ada prefers async standups", id="e1")])
+
+    report = p.consolidate(ACME)
+
+    assert report.details["provenance_validity"] == 1.0
+    assert report.details["provenance_dangling"] == []
+
+
+class _StubPipelineWithADanglingCitation:
+    """A `fact_pipeline` double that hands back one fact citing an episode id no scan ever
+    produced -- the only way to exercise `provenance_report`'s `< 1.0` branch through
+    `consolidate` without a real corruption, since the deterministic-dedup default always cites
+    real, just-read episodes by construction."""
+
+    def distil(self, scope, episodes):
+        fact = FactWrite(
+            record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=scope),
+            source_episode_ids=["ghost-episode"],
+        )
+        return [fact], FactExtractionReport(scope=scope, episodes_read=len(episodes))
+
+    async def adistil(self, scope, episodes):
+        return self.distil(scope, episodes)
+
+
+def test_consolidation_reports_a_dangling_citation_without_raising():
+    """The negative case: a fact_pipeline that produces a dangling citation is *reported*, not
+    refused -- `provenance_report` here is detection only (round-3 review: "policy on violation
+    stays in aicoe-tracker#194"), so `consolidate` must still complete and write the fact."""
+    vector, graph = FakeVector(), FakeGraph()
+    provider = CoLocatedMemoryProvider(vector=vector, graph=graph, fact_pipeline=_StubPipelineWithADanglingCitation())
+    provider.write(ACME, [event("ada prefers async standups", id="e1")])
+
+    report = provider.consolidate(ACME)
+
+    assert report.details["provenance_validity"] == 0.0
+    assert report.details["provenance_dangling"] == ["f1"]
+    assert report.semantic_written == 1, "detection does not block the write"
 
 
 def test_a_refusal_during_consolidation_is_a_partial_write():

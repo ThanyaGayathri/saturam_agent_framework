@@ -37,6 +37,13 @@ def episode(content: str, episode_id: str, **kwargs) -> MemoryRecord:
     return MemoryRecord(id=episode_id, tier=MemoryTier.EPISODIC, content=content, scope=ACME, **kwargs)
 
 
+# Kept local rather than moved to `_fakes.py` (round-3 review raised the question): `_fakes.py`'s
+# doubles are the substrate ports (`VectorSubstrate`/`GraphSubstrate`) every consolidation test
+# shares, while these two are `FactExtractor`/`MergeDecider` doubles specific to one scripted
+# scenario -- the same shape `StubExtractor`/`StubDecider` in `test_consolidation_extract.py`
+# already take, kept local to that file for an identical reason. If a second file needs a scripted
+# (not stubbed-per-candidate) double like this one, that repetition is the signal to promote it;
+# one file using it once is not.
 class ScriptedExtractor:
     """One fixed candidate per call, keyed by which episode batch this is -- a stand-in for an
     LLM's extraction, scripted rather than random so the run (and this test) is deterministic."""
@@ -78,7 +85,11 @@ def test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_pass
         extractor=ScriptedExtractor("ada lives in berlin"),
         decider=ScriptedDecider(op="ADD", statement="ada lives in berlin"),
     )
-    facts1, report1 = pipe1.distil(ACME, [episode("ada moved to berlin", "e1")])
+    # `created_at` set explicitly on both episodes (round-3 review) -- `t_valid` below is derived
+    # from it (`extract.py`'s `ts = min(episode.created_at ...)`), and pinning it directly here,
+    # rather than relying on `MemoryRecord`'s own default-to-now fallback, is what makes the
+    # retirement invariant below testable independent of that default's continued existence.
+    facts1, report1 = pipe1.distil(ACME, [episode("ada moved to berlin", "e1", created_at=1000)])
     assert report1.added == 1
     berlin_fact = facts1[0]
     # Persist what pass 1 wrote -- the caller's job in production (SemanticFactStore.write), not
@@ -92,7 +103,7 @@ def test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_pass
         extractor=ScriptedExtractor("ada lives in lisbon"),
         decider=ScriptedDecider(op="UPDATE", target_index=0, statement="ada lives in lisbon"),
     )
-    facts2, report2 = pipe2.distil(ACME, [episode("ada moved to lisbon", "e2")])
+    facts2, report2 = pipe2.distil(ACME, [episode("ada moved to lisbon", "e2", created_at=2000)])
     assert report2.updated == 1
 
     # Both substrates upsert *by id* (``VectorSubstrate.upsert``'s own contract), so the current
@@ -128,7 +139,10 @@ def test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_pass
     assert len(retired) == 1
     assert retired[0].record.content == "ada lives in berlin"
     assert retired[0].record.superseded_by == active[0].record.id
-    assert berlin_fact.record.t_valid is not None, "pipeline must set t_valid for the comparison below to be meaningful"
+    # Pinned to the concrete value derived from `created_at=1000` above, not just "not None"
+    # (round-3 review) -- independent of `MemoryRecord`'s own default-to-now fallback continuing
+    # to exist.
+    assert berlin_fact.record.t_valid == 1000
     assert retired[0].record.t_valid == berlin_fact.record.t_valid, "valid time is untouched by retirement"
 
     # -- provenance_validity: every citation, live and retired alike, resolves (ratified == 1.0).
@@ -174,26 +188,38 @@ def test_a_dangling_citation_would_fail_the_gate():
 # provenance_precision >= 0.80, conflict_accuracy >= 0.90, dedup_score >= 0.75,
 # fact_recall >= 0.95) need a labelled corpus and gold target facts, which this file's small
 # hand-labelled scenario is not built to provide at a meaningful scale -- that harness adapter is
-# tracked separately (aicoe-tracker#194), not decided here. Stubbed rather than silently absent,
-# per round-2 review, so the gap stays visible in CI output instead of only in the PR description.
+# tracked separately (aicoe-tracker#194), not decided here.
+#
+# `xfail(strict=False)`, not `skip` (round-3 review): `skip` is invisible in most CI dashboards
+# unless actively searched, while `xfail` surfaces as a distinct, counted status now and flips to
+# `xpass` -- a visible signal, not a silent green -- the day #194 ships a real body and someone
+# forgets to remove the marker. `strict=False` keeps that `xpass` from failing the build outright;
+# the marker's own absence-of-removal is a nit to catch in review at that point, not a reason to
+# turn a currently-honest gap into a red CI run today. Each stub's body raises for real (`pytest.
+# fail`) rather than being empty, so it genuinely `xfail`s now instead of trivially `xpass`ing
+# before any implementation exists.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194")
+@pytest.mark.xfail(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194", strict=False)
 def test_provenance_precision_meets_the_ratified_threshold():
     """ADR 0003 section A.7: provenance_precision >= 0.80 against gold source_episode_ids."""
+    pytest.fail("not implemented -- aicoe-tracker#194")
 
 
-@pytest.mark.skip(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194")
+@pytest.mark.xfail(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194", strict=False)
 def test_conflict_accuracy_meets_the_ratified_threshold():
     """ADR 0003 section A.7: conflict_accuracy >= 0.90 via the assertion judge (recency-aware)."""
+    pytest.fail("not implemented -- aicoe-tracker#194")
 
 
-@pytest.mark.skip(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194")
+@pytest.mark.xfail(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194", strict=False)
 def test_dedup_score_meets_the_ratified_threshold():
     """ADR 0003 section A.7: dedup_score >= 0.75 against gold near-duplicate groupings."""
+    pytest.fail("not implemented -- aicoe-tracker#194")
 
 
-@pytest.mark.skip(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194")
+@pytest.mark.xfail(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194", strict=False)
 def test_fact_recall_meets_the_ratified_threshold():
     """ADR 0003 section A.7: fact_recall >= 0.95 against gold target facts."""
+    pytest.fail("not implemented -- aicoe-tracker#194")

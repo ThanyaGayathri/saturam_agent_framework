@@ -39,6 +39,7 @@ from egpt.memory.config import (
 )
 from egpt.memory.consolidation import FACT_ID_NAMESPACE, merge_near_duplicate_facts
 from egpt.memory.consolidation.extract import STRATEGY_ID as FACT_PIPELINE_STRATEGY_ID
+from egpt.memory.consolidation.provenance import provenance_report
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.schemas.semantic import fact_record
@@ -1077,6 +1078,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
         supersede: str = NO_SUPERSEDE,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
+        # AC#3's anti-lossiness detection (SM-L7 #128), wired here rather than left as an unwired
+        # library call (round-3 review) -- this is the one place `consolidate`/`aconsolidate`
+        # already has both `facts` and the episode ids this pass read, with no extra I/O.
+        #
+        # **Scoped to `scanned`, not the scope's full episodic history -- read this caveat before
+        # trusting a value below 1.0 as corruption.** A fact's `source_episode_ids` can legitimately
+        # carry citations unioned forward from an *earlier* `consolidate` call's episode batch
+        # (RESEARCH.md's own union-forward rule), which this pass never read and so cannot verify --
+        # a scope-wide audit against every retained episode, not only this pass's scan window, needs
+        # a full-tier read this method does not perform on every call (cost concern raised in
+        # aicoe-tracker#194, which owns that audit). A value here that is `< 1.0` is therefore a
+        # signal to investigate, not by itself proof of a dangling citation; a citation to an episode
+        # this pass genuinely never read reads identically to one pointing at nothing. Detection
+        # only -- nothing here raises or blocks the write on it, matching the round-2/3 review's own
+        # "policy on violation stays in #194" boundary.
+        provenance = provenance_report(facts, resolved_episode_ids={r.id for r in scanned})
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=len(scanned),
@@ -1111,6 +1128,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # on this instance. `tail_pending` says what is actually still known: this pass
                 # stopped at the cap and left rows unread, without claiming they are unreachable.
                 tail_pending=hit_cap,
+                # Free extra key, same treatment as `relations`/`reflection` above -- not promoted
+                # to `CONSOLIDATION_KEYS` (see this method's own comment on `provenance` above for
+                # what a value below 1.0 does and does not mean).
+                provenance_validity=provenance.validity,
+                provenance_dangling=list(provenance.dangling),
             ),
         )
 

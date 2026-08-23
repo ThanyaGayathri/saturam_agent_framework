@@ -79,7 +79,16 @@ class ProvenanceReport:
         constructor: without this, ``ProvenanceReport(checked=0, dangling=("f1",))`` would silently
         report ``validity == 1.0`` (the vacuous-empty-batch branch) *and* ``is_valid is False`` --
         a contradiction a caller asserting only ``validity == 1.0`` would not catch.
+
+        ``checked < 0`` is a separate guard, not folded into the comparison below (round-3 review):
+        ``len(self.dangling) > self.checked`` is technically true for any negative ``checked`` too
+        (``0 > -1``), but the message that check raises -- "0 entries cannot exceed checked (-1)" --
+        is nonsense to an operator reading it, since zero does not exceed a negative number in any
+        readable sense. A negative ``checked`` is its own defect (a fact count cannot be negative),
+        so it gets its own message naming that.
         """
+        if self.checked < 0:
+            raise ValueError(f"ProvenanceReport.checked must be >= 0, got {self.checked}.")
         if len(self.dangling) > self.checked:
             raise ValueError(
                 f"ProvenanceReport.dangling ({len(self.dangling)} entries) cannot exceed checked "
