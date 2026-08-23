@@ -20,7 +20,7 @@ from egpt.os.auth import (
     verify_websocket_service_account,
 )
 from egpt.os.managers import websocket_manager
-from egpt.os.middleware.jwt import JWTValidator, is_reserved_principal
+from egpt.os.middleware.jwt import INVALID_TENANT_CLAIM_ERROR, JWTValidator, extract_tenant_claim, is_reserved_principal
 from egpt.os.middleware.user_scope import (
     INSUFFICIENT_PERMISSIONS_WS_RECONNECT,
     WORKFLOW_ID_REQUIRED_RECONNECT,
@@ -55,6 +55,7 @@ from egpt.os.scopes import (
 from egpt.os.service_accounts import TOKEN_PREFIX as SERVICE_ACCOUNT_TOKEN_PREFIX
 from egpt.os.service_accounts import VerificationStatus
 from egpt.os.settings import EgptServingSettings
+from egpt.os.tenancy import tenancy_enabled_for_app
 from egpt.os.utils import resolve_ws_jwt_config
 from egpt.team.factory import TeamFactory
 from egpt.utils.log import logger
@@ -344,11 +345,14 @@ def get_websocket_router(
         await websocket_manager.connect(websocket, requires_auth=requires_auth)
 
         # Store user context from the authenticated identity (JWT or service account).
-        # tenancy_enabled mirrors what egpt.os.tenancy.tenancy_enabled(request) reads off
-        # app.state on the HTTP path -- there is no Request here for it to read, so
-        # tenant_for_ws_hydration (egpt.os.utils) takes it as an explicit override instead of
-        # deriving it. Set once, independent of which auth branch below fires.
-        websocket_user_context: Dict[str, Any] = {"tenancy_enabled": bool(ws_tenant_id_claim)}
+        # tenancy_enabled comes from the same helper the HTTP path's tenancy_enabled(request)
+        # wraps -- one derivation, not a mirror. It must not be read off ws_jwt_config above:
+        # resolve_ws_jwt_config skips a JWTMiddleware entry with no key source, so on a PAT-only
+        # tenancy deployment it reports tenant_id_claim=None while HTTP's gate is live (PR #121
+        # review). tenant_for_ws_hydration (egpt.os.utils) takes this as an explicit override
+        # because it has no Request to derive it from. Set once, independent of which auth
+        # branch below fires.
+        websocket_user_context: Dict[str, Any] = {"tenancy_enabled": tenancy_enabled_for_app(websocket.app)}
 
         def scope_enforcement_active() -> bool:
             # JWT deployments always enforce scopes. Service-account identities do
@@ -356,6 +360,21 @@ def get_websocket_router(
             # deployment mode (same rule as REST and MCP). Security-key auth
             # attaches no scopes and retains full access.
             return jwt_auth_enabled or "scopes" in websocket_user_context
+
+        def build_ws_auth(is_admin: bool) -> WebSocketAuthContext:
+            # Auth context handed to the workflow handlers out-of-band, so they never read
+            # internal flags out of the client message. tenant_id/tenancy_enabled come straight
+            # off websocket_user_context (aicoe-tracker#174) -- not resolve_tenant_id, whose
+            # user_id fallback must never scope a component DB read. The handlers run these
+            # fail-closed through tenant_for_ws_hydration before using them. Built in one place
+            # so the three hydrating actions cannot drift on which fields they carry.
+            return WebSocketAuthContext(
+                jwt_enabled=scope_enforcement_active(),
+                is_admin=is_admin,
+                user_isolation_enabled=ws_user_isolation_enabled,
+                tenant_id=websocket_user_context.get("tenant_id"),
+                tenancy_enabled=bool(websocket_user_context.get("tenancy_enabled")),
+            )
 
         try:
             while True:
@@ -455,23 +474,40 @@ def get_websocket_router(
                                 )
                                 continue
 
+                            # Same rule as the HTTP middleware, via the same function
+                            # (extract_tenant_claim): an absent claim is unscoped, a present
+                            # but malformed one is rejected outright -- "unscoped" is the widest
+                            # tenancy, so degrading to it would turn a bad claim into an
+                            # escalation. Resolved before authenticate_websocket so a rejected
+                            # token never authenticates the socket, exactly as HTTP writes
+                            # nothing to request.state on its 401.
+                            try:
+                                tenant_id = extract_tenant_claim(payload, ws_tenant_id_claim)
+                            except ValueError as tenant_error:
+                                logger.warning(f"Rejected WebSocket JWT with an unusable tenant claim: {tenant_error}")
+                                await websocket.send_text(
+                                    json.dumps(
+                                        {
+                                            "event": "auth_error",
+                                            "error": INVALID_TENANT_CLAIM_ERROR,
+                                            "error_type": "invalid_token",
+                                        }
+                                    )
+                                )
+                                continue
+
                             await websocket_manager.authenticate_websocket(websocket)
 
                             # Store user context from JWT
                             websocket_user_context["user_id"] = claims["user_id"]
                             websocket_user_context["scopes"] = claims["scopes"]
                             websocket_user_context["payload"] = payload
-                            # Same rule as the HTTP middleware: only a non-empty string is a
-                            # usable tenant, and anything else stays None rather than being
-                            # coerced -- None means unscoped, so a bad claim must not widen.
                             # Reset first: see the service-account branch above for why a stale
                             # tenant_id from a prior authenticate on this connection must not
                             # survive.
                             websocket_user_context.pop("tenant_id", None)
-                            if ws_tenant_id_claim:
-                                raw_tenant = payload.get(ws_tenant_id_claim)
-                                if isinstance(raw_tenant, str) and raw_tenant.strip():
-                                    websocket_user_context["tenant_id"] = raw_tenant.strip()
+                            if tenant_id is not None:
+                                websocket_user_context["tenant_id"] = tenant_id
 
                             await websocket.send_text(
                                 json.dumps(
@@ -541,13 +577,20 @@ def get_websocket_router(
                     # client cannot attribute a run to another user by spoofing
                     # the field.
                     auth_user_id = websocket_user_context.get("user_id")
+                    is_admin = False
                     if auth_user_id:
                         is_admin = ws_admin_scope in websocket_user_context.get("scopes", [])
                         if is_admin:
                             message.setdefault("user_id", auth_user_id)
                         else:
                             message["user_id"] = auth_user_id
-                    await handle_workflow_via_websocket(websocket, message, os, ws_user_context=websocket_user_context)
+                    await handle_workflow_via_websocket(
+                        websocket,
+                        message,
+                        os,
+                        ws_user_context=websocket_user_context,
+                        ws_auth=build_ws_auth(is_admin),
+                    )
 
                 elif action == "reconnect":
                     # Force user_id from the authenticated identity for non-admins
@@ -601,20 +644,7 @@ def get_websocket_router(
                             )
                             continue
 
-                    # Pass auth context out-of-band so the handler doesn't
-                    # have to read internal flags out of the client message.
-                    # tenant_id/tenancy_enabled come straight off websocket_user_context
-                    # (aicoe-tracker#174) -- not resolve_tenant_id, whose user_id fallback must
-                    # never scope a component DB read. The handler runs this fail-closed
-                    # through tenant_for_ws_hydration before using it.
-                    ws_auth = WebSocketAuthContext(
-                        jwt_enabled=scope_enforcement_active(),
-                        is_admin=is_admin,
-                        user_isolation_enabled=ws_user_isolation_enabled,
-                        tenant_id=websocket_user_context.get("tenant_id"),
-                        tenancy_enabled=bool(websocket_user_context.get("tenancy_enabled")),
-                    )
-                    await handle_workflow_subscription(websocket, message, os, ws_auth=ws_auth)
+                    await handle_workflow_subscription(websocket, message, os, ws_auth=build_ws_auth(is_admin))
 
                 elif action == "continue-workflow":
                     # Enforce workflow-level RBAC, mirroring start-workflow.
@@ -647,15 +677,9 @@ def get_websocket_router(
                         else:
                             message["user_id"] = auth_user_id
 
-                    # tenant_id/tenancy_enabled: see the reconnect branch above.
-                    ws_auth = WebSocketAuthContext(
-                        jwt_enabled=scope_enforcement_active(),
-                        is_admin=is_admin,
-                        user_isolation_enabled=ws_user_isolation_enabled,
-                        tenant_id=websocket_user_context.get("tenant_id"),
-                        tenancy_enabled=bool(websocket_user_context.get("tenancy_enabled")),
+                    await handle_workflow_continue_via_websocket(
+                        websocket, message, os, ws_auth=build_ws_auth(is_admin)
                     )
-                    await handle_workflow_continue_via_websocket(websocket, message, os, ws_auth=ws_auth)
 
                 else:
                     await websocket.send_text(json.dumps({"event": "error", "error": f"Unknown action: {action}"}))

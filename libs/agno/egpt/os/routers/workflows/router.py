@@ -88,9 +88,19 @@ def _match_workflow_in_memory(
 
 
 async def handle_workflow_via_websocket(
-    websocket: WebSocket, message: dict, os: "EgptOS", ws_user_context: Optional[Dict[str, Any]] = None
+    websocket: WebSocket,
+    message: dict,
+    os: "EgptOS",
+    ws_user_context: Optional[Dict[str, Any]] = None,
+    ws_auth: Optional["WebSocketAuthContext"] = None,
 ):
-    """Handle workflow execution directly via WebSocket"""
+    """Handle workflow execution directly via WebSocket.
+
+    `ws_user_context` carries the verified identity (user_id, scopes, raw payload) the factory
+    branch forwards as trusted context. `ws_auth` is the typed per-connection auth state the
+    dispatcher builds alongside it; the hydration tenant is read off *that*, as reconnect and
+    continue-workflow do, so the fail-closed gate never depends on a string key into the dict.
+    """
     try:
         workflow_id = message.get("workflow_id")
         session_id = message.get("session_id")
@@ -130,8 +140,8 @@ async def handle_workflow_via_websocket(
         # or misdirect a component read.
         try:
             hydration_tenant_id = tenant_for_ws_hydration(
-                ws_user_context.get("tenant_id") if ws_user_context else None,
-                bool(ws_user_context.get("tenancy_enabled")) if ws_user_context else False,
+                ws_auth.tenant_id if ws_auth else None,
+                tenancy_enabled_override=ws_auth.tenancy_enabled if ws_auth else False,
                 in_memory=in_memory,
                 db=os.db,
             )
@@ -268,10 +278,11 @@ class WebSocketAuthContext:
     # user_id. Pass this (with tenancy_enabled below) through tenant_for_ws_hydration before
     # using it to scope a DB read; do not use it to scope one directly.
     tenant_id: Optional[str] = None
-    # Whether this deployment has opted into tenancy (a tenant_id_claim is configured) --
-    # mirrors egpt.os.tenancy.tenancy_enabled(request), which has no app.state to read here
-    # either. Required by tenant_for_ws_hydration to fail closed the same way HTTP hydration
-    # does when tenant_id above is None.
+    # Whether this deployment has opted into tenancy (a tenant_id_claim is configured). The
+    # dispatcher derives it from egpt.os.tenancy.tenancy_enabled_for_app(websocket.app) -- the
+    # same function HTTP's tenancy_enabled(request) wraps, so both transports agree. Required by
+    # tenant_for_ws_hydration to fail closed the same way HTTP hydration does when tenant_id
+    # above is None.
     tenancy_enabled: bool = False
 
 
@@ -364,7 +375,7 @@ async def handle_workflow_subscription(
                     # tenant_for_ws_hydration.
                     hydration_tenant_id = tenant_for_ws_hydration(
                         ctx.tenant_id,
-                        ctx.tenancy_enabled,
+                        tenancy_enabled_override=ctx.tenancy_enabled,
                         in_memory=in_memory,
                         db=os.db,
                     )
@@ -571,7 +582,7 @@ async def handle_workflow_continue_via_websocket(
             # Fail-closed hydration tenant (aicoe-tracker#174) -- see tenant_for_ws_hydration.
             hydration_tenant_id = tenant_for_ws_hydration(
                 ws_auth.tenant_id if ws_auth else None,
-                ws_auth.tenancy_enabled if ws_auth else False,
+                tenancy_enabled_override=ws_auth.tenancy_enabled if ws_auth else False,
                 in_memory=in_memory,
                 db=os.db,
             )

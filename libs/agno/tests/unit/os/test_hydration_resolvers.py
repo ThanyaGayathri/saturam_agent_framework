@@ -232,6 +232,15 @@ class TestTenantForWsHydration:
     def test_no_db_means_no_gate(self):
         assert tenant_for_ws_hydration(None, True, in_memory=False, db=None) is None
 
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_an_empty_tenant_is_none_and_does_not_pass_the_gate(self, blank):
+        """`"" is not None`, so without normalisation a blank tenant would satisfy the gate and
+        then scope the DB read to the empty string (PR #121 review nit)."""
+        with pytest.raises(HTTPException) as exc_info:
+            tenant_for_ws_hydration(blank, True, in_memory=False, db=_mock_db())
+        assert exc_info.value.status_code == 403
+        assert tenant_for_ws_hydration(blank, False, in_memory=False, db=_mock_db()) is None
+
     def test_never_falls_back_to_user_id_like_resolve_tenant_id_does(self):
         """Regression for aicoe-tracker#174.
 

@@ -1,7 +1,7 @@
 """Integration tests for running Workflows in EgptOS."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -15,6 +15,7 @@ from egpt.db.base import ComponentType
 from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
+from egpt.os.middleware.jwt import INVALID_TENANT_CLAIM_ERROR
 from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
 from egpt.workflow.factory import WorkflowFactory
 from egpt.workflow.step import Step
@@ -259,8 +260,8 @@ def _issue_token(secret: str, os_id: str, sub: str, scopes: list[str]) -> str:
             "sub": sub,
             "aud": os_id,
             "scopes": scopes,
-            "exp": datetime.now(UTC) + timedelta(minutes=5),
-            "iat": datetime.now(UTC),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iat": datetime.now(timezone.utc),
         },
         secret,
         algorithm="HS256",
@@ -384,8 +385,8 @@ def _issue_tenant_token(secret: str, os_id: str, sub: str, scopes: list[str], te
         "sub": sub,
         "aud": os_id,
         "scopes": scopes,
-        "exp": datetime.now(UTC) + timedelta(minutes=5),
-        "iat": datetime.now(UTC),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        "iat": datetime.now(timezone.utc),
     }
     if tenant_id is not None:
         payload["tid"] = tenant_id
@@ -542,6 +543,93 @@ def test_ws_reauthenticate_clears_a_stale_tenant(db_workflow_tenancy_client):
         f"untenanted second identity refused, got: {frame}"
     )
     assert frame["error"] == TENANCY_REQUIRED_DETAIL
+
+
+def test_ws_reconnect_with_no_tenant_claim_is_refused(db_workflow_tenancy_client):
+    """The reconnect hydration gate (PR #121 review, finding 2).
+
+    A run_id absent from the event buffer sends reconnect to the DB arm, where the workflow is
+    hydrated to look the run up -- that hydration must fail closed for an untenanted caller the
+    same way start-workflow does, not scope to the caller's user id or surface a misleading
+    "not found". Reverting the gate to `hydration_tenant_id = ctx.tenant_id` fails this test.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    token = _issue_tenant_token(secret, os_id, sub="bob", scopes=["workflows:run"])
+
+    with client.websocket_connect("/workflows/ws") as ws:
+        _authenticate_ws(ws, token, expected_user_id="bob")
+        ws.send_text(
+            json.dumps(
+                {
+                    "action": "reconnect",
+                    "run_id": "run-not-in-any-buffer",
+                    "workflow_id": "db-ws-workflow",
+                    "session_id": "session-1",
+                }
+            )
+        )
+        error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
+
+    assert error_frame["error"] == TENANCY_REQUIRED_DETAIL
+
+
+def test_ws_continue_workflow_with_no_tenant_claim_is_refused(db_workflow_tenancy_client):
+    """The continue-workflow hydration gate (PR #121 review, finding 2) -- the only test in the
+    repository that drives this action. Reverting the gate to `ws_auth.tenant_id` fails it.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    token = _issue_tenant_token(secret, os_id, sub="bob", scopes=["workflows:run"])
+
+    with client.websocket_connect("/workflows/ws") as ws:
+        _authenticate_ws(ws, token, expected_user_id="bob")
+        ws.send_text(
+            json.dumps({"action": "continue-workflow", "workflow_id": "db-ws-workflow", "run_id": "paused-run-1"})
+        )
+        error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
+
+    assert error_frame["error"] == TENANCY_REQUIRED_DETAIL
+
+
+@pytest.mark.parametrize("bad_claim", [12345, {"a": 1}, "", "   "], ids=["int", "object", "empty", "blank"])
+def test_ws_rejects_a_malformed_tenant_claim_exactly_as_http_does(db_workflow_tenancy_client, bad_claim):
+    """A claim that is present but not a non-empty string is rejected on both transports with
+    the same words, and the socket is *not* authenticated (PR #121 review, finding 4). Before
+    this, WS silently degraded the caller to untenanted and accepted the session.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    payload = {
+        "sub": "mallory",
+        "aud": os_id,
+        "scopes": ["workflows:run", "workflows:read"],
+        "tid": bad_claim,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        "iat": datetime.now(timezone.utc),
+    }
+    token = jwt.encode(payload, secret, algorithm="HS256")
+
+    http_response = client.get("/workflows/db-ws-workflow", headers={"Authorization": f"Bearer {token}"})
+    assert http_response.status_code == 401
+    assert http_response.json()["detail"] == INVALID_TENANT_CLAIM_ERROR
+
+    with client.websocket_connect("/workflows/ws") as ws:
+        assert json.loads(ws.receive_text())["event"] == "connected"
+        ws.send_text(json.dumps({"action": "authenticate", "token": token}))
+        auth_frame = json.loads(ws.receive_text())
+        assert auth_frame["event"] == "auth_error", auth_frame
+        assert auth_frame["error"] == http_response.json()["detail"]
+
+        # The socket must still be unauthenticated: any action is met with auth_required.
+        ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+        assert json.loads(ws.receive_text())["event"] == "auth_required"
 
 
 # =============================================================================

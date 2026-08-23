@@ -2155,7 +2155,7 @@ def tenant_for_direct_read(
 
 def tenant_for_ws_hydration(
     tenant_id: Optional[str],
-    tenancy_enabled: bool,
+    tenancy_enabled_override: bool,
     *,
     in_memory: bool,
     db: Optional[Union[BaseDb, AsyncBaseDb]],
@@ -2167,10 +2167,14 @@ def tenant_for_ws_hydration(
     `Request` for `current_tenant_id` to read `request.state.tenant_id` off of, so
     `get_websocket_router` populates `websocket_user_context["tenant_id"]` at authenticate-time
     the same way `AuthMiddleware` populates `request.state.tenant_id`: the configured tenant
-    claim, verbatim, with no fallback to `user_id`. Callers pass that straight through (or the
-    equivalent field off a `WebSocketAuthContext`) rather than a raw mapping, so a typo in a key
-    name fails at the call site under mypy instead of silently resolving to `None`/`False` via
-    `.get()`.
+    claim via the same `extract_tenant_claim`, with no fallback to `user_id`. The dispatcher then
+    hands every hydrating handler a typed `WebSocketAuthContext` (built once, in
+    `build_ws_auth`), and callers pass its `tenant_id`/`tenancy_enabled` fields here -- never a
+    raw `.get()` off the untyped context dict, so a typo in a field name fails under mypy instead
+    of silently resolving to `None`/`False` and failing the gate *open*.
+
+    An empty or whitespace-only `tenant_id` is normalised to `None` before the gate: `""` is not
+    a tenant, and `"" is not None` would otherwise let it through.
 
     Deliberately does **not** call `resolve_tenant_id`. That function's `user_id` fallback
     exists for `ModelPolicy` selection (`RequestContext.tenant_id`, `RunContext.tenant_id`) --
@@ -2182,18 +2186,22 @@ def tenant_for_ws_hydration(
     hydration must fail closed instead, exactly as the HTTP resolver does -- see
     aicoe-tracker#174 and `docs/adr/0004-component-tenant-isolation.md`.
 
-    `tenancy_enabled` carries the deployment's opt-in (`tenant_id_claim` configured), mirroring
-    what `tenancy_enabled(request)` reads off `app.state` on the HTTP path. The in-memory list is
-    exempt, same as `_tenant_for_hydration`: a workflow served from the in-memory
-    `workflows`/`agents`/`teams` list (including a matched factory, which never reaches the DB
-    through this call) is code-defined, not a tenant row.
+    `tenancy_enabled_override` carries the deployment's opt-in (`tenant_id_claim` configured),
+    which the dispatcher derives from `egpt.os.tenancy.tenancy_enabled_for_app(websocket.app)` --
+    the same function the HTTP path's `tenancy_enabled(request)` wraps, so both transports agree
+    on whether the gate is live. (Named like `_tenant_for_hydration`'s parameter rather than
+    `tenancy_enabled`, which is that imported function.) The in-memory list is exempt, same as
+    `_tenant_for_hydration`: a workflow served from the in-memory `workflows`/`agents`/`teams`
+    list (including a matched factory, which never reaches the DB through this call) is
+    code-defined, not a tenant row.
     """
+    normalised_tenant = tenant_id.strip() if isinstance(tenant_id, str) and tenant_id.strip() else None
     return _tenant_for_hydration(
         None,
-        tenant_id,
+        normalised_tenant,
         in_memory=in_memory,
         db=db,
-        tenancy_enabled_override=tenancy_enabled,
+        tenancy_enabled_override=tenancy_enabled_override,
     )
 
 

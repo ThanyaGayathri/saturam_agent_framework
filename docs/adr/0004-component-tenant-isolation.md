@@ -154,13 +154,35 @@ The fix keeps `resolve_tenant_id`'s `user_id` fallback (it is the right default 
 ADR does not otherwise reason about) but stops it from ever reaching a component read. The
 WebSocket dispatcher (`egpt/os/router.py`) now populates `websocket_user_context["tenant_id"]`
 the same way `AuthMiddleware` populates `request.state.tenant_id`: the configured claim,
-verbatim, no fallback. `egpt.os.utils.tenant_for_ws_hydration` reads that (plus
-`websocket_user_context["tenancy_enabled"]`) to scope every WS hydration call — start-workflow,
-reconnect, and continue-workflow — with the same fail-closed contract `_tenant_for_hydration`
-already gave HTTP, in-memory components exempted the same way. A verified caller with no tenant
-claim is now refused identically on both paths; see
-`libs/agno/tests/unit/os/test_hydration_resolvers.py::TestTenantForWsHydration` and
-`libs/agno/tests/integration/os/test_workflow_runs.py`'s WS/HTTP tenant-reconciliation tests.
+via the same `extract_tenant_claim` the middleware uses, no fallback — so a claim that is
+present but malformed is rejected on WS (`auth_error`, socket left unauthenticated) exactly as it
+is on HTTP (401), rather than degrading to unscoped. `egpt.os.utils.tenant_for_ws_hydration` reads
+that (plus `tenancy_enabled`) off a typed `WebSocketAuthContext` to scope every WS hydration
+call — start-workflow, reconnect, and continue-workflow — with the same fail-closed contract
+`_tenant_for_hydration` already gave HTTP, in-memory components exempted the same way.
+
+Whether tenancy is on has exactly one derivation, `egpt.os.tenancy.tenancy_enabled_for_app`
+(`app.state.tenant_id_claim`), which both the HTTP `tenancy_enabled(request)` and the WS
+dispatcher consult. It is deliberately *not* read from the WS JWT config: `resolve_ws_jwt_config`
+skips a `JWTMiddleware` entry with no key source, so on a PAT-only tenancy deployment it reports
+no claim while HTTP's gate is live — one flag with two derivations, the same shape as the original
+divergence (caught in PR #121's review). A verified caller with no tenant claim is now refused
+identically on both paths, on JWT and PAT-only deployments alike; see
+`libs/agno/tests/unit/os/test_hydration_resolvers.py::TestTenantForWsHydration`,
+`libs/agno/tests/unit/os/test_tenancy_deployment_modes.py` (PAT-only parity), and
+`libs/agno/tests/integration/os/test_workflow_runs.py`'s WS/HTTP tenant-reconciliation tests,
+which cover all three WS actions.
+
+**Remaining limits, recorded rather than claimed away.** Two gaps are pre-existing, identical
+before and after the fix, and tracked separately:
+
+- A `reconnect` whose `run_id` is still in the `EventBuffer` replays without reaching the
+  hydration gate, because that gate sits on the DB arm and the buffer is keyed on `run_id`
+  alone — [aicoe-tracker#196](https://github.com/Saturam-Inc/aicoe-tracker/issues/196).
+  `continue-workflow` and `start-workflow` are not affected; their gates run unconditionally.
+- The reconciliation covers component *config* hydration. Run and session reads
+  (`Workflow.aget_run_output` → `aget_session` → `_aread_session`) take no `tenant_id` on either
+  transport — [aicoe-tracker#197](https://github.com/Saturam-Inc/aicoe-tracker/issues/197).
 
 **The non-HTTP entry points keep an unscoped default.** `Agent.save/delete`, `Team.save/delete`
 and `Workflow.save/delete` take `tenant_id` but default it to `None`. On a **non-strict** db that

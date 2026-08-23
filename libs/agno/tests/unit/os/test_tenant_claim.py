@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from egpt.os.config import AuthorizationConfig
 from egpt.os.middleware import JWTMiddleware
-from egpt.os.middleware.jwt import build_jwt_middleware_kwargs
+from egpt.os.middleware.jwt import build_jwt_middleware_kwargs, extract_tenant_claim
 from egpt.os.tenancy import current_tenant_id, get_tenant_id
 from egpt.os.utils import resolve_ws_jwt_config
 
@@ -56,6 +56,16 @@ class TestExtractTenantId:
     def test_an_unusable_claim_raises_rather_than_falling_back_to_unscoped(self, middleware, value):
         with pytest.raises(ValueError, match="must be a non-empty string"):
             middleware._extract_tenant_id({"tid": value})
+
+    @pytest.mark.parametrize("value", [["acme"], {"id": "acme"}, 42, "", "   ", True])
+    def test_the_shared_helper_applies_the_same_rule_for_the_websocket_path(self, value):
+        """`extract_tenant_claim` is what both the middleware and the WS dispatcher call, so a
+        token HTTP rejects with 401 is rejected on WS too (PR #121 review)."""
+        with pytest.raises(ValueError, match="must be a non-empty string"):
+            extract_tenant_claim({"tid": value}, "tid")
+        assert extract_tenant_claim({"tid": " acme "}, "tid") == "acme"
+        assert extract_tenant_claim({"sub": "u"}, "tid") is None
+        assert extract_tenant_claim({"tid": value}, None) is None
 
 
 # =============================================================================
