@@ -29,6 +29,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from egpt.memory.consolidation.triggers import ConsolidationTrigger, IdleTrigger, ThresholdSource, validated_threshold
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.types import Scope
 from egpt.providers.model_provider import ProviderMode
 
@@ -62,7 +63,12 @@ class SleepWindow:
         try:
             ZoneInfo(self.tz)
         except ZoneInfoNotFoundError:
-            raise ValueError(f"Unknown timezone {self.tz!r}.") from None
+            raise ValueError(
+                f"Unknown timezone {self.tz!r}. If this is a valid IANA timezone key, the "
+                "runtime's IANA timezone database is missing -- some minimal base images "
+                "(e.g. Alpine Linux, common for Mode A GPU deployments) ship without one. "
+                "Install it with `pip install tzdata`."
+            ) from None
 
     def contains(self, now: float) -> bool:
         """Whether the wall-clock hour at epoch second ``now``, in ``tz``, falls in this window."""
@@ -72,9 +78,15 @@ class SleepWindow:
         return hour >= self.start_hour or hour < self.end_hour
 
 
-class SleepTimeTrigger:
+class SleepTimeTrigger(ConsolidationTrigger):
     """A :class:`~egpt.memory.consolidation.triggers.ConsolidationTrigger` that only lets
     ``inner`` fire inside ``window``.
+
+    Declares ``ConsolidationTrigger`` as a base rather than relying only on the Protocol's
+    structural match: ``ConsolidationTrigger`` is ``@runtime_checkable`` so this adds no ABC
+    overhead, and it means a future rename of any Protocol method fails this class at
+    type-check time instead of only at the ``AnyTrigger`` construction-time ``isinstance``
+    check, or later still, at the first call through ``_reject_coroutine``.
 
     ``record_event``/``reset`` pass straight through to ``inner`` unconditionally: pending work
     still accumulates outside the window (an event at 9am must still count toward "idle since
@@ -117,11 +129,23 @@ class SleepTimeScheduleConfig:
     mode: ProviderMode = ProviderMode.LOCAL
 
     def __post_init__(self) -> None:
+        # Validates only; the validated value itself is not stored here because
+        # `build_sleep_time_trigger`'s default `IdleTrigger(config.idle_seconds)` re-validates
+        # it at construction, so this config object has nothing further to do with the result.
         validated_threshold(self.idle_seconds, "idle_seconds")
         # Coerce at the boundary, the same way `MemoryProviderConfig.mode` does: a value that
-        # arrived from JSON or a settings file is equal-but-not-identical to the enum member.
+        # arrived from JSON or a settings file is equal-but-not-identical to the enum member --
+        # and wrapped in the same domain-specific error, naming the field and the valid choices,
+        # rather than letting a bare `ValueError` escape with neither.
         if not isinstance(self.mode, ProviderMode):
-            object.__setattr__(self, "mode", ProviderMode(str(self.mode).strip().lower()))
+            try:
+                object.__setattr__(self, "mode", ProviderMode(str(self.mode).strip().lower()))
+            except ValueError:
+                known = ", ".join(repr(m.value) for m in ProviderMode)
+                raise MemoryProviderConfigError(
+                    f"Unknown mode {self.mode!r}. Expected one of: {known}.",
+                    field_name="mode",
+                ) from None
 
 
 def build_sleep_time_trigger(

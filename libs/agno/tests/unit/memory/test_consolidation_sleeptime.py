@@ -14,7 +14,8 @@ from egpt.memory.consolidation.sleeptime import (
     SleepWindow,
     build_sleep_time_trigger,
 )
-from egpt.memory.consolidation.triggers import IdleTrigger
+from egpt.memory.consolidation.triggers import ConsolidationTrigger, EventCountTrigger, IdleTrigger
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.types import Scope
 from egpt.providers.model_provider import ProviderMode
 
@@ -38,6 +39,14 @@ class TestSleepWindow:
     def test_construction_refuses_an_unknown_timezone(self):
         with pytest.raises(ValueError, match="timezone"):
             SleepWindow(start_hour=1, end_hour=5, tz="Not/A_Zone")
+
+    @pytest.mark.parametrize("start_hour,end_hour", [(True, 5), (5, False)])
+    def test_construction_refuses_a_bool_hour(self, start_hour, end_hour):
+        """`bool` is an `int` subclass in Python -- without an explicit `isinstance(value, bool)`
+        guard, `True`/`False` would pass the plain `isinstance(value, int)` check silently.
+        """
+        with pytest.raises(ValueError, match="hour"):
+            SleepWindow(start_hour=start_hour, end_hour=end_hour)
 
     def test_contains_true_inside_a_same_day_window(self):
         window = SleepWindow(start_hour=1, end_hour=6)
@@ -78,6 +87,23 @@ class TestSleepWindow:
         assert window.contains(_utc(3)) is False  # 22:00 US/Eastern the prior day
         assert window.contains(_utc(9)) is True  # 04:00 US/Eastern
 
+    def test_correct_across_spring_forward(self):
+        """2026-03-08 07:00 UTC is 03:00 EDT in `America/New_York` -- clocks jumped from 02:00 to
+        03:00, so the skipped hour never occurs, but the UTC->local conversion is unambiguous and
+        must land exactly on 03:00, not 02:00.
+        """
+        window = SleepWindow(start_hour=1, end_hour=6, tz="America/New_York")
+        at = datetime(2026, 3, 8, 7, 0, tzinfo=timezone.utc).timestamp()
+        assert window.contains(at) is True
+
+    def test_correct_across_fall_back(self):
+        """2025-11-02 06:00 UTC is 01:00 EST in `America/New_York`, the second (repeated) time
+        01:00 occurs that day -- still an unambiguous conversion from a UTC epoch second.
+        """
+        window = SleepWindow(start_hour=1, end_hour=6, tz="America/New_York")
+        at = datetime(2025, 11, 2, 6, 0, tzinfo=timezone.utc).timestamp()
+        assert window.contains(at) is True
+
 
 class TestSleepTimeTrigger:
     def test_does_not_fire_outside_the_window_even_if_inner_would(self):
@@ -112,6 +138,28 @@ class TestSleepTimeTrigger:
         trigger.reset(ACME)
         assert inner.should_fire(ACME, now=_utc(2, 0) + 10) is False
 
+    def test_fires_through_a_midnight_wrapping_window(self):
+        """`TestSleepWindow.test_wraps_past_midnight` pins `SleepWindow.contains` in isolation;
+        this pins the same wraparound through the full `record_event` -> `should_fire` path at
+        the trigger level, so a future refactor that breaks the wrap only at that layer (e.g. a
+        trigger-level rewrite that stops delegating to `window.contains` correctly) is caught here
+        too, not only in the window's own tests.
+        """
+        inner = IdleTrigger(idle_seconds=10)
+        trigger = SleepTimeTrigger(inner, SleepWindow(start_hour=22, end_hour=4))
+        start = _utc(23, 0)
+        trigger.record_event(ACME, now=start)
+        assert trigger.should_fire(ACME, now=start + 10) is True
+
+    def test_is_a_consolidation_trigger(self):
+        """`AnyTrigger` gates at construction on `isinstance(trigger, ConsolidationTrigger)` and
+        raises `TypeError` if it returns `False` -- pinning this here turns a future structural
+        break into an immediate, obvious failure instead of a confusing `TypeError` surfacing
+        inside `AnyTrigger`.
+        """
+        trigger = SleepTimeTrigger(IdleTrigger(idle_seconds=10), SleepWindow(start_hour=1, end_hour=6))
+        assert isinstance(trigger, ConsolidationTrigger)
+
 
 class TestSleepTimeScheduleConfig:
     def test_defaults_to_mode_a(self):
@@ -126,9 +174,19 @@ class TestSleepTimeScheduleConfig:
         config = SleepTimeScheduleConfig(window=SleepWindow(1, 6), idle_seconds=300, mode="frontier")
         assert config.mode is ProviderMode.FRONTIER
 
+    def test_coerces_a_whitespace_padded_mode(self):
+        config = SleepTimeScheduleConfig(window=SleepWindow(1, 6), idle_seconds=300, mode="  frontier  ")
+        assert config.mode is ProviderMode.FRONTIER
+
     def test_rejects_an_unknown_mode(self):
-        with pytest.raises(ValueError):
+        """Matches `MemoryProviderConfig`'s error shape: a domain-specific error naming the field
+        and listing the valid choices, not a bare `ValueError` with neither.
+        """
+        with pytest.raises(MemoryProviderConfigError, match="quantum") as exc_info:
             SleepTimeScheduleConfig(window=SleepWindow(1, 6), idle_seconds=300, mode="quantum")
+        assert exc_info.value.field_name == "mode"
+        assert "local" in str(exc_info.value)
+        assert "frontier" in str(exc_info.value)
 
     @pytest.mark.parametrize("idle_seconds", [0, -5])
     def test_rejects_a_non_positive_idle_seconds(self, idle_seconds):
@@ -145,8 +203,6 @@ class TestBuildSleepTimeTrigger:
         assert trigger.should_fire(ACME, now=_utc(2, 0) + 10) is True
 
     def test_uses_a_caller_supplied_inner_trigger_instead(self):
-        from egpt.memory.consolidation.triggers import EventCountTrigger
-
         config = SleepTimeScheduleConfig(window=SleepWindow(1, 6), idle_seconds=10)
         inner = EventCountTrigger(threshold=2)
         trigger = build_sleep_time_trigger(config, inner=inner)
