@@ -361,6 +361,19 @@ def get_websocket_router(
             # attaches no scopes and retains full access.
             return jwt_auth_enabled or "scopes" in websocket_user_context
 
+        def drop_identity() -> None:
+            # Reset the connection to "unauthenticated, no principal" ahead of every
+            # authenticate attempt. A Request carries no identity between requests, so an HTTP
+            # 401 is self-contained; a socket does carry one, so a failed re-authenticate must
+            # behave like that 401 -- nothing from the previous principal (user_id, scopes,
+            # claims, tenant) survives, and the authenticated flag is cleared until a credential
+            # verifies again. This is also what keeps a stale tenant_id from satisfying the
+            # fail-closed tenant_for_ws_hydration gate after re-auth as an untenanted identity.
+            # tenancy_enabled is deployment state, not identity, and stays.
+            for key in ("user_id", "scopes", "payload", "tenant_id"):
+                websocket_user_context.pop(key, None)
+            websocket_manager.deauthenticate_websocket(websocket)
+
         def build_ws_auth(is_admin: bool) -> WebSocketAuthContext:
             # Auth context handed to the workflow handlers out-of-band, so they never read
             # internal flags out of the client message. tenant_id/tenancy_enabled come straight
@@ -384,6 +397,8 @@ def get_websocket_router(
 
                 # Handle authentication first
                 if action == "authenticate":
+                    # Every attempt, successful or not, starts from no identity: see drop_identity.
+                    drop_identity()
                     token = message.get("token")
                     if not token:
                         await websocket.send_text(json.dumps({"event": "auth_error", "error": "Token is required"}))
@@ -407,12 +422,9 @@ def get_websocket_router(
                             # Same as the HTTP path (egpt/os/service_accounts.py sets
                             # request.state.tenant_id = account.tenant_id): the account's minted
                             # tenant, verbatim, with no fallback -- None stays None rather than
-                            # becoming the principal. Reset first: a connection can send
-                            # "authenticate" more than once, and a stale tenant_id from a prior
-                            # identity on this same connection must not survive re-auth as an
-                            # untenanted one -- that would silently widen the fail-closed check
-                            # tenant_for_ws_hydration exists to enforce.
-                            websocket_user_context.pop("tenant_id", None)
+                            # becoming the principal. drop_identity() above already cleared any
+                            # tenant from a prior authenticate on this connection, so an
+                            # untenanted account cannot inherit one.
                             if account.tenant_id:
                                 websocket_user_context["tenant_id"] = account.tenant_id
                             await websocket_manager.authenticate_websocket(websocket)
@@ -502,10 +514,8 @@ def get_websocket_router(
                             websocket_user_context["user_id"] = claims["user_id"]
                             websocket_user_context["scopes"] = claims["scopes"]
                             websocket_user_context["payload"] = payload
-                            # Reset first: see the service-account branch above for why a stale
-                            # tenant_id from a prior authenticate on this connection must not
-                            # survive.
-                            websocket_user_context.pop("tenant_id", None)
+                            # drop_identity() already cleared any prior tenant; only a claim on
+                            # *this* token sets one.
                             if tenant_id is not None:
                                 websocket_user_context["tenant_id"] = tenant_id
 

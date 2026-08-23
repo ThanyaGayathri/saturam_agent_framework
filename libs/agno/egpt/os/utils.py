@@ -1399,7 +1399,12 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             if admin_scope:
                 state.admin_scope = admin_scope
             state.user_isolation_enabled = user_isolation
-            state.tenant_id_claim = tenant_id_claim
+            # Guarded like admin_scope above: an entry that names no claim must not clear one
+            # EgptOS (or an earlier entry) already stamped. tenancy_enabled_for_app reads this
+            # attribute for both transports, so an unconditional None here would silently turn
+            # tenancy off everywhere (PR #121 review).
+            if tenant_id_claim:
+                state.tenant_id_claim = tenant_id_claim
 
             return {
                 "validator": lazy_validator,

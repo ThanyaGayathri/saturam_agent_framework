@@ -632,6 +632,44 @@ def test_ws_rejects_a_malformed_tenant_claim_exactly_as_http_does(db_workflow_te
         assert json.loads(ws.receive_text())["event"] == "auth_required"
 
 
+def test_ws_failed_reauthenticate_drops_the_prior_identity(db_workflow_tenancy_client):
+    """A failed re-authenticate must not leave the previous principal live (PR #121 review
+    round 2). Authenticate as tenanted alice, then re-authenticate with a garbage token: the
+    socket must be unauthenticated afterwards -- a start-workflow is answered with
+    auth_required, not a run hydrated under alice's tenant.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    tenanted_token = _issue_tenant_token(secret, os_id, sub="alice", scopes=["workflows:run"], tenant_id="acme")
+
+    async def fake_arun(*_args, **kwargs):
+        run_websocket = kwargs.get("websocket")
+        if run_websocket is not None:
+            await run_websocket.send_text(json.dumps({"event": "WorkflowStarted", "workflow_id": "db-ws-workflow"}))
+
+    # Patched so a regression (the run hydrating under the stale identity) fails the assertion
+    # below instead of hanging on a frame that never arrives.
+    with patch.object(Workflow, "arun", new_callable=AsyncMock, side_effect=fake_arun) as mock_arun:
+        with client.websocket_connect("/workflows/ws") as ws:
+            _authenticate_ws(ws, tenanted_token, expected_user_id="alice")
+
+            ws.send_text(json.dumps({"action": "authenticate", "token": "not-a-jwt"}))
+            auth_frame = json.loads(_drain_until(ws, lambda f: '"event": "auth_error"' in f))
+            assert auth_frame["event"] == "auth_error"
+
+            ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+            frame = json.loads(
+                _drain_until(
+                    ws, lambda f: any(e in f for e in ("WorkflowStarted", '"event": "error"', "auth_required"))
+                )
+            )
+
+    assert frame["event"] == "auth_required", f"Expected the failed re-auth to drop alice's identity, got: {frame}"
+    assert mock_arun.await_count == 0
+
+
 # =============================================================================
 # Workflow Version Tests
 # =============================================================================

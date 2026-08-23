@@ -78,6 +78,12 @@ def _match_workflow_in_memory(
     One pass, shared by every WS hydration call site: whether it exists at all is `in_memory`
     for tenant_for_ws_hydration (code-defined components are exempt from the fail-closed gate),
     and whether the match is a WorkflowFactory decides the start-workflow dispatch branch.
+
+    First match wins, deliberately. The `any()` scans this replaced looked at every entry, so
+    with duplicate ids a plain workflow listed before a factory used to dispatch as the factory;
+    now the earliest entry is the match. Duplicate ids are a misconfiguration, and the only
+    consequence of the difference is which branch dispatches -- the non-factory branch, which
+    is the tenant-gated one.
     """
     if not workflows:
         return None
