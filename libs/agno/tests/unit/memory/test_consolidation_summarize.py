@@ -24,8 +24,12 @@ from egpt.memory.consolidation.summarize import (
     LLMSessionSummarizer,
     SummaryPipeline,
     _batch_id,
+    # Private, imported directly on purpose: the injection guard (no `<episode>`/`</episode>` in
+    # content) is the invariant under test, not `run()`'s wiring around it -- testing it through
+    # the public path would need a full episode/model round trip to exercise one string check.
     _envelope,
 )
+from egpt.memory.strategies.summarize import SummarizeStrategy
 from egpt.memory.tiers import CONSOLIDATION_TARGET, MemoryTier
 from egpt.memory.types import (
     NO_SUMMARY,
@@ -317,6 +321,77 @@ def test_a_global_rollup_row_is_rolling_like_session_not_batched_like_day(clock)
     assert first_global.record.id == second_global.record.id
 
 
+def test_a_global_rollup_folds_the_prior_narrative_forward(clock):
+    """The rolling global row must not discard its own prior content on the next fold -- each
+    fold's ``texts`` must include what the last global fold produced, not just the new day
+    material, or "the single all-time summary" would really be a window of the latest days."""
+    import itertools
+
+    call_count = itertools.count()
+    model = MagicMock(spec=Model)
+    model.response = MagicMock(side_effect=lambda *a, **k: ModelResponse(content=f"fold-{next(call_count)}"))
+    synth = StubSessionSummarizer(fixed=response("session text"))
+    pipe = pipeline(synth, model=model, day_seconds=10, global_seconds=50)
+
+    pipe.run(ACME_SESSION_1, [episode("a", "e1")])
+    clock.advance(11)
+    pipe.run(ACME_SESSION_1, [episode("b", "e2")])
+    clock.advance(51)
+    first_global = next(
+        f for f in pipe.run(ACME_SESSION_1, [episode("c", "e3")]).summaries if f.record.metadata["level"] == "global"
+    )
+    clock.advance(11)
+    pipe.run(ACME_SESSION_1, [episode("d", "e4")])
+    clock.advance(51)
+    second_global = next(
+        f for f in pipe.run(ACME_SESSION_1, [episode("e", "e5")]).summaries if f.record.metadata["level"] == "global"
+    )
+
+    assert second_global.record.content != first_global.record.content, "must actually re-fold, not repeat"
+    second_fold_prompt = str(model.response.call_args_list[-1])
+    assert first_global.record.content in second_fold_prompt, (
+        "the prior global narrative must be one of the texts folded into the next global row"
+    )
+
+
+def test_a_day_facts_provenance_unions_the_session_episodes_it_folded(clock):
+    synth = StubSessionSummarizer(responses=[response("s1"), response("s2")])
+    pipe = pipeline(synth, day_seconds=5)
+
+    pipe.run(ACME_SESSION_1, [episode("a", "e1")])
+    clock.advance(6)
+    report = pipe.run(ACME_SESSION_1, [episode("b", "e2")])
+
+    day_fact = next(f for f in report.summaries if f.record.metadata["level"] == "day")
+    assert sorted(day_fact.source_episode_ids) == ["e1", "e2"]
+    assert sorted(day_fact.record.provenance["source_episode_ids"]) == ["e1", "e2"]
+
+
+def test_a_global_facts_provenance_accumulates_across_rollups(clock):
+    """A global row's citation chain must only ever grow -- the second rollup's provenance must
+    still cite the episodes the first rollup already cited, plus whatever new day folded in."""
+    model = _model_returning("folded")
+    synth = StubSessionSummarizer(fixed=response("s"))
+    pipe = pipeline(synth, model=model, day_seconds=10, global_seconds=50)
+
+    pipe.run(ACME_SESSION_1, [episode("a", "e1")])
+    clock.advance(11)
+    pipe.run(ACME_SESSION_1, [episode("b", "e2")])
+    clock.advance(51)
+    first_global = next(
+        f for f in pipe.run(ACME_SESSION_1, [episode("c", "e3")]).summaries if f.record.metadata["level"] == "global"
+    )
+    assert sorted(first_global.source_episode_ids) == ["e1", "e2"]
+
+    clock.advance(11)
+    pipe.run(ACME_SESSION_1, [episode("d", "e4")])
+    clock.advance(51)
+    second_global = next(
+        f for f in pipe.run(ACME_SESSION_1, [episode("e", "e5")]).summaries if f.record.metadata["level"] == "global"
+    )
+    assert sorted(second_global.source_episode_ids) == ["e1", "e2", "e3", "e4"]
+
+
 def test_day_rollup_spans_multiple_sessions_for_the_same_scope_identity(clock):
     """The rollup key drops ``session_id`` (module docstring) -- two different sessions for the
     same tenant/user must accumulate into *one* pending day bucket, not two independent ones that
@@ -346,7 +421,8 @@ def test_day_pending_is_trimmed_to_max_pending_rollup_items(clock):
     pipe.run(ACME_SESSION_1, [episode("c", "e3")])
 
     rollup_key = Scope(tenant_id="acme", user_id="ada").key()
-    assert pipe._day_pending[rollup_key] == ["s2", "s3"], "oldest ('s1') must drop, newest two must remain"
+    texts = [text for text, _ in pipe._day_pending[rollup_key]]
+    assert texts == ["s2", "s3"], "oldest ('s1') must drop, newest two must remain"
 
 
 def test_global_pending_is_trimmed_to_max_pending_rollup_items(clock):
@@ -371,7 +447,8 @@ def test_global_pending_is_trimmed_to_max_pending_rollup_items(clock):
         clock.advance(2)
 
     rollup_key = Scope(tenant_id="acme", user_id="ada").key()
-    assert pipe._global_pending[rollup_key] == ["day-2", "day-3"], "oldest ('day-1') must drop"
+    texts = [text for text, _ in pipe._global_pending[rollup_key]]
+    assert texts == ["day-2", "day-3"], "oldest ('day-1') must drop"
 
 
 def test_a_rollup_failure_leaves_the_accumulation_and_trigger_armed_for_a_retry(clock):
@@ -452,6 +529,70 @@ def test_max_pending_rollup_items_is_validated(bad):
     with pytest.raises(MemoryOperationError) as excinfo:
         SummaryPipeline(StubSessionSummarizer(), _model_returning("x"), max_pending_rollup_items=bad)
     assert excinfo.value.field_name == "max_pending_rollup_items"
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True])
+def test_max_tracked_scopes_is_validated(bad):
+    with pytest.raises(MemoryOperationError) as excinfo:
+        SummaryPipeline(StubSessionSummarizer(), _model_returning("x"), max_tracked_scopes=bad)
+    assert excinfo.value.field_name == "max_tracked_scopes"
+
+
+def test_session_text_is_lru_evicted_beyond_max_tracked_scopes():
+    """Without a cap, a long-running process would grow one ``_session_text`` entry per session
+    for its entire lifetime (review finding). Capped at 2, a third distinct scope must evict the
+    least-recently-touched one, not merely refuse to grow."""
+    synth = StubSessionSummarizer(fixed=response("s"))
+    pipe = pipeline(synth, max_tracked_scopes=2)
+    scope_a = Scope(tenant_id="acme", user_id="a", session_id="sa")
+    scope_b = Scope(tenant_id="acme", user_id="b", session_id="sb")
+    scope_c = Scope(tenant_id="acme", user_id="c", session_id="sc")
+
+    pipe.run(scope_a, [episode("x", "ea", scope=scope_a)])
+    pipe.run(scope_b, [episode("y", "eb", scope=scope_b)])
+    pipe.run(scope_c, [episode("z", "ec", scope=scope_c)])
+
+    assert scope_a.key() not in pipe._session_text, "least-recently-used scope must be evicted"
+    assert scope_b.key() in pipe._session_text
+    assert scope_c.key() in pipe._session_text
+
+
+def test_session_text_lru_eviction_respects_recency_not_just_insertion_order():
+    """Touching an existing scope again must refresh its recency -- eviction should drop the
+    scope that has gone longest untouched, not simply the one inserted first."""
+    synth = StubSessionSummarizer(fixed=response("s"))
+    pipe = pipeline(synth, max_tracked_scopes=2)
+    scope_a = Scope(tenant_id="acme", user_id="a", session_id="sa")
+    scope_b = Scope(tenant_id="acme", user_id="b", session_id="sb")
+    scope_c = Scope(tenant_id="acme", user_id="c", session_id="sc")
+
+    pipe.run(scope_a, [episode("x", "ea", scope=scope_a)])
+    pipe.run(scope_b, [episode("y", "eb", scope=scope_b)])
+    pipe.run(scope_a, [episode("x2", "ea2", scope=scope_a)])  # touches `a` again -- now `b` is oldest
+    pipe.run(scope_c, [episode("z", "ec", scope=scope_c)])
+
+    assert scope_b.key() not in pipe._session_text, "b was least-recently touched, not a"
+    assert scope_a.key() in pipe._session_text
+    assert scope_c.key() in pipe._session_text
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_fold_refuses_a_rollup_strategy_returning_more_than_one_result(is_async):
+    """The default ``SummarizeStrategy`` always returns one folded memory, but a caller-supplied
+    ``rollup_strategy`` is not guaranteed to -- the mismatch must surface as a named
+    ``MemoryOperationError``, not an opaque tuple-unpack ``ValueError``."""
+
+    class TwoResultStrategy(SummarizeStrategy):
+        def optimize(self, memories, model):
+            return [memories[0], memories[0]]
+
+        async def aoptimize(self, memories, model):
+            return [memories[0], memories[0]]
+
+    pipe = pipeline(rollup_strategy=TwoResultStrategy())
+    with pytest.raises(MemoryOperationError) as excinfo:
+        asyncio.run(pipe._afold(["t"], "u")) if is_async else pipe._fold(["t"], "u")
+    assert excinfo.value.field_name == "rollup_strategy"
 
 
 @pytest.mark.parametrize("is_async", [False, True])

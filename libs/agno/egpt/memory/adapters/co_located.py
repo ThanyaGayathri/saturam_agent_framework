@@ -1279,8 +1279,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
         logged rather than propagated, for the identical reason ``_reflect``'s docstring gives at
         length: summarization is optional and additive, an LLM call is the flakiest step in this
         lane, and the mandatory dedup/entity/relation work bolted onto the same pass must not go
-        down because a summarizer had a bad day. The pipeline's own accumulators are left armed on
-        failure (``SummaryPipeline.run``'s docstring), so the next pass retries.
+        down because a summarizer had a bad day.
+
+        **Retry safety is not uniform across the two things this pass can fail at.** A day/global
+        *fold* failure genuinely retries: ``SummaryPipeline``'s own pending accumulation and trigger
+        are left armed (its ``_roll_up_day``/``_roll_up_global`` docstrings), untouched by anything
+        that happens up here, so the next call to this same pipeline instance folds the identical
+        pending set again. A *session-narration* failure does not have that guarantee: this
+        episodic batch's episodes are still consumed by ``consolidate``'s own scan cursor
+        regardless of whether summarization succeeded (that cursor is shared with dedup/entity/
+        relation extraction, not owned by this pipeline), so the next ``consolidate`` call scans a
+        new batch and these specific episodes are never re-presented to the session summarizer.
+        Unlike ``ReflectionPipeline`` -- whose whole flow *is* the accumulate-then-conditionally-fire
+        pattern, so its "will retry next pass" claim covers everything it does -- this pipeline has
+        a step (session narration) that sits outside that pattern, which is why the same claim does
+        not cover it here. Giving this pipeline its own resumption cursor, independent of
+        ``consolidate``'s, would close the gap; this ticket does not make that change.
 
         **``MemoryScopeRequiredError`` is not caught here -- it propagates**, the same carve-out
         ``_reflect`` makes: a scope failing its own validity check is a caller bug, not a runtime
