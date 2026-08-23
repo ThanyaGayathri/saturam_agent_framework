@@ -8,53 +8,16 @@ vector-store call and the graph-store call are genuinely concurrent on the async
 """
 
 import asyncio
-from dataclasses import replace
-from typing import Optional
+
+import pytest
 
 from egpt.memory.retrieval.orchestrator import RetrievalLegs, aorchestrate, orchestrate
 from egpt.memory.substrates import HybridSearchSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import (
-    MemoryEvent,
-    MemoryQuery,
-    MemoryRecord,
-    RetrievalCandidates,
-    Scope,
-    Substrate,
-    require_scope,
-)
-from tests.unit.memory._fakes import FakeGraph, FakeVector, _ranked, _yield, current_belief, overlap
+from egpt.memory.types import MemoryEvent, MemoryQuery, MemoryRecord, Scope, Substrate
+from tests.unit.memory._fakes import FakeGraph, FakeHybridVector, FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="u1")
-
-
-class FakeHybridVector(FakeVector):
-    """A ``FakeVector`` that also satisfies ``HybridSearchSubstrate`` (SM-V3 #97 shape).
-
-    The lexical leg scores on exact substring containment rather than reusing ``overlap`` (the
-    vector leg's scorer) -- distinct enough that a test mixing the two legs up would fail, which a
-    lexical leg computed identically to the vector one could not catch.
-    """
-
-    def search_candidates(
-        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
-    ) -> RetrievalCandidates:
-        require_scope(scope, method="search_candidates")
-        self.calls.append("search_candidates")  # one round trip: never also logs "search"
-        tiers = {tier} if tier else set(query.resolved_tiers())
-        eligible = [r for r in self._matching(scope) if r.tier in tiers and current_belief(r)]
-        vector_hits = _ranked([replace(r, score=overlap(query.text, r.content)) for r in eligible], query.limit)
-        lexical = _ranked(
-            [replace(r, score=1.0) for r in eligible if query.text.lower() in r.content.lower()], query.limit
-        )
-        return RetrievalCandidates(vector=vector_hits, lexical=lexical)
-
-    async def asearch_candidates(
-        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
-    ) -> RetrievalCandidates:
-        await _yield()
-        self.calls.append("asearch_candidates")
-        return self.search_candidates(scope, query, tier)
 
 
 def record(id_="r1", content="alpha beta", tier=MemoryTier.EPISODIC, scope=ACME, **kwargs):
@@ -100,6 +63,16 @@ def test_a_none_substrate_produces_an_empty_leg_rather_than_an_error():
 
 def test_a_query_naming_only_graph_never_touches_the_vector_store():
     vector, graph = seeded_vector(), seeded_graph()
+    legs = orchestrate(ACME, query(substrates=[Substrate.GRAPH]), vector=vector, graph=graph)
+    assert legs.vector == [] and legs.lexical == []
+    assert vector.calls == []
+    assert [r.id for r in legs.graph] == ["g0"]
+
+
+def test_a_query_naming_only_graph_skips_the_hybrid_stores_round_trip_too():
+    """A hybrid store has two entrypoints (`search` and `search_candidates`); a query excluding
+    `Substrate.VECTOR` must call neither, not only the one a plain `FakeVector` would have used."""
+    vector, graph = seeded_vector(FakeHybridVector), seeded_graph()
     legs = orchestrate(ACME, query(substrates=[Substrate.GRAPH]), vector=vector, graph=graph)
     assert legs.vector == [] and legs.lexical == []
     assert vector.calls == []
@@ -199,14 +172,14 @@ async def test_a_hybrid_vector_uses_asearch_candidates_never_asearch():
     assert "asearch" not in vector.calls and "search" not in vector.calls
 
 
-async def test_async_and_sync_orchestration_agree_on_which_legs_run():
-    for substrates in (None, [Substrate.VECTOR], [Substrate.GRAPH]):
-        vector, graph = seeded_vector(FakeHybridVector), seeded_graph()
-        sync_legs = orchestrate(ACME, query(substrates=substrates), vector=vector, graph=graph)
+@pytest.mark.parametrize("substrates", [None, [Substrate.VECTOR], [Substrate.GRAPH]])
+async def test_async_and_sync_orchestration_agree_on_which_legs_run(substrates):
+    vector, graph = seeded_vector(FakeHybridVector), seeded_graph()
+    sync_legs = orchestrate(ACME, query(substrates=substrates), vector=vector, graph=graph)
 
-        vector2, graph2 = seeded_vector(FakeHybridVector), seeded_graph()
-        async_legs = await aorchestrate(ACME, query(substrates=substrates), vector=vector2, graph=graph2)
+    vector2, graph2 = seeded_vector(FakeHybridVector), seeded_graph()
+    async_legs = await aorchestrate(ACME, query(substrates=substrates), vector=vector2, graph=graph2)
 
-        assert [r.id for r in sync_legs.vector] == [r.id for r in async_legs.vector]
-        assert [r.id for r in sync_legs.lexical] == [r.id for r in async_legs.lexical]
-        assert [r.id for r in sync_legs.graph] == [r.id for r in async_legs.graph]
+    assert [r.id for r in sync_legs.vector] == [r.id for r in async_legs.vector]
+    assert [r.id for r in sync_legs.lexical] == [r.id for r in async_legs.lexical]
+    assert [r.id for r in sync_legs.graph] == [r.id for r in async_legs.graph]

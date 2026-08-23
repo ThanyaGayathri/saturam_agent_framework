@@ -974,6 +974,7 @@ class RetrievalCandidates:
 FUSION_KEYS = (
     "method",
     "vector_hits",
+    "lexical_hits",
     "graph_hits",
     "fused",
     "returned",
@@ -987,6 +988,7 @@ FUSION_KEYS = (
 def fusion_diagnostics(
     method: Optional[str],
     vector_hits: int = 0,
+    lexical_hits: int = 0,
     graph_hits: int = 0,
     fused: int = 0,
     returned: int = 0,
@@ -1005,6 +1007,10 @@ def fusion_diagnostics(
     diagnostics: Dict[str, Any] = {
         "method": method,
         "vector_hits": vector_hits,
+        # A leg no wired `HybridSearchSubstrate` contributes reports 0 here -- the same "ran and
+        # matched nothing" vs. "did not run" ambiguity `RetrievalLegs` names does not apply to a
+        # count, so no separate marker is needed: 0 is honest whichever reason produced it.
+        "lexical_hits": lexical_hits,
         "graph_hits": graph_hits,
         "fused": fused,
         "returned": returned,

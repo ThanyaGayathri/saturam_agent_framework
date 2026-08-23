@@ -30,7 +30,7 @@ from egpt.memory.types import (
     Substrate,
 )
 from egpt.utils.dttm import now_epoch_s
-from tests.unit.memory._fakes import FakeGraph, FakeVector, _yield, assert_ports_satisfied
+from tests.unit.memory._fakes import FakeGraph, FakeHybridVector, FakeVector, _yield, assert_ports_satisfied
 
 ACME = Scope(tenant_id="acme", user_id="u1")
 OTHER = Scope(tenant_id="globex", user_id="u1")
@@ -1115,6 +1115,46 @@ def test_the_fusion_payload_carries_every_contract_key():
     p.write(ACME, [event("alpha")])
 
     assert set(FUSION_KEYS) <= set(p.read(ACME, MemoryQuery(text="alpha")).fusion)
+
+
+def test_a_wired_hybrid_store_reports_a_nonzero_lexical_hits_count():
+    """`test_the_fusion_payload_carries_every_contract_key` uses a plain `FakeVector`, so it can
+    only ever see `lexical_hits=0` -- that a wired `HybridSearchSubstrate` actually populates the
+    key needs a hybrid double (SM-H1 #131 round-1 review, finding 3)."""
+    vector, graph = FakeHybridVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph)
+    p.write(ACME, [event("alpha beta", id="e1")])
+
+    fusion = p.read(ACME, MemoryQuery(text="alpha")).fusion
+    assert fusion["lexical_hits"] >= 1
+
+
+def test_the_lexical_leg_does_not_affect_ranking_ahead_of_sm_h2():
+    """The lexical leg is diagnostics-only until SM-H2 picks a fusion strategy (ADR 0003 A.6):
+    folding it into `_merge`'s score-sum would have this ticket implicitly decide how BM25 weighs
+    against vector/graph. On word overlap alone `e2` ("dog extra cat", 0.667) outranks `e1`
+    ("cat dog zzz yyy xxx", 0.4) on both the vector and graph legs; `e1` is also the only one
+    containing the literal query substring "cat dog", so a lexical leg folded into the sum would
+    add 1.0 and flip the order to `e1` first. It must not flip."""
+    vector, graph = FakeHybridVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph)
+    p.write(ACME, [event("dog extra cat", id="e2"), event("cat dog zzz yyy xxx", id="e1")])
+
+    slice_ = p.read(ACME, MemoryQuery(text="cat dog"))
+    assert slice_.fusion["lexical_hits"] == 1  # only `e1` contains "cat dog" literally
+    assert [r.id for r in slice_.records] == ["e2", "e1"]
+
+
+async def test_the_async_read_agrees_with_the_sync_one_on_the_hybrid_leg():
+    """`aread`'s twin of the test above: same wiring, same query, same lexical-hits count and the
+    same ranking outcome -- not merely that `aread` also runs without raising."""
+    vector, graph = FakeHybridVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph)
+    p.write(ACME, [event("dog extra cat", id="e2"), event("cat dog zzz yyy xxx", id="e1")])
+
+    slice_ = await p.aread(ACME, MemoryQuery(text="cat dog"))
+    assert slice_.fusion["lexical_hits"] == 1
+    assert [r.id for r in slice_.records] == ["e2", "e1"]
 
 
 def test_reading_the_working_tier_is_empty_while_writing_it_is_refused():

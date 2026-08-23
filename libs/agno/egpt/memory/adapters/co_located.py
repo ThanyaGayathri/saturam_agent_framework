@@ -788,6 +788,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             fusion=fusion_diagnostics(
                 method="score_sum",
                 vector_hits=len(vector_hits),
+                lexical_hits=len(lexical_hits),
                 graph_hits=len(graph_hits),
                 fused=len(merged),
                 returned=len(records),
@@ -819,10 +820,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # was asked about. `False` means rows the graph might have bounded went unchecked.
                 bounds_reconciled=bounds_reconciled,
                 instant=instant,
-                # Extra, not in `FUSION_KEYS`'s floor: a provider with no `HybridSearchSubstrate`
-                # store reports 0 here, same as a wired store whose lexical leg matched nothing --
-                # both are correctly zero, and neither is this key's job to tell apart.
-                lexical_hits=len(lexical_hits),
             ),
         )
 
@@ -868,7 +865,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         legs = orchestrate(scope, query, vector=self.vector, graph=self.graph)
-        merged = self._merged(scope, query, legs.as_lists(), method=method)
+        # The lexical leg does NOT enter `_merged`: `_merge`'s score-sum is a ranking strategy,
+        # and folding a leg no ratified strategy has decided how to weigh (ADR 0003 A.6, held
+        # open pending SM-H2) would decide it by construction, not by measurement. It surfaces
+        # only as a diagnostic count below, until SM-H2 says how it participates in ranking.
+        merged = self._merged(scope, query, [legs.vector, legs.graph], method=method)
         reconciled = self._reconcile_bounds(scope, merged)
         return self._slice(scope, query, merged, legs.vector, legs.graph, instant, reconciled, legs.lexical)
 
@@ -881,7 +882,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         legs = await aorchestrate(scope, query, vector=self.vector, graph=self.graph)
-        merged = self._merged(scope, query, legs.as_lists(), method=method)
+        # See `_read`'s comment: the lexical leg is diagnostics-only until SM-H2 picks a strategy.
+        merged = self._merged(scope, query, [legs.vector, legs.graph], method=method)
         reconciled = await self._areconcile_bounds(scope, merged)
         return self._slice(scope, query, merged, legs.vector, legs.graph, instant, reconciled, legs.lexical)
 

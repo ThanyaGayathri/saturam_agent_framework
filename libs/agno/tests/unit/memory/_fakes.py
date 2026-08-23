@@ -32,7 +32,7 @@ from egpt.memory.graph.episodic import (
     require_time_window,
 )
 from egpt.memory.graph.semantic import require_fact_filters
-from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
+from egpt.memory.substrates import GraphSubstrate, HybridSearchSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     SCOPE_SLOTS,
@@ -43,6 +43,7 @@ from egpt.memory.types import (
     MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
+    RetrievalCandidates,
     ScanCursor,
     Scope,
     Substrate,
@@ -244,6 +245,35 @@ class FakeVector:
         await _yield()
         self.calls.append("ascan")
         return self.scan(scope, tier, limit, after)
+
+
+class FakeHybridVector(FakeVector):
+    """A ``FakeVector`` that also satisfies ``HybridSearchSubstrate`` (SM-V3 #97 shape).
+
+    The lexical leg scores on exact substring containment rather than reusing ``overlap`` (the
+    vector leg's scorer) -- distinct enough that a test mixing the two legs up would fail, which a
+    lexical leg computed identically to the vector one could not catch.
+    """
+
+    def search_candidates(
+        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
+    ) -> RetrievalCandidates:
+        require_scope(scope, method="search_candidates")
+        self.calls.append("search_candidates")  # one round trip: never also logs "search"
+        tiers = {tier} if tier else set(query.resolved_tiers())
+        eligible = [r for r in self._matching(scope) if r.tier in tiers and current_belief(r)]
+        vector_hits = _ranked([replace(r, score=overlap(query.text, r.content)) for r in eligible], query.limit)
+        lexical = _ranked(
+            [replace(r, score=1.0) for r in eligible if query.text.lower() in r.content.lower()], query.limit
+        )
+        return RetrievalCandidates(vector=vector_hits, lexical=lexical)
+
+    async def asearch_candidates(
+        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
+    ) -> RetrievalCandidates:
+        await _yield()
+        self.calls.append("asearch_candidates")
+        return self.search_candidates(scope, query, tier)
 
 
 class FakeGraph:
@@ -949,3 +979,4 @@ def assert_ports_satisfied() -> None:
     """The doubles must satisfy the real ports, or these tests prove nothing about backends."""
     assert isinstance(FakeVector(), VectorSubstrate)
     assert isinstance(FakeGraph(), GraphSubstrate)
+    assert isinstance(FakeHybridVector(), HybridSearchSubstrate)
