@@ -86,17 +86,30 @@ def test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_pass
     assert report2.updated == 1
 
     # Both substrates upsert *by id* (``VectorSubstrate.upsert``'s own contract), so the current
-    # state after both passes is the by-id merge, later pass winning -- exactly what pass 2's
-    # retired copy of "f1" does to pass 1's live one, both sharing that id.
-    by_id = {f.record.id: f for f in [*facts1, *facts2]}
+    # state after both passes is the by-id merge, later pass winning. Exactly one id collision is
+    # expected here -- pass 2's retired copy of the berlin fact reuses pass 1's live one's id, by
+    # design (that *is* the update/supersede scenario) -- so a blanket "no collisions" assertion
+    # would fail against this test's own scenario. Pin the collision set to exactly that one id
+    # instead: an *unexpected* second collision (e.g. the new lisbon fact's id colliding with
+    # something) would still be caught, without a false alarm on the expected one.
+    all_raw = [*facts1, *facts2]
+    ids = [f.record.id for f in all_raw]
+    duplicate_ids = {i for i in ids if ids.count(i) > 1}
+    assert duplicate_ids == {berlin_fact.record.id}, (
+        f"expected only the retired berlin fact to reuse pass 1's id, got duplicates: {duplicate_ids}"
+    )
+    by_id = {f.record.id: f for f in all_raw}
     all_facts = list(by_id.values())
     active = [f for f in all_facts if f.record.expired_at is None]
     retired = [f for f in all_facts if f.record.expired_at is not None]
 
-    # -- fact_recall: exactly the correct final state is live (ratified >= 0.95; measured 1.0) --
+    # -- fact_recall: exactly the correct final state is live. The ratified gate's `>= 0.95`
+    # threshold is a labelled, corpus-scale metric (benchmarks/memory_consolidation); this 1/1
+    # sample cannot exercise that threshold meaningfully -- it pins exact equality on the pipeline's
+    # own decision, not a recall score at scale. --
     assert [f.record.content for f in active] == ["ada lives in lisbon"]
 
-    # -- dedup: one active fact about ada's city, not two (ratified dedup_score >= 0.75) --
+    # -- dedup: one active fact about ada's city, not two --
     assert len(active) == 1
 
     # -- conflict handling / anti-lossiness: supersede, never overwrite (RESEARCH.md section 8 --
@@ -104,6 +117,7 @@ def test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_pass
     assert len(retired) == 1
     assert retired[0].record.content == "ada lives in berlin"
     assert retired[0].record.superseded_by == active[0].record.id
+    assert berlin_fact.record.t_valid is not None, "pipeline must set t_valid for the comparison below to be meaningful"
     assert retired[0].record.t_valid == berlin_fact.record.t_valid, "valid time is untouched by retirement"
 
     # -- provenance_validity: every citation, live and retired alike, resolves (ratified == 1.0) --
@@ -111,8 +125,11 @@ def test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_pass
     assert report.is_valid is True
     assert report.validity == 1.0
 
-    # -- provenance is unioned forward across the update, not dropped (AC#2) --
-    assert set(active[0].record.provenance["source_episode_ids"]) == {"e1", "e2"}
+    # -- provenance is unioned forward across the update, not dropped (AC#2). Asserted on
+    # `FactWrite.source_episode_ids`, the canonical field `provenance_report` itself reads --
+    # `record.provenance["source_episode_ids"]` is a projection of it and would raise `KeyError`
+    # rather than fail cleanly if that projection's key ever changed. --
+    assert set(active[0].source_episode_ids) == {"e1", "e2"}
 
 
 def test_a_dangling_citation_would_fail_the_gate():

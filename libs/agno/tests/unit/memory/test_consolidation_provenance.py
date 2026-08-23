@@ -6,6 +6,10 @@ one: no gold facts are needed, only a live-episode-id set, so the acceptance cri
 "a fact citing a real episode counts as valid; a fact citing a made-up id does not".
 """
 
+import dataclasses
+
+import pytest
+
 from egpt.memory.consolidation.provenance import (
     ProvenanceReport,
     dangling_source_episode_ids,
@@ -54,7 +58,7 @@ def test_provenance_report_all_valid():
     facts = [a_fact("f1", ["e1"]), a_fact("f2", ["e1", "e2"])]
     report = provenance_report(facts, {"e1", "e2"})
     assert report.checked == 2
-    assert report.dangling == []
+    assert report.dangling == ()
     assert report.validity == 1.0
     assert report.is_valid is True
 
@@ -62,7 +66,7 @@ def test_provenance_report_all_valid():
 def test_provenance_report_flags_a_dangling_citation():
     facts = [a_fact("f1", ["e1"]), a_fact("f2", ["ghost"])]
     report = provenance_report(facts, {"e1"})
-    assert report.dangling == ["f2"]
+    assert report.dangling == ("f2",)
     assert report.validity == 0.5
     assert report.is_valid is False
 
@@ -70,7 +74,7 @@ def test_provenance_report_flags_a_dangling_citation():
 def test_provenance_report_a_fact_is_dangling_if_any_one_citation_is_missing():
     facts = [a_fact("f1", ["e1", "ghost"])]
     report = provenance_report(facts, {"e1"})
-    assert report.dangling == ["f1"]
+    assert report.dangling == ("f1",)
     assert report.validity == 0.0
 
 
@@ -79,7 +83,7 @@ def test_provenance_report_ungrounded_fact_with_no_citations_is_valid_not_dangli
     # (extract.py), not a dangling reference -- this report must not double-count it.
     facts = [a_fact("f1", [])]
     report = provenance_report(facts, set())
-    assert report.dangling == []
+    assert report.dangling == ()
     assert report.validity == 1.0
 
 
@@ -100,6 +104,8 @@ def test_provenance_report_archived_episode_still_resolves():
 
 
 def test_provenance_report_is_a_frozen_dataclass():
-    report = ProvenanceReport(checked=1, dangling=["f1"])
+    report = ProvenanceReport(checked=1, dangling=("f1",))
     assert report.checked == 1
-    assert report.dangling == ["f1"]
+    assert report.dangling == ("f1",)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        report.checked = 2  # type: ignore[misc]

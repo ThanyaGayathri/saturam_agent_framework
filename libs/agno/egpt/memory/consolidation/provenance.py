@@ -24,8 +24,8 @@ dangling citation is wrong regardless of what the fact should have said -- which
 the one metric from that ratified gate this module can enforce at runtime, not only in CI.
 """
 
-from dataclasses import dataclass, field
-from typing import AbstractSet, List, Sequence
+from dataclasses import dataclass
+from typing import AbstractSet, List, Sequence, Tuple
 
 from egpt.memory.types import FactWrite
 
@@ -50,10 +50,15 @@ class ProvenanceReport:
     ``dangling`` names which facts failed, by ``record.id`` -- never by content or the offending
     episode id in a log line, matching :func:`~egpt.memory.validation.assert_scope_isolation`'s own
     reasoning: "which fact, how many missing citations" is what an operator acts on.
+
+    ``Tuple[str, ...]``, not ``List[str]`` -- ``frozen=True`` blocks reassigning the attribute, but
+    a mutable field value is still reachable and mutable in place (``report.dangling.append(...)``),
+    which would silently invalidate ``is_valid`` for any other holder of the same report without
+    raising anything. A tuple closes that gap; a list only looked like it did (round-1 review).
     """
 
     checked: int
-    dangling: List[str] = field(default_factory=list)
+    dangling: Tuple[str, ...] = ()
 
     @property
     def validity(self) -> float:
@@ -91,9 +96,9 @@ def provenance_report(facts: Sequence[FactWrite], live_episode_ids: AbstractSet[
     provenance points at history that happened, not at the episode's current retention state --
     the same distinction :mod:`egpt.memory.episodic.forget` draws between archiving and deleting.
     """
-    dangling = [
-        fact.record.id
-        for fact in facts
-        if fact.record.id is not None and dangling_source_episode_ids(fact, live_episode_ids)
-    ]
+    # No `fact.record.id is not None` guard here (round-1 review): `MemoryRecord.id` is typed
+    # `str`, and `__post_init__` raises on any falsy value, so no successfully constructed record
+    # can reach this loop with `id=None` -- the guard was dead and implied a skip path that cannot
+    # exist.
+    dangling = tuple(fact.record.id for fact in facts if dangling_source_episode_ids(fact, live_episode_ids))
     return ProvenanceReport(checked=len(facts), dangling=dangling)
