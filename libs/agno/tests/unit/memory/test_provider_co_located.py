@@ -571,8 +571,9 @@ def test_contradictions_resolved_stays_zero_with_no_relation_pipeline_wired():
 
 class _RelationStub:
     """Returns one relation per episode, keyed on content -- same shape as
-    ``test_graph_relations.py``'s ``StubExtractor``, kept local since it is used by exactly one
-    test in this file."""
+    ``test_graph_relations.py``'s ``StubExtractor``, kept local since only two tests in this file
+    use it (review finding, PR #126 round 1: move to ``conftest.py`` once a *second* file needs a
+    stub ``RelationExtractor``, not before)."""
 
     def __init__(self, by_content):
         self.by_content = by_content
