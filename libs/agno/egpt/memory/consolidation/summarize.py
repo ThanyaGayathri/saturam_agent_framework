@@ -146,9 +146,7 @@ class SessionSummarizer(Protocol):
     strikes: a summarizer with only the sync verb blocks the async consolidation lane's event loop.
     """
 
-    def summarize(
-        self, prior: Optional[str], episodes: Sequence[MemoryRecord]
-    ) -> Optional[SessionSummaryResponse]:
+    def summarize(self, prior: Optional[str], episodes: Sequence[MemoryRecord]) -> Optional[SessionSummaryResponse]:
         """Narrate ``episodes`` folded onto ``prior`` (the scope's existing rolling summary, or
         ``None`` on its first pass), or ``None`` if nothing meaningful was produced."""
         ...
@@ -338,7 +336,14 @@ def _batch_id(scope: Scope, level: str, texts: Sequence[str]) -> str:
 
 
 def _summary_fact(
-    *, id_: str, scope: Scope, content: str, topics: Optional[List[str]], level: str, source_episode_ids: List[str], now: int
+    *,
+    id_: str,
+    scope: Scope,
+    content: str,
+    topics: Optional[List[str]],
+    level: str,
+    source_episode_ids: List[str],
+    now: int,
 ) -> FactWrite:
     return FactWrite(
         record=MemoryRecord(
