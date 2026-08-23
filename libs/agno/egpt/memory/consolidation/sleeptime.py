@@ -92,7 +92,15 @@ class SleepWindow:
 
     def contains(self, now: float) -> bool:
         """Whether the wall-clock hour at epoch second ``now``, in ``tz``, falls in this window."""
-        assert self._tz_obj is not None  # set by `__post_init__`, which every construction path runs
+        if self._tz_obj is None:
+            # `__post_init__` always sets this before returning -- reachable only if a caller
+            # somehow bypassed it (e.g. via `object.__new__`), not through ordinary construction.
+            # An `assert` here would be silently stripped under `python -O`, turning that into an
+            # `AttributeError` from `datetime.fromtimestamp(tz=None)` instead of a clear diagnosis.
+            raise RuntimeError(
+                "SleepWindow._tz_obj is unset -- __post_init__ did not run. "
+                "Construct SleepWindow normally rather than bypassing __init__."
+            )
         hour = datetime.fromtimestamp(now, tz=self._tz_obj).hour
         if self.start_hour < self.end_hour:
             return self.start_hour <= hour < self.end_hour
@@ -121,8 +129,11 @@ class SleepTimeTrigger(ConsolidationTrigger):
     """
 
     def __init__(self, inner: ConsolidationTrigger, window: SleepWindow) -> None:
-        self._inner = inner
-        self._window = window
+        self._inner: ConsolidationTrigger = inner
+        self._window: SleepWindow = window
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(inner={self._inner!r}, window={self._window!r})"
 
     def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
         result = self._inner.record_event(scope, now=now, size=size)  # type: ignore[func-returns-value]
@@ -161,6 +172,11 @@ class SleepTimeScheduleConfig:
     mode: ProviderMode = ProviderMode.LOCAL
 
     def __post_init__(self) -> None:
+        if not isinstance(self.window, SleepWindow):
+            raise MemoryProviderConfigError(
+                f"window must be a SleepWindow, got {type(self.window).__name__}.",
+                field_name="window",
+            )
         # Validates only; the validated value itself is not stored here because
         # `build_sleep_time_trigger`'s default `IdleTrigger(config.idle_seconds)` re-validates
         # it at construction, so this config object has nothing further to do with the result.

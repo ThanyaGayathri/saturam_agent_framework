@@ -26,6 +26,22 @@ def _utc(hour: int, minute: int = 0) -> float:
     return datetime(2026, 1, 1, hour, minute, tzinfo=timezone.utc).timestamp()
 
 
+class _AsyncInner:
+    """A `ConsolidationTrigger`-shaped object whose methods are all `async def` -- nothing at the
+    type level stops a caller from handing `SleepTimeTrigger` one of these, so every delegated
+    method needs its own `_reject_coroutine` guard, not just `should_fire`.
+    """
+
+    async def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
+        pass
+
+    async def should_fire(self, scope: Scope, *, now: float) -> bool:
+        return False  # would mean "not due" if this were awaited -- it is not
+
+    async def reset(self, scope: Scope) -> None:
+        pass
+
+
 class TestSleepWindow:
     @pytest.mark.parametrize("start_hour,end_hour", [(-1, 5), (24, 5), (5, 24), (5, -1)])
     def test_construction_refuses_an_out_of_range_hour(self, start_hour, end_hour):
@@ -110,12 +126,12 @@ class TestSleepWindow:
         assert window.contains(_utc(0)) is False
 
     def test_evaluates_in_the_configured_timezone(self):
-        """03:00 UTC is 22:00 the prior day in US/Eastern (UTC-5) -- a window scoped to
-        US/Eastern's 01:00-06:00 must not fire on a UTC hour that only looks like it matches.
+        """03:00 UTC is 22:00 the prior day in America/New_York (UTC-5) -- a window scoped to
+        America/New_York's 01:00-06:00 must not fire on a UTC hour that only looks like it matches.
         """
-        window = SleepWindow(start_hour=1, end_hour=6, tz="US/Eastern")
-        assert window.contains(_utc(3)) is False  # 22:00 US/Eastern the prior day
-        assert window.contains(_utc(9)) is True  # 04:00 US/Eastern
+        window = SleepWindow(start_hour=1, end_hour=6, tz="America/New_York")
+        assert window.contains(_utc(3)) is False  # 22:00 America/New_York the prior day
+        assert window.contains(_utc(9)) is True  # 04:00 America/New_York
 
     def test_correct_across_spring_forward(self):
         """2026-03-08 07:00 UTC is 03:00 EDT in `America/New_York` -- clocks jumped from 02:00 to
@@ -203,21 +219,20 @@ class TestSleepTimeTrigger:
         """
 
         class ExplodingInner:
-            def record_event(self, scope, *, now, size=1.0):
+            def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
                 pass
 
-            def should_fire(self, scope, *, now):
+            def should_fire(self, scope: Scope, *, now: float) -> bool:
                 raise AssertionError("inner.should_fire must not be called outside the window")
 
-            def reset(self, scope):
+            def reset(self, scope: Scope) -> None:
                 pass
 
         trigger = SleepTimeTrigger(ExplodingInner(), SleepWindow(start_hour=1, end_hour=6))
         assert trigger.should_fire(ACME, now=_utc(12, 0)) is False  # outside the window
 
-    def test_an_async_inner_trigger_raises_instead_of_being_silently_discarded(self):
-        """`inner` is a caller-supplied `ConsolidationTrigger`, and nothing at the type level
-        stops it from being `async def` -- mirrors
+    def test_an_async_inner_should_fire_raises_instead_of_being_silently_discarded(self):
+        """Mirrors
         `test_consolidation_worker.test_an_async_trigger_raises_instead_of_silently_draining_everything`,
         pinned here at the `SleepTimeTrigger` layer specifically, since it wraps `inner` with its
         own delegation rather than being `inner` itself.
@@ -226,24 +241,41 @@ class TestSleepTimeTrigger:
         a `bool(<coroutine>)` (always `True`) instead of raising `TypeError` -- inside the window,
         exactly the scenario `AnyTrigger`'s own guard exists to prevent.
         """
-
-        class AsyncInner:
-            async def record_event(self, scope, *, now, size=1.0):
-                pass
-
-            async def should_fire(self, scope, *, now):
-                return False  # would mean "not due" if this were awaited -- it is not
-
-            async def reset(self, scope):
-                pass
-
-        trigger = SleepTimeTrigger(AsyncInner(), SleepWindow(start_hour=1, end_hour=6))
+        trigger = SleepTimeTrigger(_AsyncInner(), SleepWindow(start_hour=1, end_hour=6))
 
         with pytest.raises(TypeError, match="coroutine"):
             trigger.should_fire(ACME, now=_utc(2, 0))  # inside the window, so `inner` is actually consulted
 
+    def test_an_async_inner_record_event_raises_instead_of_being_silently_discarded(self):
+        """`record_event` is typed `-> None`; without its own `_reject_coroutine` guard, an async
+        `inner.record_event` returns an un-awaited, un-run coroutine that is simply discarded --
+        `inner`'s state would never actually update, with no error anywhere to say so.
+        """
+        trigger = SleepTimeTrigger(_AsyncInner(), SleepWindow(start_hour=1, end_hour=6))
+
+        with pytest.raises(TypeError, match="coroutine"):
+            trigger.record_event(ACME, now=_utc(2, 0))
+
+    def test_an_async_inner_reset_raises_instead_of_being_silently_discarded(self):
+        """Same failure mode as `record_event`, for `reset`: a discarded coroutine would leave
+        `inner`'s accumulated state never actually cleared.
+        """
+        trigger = SleepTimeTrigger(_AsyncInner(), SleepWindow(start_hour=1, end_hour=6))
+
+        with pytest.raises(TypeError, match="coroutine"):
+            trigger.reset(ACME)
+
 
 class TestSleepTimeScheduleConfig:
+    def test_rejects_a_window_that_is_not_a_sleepwindow(self):
+        """Without this check, a caller passing e.g. a plain tuple builds cleanly here and only
+        fails deep inside `SleepTimeTrigger.should_fire` -> `window.contains`, with a traceback
+        that names neither this config object nor the field that caused it.
+        """
+        with pytest.raises(MemoryProviderConfigError, match="window") as exc_info:
+            SleepTimeScheduleConfig(window=(1, 6), idle_seconds=300)
+        assert exc_info.value.field_name == "window"
+
     def test_defaults_to_mode_a(self):
         config = SleepTimeScheduleConfig(window=SleepWindow(1, 6), idle_seconds=300)
         assert config.mode is ProviderMode.LOCAL
