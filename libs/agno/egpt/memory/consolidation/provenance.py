@@ -22,6 +22,18 @@ harness/metrics.py``) score a run against *gold* target facts and are eval-only:
 labelled dataset no production caller has. ``provenance_validity`` needs no label at all -- a
 dangling citation is wrong regardless of what the fact should have said -- which is what makes it
 the one metric from that ratified gate this module can enforce at runtime, not only in CI.
+
+**No production call site yet (round-2 review).** The expected caller is whichever pass already
+resolves a scope's full episode-id set to run consolidation over -- e.g.
+:class:`~egpt.memory.consolidation.worker.ConsolidationWorker` or
+:meth:`~egpt.memory.adapters.co_located.CoLocatedMemoryProvider.consolidate`. Wiring it there
+needs the **full** resolved set for the scope, not one ``distil()`` call's episode batch --
+union-forward provenance routinely cites episodes from earlier passes outside the current batch,
+so checking only the current batch would false-positive on legitimate old citations -- plus a
+policy decision on cadence and on-violation behaviour (log / raise / quarantine) this ticket's
+acceptance criteria don't specify. Tracked as
+`aicoe-tracker#194 <https://github.com/Saturam-Inc/aicoe-tracker/issues/194>`_ rather than decided
+here.
 """
 
 from dataclasses import dataclass
@@ -60,6 +72,20 @@ class ProvenanceReport:
     checked: int
     dangling: Tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        """Refuse an incoherent report -- ``dangling`` can never name more facts than ``checked``
+        counted (round-2 review). Nothing in :func:`provenance_report` can build such a report, but
+        a ``frozen=True`` dataclass's invariant should be structural, not merely implied by its one
+        constructor: without this, ``ProvenanceReport(checked=0, dangling=("f1",))`` would silently
+        report ``validity == 1.0`` (the vacuous-empty-batch branch) *and* ``is_valid is False`` --
+        a contradiction a caller asserting only ``validity == 1.0`` would not catch.
+        """
+        if len(self.dangling) > self.checked:
+            raise ValueError(
+                f"ProvenanceReport.dangling ({len(self.dangling)} entries) cannot exceed checked "
+                f"({self.checked}) -- more facts flagged than were counted."
+            )
+
     @property
     def validity(self) -> float:
         """``1.0`` on an empty batch -- vacuously true, matching every other ratio metric in
@@ -76,29 +102,39 @@ class ProvenanceReport:
         return not self.dangling
 
 
-def dangling_source_episode_ids(fact: FactWrite, live_episode_ids: AbstractSet[str]) -> List[str]:
-    """Which of ``fact.source_episode_ids`` do **not** resolve against ``live_episode_ids``.
+def dangling_source_episode_ids(fact: FactWrite, resolved_episode_ids: AbstractSet[str]) -> List[str]:
+    """Which of ``fact.source_episode_ids`` do **not** resolve against ``resolved_episode_ids``.
 
     Order-preserving and may contain duplicates if the fact does -- callers wanting the ratified
     metric use :func:`provenance_report`, which counts facts, not citations; this is the finer-
     grained read a caller diagnosing *one* fact wants.
     """
-    return [episode_id for episode_id in fact.source_episode_ids if episode_id not in live_episode_ids]
+    return [episode_id for episode_id in fact.source_episode_ids if episode_id not in resolved_episode_ids]
 
 
-def provenance_report(facts: Sequence[FactWrite], live_episode_ids: AbstractSet[str]) -> ProvenanceReport:
-    """Check every fact in ``facts`` against ``live_episode_ids``, the anti-lossiness gate.
-
-    ``live_episode_ids`` is the caller's own resolved set -- typically every episode id in the scope
-    being consolidated, fetched once and reused across the whole batch, not re-fetched per fact.
-    A superseded-but-still-present episode (row-level ``expired_at``, RESEARCH.md's "archive, never
-    hard-delete") still resolves here: this checks *existence*, not liveness, because a fact's
-    provenance points at history that happened, not at the episode's current retention state --
-    the same distinction :mod:`egpt.memory.episodic.forget` draws between archiving and deleting.
+def _has_dangling_citation(fact: FactWrite, resolved_episode_ids: AbstractSet[str]) -> bool:
+    """Short-circuiting truthiness check behind :func:`provenance_report`'s per-fact filter
+    (round-2 review): :func:`dangling_source_episode_ids` builds the full offending list a
+    *diagnostic* caller wants, which is one throwaway list allocation per fact when
+    :func:`provenance_report` only needs to know whether that list would be non-empty. No
+    behaviour change -- same predicate, first miss stops the scan instead of collecting every one.
     """
-    # No `fact.record.id is not None` guard here (round-1 review): `MemoryRecord.id` is typed
-    # `str`, and `__post_init__` raises on any falsy value, so no successfully constructed record
-    # can reach this loop with `id=None` -- the guard was dead and implied a skip path that cannot
-    # exist.
-    dangling = tuple(fact.record.id for fact in facts if dangling_source_episode_ids(fact, live_episode_ids))
+    return any(episode_id not in resolved_episode_ids for episode_id in fact.source_episode_ids)
+
+
+def provenance_report(facts: Sequence[FactWrite], resolved_episode_ids: AbstractSet[str]) -> ProvenanceReport:
+    """Check every fact in ``facts`` against ``resolved_episode_ids``, the anti-lossiness gate.
+
+    ``resolved_episode_ids`` is the caller's own resolved set -- typically every episode id that
+    exists in the scope being consolidated, fetched once and reused across the whole batch, not
+    re-fetched per fact. Named for what it must contain, not for a liveness property it does not
+    require (round-2 review, replacing the earlier ``live_episode_ids``): a superseded-but-still-
+    present episode (row-level ``expired_at``, RESEARCH.md's "archive, never hard-delete") still
+    resolves here, because this checks *existence*, not current retention state -- a fact's
+    provenance points at history that happened, not at whether that episode is still "live" by
+    :mod:`egpt.memory.episodic.forget`'s definition. A caller that resolved only non-expired
+    episodes into this set would see every fact citing an archived one reported as dangling, which
+    is not what "dangling" means here.
+    """
+    dangling = tuple(fact.record.id for fact in facts if _has_dangling_citation(fact, resolved_episode_ids))
     return ProvenanceReport(checked=len(facts), dangling=dangling)

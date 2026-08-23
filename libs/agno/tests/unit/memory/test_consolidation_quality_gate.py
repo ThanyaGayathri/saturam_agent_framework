@@ -19,6 +19,11 @@ the same "changed preference is an UPDATE, not a second contradictory ADD" case 
 predecessor, both citing a resolvable episode.
 """
 
+from collections import Counter
+from typing import List, Optional
+
+import pytest
+
 from egpt.memory.consolidation.extract import FactCandidate, FactExtractionPipeline, MergeDecision
 from egpt.memory.consolidation.provenance import provenance_report
 from egpt.memory.tiers import MemoryTier
@@ -28,7 +33,7 @@ from tests.unit.memory._fakes import FakeVector
 ACME = Scope(tenant_id="acme", user_id="ada")
 
 
-def episode(content, episode_id, **kwargs):
+def episode(content: str, episode_id: str, **kwargs) -> MemoryRecord:
     return MemoryRecord(id=episode_id, tier=MemoryTier.EPISODIC, content=content, scope=ACME, **kwargs)
 
 
@@ -36,26 +41,31 @@ class ScriptedExtractor:
     """One fixed candidate per call, keyed by which episode batch this is -- a stand-in for an
     LLM's extraction, scripted rather than random so the run (and this test) is deterministic."""
 
-    def __init__(self, statement):
+    def __init__(self, statement: str) -> None:
         self.statement = statement
 
-    def extract(self, episodes):
+    def extract(self, episodes: List[MemoryRecord]) -> List[FactCandidate]:
         return [FactCandidate(statement=self.statement, source_indices=list(range(len(episodes))))]
 
-    async def aextract(self, episodes):
+    async def aextract(self, episodes: List[MemoryRecord]) -> List[FactCandidate]:
         return self.extract(episodes)
 
 
 class ScriptedDecider:
-    def __init__(self, op, statement, target_index=None):
+    """A scripted (not model-driven) merge decision -- `decide`/`adecide` deliberately ignore
+    `statement`/`neighbors` and return the one op/target/statement given at construction, so a
+    future reader should not "fix" the unused-argument shape into reading them; that would break
+    the determinism this double exists to provide."""
+
+    def __init__(self, op: str, statement: str, target_index: Optional[int] = None) -> None:
         self.op = op
         self.statement = statement
         self.target_index = target_index
 
-    def decide(self, statement, neighbors):
+    def decide(self, statement: str, neighbors: list) -> MergeDecision:
         return MergeDecision(op=self.op, target_index=self.target_index, statement=self.statement)
 
-    async def adecide(self, statement, neighbors):
+    async def adecide(self, statement: str, neighbors: list) -> MergeDecision:
         return self.decide(statement, neighbors)
 
 
@@ -94,7 +104,8 @@ def test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_pass
     # something) would still be caught, without a false alarm on the expected one.
     all_raw = [*facts1, *facts2]
     ids = [f.record.id for f in all_raw]
-    duplicate_ids = {i for i in ids if ids.count(i) > 1}
+    id_counts = Counter(ids)
+    duplicate_ids = {i for i, count in id_counts.items() if count > 1}
     assert duplicate_ids == {berlin_fact.record.id}, (
         f"expected only the retired berlin fact to reuse pass 1's id, got duplicates: {duplicate_ids}"
     )
@@ -120,8 +131,13 @@ def test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_pass
     assert berlin_fact.record.t_valid is not None, "pipeline must set t_valid for the comparison below to be meaningful"
     assert retired[0].record.t_valid == berlin_fact.record.t_valid, "valid time is untouched by retirement"
 
-    # -- provenance_validity: every citation, live and retired alike, resolves (ratified == 1.0) --
-    report = provenance_report(all_facts, live_episode_ids={"e1", "e2"})
+    # -- provenance_validity: every citation, live and retired alike, resolves (ratified == 1.0).
+    # `report.checked` is asserted too (round-2 review) -- without it, a regression that
+    # short-circuited the batch to empty before reaching provenance_report would still pass both
+    # `is_valid`/`validity` vacuously, since an empty batch is defined as valid by design. --
+    report = provenance_report(all_facts, resolved_episode_ids={"e1", "e2"})
+    assert report.checked == len(all_facts)
+    assert report.dangling == ()
     assert report.is_valid is True
     assert report.validity == 1.0
 
@@ -145,9 +161,39 @@ def test_a_dangling_citation_would_fail_the_gate():
     )
     facts, _ = pipe.distil(ACME, [episode("ada moved to berlin", "e1")])
 
-    # A live-episode-id set that is missing "e1" simulates a bad rebuild/backfill: the citation is
-    # real, but the episode it points at is not in the set the caller resolved.
-    report = provenance_report(facts, live_episode_ids=set())
+    # A resolved-episode-id set that is missing "e1" simulates a bad rebuild/backfill: the citation
+    # is real, but the episode it points at is not in the set the caller resolved.
+    report = provenance_report(facts, resolved_episode_ids=set())
 
     assert report.is_valid is False
     assert report.validity == 0.0
+
+
+# ---------------------------------------------------------------------------
+# AC#4 -- the four remaining ratified metrics (ADR 0003 section A.7:
+# provenance_precision >= 0.80, conflict_accuracy >= 0.90, dedup_score >= 0.75,
+# fact_recall >= 0.95) need a labelled corpus and gold target facts, which this file's small
+# hand-labelled scenario is not built to provide at a meaningful scale -- that harness adapter is
+# tracked separately (aicoe-tracker#194), not decided here. Stubbed rather than silently absent,
+# per round-2 review, so the gap stays visible in CI output instead of only in the PR description.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skip(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194")
+def test_provenance_precision_meets_the_ratified_threshold():
+    """ADR 0003 section A.7: provenance_precision >= 0.80 against gold source_episode_ids."""
+
+
+@pytest.mark.skip(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194")
+def test_conflict_accuracy_meets_the_ratified_threshold():
+    """ADR 0003 section A.7: conflict_accuracy >= 0.90 via the assertion judge (recency-aware)."""
+
+
+@pytest.mark.skip(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194")
+def test_dedup_score_meets_the_ratified_threshold():
+    """ADR 0003 section A.7: dedup_score >= 0.75 against gold near-duplicate groupings."""
+
+
+@pytest.mark.skip(reason="needs a labelled-corpus harness adapter -- aicoe-tracker#194")
+def test_fact_recall_meets_the_ratified_threshold():
+    """ADR 0003 section A.7: fact_recall >= 0.95 against gold target facts."""

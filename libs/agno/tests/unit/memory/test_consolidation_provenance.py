@@ -7,6 +7,7 @@ one: no gold facts are needed, only a live-episode-id set, so the acceptance cri
 """
 
 import dataclasses
+from typing import Tuple
 
 import pytest
 
@@ -21,7 +22,7 @@ from egpt.memory.types import FactWrite, MemoryRecord, Scope
 ACME = Scope(tenant_id="acme", user_id="ada")
 
 
-def a_fact(fact_id, source_episode_ids=(), scope=ACME) -> FactWrite:
+def a_fact(fact_id: str, source_episode_ids: Tuple[str, ...] = (), scope: Scope = ACME) -> FactWrite:
     return FactWrite(
         record=MemoryRecord(id=fact_id, tier=MemoryTier.SEMANTIC, content="x", scope=scope),
         source_episode_ids=list(source_episode_ids),
@@ -49,6 +50,11 @@ def test_dangling_source_episode_ids_empty_citation_list_is_not_dangling():
 def test_dangling_source_episode_ids_preserves_order_and_duplicates():
     fact = a_fact("f1", source_episode_ids=["ghost", "e1", "ghost"])
     assert dangling_source_episode_ids(fact, {"e1"}) == ["ghost", "ghost"]
+
+
+def test_dangling_source_episode_ids_all_dangling_when_resolved_set_is_empty():
+    fact = a_fact("f1", source_episode_ids=["e1", "e2"])
+    assert dangling_source_episode_ids(fact, set()) == ["e1", "e2"]
 
 
 # -- provenance_report --------------------------------------------------------------------------
@@ -109,3 +115,11 @@ def test_provenance_report_is_a_frozen_dataclass():
     assert report.dangling == ("f1",)
     with pytest.raises(dataclasses.FrozenInstanceError):
         report.checked = 2  # type: ignore[misc]
+
+
+def test_provenance_report_refuses_more_dangling_than_checked():
+    # ProvenanceReport(checked=0, dangling=("f1",)) would otherwise report validity == 1.0 (the
+    # vacuous-empty-batch branch) *and* is_valid is False at once -- a contradiction a caller
+    # asserting only `validity == 1.0` would not catch.
+    with pytest.raises(ValueError):
+        ProvenanceReport(checked=0, dangling=("f1",))
