@@ -591,7 +591,14 @@ async def test_contradictions_resolved_reflects_a_real_graph_edge_invalidation(h
     existed on `RelationExtractionReport` but `_relations`/`_arelations` discarded it, keeping only
     `.details`. Two consolidation passes over contradicting facts must now report a nonzero count,
     end to end through `consolidate`/`aconsolidate`, not just through `RelationExtractionPipeline`
-    directly (already covered in `test_graph_relations.py`)."""
+    directly (already covered in `test_graph_relations.py`).
+
+    **Cross-pass only** (review finding, PR #126 round 1): the second `consolidate` call's batch
+    holds exactly one new candidate, so this exercises `_contradictions_for` against the graph's
+    pre-existing edge -- SM-G5 behaviour, unchanged by this ticket. It does not exercise
+    `_contradicted_within` (SM-L5's own same-pass addition), which exits immediately on a
+    one-candidate batch. See
+    :func:`test_contradictions_resolved_counts_a_same_pass_invalidation_too` for that path."""
     extractor = _RelationStub(
         by_content={
             "Ada works at Acme since Jan 2024": [
@@ -627,6 +634,57 @@ async def test_contradictions_resolved_reflects_a_real_graph_edge_invalidation(h
         await p.awrite(ACME, [event("Ada works at Acme since Jan 2024", id="e1")])
         await p.aconsolidate(ACME)
         await p.awrite(ACME, [event("Ada works at Beta since Jan 2025", id="e2")])
+        report = await p.aconsolidate(ACME)
+
+    assert report.contradictions_resolved == 1
+    assert report.details["relations"]["edges_invalidated"] == 1
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_contradictions_resolved_counts_a_same_pass_invalidation_too(half):
+    """Review finding (PR #126, round 1): the previous test writes and consolidates in two
+    separate passes, so the second `consolidate` call's batch holds exactly one new candidate --
+    `_contradictions_for` (cross-pass, vs. the graph's pre-existing edge) is what fires, and
+    `_contradicted_within` (same-pass, SM-L5's own addition) exits immediately on a one-candidate
+    batch without ever comparing anything. A regression that completely disabled
+    `_contradicted_within` would not have failed that test.
+
+    Both contradicting episodes land in **one** `write()`/`awrite()` call here, so one
+    `consolidate`/`aconsolidate` pass hands `relation_pipeline.run`/`arun` a batch with both
+    candidates -- the same shape `test_graph_relations.py`'s
+    `test_two_same_pass_candidates_contradicting_each_other_invalidate_the_earlier_one` already
+    covers at the pipeline level, exercised here end to end through the provider instead.
+    """
+    extractor = _RelationStub(
+        by_content={
+            "Ada works at Acme since Jan 2024": [
+                ExtractedRelation(source="Ada", relation="works_at", target="Acme Corp")
+            ],
+            "Ada works at Beta since Jan 2025": [
+                ExtractedRelation(source="Ada", relation="works_at", target="Beta Inc")
+            ],
+        }
+    )
+    vector, graph = FakeVector(), FakeGraph()
+    relation_pipeline = RelationExtractionPipeline(
+        graph=graph, extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor()
+    )
+    p = CoLocatedMemoryProvider(
+        vector=vector,
+        graph=graph,
+        config=MemoryProviderConfig(provider="co_located"),
+        relation_pipeline=relation_pipeline,
+    )
+    episodes = [
+        event("Ada works at Acme since Jan 2024", id="e1"),
+        event("Ada works at Beta since Jan 2025", id="e2"),
+    ]
+
+    if half == "sync":
+        p.write(ACME, episodes)
+        report = p.consolidate(ACME)
+    else:
+        await p.awrite(ACME, episodes)
         report = await p.aconsolidate(ACME)
 
     assert report.contradictions_resolved == 1

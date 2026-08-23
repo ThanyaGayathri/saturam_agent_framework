@@ -113,7 +113,10 @@ RELATION_EXTRACTOR_ID = "sm_g3.relation_extraction"
 #: one model call, and an uncapped pass is a bill rather than a wait (SM-R9's ~$220/tenant/100k).
 DEFAULT_MAX_EPISODES_PER_PASS = 200
 
-#: Keys every :class:`RelationExtractionReport` carries.
+#: Keys every :class:`RelationExtractionReport` carries. Not exhaustive: ``edges_invalidated``
+#: (SM-L5 #126) is a known extra key ``_report`` always adds on top of this floor, read separately
+#: by ``CoLocatedMemoryProvider._report`` -- see that key's own comment at the ``relation_details``
+#: call site in :meth:`RelationExtractionPipeline._report`.
 RELATION_KEYS: Tuple[str, ...] = ("extractor", "complete")
 
 #: The graph node id segment for a relation edge, distinguishing it from an entity node id
@@ -590,24 +593,30 @@ class RelationExtractionPipeline:
         one edge.
         """
         found: Dict[str, int] = {}
-        for i, a in enumerate(candidates):
-            if a.record.t_valid is None or not a.is_triple():
+        for i in range(len(candidates)):
+            a = candidates[i]
+            a_t_valid = a.record.t_valid
+            if a_t_valid is None or not a.is_triple():
                 continue
-            for b in candidates[i + 1 :]:
+            for j in range(i + 1, len(candidates)):
+                b = candidates[j]
+                b_t_valid = b.record.t_valid
                 if (
-                    b.record.t_valid is None
+                    b_t_valid is None
                     or not b.is_triple()
                     or a.subject != b.subject
                     or a.predicate != b.predicate
                     or a.object == b.object
-                    or a.record.t_valid == b.record.t_valid
+                    or a_t_valid == b_t_valid
                 ):
                     continue
-                loser, winner = (a, b) if a.record.t_valid < b.record.t_valid else (b, a)
-                assert winner.record.t_valid is not None  # both guarded above
+                # Both `a_t_valid`/`b_t_valid` are typed local `int`s (not `Optional[int]`) by this
+                # point, guarded above -- no assert needed to satisfy the type checker, and none of
+                # the guards above can be weakened without this line failing to type-check first.
+                loser, winner_t = (a, b_t_valid) if a_t_valid < b_t_valid else (b, a_t_valid)
                 current = found.get(loser.record.id)
-                if current is None or winner.record.t_valid < current:
-                    found[loser.record.id] = winner.record.t_valid
+                if current is None or winner_t < current:
+                    found[loser.record.id] = winner_t
         return found
 
     @staticmethod
