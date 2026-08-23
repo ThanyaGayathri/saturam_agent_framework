@@ -394,9 +394,15 @@ def test_two_candidates_contradicting_one_edge_in_the_same_batch_keep_the_earlie
 
     Every other test in this file presents at most one candidate per existing edge, so this branch
     was previously reachable only by inspection of the code, not by any test failing without it.
-    Also pins the documented, deliberate gap one tier up: the two new candidates do not contradict
-    *each other* -- both land as live edges -- because within-batch resolution between candidates
-    is SM-L5's, not this ticket's (module docstring).
+
+    Also covers the gap that stood here before SM-L5 (#126): "Alpha Inc" and "Zeta LLC" are
+    themselves two same-pass candidates naming the same ``(subject, relation)`` with different
+    objects, so once the within-batch check exists, the earlier one ("Alpha Inc", ``t_valid=150``)
+    is *also* contradicted by the later one -- on top of "Acme Corp" being contradicted by both.
+    Before SM-L5 the two new candidates did not contradict each other and both landed as live
+    edges; :func:`test_two_same_pass_candidates_contradicting_each_other_invalidate_the_earlier_one`
+    isolates that behaviour on its own, without the pre-existing-edge contradiction this test is
+    really about.
     """
     extractor = StubExtractor(
         by_content={
@@ -407,6 +413,7 @@ def test_two_candidates_contradicting_one_edge_in_the_same_batch_keep_the_earlie
     )
     pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
     old_id = relation_edge_id_for(ACME, "Ada", "works_at", "Acme Corp")
+    alpha_id = relation_edge_id_for(ACME, "Ada", "works_at", "Alpha Inc")
 
     pipe.run(ACME, [episode("Ada works at Acme", "e0", t_valid=100)])
     alpha = episode("Ada works at Alpha", "e1", t_valid=150)
@@ -416,15 +423,127 @@ def test_two_candidates_contradicting_one_edge_in_the_same_batch_keep_the_earlie
     else:
         report = pipe.run(ACME, [alpha, zeta])
 
-    assert report.edges_invalidated == 1
-    bounds = graph.bounds_for_ids(ACME, [old_id])
+    # Acme Corp (contradicted by both Alpha Inc and Zeta LLC, keeps the earliest) and Alpha Inc
+    # (contradicted by Zeta LLC within this same batch) -- two edges, not one.
+    assert report.edges_invalidated == 2
+    bounds = graph.bounds_for_ids(ACME, [old_id, alpha_id])
     assert bounds[old_id].t_invalid == 150
+    assert bounds[alpha_id].t_invalid == 250
 
     # Point-in-time, not an unbounded recall_facts: the Acme edge's bounded SCD-2 copy is still
     # "current belief" on the transaction axis (expired_at IS NULL) -- only a valid-time window
     # after both new candidates' t_valid actually excludes it.
     after = graph.recall_facts(ACME, entities=["Ada"], relation="works_at", since=150, until=300)
     assert {row.provenance.get("object") for row in after} == {"Alpha Inc", "Zeta LLC"}
+
+
+# ---------------------------------------------------------------------------
+# Same-pass candidates contradicting each other (SM-L5 #126)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_two_same_pass_candidates_contradicting_each_other_invalidate_the_earlier_one(is_async):
+    """The gap the module docstring named as SM-L5's, isolated with no pre-existing edge in play:
+    two candidates in **one** ``run``/``arun`` call, same ``(subject, relation)``, different
+    ``object`` -- before SM-L5 both landed as live edges with neither retiring the other; now the
+    earlier-dated one is retired by the later, the same rule ``_contradicted`` already applied
+    against pre-existing graph state."""
+    extractor = StubExtractor(
+        by_content={
+            "Ada works at Acme": [relation(target="Acme Corp")],
+            "Ada works at Beta": [relation(target="Beta Inc")],
+        }
+    )
+    pipe, graph = pipeline(extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor())
+    acme_id = relation_edge_id_for(ACME, "Ada", "works_at", "Acme Corp")
+    beta_id = relation_edge_id_for(ACME, "Ada", "works_at", "Beta Inc")
+
+    acme = episode("Ada works at Acme", "e1", t_valid=100)
+    beta = episode("Ada works at Beta", "e2", t_valid=200)
+    if is_async:
+        report = asyncio.run(pipe.arun(ACME, [acme, beta]))
+    else:
+        report = pipe.run(ACME, [acme, beta])
+
+    assert report.edges_invalidated == 1
+    assert graph.calls.count("ainvalidate" if is_async else "invalidate") == 1
+    rows = graph.rows["acme"]
+    acme_rows = [row for row in rows if row.id == acme_id]
+    # No data loss: both the edge upsert_facts wrote and its invalidated bounded copy exist.
+    assert len(acme_rows) == 2
+    assert any(row.t_invalid is None and not row.is_current_belief() for row in acme_rows)
+    bounded_copy = next(row for row in acme_rows if row.is_current_belief())
+    assert bounded_copy.t_invalid == 200
+    # Beta Inc, the winner, was written once and never itself retired.
+    assert len([row for row in rows if row.id == beta_id]) == 1
+
+
+def test_two_same_pass_candidates_starting_at_the_exact_same_instant_do_not_contradict():
+    """Mirrors ``test_two_facts_starting_at_the_exact_same_instant_do_not_contradict`` for the
+    within-batch check: a tie means neither is "earlier", so :meth:`_contradicted_within` must not
+    arbitrarily pick a loser."""
+    same_time = FactWrite(
+        record=MemoryRecord(id="acme", tier=MemoryTier.SEMANTIC, content="x", scope=ACME, t_valid=100),
+        subject="Ada",
+        predicate="works_at",
+        object="Acme Corp",
+    )
+    other = FactWrite(
+        record=MemoryRecord(id="beta", tier=MemoryTier.SEMANTIC, content="y", scope=ACME, t_valid=100),
+        subject="Ada",
+        predicate="works_at",
+        object="Beta Inc",
+    )
+
+    assert RelationExtractionPipeline._contradicted_within([same_time, other]) == {}
+
+
+def test_a_same_pass_candidate_with_no_valid_time_cannot_contradict_a_sibling():
+    """The within-batch mirror of ``test_a_candidate_with_no_valid_time_cannot_contradict_anything``
+    -- unreachable through the pipeline for the same reason (``ValidTimeSpan.t_valid`` is never
+    ``None``), exercised directly against the static predicate."""
+    dated = FactWrite(
+        record=MemoryRecord(id="acme", tier=MemoryTier.SEMANTIC, content="x", scope=ACME, t_valid=100),
+        subject="Ada",
+        predicate="works_at",
+        object="Acme Corp",
+    )
+    undated = FactWrite(
+        record=MemoryRecord(id="beta", tier=MemoryTier.SEMANTIC, content="y", scope=ACME, t_valid=None),
+        subject="Ada",
+        predicate="works_at",
+        object="Beta Inc",
+    )
+
+    assert RelationExtractionPipeline._contradicted_within([dated, undated]) == {}
+    assert RelationExtractionPipeline._contradicted_within([undated, dated]) == {}
+
+
+def test_three_same_pass_candidates_chain_pairwise_not_just_adjacent():
+    """Three candidates sharing one ``(subject, relation)``: the middle one loses to the last and
+    beats the first, both true at once -- a pairwise comparison catches both; an implementation
+    that only compared adjacent-in-sort-order entries would miss the first-vs-last pair."""
+    first = FactWrite(
+        record=MemoryRecord(id="acme", tier=MemoryTier.SEMANTIC, content="x", scope=ACME, t_valid=100),
+        subject="Ada",
+        predicate="works_at",
+        object="Acme Corp",
+    )
+    middle = FactWrite(
+        record=MemoryRecord(id="beta", tier=MemoryTier.SEMANTIC, content="y", scope=ACME, t_valid=200),
+        subject="Ada",
+        predicate="works_at",
+        object="Beta Inc",
+    )
+    last = FactWrite(
+        record=MemoryRecord(id="zeta", tier=MemoryTier.SEMANTIC, content="z", scope=ACME, t_valid=300),
+        subject="Ada",
+        predicate="works_at",
+        object="Zeta LLC",
+    )
+
+    assert RelationExtractionPipeline._contradicted_within([first, middle, last]) == {"acme": 200, "beta": 300}
 
 
 @pytest.mark.parametrize("is_async", [False, True])

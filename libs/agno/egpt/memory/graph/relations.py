@@ -45,15 +45,23 @@ precedes the candidate's, is what this module calls contradicted: it is retired 
 **after** the new edge lands, never deleted and never mutated in place. The old row stays
 queryable at any instant before the candidate's ``t_valid`` (ADR 0003 D7).
 
+**Same-pass candidates are checked against each other too (SM-L5 #126).**
+:meth:`RelationExtractionPipeline._contradicted_within` applies the identical rule --
+same ``(subject, relation)``, different ``object``, earlier ``t_valid`` loses -- pairwise across
+one ``run``/``arun`` call's own merged candidates, not only against what the graph already held
+going in. Before SM-L5, two candidates naming the same subject+relation with different objects in
+one pass both landed as live edges with neither retiring the other; ADR 0003's "graph is sole
+authority for semantic contradiction" gives no exemption for same-pass writes, so leaving them
+uncompared was a real gap, not a simplification.
+
 **Every relation is treated as single-valued for this purpose.** A subject can only state one
 current object per relation label; a second, later object supersedes the first. That is the right
 call for a functional relation (``works_at``, ``lives_in``) and the wrong one for a genuinely
 multi-valued relation (``knows``, ``friends_with``), where a second object is an addition, not a
 correction -- this pass cannot tell the two apart from the triple alone. Distinguishing them needs
-relation-type awareness this ticket does not build; it is named here as the gap SM-L5 (#126), which
-this module's own docstring already points to, owns for the fuller consolidation-loop resolution.
-Two candidates in the *same* pass naming the same subject+relation with different objects are, for
-the identical reason, not checked against each other -- only against what the graph already holds.
+relation-type awareness that neither this module nor SM-L5 builds; both the existing-edge and
+same-pass checks above treat every relation as functional. No ticket owns that distinction yet --
+flagged here, not silently assumed away, until one does.
 
 The prompt is the seed's, imported from ``learn/stores/entity_memory.py`` -- the same one SM-G2
 reuses -- because it already documents relationships as part of what one extraction pass reads for
@@ -559,6 +567,67 @@ class RelationExtractionPipeline:
                     found[rec.id] = candidate.record.t_valid
         return found
 
+    @staticmethod
+    def _contradicted_within(candidates: Sequence[FactWrite]) -> Dict[str, int]:
+        """Contradictions between two candidates in the **same** batch -- ``{edge_id: t_invalid}``,
+        same shape as :meth:`_contradicted` (SM-L5 #126, see the module docstring).
+
+        Same rule as :meth:`_contradicted`, applied pairwise across ``candidates`` instead of
+        against ``existing``: same ``(subject, relation)``, a **different** ``object``, and the
+        earlier ``t_valid`` loses to the later one. Both sides are new -- neither is in the graph
+        yet -- so what a losing candidate contributes here is its own edge id, the one
+        ``_write_batch`` is about to write via ``upsert_facts`` and then immediately retire, not an
+        ``existing`` row's.
+
+        ``candidates`` is assumed already merged (:meth:`_merged`): one entry per edge id, so no
+        two entries can already share one, and every pair compared is genuinely two different
+        edges. A tie (equal ``t_valid``) contradicts neither, matching :meth:`_contradicted`'s own
+        reading of "starting at the exact same instant." Three or more candidates sharing one
+        ``(subject, relation)`` are compared pairwise, not just adjacent-in-sort-order: a middle
+        candidate can lose to a later one and still beat an earlier one, and each such pair is
+        independent -- the accumulation below (keep the **earliest** winning ``t_valid`` per
+        loser) is the same merge :meth:`_contradicted` already does for multiple contradictors of
+        one edge.
+        """
+        found: Dict[str, int] = {}
+        for i, a in enumerate(candidates):
+            if a.record.t_valid is None or not a.is_triple():
+                continue
+            for b in candidates[i + 1 :]:
+                if (
+                    b.record.t_valid is None
+                    or not b.is_triple()
+                    or a.subject != b.subject
+                    or a.predicate != b.predicate
+                    or a.object == b.object
+                    or a.record.t_valid == b.record.t_valid
+                ):
+                    continue
+                loser, winner = (a, b) if a.record.t_valid < b.record.t_valid else (b, a)
+                assert winner.record.t_valid is not None  # both guarded above
+                current = found.get(loser.record.id)
+                if current is None or winner.record.t_valid < current:
+                    found[loser.record.id] = winner.record.t_valid
+        return found
+
+    @staticmethod
+    def _merge_contradictions(*sources: Dict[str, int]) -> Dict[str, int]:
+        """Union several ``{edge_id: t_invalid}`` maps, keeping the **earliest** ``t_invalid`` per
+        id -- the same "earliest wins" rule :meth:`_contradicted` applies within one source,
+        extended across :meth:`_contradictions_for` and :meth:`_contradicted_within`'s independent
+        results. The two never actually name the same id in practice (an id
+        :meth:`_contradicted_within` can produce belongs to a candidate in this batch, never to an
+        ``existing`` graph row), but merging rather than assuming disjointness costs nothing and
+        does not depend on that invariant holding forever.
+        """
+        merged: Dict[str, int] = {}
+        for source in sources:
+            for edge_id, t_invalid in source.items():
+                current = merged.get(edge_id)
+                if current is None or t_invalid < current:
+                    merged[edge_id] = t_invalid
+        return merged
+
     def _contradictions_for(self, scope: Scope, batch: Sequence[FactWrite]) -> Dict[str, int]:
         """No ``until`` bound on the ``recall_facts`` call: it already filters to current belief
         (``expired_at IS NULL``) on the transaction axis, which is every row this batch could
@@ -606,7 +675,9 @@ class RelationExtractionPipeline:
         writer itself -- consolidation runs single-threaded per scope today, so this has not been a
         live concern, but it is worth stating rather than leaving implicit.
         """
-        contradictions = self._contradictions_for(scope, batch)
+        contradictions = self._merge_contradictions(
+            self._contradictions_for(scope, batch), self._contradicted_within(batch)
+        )
         self.graph.upsert_facts(scope, batch)
         # Sorted for deterministic call order across runs (matches this module's own convention
         # elsewhere, e.g. `_batches`) -- not for correctness: each `invalidate` call targets a
@@ -617,7 +688,9 @@ class RelationExtractionPipeline:
 
     async def _awrite_batch(self, scope: Scope, batch: Sequence[FactWrite]) -> int:
         """Async variant of :meth:`_write_batch`, making the same decisions in the same order."""
-        contradictions = await self._acontradictions_for(scope, batch)
+        contradictions = self._merge_contradictions(
+            await self._acontradictions_for(scope, batch), self._contradicted_within(batch)
+        )
         await self.graph.aupsert_facts(scope, batch)
         for edge_id, t_invalid in sorted(contradictions.items()):
             await self.graph.ainvalidate(scope, edge_id, t_invalid)
@@ -638,7 +711,15 @@ class RelationExtractionPipeline:
             candidates=candidates,
             edges_written=len(written),
             edges_invalidated=invalidated,
-            details=relation_details(extractor=RELATION_EXTRACTOR_ID, complete=complete),
+            # `edges_invalidated` repeated inside `details`, not only as the report's own field:
+            # `CoLocatedMemoryProvider._relations`/`_arelations` (SM-L5 #126) return only
+            # `.details` to `consolidate`/`aconsolidate`, discarding the typed report and this
+            # field along with it -- which is why `ConsolidationReport.contradictions_resolved`
+            # stayed hard-coded to 0 even once this pipeline was wired and invalidating edges.
+            # An extra key, not a `RELATION_KEYS` floor member (see `RelationSummary`'s docstring
+            # in `co_located.py`): promoting it to the floor is a separate decision this ticket
+            # does not make.
+            details=relation_details(extractor=RELATION_EXTRACTOR_ID, complete=complete, edges_invalidated=invalidated),
         )
 
     # -- the pass -------------------------------------------------------------

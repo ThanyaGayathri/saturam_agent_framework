@@ -17,6 +17,8 @@ from egpt.memory.config import (
     build_memory_provider,
     registered_providers,
 )
+from egpt.memory.graph.relations import ExtractedRelation, RelationExtractionPipeline
+from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FUSION_KEYS,
@@ -557,12 +559,78 @@ async def test_near_duplicate_facts_from_different_users_never_merge(half, monke
     assert report.near_duplicate_facts_folded == 0
 
 
-def test_contradictions_resolved_stays_zero_and_says_why():
-    """Resolution needs extraction to know two facts disagree -- that is SM-L5's."""
+def test_contradictions_resolved_stays_zero_with_no_relation_pipeline_wired():
+    """No `relation_pipeline` means no graph-edge contradiction detection ever runs -- SM-L5
+    (#126) surfaces `relation_pipeline`'s own count here, but has nothing to surface when the
+    pipeline was never configured (`NO_RELATIONS`, not a dict)."""
     p, _, _ = provider()
     p.write(ACME, [event("anything at all")])
 
     assert p.consolidate(ACME).contradictions_resolved == 0
+
+
+class _RelationStub:
+    """Returns one relation per episode, keyed on content -- same shape as
+    ``test_graph_relations.py``'s ``StubExtractor``, kept local since it is used by exactly one
+    test in this file."""
+
+    def __init__(self, by_content):
+        self.by_content = by_content
+
+    def extract(self, episode):
+        return list(self.by_content.get(episode.content, ()))
+
+    async def aextract(self, episode):
+        return self.extract(episode)
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_contradictions_resolved_reflects_a_real_graph_edge_invalidation(half):
+    """SM-L5 (#126): `ConsolidationReport.contradictions_resolved` used to stay hard-coded at 0
+    even once a wired `relation_pipeline` (SM-G3/SM-G5) genuinely invalidated an edge -- the count
+    existed on `RelationExtractionReport` but `_relations`/`_arelations` discarded it, keeping only
+    `.details`. Two consolidation passes over contradicting facts must now report a nonzero count,
+    end to end through `consolidate`/`aconsolidate`, not just through `RelationExtractionPipeline`
+    directly (already covered in `test_graph_relations.py`)."""
+    extractor = _RelationStub(
+        by_content={
+            "Ada works at Acme since Jan 2024": [
+                ExtractedRelation(source="Ada", relation="works_at", target="Acme Corp")
+            ],
+            "Ada works at Beta since Jan 2025": [
+                ExtractedRelation(source="Ada", relation="works_at", target="Beta Inc")
+            ],
+        }
+    )
+    vector, graph = FakeVector(), FakeGraph()
+    relation_pipeline = RelationExtractionPipeline(
+        graph=graph, extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor()
+    )
+    p = CoLocatedMemoryProvider(
+        vector=vector,
+        graph=graph,
+        config=MemoryProviderConfig(provider="co_located"),
+        relation_pipeline=relation_pipeline,
+    )
+
+    # Explicit, lexicographically-ordered ids: `_advance_cursor` orders `(created_at, id)`, and
+    # both writes land within the same wall-clock second under a fast test run -- a random
+    # per-event id (the default `event()` gives none, so the provider mints a UUID) would leave
+    # the cursor's tiebreak a coin flip on whether the second write is even visible to the second
+    # consolidate call.
+    if half == "sync":
+        p.write(ACME, [event("Ada works at Acme since Jan 2024", id="e1")])
+        p.consolidate(ACME)
+        p.write(ACME, [event("Ada works at Beta since Jan 2025", id="e2")])
+        report = p.consolidate(ACME)
+    else:
+        await p.awrite(ACME, [event("Ada works at Acme since Jan 2024", id="e1")])
+        await p.aconsolidate(ACME)
+        await p.awrite(ACME, [event("Ada works at Beta since Jan 2025", id="e2")])
+        report = await p.aconsolidate(ACME)
+
+    assert report.contradictions_resolved == 1
+    assert report.details["relations"]["edges_invalidated"] == 1
 
 
 def test_consolidation_without_a_vector_substrate_fails_loudly():
