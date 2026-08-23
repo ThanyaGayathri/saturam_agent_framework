@@ -257,9 +257,23 @@ class FakeHybridVector(FakeVector):
 
     def _candidates(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier]) -> RetrievalCandidates:
         """Shared computation, not a call site: neither half of the public pair appends to
-        ``calls`` here, so each logs exactly its own name and nothing double-counts."""
+        ``calls`` here, so each logs exactly its own name and nothing double-counts.
+
+        Applies ``query.window()`` before ranking, on both legs -- the port's contract
+        (:class:`~egpt.memory.substrates.HybridSearchSubstrate`) requires it of every leg a hybrid
+        store has, exactly as :meth:`VectorSubstrate.search` requires it of the single leg. Without
+        it a row outside the requested window round-trips through the permissive leg and only the
+        strict one filters it, which a caller cannot observe from either list alone (round-4
+        review, SM-H1 #131).
+        """
         tiers = {tier} if tier else set(query.resolved_tiers())
-        eligible = [r for r in self._matching(scope) if r.tier in tiers and current_belief(r)]
+        window = query.window()
+        self.search_windows.append(window)
+        eligible = [
+            r
+            for r in self._matching(scope)
+            if r.tier in tiers and current_belief(r) and (window is None or window.overlaps(r.t_valid, r.t_invalid))
+        ]
         vector_hits = _ranked([replace(r, score=overlap(query.text, r.content)) for r in eligible], query.limit)
         lexical = _ranked(
             [replace(r, score=1.0) for r in eligible if query.text.lower() in r.content.lower()], query.limit
