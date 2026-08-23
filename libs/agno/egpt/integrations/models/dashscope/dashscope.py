@@ -40,9 +40,10 @@ class DashScope(OpenAILike):
     supports_json_schema_outputs: bool = True
 
     def _get_client_params(self) -> Dict[str, Any]:
-        if not self.api_key:
-            self.api_key = getenv("DASHSCOPE_API_KEY")
-            if not self.api_key:
+        api_key = self.api_key
+        if not api_key:
+            api_key = getenv("DASHSCOPE_API_KEY")
+            if not api_key:
                 raise ModelAuthenticationError(
                     message="DASHSCOPE_API_KEY not set. Please set the DASHSCOPE_API_KEY environment variable.",
                     model_name=self.name,
@@ -50,7 +51,7 @@ class DashScope(OpenAILike):
 
         # Define base client params
         base_params = {
-            "api_key": self.api_key,
+            "api_key": api_key,
             "organization": self.organization,
             "base_url": self.base_url,
             "timeout": self.timeout,

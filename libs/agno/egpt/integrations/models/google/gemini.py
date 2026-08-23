@@ -172,10 +172,10 @@ class Gemini(Model):
         vertexai = self.vertexai or getenv("GOOGLE_GENAI_USE_VERTEXAI", "false").lower() == "true"
 
         if not vertexai:
-            self.api_key = self.api_key or getenv("GOOGLE_API_KEY")
-            if not self.api_key:
+            api_key = self.api_key or getenv("GOOGLE_API_KEY")
+            if not api_key:
                 log_error("GOOGLE_API_KEY not set. Please set the GOOGLE_API_KEY environment variable.")
-            client_params["api_key"] = self.api_key
+            client_params["api_key"] = api_key
         else:
             log_info("Using Vertex AI API")
             client_params["vertexai"] = True

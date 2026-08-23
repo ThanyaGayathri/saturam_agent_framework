@@ -43,12 +43,12 @@ class Portkey(OpenAILike):
                 model_name=self.name,
             )
 
-        self.virtual_key = self.virtual_key or getenv("PORTKEY_VIRTUAL_KEY")
+        virtual_key = self.virtual_key or getenv("PORTKEY_VIRTUAL_KEY")
 
         # Create headers using Portkey's createHeaders function
         header_params: Dict[str, Any] = {
             "api_key": self.portkey_api_key,
-            "virtual_key": self.virtual_key,
+            "virtual_key": virtual_key,
         }
 
         if self.config is not None:

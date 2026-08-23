@@ -70,16 +70,15 @@ class Cloudflare(OpenAILike):
 
     def __post_init__(self) -> None:
         self.id = normalize_cloudflare_gateway_model_id(self.id)
-        # After the id is normalised, so the snapshot records the id this model will report.
-        # Chained for the declared-connection snapshot -- see
-        # `Model._snapshot_declared_connection`.
+        # Chained so `Model.__post_init__` can auto-fill `provider` from the normalised id.
         super().__post_init__()
 
     def _get_client_params(self) -> Dict[str, Any]:
         # OpenAILike defaults api_key to "not-provided"; treat as unset so we load CLOUDFLARE_API_TOKEN.
-        if not self.api_key or self.api_key == "not-provided":
-            self.api_key = getenv("CLOUDFLARE_API_TOKEN")
-            if not self.api_key:
+        api_key = self.api_key
+        if not api_key or api_key == "not-provided":
+            api_key = getenv("CLOUDFLARE_API_TOKEN")
+            if not api_key:
                 raise ModelAuthenticationError(
                     message=(
                         "CLOUDFLARE_API_TOKEN not set. Please set the CLOUDFLARE_API_TOKEN environment variable "
@@ -88,7 +87,8 @@ class Cloudflare(OpenAILike):
                     model_name=self.name,
                 )
 
-        if self.base_url is None:
+        base_url = self.base_url
+        if base_url is None:
             account = self.account_id or getenv("CLOUDFLARE_ACCOUNT_ID")
             if not account:
                 raise ModelProviderError(
@@ -100,6 +100,6 @@ class Cloudflare(OpenAILike):
                     model_id=self.id,
                 )
             gateway = self.gateway_id or getenv("CLOUDFLARE_AI_GATEWAY_ID") or "default"
-            self.base_url = f"https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/compat"
+            base_url = f"https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/compat"
 
-        return super()._get_client_params()
+        return super()._get_client_params(api_key=api_key, base_url=base_url)

@@ -110,25 +110,25 @@ class AwsBedrock(Model):
                 region_name=self.aws_region or self.session.region_name,
             )
 
-        self.aws_access_key_id = self.aws_access_key_id or getenv("AWS_ACCESS_KEY_ID")
-        self.aws_secret_access_key = self.aws_secret_access_key or getenv("AWS_SECRET_ACCESS_KEY")
-        self.aws_session_token = self.aws_session_token or getenv("AWS_SESSION_TOKEN")
-        self.aws_region = self.aws_region or getenv("AWS_REGION")
+        aws_access_key_id = self.aws_access_key_id or getenv("AWS_ACCESS_KEY_ID")
+        aws_secret_access_key = self.aws_secret_access_key or getenv("AWS_SECRET_ACCESS_KEY")
+        aws_session_token = self.aws_session_token or getenv("AWS_SESSION_TOKEN")
+        aws_region = self.aws_region or getenv("AWS_REGION")
 
         if self.aws_sso_auth:
-            self.client = AwsClient(service_name="bedrock-runtime", region_name=self.aws_region)
+            self.client = AwsClient(service_name="bedrock-runtime", region_name=aws_region)
         else:
-            if not self.aws_access_key_id or not self.aws_secret_access_key:
+            if not aws_access_key_id or not aws_secret_access_key:
                 log_error(
                     "AWS credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables or provide a boto3 session."
                 )
 
             self.client = AwsClient(
                 service_name="bedrock-runtime",
-                region_name=self.aws_region,
-                aws_access_key_id=self.aws_access_key_id,
-                aws_secret_access_key=self.aws_secret_access_key,
-                aws_session_token=self.aws_session_token,
+                region_name=aws_region,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key,
+                aws_session_token=aws_session_token,
             )
         return self.client
 
@@ -165,42 +165,27 @@ class AwsBedrock(Model):
             return async_session.client("bedrock-runtime")
 
         if self.async_session is None:
-            self.aws_access_key_id = self.aws_access_key_id or getenv("AWS_ACCESS_KEY_ID")
-            self.aws_secret_access_key = self.aws_secret_access_key or getenv("AWS_SECRET_ACCESS_KEY")
-            self.aws_session_token = self.aws_session_token or getenv("AWS_SESSION_TOKEN")
-            self.aws_region = self.aws_region or getenv("AWS_REGION")
-
             self.async_session = aioboto3.Session()
+
+        # Resolved fresh on every call, mirroring get_client()'s per-field fallback, so
+        # credentials rotated via env vars (e.g. STS-issued temporary creds) are picked up
+        # rather than pinned to whatever was observed on the first call (EGPT-171).
+        aws_access_key_id = self.aws_access_key_id or getenv("AWS_ACCESS_KEY_ID")
+        aws_secret_access_key = self.aws_secret_access_key or getenv("AWS_SECRET_ACCESS_KEY")
+        aws_session_token = self.aws_session_token or getenv("AWS_SESSION_TOKEN")
+        aws_region = self.aws_region or getenv("AWS_REGION")
 
         client_kwargs: Dict[str, Any] = {
             "service_name": "bedrock-runtime",
-            "region_name": self.aws_region,
+            "region_name": aws_region,
         }
 
-        if self.aws_sso_auth:
-            pass
-        else:
-            if not self.aws_access_key_id or not self.aws_secret_access_key:
-                import os
-
-                env_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-                env_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-                env_session_token = os.environ.get("AWS_SESSION_TOKEN")
-                env_region = os.environ.get("AWS_REGION")
-
-                if env_access_key and env_secret_key:
-                    self.aws_access_key_id = env_access_key
-                    self.aws_secret_access_key = env_secret_key
-                    self.aws_session_token = env_session_token
-                    if env_region:
-                        self.aws_region = env_region
-                        client_kwargs["region_name"] = self.aws_region
-
-            if self.aws_access_key_id and self.aws_secret_access_key:
-                client_kwargs["aws_access_key_id"] = self.aws_access_key_id
-                client_kwargs["aws_secret_access_key"] = self.aws_secret_access_key
-                if self.aws_session_token:
-                    client_kwargs["aws_session_token"] = self.aws_session_token
+        if not self.aws_sso_auth:
+            if aws_access_key_id and aws_secret_access_key:
+                client_kwargs["aws_access_key_id"] = aws_access_key_id
+                client_kwargs["aws_secret_access_key"] = aws_secret_access_key
+                if aws_session_token:
+                    client_kwargs["aws_session_token"] = aws_session_token
 
         return self.async_session.client(**client_kwargs)
 

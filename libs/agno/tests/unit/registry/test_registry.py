@@ -622,11 +622,14 @@ class TestRegistryIntegration:
         The refusal tells the caller to supply an endpoint, and `Agent.from_dict` raises before a
         caller can patch anything -- so without this keyword on the public classmethod the advice
         had no supported API behind it, only a private module-level function.
+
+        The patch itself goes through `_set_connection_attr`, not raw attribute assignment --
+        `Model.__setattr__` blocks a second raw write to a connection attr (EGPT-171).
         """
         from egpt.agent.agent import Agent
 
         agent = Agent.from_dict({"id": "a", "name": "A", "model": "openai-like:qwen"}, require_endpoint=False)
-        agent.model.base_url = "http://vllm.internal:8000/v1"
+        agent.model._set_connection_attr("base_url", "http://vllm.internal:8000/v1")
 
         assert agent.model.base_url == "http://vllm.internal:8000/v1"
 

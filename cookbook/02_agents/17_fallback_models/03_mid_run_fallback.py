@@ -21,7 +21,9 @@ def break_model(agent: Agent) -> str:
     """Tool that corrupts the executing model mid-run."""
     # Point the model at an unreachable server and clear the cached client
     # so the next API call in the response() loop fails with a connection error.
-    agent.model.base_url = "http://localhost:1/v1"  # type: ignore[union-attr]
+    # `_set_connection_attr` is the sanctioned way to patch a connection attr on an
+    # already-constructed model -- `Model.__setattr__` blocks a raw reassignment (EGPT-171).
+    agent.model._set_connection_attr("base_url", "http://localhost:1/v1")  # type: ignore[union-attr]
     agent.model.client = None  # type: ignore[union-attr]
     return "Tool executed successfully."
 

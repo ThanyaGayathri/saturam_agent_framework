@@ -40,7 +40,7 @@ class Claude(AnthropicClaude):
 
     def __post_init__(self):
         """Validate model configuration after initialization"""
-        # Chained for the declared-connection snapshot -- see `Model._snapshot_declared_connection`.
+        # Chained so `Model.__post_init__` can auto-fill `provider` and run its own setup.
         super().__post_init__()
         if self.thinking:
             self._validate_thinking_support()
@@ -50,9 +50,9 @@ class Claude(AnthropicClaude):
     def _get_client_params(self) -> Dict[str, Any]:
         client_params: Dict[str, Any] = {}
 
-        self.api_key = self.api_key or getenv("ANTHROPIC_FOUNDRY_API_KEY")
-        if self.api_key:
-            client_params["api_key"] = self.api_key
+        api_key = self.api_key or getenv("ANTHROPIC_FOUNDRY_API_KEY")
+        if api_key:
+            client_params["api_key"] = api_key
 
         resource = self.resource or getenv("ANTHROPIC_FOUNDRY_RESOURCE")
         if resource:
@@ -65,7 +65,7 @@ class Claude(AnthropicClaude):
         if self.azure_ad_token_provider:
             client_params["azure_ad_token_provider"] = self.azure_ad_token_provider
 
-        if not (self.api_key or self.azure_ad_token_provider):
+        if not (api_key or self.azure_ad_token_provider):
             log_warning(
                 "Azure credentials not found. Set ANTHROPIC_FOUNDRY_API_KEY or provide an azure_ad_token_provider."
             )
