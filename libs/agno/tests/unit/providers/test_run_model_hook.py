@@ -19,12 +19,11 @@ from typing import Optional
 import pytest
 
 from egpt.agent._run import apply_run_model
-from egpt.run.base import run_model
+from egpt.models.base import same_model
 from egpt.providers import set_default_model_provider
 from egpt.providers.escalation import EscalatingModelProvider
 from egpt.providers.model_provider import ModelCapabilities, ModelResolveRequest, ProviderMode
-from egpt.models.base import same_model
-from egpt.run.base import RunContext
+from egpt.run.base import RunContext, run_model
 from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider, FakeModel
 
 
@@ -1259,64 +1258,80 @@ class TestConnectionAwarePinningThroughDeepCopy:
     that matter through `Agent.deep_copy` and, for the leak, through `apply_run_model`.
     """
 
+    #: (module, class name, env var the class falls back to for `api_key`) for each provider run
+    #: through these cases. Both declare `base_url`/`api_key` as `Optional[str] = None` with an
+    #: env fallback -- the shape `test_a_bare_default_endpoint_model_is_a_fresh_pin` depends on --
+    #: unlike most OpenAI-family providers, which bake in a fixed non-`None` `base_url` default.
+    _PROVIDER_CASES = [
+        ("egpt.integrations.models.openai", "OpenAIResponses", "OPENAI_API_KEY"),
+        ("egpt.integrations.models.vllm.vllm", "VLLM", "VLLM_API_KEY"),
+    ]
+
+    @pytest.fixture(params=_PROVIDER_CASES, ids=[case[1] for case in _PROVIDER_CASES])
+    def provider_case(self, request):
+        module_name, cls_name, api_key_env = request.param
+        module = pytest.importorskip(module_name, reason="the connection cases need a real provider")
+        return getattr(module, cls_name), api_key_env
+
     @pytest.fixture
-    def responses_cls(self):
-        openai = pytest.importorskip(
-            "egpt.integrations.models.openai", reason="the connection cases need a real provider"
-        )
-        return openai.OpenAIResponses
+    def responses_cls(self, provider_case):
+        cls, _ = provider_case
+        return cls
 
     def _agent(self, model):
         from egpt.agent.agent import Agent
 
         return Agent(model=model, telemetry=False)
 
-    def test_building_a_client_on_one_copy_does_not_reach_another(self, responses_cls, monkeypatch):
+    def test_building_a_client_on_one_copy_does_not_reach_another(self, provider_case, monkeypatch):
         """The aicoe-tracker#172 leak, end to end through the real credential-fill path.
 
         The mutation test in `test_same_model.py` uses `BareModel`, which does not declare
         `api_key` as a dataclass field -- so it sets a plain attribute and never exercises
-        `_get_client_params`. This drives the real one: `get_client()` on a real provider writes
-        the environment's key onto the model it is called on (aicoe-tracker#171, still open).
+        `_get_client_params`. This drives the real one, on a real provider subclass.
 
-        Before the fix, every copy's `_user_pinned_model` was the *same object*, and `mode_a`
-        returns that object as the serving model -- so one request's client build wrote a
-        credential into the pin every other copy resolved to. Raised in review of #107 as the
-        highest-value coverage gap.
+        Before EGPT-171/#172, `get_client()` wrote the environment's key onto the model it was
+        called on, and every copy's `_user_pinned_model` was the *same object* -- so one request's
+        client build wrote a credential into the pin every other copy resolved to. EGPT-171 closes
+        the mutation itself: `get_client()` no longer writes the resolved key back onto `self` for
+        any copy, so there is nothing left to leak. Asserted here on the real deep-copy-produced
+        pin objects, not just the synthetic `BareModel` `test_same_model.py` uses.
         """
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+        responses_cls, api_key_env = provider_case
+        monkeypatch.setenv(api_key_env, "sk-tenant-one")
 
         agent = self._agent(responses_cls(id="gpt-5.5"))
         first, second = agent.deep_copy(), agent.deep_copy()
 
         first._user_pinned_model.get_client()
 
-        assert first._user_pinned_model.api_key == "sk-tenant-one", (
-            "the copy that built the client is the one that should carry the filled key"
-        )
+        assert first._user_pinned_model.api_key is None, "get_client() must not mutate api_key on self (EGPT-171)"
         assert second._user_pinned_model.api_key is None, (
             "a sibling copy's pin must not acquire another request's credential"
         )
         assert agent._user_pinned_model.api_key is None, "nor may the original the copies were made from"
 
-    def test_a_team_copys_pin_is_isolated_from_a_real_credential_fill(self, responses_cls, monkeypatch):
+    def test_a_team_copys_pin_is_isolated_from_a_real_credential_fill(self, provider_case, monkeypatch):
         """The Team half of the leak, on a real provider.
 
         `test_same_model.py`'s Team cases use `BareModel`, which does not declare `api_key` as a
         dataclass field -- so they set a plain attribute and assert on `getattr(..., None)`, which
         cannot tell "isolated" from "attribute absent". This drives the real credential-fill path
-        through the Team copy site, which had no real-provider coverage. Raised in review of #107.
+        through the Team copy site, which had no real-provider coverage. Raised in review of #107;
+        since EGPT-171, `get_client()` never writes the resolved key back onto `self` for any
+        copy, so all three stay `None` rather than just the two siblings.
         """
         from egpt.team import Team
 
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+        responses_cls, api_key_env = provider_case
+        monkeypatch.setenv(api_key_env, "sk-tenant-one")
 
         team = Team(members=[], name="t", model=responses_cls(id="gpt-5.5"), telemetry=False)
         first, second = team.deep_copy(), team.deep_copy()
 
         first._user_pinned_model.get_client()
 
-        assert first._user_pinned_model.api_key == "sk-tenant-one"
+        assert first._user_pinned_model.api_key is None, "get_client() must not mutate api_key on self (EGPT-171)"
         assert second._user_pinned_model.api_key is None, (
             "a sibling Team copy's pin must not acquire another request's credential"
         )
@@ -1347,14 +1362,15 @@ class TestConnectionAwarePinningThroughDeepCopy:
             "a setting applied to the copy's model must be what a pin-honouring provider serves"
         )
 
-    def test_keeping_them_aliased_still_isolates_the_copy(self, responses_cls, monkeypatch):
+    def test_keeping_them_aliased_still_isolates_the_copy(self, provider_case, monkeypatch):
         """The alias must not be restored by pointing back at the *original's* object.
 
         Healing the split by sharing `agent.model` would undo #172 entirely. The copy gets its
         own object that is aliased to its own pin -- so a client build on one copy reaches
         neither its siblings nor the original.
         """
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-tenant-one")
+        responses_cls, api_key_env = provider_case
+        monkeypatch.setenv(api_key_env, "sk-tenant-one")
 
         agent = self._agent(responses_cls(id="gpt-5.5"))
         first, second = agent.deep_copy(), agent.deep_copy()
@@ -1424,18 +1440,19 @@ class TestConnectionAwarePinningThroughDeepCopy:
         assert copy.model.base_url is None, "the run must not reach tenant A's endpoint"
         assert copy.model.api_key != "key_a", "nor use tenant A's key"
 
-    def test_an_identical_reconstruction_after_a_client_build_is_not_a_fresh_pin(self, responses_cls, monkeypatch):
+    def test_an_identical_reconstruction_after_a_client_build_is_not_a_fresh_pin(self, provider_case, monkeypatch):
         """The round-2 critical, through the public API: the post-first-run state.
 
-        A live model that has served a request carries an environment-filled `api_key` its own
-        reconstruction does not, so comparing live values reported an identical rebuild as
-        "different" and re-opened the laundering. No test here reached this state before.
+        `get_client()` must not mutate `self.api_key`, so a live model that has served a request
+        still compares equal to its own fresh reconstruction via plain live-attribute comparison --
+        no construction-time snapshot needed. No test here reached this state before.
         """
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-the-environment")
+        responses_cls, api_key_env = provider_case
+        monkeypatch.setenv(api_key_env, "sk-from-the-environment")
         live = responses_cls(id="gpt-5.5")
         agent = self._agent(live)
-        live.get_client()  # run 1: the lazy fill happens here
-        assert live.api_key == "sk-from-the-environment"
+        live.get_client()  # run 1: must not leak the env-resolved key onto self
+        assert live.api_key is None, "get_client() must not mutate api_key on self"
 
         fresh = agent.deep_copy(update={"model": responses_cls(id="gpt-5.5")})
 

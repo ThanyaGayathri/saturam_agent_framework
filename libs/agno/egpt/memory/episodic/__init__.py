@@ -1,10 +1,11 @@
 """Episodic-tier scoring, graph-link resolution, and segmentation (SM-E3 #110, SM-E4 #111,
-SM-E5 #112, SM-E6 #113, SM-E7 #114, SM-E9 #116, SM-E10 #117).
+SM-E5 #112, SM-E6 #113, SM-E7 #114, SM-E8 #115, SM-E9 #116, SM-E10 #117).
 
 Re-exports the tier's scorers -- SM-E4's recency-decay module (:mod:`egpt.memory.episodic.decay`),
 SM-E5's salience scorer (:mod:`egpt.memory.episodic.importance`), SM-E6's relevance module
 (:mod:`egpt.memory.episodic.relevance`), SM-E7's composite module
-(:mod:`egpt.memory.episodic.score`), SM-E9's forgetting/pruning policy
+(:mod:`egpt.memory.episodic.score`), SM-E8's temporal-contiguity module
+(:mod:`egpt.memory.episodic.contiguity`), SM-E9's forgetting/pruning policy
 (:mod:`egpt.memory.episodic.forget`) -- SM-E10's :mod:`egpt.memory.episodic.link`, which
 resolves an episode's derived graph link back against a live ``GraphSubstrate``, and SM-E3's
 SM-R6 v1 inline segmenter (:mod:`egpt.memory.episodic.segment`).
@@ -17,6 +18,14 @@ own namespace -- silently breaking anything addressing the module by dotted path
 submodule directly: ``from egpt.memory.episodic.forget import forget``.
 """
 
+from egpt.memory.episodic.contiguity import (
+    DEFAULT_CONTIGUITY_BUFFER_CAPACITY,
+    DEFAULT_CONTIGUITY_RADIUS,
+    ContiguityBuffer,
+    ContiguityNeighbor,
+    temporal_neighbors,
+    temporal_order_key,
+)
 from egpt.memory.episodic.decay import (
     DEFAULT_BASE_HALF_LIFE_S,
     DEFAULT_IMP_FACTOR,
@@ -39,9 +48,13 @@ from egpt.memory.episodic.link import (
 )
 from egpt.memory.episodic.relevance import EmbedderLike, aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.episodic.score import (
+    DEFAULT_CONTIGUITY_DECAY,
+    DEFAULT_CONTIGUITY_WEIGHT,
     DEFAULT_EPISODIC_SCORE_WEIGHTS,
     EpisodicScoreWeights,
+    blend_contiguity,
     composite_episodic_score,
+    contiguity_bonus,
 )
 from egpt.memory.episodic.segment import (
     DEFAULT_MAX_TURNS_PER_EPISODE,
@@ -58,6 +71,10 @@ from egpt.memory.episodic.segment import (
 
 __all__ = [
     "DEFAULT_BASE_HALF_LIFE_S",
+    "DEFAULT_CONTIGUITY_BUFFER_CAPACITY",
+    "DEFAULT_CONTIGUITY_DECAY",
+    "DEFAULT_CONTIGUITY_RADIUS",
+    "DEFAULT_CONTIGUITY_WEIGHT",
     "DEFAULT_EPISODIC_SCORE_WEIGHTS",
     "DEFAULT_IMP_FACTOR",
     "DEFAULT_MAX_TURNS_PER_EPISODE",
@@ -67,6 +84,8 @@ __all__ = [
     "TIME_GAP_METHOD",
     "TURN_CAP_METHOD",
     "BoundaryDecision",
+    "ContiguityBuffer",
+    "ContiguityNeighbor",
     "EmbedderLike",
     "EpisodeLink",
     "EpisodicScoreWeights",
@@ -75,7 +94,9 @@ __all__ = [
     "SegmentState",
     "aepisode_relevance",
     "aresolve_episode_link",
+    "blend_contiguity",
     "composite_episodic_score",
+    "contiguity_bonus",
     "cosine_relevance",
     "episode_decay_score",
     "episode_link_drift",
@@ -89,4 +110,6 @@ __all__ = [
     "segmenter_version",
     "select_for_forgetting",
     "stamp_boundaries",
+    "temporal_neighbors",
+    "temporal_order_key",
 ]

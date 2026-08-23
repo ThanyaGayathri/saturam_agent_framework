@@ -88,34 +88,13 @@ class OpenRouterResponses(OpenResponses):
         Raises:
             ModelAuthenticationError: If OPENROUTER_API_KEY is not set.
         """
-        # Fetch API key from env if not already set
-        if not self.api_key:
-            self.api_key = getenv("OPENROUTER_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="OPENROUTER_API_KEY not set. Please set the OPENROUTER_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-
-        # Build client params
-        base_params: Dict[str, Any] = {
-            "api_key": self.api_key,
-            "base_url": self.base_url,
-            "organization": self.organization,
-            "timeout": self.timeout,
-            "max_retries": self.max_retries,
-            "default_headers": self.default_headers,
-            "default_query": self.default_query,
-        }
-
-        # Filter out None values
-        client_params = {k: v for k, v in base_params.items() if v is not None}
-
-        # Add additional client params if provided
-        if self.client_params:
-            client_params.update(self.client_params)
-
-        return client_params
+        api_key = self.api_key or getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ModelAuthenticationError(
+                message="OPENROUTER_API_KEY not set. Please set the OPENROUTER_API_KEY environment variable.",
+                model_name=self.name,
+            )
+        return super()._get_client_params(api_key=api_key)
 
     def get_request_params(
         self,

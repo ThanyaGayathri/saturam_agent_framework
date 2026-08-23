@@ -131,21 +131,21 @@ class AzureAIFoundry(Model):
 
     def _get_client_params(self) -> Dict[str, Any]:
         """Get the parameters for creating an Azure AI client."""
-        self.api_key = self.api_key or getenv("AZURE_API_KEY")
-        self.api_version = self.api_version or getenv("AZURE_API_VERSION", "2024-05-01-preview")
-        self.azure_endpoint = self.azure_endpoint or getenv("AZURE_ENDPOINT")
+        api_key = self.api_key or getenv("AZURE_API_KEY")
+        api_version = self.api_version or getenv("AZURE_API_VERSION", "2024-05-01-preview")
+        azure_endpoint = self.azure_endpoint or getenv("AZURE_ENDPOINT")
 
-        if not self.api_key:
+        if not api_key:
             log_error("AZURE_API_KEY not set. Please set the AZURE_API_KEY environment variable.")
-        if not self.azure_endpoint:
+        if not azure_endpoint:
             log_error("AZURE_ENDPOINT not set. Please set the AZURE_ENDPOINT environment variable.")
 
         base_params: Dict[str, Any] = {
-            "endpoint": self.azure_endpoint,
-            "api_version": self.api_version,
+            "endpoint": azure_endpoint,
+            "api_version": api_version,
         }
-        if self.api_key:
-            base_params["credential"] = AzureKeyCredential(self.api_key)
+        if api_key:
+            base_params["credential"] = AzureKeyCredential(api_key)
 
         # Create client_params dict with non-None values
         client_params = {k: v for k, v in base_params.items() if v is not None}

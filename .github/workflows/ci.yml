@@ -4,14 +4,17 @@ on:
   push:
     branches:
       - main
-  # TODO(follow-up PR): remove pull_request once workflow_dispatch is confirmed
-  # live on main. Keeping it here for this PR only, since workflow_dispatch
-  # doesn't become dispatchable in the Actions UI until this file lands on
-  # main, and removing pull_request in this same commit would strand this PR
-  # without any way to produce the required ci-success check.
+  # PR runs are gated on the `run-ci` label to cut Actions spend on this repo's high PR
+  # volume: an unlabeled PR costs one ~10s ci-success job (which fails, asking for the label);
+  # adding the label fires the `labeled` event and runs the full suite. The trigger has to
+  # stay `pull_request` -- GitHub only counts check suites from pull_request/push events
+  # toward a PR's required status checks, so a workflow_dispatch run on the PR branch never
+  # satisfies the required `ci-success` check no matter how green it is.
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, labeled]
+  # Ad-hoc runs on any branch. These show on the commit but do NOT satisfy PR checks (above).
   workflow_dispatch:
 
 concurrency:
@@ -22,9 +25,14 @@ concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
+# The heavy jobs share one gate, repeated verbatim on each because job-level `if` cannot read
+# workflow `env` and YAML anchors are not supported here:
+#   github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')
+# i.e. always run on push/workflow_dispatch; on a PR, only when it carries the run-ci label.
 jobs:
   validate:
     name: validate (${{ matrix.python-version }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -58,6 +66,7 @@ jobs:
 
   validate-egpt-infra:
     name: validate egpt-infra (${{ matrix.python-version }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -91,6 +100,7 @@ jobs:
 
   test-and-build:
     name: test-and-build (${{ matrix.package }}, py${{ matrix.python-version }})
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -256,6 +266,7 @@ jobs:
     # precision the contracts cannot express. This is the "CI fails on any cross-layer import
     # violation" gate #52's acceptance criteria ask for.
     name: import-linter
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -292,6 +303,7 @@ jobs:
     # regressions shipped and all five were caught by a human reading the diff
     # (aicoe-tracker#161). This job is the machine that reads the diff.
     name: unit-drivers-absent
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -376,6 +388,15 @@ jobs:
     # The shell checks below enforce the real result.
     if: always()
     steps:
+      - name: Require the run-ci label on pull requests
+        # On an unlabeled PR every upstream job is skipped, and the `!= success` checks below
+        # would fail with five misleading "X failed: skipped" lines. Fail here with the actual
+        # reason instead. Adding the label re-fires this workflow via the `labeled` event.
+        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'run-ci')
+        run: |
+          echo "::error::CI did not run: add the 'run-ci' label to this pull request to run the full suite."
+          exit 1
+
       - name: Require all jobs
         run: |
           if [[ "${{ needs.validate.result }}" != "success" ]]; then

@@ -62,11 +62,11 @@ class Cohere(Model):
 
         _client_params: Dict[str, Any] = {}
 
-        self.api_key = self.api_key or getenv("CO_API_KEY")
-        if not self.api_key:
+        api_key = self.api_key or getenv("CO_API_KEY")
+        if not api_key:
             log_error("CO_API_KEY not set. Please set the CO_API_KEY environment variable.")
 
-        _client_params["api_key"] = self.api_key
+        _client_params["api_key"] = api_key
 
         if self.http_client:
             if isinstance(self.http_client, httpx.Client):
@@ -86,16 +86,16 @@ class Cohere(Model):
 
         _client_params: Dict[str, Any] = {}
 
-        self.api_key = self.api_key or getenv("CO_API_KEY")
+        api_key = self.api_key or getenv("CO_API_KEY")
 
-        if not self.api_key:
+        if not api_key:
             raise ModelProviderError(
                 message="CO_API_KEY not set. Please set the CO_API_KEY environment variable.",
                 model_name=self.name,
                 model_id=self.id,
             )
 
-        _client_params["api_key"] = self.api_key
+        _client_params["api_key"] = api_key
 
         if self.http_client:
             if isinstance(self.http_client, httpx.AsyncClient):

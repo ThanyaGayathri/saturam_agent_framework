@@ -262,10 +262,10 @@ class GeminiInteractions(Model):
 
         client_params: Dict[str, Any] = {}
 
-        self.api_key = self.api_key or getenv("GOOGLE_API_KEY")
-        if not self.api_key:
+        api_key = self.api_key or getenv("GOOGLE_API_KEY")
+        if not api_key:
             log_error("GOOGLE_API_KEY not set. Please set the GOOGLE_API_KEY environment variable.")
-        client_params["api_key"] = self.api_key
+        client_params["api_key"] = api_key
 
         if self.timeout is not None:
             http_options = client_params.get("http_options", {})

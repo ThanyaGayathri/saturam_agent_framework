@@ -37,11 +37,10 @@ class Inception(OpenAILike):
         # Resolve the API key from INCEPTION_API_KEY and fail fast with a clear
         # message. Without this, the base class falls back to OPENAI_API_KEY,
         # which would silently send an OpenAI key to the Inception endpoint.
-        if not self.api_key:
-            self.api_key = getenv("INCEPTION_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="INCEPTION_API_KEY not set. Please set the INCEPTION_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+        api_key = self.api_key or getenv("INCEPTION_API_KEY")
+        if not api_key:
+            raise ModelAuthenticationError(
+                message="INCEPTION_API_KEY not set. Please set the INCEPTION_API_KEY environment variable.",
+                model_name=self.name,
+            )
+        return super()._get_client_params(api_key=api_key)

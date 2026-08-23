@@ -39,6 +39,7 @@ __all__ = [
     "LatencyTrigger",
     "IdleTrigger",
     "AnyTrigger",
+    "validated_threshold",
 ]
 
 
@@ -82,10 +83,16 @@ class PerTenantThreshold:
 ThresholdSource = Union[int, float, PerTenantThreshold]
 
 
-def _validated_threshold(value: ThresholdSource, option: str) -> ThresholdSource:
-    """Validates a plain threshold. A ``PerTenantThreshold`` validates itself in
-    ``__post_init__``, so there is nothing left to check here beyond the plain-number case --
-    re-validating it would just repeat work `__post_init__` already did.
+def validated_threshold(value: ThresholdSource, option: str) -> ThresholdSource:
+    """Validates a plain threshold under the caller's own parameter name. A ``PerTenantThreshold``
+    validates itself in ``__post_init__``, so there is nothing left to check here beyond the
+    plain-number case -- re-validating it would just repeat work ``__post_init__`` already did.
+
+    Public (not module-private) because it is shared beyond this file's own trigger classes:
+    :class:`~egpt.memory.consolidation.reflect.ReflectionPipeline` reuses it to validate its own
+    ``importance_threshold`` under that name rather than :class:`SizeTrigger`'s generic
+    ``"threshold"`` -- the same helper every trigger below already calls internally, so the two
+    validations cannot drift on what counts as a valid :data:`ThresholdSource`.
     """
     if not isinstance(value, PerTenantThreshold):
         _positive(value, option)
@@ -148,7 +155,7 @@ class _AccumulatingTrigger:
     """
 
     def __init__(self, threshold: ThresholdSource, *, option: str) -> None:
-        self._threshold = _validated_threshold(threshold, option)
+        self._threshold = validated_threshold(threshold, option)
         self._totals: Dict[str, float] = {}
 
     def _accumulated(self, scope: Scope) -> float:
@@ -211,7 +218,7 @@ class LatencyTrigger:
     """
 
     def __init__(self, max_age_seconds: ThresholdSource) -> None:
-        self._max_age_seconds = _validated_threshold(max_age_seconds, "max_age_seconds")
+        self._max_age_seconds = validated_threshold(max_age_seconds, "max_age_seconds")
         self._oldest_pending_at: Dict[str, float] = {}
 
     def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:
@@ -244,7 +251,7 @@ class IdleTrigger:
     """
 
     def __init__(self, idle_seconds: ThresholdSource) -> None:
-        self._idle_seconds = _validated_threshold(idle_seconds, "idle_seconds")
+        self._idle_seconds = validated_threshold(idle_seconds, "idle_seconds")
         self._last_event_at: Dict[str, float] = {}
 
     def record_event(self, scope: Scope, *, now: float, size: float = 1.0) -> None:

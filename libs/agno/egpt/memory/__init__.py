@@ -13,8 +13,12 @@ from egpt.memory.config import (
 from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker
 from egpt.memory.episodic import (
     DEFAULT_BASE_HALF_LIFE_S,
+    DEFAULT_CONTIGUITY_BUFFER_CAPACITY,
+    DEFAULT_CONTIGUITY_RADIUS,
     DEFAULT_IMP_FACTOR,
     DEFAULT_PRUNE_THRESHOLD,
+    ContiguityBuffer,
+    ContiguityNeighbor,
     ImportanceScore,
     ImportanceScorer,
     episode_decay_score,
@@ -23,6 +27,8 @@ from egpt.memory.episodic import (
     recency_decay,
     reinforce,
     select_for_forgetting,
+    temporal_neighbors,
+    temporal_order_key,
 )
 
 # `forget` (the single-episode archive function) is imported from its submodule directly, not
@@ -32,9 +38,13 @@ from egpt.memory.episodic import (
 from egpt.memory.episodic.forget import forget
 from egpt.memory.episodic.relevance import aepisode_relevance, cosine_relevance, episode_relevance
 from egpt.memory.episodic.score import (
+    DEFAULT_CONTIGUITY_DECAY,
+    DEFAULT_CONTIGUITY_WEIGHT,
     DEFAULT_EPISODIC_SCORE_WEIGHTS,
     EpisodicScoreWeights,
+    blend_contiguity,
     composite_episodic_score,
+    contiguity_bonus,
 )
 from egpt.memory.episodic.segment import (
     DEFAULT_MAX_TURNS_PER_EPISODE,
@@ -61,6 +71,10 @@ from egpt.memory.schemas.episodic import (
     episode_to_record,
     graph_node_id_for,
 )
+from egpt.memory.schemas.semantic import FACT_METADATA_KEYS, SPO_PROVENANCE_KEYS, fact_record
+
+# The semantic fact store (SM-S1)
+from egpt.memory.semantic import SemanticFactStore
 from egpt.memory.strategies import (
     MemoryOptimizationStrategy,
     MemoryOptimizationStrategyFactory,
@@ -87,6 +101,7 @@ from egpt.memory.types import (
     FUSION_KEYS,
     MAX_LIMIT,
     NO_ENTITIES,
+    NO_REFLECTION,
     NO_RELATIONS,
     NO_SUPERSEDE,
     SCOPE_SLOTS,
@@ -197,6 +212,7 @@ __all__ = [
     "FUSION_KEYS",
     "MAX_LIMIT",
     "NO_ENTITIES",
+    "NO_REFLECTION",
     "NO_RELATIONS",
     "NO_SUPERSEDE",
     "normalize_entity_name",
@@ -217,6 +233,11 @@ __all__ = [
     "episode_from_event",
     "episode_to_record",
     "graph_node_id_for",
+    # The semantic fact store (SM-S1)
+    "FACT_METADATA_KEYS",
+    "SPO_PROVENANCE_KEYS",
+    "SemanticFactStore",
+    "fact_record",
     # Episodic recency-decay scoring (SM-E4)
     "DEFAULT_BASE_HALF_LIFE_S",
     "DEFAULT_IMP_FACTOR",
@@ -257,6 +278,17 @@ __all__ = [
     "DEFAULT_EPISODIC_SCORE_WEIGHTS",
     "EpisodicScoreWeights",
     "composite_episodic_score",
+    # Temporal-contiguity retrieval (SM-E8)
+    "DEFAULT_CONTIGUITY_BUFFER_CAPACITY",
+    "DEFAULT_CONTIGUITY_DECAY",
+    "DEFAULT_CONTIGUITY_RADIUS",
+    "DEFAULT_CONTIGUITY_WEIGHT",
+    "ContiguityBuffer",
+    "ContiguityNeighbor",
+    "blend_contiguity",
+    "contiguity_bonus",
+    "temporal_neighbors",
+    "temporal_order_key",
     # Episode forgetting / pruning (SM-E9)
     "DEFAULT_PRUNE_THRESHOLD",
     "forget",

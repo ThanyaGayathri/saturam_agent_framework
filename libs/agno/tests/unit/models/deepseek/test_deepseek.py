@@ -24,10 +24,11 @@ def test_default_config():
 
 def test_requires_api_key():
     """DeepSeek raises an error when no API key is provided."""
-    model = DeepSeek()
-
+    # Construct inside the cleared environment so the field's own `getenv("DEEPSEEK_API_KEY")`
+    # default resolves to `None` -- `Model.__setattr__` blocks a second raw write to `api_key`
+    # after construction (EGPT-171), so this can't be done as a post-construction patch.
     with patch.dict("os.environ", {}, clear=True):
-        model.api_key = None
+        model = DeepSeek()
         with pytest.raises(ModelAuthenticationError, match="DEEPSEEK_API_KEY not set"):
             model._get_client_params()
 
