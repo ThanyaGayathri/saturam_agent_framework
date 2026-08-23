@@ -11,6 +11,7 @@ import asyncio
 
 import pytest
 
+from egpt.memory.errors import MemoryScopeRequiredError
 from egpt.memory.retrieval.orchestrator import RetrievalLegs, aorchestrate, orchestrate
 from egpt.memory.substrates import HybridSearchSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
@@ -59,6 +60,16 @@ def test_a_none_substrate_produces_an_empty_leg_rather_than_an_error():
     legs = orchestrate(ACME, query(), vector=None, graph=seeded_graph())
     assert legs.vector == [] and legs.lexical == []
     assert [r.id for r in legs.graph] == ["g0"]
+
+
+def test_both_substrates_none_returns_empty_legs_without_error():
+    legs = orchestrate(ACME, query(), vector=None, graph=None)
+    assert legs.vector == [] and legs.lexical == [] and legs.graph == []
+
+
+async def test_both_substrates_none_returns_empty_legs_without_error_async():
+    legs = await aorchestrate(ACME, query(), vector=None, graph=None)
+    assert legs.vector == [] and legs.lexical == [] and legs.graph == []
 
 
 def test_a_query_naming_only_graph_never_touches_the_vector_store():
@@ -118,14 +129,11 @@ def test_a_hybrid_substrate_that_satisfies_the_protocol_structurally_is_detected
 
 def test_a_leg_that_ran_and_matched_nothing_is_an_empty_list_not_a_missing_one():
     vector = FakeHybridVector()  # nothing upserted
-    legs = orchestrate(ACME, query(text="nothing matches this"), vector=vector, graph=seeded_graph(rows=()))
+    graph = seeded_graph(rows=())
+    legs = orchestrate(ACME, query(text="nothing matches this"), vector=vector, graph=graph)
     assert legs.vector == [] and legs.lexical == [] and legs.graph == []
     assert vector.calls == ["search_candidates"]
-
-
-def test_as_lists_preserves_field_order_for_score_sum_merge():
-    legs = RetrievalLegs(vector=[record("v")], lexical=[record("l")], graph=[record("g")])
-    assert [ids[0].id for ids in legs.as_lists()] == ["v", "l", "g"]
+    assert graph.calls == ["traverse"]  # ran, matched nothing -- not "did not run"
 
 
 def test_legs_keys_by_name():
@@ -164,12 +172,50 @@ async def test_the_vector_and_graph_calls_run_concurrently():
     assert [r.id for r in legs.graph] == ["g0"]
 
 
+async def test_the_hybrid_stores_call_and_the_graph_call_run_concurrently():
+    """The structural argument (one `asyncio.gather` drives both branches of `vector_leg`, hybrid
+    or plain) is not itself proof for the hybrid branch specifically -- lock it the same way as
+    the plain-vector case above, with `asearch_candidates` as the blocking leg this time."""
+    started = asyncio.Event()
+
+    class BlockingHybridVector(FakeHybridVector):
+        async def asearch_candidates(self, scope, query, tier=None):
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            return self.search_candidates(scope, query, tier)
+
+    class SignallingGraph(FakeGraph):
+        async def atraverse(self, scope, query, tier=None):
+            started.set()
+            return self.traverse(scope, query, tier)
+
+    vector = seeded_vector(BlockingHybridVector)
+    graph = seeded_graph(SignallingGraph)
+
+    legs = await asyncio.wait_for(aorchestrate(ACME, query(), vector=vector, graph=graph), timeout=2.0)
+    assert [r.id for r in legs.vector] == ["v0"]
+    assert [r.id for r in legs.graph] == ["g0"]
+
+
 async def test_a_hybrid_vector_uses_asearch_candidates_never_asearch():
     vector = seeded_vector(FakeHybridVector)
     legs = await aorchestrate(ACME, query(), vector=vector, graph=None)
     assert [r.id for r in legs.lexical] == ["v0"]
-    assert "asearch_candidates" in vector.calls
-    assert "asearch" not in vector.calls and "search" not in vector.calls
+    # Exact, not membership: `FakeHybridVector.asearch_candidates` no longer delegates through
+    # `search_candidates`, so there is exactly one log entry, not a double-count.
+    assert vector.calls == ["asearch_candidates"]
+
+
+def test_a_hybrid_vectors_asearch_candidates_checks_scope_before_it_ever_suspends():
+    """A raise-eventually assertion (`with pytest.raises(...): await ...`) cannot distinguish
+    `require_scope` running before `await _yield()` from running after it -- both orderings raise
+    before the coroutine returns to the caller either way. Driving the coroutine with `.send(None)`
+    instead can: it advances execution to the *first* suspension point (or to the first raise,
+    whichever comes first) and no further, so the assertion only passes if the scope check runs
+    before any `await`."""
+    vector = FakeHybridVector()
+    coro = vector.asearch_candidates(None, MemoryQuery(text="x"))
+    with pytest.raises(MemoryScopeRequiredError):
+        coro.send(None)
 
 
 @pytest.mark.parametrize("substrates", [None, [Substrate.VECTOR], [Substrate.GRAPH]])

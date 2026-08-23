@@ -117,6 +117,11 @@ class Substrate(str, Enum):
     the authority for bi-temporal validity; the vector substrate is not (finding F2).
     """
 
+    # BM25/lexical retrieval is gated on this member, not a member of its own: a store
+    # implementing `HybridSearchSubstrate` (SM-V3 #97) returns both the vector and lexical legs
+    # from one `search_candidates` call, feature-detected by the orchestrator (SM-H1 #131) rather
+    # than requested by name. There is no `Substrate.LEXICAL` -- adding one, and a way to ask for
+    # vector without BM25, is deferred to SM-H2 (#132) if a caller ever needs it.
     VECTOR = "vector"  # similarity + full-text; the episodic recall entry point
     GRAPH = "graph"  # temporal knowledge graph: multi-hop, provenance, bi-temporal
 

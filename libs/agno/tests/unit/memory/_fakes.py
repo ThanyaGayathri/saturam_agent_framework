@@ -255,11 +255,9 @@ class FakeHybridVector(FakeVector):
     lexical leg computed identically to the vector one could not catch.
     """
 
-    def search_candidates(
-        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
-    ) -> RetrievalCandidates:
-        require_scope(scope, method="search_candidates")
-        self.calls.append("search_candidates")  # one round trip: never also logs "search"
+    def _candidates(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier]) -> RetrievalCandidates:
+        """Shared computation, not a call site: neither half of the public pair appends to
+        ``calls`` here, so each logs exactly its own name and nothing double-counts."""
         tiers = {tier} if tier else set(query.resolved_tiers())
         eligible = [r for r in self._matching(scope) if r.tier in tiers and current_belief(r)]
         vector_hits = _ranked([replace(r, score=overlap(query.text, r.content)) for r in eligible], query.limit)
@@ -268,12 +266,22 @@ class FakeHybridVector(FakeVector):
         )
         return RetrievalCandidates(vector=vector_hits, lexical=lexical)
 
+    def search_candidates(
+        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
+    ) -> RetrievalCandidates:
+        require_scope(scope, method="search_candidates")
+        self.calls.append("search_candidates")  # one round trip: never also logs "search"
+        return self._candidates(scope, query, tier)
+
     async def asearch_candidates(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> RetrievalCandidates:
+        # `require_scope` first, matching the protocol's own rule -- not after the yield point,
+        # so an invalid scope fails before this fake ever suspends (SM-H1 #131 round-2 review).
+        require_scope(scope, method="asearch_candidates")
         await _yield()
-        self.calls.append("asearch_candidates")
-        return self.search_candidates(scope, query, tier)
+        self.calls.append("asearch_candidates")  # one entry, not delegated through the sync name
+        return self._candidates(scope, query, tier)
 
 
 class FakeGraph:
