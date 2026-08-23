@@ -41,6 +41,7 @@ from egpt.memory.consolidation import FACT_ID_NAMESPACE, merge_near_duplicate_fa
 from egpt.memory.consolidation.extract import STRATEGY_ID as FACT_PIPELINE_STRATEGY_ID
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.retrieval.orchestrator import aorchestrate, orchestrate
 from egpt.memory.schemas.semantic import fact_record
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
@@ -753,6 +754,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         graph_hits: List[MemoryRecord],
         instant: int,
         bounds_reconciled: bool,
+        lexical_hits: List[MemoryRecord],
     ) -> MemorySlice:
         """Filter the reconciled set and package it. Bounds must already be authoritative."""
         # Both predicates, always. `is_current_belief` is transaction time only, and under SCD-2
@@ -817,6 +819,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # was asked about. `False` means rows the graph might have bounded went unchecked.
                 bounds_reconciled=bounds_reconciled,
                 instant=instant,
+                # Extra, not in `FUSION_KEYS`'s floor: a provider with no `HybridSearchSubstrate`
+                # store reports 0 here, same as a wired store whose lexical leg matched nothing --
+                # both are correctly zero, and neither is this key's job to tell apart.
+                lexical_hits=len(lexical_hits),
             ),
         )
 
@@ -861,15 +867,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # rather than left to look like an oversight, per round-3 review, PR #90.
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
-        vector_hits: List[MemoryRecord] = []
-        graph_hits: List[MemoryRecord] = []
-        if self.vector is not None and self._uses(query, Substrate.VECTOR):
-            vector_hits = list(self.vector.search(scope, query))
-        if self.graph is not None and self._uses(query, Substrate.GRAPH):
-            graph_hits = list(self.graph.traverse(scope, query))
-        merged = self._merged(scope, query, [vector_hits, graph_hits], method=method)
+        legs = orchestrate(scope, query, vector=self.vector, graph=self.graph)
+        merged = self._merged(scope, query, legs.as_lists(), method=method)
         reconciled = self._reconcile_bounds(scope, merged)
-        return self._slice(scope, query, merged, vector_hits, graph_hits, instant, reconciled)
+        return self._slice(scope, query, merged, legs.vector, legs.graph, instant, reconciled, legs.lexical)
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         require_scope(scope, method="aread")
@@ -879,37 +880,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """Async variant of :meth:`_read`, carrying the verb the same way."""
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
-
-        async def vector_leg() -> List[MemoryRecord]:
-            if self.vector is None or not self._uses(query, Substrate.VECTOR):
-                return []
-            return list(await self.vector.asearch(scope, query))
-
-        async def graph_leg() -> List[MemoryRecord]:
-            if self.graph is None or not self._uses(query, Substrate.GRAPH):
-                return []
-            return list(await self.graph.atraverse(scope, query))
-
-        # Concurrent: the legs are independent by construction, and Mode B pays for series over a
-        # network.
-        vector_hits, graph_hits = await asyncio.gather(vector_leg(), graph_leg())
-        merged = self._merged(scope, query, [vector_hits, graph_hits], method=method)
+        legs = await aorchestrate(scope, query, vector=self.vector, graph=self.graph)
+        merged = self._merged(scope, query, legs.as_lists(), method=method)
         reconciled = await self._areconcile_bounds(scope, merged)
-        return self._slice(scope, query, merged, vector_hits, graph_hits, instant, reconciled)
-
-    @staticmethod
-    def _uses(query: MemoryQuery, substrate: Substrate) -> bool:
-        """Whether this read consults ``substrate`` at all.
-
-        Two conditions, and the second is the tier axis doing its job: a leg no requested tier
-        routes to cannot hold a matching row, so consulting it is a guaranteed-empty round trip --
-        a network hop in Mode B, and on a graph-only provider the difference between a procedural
-        read that reports the tier unserved and one that quietly asks the graph anyway.
-        ``_graph_backed`` already applies this reasoning to the bounds call.
-        """
-        if query.substrates is not None and substrate not in query.substrates:
-            return False
-        return routes_to(substrate, query.resolved_tiers())
+        return self._slice(scope, query, merged, legs.vector, legs.graph, instant, reconciled, legs.lexical)
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         """Read one tier. A tier this provider does not serve reads **empty**, it is not refused.
