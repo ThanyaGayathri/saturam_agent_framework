@@ -40,6 +40,15 @@ class TestSleepWindow:
         with pytest.raises(ValueError, match="timezone"):
             SleepWindow(start_hour=1, end_hour=5, tz="Not/A_Zone")
 
+    @pytest.mark.parametrize("tz", [None, 5])
+    def test_construction_refuses_a_non_string_timezone(self, tz):
+        """A `None` or integer `tz` (e.g. from JSON deserialization) must raise the same
+        `ValueError` every other invalid input here does, not a bare `TypeError` from `ZoneInfo`
+        itself escaping unwrapped.
+        """
+        with pytest.raises(ValueError, match="tz"):
+            SleepWindow(start_hour=1, end_hour=5, tz=tz)
+
     @pytest.mark.parametrize("start_hour,end_hour", [(True, 5), (5, False)])
     def test_construction_refuses_a_bool_hour(self, start_hour, end_hour):
         """`bool` is an `int` subclass in Python -- without an explicit `isinstance(value, bool)`
@@ -78,6 +87,27 @@ class TestSleepWindow:
         assert window.contains(_utc(23)) is True
         assert window.contains(_utc(2)) is True
         assert window.contains(_utc(12)) is False
+
+    def test_wrapped_start_hour_is_inclusive(self):
+        """Mirrors `test_start_hour_is_inclusive` for the wrapped branch of `contains`."""
+        window = SleepWindow(start_hour=22, end_hour=4)
+        assert window.contains(_utc(22, 0)) is True
+
+    def test_wrapped_end_hour_is_exclusive(self):
+        """Mirrors `test_end_hour_is_exclusive` for the wrapped branch of `contains`."""
+        window = SleepWindow(start_hour=22, end_hour=4)
+        assert window.contains(_utc(4, 0)) is False
+
+    def test_end_hour_zero_on_a_wrapped_window_excludes_midnight(self):
+        """`SleepWindow(22, 0)` is a normal two-hour window (22:00-23:59): hour 0 is this
+        window's own upper bound, excluded by the same exclusive-end rule `test_end_hour_is_exclusive`
+        already pins for the non-wrapped case -- there is nothing wrap-specific about it, and it is
+        not a way to spell "unbounded end". A caller wanting hour 0 included writes `end_hour=1`.
+        """
+        window = SleepWindow(start_hour=22, end_hour=0)
+        assert window.contains(_utc(22)) is True
+        assert window.contains(_utc(23)) is True
+        assert window.contains(_utc(0)) is False
 
     def test_evaluates_in_the_configured_timezone(self):
         """03:00 UTC is 22:00 the prior day in US/Eastern (UTC-5) -- a window scoped to
@@ -159,6 +189,58 @@ class TestSleepTimeTrigger:
         """
         trigger = SleepTimeTrigger(IdleTrigger(idle_seconds=10), SleepWindow(start_hour=1, end_hour=6))
         assert isinstance(trigger, ConsolidationTrigger)
+
+    def test_should_fire_does_not_consult_inner_outside_the_window(self):
+        """The window is checked *first*, and short-circuits: `inner.should_fire` must not even
+        be called outside the window, not merely have its result discarded. `triggers.py`'s own
+        `ConsolidationTrigger` docstring allows a caller-supplied implementation to be "DB-backed"
+        or "network-backed" -- calling it needlessly on every tick outside the window would be a
+        real, avoidable cost for such an implementation, not just a style preference.
+
+        A plain boolean-return assertion cannot distinguish call-then-AND from AND-short-circuit,
+        since both produce the same `False` result here -- this needs a trigger that observes
+        whether it was called at all.
+        """
+
+        class ExplodingInner:
+            def record_event(self, scope, *, now, size=1.0):
+                pass
+
+            def should_fire(self, scope, *, now):
+                raise AssertionError("inner.should_fire must not be called outside the window")
+
+            def reset(self, scope):
+                pass
+
+        trigger = SleepTimeTrigger(ExplodingInner(), SleepWindow(start_hour=1, end_hour=6))
+        assert trigger.should_fire(ACME, now=_utc(12, 0)) is False  # outside the window
+
+    def test_an_async_inner_trigger_raises_instead_of_being_silently_discarded(self):
+        """`inner` is a caller-supplied `ConsolidationTrigger`, and nothing at the type level
+        stops it from being `async def` -- mirrors
+        `test_consolidation_worker.test_an_async_trigger_raises_instead_of_silently_draining_everything`,
+        pinned here at the `SleepTimeTrigger` layer specifically, since it wraps `inner` with its
+        own delegation rather than being `inner` itself.
+
+        Mutation guard: removing `_reject_coroutine` from `should_fire` would make this pass with
+        a `bool(<coroutine>)` (always `True`) instead of raising `TypeError` -- inside the window,
+        exactly the scenario `AnyTrigger`'s own guard exists to prevent.
+        """
+
+        class AsyncInner:
+            async def record_event(self, scope, *, now, size=1.0):
+                pass
+
+            async def should_fire(self, scope, *, now):
+                return False  # would mean "not due" if this were awaited -- it is not
+
+            async def reset(self, scope):
+                pass
+
+        trigger = SleepTimeTrigger(AsyncInner(), SleepWindow(start_hour=1, end_hour=6))
+
+        with pytest.raises(TypeError, match="coroutine"):
+            trigger.should_fire(ACME, now=_utc(2, 0))  # inside the window, so `inner` is actually consulted
 
 
 class TestSleepTimeScheduleConfig:
