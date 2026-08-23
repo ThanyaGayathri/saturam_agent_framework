@@ -192,6 +192,26 @@ def test_a_later_pass_folds_onto_the_prior_summary_and_upserts_the_same_row():
     assert "signed up" in fact2.record.content
 
 
+def test_a_session_facts_provenance_accumulates_across_passes():
+    """The session row's content is a rolling narrative built across every pass, so its own
+    ``source_episode_ids`` must cite everything narrated so far, not just the latest pass's
+    episodes -- the same "citation set only ever grows" discipline the global level holds."""
+    synth = StubSessionSummarizer(responses=[response("s1"), response("s2"), response("s3")])
+    pipe = pipeline(synth)
+
+    first = pipe.run(ACME_SESSION_1, [episode("a", "e1")])
+    second = pipe.run(ACME_SESSION_1, [episode("b", "e2")])
+    third = pipe.run(ACME_SESSION_1, [episode("c", "e3")])
+
+    (fact1,) = first.summaries
+    (fact2,) = second.summaries
+    (fact3,) = third.summaries
+    assert sorted(fact1.source_episode_ids) == ["e1"]
+    assert sorted(fact2.source_episode_ids) == ["e1", "e2"]
+    assert sorted(fact3.source_episode_ids) == ["e1", "e2", "e3"]
+    assert sorted(fact3.record.provenance["source_episode_ids"]) == ["e1", "e2", "e3"]
+
+
 def test_each_scope_rolls_independently():
     synth = StubSessionSummarizer(responses=[response("s1 summary"), response("s2 summary")])
     pipe = pipeline(synth)
@@ -576,6 +596,49 @@ def test_session_text_lru_eviction_respects_recency_not_just_insertion_order():
     assert scope_c.key() in pipe._session_text
 
 
+def test_day_pending_is_lru_evicted_beyond_max_tracked_scopes():
+    """A rollup scope whose trigger never fires must not keep its pending-list key forever
+    either -- the same leak class ``_session_text``/``_global_text`` already close."""
+    synth = StubSessionSummarizer(fixed=response("s"))
+    pipe = pipeline(synth, day_seconds=1_000_000, max_tracked_scopes=2)
+    scope_a = Scope(tenant_id="acme", user_id="a", session_id="sa")
+    scope_b = Scope(tenant_id="acme", user_id="b", session_id="sb")
+    scope_c = Scope(tenant_id="acme", user_id="c", session_id="sc")
+
+    pipe.run(scope_a, [episode("x", "ea", scope=scope_a)])
+    pipe.run(scope_b, [episode("y", "eb", scope=scope_b)])
+    pipe.run(scope_c, [episode("z", "ec", scope=scope_c)])
+
+    rollup_a = Scope(tenant_id="acme", user_id="a").key()
+    rollup_b = Scope(tenant_id="acme", user_id="b").key()
+    rollup_c = Scope(tenant_id="acme", user_id="c").key()
+    assert rollup_a not in pipe._day_pending, "least-recently-used rollup scope must be evicted"
+    assert rollup_b in pipe._day_pending
+    assert rollup_c in pipe._day_pending
+
+
+def test_global_pending_is_lru_evicted_beyond_max_tracked_scopes(clock):
+    """Same cap, one level up: a rollup scope whose global trigger never fires must not keep its
+    ``_global_pending`` key forever either."""
+    model = _model_returning("folded")
+    synth = StubSessionSummarizer(fixed=response("s"))
+    pipe = pipeline(synth, model=model, day_seconds=1, global_seconds=1_000_000, max_tracked_scopes=2)
+
+    for label in ("a", "b", "c"):
+        scope = Scope(tenant_id="acme", user_id=label, session_id=f"s{label}")
+        pipe.run(scope, [episode(f"x-{label}", f"e-{label}-1", scope=scope)])
+        clock.advance(2)
+        pipe.run(scope, [episode(f"y-{label}", f"e-{label}-2", scope=scope)])  # day rollup fires
+        clock.advance(2)
+
+    rollup_a = Scope(tenant_id="acme", user_id="a").key()
+    rollup_b = Scope(tenant_id="acme", user_id="b").key()
+    rollup_c = Scope(tenant_id="acme", user_id="c").key()
+    assert rollup_a not in pipe._global_pending, "least-recently-used rollup scope must be evicted"
+    assert rollup_b in pipe._global_pending
+    assert rollup_c in pipe._global_pending
+
+
 @pytest.mark.parametrize("is_async", [False, True])
 def test_fold_refuses_a_rollup_strategy_returning_more_than_one_result(is_async):
     """The default ``SummarizeStrategy`` always returns one folded memory, but a caller-supplied
@@ -672,10 +735,36 @@ def test_llm_session_summarizer_returns_the_shared_session_summary_response_shap
     assert result.summary == "Ada is a pricing-focused user."
 
 
+def test_llm_session_summarizer_asummarize_returns_the_same_response_shape():
+    """Async twin of :func:`test_llm_session_summarizer_returns_the_shared_session_summary_response_shape`
+    -- ``LLMSessionSummarizer`` itself, not a stub standing in for it, must make the same decision
+    on its async path."""
+    model = _model_with_summary(text="Ada is a pricing-focused user.")
+
+    async def _aresponse(*args, **kwargs):
+        await asyncio.sleep(0)
+        return model.response(*args, **kwargs)
+
+    model.aresponse = _aresponse
+    synth = LLMSessionSummarizer(model=model)
+
+    result = asyncio.run(synth.asummarize(None, [episode("a", "e1")]))
+
+    assert isinstance(result, SessionSummaryResponse)
+    assert result.summary == "Ada is a pricing-focused user."
+
+
 def test_llm_session_summarizer_refuses_an_empty_episode_list():
     synth = LLMSessionSummarizer(model=_model_with_summary())
     with pytest.raises(MemoryOperationError) as excinfo:
         synth.summarize(None, [])
+    assert excinfo.value.field_name == "episodes"
+
+
+def test_llm_session_summarizer_asummarize_refuses_an_empty_episode_list():
+    synth = LLMSessionSummarizer(model=_model_with_summary())
+    with pytest.raises(MemoryOperationError) as excinfo:
+        asyncio.run(synth.asummarize(None, []))
     assert excinfo.value.field_name == "episodes"
 
 
@@ -745,6 +834,36 @@ def test_a_session_summary_lands_in_the_semantic_tier_and_is_retrievable(is_asyn
     matching = [r for r in slice_.records if "evaluating our pricing tiers" in r.content]
     assert matching[0].metadata.get("kind") == "summary"
     assert matching[0].metadata.get("level") == "session"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_day_rollup_lands_in_the_semantic_tier_and_is_retrievable(is_async, clock):
+    """Same acceptance criterion as the session-level test above, one level up: a completed day
+    rollup must be retrievable through the same read path, under the broader rollup scope that
+    spans the sessions it was folded from."""
+    synth = StubSessionSummarizer(responses=[response("session one"), response("session two")])
+    model = _model_returning("Ada has been exploring pricing across two sessions.")
+    memory, _, _ = provider(summarizer=synth, model=model, day_seconds=1)
+    memory.write(ACME_SESSION_1, [MemoryEvent(content="Ada asked about pricing", scope=ACME_SESSION_1, id="e1")])
+
+    if is_async:
+        asyncio.run(memory.aconsolidate(ACME_SESSION_1))
+    else:
+        memory.consolidate(ACME_SESSION_1)
+    clock.advance(2)
+    memory.write(ACME_SESSION_2, [MemoryEvent(content="Ada signed up", scope=ACME_SESSION_2, id="e2")])
+    report = asyncio.run(memory.aconsolidate(ACME_SESSION_2)) if is_async else memory.consolidate(ACME_SESSION_2)
+
+    assert report.details["summary"]["day"] is True
+
+    rollup_scope = Scope(tenant_id="acme", user_id="ada")
+    query = MemoryQuery(text="exploring pricing across two sessions", tiers=[MemoryTier.SEMANTIC])
+    slice_ = asyncio.run(memory.aread(rollup_scope, query)) if is_async else memory.read(rollup_scope, query)
+    matching = [r for r in slice_.records if r.metadata.get("level") == "day"]
+    assert matching, "the day summary must be retrievable through the ordinary read path"
+    assert matching[0].metadata.get("kind") == "summary"
+    assert "exploring pricing across two sessions" in matching[0].content
+    assert sorted(matching[0].provenance["source_episode_ids"]) == ["e1", "e2"]
 
 
 @pytest.mark.parametrize("is_async", [False, True])

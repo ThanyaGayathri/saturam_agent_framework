@@ -155,7 +155,14 @@ def summary_failed_details(exc: BaseException) -> Dict[str, Any]:
     Same minimal-literal treatment :func:`reflection_failed_details` gives its own pipeline, for
     the same reason (``summarize.py`` stays duck-typed here, not imported at runtime).
     """
-    return {"summarizer": None, "complete": False, "session": False, "day": False, "global": False, "error": str(exc)}
+    return {
+        "summarizer": None,
+        "complete": False,
+        "session": False,
+        "day": False,
+        "global": False,
+        "error": str(exc),
+    }
 
 
 def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:

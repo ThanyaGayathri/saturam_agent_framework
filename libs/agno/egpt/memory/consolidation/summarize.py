@@ -35,20 +35,27 @@ since arrived) is correctly a different row, and distinct days are correctly dis
 row's own provenance is not carried forward the same way: each day is independent, so its
 ``source_episode_ids`` is only the union of what fed *that* day's fold.
 
-**Provenance chains upward, day by day, into global.** Each pending text this pipeline folds is
-tracked alongside the episode ids that produced it, not just the bare string -- ``_day_pending``
-carries ``(session_summary_text, episode_ids)`` pairs, and a completed day rollup pushes
-``(day_content, that_day's_unioned_episode_ids)`` into ``_global_pending`` in turn. A global row's
-``source_episode_ids`` is the union of its carried-forward prior ids and every day folded in since,
-so the citation chain (global -> day -> session -> episode) stays traceable at every level, the
-same provenance discipline ``_distil`` and ``reflect.py`` already hold for their own facts.
+**Provenance chains upward, at every rolling level, not just day into global.** Each pending text
+this pipeline folds is tracked alongside the episode ids that produced it, not just the bare
+string -- ``_day_pending`` carries ``(session_summary_text, episode_ids)`` pairs, and a completed
+day rollup pushes ``(day_content, that_day's_unioned_episode_ids)`` into ``_global_pending`` in
+turn. Both rolling levels -- session and global -- carry their own cumulative citation set forward
+the same way they carry their narrative forward: ``_session_text``/``_global_text`` store
+``(text, episode_ids)``, unioned via the shared :func:`_union_ids` on every pass, so a session or
+global fact's ``source_episode_ids`` cites everything it has ever narrated or folded, not just the
+latest batch. A day row is the one exception, by design: each day is independent (module docstring
+above), so its ``source_episode_ids`` is only the union of what fed *that* day's fold. The result
+is a citation chain (global -> day -> session -> episode) traceable at every level, the same
+provenance discipline ``_distil`` and ``reflect.py`` already hold for their own facts.
 
-**Bounded per-scope state.** ``_session_text`` and ``_global_text`` are LRU-capped at
-``max_tracked_scopes`` distinct keys -- without a cap, a long-running, high-session-churn process
-would grow one entry per session (or per rollup scope) for its entire lifetime, never evicting a
-scope that stops sending episodes. ``_day_pending``/``_global_pending`` already self-clean (a key
-is removed entirely once its rollup fires, not merely trimmed) and additionally cap each list's
-length at ``max_pending_rollup_items``, same as before.
+**Bounded per-scope state.** ``_session_text``, ``_global_text``, ``_day_pending``, and
+``_global_pending`` are all LRU-capped at ``max_tracked_scopes`` distinct keys, via the shared
+``_lru_get``/``_lru_put`` -- without a cap, a long-running, high-session-churn process would grow
+one entry per session (or per rollup scope) for its entire lifetime in every one of these dicts,
+never evicting a scope that stops sending episodes or whose trigger simply never fires.
+``_day_pending``/``_global_pending`` additionally cap each individual list's length at
+``max_pending_rollup_items``, same as before -- two different bounds for two different growth
+axes (how many scopes are tracked, versus how much one scope accumulates).
 
 **"Is it time yet", reused rather than reinvented.** Day and global rollups are gated by
 :class:`~egpt.memory.consolidation.triggers.LatencyTrigger` -- built for "the oldest pending event
@@ -432,6 +439,16 @@ def _day_texts_and_ids(pending: Sequence[Tuple[str, List[str]]]) -> Tuple[List[s
     return texts, source_episode_ids
 
 
+def _union_ids(prior_ids: Optional[Sequence[str]], new_ids: Sequence[str]) -> List[str]:
+    """Cumulative provenance for any rolling row (session *or* global): whatever it already cited,
+    unioned with whatever this pass adds -- a citation set that only ever grows, never resets. The
+    one call site both :func:`_global_fold_inputs` and :meth:`SummaryPipeline.run`/``arun`` use, so
+    "carry provenance forward" is one decision, not one written per rolling level."""
+    if not prior_ids:
+        return sorted(set(new_ids))
+    return sorted(set(prior_ids) | set(new_ids))
+
+
 def _global_fold_inputs(
     prior: Optional[Tuple[str, List[str]]], pending: Sequence[Tuple[str, List[str]]]
 ) -> Tuple[List[str], List[str]]:
@@ -441,11 +458,11 @@ def _global_fold_inputs(
     the module docstring describes, so a global row's citation set only ever grows, never resets.
     """
     day_texts = [text for text, _ in pending]
-    new_episode_ids = {episode_id for _, episode_ids in pending for episode_id in episode_ids}
+    new_episode_ids = [episode_id for _, episode_ids in pending for episode_id in episode_ids]
     if prior is None:
-        return day_texts, sorted(new_episode_ids)
+        return day_texts, _union_ids(None, new_episode_ids)
     prior_text, prior_episode_ids = prior
-    return [prior_text, *day_texts], sorted(set(prior_episode_ids) | new_episode_ids)
+    return [prior_text, *day_texts], _union_ids(prior_episode_ids, new_episode_ids)
 
 
 def _rolling_id(scope: Scope, level: str) -> str:
@@ -509,8 +526,8 @@ class SummaryPipeline:
     because nothing here retires a source episode or an already-written summary row.
 
     Not thread-safe: ``_session_text``/``_global_text``/``_day_pending``/``_global_pending`` are
-    plain ``dict``\\ s (``_session_text``/``_global_text`` are ``OrderedDict``\\ s, for their LRU
-    eviction) mutated in place with no lock, matching ``CoLocatedMemoryProvider._scan_cursors`` and
+    all ``OrderedDict``\\ s (for their shared LRU eviction, module docstring's "bounded per-scope
+    state") mutated in place with no lock, matching ``CoLocatedMemoryProvider._scan_cursors`` and
     ``ReflectionPipeline._pending``. One instance is meant for one ``asyncio`` event loop calling
     ``run``/``arun`` for a given scope at a time (the consolidation lane's own contract), not for
     concurrent threads or overlapping calls racing the same scope.
@@ -544,19 +561,24 @@ class SummaryPipeline:
         self.max_tracked_scopes = max_tracked_scopes
         self._day_trigger = LatencyTrigger(day_seconds)
         self._global_trigger = LatencyTrigger(global_seconds)
-        #: The rolling session narrative per scope (keyed by ``scope.key()``), LRU-capped at
+        #: The rolling session narrative per scope (keyed by ``scope.key()``), paired with the
+        #: episode ids it has accumulated so far -- carried forward across every pass the same way
+        #: ``_global_text`` carries a global row's, so the session fact's own provenance keeps
+        #: citing everything it has ever narrated, not just the latest batch. LRU-capped at
         #: ``max_tracked_scopes`` (module docstring).
-        self._session_text: "OrderedDict[str, str]" = OrderedDict()
+        self._session_text: "OrderedDict[str, Tuple[str, List[str]]]" = OrderedDict()
         #: The rolling global narrative per rollup scope, paired with the episode ids it has
         #: accumulated so far -- carried forward across every global rollup (module docstring's
         #: "provenance chains upward"), LRU-capped the same as ``_session_text``.
         self._global_text: "OrderedDict[str, Tuple[str, List[str]]]" = OrderedDict()
         #: ``(session_summary_text, episode_ids)`` pairs accumulated per rollup scope since the
-        #: last day rollup.
-        self._day_pending: Dict[str, List[Tuple[str, List[str]]]] = {}
+        #: last day rollup. Also LRU-capped at ``max_tracked_scopes`` (module docstring) -- a
+        #: rollup scope whose trigger never fires must not keep its key forever either, the same
+        #: leak class ``_session_text``/``_global_text`` already close.
+        self._day_pending: "OrderedDict[str, List[Tuple[str, List[str]]]]" = OrderedDict()
         #: ``(day_content, that_day's_unioned_episode_ids)`` pairs accumulated per rollup scope
-        #: since the last global rollup.
-        self._global_pending: Dict[str, List[Tuple[str, List[str]]]] = {}
+        #: since the last global rollup. Same LRU cap as ``_day_pending``, for the same reason.
+        self._global_pending: "OrderedDict[str, List[Tuple[str, List[str]]]]" = OrderedDict()
 
     # -- shared decisions, both halves call these -----------------------------
 
@@ -566,10 +588,11 @@ class SummaryPipeline:
     def _accumulate_for_rollup(self, scope: Scope, text: str, episode_ids: Sequence[str], now: int) -> None:
         rollup = _rollup_scope(scope)
         key = rollup.key()
-        pending = self._day_pending.setdefault(key, [])
+        pending = self._day_pending.get(key, [])
         pending.append((text, list(episode_ids)))
         if len(pending) > self.max_pending_rollup_items:
             del pending[: len(pending) - self.max_pending_rollup_items]
+        _lru_put(self._day_pending, key, pending, self.max_tracked_scopes)
         self._day_trigger.record_event(rollup, now=now)
 
     def _fold(self, texts: Sequence[str], user_id: str) -> Tuple[str, Optional[List[str]]]:
@@ -611,10 +634,11 @@ class SummaryPipeline:
         accumulator -- pure bookkeeping, no I/O, so (like :meth:`_pending_ids`/:func:`_rollup_scope`)
         there is no separate async form: both :meth:`_roll_up_day` and :meth:`_aroll_up_day` call
         this one method after their own fold succeeds."""
-        global_pending = self._global_pending.setdefault(key, [])
+        global_pending = self._global_pending.get(key, [])
         global_pending.append((content, source_episode_ids))
         if len(global_pending) > self.max_pending_rollup_items:
             del global_pending[: len(global_pending) - self.max_pending_rollup_items]
+        _lru_put(self._global_pending, key, global_pending, self.max_tracked_scopes)
         self._global_trigger.record_event(rollup, now=now)
 
     def _roll_up_day(self, rollup: Scope, now: int) -> Optional[FactWrite]:
@@ -741,6 +765,12 @@ class SummaryPipeline:
         "nothing meaningful was produced" answer :class:`SessionSummarizer` documents as expected,
         not a failure. Once it does produce something, accumulation and the eventual rollup proceed
         exactly as any other pass's would.
+
+        The session fact's own ``source_episode_ids`` is cumulative across every pass for this
+        scope (:func:`_union_ids`), not just this pass's episodes -- its content is a rolling
+        narrative built from everything narrated so far, so a citation set reset to only the
+        latest batch would silently drop provenance for every episode an earlier pass already
+        folded in, the same gap :func:`_global_fold_inputs` closes for the global level.
         """
         require_scope(scope, method="run")
         now = now_epoch_s()
@@ -748,10 +778,16 @@ class SummaryPipeline:
         session_done = False
         if episodes:
             prior = _lru_get(self._session_text, scope.key())
-            response = self.session_summarizer.summarize(prior, episodes)
+            response = self.session_summarizer.summarize(prior[0] if prior else None, episodes)
             if response is not None:
-                episode_ids = self._pending_ids(episodes)
-                _lru_put(self._session_text, scope.key(), response.summary, self.max_tracked_scopes)
+                new_episode_ids = self._pending_ids(episodes)
+                cumulative_episode_ids = _union_ids(prior[1] if prior else None, new_episode_ids)
+                _lru_put(
+                    self._session_text,
+                    scope.key(),
+                    (response.summary, cumulative_episode_ids),
+                    self.max_tracked_scopes,
+                )
                 summaries.append(
                     _summary_fact(
                         id_=_rolling_id(scope, LEVEL_SESSION),
@@ -759,11 +795,11 @@ class SummaryPipeline:
                         content=response.summary,
                         topics=response.topics,
                         level=LEVEL_SESSION,
-                        source_episode_ids=episode_ids,
+                        source_episode_ids=cumulative_episode_ids,
                         now=now,
                     )
                 )
-                self._accumulate_for_rollup(scope, response.summary, episode_ids, now)
+                self._accumulate_for_rollup(scope, response.summary, new_episode_ids, now)
                 session_done = True
         rollup = _rollup_scope(scope)
         day_fact = self._roll_up_day(rollup, now)
@@ -790,10 +826,16 @@ class SummaryPipeline:
         session_done = False
         if episodes:
             prior = _lru_get(self._session_text, scope.key())
-            response = await self.session_summarizer.asummarize(prior, episodes)
+            response = await self.session_summarizer.asummarize(prior[0] if prior else None, episodes)
             if response is not None:
-                episode_ids = self._pending_ids(episodes)
-                _lru_put(self._session_text, scope.key(), response.summary, self.max_tracked_scopes)
+                new_episode_ids = self._pending_ids(episodes)
+                cumulative_episode_ids = _union_ids(prior[1] if prior else None, new_episode_ids)
+                _lru_put(
+                    self._session_text,
+                    scope.key(),
+                    (response.summary, cumulative_episode_ids),
+                    self.max_tracked_scopes,
+                )
                 summaries.append(
                     _summary_fact(
                         id_=_rolling_id(scope, LEVEL_SESSION),
@@ -801,11 +843,11 @@ class SummaryPipeline:
                         content=response.summary,
                         topics=response.topics,
                         level=LEVEL_SESSION,
-                        source_episode_ids=episode_ids,
+                        source_episode_ids=cumulative_episode_ids,
                         now=now,
                     )
                 )
-                self._accumulate_for_rollup(scope, response.summary, episode_ids, now)
+                self._accumulate_for_rollup(scope, response.summary, new_episode_ids, now)
                 session_done = True
         rollup = _rollup_scope(scope)
         day_fact = await self._aroll_up_day(rollup, now)
