@@ -174,6 +174,14 @@ This section demonstrates how EGPT agents persist and use user memories across r
   branch was still catching up. Per this file's own convention, whoever merges second renumbers --
   four times, this time.**
 
+- `34_hierarchical_summarization.py`: Hierarchical (session/day/global) summarization (SM-L8) --
+  `SummaryPipeline`, opt-in via `summary_pipeline`: a rolling session summary reuses
+  `SessionSummaryResponse` (`session/summary.py`); day/global periodic rollups are gated by
+  `LatencyTrigger` and folded via `SummarizeStrategy` (`memory/strategies/summarize.py`). Every
+  summary lands on the SEMANTIC tier through the same write path a distilled fact or a reflected
+  insight uses, tagged `metadata={"kind": "summary", "level": ...}` -- retrievable through an
+  ordinary read. Requires a real model (`OPENAI_API_KEY`); no database.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

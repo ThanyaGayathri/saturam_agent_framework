@@ -19,14 +19,16 @@ restructured" for exactly this reason. The *day*/*global* levels literally call
 which is precisely what that strategy already does; wrapping each pending summary text in a bare
 ``UserMemory`` is the one-line adapter, not a second implementation of the same idea.
 
-**Rolling vs. periodic, and what that means for a row's id.** The session level is *rolling*: one
-row per scope, continuously updated in place as new episodes arrive, so its id is derived from the
-scope alone (``_rolling_id``) rather than from content -- an update must overwrite the same row,
-not mint a new one. Day and global are *periodic batches*: each rollup folds a fixed, named set of
-pending texts, so its id is derived from that content (``_batch_id``, the same "id from the source
-set" convention ``_distil``/``_to_fact`` already use) -- a retried rollup over the same pending set
-upserts the same row rather than duplicating it, and a rollup over a materially different set (new
-texts have since arrived) is correctly a different row.
+**Rolling vs. periodic, and what that means for a row's id.** Session and global are *rolling*:
+one row per scope each, continuously overwritten in place as new material arrives, so their ids are
+derived from the scope alone (``_rolling_id``) rather than from content -- "global" is the single
+all-time summary, not a growing history of global rows, and an update must overwrite that one row,
+never mint a new one. Day is a *periodic batch*: each rollup folds a fixed, named set of pending
+texts into its own row, so its id is derived from that content (``_batch_id``, the same "id from
+the source set" convention ``_distil``/``_to_fact`` already use) -- a retried rollup over the same
+pending set upserts the same row rather than duplicating it, a rollup over a materially different
+set (new texts have since arrived) is correctly a different row, and distinct days are correctly
+distinct rows.
 
 **"Is it time yet", reused rather than reinvented.** Day and global rollups are gated by
 :class:`~egpt.memory.consolidation.triggers.LatencyTrigger` -- built for "the oldest pending event
@@ -79,6 +81,7 @@ __all__ = [
     "DEFAULT_GLOBAL_SECONDS",
     "DEFAULT_MAX_PENDING_ROLLUP_ITEMS",
     "LLMSessionSummarizer",
+    "SESSION_SUMMARIZER_VERBS",
     "SUMMARIZER_ID",
     "SUMMARY_KEYS",
     "SessionSummarizer",
@@ -126,6 +129,10 @@ def summary_details(
     without either rollup being due, or a rollup can fire on a pass with no new episodes (the
     accumulation from earlier passes alone crosses the period). Extra keys are free; the contract
     is a floor, not a ceiling.
+
+    The parameter is ``global_`` (trailing underscore, since ``global`` is a Python keyword) but
+    the stored key is the plain ``"global"`` -- the trailing underscore is a parameter-naming
+    workaround, not part of the payload's vocabulary.
     """
     details: Dict[str, Any] = {
         "summarizer": summarizer,
@@ -138,12 +145,19 @@ def summary_details(
     return details
 
 
+#: The two verbs a :class:`SessionSummarizer` must carry -- the single source both the Protocol
+#: below and :class:`SummaryPipeline`'s construction-time check read from, so the two cannot drift
+#: apart the way two independently hardcoded ``("summarize", "asummarize")`` literals could.
+SESSION_SUMMARIZER_VERBS: Tuple[str, ...] = ("summarize", "asummarize")
+
+
 @runtime_checkable
 class SessionSummarizer(Protocol):
     """What :class:`SummaryPipeline` calls to (re-)narrate a scope's rolling session summary.
 
-    Both halves required, the same bargain :class:`~egpt.memory.consolidation.reflect.InsightSynthesizer`
-    strikes: a summarizer with only the sync verb blocks the async consolidation lane's event loop.
+    Both halves required (:data:`SESSION_SUMMARIZER_VERBS`), the same bargain
+    :class:`~egpt.memory.consolidation.reflect.InsightSynthesizer` strikes: a summarizer with only
+    the sync verb blocks the async consolidation lane's event loop.
     """
 
     def summarize(self, prior: Optional[str], episodes: Sequence[MemoryRecord]) -> Optional[SessionSummaryResponse]:
@@ -332,7 +346,16 @@ def _rolling_id(scope: Scope, level: str) -> str:
 
 
 def _batch_id(scope: Scope, level: str, texts: Sequence[str]) -> str:
-    return str(uuid5(_BATCH_NAMESPACE, f"{scope.key()}|{level}|" + "\x1f".join(texts)))
+    """Content-derived id for a periodic-batch row (module docstring).
+
+    Each text is length-prefixed before joining, not merely separator-delimited: a bare
+    ``"\\x1f".join(texts)`` would let a source text that itself contains ``\\x1f`` merge two
+    logically distinct entries into a string indistinguishable from a different pending set, which
+    would collide onto the same row. ``len(t)`` is untrusted-input-safe here since it is a count,
+    not the text itself, and cannot introduce a fresh instance of the delimiter it is meant to fix.
+    """
+    joined = "\x1f".join(f"{len(t)}:{t}" for t in texts)
+    return str(uuid5(_BATCH_NAMESPACE, f"{scope.key()}|{level}|{joined}"))
 
 
 def _summary_fact(
@@ -377,6 +400,12 @@ class SummaryPipeline:
     this package carries (module docstring) -- a fresh instance starts every scope's rolling text
     and rollup windows over, costing a delayed first rollup after a restart but no correctness,
     because nothing here retires a source episode or an already-written summary row.
+
+    Not thread-safe: ``_session_text``/``_day_pending``/``_global_pending`` are plain ``dict``\\ s
+    mutated in place with no lock, matching ``CoLocatedMemoryProvider._scan_cursors`` and
+    ``ReflectionPipeline._pending``. One instance is meant for one ``asyncio`` event loop calling
+    ``run``/``arun`` for a given scope at a time (the consolidation lane's own contract), not for
+    concurrent threads or overlapping calls racing the same scope.
     """
 
     def __init__(
@@ -389,9 +418,7 @@ class SummaryPipeline:
         global_seconds: ThresholdSource = DEFAULT_GLOBAL_SECONDS,
         max_pending_rollup_items: int = DEFAULT_MAX_PENDING_ROLLUP_ITEMS,
     ) -> None:
-        missing = [
-            verb for verb in ("summarize", "asummarize") if not callable(getattr(session_summarizer, verb, None))
-        ]
+        missing = [verb for verb in SESSION_SUMMARIZER_VERBS if not callable(getattr(session_summarizer, verb, None))]
         if missing:
             raise MemoryOperationError(
                 f"SummaryPipeline.session_summarizer is a {type(session_summarizer).__name__}, "
@@ -423,10 +450,10 @@ class SummaryPipeline:
 
     # -- shared decisions, both halves call these -----------------------------
 
-    def _pending_ids(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> List[str]:
+    def _pending_ids(self, episodes: Sequence[MemoryRecord]) -> List[str]:
         return sorted(episode.id for episode in episodes)
 
-    def _accumulate_for_rollup(self, scope: Scope, text: str, now: float) -> None:
+    def _accumulate_for_rollup(self, scope: Scope, text: str, now: int) -> None:
         rollup = _rollup_scope(scope)
         key = rollup.key()
         pending = self._day_pending.setdefault(key, [])
@@ -443,18 +470,28 @@ class SummaryPipeline:
         scope may carry no ``user_id`` at all (``Scope.user_id`` is optional; ``tenant_id`` is
         not), so the caller falls back to ``scope.tenant_id``. The returned ``UserMemory.user_id``
         is discarded; only ``.memory``/``.topics`` are used.
+
+        Refuses an empty ``texts`` itself, the same boundary check ``LLMSessionSummarizer.summarize``
+        makes on ``episodes``, rather than letting ``optimize`` -- which is not this module's code
+        and does not share its ``MemoryOperationError`` convention -- raise a bare ``ValueError``
+        both callers (:meth:`_roll_up_day`/:meth:`_roll_up_global`) already guard against reaching,
+        but a boundary should not depend on every caller remembering to.
         """
+        if not texts:
+            raise MemoryOperationError("SummaryPipeline._fold needs at least one text; got none.", field_name="texts")
         memories = [UserMemory(memory=text, user_id=user_id) for text in texts]
         (folded,) = self.rollup_strategy.optimize(memories, self.model)
         return folded.memory, folded.topics
 
     async def _afold(self, texts: Sequence[str], user_id: str) -> Tuple[str, Optional[List[str]]]:
         """Async twin of :meth:`_fold`, making the same decision."""
+        if not texts:
+            raise MemoryOperationError("SummaryPipeline._afold needs at least one text; got none.", field_name="texts")
         memories = [UserMemory(memory=text, user_id=user_id) for text in texts]
         (folded,) = await self.rollup_strategy.aoptimize(memories, self.model)
         return folded.memory, folded.topics
 
-    def _roll_up_day(self, scope: Scope, rollup: Scope, now: float) -> Optional[FactWrite]:
+    def _roll_up_day(self, rollup: Scope, now: int) -> Optional[FactWrite]:
         """Fold pending session texts into one "day" row, if the period has elapsed.
 
         Pending state is cleared only *after* :meth:`_fold` returns -- a failure there (an LLM
@@ -488,7 +525,7 @@ class SummaryPipeline:
         self._global_trigger.record_event(rollup, now=now)
         return fact
 
-    async def _aroll_up_day(self, scope: Scope, rollup: Scope, now: float) -> Optional[FactWrite]:
+    async def _aroll_up_day(self, rollup: Scope, now: int) -> Optional[FactWrite]:
         """Async twin of :meth:`_roll_up_day`, making the same decisions."""
         key = rollup.key()
         if not self._day_trigger.should_fire(rollup, now=now):
@@ -516,7 +553,7 @@ class SummaryPipeline:
         self._global_trigger.record_event(rollup, now=now)
         return fact
 
-    def _roll_up_global(self, rollup: Scope, now: float) -> Optional[FactWrite]:
+    def _roll_up_global(self, rollup: Scope, now: int) -> Optional[FactWrite]:
         """Fold pending day texts into one "global" row, if the period has elapsed. Same
         clear-after-fold ordering as :meth:`_roll_up_day`, for the same reason."""
         key = rollup.key()
@@ -540,7 +577,7 @@ class SummaryPipeline:
         self._global_trigger.reset(rollup)
         return fact
 
-    async def _aroll_up_global(self, rollup: Scope, now: float) -> Optional[FactWrite]:
+    async def _aroll_up_global(self, rollup: Scope, now: int) -> Optional[FactWrite]:
         """Async twin of :meth:`_roll_up_global`, making the same decisions."""
         key = rollup.key()
         if not self._global_trigger.should_fire(rollup, now=now):
@@ -585,14 +622,14 @@ class SummaryPipeline:
                         content=response.summary,
                         topics=response.topics,
                         level=LEVEL_SESSION,
-                        source_episode_ids=self._pending_ids(scope, episodes),
+                        source_episode_ids=self._pending_ids(episodes),
                         now=now,
                     )
                 )
                 self._accumulate_for_rollup(scope, response.summary, now)
                 session_done = True
         rollup = _rollup_scope(scope)
-        day_fact = self._roll_up_day(scope, rollup, now)
+        day_fact = self._roll_up_day(rollup, now)
         day_done = day_fact is not None
         if day_fact is not None:
             summaries.append(day_fact)
@@ -626,14 +663,14 @@ class SummaryPipeline:
                         content=response.summary,
                         topics=response.topics,
                         level=LEVEL_SESSION,
-                        source_episode_ids=self._pending_ids(scope, episodes),
+                        source_episode_ids=self._pending_ids(episodes),
                         now=now,
                     )
                 )
                 self._accumulate_for_rollup(scope, response.summary, now)
                 session_done = True
         rollup = _rollup_scope(scope)
-        day_fact = await self._aroll_up_day(scope, rollup, now)
+        day_fact = await self._aroll_up_day(rollup, now)
         day_done = day_fact is not None
         if day_fact is not None:
             summaries.append(day_fact)

@@ -23,6 +23,7 @@ from egpt.memory.consolidation.summarize import (
     SUMMARY_KEYS,
     LLMSessionSummarizer,
     SummaryPipeline,
+    _batch_id,
     _envelope,
 )
 from egpt.memory.tiers import CONSOLIDATION_TARGET, MemoryTier
@@ -61,7 +62,12 @@ class StubSessionSummarizer:
 
     def _next(self):
         if self._responses is not None:
-            return self._responses.pop(0) if self._responses else None
+            if not self._responses:
+                raise AssertionError(
+                    "StubSessionSummarizer's response queue is exhausted -- the test called "
+                    "summarize()/asummarize() more times than it configured responses for."
+                )
+            return self._responses.pop(0)
         return self._fixed
 
     def summarize(self, prior, episodes):
@@ -329,6 +335,45 @@ def test_day_rollup_spans_multiple_sessions_for_the_same_scope_identity(clock):
     assert "s1" in memories_text and "s2" in memories_text
 
 
+def test_day_pending_is_trimmed_to_max_pending_rollup_items(clock):
+    """``max_pending_rollup_items`` bounds the day accumulator (module docstring: a trigger that
+    never fires must not grow the pending list forever) -- oldest texts drop first, newest stay."""
+    synth = StubSessionSummarizer(responses=[response("s1"), response("s2"), response("s3")])
+    pipe = pipeline(synth, day_seconds=1_000_000, max_pending_rollup_items=2)
+
+    pipe.run(ACME_SESSION_1, [episode("a", "e1")])
+    pipe.run(ACME_SESSION_1, [episode("b", "e2")])
+    pipe.run(ACME_SESSION_1, [episode("c", "e3")])
+
+    rollup_key = Scope(tenant_id="acme", user_id="ada").key()
+    assert pipe._day_pending[rollup_key] == ["s2", "s3"], "oldest ('s1') must drop, newest two must remain"
+
+
+def test_global_pending_is_trimmed_to_max_pending_rollup_items(clock):
+    """Same bound, one level up: the global accumulator (fed by completed day rollups) must also
+    not grow without limit when the global trigger never fires.
+
+    A ``LatencyTrigger`` only fires on a call *after* the one that armed it (its own oldest-pending
+    timestamp is set by the same accumulate step that runs just before the fire check, so the
+    arming call always reads elapsed=0) -- so with ``day_seconds=1`` and a 2-second advance each
+    pass, a day rollup fires on every *other* pass: six passes complete three day rollups, each
+    feeding one distinct folded text into the global accumulator, which must land trimmed to the
+    newest two.
+    """
+    day_texts = iter(f"day-{i}" for i in range(1, 4))
+    model = MagicMock(spec=Model)
+    model.response = MagicMock(side_effect=lambda *a, **k: ModelResponse(content=next(day_texts)))
+    synth = StubSessionSummarizer(fixed=response("s"))
+    pipe = pipeline(synth, model=model, day_seconds=1, global_seconds=1_000_000, max_pending_rollup_items=2)
+
+    for i in range(6):
+        pipe.run(ACME_SESSION_1, [episode(f"e{i}", f"id{i}")])
+        clock.advance(2)
+
+    rollup_key = Scope(tenant_id="acme", user_id="ada").key()
+    assert pipe._global_pending[rollup_key] == ["day-2", "day-3"], "oldest ('day-1') must drop"
+
+
 def test_a_rollup_failure_leaves_the_accumulation_and_trigger_armed_for_a_retry(clock):
     """Same "safe to retry" contract ``ReflectionPipeline.run`` documents: a failed fold must not
     lose the pending accumulation, and the next call retries against it."""
@@ -352,8 +397,42 @@ def test_a_rollup_failure_leaves_the_accumulation_and_trigger_armed_for_a_retry(
         pipe.run(ACME_SESSION_1, [episode("b", "e2")])
 
     # The pending text and armed trigger must still be there for the retry.
-    rollup_key = Scope(tenant_id="acme", user_id="ada").key()
-    assert pipe._day_pending[rollup_key], "the pending accumulation must not have been cleared on failure"
+    rollup_scope = Scope(tenant_id="acme", user_id="ada")
+    assert pipe._day_pending[rollup_scope.key()], "the pending accumulation must not have been cleared on failure"
+    assert pipe._day_trigger.should_fire(rollup_scope, now=clock.now), (
+        "the trigger must still be armed for the retry -- a failure that reset it would silently "
+        "drop the rollup until the *next* period elapses, well past what 'safe to retry' promises"
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_async_rollup_failure_leaves_the_accumulation_and_trigger_armed_for_a_retry(clock):
+    """Async twin of :func:`test_a_rollup_failure_leaves_the_accumulation_and_trigger_armed_for_a_retry`,
+    over ``arun`` -- the failure-safety contract must hold on both lanes, not just the sync one."""
+
+    class BoomModel:
+        supports_native_structured_outputs = False
+        supports_json_schema_outputs = False
+
+        def response(self, *args, **kwargs):
+            raise RuntimeError("model unavailable")
+
+        async def aresponse(self, *args, **kwargs):
+            raise RuntimeError("model unavailable")
+
+    synth = StubSessionSummarizer(fixed=response("s"))
+    pipe = pipeline(synth, model=BoomModel(), day_seconds=1)
+
+    await pipe.arun(ACME_SESSION_1, [episode("a", "e1")])
+    clock.advance(2)
+    with pytest.raises(RuntimeError):
+        await pipe.arun(ACME_SESSION_1, [episode("b", "e2")])
+
+    rollup_scope = Scope(tenant_id="acme", user_id="ada")
+    assert pipe._day_pending[rollup_scope.key()], "the pending accumulation must not have been cleared on failure"
+    assert pipe._day_trigger.should_fire(rollup_scope, now=clock.now), (
+        "the trigger must still be armed for the retry on the async lane too"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +480,32 @@ def test_envelope_refuses_a_forged_tag():
 
 def test_envelope_wraps_ordinary_content_untouched():
     assert _envelope(2, "hello world") == '<episode index="2">hello world</episode>'
+
+
+def test_batch_id_does_not_collide_when_a_text_contains_the_join_separator():
+    """A bare ``"\\x1f".join(texts)`` would let one text containing the separator merge two
+    entries into a string indistinguishable from splitting them differently -- length-prefixing
+    each text before joining is what prevents ``["a\\x1fb", "c"]`` and ``["a", "b", "c"]`` (or
+    ``["a", "b\\x1fc"]``) from hashing to the same id."""
+    colliding = _batch_id(ACME, "day", ["a\x1fb", "c"])
+    split_evenly = _batch_id(ACME, "day", ["a", "b", "c"])
+    split_other_way = _batch_id(ACME, "day", ["a", "b\x1fc"])
+
+    assert colliding != split_evenly
+    assert colliding != split_other_way
+    assert split_evenly != split_other_way
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_fold_refuses_an_empty_text_list(is_async):
+    """Both callers (:meth:`SummaryPipeline._roll_up_day`/``_roll_up_global`` and their async
+    twins) already guard against reaching this with an empty ``pending`` -- but the boundary
+    itself must refuse with this module's own error convention rather than letting
+    ``SummarizeStrategy.optimize`` raise a bare, unwrapped ``ValueError``."""
+    pipe = pipeline()
+    with pytest.raises(MemoryOperationError) as excinfo:
+        asyncio.run(pipe._afold([], "u")) if is_async else pipe._fold([], "u")
+    assert excinfo.value.field_name == "texts"
 
 
 # ---------------------------------------------------------------------------
