@@ -754,6 +754,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         graph_hits: List[MemoryRecord],
         instant: int,
         bounds_reconciled: bool,
+        *,
         lexical_hits: List[MemoryRecord],
     ) -> MemorySlice:
         """Filter the reconciled set and package it. Bounds must already be authoritative."""
@@ -871,7 +872,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # only as a diagnostic count below, until SM-H2 says how it participates in ranking.
         merged = self._merged(scope, query, [legs.vector, legs.graph], method=method)
         reconciled = self._reconcile_bounds(scope, merged)
-        return self._slice(scope, query, merged, legs.vector, legs.graph, instant, reconciled, legs.lexical)
+        return self._slice(
+            scope, query, merged, legs.vector, legs.graph, instant, reconciled, lexical_hits=legs.lexical
+        )
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         require_scope(scope, method="aread")
@@ -885,7 +888,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # See `_read`'s comment: the lexical leg is diagnostics-only until SM-H2 picks a strategy.
         merged = self._merged(scope, query, [legs.vector, legs.graph], method=method)
         reconciled = await self._areconcile_bounds(scope, merged)
-        return self._slice(scope, query, merged, legs.vector, legs.graph, instant, reconciled, legs.lexical)
+        return self._slice(
+            scope, query, merged, legs.vector, legs.graph, instant, reconciled, lexical_hits=legs.lexical
+        )
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         """Read one tier. A tier this provider does not serve reads **empty**, it is not refused.

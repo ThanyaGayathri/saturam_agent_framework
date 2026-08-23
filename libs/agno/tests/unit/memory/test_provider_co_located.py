@@ -1910,8 +1910,9 @@ def test_bounds_reconciled_reports_what_happened_not_what_was_wired():
     assert both.graph.bounds_requests[before:] == [], "no graph call was made, and none was needed"
 
     # The discriminating case: graph wired, graph *excluded*, but the tier does not use it anyway.
-    # Inferring the flag from `_uses(GRAPH)` reports False here and is wrong -- nothing routes to
-    # the graph, so the vector row's bounds are complete.
+    # Inferring the flag from `_wants(query, Substrate.GRAPH)` (`retrieval.orchestrator`, formerly
+    # `_uses` on this class) reports False here and is wrong -- nothing routes to the graph, so the
+    # vector row's bounds are complete.
     excluded = both.read(
         ACME,
         MemoryQuery(text="always confirm", tiers=[MemoryTier.PROCEDURAL], substrates=[Substrate.VECTOR]),

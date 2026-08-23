@@ -18,6 +18,12 @@ from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, MemoryQuery, MemoryRecord, Scope, Substrate
 from tests.unit.memory._fakes import FakeGraph, FakeHybridVector, FakeVector
 
+#: Generous allowances for the liveness tests below, not expected durations -- the blocking leg
+#: releases almost immediately once the signalling leg runs. A concurrent implementation finishes
+#: in milliseconds; only a regression to sequential execution would approach these.
+_BLOCK_TIMEOUT_S = 1.0
+_OVERALL_TIMEOUT_S = 2.0
+
 ACME = Scope(tenant_id="acme", user_id="u1")
 
 
@@ -156,7 +162,7 @@ async def test_the_vector_and_graph_calls_run_concurrently():
 
     class BlockingVector(FakeVector):
         async def asearch(self, scope, query, tier=None):
-            await asyncio.wait_for(started.wait(), timeout=1.0)
+            await asyncio.wait_for(started.wait(), timeout=_BLOCK_TIMEOUT_S)
             return self.search(scope, query, tier)
 
     class SignallingGraph(FakeGraph):
@@ -167,7 +173,7 @@ async def test_the_vector_and_graph_calls_run_concurrently():
     vector = seeded_vector(BlockingVector)
     graph = seeded_graph(SignallingGraph)
 
-    legs = await asyncio.wait_for(aorchestrate(ACME, query(), vector=vector, graph=graph), timeout=2.0)
+    legs = await asyncio.wait_for(aorchestrate(ACME, query(), vector=vector, graph=graph), timeout=_OVERALL_TIMEOUT_S)
     assert [r.id for r in legs.vector] == ["v0"]
     assert [r.id for r in legs.graph] == ["g0"]
 
@@ -179,8 +185,12 @@ async def test_the_hybrid_stores_call_and_the_graph_call_run_concurrently():
     started = asyncio.Event()
 
     class BlockingHybridVector(FakeHybridVector):
+        # Scope check omitted deliberately: this override proves liveness only, not scope
+        # discipline (that is `test_a_hybrid_vectors_asearch_candidates_checks_scope_before_it_
+        # ever_suspends`'s job, against the un-overridden `FakeHybridVector.asearch_candidates`).
+        # Not a template for a compliant protocol implementation.
         async def asearch_candidates(self, scope, query, tier=None):
-            await asyncio.wait_for(started.wait(), timeout=1.0)
+            await asyncio.wait_for(started.wait(), timeout=_BLOCK_TIMEOUT_S)
             return self.search_candidates(scope, query, tier)
 
     class SignallingGraph(FakeGraph):
@@ -191,7 +201,7 @@ async def test_the_hybrid_stores_call_and_the_graph_call_run_concurrently():
     vector = seeded_vector(BlockingHybridVector)
     graph = seeded_graph(SignallingGraph)
 
-    legs = await asyncio.wait_for(aorchestrate(ACME, query(), vector=vector, graph=graph), timeout=2.0)
+    legs = await asyncio.wait_for(aorchestrate(ACME, query(), vector=vector, graph=graph), timeout=_OVERALL_TIMEOUT_S)
     assert [r.id for r in legs.vector] == ["v0"]
     assert [r.id for r in legs.graph] == ["g0"]
 
@@ -214,6 +224,22 @@ def test_a_hybrid_vectors_asearch_candidates_checks_scope_before_it_ever_suspend
     before any `await`."""
     vector = FakeHybridVector()
     coro = vector.asearch_candidates(None, MemoryQuery(text="x"))
+    with pytest.raises(MemoryScopeRequiredError):
+        coro.send(None)
+
+
+def test_orchestrate_rejects_none_scope():
+    """The orchestrator's own guard, not only the substrate fakes' -- a refactor that moved
+    `require_scope` inside the substrate-dispatch branches (e.g. only reached once a substrate is
+    wired) would pass every existing test here, since all of them wire at least one substrate."""
+    with pytest.raises(MemoryScopeRequiredError):
+        orchestrate(None, query(), vector=None, graph=None)
+
+
+def test_aorchestrate_rejects_none_scope_before_suspending():
+    """Async twin, same `.send(None)` technique as the hybrid-vector test above: proves
+    `aorchestrate`'s own `require_scope` is its first statement, not merely reachable eventually."""
+    coro = aorchestrate(None, query(), vector=None, graph=None)
     with pytest.raises(MemoryScopeRequiredError):
         coro.send(None)
 

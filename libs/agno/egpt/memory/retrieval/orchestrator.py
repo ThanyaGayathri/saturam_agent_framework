@@ -134,5 +134,14 @@ async def aorchestrate(
             return []
         return list(await graph.atraverse(scope, query))
 
+    # Bare gather is intentional: a leg failure aborts the read, propagating immediately rather
+    # than settling both first. Contrast `_gather_writes` in `adapters.co_located`, which settles
+    # every write and reports a partial result deliberately -- a caller retries a write with the
+    # same stamped ids and it is idempotent by construction. A read has no such retry contract: a
+    # partial `RetrievalLegs` (one leg's candidates, one leg silently empty) reads as "the other
+    # leg matched nothing" rather than "the other leg failed", which is a wrong answer, not a
+    # smaller one. Graceful degradation -- `return_exceptions=True` with the caller distinguishing
+    # a failed leg from an empty one -- is a deliberate policy change, not a default, and belongs
+    # to whichever ticket first needs a partial read.
     (vector_hits, lexical_hits), graph_hits = await asyncio.gather(vector_leg(), graph_leg())
     return RetrievalLegs(vector=vector_hits, lexical=lexical_hits, graph=graph_hits)
