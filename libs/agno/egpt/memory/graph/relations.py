@@ -588,9 +588,16 @@ class RelationExtractionPipeline:
         reading of "starting at the exact same instant." Three or more candidates sharing one
         ``(subject, relation)`` are compared pairwise, not just adjacent-in-sort-order: a middle
         candidate can lose to a later one and still beat an earlier one, and each such pair is
-        independent -- the accumulation below (keep the **earliest** winning ``t_valid`` per
-        loser) is the same merge :meth:`_contradicted` already does for multiple contradictors of
-        one edge.
+        independent -- for each loser the accumulation below keeps the **earliest** ``t_invalid``
+        among every winner that beat it (not, as the pairing might suggest, the winner with the
+        earliest ``t_valid``), the same merge :meth:`_contradicted` already does for multiple
+        contradictors of one edge.
+
+        **O(n²) in ``len(candidates)``.** Acceptable at today's
+        ``DEFAULT_MAX_EPISODES_PER_PASS`` and typical relation density -- negligible next to the
+        LLM call latency each pass already pays -- but a grouped O(n) pass (bucket first by
+        ``(subject, predicate)``, as :meth:`_by_relation` already does, then compare only within
+        each bucket) would be worth it if pass sizes grow substantially past that default.
         """
         found: Dict[str, int] = {}
         for i in range(len(candidates)):
@@ -669,10 +676,14 @@ class RelationExtractionPipeline:
     def _write_batch(self, scope: Scope, batch: Sequence[FactWrite]) -> int:
         """Write one scope's batch, then retire whatever it supersedes.
 
-        Contradiction is looked up **before** the write, against the graph's state as it stood
-        before this batch -- a candidate must never be compared against itself. Invalidation runs
-        **after** ``upsert_facts`` lands, not before: a caller retrying a failed write must not find
-        edges already retired for candidates that never reached the graph.
+        Contradiction is looked up **before** the write, from two independent sources merged by
+        :meth:`_merge_contradictions`: :meth:`_contradictions_for` against the graph's state as it
+        stood before this batch (a candidate is never compared against **itself** there -- the
+        edge it would eventually become does not exist yet), and :meth:`_contradicted_within`
+        (SM-L5 #126) pairwise across the batch's own candidates against **each other**, which by
+        construction never compares an entry against itself either (``i < j`` in its own loop).
+        Invalidation runs **after** ``upsert_facts`` lands, not before: a caller retrying a failed
+        write must not find edges already retired for candidates that never reached the graph.
 
         **Assumes one writer per (scope, subject, relation) at a time.** Two concurrent passes
         contradicting the same existing edge each compute their own contradiction set against the

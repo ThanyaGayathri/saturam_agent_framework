@@ -479,6 +479,14 @@ def test_two_same_pass_candidates_contradicting_each_other_invalidate_the_earlie
     assert len([row for row in rows if row.id == beta_id]) == 1
 
 
+def test_contradicted_within_of_an_empty_batch_is_empty():
+    """Degenerate-input coverage matching this file's own convention for a static predicate --
+    the outer loop never executes on an empty sequence, so this is really pinning that
+    :meth:`_contradicted_within` doesn't raise on the boundary case rather than exercising new
+    behavior."""
+    assert RelationExtractionPipeline._contradicted_within([]) == {}
+
+
 def test_two_same_pass_candidates_starting_at_the_exact_same_instant_do_not_contradict():
     """Mirrors ``test_two_facts_starting_at_the_exact_same_instant_do_not_contradict`` for the
     within-batch check: a tie means neither is "earlier", so :meth:`_contradicted_within` must not

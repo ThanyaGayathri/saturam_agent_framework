@@ -18,7 +18,7 @@ from egpt.memory.config import (
     registered_providers,
 )
 from egpt.memory.graph.relations import ExtractedRelation, RelationExtractionPipeline
-from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor
+from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor, ValidTimeSpan
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FUSION_KEYS,
@@ -585,6 +585,23 @@ class _RelationStub:
         return self.extract(episode)
 
 
+class _FixedValidTime:
+    """A :class:`ValidTimeExtractor` double that returns an explicit, pre-assigned span per
+    episode content, bypassing date-prose parsing entirely (review finding, PR #126 round 2):
+    coupling a contradiction-detection test's pass/fail to ``RuleBasedValidTimeExtractor``
+    correctly parsing "since Jan 2024" would make a date-parsing regression and a
+    `_contradicted_within` regression indistinguishable from the same failing assertion."""
+
+    def __init__(self, by_content):
+        self.by_content = by_content
+
+    def extract(self, content, ingest_time=None):
+        return self.by_content[content]
+
+    async def aextract(self, content, ingest_time=None):
+        return self.extract(content, ingest_time)
+
+
 @pytest.mark.parametrize("half", ["sync", "async"])
 async def test_contradictions_resolved_reflects_a_real_graph_edge_invalidation(half):
     """SM-L5 (#126): `ConsolidationReport.contradictions_resolved` used to stay hard-coded at 0
@@ -655,21 +672,25 @@ async def test_contradictions_resolved_counts_a_same_pass_invalidation_too(half)
     candidates -- the same shape `test_graph_relations.py`'s
     `test_two_same_pass_candidates_contradicting_each_other_invalidate_the_earlier_one` already
     covers at the pipeline level, exercised here end to end through the provider instead.
+
+    Valid times are explicit (`_FixedValidTime`), not parsed from content (review finding, PR
+    #126 round 2): the assertion below must be sensitive to `_contradicted_within`, not to
+    whether `RuleBasedValidTimeExtractor` still parses a given date phrase.
     """
     extractor = _RelationStub(
         by_content={
-            "Ada works at Acme since Jan 2024": [
-                ExtractedRelation(source="Ada", relation="works_at", target="Acme Corp")
-            ],
-            "Ada works at Beta since Jan 2025": [
-                ExtractedRelation(source="Ada", relation="works_at", target="Beta Inc")
-            ],
+            "Ada works at Acme": [ExtractedRelation(source="Ada", relation="works_at", target="Acme Corp")],
+            "Ada works at Beta": [ExtractedRelation(source="Ada", relation="works_at", target="Beta Inc")],
+        }
+    )
+    valid_time = _FixedValidTime(
+        by_content={
+            "Ada works at Acme": ValidTimeSpan(t_valid=100),
+            "Ada works at Beta": ValidTimeSpan(t_valid=200),
         }
     )
     vector, graph = FakeVector(), FakeGraph()
-    relation_pipeline = RelationExtractionPipeline(
-        graph=graph, extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor()
-    )
+    relation_pipeline = RelationExtractionPipeline(graph=graph, extractor=extractor, valid_time_extractor=valid_time)
     p = CoLocatedMemoryProvider(
         vector=vector,
         graph=graph,
@@ -677,8 +698,8 @@ async def test_contradictions_resolved_counts_a_same_pass_invalidation_too(half)
         relation_pipeline=relation_pipeline,
     )
     episodes = [
-        event("Ada works at Acme since Jan 2024", id="e1"),
-        event("Ada works at Beta since Jan 2025", id="e2"),
+        event("Ada works at Acme", id="e1"),
+        event("Ada works at Beta", id="e2"),
     ]
 
     if half == "sync":

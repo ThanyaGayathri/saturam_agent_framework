@@ -1168,10 +1168,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """
         if self.relation_pipeline is None:
             return NO_RELATIONS
+        # TODO(follow-up, review finding on PR #126 round 2): this discards the typed
+        # `RelationExtractionReport` entirely, keeping only `.details` -- a `Dict[str, Any]`.
+        # `edges_invalidated` survives that only because `relations.py`'s own `_report`
+        # deliberately duplicates it into `.details` as a workaround (see that call site's
+        # comment); any *other* field added to the typed report in the future will silently fail
+        # to reach `ConsolidationReport` the same way `edges_invalidated` did before SM-L5, unless
+        # it gets the same manual duplication. Returning the typed report itself (or a richer
+        # summary than `RelationSummary`'s `Union[Dict[str, Any], str]`) would close this for
+        # good, but changes this method's public return shape and every `NO_RELATIONS`-pattern-
+        # matching call site -- wider than one ticket.
         return self.relation_pipeline.run(scope, episodes).details
 
     async def _arelations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationSummary:
-        """Async variant of :meth:`_relations`, making the same decisions."""
+        """Async variant of :meth:`_relations`, making the same decisions -- including the same
+        `.details`-only TODO gap; see that method's comment."""
         if self.relation_pipeline is None:
             return NO_RELATIONS
         return (await self.relation_pipeline.arun(scope, episodes)).details
