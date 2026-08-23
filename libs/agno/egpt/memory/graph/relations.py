@@ -584,14 +584,21 @@ class RelationExtractionPipeline:
 
         ``candidates`` is assumed already merged (:meth:`_merged`): one entry per edge id, so no
         two entries can already share one, and every pair compared is genuinely two different
-        edges. A tie (equal ``t_valid``) contradicts neither, matching :meth:`_contradicted`'s own
+        edges. Also assumed to already share **one scope**: this method takes no ``scope``
+        argument and applies no scope filter of its own, relying entirely on its one caller,
+        :meth:`_write_batch`/:meth:`_awrite_batch`, to hand it a single-scope batch -- guaranteed
+        today by :meth:`_batches` splitting a tenant-wide pass before either write method ever
+        runs. A future caller passing a mixed-scope slice would silently produce cross-scope
+        contradictions with no error raised. A tie (equal ``t_valid``) contradicts neither, matching
+        :meth:`_contradicted`'s own
         reading of "starting at the exact same instant." Three or more candidates sharing one
         ``(subject, relation)`` are compared pairwise, not just adjacent-in-sort-order: a middle
         candidate can lose to a later one and still beat an earlier one, and each such pair is
         independent -- for each loser the accumulation below keeps the **earliest** ``t_invalid``
-        among every winner that beat it (not, as the pairing might suggest, the winner with the
-        earliest ``t_valid``), the same merge :meth:`_contradicted` already does for multiple
-        contradictors of one edge.
+        seen across all pairings, equivalent to finding the earliest-starting winner among
+        everything that beat this loser and using its own ``t_valid`` -- computed as a running
+        minimum here so nothing needs to be sorted first, the same merge :meth:`_contradicted`
+        already does for multiple contradictors of one edge.
 
         **O(n²) in ``len(candidates)``.** Acceptable at today's
         ``DEFAULT_MAX_EPISODES_PER_PASS`` and typical relation density -- negligible next to the

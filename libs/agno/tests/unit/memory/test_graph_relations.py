@@ -487,6 +487,33 @@ def test_contradicted_within_of_an_empty_batch_is_empty():
     assert RelationExtractionPipeline._contradicted_within([]) == {}
 
 
+def test_contradicted_within_of_a_single_candidate_batch_is_empty():
+    """Degenerate-input coverage matching this file's own convention: with one candidate the
+    inner loop's ``range(1, 1)`` never executes, so this pins the same boundary case as the
+    empty-batch test one level up, not new behavior."""
+    solo = FactWrite(
+        record=MemoryRecord(id="acme", tier=MemoryTier.SEMANTIC, content="x", scope=ACME, t_valid=100),
+        subject="Ada",
+        predicate="works_at",
+        object="Acme Corp",
+    )
+
+    assert RelationExtractionPipeline._contradicted_within([solo]) == {}
+
+
+def test_merge_contradictions_keeps_the_earlier_t_invalid_when_both_sources_name_the_same_edge():
+    """Review finding (PR #126 round 3): the docstring calls the union defensive -- correct even
+    if the "the two sources never actually share an id in practice" invariant it names ever
+    breaks -- but nothing exercised the branch that defense exists for. Two sources both naming
+    edge "acme", with different `t_invalid`s, must keep the smaller one regardless of which
+    source is passed first."""
+    smaller_first = RelationExtractionPipeline._merge_contradictions({"acme": 150}, {"acme": 200})
+    smaller_second = RelationExtractionPipeline._merge_contradictions({"acme": 200}, {"acme": 150})
+
+    assert smaller_first == {"acme": 150}
+    assert smaller_second == {"acme": 150}
+
+
 def test_two_same_pass_candidates_starting_at_the_exact_same_instant_do_not_contradict():
     """Mirrors ``test_two_facts_starting_at_the_exact_same_instant_do_not_contradict`` for the
     within-batch check: a tie means neither is "earlier", so :meth:`_contradicted_within` must not
