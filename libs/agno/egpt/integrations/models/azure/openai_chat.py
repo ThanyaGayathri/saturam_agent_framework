@@ -91,11 +91,11 @@ class AzureOpenAI(OpenAILike):
     def _get_client_params(self) -> Dict[str, Any]:
         _client_params: Dict[str, Any] = {}
 
-        self.api_key = self.api_key or getenv("AZURE_OPENAI_API_KEY")
-        self.azure_endpoint = self.azure_endpoint or getenv("AZURE_OPENAI_ENDPOINT")
-        self.azure_deployment = self.azure_deployment or getenv("AZURE_OPENAI_DEPLOYMENT")
+        api_key = self.api_key or getenv("AZURE_OPENAI_API_KEY")
+        azure_endpoint = self.azure_endpoint or getenv("AZURE_OPENAI_ENDPOINT")
+        azure_deployment = self.azure_deployment or getenv("AZURE_OPENAI_DEPLOYMENT")
 
-        if not (self.api_key or self.azure_ad_token or self.azure_ad_token_provider):
+        if not (api_key or self.azure_ad_token or self.azure_ad_token_provider):
             raise ModelAuthenticationError(
                 message="Azure OpenAI authentication not configured. Please provide one of:"
                 "AZURE_OPENAI_API_KEY environment variable, azure_ad_token, or azure_ad_token_provider",
@@ -103,11 +103,11 @@ class AzureOpenAI(OpenAILike):
             )
 
         params_mapping = {
-            "api_key": self.api_key,
+            "api_key": api_key,
             "api_version": self.api_version,
             "organization": self.organization,
-            "azure_endpoint": self.azure_endpoint,
-            "azure_deployment": self.azure_deployment,
+            "azure_endpoint": azure_endpoint,
+            "azure_deployment": azure_deployment,
             "base_url": self.base_url,
             "azure_ad_token": self.azure_ad_token,
             "azure_ad_token_provider": self.azure_ad_token_provider,

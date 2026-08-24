@@ -57,22 +57,23 @@ class WatsonX(Model):
 
     def _get_client_params(self) -> Dict[str, Any]:
         # Fetch API key and project ID from env if not already set
-        self.api_key = self.api_key or getenv("IBM_WATSONX_API_KEY")
-        if not self.api_key:
+        api_key = self.api_key or getenv("IBM_WATSONX_API_KEY")
+        if not api_key:
             log_error("IBM_WATSONX_API_KEY not set. Please set the IBM_WATSONX_API_KEY environment variable.")
 
-        self.project_id = self.project_id or getenv("IBM_WATSONX_PROJECT_ID")
-        if not self.project_id:
+        project_id = self.project_id or getenv("IBM_WATSONX_PROJECT_ID")
+        if not project_id:
             log_error("IBM_WATSONX_PROJECT_ID not set. Please set the IBM_WATSONX_PROJECT_ID environment variable.")
 
-        self.url = getenv("IBM_WATSONX_URL") or self.url
+        # Env wins over declared here, unlike api_key/project_id above -- intentional, preserved as-is.
+        url = getenv("IBM_WATSONX_URL") or self.url
 
         # Create credentials object
-        credentials = Credentials(url=self.url, api_key=self.api_key, verify=self.verify)
+        credentials = Credentials(url=url, api_key=api_key, verify=self.verify)
 
         return {
             "credentials": credentials,
-            "project_id": self.project_id,
+            "project_id": project_id,
         }
 
     def get_client(self) -> ModelInference:

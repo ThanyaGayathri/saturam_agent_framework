@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 from os import getenv
 from typing import Any, Dict, Optional
 
-from egpt.exceptions import ModelAuthenticationError
 from egpt.integrations.models.openai_like import OpenAILike
 
 
@@ -30,16 +29,8 @@ class TuningEngines(OpenAILike):
     base_url: str = field(default_factory=lambda: getenv("TUNING_ENGINES_BASE_URL", "https://api.tuningengines.com/v1"))
 
     def _get_client_params(self) -> Dict[str, Any]:
-        # Resolve the API key from TUNING_ENGINES_API_KEY and fail fast with a clear
-        # message. Without this, the base class falls back to OPENAI_API_KEY,
-        # which would silently send an OpenAI key to the Tuning Engines endpoint.
-        if not self.api_key:
-            self.api_key = getenv("TUNING_ENGINES_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message=(
-                        "TUNING_ENGINES_API_KEY not set. Please set the TUNING_ENGINES_API_KEY environment variable."
-                    ),
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+        # _resolve_required_api_key fails fast on TUNING_ENGINES_API_KEY rather than falling
+        # back to the base class's OPENAI_API_KEY, which would silently send an OpenAI key to
+        # the Tuning Engines endpoint.
+        api_key = self._resolve_required_api_key("TUNING_ENGINES_API_KEY")
+        return super()._get_client_params(api_key=api_key)

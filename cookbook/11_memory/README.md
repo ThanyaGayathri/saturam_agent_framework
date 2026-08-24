@@ -174,13 +174,22 @@ This section demonstrates how EGPT agents persist and use user memories across r
   branch was still catching up. Per this file's own convention, whoever merges second renumbers --
   four times, this time.**
 
-- `34_hierarchical_summarization.py`: Hierarchical (session/day/global) summarization (SM-L8) --
+- `34_sleep_time_scheduling.py`: Sleep-time compute scheduling (SM-L9) -- `SleepTimeScheduleConfig`
+  bundles a daily `SleepWindow` (evaluated in a named timezone, not just UTC), an idle threshold,
+  and `mode` (Mode A/`LOCAL` by default). `build_sleep_time_trigger` wraps a fresh `IdleTrigger` so
+  the resulting trigger only fires inside the window, while `record_event` keeps accumulating
+  pending work at any hour. Plugs into `ConsolidationWorker` as `trigger=...`, no worker change.
+  Requires nothing; no database, no API key, no network.
+
+- `35_hierarchical_summarization.py`: Hierarchical (session/day/global) summarization (SM-L8) --
   `SummaryPipeline`, opt-in via `summary_pipeline`: a rolling session summary reuses
   `SessionSummaryResponse` (`session/summary.py`); day/global periodic rollups are gated by
   `LatencyTrigger` and folded via `SummarizeStrategy` (`memory/strategies/summarize.py`). Every
   summary lands on the SEMANTIC tier through the same write path a distilled fact or a reflected
   insight uses, tagged `metadata={"kind": "summary", "level": ...}` -- retrievable through an
   ordinary read. Requires a real model (`OPENAI_API_KEY`); no database.
+  **Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
+  branch was still catching up. Per this file's own convention, whoever merges second renumbers.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

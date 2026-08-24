@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional, Type, Union
 
 from pydantic import BaseModel
 
-from egpt.exceptions import ModelAuthenticationError
 from egpt.integrations.models.openai_like import OpenAILike
 from egpt.models.message import Message
 from egpt.run.agent import RunOutput
@@ -46,15 +45,8 @@ class MiMo(OpenAILike):
     supports_native_structured_outputs: bool = False
 
     def _get_client_params(self) -> Dict[str, Any]:
-        if not self.api_key:
-            self.api_key = getenv("MIMO_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="MIMO_API_KEY not set. Please set the MIMO_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-
-        return super()._get_client_params()
+        api_key = self._resolve_required_api_key("MIMO_API_KEY")
+        return super()._get_client_params(api_key=api_key)
 
     def get_request_params(
         self,

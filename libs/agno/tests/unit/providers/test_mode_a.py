@@ -119,7 +119,9 @@ class _DefaultingBackend(_StubModel):
 
     def __post_init__(self) -> None:
         if not self.host:
-            self.host = "https://ollama.com"
+            # Deliberately reproducing the EGPT-171 mutation pattern this fake exists to test,
+            # so it needs the sanctioned escape hatch `Model.__setattr__` otherwise blocks.
+            self._set_connection_attr("host", "https://ollama.com")
 
 
 def _register(key: str, cls: type) -> None:
@@ -258,7 +260,9 @@ def test_a_backend_that_defaults_to_a_public_host_is_rejected():
         """The worst case: the backend's public default wins over what Mode A passed."""
 
         def __post_init__(self) -> None:
-            self.host = "https://ollama.com"
+            # Deliberately reproducing the EGPT-171 mutation pattern this fake exists to test,
+            # so it needs the sanctioned escape hatch `Model.__setattr__` otherwise blocks.
+            self._set_connection_attr("host", "https://ollama.com")
 
     _register("ollama", _IgnoresConfiguredHost)
     provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen", mode_a_backend="ollama")
@@ -732,8 +736,7 @@ def test_a_pinned_model_outside_the_vpc_is_not_reported_as_local():
     `provider_key=<backend>`, so an operator auditing "did anything leave the VPC?" from these
     records saw zero egress while every such request went to a public frontier API."""
     provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
-    pinned = _FakeOpenAISchemaBackend(id="claude-sonnet-4-5")
-    pinned.base_url = "https://api.anthropic.com/v1"
+    pinned = _FakeOpenAISchemaBackend(id="claude-sonnet-4-5", base_url="https://api.anthropic.com/v1")
 
     result = provider.resolve_detailed(ModelResolveRequest(requested=pinned))
 
@@ -746,8 +749,7 @@ def test_a_pinned_in_vpc_model_is_still_reported_as_local():
     """The counterpart: pinning the deployment's own in-VPC model is a genuine LOCAL
     resolution, so the honesty fix must not relabel it as egress."""
     provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
-    pinned = _FakeOpenAISchemaBackend(id="qwen")
-    pinned.base_url = VPC_URL
+    pinned = _FakeOpenAISchemaBackend(id="qwen", base_url=VPC_URL)
 
     result = provider.resolve_detailed(ModelResolveRequest(requested=pinned))
 

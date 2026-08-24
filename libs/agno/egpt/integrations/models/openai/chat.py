@@ -101,21 +101,26 @@ class OpenAIChat(Model):
     def get_provider(self) -> str:
         return f"{super().get_provider()} Chat"
 
-    def _get_client_params(self) -> Dict[str, Any]:
-        # Fetch API key from env if not already set
-        if not self.api_key:
-            self.api_key = getenv("OPENAI_API_KEY")
-            if not self.api_key:
+    def _get_client_params(self, *, api_key: Optional[str] = None, base_url: Optional[str] = None) -> Dict[str, Any]:
+        # `api_key`/`base_url` let a delegating subclass (one that resolves its own provider-specific
+        # env var) pass in the already-resolved value instead of this method falling back to
+        # OPENAI_API_KEY / self.base_url. Plain OpenAIChat/OpenAILike instances call this with no
+        # arguments and get the OpenAI-flavoured resolution below.
+        resolved_api_key = api_key if api_key is not None else self.api_key
+        if not resolved_api_key:
+            resolved_api_key = getenv("OPENAI_API_KEY")
+            if not resolved_api_key:
                 raise ModelAuthenticationError(
                     message="OPENAI_API_KEY not set. Please set the OPENAI_API_KEY environment variable.",
                     model_name=self.name,
                 )
+        resolved_base_url = base_url if base_url is not None else self.base_url
 
         # Define base client params
         base_params = {
-            "api_key": self.api_key,
+            "api_key": resolved_api_key,
             "organization": self.organization,
-            "base_url": self.base_url,
+            "base_url": resolved_base_url,
             "timeout": self.timeout,
             "max_retries": self.max_retries,
             "default_headers": self.default_headers,
