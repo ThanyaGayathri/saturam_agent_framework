@@ -12,8 +12,9 @@ Summarization is reused, not reinvented (Design Decision #2 on the issue): ``off
 ``session/summary.py`` already uses to compact a whole session.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, List, Optional, Sequence, Union, cast
+from uuid import NAMESPACE_OID, uuid5
 
 from egpt.memory.tiers import DEFAULT_WRITE_TIER
 from egpt.memory.types import MemoryEvent, Scope, WriteReceipt, render_context_lines, require_scope
@@ -90,6 +91,28 @@ def _typed(session: _BufferSession) -> Union["AgentSession", "TeamSession"]:
     return cast("Union[AgentSession, TeamSession]", session)
 
 
+#: Namespace for deriving a stable `MemoryEvent.id` from a `Message`, so a retried offload after a
+#: `PartialWriteError` reuses the same id rather than minting a fresh one -- see `_event_id`.
+_EVENT_ID_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.working.offload_event")
+
+
+def _event_id(scope: Scope, message: Message) -> str:
+    """A stable id for ``message``'s offloaded event, scoped to ``scope``.
+
+    Derived from ``message.id`` -- itself stable across a retry, since a failed offload never
+    trims ``self.messages``, so a caller retrying with the *same* `Message` objects (the ordinary
+    case: nothing else mutates them) gets the same derived id every attempt.
+
+    This is what makes ``offload``/``aoffload`` idempotent under a partial provider failure without
+    a caller having to catch `~egpt.memory.types.PartialWriteError` and thread ``event_ids`` back
+    in by hand: the write path upserts by id (``record.id`` is the documented cross-substrate dedup
+    key -- see ``provider.py`` on ``write``), so a retry's write lands on the same row rather than
+    duplicating it. Scoped, not just ``message.id`` alone, so the same message id under two
+    different scopes -- unlikely, but ``Message.id`` is caller-controlled -- cannot collide.
+    """
+    return str(uuid5(_EVENT_ID_NAMESPACE, f"{scope.key()}|{message.id}"))
+
+
 def _has_text(message: Message) -> bool:
     """Whether ``message`` carries content this seam's ``str``-only fields can hold.
 
@@ -102,7 +125,49 @@ def _has_text(message: Message) -> bool:
     return isinstance(message.content, str) and bool(message.content.strip())
 
 
-def _merge_summary(previous: Optional[SessionSummary], new: SessionSummary) -> SessionSummary:
+#: Prefixed onto a capped summary when the oldest paragraph(s) were dropped, so the loss is
+#: visible in the rendered context rather than a silent shrink -- this package's own stance
+#: (`MemoryOperationError`'s refuse-don't-silently-narrow pattern) applied to summary capping.
+_TRUNCATION_MARKER = "[earlier summary truncated]"
+
+
+def _cap_summary(text: str, max_chars: int) -> str:
+    """``text``, capped to (approximately) ``max_chars`` by dropping the *oldest* paragraphs first.
+
+    Paragraphs are ``_merge_summary``'s own unit -- each offload appends one via ``"\\n\\n".join``
+    -- so capping at that boundary drops whole prior-offload contributions rather than truncating
+    mid-sentence. The newest paragraph is always kept, even alone over ``max_chars``: a hard-cut
+    newest entry is still more useful than an empty summary. A cap that removed anything is marked
+    with :data:`_TRUNCATION_MARKER` so the loss shows up in `WorkingMemory.as_context`, not just in
+    a shrinking string a caller has no way to notice.
+    """
+    if len(text) <= max_chars:
+        return text
+    paragraphs = text.split("\n\n")
+    kept: List[str] = [paragraphs[-1]]
+    for paragraph in reversed(paragraphs[:-1]):
+        candidate = [paragraph, *kept]
+        if len("\n\n".join([_TRUNCATION_MARKER, *candidate])) <= max_chars:
+            kept = candidate
+        else:
+            break
+    if len(kept) == len(paragraphs):
+        return "\n\n".join(kept)
+    result = "\n\n".join([_TRUNCATION_MARKER, *kept])
+    if len(result) > max_chars:
+        # Only reachable when `kept` never grew past the newest paragraph alone, and even *that*
+        # plus the marker overflows -- hard-truncate the paragraph itself rather than emit a
+        # summary longer than the caller's own bound. Checked against the marker+paragraph
+        # combination, not the paragraph alone: a paragraph shorter than `max_chars` can still
+        # overflow once the marker is added, which a bare `len(kept[0]) > max_chars` check misses.
+        prefix = _TRUNCATION_MARKER + "\n\n"
+        result = prefix + kept[-1][: max(0, max_chars - len(prefix))]
+    return result
+
+
+def _merge_summary(
+    previous: Optional[SessionSummary], new: SessionSummary, max_chars: Optional[int] = None
+) -> SessionSummary:
     """Fold a fresh offload's summary into the running one instead of replacing it.
 
     A second offload that dropped the first summary would silently lose everything it covered --
@@ -110,29 +175,29 @@ def _merge_summary(previous: Optional[SessionSummary], new: SessionSummary) -> S
     package refuses. Topics are unioned, order-stable; the summary text is appended as a new
     paragraph so a later offload reads as "what I knew, plus what happened since."
 
-    **Known limitation, not fixed here: unbounded growth.** Nothing here caps, ages out, or
-    re-compacts the running summary -- a long-lived buffer that offloads many times accumulates an
-    ever-longer ``summary.summary``, which `WorkingMemory.as_context` renders in full every call.
-    That directly works against "summarize/offload-when-large"'s own point, which is to keep
-    prompt size bounded. Left as an explicit follow-up rather than fixed in this pass: a real fix
-    needs a design decision this ticket doesn't own -- a length/age cap with truncation loses
-    information silently unless it is itself disclosed, and periodic re-compaction is another
-    (bounded) model call on the offload path. Whoever picks this up should decide which, and
-    where the bound lives (a `WorkingMemory` field, most likely).
+    ``max_chars`` bounds the merged text via :func:`_cap_summary`, dropping the oldest paragraphs
+    first once it's exceeded -- otherwise a long-lived buffer that offloads many times accumulates
+    an ever-longer ``summary.summary``, which `WorkingMemory.as_context` renders in full every
+    call, working directly against "summarize/offload-when-large"'s own point of keeping prompt
+    size bounded. ``None`` (the default `WorkingMemory.max_summary_chars` is not) disables the cap.
     """
     if previous is None:
-        return new
-    topics = list(previous.topics or [])
-    topics.extend(t for t in (new.topics or []) if t not in topics)
-    # `topics` unconditionally, not `topics or None`: an empty list here means both summaries
-    # genuinely named no topics, which is a real, distinguishable answer from "topics was never
-    # asked about" -- collapsing it to `None` would conflate the two the same way
-    # `last_offload_receipt` already documents as a known gap elsewhere in this file.
-    return SessionSummary(
-        summary="\n\n".join([previous.summary, new.summary]),
-        topics=topics,
-        updated_at=new.updated_at,
-    )
+        merged = new
+    else:
+        topics = list(previous.topics or [])
+        topics.extend(t for t in (new.topics or []) if t not in topics)
+        # `topics` unconditionally, not `topics or None`: an empty list here means both summaries
+        # genuinely named no topics, which is a real, distinguishable answer from "topics was never
+        # asked about" -- collapsing it to `None` would conflate the two the same way
+        # `last_offload_receipt` already documents as a known gap elsewhere in this file.
+        merged = SessionSummary(
+            summary="\n\n".join([previous.summary, new.summary]),
+            topics=topics,
+            updated_at=new.updated_at,
+        )
+    if max_chars is not None and len(merged.summary) > max_chars:
+        merged = replace(merged, summary=_cap_summary(merged.summary, max_chars))
+    return merged
 
 
 @dataclass
@@ -154,6 +219,15 @@ class WorkingMemory:
     #: buffer *can* enforce, not one it enforces unconditionally out of the box. A manager whose
     #: `last_n_runs` is set is also accepted but silently unused here: see `_BufferSession`.
     summary_manager: SessionSummaryManager = field(default_factory=SessionSummaryManager)
+    #: Caps the running `summary.summary` (see `_merge_summary`/`_cap_summary`), dropping the
+    #: oldest offload's paragraph first and marking the drop, so repeated offload cycles on one
+    #: long-lived buffer cannot make the summary itself an unbounded contributor to prompt size --
+    #: the thing "summarize/offload-when-large" exists to prevent. `None` disables the cap.
+    max_summary_chars: Optional[int] = 4000
+    #: Caps `scratchpad` (see `note`) at this many most-recent entries, FIFO -- `scratchpad` is not
+    #: sized by `should_offload`/`max_messages`, which only counts `messages`, so without its own
+    #: bound a caller calling `note()` in a loop grows it without limit. `None` disables the cap.
+    max_scratchpad_entries: Optional[int] = 50
 
     messages: List[Message] = field(default_factory=list)
     scratchpad: List[str] = field(default_factory=list)
@@ -179,6 +253,12 @@ class WorkingMemory:
                 "WorkingMemory.keep_after_offload must be in [0, max_messages); got "
                 f"{self.keep_after_offload} against max_messages={self.max_messages}."
             )
+        if self.max_summary_chars is not None and self.max_summary_chars <= 0:
+            raise ValueError(f"WorkingMemory.max_summary_chars must be positive or None, got {self.max_summary_chars}.")
+        if self.max_scratchpad_entries is not None and self.max_scratchpad_entries <= 0:
+            raise ValueError(
+                f"WorkingMemory.max_scratchpad_entries must be positive or None, got {self.max_scratchpad_entries}."
+            )
 
     # -- mutation --------------------------------------------------------------------------------
 
@@ -189,18 +269,17 @@ class WorkingMemory:
     def note(self, text: str) -> None:
         """Append a scratchpad entry -- working state that is not a conversation turn.
 
-        **Known limitation, not fixed here: unbounded.** `should_offload`/`offload` size the
-        buffer by `len(self.messages)` alone; nothing here caps or offloads `scratchpad`, despite
-        it being one of the three things the module docstring and the ticket describe this buffer
-        as holding. `goals` doesn't share this gap in practice -- `set_goals` replaces rather than
-        appends -- but a caller calling `note()` in a loop grows this list without bound. Left as
-        an explicit follow-up: whether scratchpad entries should offload at all (they're not
-        conversation turns `SessionSummaryManager` knows how to summarize) is a product decision
-        this ticket doesn't settle, not a mechanical fix.
+        Bounded by :attr:`max_scratchpad_entries`, FIFO: the oldest note is dropped once the cap is
+        exceeded. `scratchpad` is not sized by `should_offload` (that only counts `messages`), and
+        a scratchpad entry is not a conversation turn `SessionSummaryManager` knows how to
+        summarize -- so it is capped by count here rather than offloaded like `messages` are.
         """
         stripped = text.strip()
-        if stripped:
-            self.scratchpad.append(stripped)
+        if not stripped:
+            return
+        self.scratchpad.append(stripped)
+        if self.max_scratchpad_entries is not None and len(self.scratchpad) > self.max_scratchpad_entries:
+            self.scratchpad = self.scratchpad[-self.max_scratchpad_entries :]
 
     def set_goals(self, goals: Sequence[str]) -> None:
         """Replace the active-goals list. Blank entries are dropped, not stored as empty goals."""
@@ -232,12 +311,18 @@ class WorkingMemory:
         write time (``now``), which is wrong here specifically because `keep_after_offload` can
         leave a message sitting in the buffer for a long time before an offload finally writes it:
         every such event's ``t_valid`` would silently read as "wrote it", not "said it."
+
+        ``id`` is :func:`_event_id`, not left for the provider to mint -- a stable, content-derived
+        id rather than a fresh one every call is what makes a retry after
+        `~egpt.memory.types.PartialWriteError` idempotent (upsert onto the same row) instead of
+        duplicating whatever already landed.
         """
         events = []
         for message in messages:
             if _has_text(message):
                 events.append(
                     MemoryEvent(
+                        id=_event_id(self.scope, message),
                         content=message.content,  # type: ignore[arg-type]  # narrowed by _has_text
                         scope=self.scope,
                         tier=DEFAULT_WRITE_TIER,
@@ -284,13 +369,20 @@ class WorkingMemory:
         not write time -- since `keep_after_offload` can leave a message sitting in the buffer for
         a long time before an offload finally writes it out.
 
-        **Not idempotent under a partial provider failure.** Every `MemoryEvent` here is built with
-        no ``id``, so a caller that catches `~egpt.memory.types.PartialWriteError` (real per
-        `CoLocatedMemoryProvider._prepare`) and calls `offload` again recomputes the overflow from
-        scratch and mints **fresh** ids for content that may already have landed on the first,
-        partial attempt -- duplicating it. `PartialWriteError.event_ids` names exactly the ids a
-        safe retry should reuse; this method does not thread them back in. A caller whose `provider`
-        can fail partway must not blindly retry by calling `offload` again.
+        **Idempotent under a partial provider failure, via stable ids.** Every `MemoryEvent` here
+        carries `_event_id(scope, message)` rather than an id the provider mints -- deterministic,
+        not fresh per call, because a failed `provider.write` never trims `self.messages`, so a
+        caller that catches `~egpt.memory.types.PartialWriteError` (real per
+        `CoLocatedMemoryProvider._prepare`) and calls `offload` again recomputes the *same* overflow
+        from the *same* `Message` objects, producing the *same* ids. The write path upserts by id,
+        so the retry's write lands on the same rows a partial first attempt already created rather
+        than duplicating them -- the id-reuse `PartialWriteError.event_ids` documents as what a safe
+        retry needs, achieved by construction rather than a caller having to thread ids back in by
+        hand. Two exceptions worth naming: a message removed from `self.messages` between the
+        failed attempt and the retry (a caller mutating the buffer directly) breaks the "same
+        objects" premise, and a `provider` whose backend does not upsert by id is not one this
+        method's idempotency claim can cover -- both are the caller's data model to guarantee, not
+        this method's.
 
         A no-op (returns ``None``, writes nothing, changes nothing, and resets
         :attr:`last_offload_receipt` to ``None`` so a caller cannot read a stale receipt from an
@@ -331,7 +423,7 @@ class WorkingMemory:
                 self.last_offload_receipt = provider.write(self.scope, events)
         else:
             self.last_offload_receipt = None
-        self.summary = _merge_summary(self.summary, new_summary)
+        self.summary = _merge_summary(self.summary, new_summary, self.max_summary_chars)
         self.messages = self._trim(self.messages, len(overflow), len(summarized))
         return self.summary
 
@@ -354,7 +446,7 @@ class WorkingMemory:
                 self.last_offload_receipt = await provider.awrite(self.scope, events)
         else:
             self.last_offload_receipt = None
-        self.summary = _merge_summary(self.summary, new_summary)
+        self.summary = _merge_summary(self.summary, new_summary, self.max_summary_chars)
         self.messages = self._trim(self.messages, len(overflow), len(summarized))
         return self.summary
 
