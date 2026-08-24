@@ -235,6 +235,21 @@ This section demonstrates how EGPT agents persist and use user memories across r
   this branch was still catching up. Per this file's own convention, whoever merges second
   renumbers -- twice, this time.**
 
+- `40_user_profile_store.py`: Structured user profile updated on consolidation (SM-S3) --
+  `UserProfileStore`'s storage-free `extract_profile`/`aextract_profile` (a model call, no `db`)
+  wired into `CoLocatedMemoryProvider` via `profile_store=`, same opt-in shape as
+  `entity_pipeline`/`relation_pipeline`/`fact_pipeline`. Consolidation runs the extraction over the
+  pass's episodes and persists the result through `SemanticProfileStore` -- tenant/user-scoped
+  through the vector substrate, not the seed store's own single-tenant `self.db`. Shows a stated
+  preferred name surviving one consolidation pass. Requires `./cookbook/scripts/run_pgvector.sh`
+  and a real model (`OPENAI_API_KEY`).
+  **Renumbered from `34_` to `40_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`,
+  `feat/SM-L8` took `35_hierarchical_summarization.py`, `feat/SM-H1` took
+  `36_hybrid_retrieval_orchestration.py`, `feat/SM-S2` took `37_procedural_memory.py`,
+  `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py`, and `feat/SM-C6` took
+  `39_working_memory.py`, all while this branch was still catching up. Per this file's own
+  convention, whoever merges second renumbers.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

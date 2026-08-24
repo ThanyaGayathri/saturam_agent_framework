@@ -44,6 +44,7 @@ from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.orchestrator import aorchestrate, orchestrate
 from egpt.memory.schemas.semantic import fact_record
+from egpt.memory.semantic.profile import SemanticProfileStore
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
@@ -57,10 +58,12 @@ from egpt.memory.tiers import (
 )
 from egpt.memory.types import (
     NO_ENTITIES,
+    NO_PROFILE,
     NO_REFLECTION,
     NO_RELATIONS,
     NO_SUMMARY,
     NO_SUPERSEDE,
+    PROFILE_NO_USER,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
@@ -89,11 +92,13 @@ from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_warning
 
 if TYPE_CHECKING:
+    from egpt.learn.stores.user_profile import UserProfileStore
     from egpt.memory.consolidation.extract import FactExtractionPipeline
     from egpt.memory.consolidation.reflect import ReflectionPipeline
     from egpt.memory.consolidation.summarize import SummaryPipeline
     from egpt.memory.graph.entities import EntityExtractionPipeline
     from egpt.memory.graph.relations import RelationExtractionPipeline
+    from egpt.models.message import Message
 
 __all__ = ["CoLocatedMemoryProvider"]
 
@@ -143,6 +148,11 @@ RelationSummary = Union[Dict[str, Any], str]
 #: :data:`~egpt.memory.types.NO_REFLECTION` from an unwired one. Same free-extra-key treatment as
 #: :data:`RelationSummary` -- not a ``types.CONSOLIDATION_KEYS`` floor member.
 ReflectionSummary = Union[Dict[str, Any], str]
+
+#: The ``details["profile"]`` counterpart to :data:`EntitySummary` (SM-S3 #120): a small dict from
+#: a wired profile store, or :data:`~egpt.memory.types.NO_PROFILE` from an unwired one. Same
+#: free-extra-key treatment as :data:`RelationSummary`/:data:`ReflectionSummary`.
+ProfileSummary = Union[Dict[str, Any], str]
 
 #: The ``details["summary"]`` counterpart to :data:`EntitySummary` (SM-L8 #129): a
 #: ``summary_details`` payload from a wired pipeline, or :data:`~egpt.memory.types.NO_SUMMARY` from
@@ -318,6 +328,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         relation_pipeline: Optional["RelationExtractionPipeline"] = None,
         reflection_pipeline: Optional["ReflectionPipeline"] = None,
         fact_pipeline: Optional["FactExtractionPipeline"] = None,
+        profile_store: Optional["UserProfileStore"] = None,
         summary_pipeline: Optional["SummaryPipeline"] = None,
     ) -> None:
         if vector is None and graph is None:
@@ -351,6 +362,35 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #: this pipeline's writes flow through the same fact-write path ``_distil`` feeds --
         #: see ``consolidate``.
         self.fact_pipeline = _checked_pipeline(fact_pipeline, option="fact_pipeline", verbs=("distil", "adistil"))
+        #: SM-S3's (#120) structured user-profile extraction, run by ``consolidate`` right after
+        #: entity and relation extraction. Same duck-typed, opt-in shape as the pipelines above,
+        #: for the same reason: an LLM pass a provider must be asked for, not upgraded into.
+        #: Unlike them, this reuses ``egpt.learn.stores.user_profile.UserProfileStore`` directly
+        #: rather than a bespoke pipeline type -- the ticket's own scope is to reuse that store's
+        #: schema and extraction, not fork a fourth extractor shape.
+        self.profile_store = _checked_pipeline(
+            profile_store, option="profile_store", verbs=("extract_profile", "aextract_profile")
+        )
+        #: Where a wired profile update actually lands: the vector substrate, tenant/user-scoped
+        #: through the same ``Scope`` every other semantic-tier write already gets (SM-C4 #92).
+        #: Built here rather than injected: it is a thin wrapper over ``self.vector``, which the
+        #: provider already owns, so a second injection point for the identical substrate would
+        #: only invite the two to drift.
+        #:
+        #: ``schema=`` is read off ``self.profile_store`` (``getattr``, not an attribute access
+        #: that would break a duck-typed double lacking one), not defaulted to the base
+        #: ``UserProfile`` -- a wired store carrying an extended schema (e.g. a subclass adding
+        #: `company`) previously had its extra fields silently dropped on every read through this
+        #: provider (`get_profile`, and `_update_profile`'s own existing-profile read, which feeds
+        #: the LLM's "current values" context on every consolidation pass) because this store was
+        #: built with the default schema regardless of what was actually wired (QC round 4, PR
+        #: #135). ``None`` (no store wired) falls through to ``SemanticProfileStore``'s own default.
+        profile_schema = getattr(self.profile_store, "schema", None)
+        self._semantic_profile = (
+            SemanticProfileStore(vector=self.vector, schema=profile_schema)
+            if profile_schema is not None
+            else SemanticProfileStore(vector=self.vector)
+        )
         #: SM-L8's (#129) hierarchical (session/day/global) summarization, run by ``consolidate``
         #: right after reflection. Same duck-typed, opt-in shape as the pipelines above, and the
         #: same reason: an LLM pass a provider must be asked for, not upgraded into -- and like
@@ -387,6 +427,25 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """A tier is served when a wired substrate stores it, so a vector-only provider serves
         three of the four and a graph-only one serves two."""
         return {tier: bool(substrates_for_tier(tier) & self._wired()) for tier in MemoryTier}
+
+    def get_profile(self, scope: Scope) -> Optional[Any]:
+        """The user's structured profile (SM-S3 #120), or ``None`` when unwired, never
+        consolidated, or unparseable.
+
+        Not part of ``MemoryProvider``'s abstract interface -- ``read``/``read_tier`` are
+        embedding-relevance search over a tier's ``content``, not a lookup by kind, and a
+        profile's fixed placeholder content (``f"user profile for {scope.user_id}"``) is not
+        guaranteed to surface for an arbitrary query even if it did route there. Adding an
+        abstract verb to ``MemoryProvider`` would force every other implementor (including one
+        with no notion of a profile) to answer it; a concrete method on this adapter, over the
+        ``_semantic_profile`` it already owns, is the narrower change (QC round 3, PR #135 --
+        before this, the only way to reach a stored profile was the private attribute directly).
+        """
+        return self._semantic_profile.get(scope)
+
+    async def aget_profile(self, scope: Scope) -> Optional[Any]:
+        """Async twin of :meth:`get_profile`, making the same decisions."""
+        return await self._semantic_profile.aget(scope)
 
     def close(self) -> None:
         """Close whichever substrates hold something. Duck-typed, because the ports do not name it.
@@ -1089,6 +1148,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         summary: SummarySummary,
         derived_by: str = _DETERMINISTIC_DEDUP_STRATEGY_ID,
         supersede: str = NO_SUPERSEDE,
+        profile: ProfileSummary = NO_PROFILE,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
         # AC#3's anti-lossiness detection (SM-L7 #128), wired here rather than left as an unwired
@@ -1139,11 +1199,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 complete=not hit_cap,
                 supersede=supersede,
                 entities=entities,
-                # `relations`, `reflection` and `summary` are free extra keys, not
+                # `relations`, `reflection`, `profile` and `summary` are free extra keys, not
                 # `CONSOLIDATION_KEYS` floor members (see `RelationSummary`'s docstring): promoting
                 # any of them is a separate, deliberate decision this ticket does not make.
                 relations=relations,
                 reflection=reflection,
+                profile=profile,
                 summary=summary,
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
                 # Renamed from `tail_unreachable` (SM-C1): that name stopped being true once
@@ -1222,6 +1283,69 @@ class CoLocatedMemoryProvider(MemoryProvider):
         if self.relation_pipeline is None:
             return NO_RELATIONS
         return (await self.relation_pipeline.arun(scope, episodes)).details
+
+    def _profile_messages(self, episodes: Sequence[MemoryRecord]) -> List["Message"]:
+        """Episodes, as the ``Message`` list ``UserProfileStore.extract_profile`` expects.
+
+        Lazily imported: ``egpt.models.message`` is the same heavy-stack dependency the module
+        docstring keeps ``entity_pipeline``/``relation_pipeline`` duck-typed to avoid paying for
+        on every ``import egpt.memory`` -- only reached when a profile store is actually wired.
+        """
+        from egpt.models.message import Message
+
+        return [Message(role="user", content=r.content) for r in episodes if r.content]
+
+    def _update_profile(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ProfileSummary:
+        """Run SM-S3's (#120) profile extraction over the episodes this pass kept, and persist
+        the result through :attr:`_semantic_profile` -- tenant/user-scoped, unlike
+        ``self.profile_store``'s own ``self.db``, which this method never touches.
+
+        Same wired-vs-never-wired distinction as :meth:`_entities`, plus one more: a tenant-wide
+        pass (``scope.user_id is None``) has no single user to key a profile by, so it reports
+        :data:`PROFILE_NO_USER` rather than silently skipping -- the same reasoning
+        :data:`~egpt.memory.types.NO_PROFILE` gets for "never wired".
+
+        **Read-modify-write, no lock or CAS.** ``self._semantic_profile.get`` is read, an LLM
+        call happens, then ``.write`` lands the result -- two overlapping passes for the *same*
+        scope can each read the same stale profile and the later write silently clobbers the
+        earlier one. This is the same class of exposure ``ConsolidationWorker.run_once`` already
+        documents for its cursor (safe against concurrent *distinct* scopes; not safe against two
+        callers driving the *same* scope at once) and that entity/relation merge carries too --
+        not a gap this ticket introduces, and not one it closes. ``ConsolidationWorker`` itself
+        never triggers this: it gathers one ``_drain_scope`` per *distinct* configured scope, so
+        the same scope is never consolidated twice in one tick. It is reachable only when a
+        caller drives ``consolidate``/``aconsolidate`` directly for one scope from more than one
+        place at once -- which should be serialized until a stronger guarantee exists here.
+        """
+        if self.profile_store is None:
+            return NO_PROFILE
+        if scope.user_id is None:
+            return PROFILE_NO_USER
+        messages = self._profile_messages(episodes)
+        if not messages:
+            return {"complete": True, "updated": False}
+        existing = self._semantic_profile.get(scope)
+        updated = self.profile_store.extract_profile(messages, user_id=scope.user_id, existing_profile=existing)
+        if updated is None:
+            return {"complete": True, "updated": False}
+        receipt = self._semantic_profile.write(scope, updated)
+        return {"complete": True, "updated": receipt is not None}
+
+    async def _aupdate_profile(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ProfileSummary:
+        """Async variant of :meth:`_update_profile`, making the same decisions."""
+        if self.profile_store is None:
+            return NO_PROFILE
+        if scope.user_id is None:
+            return PROFILE_NO_USER
+        messages = self._profile_messages(episodes)
+        if not messages:
+            return {"complete": True, "updated": False}
+        existing = await self._semantic_profile.aget(scope)
+        updated = await self.profile_store.aextract_profile(messages, user_id=scope.user_id, existing_profile=existing)
+        if updated is None:
+            return {"complete": True, "updated": False}
+        receipt = await self._semantic_profile.awrite(scope, updated)
+        return {"complete": True, "updated": receipt is not None}
 
     def _reflect(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], ReflectionSummary]:
         """Run SM-L6's (#127) reflection over the episodes this pass kept.
@@ -1578,6 +1702,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # any edge that names it -- though `upsert_facts` creates a bare endpoint either
                 # way, so this is ordering for readability, not a correctness dependency.
                 relations = self._relations(scope, episodes)
+                # After relations, same non-dependency: a profile update reads/writes its own
+                # singleton row and touches neither entities nor relations.
+                profile = self._update_profile(scope, episodes)
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         else:
@@ -1590,8 +1717,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
             # branch above, not an oversight against it -- see the review-round-3 note in
             # `_entities`'s own docstring.
+            #
+            # `_update_profile`'s write below carries the identical gap (QC round 3, PR #135):
+            # its own `SemanticProfileStore.write` failure here is a plain refusal too, uncounted
+            # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
+            # leg specifically.
             entities = self._entities(scope, episodes)
             relations = self._relations(scope, episodes)
+            profile = self._update_profile(scope, episodes)
         # After every write in this pass has landed, never before: advancing on a pass that then
         # raises would have the next call skip the very episodes that failed to consolidate, which
         # is the caller-hands-the-termination-condition failure mode the interface docstring warns
@@ -1610,6 +1743,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             summary,
             derived_by,
             supersede,
+            profile,
         )
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
@@ -1666,6 +1800,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             try:
                 entities = await self._aentities(scope, episodes)
                 relations = await self._arelations(scope, episodes)
+                profile = await self._aupdate_profile(scope, episodes)
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         else:
@@ -1678,8 +1813,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
             # branch above, not an oversight against it -- see the review-round-3 note in
             # `_entities`'s own docstring.
+            #
+            # `_aupdate_profile`'s write below carries the identical gap (QC round 3, PR #135):
+            # its own `SemanticProfileStore.awrite` failure here is a plain refusal too, uncounted
+            # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
+            # leg specifically.
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
+            profile = await self._aupdate_profile(scope, episodes)
         self._advance_cursor(cursor_key, scanned)
         return self._report(
             scope,
@@ -1694,6 +1835,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             summary,
             derived_by,
             supersede,
+            profile,
         )
 
 
@@ -1744,6 +1886,10 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
         # Same reasoning again: `FactExtractionPipeline` (SM-L3 #124) needs a model and the
         # already-resolved vector substrate, neither of which belongs in provider config.
         fact_pipeline=config.options.get("fact_pipeline"),
+        # Same reasoning again: a `UserProfileStore` (SM-S3 #120) needs a model, and reusing the
+        # seed's own store rather than naming a bespoke pipeline type keeps its schema/extraction
+        # as the one place profile fields are defined.
+        profile_store=config.options.get("profile_store"),
         # Same reasoning again: `SummaryPipeline` (SM-L8 #129) needs a model (wrapped in a
         # `SessionSummarizer`) and a `SummarizeStrategy`, neither of which belongs in provider
         # config.

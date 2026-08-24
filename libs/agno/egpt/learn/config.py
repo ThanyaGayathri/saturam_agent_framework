@@ -65,7 +65,9 @@ class UserProfileConfig:
         db: Database backend for storage.
         model: Model for extraction (required for ALWAYS mode).
         mode: How learning is extracted. Default: ALWAYS.
-        schema: Custom schema for user profile data. Default: UserProfile.
+        schema: Custom schema for user profile data. Default: UserProfile. Must accept
+            ``user_id`` as a keyword argument -- ``UserProfileStore`` constructs a fresh
+            instance as ``schema(user_id=user_id)`` whenever no profile exists yet.
 
         # Extraction operations
         enable_update_profile: Allow updating profile fields (name, etc).

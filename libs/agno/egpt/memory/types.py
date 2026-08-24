@@ -51,11 +51,13 @@ __all__ = [
     "MemoryScopeRequiredError",
     "MemorySlice",
     "NO_ENTITIES",
+    "NO_PROFILE",
     "NO_REFLECTION",
     "NO_RELATIONS",
     "NO_SUMMARY",
     "normalize_entity_name",
     "PartialWriteError",
+    "PROFILE_NO_USER",
     "render_context_lines",
     "require_scope",
     "RetrievalCandidates",
@@ -1066,6 +1068,20 @@ NO_RELATIONS = "not extracted -- no relation pipeline wired (SM-G3 #101)"
 #: ``consolidation_details``, same treatment as ``details["relations"]`` -- see
 #: ``co_located.ReflectionSummary``'s docstring.
 NO_REFLECTION = "not reflected -- no reflection pipeline wired (SM-L6 #127)"
+
+#: The ``profile`` counterpart to :data:`NO_ENTITIES` (SM-S3 #120): a pass with no profile store
+#: wired updated no profile, which a scheduler cannot tell from a pass whose episodes carried no
+#: profile-worthy information. ``details["profile"]`` is a free extra key on
+#: ``consolidation_details``, same treatment as ``details["relations"]``/``details["reflection"]``.
+NO_PROFILE = "not extracted -- no profile store wired (SM-S3 #120)"
+
+#: The other reason ``details["profile"]`` can be a sentinel rather than a dict: the store is
+#: wired but this pass's ``scope`` has no ``user_id`` (a tenant-wide consolidation), so there is
+#: no single user to key a profile by. Distinct from :data:`NO_PROFILE` -- "asked for, but this
+#: pass names no user" vs. "not asked for" -- and public rather than module-private (QC round 3,
+#: PR #135: a test previously had to reach past ``co_located.py``'s module boundary to assert
+#: against it), matching :data:`NO_PROFILE`'s own treatment.
+PROFILE_NO_USER = "not extracted -- scope has no user_id to key a profile by"
 
 #: The ``summary`` counterpart to :data:`NO_ENTITIES` (SM-L8 #129): a pass with no summary
 #: pipeline produced no session/day/global summary node, which a scheduler cannot tell from a

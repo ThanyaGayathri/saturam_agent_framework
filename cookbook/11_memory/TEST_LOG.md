@@ -1037,3 +1037,41 @@ goal/summary/note/message lines followed by the offloaded episode from a persist
 `37_procedural_memory.py` and `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py` while
 this branch was still catching up.** Per this file's own convention, whoever merges second
 renumbers -- twice, this time.
+
+---
+
+### 40_user_profile_store.py
+
+**Status:** PARTIAL
+
+**Description:** Structured user profile updated on consolidation (SM-S3 #120): wires a
+`UserProfileStore` (model-only, no `db`) into `CoLocatedMemoryProvider` via `profile_store=`,
+writes one episode where Ada introduces herself and states a preferred name, consolidates, and
+reads the resulting profile back through `SemanticProfileStore`.
+
+**Result:** Ran end to end up to the real model call against a real pgvector
+(`smv1-pgvector-5532`, table `memory_vectors_sm_s3`): the episodic write and the fact/entity
+consolidation passes all succeeded, `_update_profile` was reached and called
+`UserProfileStore.extract_profile`, which raised `ModelAuthenticationError` (`OPENAI_API_KEY not
+set`) -- caught and re-raised as `PartialWriteError`, exactly the behavior `co_located.py`'s own
+"a generic exception gives no reliable signal about which side of a fan-out it interrupted"
+comment documents. **Not run against a real model**: no `OPENAI_API_KEY` was available in this
+environment, the same gap `32_`/`33_` log. `UserProfileStore.extract_profile`/`aextract_profile`
+(the storage-free extraction this file exercises) are covered against a fake model in
+`libs/agno/tests/unit/learn/stores/test_user_profile_extract.py`, and the consolidation wiring
+(`_update_profile`/`_aupdate_profile`, the receipt-checking and scope-normalization fixed across
+QC rounds 2-4) against a stub `profile_store` in
+`libs/agno/tests/unit/memory/test_provider_profile_hook.py` -- what remains unverified is
+specifically the real-model extraction shape those doubles cannot guarantee to match. Re-run with
+a real key and flip this entry to a full PASS/FAIL when it lands.
+
+**Requires:** `./cookbook/scripts/run_pgvector.sh` and an `OPENAI_API_KEY`. Run with `.venvs/demo`
+with `PYTHONPATH=libs/agno` set from a worktree (no editable install there -- see this repo's
+`saturam-imp` skill).
+
+**Renumbered from `34_` to `40_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`, `feat/SM-L8`
+took `35_hierarchical_summarization.py`, `feat/SM-H1` took `36_hybrid_retrieval_orchestration.py`,
+`feat/SM-S2` took `37_procedural_memory.py`, `feat/SM-S4` took
+`38_kb_and_memory_unified_retrieval.py`, and `feat/SM-C6` took `39_working_memory.py`, all while
+this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers.
