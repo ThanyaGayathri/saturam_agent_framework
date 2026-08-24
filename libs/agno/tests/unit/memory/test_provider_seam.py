@@ -180,10 +180,10 @@ def test_a_missing_provider_key_is_rejected(blank):
 def test_the_default_fusion_is_score_sum_unmeasured_for_the_3_leg_case():
     """SM-H2 (#132) adds `fusion`, deliberately, but does not change the default it reads.
 
-    ADR 0003 A.6 holds the 3-leg (+graph) weighted-vs-RRF choice open, gated on SM-X7's (#143)
-    measurement -- SM-R8 measured dense+BM25, never this seam's vector+graph pairing. An unset
-    `fusion` must therefore still mean `score_sum`, `CoLocatedMemoryProvider`'s pre-SM-H2 default,
-    not a value nothing has measured.
+    ADR 0003 A.6 holds the 3-leg (+graph) weighted-vs-RRF choice open, gated on SM-G9's (#107)
+    real graph retriever and SM-H2/H3's own measurement -- SM-R8 measured dense+BM25, never this
+    seam's vector+graph pairing. An unset `fusion` must therefore still mean `score_sum`,
+    `CoLocatedMemoryProvider`'s pre-SM-H2 default, not a value nothing has measured.
     """
     config = MemoryProviderConfig(provider="p")
 

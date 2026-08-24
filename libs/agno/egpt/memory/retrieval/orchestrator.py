@@ -5,9 +5,10 @@ and scope-scoped, as :class:`RetrievalLegs`. Fusing the legs into one ranked sli
 module's job -- it stays a fan-out, so nothing here may pick a strategy or drop a leg's ranking --
 but is decided now, by ``CoLocatedMemoryProvider`` (SM-H2 #132, ``_fusion_method``/``_merged``):
 the default ``score_sum`` still keeps the lexical leg diagnostics-only, since ADR 0003 A.6 holds
-the 3-leg RRF-vs-weighted *default* open pending SM-X7's (#143) measurement, but the opt-in
-``rrf`` strategy does fold it in -- rank-based fusion never needed the legs' scores to agree in
-the first place, which is what made that safe to wire ahead of the measurement.
+the 3-leg RRF-vs-weighted *default* open, gated on SM-G9's (#107) real graph retriever and
+SM-H2/H3's own measurement, but the opt-in ``rrf`` strategy does fold it in -- rank-based fusion
+never needed the legs' scores to agree in the first place, which is what made that safe to wire
+ahead of the measurement.
 
 **That promise binds every caller, not only this module.** ``CoLocatedMemoryProvider``'s default
 still folds only the vector and graph legs into its score-sum (see its own module docstring); only
@@ -60,8 +61,9 @@ class RetrievalLegs:
         A.6): its default ``score_sum`` still takes only ``.vector`` and ``.graph`` directly, not
         this method's full iteration, and its opt-in ``rrf`` strategy is what actually calls
         ``.legs()`` to fold the lexical leg in -- rank-based fusion never needed the legs' scores
-        to agree in the first place, which is what made that safe ahead of SM-X7's (#143)
-        weighted-vs-RRF measurement. See the module docstring for the fuller picture.
+        to agree in the first place, which is what made that safe ahead of SM-H2/H3's own 3-leg
+        weighted-vs-RRF measurement (ADR 0003 A.6, gated on SM-G9 #107). See the module docstring
+        for the fuller picture.
         """
         return {"vector": self.vector, "lexical": self.lexical, "graph": self.graph}
 

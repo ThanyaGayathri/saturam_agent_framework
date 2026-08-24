@@ -255,7 +255,8 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `36_`'s `score_sum` default: `config.fusion={"method": "rrf", "k": ...}` fuses all three legs,
   including lexical, by rank rather than score, so it never needs the legs to share a scale. It
   does not become the default -- ADR 0003 A.6 holds the 3-leg weighted-vs-RRF choice open, gated
-  on SM-X7's (#143) measurement. Same "cat dog" scenario `36_` uses, shown ranking differently
+  on SM-G9's (#107) real graph retriever and SM-H2/H3's own measurement. Same "cat dog" scenario
+  `36_` uses, shown ranking differently
   under `score_sum` vs `rrf`, plus `k`'s effect on the fused score. No database, no model, no
   network.
 

@@ -6,7 +6,8 @@ section A.6 holds the 3-leg fusion choice open pending a real graph retriever to
 This file shows the alternative SM-H2 adds to make that safe to opt into: RRF is rank-based, so it
 never needs the legs' scores to share a scale, and folds all three legs in --
 `config.fusion={"method": "rrf", "k": ...}` selects it. It does **not** become the default; that
-default switch is SM-X7's (#143) to make, once it has a real graph retriever to measure against.
+default switch is SM-H2/H3's own to make, once SM-G9's (#107) real graph retriever lets it be
+measured (ADR 0003 A.6).
 
 Same "cat dog" scenario `36` uses (its two substrate stand-ins, trimmed to the read-path methods
 this demo needs), so the two files show the same query landing differently depending on which

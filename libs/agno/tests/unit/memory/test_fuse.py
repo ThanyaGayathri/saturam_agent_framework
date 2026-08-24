@@ -9,7 +9,7 @@ directly) that the fused ranking beats every single retriever it fused on a labe
 import pytest
 
 from egpt.memory.retrieval.fuse import DEFAULT_RRF_K, rrf_fuse
-from egpt.memory.types import MemoryRecord, MemoryTier, Scope
+from egpt.memory.types import MemoryRecord, MemoryTier, Scope, Substrate
 
 ACME = Scope(tenant_id="acme")
 
@@ -91,6 +91,16 @@ def test_a_record_fused_from_more_than_one_leg_reports_no_single_origin():
     fused = rrf_fuse({"vector": leg("a"), "graph": leg("a")}, k=60)
 
     assert fused[0].substrate is None
+
+
+def test_a_record_fused_from_only_one_leg_retains_its_substrate_tag():
+    """The inverse of the test above: `hit_legs[record_id] > 1` is the only branch that clears
+    `substrate` (see `rrf_fuse`'s loop), so a single-leg record's tag must survive untouched."""
+    only_leg = MemoryRecord(id="a", tier=MemoryTier.EPISODIC, content="a", scope=ACME, substrate=Substrate.VECTOR)
+
+    fused = rrf_fuse({"vector": [only_leg]}, k=60)
+
+    assert fused[0].substrate is Substrate.VECTOR
 
 
 # ---------------------------------------------------------------------------

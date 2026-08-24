@@ -58,6 +58,12 @@ def rrf_fuse(legs: Mapping[str, Sequence[MemoryRecord]], *, k: int = DEFAULT_RRF
     Deterministic: two calls with the same legs produce the same order, via
     :func:`deterministic_rank_key`. ``k`` must be a positive integer -- ``k <= 0`` inflates an
     arbitrarily low rank into a dominating score, defeating the entire premise.
+
+    A record fused from more than one leg's copy of an id -- ``content``, ``tier``, and every
+    other non-score field -- keeps whichever leg's copy was seen first, in ``legs.values()``
+    iteration order; only ``score`` (recomputed here) and ``substrate`` (cleared once a second leg
+    contributes) are ever touched after that first copy. Matches ``_merge``'s existing behavior
+    for the same case, not a new risk this function introduces.
     """
     if isinstance(k, bool) or not isinstance(k, int) or k < 1:
         raise ValueError(f"RRF k must be a positive integer, got {k!r}.")

@@ -47,8 +47,9 @@ __all__ = [
 
 #: The fusion strategies ``config.fusion["method"]`` accepts. ``score_sum`` is
 #: ``CoLocatedMemoryProvider``'s pre-SM-H2 default and stays the default -- ADR 0003 A.6 holds the
-#: 3-leg weighted-vs-RRF choice open, gated on SM-X7's (#143) measurement, so this ticket adds
-#: ``rrf`` as an opt-in, not a replacement. See ``egpt.memory.retrieval.fuse``.
+#: 3-leg weighted-vs-RRF choice open, gated on SM-G9 (#107)'s real graph retriever and SM-H2/H3's
+#: own measurement, so this ticket adds ``rrf`` as an opt-in, not a replacement. See
+#: ``egpt.memory.retrieval.fuse``.
 FUSION_METHODS = ("score_sum", "rrf")
 
 #: Keys ``config.fusion`` recognizes. A closed set, unlike ``vector``/``graph``'s opaque
@@ -115,9 +116,9 @@ class MemoryProviderConfig:
     validated shape rather than an opaque bag -- see :data:`FUSION_METHODS`. It defaults to
     ``{}``, which reads as ``score_sum``, ``CoLocatedMemoryProvider``'s pre-SM-H2 default. SM-R8
     measured dense+BM25, never this seam's vector+graph pairing, and ADR 0003 A.6 holds the 3-leg
-    weighted-vs-RRF choice open pending SM-X7's (#143) measurement -- so ``score_sum`` stays the
-    default here too. ``{"method": "rrf", "k": 60}`` opts into the measured alternative SM-H2
-    (#132) adds; see ``egpt.memory.retrieval.fuse``.
+    weighted-vs-RRF choice open, gated on SM-G9 (#107) and SM-H2/H3's own measurement -- so
+    ``score_sum`` stays the default here too. ``{"method": "rrf", "k": 60}`` opts into the
+    strategy SM-H2 (#132) adds; see ``egpt.memory.retrieval.fuse``.
     """
 
     provider: str

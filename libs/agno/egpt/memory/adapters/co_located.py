@@ -9,8 +9,9 @@ validity.
 
 Out of scope, deliberately: a consolidation scheduler (SM-L1 #122). Rank fusion beyond the default
 score-sum is SM-H2's (#132), wired -- see ``_fusion_method``/``_merged`` and
-``egpt.memory.retrieval.fuse``; the *default* stays score-sum until SM-X7 (#143) measures the
-3-leg pairing (ADR 0003 A.6). **Retiring a fact whose source group changed** is SM-L3's (#124)
+``egpt.memory.retrieval.fuse``; the *default* stays score-sum until SM-H2/H3 measure the 3-leg
+pairing against SM-G9's (#107) real graph retriever (ADR 0003 A.6). **Retiring a fact whose source
+group changed** is SM-L3's (#124)
 ``egpt.memory.consolidation.extract.FactExtractionPipeline`` -- opt-in via ``fact_pipeline``, same
 shape as ``entity_pipeline``/``relation_pipeline``; ``_distil``'s deterministic dedup below remains
 the zero-config default and still cannot retire what it subsumes (its own docstring).
@@ -285,8 +286,9 @@ def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
     """One ranked list from two legs: dedup by id, sum scores, rank deterministically.
 
     A score sum, and the provider's default: ADR 0003 A.6 holds the 3-leg (+graph) fusion choice
-    open, gated on SM-X7's (#143) measurement, so nothing here may switch the default without one.
-    RRF is the measured alternative a caller opts into via ``config.fusion`` -- see
+    open, gated on SM-G9's (#107) real graph retriever and SM-H2/H3's own measurement, so nothing
+    here may switch the default without one. RRF is the alternative a caller opts into via
+    ``config.fusion`` -- see
     :func:`egpt.memory.retrieval.fuse.rrf_fuse` and :meth:`CoLocatedMemoryProvider._merged`.
 
     Ties break the same way every fusion strategy in this package does -- see
@@ -925,12 +927,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """The provider's fusion strategy, read from ``config.fusion`` (SM-H2 #132).
 
         ``score_sum`` is the default and stays the default: ADR 0003 A.6 holds the 3-leg
-        weighted-vs-RRF choice open pending SM-X7's (#143) measurement, so nothing here may switch
-        it without one. ``"rrf"`` is the opt-in alternative -- validated at
-        ``MemoryProviderConfig`` construction, so a value reaching this method is already known
+        weighted-vs-RRF choice open, gated on SM-G9's (#107) real graph retriever and SM-H2/H3's
+        own measurement, so nothing here may switch it without one. ``"rrf"`` is the opt-in
+        alternative -- validated at ``MemoryProviderConfig`` construction (``_validate_fusion``
+        always returns a dict, never ``None``), so a value reaching this method is already known
         good.
         """
-        return (self.config.fusion or {}).get("method", "score_sum")
+        return self.config.fusion.get("method", "score_sum")
 
     def _merged(
         self,
@@ -955,7 +958,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         adds, may fold it in.
         """
         if self._fusion_method() == "rrf":
-            k = (self.config.fusion or {}).get("k", DEFAULT_RRF_K)
+            k = self.config.fusion.get("k", DEFAULT_RRF_K)
             merged = rrf_fuse(legs.legs(), k=k)
         else:
             merged = _merge([legs.vector, legs.graph])
