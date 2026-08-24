@@ -188,19 +188,30 @@ This section demonstrates how EGPT agents persist and use user memories across r
   summary lands on the SEMANTIC tier through the same write path a distilled fact or a reflected
   insight uses, tagged `metadata={"kind": "summary", "level": ...}` -- retrievable through an
   ordinary read. Requires a real model (`OPENAI_API_KEY`); no database.
-  **Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
-  branch was still catching up. Per this file's own convention, whoever merges second renumbers.**
 
-- `37_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
+- `37_procedural_memory.py`: Procedural memory (SM-S2) -- `ProceduralReflectionPipeline` is
+  importance-gated like `ReflectionPipeline`, but stateless across calls: PROCEDURAL takes no part
+  in `consolidate`'s scan (`TIER_POLICY` reserves that sweep to EPISODIC/SEMANTIC), so it is
+  invoked directly over one episode batch. Once an `LLMProcedureSynthesizer` distills a reusable
+  rule/skill/prompt fragment, it becomes a plain `MemoryEvent` on the PROCEDURAL tier -- vector-only,
+  so the ordinary `write` needs no new routing -- and is retrieved and injected through an ordinary
+  `read` with no tier named, since PROCEDURAL is in `PERSISTENT_TIERS`. Requires a real model
+  (`OPENAI_API_KEY`); no database.
+  **Renumbered from `35_` to `37_`: `feat/SM-L8` took `35_hierarchical_summarization.py` and
+  `feat/SM-H1` took `36_hybrid_retrieval_orchestration.py` (the latter's own README entry appears
+  to be missing on `main`, not added here) while this branch was still catching up. Per this
+  file's own convention, whoever merges second renumbers.**
+
+- `38_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
   default (`multihop_ppr_enabled`), a single-step ranked walk over a bi-temporally-filtered GDS
   projection rather than `28_`'s bounded-hop BFS. Shows PPR reaching a fourth-hop fact BFS's
   default `max_traverse_hops=2` cannot, and the same query composing correctly with an invalidated
   fact's bi-temporal bound. Needs the GDS plugin, not `28_`'s plain instance:
   `./cookbook/scripts/run_neo4j_gds.sh`. No API key; entities and fact edges are written directly.
   Runs with `.venvs/demo`.
-  **Renumbered from `34_` to `35_` to `36_` to `37_` across three merges: `feat/SM-L9` (#123) took
-  `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took `36_`, all while this
-  branch was still catching up.**
+  **Renumbered from `34_` to `35_` to `36_` to `37_` to `38_` across four merges: `feat/SM-L9`
+  (#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took `36_`,
+  then `feat/SM-S2` (#133) took `37_`, all while this branch was still catching up.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

@@ -960,7 +960,37 @@ Per this file's own convention, whoever merges second renumbers.
 
 ---
 
-### 37_ppr_multihop.py
+### 37_procedural_memory.py
+
+**Status:** PARTIAL
+
+**Description:** Procedural memory (SM-S2): runs a `ProceduralReflectionPipeline` (threshold 1.2)
+directly over two episodes about the same Friday-deploy incident (importances 0.6/0.7, summing
+past the threshold), writes the synthesized procedure through the ordinary `CoLocatedMemoryProvider
+.write`, and reads it back through an ordinary default-tier `read`, showing it renders under a
+`[procedural]` line in `MemorySlice.as_context()`.
+
+**Result:** Verified structurally with a stub synthesizer standing in for
+`LLMProcedureSynthesizer` (no network) -- the pipeline/write/read path runs end to end:
+`report.details["triggered"]` is `True`, the write lands on the PROCEDURAL tier with no new
+routing, and the read returns it with `[procedural] Avoid Friday deploys` in the rendered context.
+**Not run against a real model**: no `OPENAI_API_KEY` was available in the environment that wrote
+this cookbook, the same gap `33_reflection.py` logs for its own `LLMInsightSynthesizer`.
+`ProceduralReflectionPipeline`'s own decisions (threshold gating, provenance, construction guards)
+and `LLMProcedureSynthesizer._extract`'s response-format handling are covered against a stub and a
+mocked `Model` respectively by `libs/agno/tests/unit/memory/test_procedural.py` -- what remains
+unverified is specifically the real-model response shape that mock cannot guarantee to match.
+Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
+
+**Renumbered from `35_` to `37_`: `feat/SM-L8` took `35_hierarchical_summarization.py` and
+`feat/SM-H1` took `36_hybrid_retrieval_orchestration.py` while this branch was still catching up.**
+Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 38_ppr_multihop.py
 
 **Status:** PASS
 
@@ -984,6 +1014,6 @@ output.
 **Requires:** `./cookbook/scripts/run_neo4j_gds.sh` (a GDS-plugin Neo4j, not `28_`'s plain
 instance); no API key. Run with `.venvs/demo`.
 
-**Renumbered from `34_` to `35_` to `36_` to `37_` across three merges: `feat/SM-L9` (#123) took
-`34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took `36_`, all while this
-branch was still catching up.**
+**Renumbered from `34_` to `35_` to `36_` to `37_` to `38_` across four merges: `feat/SM-L9`
+(#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took `36_`, then
+`feat/SM-S2` (#133) took `37_`, all while this branch was still catching up.**
