@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Any, Optional, Tuple, Union
 
 from fastapi import HTTPException
 
@@ -11,6 +11,44 @@ from egpt.eval.reliability import ReliabilityEval
 from egpt.models.base import Model
 from egpt.os.routers.evals.schemas import EvalRunInput, EvalSchema
 from egpt.team import RemoteTeam, Team
+
+
+def _served_model(run_response: Any, component: Any) -> Tuple[Optional[str], Optional[str]]:
+    """The model that actually served an eval's run, for labelling the result (aicoe-tracker#185).
+
+    Reads what the run recorded rather than what the component was configured with.
+    ``_stamp_resolved_model`` re-stamps ``RunOutput.model``/``model_provider`` with the resolved
+    model, so this reports the frontier model on an escalated run where ``component.model`` still
+    names the primary. Eval output is what gets compared across tiers -- an escalation experiment
+    whose results are all labelled with the primary's id cannot answer the question it was run to
+    answer.
+
+    Falls back to the component's configured model when the run recorded nothing. That is
+    narrower than it may look: ``run_response.model``/``model_provider`` are stamped
+    unconditionally from the configured model at run start (``agent/_run.py:1937``), then
+    re-stamped only if a provider escalates -- so the fallback fires when there is no
+    ``run_response`` at all (a run that never completed, or a caller passing ``None``) or when
+    ``component.model`` was itself ``None``. In the ordinary non-escalated case the stamp already
+    equals the configured model, so both branches agree.
+
+    ``getattr`` throughout: this helper is handed whatever the route has, and a duck-typed
+    component carrying a ``.model`` without ``.id``/``.provider`` should degrade to ``None``
+    rather than raise while labelling a result (PR #137 review).
+    """
+    model_id = getattr(run_response, "model", None)
+    model_provider = getattr(run_response, "model_provider", None)
+    # Truthiness, not `is not None`: `RunOutput.model` defaults to `""`, so an unstamped run and
+    # an empty stamp are the same state and both must fall through. No in-tree `Model` produces
+    # an empty `id` or `provider` (`__post_init__` derives a non-empty provider from `name`), so
+    # this cannot discard a real served value (PR #137 review).
+    if model_id and model_provider:
+        return model_id, model_provider
+
+    configured = getattr(component, "model", None)
+    return (
+        model_id or getattr(configured, "id", None),
+        model_provider or getattr(configured, "provider", None),
+    )
 
 
 async def run_accuracy_eval(
@@ -125,21 +163,33 @@ async def run_performance_eval(
     default_model: Optional[Model] = None,
 ) -> EvalSchema:
     """Run a performance evaluation for the given agent or team"""
+    # `PerformanceEval` discards what `func` returns, and it writes `self.model_id` into its own
+    # DB record *inside* `arun()` -- so the served model has to be stamped onto the eval object
+    # from within the run itself, not after it returns (aicoe-tracker#185). The closure captures
+    # each response and updates the labels in place; the last run wins, which is the same
+    # component and therefore the same answer for every iteration.
+    served_model_id: Optional[str] = None
+    served_model_provider: Optional[str] = None
+
+    def _record(response: Any, component: Any) -> None:
+        nonlocal served_model_id, served_model_provider
+        served_model_id, served_model_provider = _served_model(response, component)
+        performance_eval.model_id = served_model_id
+        performance_eval.model_provider = served_model_provider
+
     if agent:
 
         async def run_component():  # type: ignore
-            return await agent.arun(eval_run_input.input, stream=False)  # type: ignore[misc]
-
-        model_id = agent.model.id if agent and agent.model else None
-        model_provider = agent.model.provider if agent and agent.model else None
+            response = await agent.arun(eval_run_input.input, stream=False)  # type: ignore[misc]
+            _record(response, agent)
+            return response
 
     elif team:
 
         async def run_component():  # type: ignore
-            return await team.arun(eval_run_input.input, stream=False)  # type: ignore[misc]
-
-        model_id = team.model.id if team and team.model else None
-        model_provider = team.model.provider if team and team.model else None
+            response = await team.arun(eval_run_input.input, stream=False)  # type: ignore[misc]
+            _record(response, team)
+            return response
 
     performance_eval = PerformanceEval(
         db=db,
@@ -149,13 +199,20 @@ async def run_performance_eval(
         warmup_runs=eval_run_input.warmup_runs,
         agent_id=agent.id if agent else None,
         team_id=team.id if team else None,
-        model_id=model_id,
-        model_provider=model_provider,
+        # Set below, once the runs that stamp the served model have happened.
+        model_id=None,
+        model_provider=None,
     )
 
     result = await performance_eval.arun(print_results=False, print_summary=False)
     if not result:
         raise HTTPException(status_code=500, detail="Failed to run performance evaluation")
+
+    # Populated by `_record` during the runs above; falls back to the configured model when the
+    # eval never invoked `func` (warmup-only or zero iterations).
+    model_id, model_provider = served_model_id, served_model_provider
+    if model_id is None and model_provider is None:
+        model_id, model_provider = _served_model(None, agent or team)
 
     eval_run = EvalSchema.from_performance_eval(
         performance_eval=performance_eval,
@@ -197,8 +254,7 @@ async def run_reliability_eval(
             allow_additional_tool_calls=eval_run_input.allow_additional_tool_calls,
             expected_tool_call_arguments=eval_run_input.expected_tool_call_arguments,
         )
-        model_id = agent.model.id if agent and agent.model else None
-        model_provider = agent.model.provider if agent and agent.model else None
+        model_id, model_provider = _served_model(agent_response, agent)
 
     elif team:
         team_response = await team.arun(eval_run_input.input, stream=False)  # type: ignore[misc]
@@ -210,8 +266,7 @@ async def run_reliability_eval(
             allow_additional_tool_calls=eval_run_input.allow_additional_tool_calls,
             expected_tool_call_arguments=eval_run_input.expected_tool_call_arguments,
         )
-        model_id = team.model.id if team and team.model else None
-        model_provider = team.model.provider if team and team.model else None
+        model_id, model_provider = _served_model(team_response, team)
 
     result = await reliability_eval.arun(print_results=False)
     if not result:
