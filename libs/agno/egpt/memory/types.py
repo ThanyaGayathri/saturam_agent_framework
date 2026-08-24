@@ -53,6 +53,7 @@ __all__ = [
     "NO_ENTITIES",
     "NO_REFLECTION",
     "NO_RELATIONS",
+    "NO_SUMMARY",
     "normalize_entity_name",
     "PartialWriteError",
     "render_context_lines",
@@ -118,6 +119,11 @@ class Substrate(str, Enum):
     the authority for bi-temporal validity; the vector substrate is not (finding F2).
     """
 
+    # BM25/lexical retrieval is gated on this member, not a member of its own: a store
+    # implementing `HybridSearchSubstrate` (SM-V3 #97) returns both the vector and lexical legs
+    # from one `search_candidates` call, feature-detected by the orchestrator (SM-H1 #131) rather
+    # than requested by name. There is no `Substrate.LEXICAL` -- adding one, and a way to ask for
+    # vector without BM25, is deferred to SM-H2 (#132) if a caller ever needs it.
     VECTOR = "vector"  # similarity + full-text; the episodic recall entry point
     GRAPH = "graph"  # temporal knowledge graph: multi-hop, provenance, bi-temporal
 
@@ -975,6 +981,7 @@ class RetrievalCandidates:
 FUSION_KEYS = (
     "method",
     "vector_hits",
+    "lexical_hits",
     "graph_hits",
     "fused",
     "returned",
@@ -988,6 +995,7 @@ FUSION_KEYS = (
 def fusion_diagnostics(
     method: Optional[str],
     vector_hits: int = 0,
+    lexical_hits: int = 0,
     graph_hits: int = 0,
     fused: int = 0,
     returned: int = 0,
@@ -1006,6 +1014,10 @@ def fusion_diagnostics(
     diagnostics: Dict[str, Any] = {
         "method": method,
         "vector_hits": vector_hits,
+        # A leg no wired `HybridSearchSubstrate` contributes reports 0 here -- the same "ran and
+        # matched nothing" vs. "did not run" ambiguity `RetrievalLegs` names does not apply to a
+        # count, so no separate marker is needed: 0 is honest whichever reason produced it.
+        "lexical_hits": lexical_hits,
         "graph_hits": graph_hits,
         "fused": fused,
         "returned": returned,
@@ -1054,6 +1066,13 @@ NO_RELATIONS = "not extracted -- no relation pipeline wired (SM-G3 #101)"
 #: ``consolidation_details``, same treatment as ``details["relations"]`` -- see
 #: ``co_located.ReflectionSummary``'s docstring.
 NO_REFLECTION = "not reflected -- no reflection pipeline wired (SM-L6 #127)"
+
+#: The ``summary`` counterpart to :data:`NO_ENTITIES` (SM-L8 #129): a pass with no summary
+#: pipeline produced no session/day/global summary node, which a scheduler cannot tell from a
+#: pass whose rollups simply were not due yet. ``details["summary"]`` is a free extra key on
+#: ``consolidation_details``, same treatment as ``details["relations"]``/``details["reflection"]``
+#: -- see ``co_located.SummarySummary``'s docstring.
+NO_SUMMARY = "not summarized -- no summary pipeline wired (SM-L8 #129)"
 
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.

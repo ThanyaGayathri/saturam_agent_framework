@@ -181,7 +181,20 @@ This section demonstrates how EGPT agents persist and use user memories across r
   pending work at any hour. Plugs into `ConsolidationWorker` as `trigger=...`, no worker change.
   Requires nothing; no database, no API key, no network.
 
-- `35_working_memory.py`: The WORKING tier's own buffer (SM-C6) -- `WorkingMemory` holds a run's
+- `35_hierarchical_summarization.py`: Hierarchical (session/day/global) summarization (SM-L8) --
+  `SummaryPipeline`, opt-in via `summary_pipeline`: a rolling session summary reuses
+  `SessionSummaryResponse` (`session/summary.py`); day/global periodic rollups are gated by
+  `LatencyTrigger` and folded via `SummarizeStrategy` (`memory/strategies/summarize.py`). Every
+  summary lands on the SEMANTIC tier through the same write path a distilled fact or a reflected
+  insight uses, tagged `metadata={"kind": "summary", "level": ...}` -- retrievable through an
+  ordinary read. Requires a real model (`OPENAI_API_KEY`); no database.
+  **Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
+  branch was still catching up. Per this file's own convention, whoever merges second renumbers.**
+- `36_hybrid_retrieval_orchestration.py`: Feed-forward retriever orchestration (SM-H1 #131) --
+  `read` fans out through `egpt.memory.retrieval.orchestrate`/`aorchestrate` (vector+BM25, and the
+  graph leg), with the lexical leg present in `MemorySlice.fusion["lexical_hits"]` but not yet
+  affecting ranking (SM-H2 #132 owns fusing it in). No database, no model, no network.
+- `37_working_memory.py`: The WORKING tier's own buffer (SM-C6) -- `WorkingMemory` holds a run's
   context messages, scratchpad and goals, and is never itself persisted (`TIER_POLICY[WORKING]`
   routes to no substrate, and a direct `write_tier(WORKING, ...)` is still refused). Grows past
   `max_messages`, offloads by reusing `SessionSummaryManager`, and -- given a `MemoryProvider` --
@@ -190,6 +203,9 @@ This section demonstrates how EGPT agents persist and use user memories across r
   next to a persistent-tier read, the WORKING half of SM-H6's future retrieval assembly. Requires
   nothing; no database, no API key, no network (a minimal `Model` double stands in for
   summarization, the same one `test_working_memory.py` uses under test).
+  **Renumbered from `35_` to `37_`: `feat/SM-L8` took `35_hierarchical_summarization.py` and
+  `feat/SM-H1` took `36_hybrid_retrieval_orchestration.py` while this branch was still catching
+  up. Per this file's own convention, whoever merges second renumbers.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

@@ -18,6 +18,7 @@ import pytest
 
 from egpt.os.middleware.jwt import JWTMiddleware
 from egpt.os.scopes import AgentOSScope
+from egpt.os.tenancy import tenancy_enabled_for_app
 from egpt.os.utils import resolve_ws_jwt_config
 
 
@@ -211,6 +212,36 @@ class TestResolveWsJwtConfigManualSetupPath:
         # is expected to fall back to AgentOSScope.ADMIN.value.
         assert cfg["admin_scope"] is None
         assert getattr(app.state, "admin_scope", None) is None
+
+
+class TestTenantClaimStateWrite:
+    """The lazy path caches onto app.state, which `tenancy_enabled_for_app` reads for *both*
+    transports. A middleware entry that names no claim must not clear a claim already stamped
+    (PR #121 review round 2) -- mirroring the existing `admin_scope` guard."""
+
+    def _entry(self, **extra):
+        return SimpleNamespace(
+            cls=JWTMiddleware, kwargs={"verification_keys": ["test-secret"], "algorithm": "HS256", **extra}
+        )
+
+    def test_an_entry_with_no_claim_does_not_clear_a_stamped_one(self):
+        app = _make_fake_app(state_attrs={"tenant_id_claim": "tid"}, middleware_entries=[self._entry()])
+        assert tenancy_enabled_for_app(app) is True
+
+        cfg = resolve_ws_jwt_config(app)
+
+        assert cfg["tenant_id_claim"] is None  # this entry genuinely names none
+        assert app.state.tenant_id_claim == "tid"
+        assert tenancy_enabled_for_app(app) is True
+
+    def test_an_entry_with_a_claim_still_stamps_it(self):
+        app = _make_fake_app(middleware_entries=[self._entry(tenant_id_claim="tid")])
+
+        cfg = resolve_ws_jwt_config(app)
+
+        assert cfg["tenant_id_claim"] == "tid"
+        assert app.state.tenant_id_claim == "tid"
+        assert tenancy_enabled_for_app(app) is True
 
 
 class TestResolveWsJwtConfigEdgeCases:
