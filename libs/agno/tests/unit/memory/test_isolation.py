@@ -7,11 +7,11 @@ tenants on a real backend is not provable here, and this file does not claim it.
 (#142) adversarial suite" is where that claim gets made.
 
 This file seeds tenant A's memory -- vector and graph both -- then has tenant B attempt every read,
-write, and traverse the seam and its substrates expose, using tenant A's own ids and content. The
-assertion is not "the call raised": a call that refuses loudly and a call that quietly returns
-nothing are both acceptable, and a call that raises *after* writing is not. What must hold is that
-tenant A's stored rows are unreadable and unmodifiable from tenant B, byte for byte, before and
-after the whole attempt sweep -- mirroring
+write, and traverse the seam and its substrates expose, on both the sync and async halves, using
+tenant A's own ids and content. The assertion is not "the call raised": a call that refuses loudly
+and a call that quietly returns nothing are both acceptable, and a call that raises *after*
+writing is not. What must hold is that tenant A's stored rows are unreadable and unmodifiable from
+tenant B, byte for byte, before and after the whole attempt sweep -- mirroring
 ``tests/integration/os/tenancy_postgres/test_adversarial_tenant_isolation.py``'s sweep-and-snapshot
 shape for EGPT-2.7, one layer down.
 
@@ -32,7 +32,7 @@ seam, which the per-substrate suites cannot exercise.
 backend; no such backend exists yet.
 """
 
-from typing import Any, Callable, List
+from typing import Any, Awaitable, Callable, List
 
 import pytest
 
@@ -45,6 +45,7 @@ from egpt.memory.types import (
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
+    MemoryRecord,
     Scope,
     Substrate,
 )
@@ -57,6 +58,9 @@ ACME = Scope(tenant_id="acme", user_id="ada")
 SECRET_ID = "acme-secret-episode"
 SECRET_CONTENT = "the acme board approved a confidential acquisition of globex"
 SECRET_ENTITY = "Acme Board"
+#: Written for every wiring, including ``seed`` (which cannot serve EPISODIC) -- the one string
+#: guaranteed present in a genuine snapshot of tenant A's data, whatever the provider's shape.
+SEMANTIC_CONTENT = "quarterly earnings figures remain under wraps until Friday"
 
 
 def build(name: str) -> MemoryProvider:
@@ -66,6 +70,21 @@ def build(name: str) -> MemoryProvider:
 def graph_backed_provider() -> MemoryProvider:
     """Mode A: the one wiring with both substrates live, for the graph-only attacks below."""
     return build_memory_provider(mode_a_config())
+
+
+def graph_of(provider: MemoryProvider) -> Any:
+    """``provider.graph`` behind a check mypy accepts against a ``MemoryProvider``-typed
+    reference, matching ``test_tenant_scoping.py``'s ``getattr(provider, "graph", None)``
+    convention rather than a direct attribute access the ABC does not declare."""
+    graph = getattr(provider, "graph", None)
+    assert graph is not None, "this call requires a graph-backed provider"
+    return graph
+
+
+def vector_of(provider: MemoryProvider) -> Any:
+    vector = getattr(provider, "vector", None)
+    assert vector is not None, "this call requires a vector-backed provider"
+    return vector
 
 
 def seed_tenant_a(provider: MemoryProvider) -> None:
@@ -79,31 +98,42 @@ def seed_tenant_a(provider: MemoryProvider) -> None:
             MemoryTier.EPISODIC,
             [MemoryEvent(id=SECRET_ID, content=SECRET_CONTENT, scope=ACME, entities=[SECRET_ENTITY])],
         )
-    provider.write_tier(
-        ACME,
-        MemoryTier.SEMANTIC,
-        [MemoryEvent(content="quarterly earnings figures remain under wraps until Friday", scope=ACME)],
-    )
-    if provider.substrates().get(Substrate.GRAPH):
-        provider.graph.upsert_entities(ACME, [EntityWrite(name=SECRET_ENTITY, entity_type="group", scope=ACME)])
+    provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content=SEMANTIC_CONTENT, scope=ACME)])
+    graph = getattr(provider, "graph", None)
+    if provider.substrates().get(Substrate.GRAPH) and graph is not None:
+        graph.upsert_entities(ACME, [EntityWrite(name=SECRET_ENTITY, entity_type="group", scope=ACME)])
 
 
 def tenant_a_state(provider: MemoryProvider) -> str:
     """Everything tenant A's own rows look like, as one comparable string.
 
-    Scoped to ``tenant_id == "acme"`` rather than the whole backing store: tenant B legitimately
-    creating its own rows under its own tenant partition (the id-collision attempt below does
-    exactly that) is not an isolation violation, and a whole-store comparison would flag it as one.
-    What must not change is tenant A's own partition -- a refusal that has already written there
-    is not fail-closed, and a result-shaped assertion cannot see the difference.
+    Filtered to ``record.scope == ACME`` rather than the whole backing store: tenant B
+    legitimately creating its own rows under its own tenant partition (the id-collision attempt
+    below does exactly that) is not an isolation violation, and a whole-store comparison would
+    flag it as one. What must not change is tenant A's own rows -- a refusal that has already
+    written there is not fail-closed, and a result-shaped assertion cannot see the difference.
+
+    Scans **every** bucket and filters by scope identity, rather than indexing
+    ``vector.rows[ACME.tenant_id]`` directly -- a bucket-collapse bug would make that index return
+    an empty dict both before and after an attack, which is vacuously "unchanged" and the
+    strongest possible false pass for a test named ``byte_for_byte_intact``. Scanning and
+    filtering, like ``_matching`` does in ``_fakes.py``, sees the collapse instead of hiding
+    behind it.
     """
     parts: List[str] = []
     vector = getattr(provider, "vector", None)
     if vector is not None:
-        parts.append(repr(sorted(vector.rows.get(ACME.tenant_id, {}).items())))
+        mine = sorted(
+            (record.id, record.content)
+            for bucket in vector.rows.values()
+            for record in bucket.values()
+            if record.scope == ACME
+        )
+        parts.append(repr(mine))
     graph = getattr(provider, "graph", None)
     if graph is not None:
-        parts.append(repr(sorted(r.id for r in graph.rows.get(ACME.tenant_id, []))))
+        mine_rows = sorted(record.id for rows in graph.rows.values() for record in rows if record.scope == ACME)
+        parts.append(repr(mine_rows))
         parts.append(repr(sorted((k, v) for k, v in graph.entities.items() if k[0] == ACME.key())))
     manager = getattr(provider, "manager", None)
     if manager is not None:
@@ -111,11 +141,22 @@ def tenant_a_state(provider: MemoryProvider) -> str:
         # can hold already belongs to tenant A -- there is no foreign-tenant subset to exclude.
         parts.append(repr([m.memory for m in manager.memories]))
     assert parts, "no backing store found on this provider; the snapshot would be vacuously equal"
-    return "|".join(parts)
+    state = "|".join(parts)
+    # Non-triviality, independent of the scan-vs-index fix above: a silently-failed seed write
+    # would also produce a well-formed, empty-of-content snapshot that compares equal before and
+    # after. `SEMANTIC_CONTENT` is written by every wiring in `seed_tenant_a`, so its absence means
+    # the snapshot captured nothing real, not that nothing changed.
+    assert SEMANTIC_CONTENT in state, f"tenant A's own seeded content is missing from its own snapshot: {state!r}"
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Attack helpers: every seam verb and every substrate verb, both halves
+# ---------------------------------------------------------------------------
 
 
 def attempt_every_seam_op_as(provider: MemoryProvider, scope: Scope) -> None:
-    """Tenant B tries every seam-level verb against tenant A's known id and content.
+    """Tenant B tries every sync seam-level verb against tenant A's known id and content.
 
     Exceptions are swallowed: an attacker tries everything and does not care what comes back. The
     caller asserts on what was returned and on the state left behind.
@@ -126,6 +167,8 @@ def attempt_every_seam_op_as(provider: MemoryProvider, scope: Scope) -> None:
         lambda: provider.read_tier(scope, MemoryTier.EPISODIC, query),
         lambda: provider.read_tier(scope, MemoryTier.SEMANTIC, query),
         # Id collision: B writes its own content under A's exact id, hoping to overwrite it.
+        # Both the untiered verb and the tiered one -- they route differently inside every adapter.
+        lambda: provider.write(scope, [MemoryEvent(id=SECRET_ID, content="hijacked", scope=scope)]),
         lambda: provider.write_tier(
             scope, MemoryTier.EPISODIC, [MemoryEvent(id=SECRET_ID, content="hijacked", scope=scope)]
         ),
@@ -138,19 +181,92 @@ def attempt_every_seam_op_as(provider: MemoryProvider, scope: Scope) -> None:
             pass
 
 
-def attempt_every_graph_op_as(provider: MemoryProvider, scope: Scope) -> None:
-    """Tenant B tries every substrate-level graph verb directly -- `provider.graph` is public, so
-    the seam's own guard is not the last line an attacker has to clear."""
+async def attempt_every_seam_op_as_async(provider: MemoryProvider, scope: Scope) -> None:
+    """The async twin: every ``a``-prefixed seam verb, driven for real (awaited), not merely
+    constructed. A coroutine built and never awaited runs none of its body, so this is the only
+    way to actually exercise the async guard rather than assume it mirrors the sync one."""
+    query = MemoryQuery(text=SECRET_CONTENT, limit=10)
+    attempts: List[Callable[[], Awaitable[Any]]] = [
+        lambda: provider.aread(scope, query),
+        lambda: provider.aread_tier(scope, MemoryTier.EPISODIC, query),
+        lambda: provider.aread_tier(scope, MemoryTier.SEMANTIC, query),
+        lambda: provider.awrite(scope, [MemoryEvent(id=SECRET_ID, content="hijacked-async", scope=scope)]),
+        lambda: provider.awrite_tier(
+            scope, MemoryTier.EPISODIC, [MemoryEvent(id=SECRET_ID, content="hijacked-async", scope=scope)]
+        ),
+        lambda: provider.aconsolidate(scope),
+    ]
+    for attempt in attempts:
+        try:
+            await attempt()
+        except Exception:
+            pass
+
+
+def attempt_every_vector_op_as(provider: MemoryProvider, scope: Scope) -> None:
+    """Tenant B tries every substrate-level vector verb directly -- `provider.vector` is public,
+    the same reasoning `attempt_every_graph_op_as` documents for the graph leg. A no-op on a
+    provider with no vector substrate wired."""
+    vector = getattr(provider, "vector", None)
+    if vector is None:
+        return
     query = MemoryQuery(text=SECRET_CONTENT, limit=10)
     attempts: List[Callable[[], Any]] = [
-        lambda: provider.graph.traverse(scope, query),
-        lambda: provider.graph.recall_episodes(scope, entities=[SECRET_ENTITY], limit=10),
-        lambda: provider.graph.bounds_for_ids(scope, [SECRET_ID]),
-        lambda: provider.graph.invalidate(scope, SECRET_ID, t_invalid=1),
-        lambda: provider.graph.match_entities(
+        lambda: vector.search(scope, query),
+        lambda: vector.scan(scope, MemoryTier.EPISODIC),
+        lambda: vector.upsert(
+            scope, [MemoryRecord(id=SECRET_ID, tier=MemoryTier.EPISODIC, content="hijacked-vector", scope=scope)]
+        ),
+    ]
+    for attempt in attempts:
+        try:
+            attempt()
+        except Exception:
+            pass
+
+
+async def attempt_every_vector_op_as_async(provider: MemoryProvider, scope: Scope) -> None:
+    vector = getattr(provider, "vector", None)
+    if vector is None:
+        return
+    query = MemoryQuery(text=SECRET_CONTENT, limit=10)
+    attempts: List[Callable[[], Awaitable[Any]]] = [
+        lambda: vector.asearch(scope, query),
+        lambda: vector.ascan(scope, MemoryTier.EPISODIC),
+        lambda: vector.aupsert(
+            scope,
+            [MemoryRecord(id=SECRET_ID, tier=MemoryTier.EPISODIC, content="hijacked-vector-async", scope=scope)],
+        ),
+    ]
+    for attempt in attempts:
+        try:
+            await attempt()
+        except Exception:
+            pass
+
+
+def attempt_every_graph_op_as(provider: MemoryProvider, scope: Scope) -> None:
+    """Tenant B tries every substrate-level graph verb directly -- `provider.graph` is public, so
+    the seam's own guard is not the last line an attacker has to clear. A no-op on a provider with
+    no graph substrate wired."""
+    graph = getattr(provider, "graph", None)
+    if graph is None:
+        return
+    query = MemoryQuery(text=SECRET_CONTENT, limit=10)
+    attempts: List[Callable[[], Any]] = [
+        lambda: graph.traverse(scope, query),
+        lambda: graph.recall_episodes(scope, entities=[SECRET_ENTITY], limit=10),
+        lambda: graph.bounds_for_ids(scope, [SECRET_ID]),
+        lambda: graph.invalidate(scope, SECRET_ID, t_invalid=1),
+        lambda: graph.match_entities(
             scope, EntityWrite(name="Board", entity_type="group", scope=scope, embedding=[0.1, 0.2]), limit=5
         ),
-        lambda: provider.graph.merge_entities(
+        # Kept despite being structurally guaranteed to miss: `FakeGraph.entities` is keyed on
+        # `(scope.key(), name)`, so B's merge can only ever target `(GLOBEX.key(), name)` and never
+        # collides with A's `(ACME.key(), name)` entry -- this is a regression check on that key
+        # shape rather than a live probe of any runtime guard. Left in so a future change that
+        # widened the match (e.g. matching on `name` alone) would have this catch it.
+        lambda: graph.merge_entities(
             scope,
             [
                 EntityMerge(
@@ -163,6 +279,36 @@ def attempt_every_graph_op_as(provider: MemoryProvider, scope: Scope) -> None:
     for attempt in attempts:
         try:
             attempt()
+        except Exception:
+            pass
+
+
+async def attempt_every_graph_op_as_async(provider: MemoryProvider, scope: Scope) -> None:
+    graph = getattr(provider, "graph", None)
+    if graph is None:
+        return
+    query = MemoryQuery(text=SECRET_CONTENT, limit=10)
+    attempts: List[Callable[[], Awaitable[Any]]] = [
+        lambda: graph.atraverse(scope, query),
+        lambda: graph.arecall_episodes(scope, entities=[SECRET_ENTITY], limit=10),
+        lambda: graph.abounds_for_ids(scope, [SECRET_ID]),
+        lambda: graph.ainvalidate(scope, SECRET_ID, t_invalid=1),
+        lambda: graph.amatch_entities(
+            scope, EntityWrite(name="Board", entity_type="group", scope=scope, embedding=[0.1, 0.2]), limit=5
+        ),
+        lambda: graph.amerge_entities(
+            scope,
+            [
+                EntityMerge(
+                    canonical=EntityWrite(name="Board", entity_type="group", scope=scope),
+                    duplicate_names=[SECRET_ENTITY],
+                )
+            ],
+        ),
+    ]
+    for attempt in attempts:
+        try:
+            await attempt()
         except Exception:
             pass
 
@@ -193,6 +339,22 @@ def test_tenant_b_cannot_read_tenant_as_content_through_the_seam(name):
 
 
 @pytest.mark.parametrize("name", MULTI_TENANT_CONFIGS)
+async def test_tenant_b_cannot_aread_tenant_as_content_through_the_seam(name):
+    """The async twin: `provider.read`'s guard and `provider.aread`'s are two different code
+    paths in every adapter, so a sync-only version of this test cannot see an async-only leak."""
+    provider = build(name)
+    seed_tenant_a(provider)
+
+    query = MemoryQuery(text=SECRET_CONTENT, limit=10)
+    slice_ = await provider.aread(GLOBEX, query)
+    tier_slice = await provider.aread_tier(GLOBEX, MemoryTier.EPISODIC, query)
+
+    assert SECRET_CONTENT not in slice_.as_context()
+    assert tier_slice == []
+    assert all(record.scope.tenant_id == GLOBEX.tenant_id for record in slice_.records)
+
+
+@pytest.mark.parametrize("name", MULTI_TENANT_CONFIGS)
 def test_tenant_b_gets_a_genuinely_empty_read_not_an_error_masking_a_leak(name):
     """A caller that only checks "did it raise" would miss a backend that answered with tenant A's
     row and no exception. The content itself must be absent from what came back."""
@@ -208,19 +370,33 @@ def test_tenant_b_gets_a_genuinely_empty_read_not_an_error_masking_a_leak(name):
 def test_tenant_b_cannot_traverse_or_recall_tenant_as_graph():
     provider = graph_backed_provider()
     seed_tenant_a(provider)
+    graph = graph_of(provider)
 
-    hits = provider.graph.traverse(GLOBEX, MemoryQuery(text=SECRET_CONTENT, limit=10))
-    recalled = provider.graph.recall_episodes(GLOBEX, entities=[SECRET_ENTITY], limit=10)
+    hits = graph.traverse(GLOBEX, MemoryQuery(text=SECRET_CONTENT, limit=10))
+    recalled = graph.recall_episodes(GLOBEX, entities=[SECRET_ENTITY], limit=10)
 
     assert hits == []
     assert recalled == []
 
 
+def test_tenant_b_cannot_search_or_scan_tenant_as_vector_rows():
+    provider = graph_backed_provider()
+    seed_tenant_a(provider)
+    vector = vector_of(provider)
+
+    hits = vector.search(GLOBEX, MemoryQuery(text=SECRET_CONTENT, limit=10))
+    scanned = vector.scan(GLOBEX, MemoryTier.EPISODIC)
+
+    assert hits == []
+    assert all(record.id != SECRET_ID for record in scanned)
+
+
 def test_tenant_b_cannot_match_tenant_as_entity():
     provider = graph_backed_provider()
     seed_tenant_a(provider)
+    graph = graph_of(provider)
 
-    matches = provider.graph.match_entities(
+    matches = graph.match_entities(
         GLOBEX,
         EntityWrite(name=SECRET_ENTITY, entity_type="group", scope=GLOBEX, embedding=[0.1, 0.2]),
         limit=5,
@@ -266,10 +442,11 @@ def test_tenant_b_writing_tenant_as_id_does_not_alter_tenant_as_row(name):
 def test_tenant_b_invalidating_tenant_as_edge_is_a_no_op():
     provider = graph_backed_provider()
     seed_tenant_a(provider)
+    graph = graph_of(provider)
 
-    provider.graph.invalidate(GLOBEX, SECRET_ID, t_invalid=1)
+    graph.invalidate(GLOBEX, SECRET_ID, t_invalid=1)
 
-    still_current = provider.graph.traverse(ACME, MemoryQuery(text=SECRET_CONTENT, limit=10))
+    still_current = graph.traverse(ACME, MemoryQuery(text=SECRET_CONTENT, limit=10))
     assert [r.id for r in still_current] == [SECRET_ID]
     assert still_current[0].expired_at is None
 
@@ -277,8 +454,9 @@ def test_tenant_b_invalidating_tenant_as_edge_is_a_no_op():
 def test_tenant_b_cannot_merge_tenant_as_entity_into_its_own():
     provider = graph_backed_provider()
     seed_tenant_a(provider)
+    graph = graph_of(provider)
 
-    provider.graph.merge_entities(
+    graph.merge_entities(
         GLOBEX,
         [
             EntityMerge(
@@ -288,9 +466,11 @@ def test_tenant_b_cannot_merge_tenant_as_entity_into_its_own():
         ],
     )
 
-    # A's entity survives under A's scope, untouched by a merge issued under B's.
-    assert (ACME.key(), SECRET_ENTITY) in provider.graph.entities
-    assert (GLOBEX.key(), SECRET_ENTITY) not in provider.graph.entities
+    # A's entity survives under A's scope, untouched by a merge issued under B's. As
+    # `attempt_every_graph_op_as` notes, this is a regression check on the entities dict's key
+    # shape (`(scope.key(), name)`) rather than a live probe: B's merge cannot address A's key.
+    assert (ACME.key(), SECRET_ENTITY) in graph.entities
+    assert (GLOBEX.key(), SECRET_ENTITY) not in graph.entities
 
 
 # ---------------------------------------------------------------------------
@@ -298,15 +478,39 @@ def test_tenant_b_cannot_merge_tenant_as_entity_into_its_own():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+@pytest.mark.parametrize("name", MULTI_TENANT_CONFIGS)
 def test_the_full_adversarial_sweep_leaves_tenant_a_byte_for_byte_intact(name):
+    """``MULTI_TENANT_CONFIGS`` here, not ``WRITABLE_CONFIGS``: ``seed``'s ``ACME``/``GLOBEX``
+    attempt differs in ``user_id`` as well as ``tenant_id``, and the seed adapter's own docstring
+    says its storage partitions on ``user_id`` alone. Including it here would make the sweep's pass
+    for that wiring look like proof of the tenant guard when it is at least as plausibly delivered
+    by the incidental ``user_id`` difference underneath -- the tenant guard itself is proven
+    directly, and without that confound, by ``test_the_seed_provider_refuses_a_foreign_tenant_
+    outright`` below."""
     provider = build(name)
     seed_tenant_a(provider)
     before = tenant_a_state(provider)
 
     attempt_every_seam_op_as(provider, GLOBEX)
-    if getattr(provider, "graph", None) is not None:
-        attempt_every_graph_op_as(provider, GLOBEX)
+    attempt_every_vector_op_as(provider, GLOBEX)
+    attempt_every_graph_op_as(provider, GLOBEX)
+
+    assert tenant_a_state(provider) == before
+
+
+@pytest.mark.parametrize("name", MULTI_TENANT_CONFIGS)
+async def test_the_full_adversarial_sweep_leaves_tenant_a_byte_for_byte_intact_on_the_async_half(name):
+    """The async twin of the sweep above, over the ``a``-prefixed seam verbs and substrate
+    methods. Not "an async twin exists" -- ``_fakes.py``'s own docstring records a prior sync/async
+    divergence in this exact seam that went unnoticed for six review rounds, which is what makes
+    driving the async half here more than a formality."""
+    provider = build(name)
+    seed_tenant_a(provider)
+    before = tenant_a_state(provider)
+
+    await attempt_every_seam_op_as_async(provider, GLOBEX)
+    await attempt_every_vector_op_as_async(provider, GLOBEX)
+    await attempt_every_graph_op_as_async(provider, GLOBEX)
 
     assert tenant_a_state(provider) == before
 
@@ -317,6 +521,7 @@ def test_tenant_a_can_still_operate_normally_after_the_sweep():
     seed_tenant_a(provider)
 
     attempt_every_seam_op_as(provider, GLOBEX)
+    attempt_every_vector_op_as(provider, GLOBEX)
     attempt_every_graph_op_as(provider, GLOBEX)
 
     receipt = provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="a brand new acme fact", scope=ACME)])
@@ -336,7 +541,10 @@ def test_the_seed_provider_refuses_a_foreign_tenant_outright():
     it is pinned single-tenant and refuses any other tenant at the boundary -- a different
     isolation strategy from the other three wirings, and one this file has to cover separately
     since ``WRITABLE_CONFIGS`` sweeps above build a fresh ``ACME``-scoped seed each time and never
-    call it as ``GLOBEX``."""
+    call it as ``GLOBEX``. This is the guard proven in isolation, unconfounded by ``user_id``: the
+    refusal below fires on ``tenant_id`` alone, before any storage-layer logic runs, which is what
+    lets ``test_the_full_adversarial_sweep...`` above exclude ``seed`` without losing coverage of
+    this property."""
     provider = build("seed")
 
     with pytest.raises(MemoryOperationError) as excinfo:
