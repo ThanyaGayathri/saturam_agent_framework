@@ -13,9 +13,15 @@ and write already gets (SM-C4) rather than from an unguessable id.
 There is exactly one row per user: :func:`profile_record_id` derives a deterministic id from
 ``scope.user_id``, and a write replaces it in place (``VectorSubstrate.upsert`` is upsert-by-id).
 Unlike :class:`~egpt.memory.semantic.facts.SemanticFactStore`, there is no graph leg -- a profile
-is a flat set of fields, not a triple or a node with edges, and neither substrate port offers a
-plain "get by id"; :meth:`SemanticProfileStore.get` reads it back through ``scan`` filtered to
-that one id, which degenerates to a point lookup once ``scope.user_id`` narrows the bucket.
+is a flat set of fields, not a triple or a node with edges. Neither substrate port offers "get by
+id" (only ``search``/``scan``), so :meth:`SemanticProfileStore.get` reads it back through
+``scan`` filtered to that one id -- an **O(N) walk of the scope's whole SEMANTIC tier**, which
+also holds every ordinary fact (SM-S1 #118). ``scope.user_id`` narrows *which tenant/user bucket*
+is scanned, not how many rows within it are read; a user with many accumulated facts pays this
+scan on every consolidation pass. A true point lookup needs a
+``VectorSubstrate.get_record(scope, id)`` port method that does not exist yet -- tracked as
+aicoe-tracker #187, not built here: it is a substrate-port change with implications for every
+other caller of this seam, a decision this ticket does not own.
 """
 
 from typing import Any, Optional, Type
@@ -24,7 +30,14 @@ from egpt.learn.schemas import UserProfile
 from egpt.learn.utils import from_dict_safe, to_dict_safe
 from egpt.memory.substrates import VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryOperationError, MemoryRecord, Scope, WriteReceipt, require_scope
+from egpt.memory.types import (
+    MemoryRecord,
+    MemoryScopeRequiredError,
+    Scope,
+    WriteReceipt,
+    escape_key_slot,
+    require_scope,
+)
 
 __all__ = ["SemanticProfileStore", "profile_record_id"]
 
@@ -37,14 +50,23 @@ def profile_record_id(scope: Scope) -> str:
     """The deterministic id a user's profile row is upserted/read under.
 
     Requires ``scope.user_id``: a profile is per-user by definition, and ``require_scope`` alone
-    does not enforce that -- it only refuses a blank tenant.
+    does not enforce that -- it only refuses a blank tenant. Raises the same
+    :class:`~egpt.memory.types.MemoryScopeRequiredError` every other "scope is missing a required
+    slot" refusal on this seam raises, rather than a different type for this one case.
+
+    Slots are percent-escaped and ``/``-separated via
+    :func:`~egpt.memory.types.escape_key_slot`, matching :meth:`Scope.key`: an un-escaped
+    separator inside a tenant- or user-supplied id is exactly the collision that function exists
+    to prevent (its own docstring gives the worked example), and a second, differently-escaped
+    id scheme here would just relocate the risk rather than remove it.
     """
     if not scope.user_id:
-        raise MemoryOperationError(
+        raise MemoryScopeRequiredError(
             "A user profile requires scope.user_id; a tenant-only scope has no user to key it by.",
             field_name="user_id",
+            verb="profile_record_id",
         )
-    return f"{_RECORD_KIND}:{scope.tenant_id}:{scope.user_id}"
+    return "/".join([_RECORD_KIND, escape_key_slot(scope.tenant_id), escape_key_slot(scope.user_id)])
 
 
 class SemanticProfileStore:

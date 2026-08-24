@@ -51,6 +51,7 @@ __all__ = [
     "MemoryScopeRequiredError",
     "MemorySlice",
     "NO_ENTITIES",
+    "NO_PROFILE",
     "NO_REFLECTION",
     "NO_RELATIONS",
     "normalize_entity_name",

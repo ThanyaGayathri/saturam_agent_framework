@@ -14,14 +14,21 @@ from egpt.models.response import ModelResponse, ToolExecution
 
 class _FakeModel:
     """Simulates the model calling the single exposed tool with ``calls_with`` -- or calling
-    nothing when ``calls_with`` is falsy, matching a conversation with no profile-worthy content.
+    nothing when ``calls_with`` is ``None``, matching a conversation with no profile-worthy
+    content.
+
+    ``calls_with`` is passed through as-is, deliberately not collapsed with ``or {}``: an empty
+    (or all-``None``-valued) dict still means "the model called the tool" -- just with nothing to
+    say -- which is a distinct scenario from "the model never called the tool at all"
+    (``calls_with=None``). Conflating the two would make the no-op-tool-call bug this file exists
+    to pin (`test_all_none_tool_call_returns_none_not_an_unchanged_copy`) unreproducible.
     """
 
     def __init__(self, calls_with=None):
-        self.calls_with = calls_with or {}
+        self.calls_with = calls_with
 
     def _invoke(self, tools):
-        if not tools or not self.calls_with:
+        if not tools or self.calls_with is None:
             return ModelResponse(content="No updates needed", tool_executions=[])
         tool = tools[0]
         result = tool.entrypoint(**self.calls_with)
@@ -69,6 +76,21 @@ def test_no_tool_call_returns_none_not_an_unchanged_copy():
     values -- the caller (the consolidation hook) uses `None` to skip the persistence write."""
     store = profile_store(calls_with=None)
     result = store.extract_profile([Message(role="user", content="what's the weather?")], user_id="ada")
+    assert result is None
+
+
+def test_all_none_tool_call_returns_none_not_an_unchanged_copy():
+    """The tool executed (`response.tool_executions` is non-empty) but every kwarg was `None`,
+    so nothing was actually set -- `tool_executions` alone cannot tell this apart from a real
+    update, and must not be treated as one (QC round 1, PR #135)."""
+    store = profile_store(calls_with={"name": None, "preferred_name": None})
+    result = store.extract_profile([Message(role="user", content="what's the weather?")], user_id="ada")
+    assert result is None
+
+
+async def test_async_all_none_tool_call_returns_none():
+    store = profile_store(calls_with={"name": None})
+    result = await store.aextract_profile([Message(role="user", content="hi")], user_id="ada")
     assert result is None
 
 

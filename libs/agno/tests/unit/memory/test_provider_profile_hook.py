@@ -12,7 +12,7 @@ import asyncio
 import pytest
 
 from egpt.learn.schemas import UserProfile
-from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
+from egpt.memory.adapters.co_located import _PROFILE_NO_USER, CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError
 from egpt.memory.types import NO_PROFILE, MemoryEvent, Scope
 from tests.unit.memory._fakes import FakeGraph, FakeVector
@@ -88,7 +88,7 @@ def test_a_tenant_wide_pass_has_no_user_to_key_a_profile_by(is_async):
     report = asyncio.run(memory.aconsolidate(TENANT_WIDE)) if is_async else memory.consolidate(TENANT_WIDE)
 
     assert report.details["profile"] != NO_PROFILE
-    assert "no user_id" in report.details["profile"]
+    assert report.details["profile"] == _PROFILE_NO_USER
     assert not stub.extract_calls and not stub.aextract_calls
 
 

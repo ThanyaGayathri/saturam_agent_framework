@@ -6,7 +6,7 @@ from typing import Optional
 from egpt.learn.schemas import UserProfile
 from egpt.memory.semantic import SemanticProfileStore, profile_record_id
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryOperationError, MemoryScopeRequiredError, Scope
+from egpt.memory.types import MemoryScopeRequiredError, Scope
 from tests.unit.memory._fakes import FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="ada")
@@ -38,9 +38,27 @@ def test_two_tenants_get_different_ids_for_the_same_user_id():
 def test_a_tenant_only_scope_is_refused():
     try:
         profile_record_id(TENANT_WIDE)
-        raise AssertionError("expected MemoryOperationError")
-    except MemoryOperationError as exc:
+        raise AssertionError("expected MemoryScopeRequiredError")
+    except MemoryScopeRequiredError as exc:
         assert exc.field_name == "user_id"
+
+
+def test_a_separator_character_inside_an_id_does_not_collide():
+    """A tenant_id/user_id pair containing this store's own field separator must not collide
+    with a differently-split pair that joins to the same string -- the exact bug QC round 1
+    found: `profile_record_id` originally joined with `:`, unescaped, so ("ab", "cd:ef") and
+    ("ab:cd", "ef") both produced ``user_profile:ab:cd:ef`` (PR #135)."""
+    a = Scope(tenant_id="ab", user_id="cd:ef")
+    b = Scope(tenant_id="ab:cd", user_id="ef")
+    assert profile_record_id(a) != profile_record_id(b)
+
+
+def test_a_slash_inside_an_id_does_not_collide_either():
+    """`/` is this store's separator (matching `Scope.key`) and is what `escape_key_slot`
+    exists to neutralise inside a slot -- covering the symmetric case to the `:` test above."""
+    a = Scope(tenant_id="ab", user_id="cd/ef")
+    b = Scope(tenant_id="ab/cd", user_id="ef")
+    assert profile_record_id(a) != profile_record_id(b)
 
 
 # -- SemanticProfileStore.write / get -------------------------------------------
@@ -127,8 +145,8 @@ def test_a_tenant_only_scope_write_is_refused_before_touching_the_substrate():
     s, vector = store()
     try:
         s.write(TENANT_WIDE, UserProfile(user_id="ada"))
-        raise AssertionError("expected MemoryOperationError")
-    except MemoryOperationError:
+        raise AssertionError("expected MemoryScopeRequiredError")
+    except MemoryScopeRequiredError:
         pass
     assert vector.calls == []
 

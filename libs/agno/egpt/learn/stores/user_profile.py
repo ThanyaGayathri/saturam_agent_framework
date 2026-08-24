@@ -970,9 +970,9 @@ class UserProfileStore(LearningStore):
         self,
         messages: List["Message"],
         user_id: str,
-        existing_profile: Optional[Any] = None,
+        existing_profile: Optional[UserProfile] = None,
         run_metrics: Optional["RunMetrics"] = None,
-    ) -> Optional[Any]:
+    ) -> Optional[UserProfile]:
         """Extract profile field updates from ``messages``, without touching ``self.db``.
 
         Same model call and system prompt as :meth:`extract_and_save`, but the
@@ -1016,7 +1016,11 @@ class UserProfileStore(LearningStore):
 
             accumulate_model_metrics(response, model_copy, ModelType.LEARNING_MODEL, run_metrics)
 
-        if not response.tool_executions:
+        # `tool_executions` alone is not enough: a call with every kwarg `None` still executes
+        # the tool and returns "No fields provided to update" without mutating anything, which
+        # `tool.mutated[0]` (set only when a field was actually assigned) tells apart from a real
+        # update -- see `_build_capture_profile_tool`'s docstring.
+        if not response.tool_executions or not cast(Any, tool).mutated[0]:
             return None
         return profile
 
@@ -1024,9 +1028,9 @@ class UserProfileStore(LearningStore):
         self,
         messages: List["Message"],
         user_id: str,
-        existing_profile: Optional[Any] = None,
+        existing_profile: Optional[UserProfile] = None,
         run_metrics: Optional["RunMetrics"] = None,
-    ) -> Optional[Any]:
+    ) -> Optional[UserProfile]:
         """Async version of :meth:`extract_profile`, making the same decisions."""
         if self.model is None:
             log_warning("UserProfileStore.aextract_profile: no model provided")
@@ -1057,7 +1061,8 @@ class UserProfileStore(LearningStore):
 
             accumulate_model_metrics(response, model_copy, ModelType.LEARNING_MODEL, run_metrics)
 
-        if not response.tool_executions:
+        # Same distinction as the sync half -- see its comment.
+        if not response.tool_executions or not cast(Any, tool).mutated[0]:
             return None
         return profile
 
@@ -1096,12 +1101,19 @@ class UserProfileStore(LearningStore):
             Confirmation of updated fields.
         """
 
+        # A single-element list, not a bare `bool`: the closure below needs to *write* it, and a
+        # nested function cannot rebind an outer `bool` without `nonlocal` -- a mutable container
+        # sidesteps that and lets the caller read it back off the returned callable afterwards.
+        mutated = [False]
+
         def update_profile(**kwargs) -> str:
             changed = []
             for field_name, value in kwargs.items():
                 if value is not None and field_name in updateable:
                     setattr(profile, field_name, value)
                     changed.append(f"{field_name}={value}")
+            if changed:
+                mutated[0] = True
             return f"Profile updated: {', '.join(changed)}" if changed else "No fields provided to update"
 
         func = cast(Any, update_profile)
@@ -1110,6 +1122,12 @@ class UserProfileStore(LearningStore):
         func.__name__ = "update_profile"
         func.__annotations__ = {field_name: Optional[str] for field_name in updateable}
         func.__annotations__["return"] = str
+        # Exposed so `extract_profile`/`aextract_profile` can tell "the model called this tool"
+        # (`response.tool_executions`) apart from "and at least one field actually changed" -- a
+        # tool call with every kwarg `None` produces the former without the latter, and the model
+        # calling this tool with nothing to say is not distinguishable from a real update by
+        # `tool_executions` alone.
+        func.mutated = mutated
 
         return update_profile
 

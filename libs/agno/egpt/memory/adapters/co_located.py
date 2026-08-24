@@ -93,6 +93,7 @@ if TYPE_CHECKING:
     from egpt.memory.consolidation.reflect import ReflectionPipeline
     from egpt.memory.graph.entities import EntityExtractionPipeline
     from egpt.memory.graph.relations import RelationExtractionPipeline
+    from egpt.models.message import Message
 
 __all__ = ["CoLocatedMemoryProvider"]
 
@@ -1200,7 +1201,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             return NO_RELATIONS
         return (await self.relation_pipeline.arun(scope, episodes)).details
 
-    def _profile_messages(self, episodes: Sequence[MemoryRecord]) -> List[Any]:
+    def _profile_messages(self, episodes: Sequence[MemoryRecord]) -> List["Message"]:
         """Episodes, as the ``Message`` list ``UserProfileStore.extract_profile`` expects.
 
         Lazily imported: ``egpt.models.message`` is the same heavy-stack dependency the module
@@ -1220,6 +1221,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         pass (``scope.user_id is None``) has no single user to key a profile by, so it reports
         :data:`_PROFILE_NO_USER` rather than silently skipping -- the same reasoning
         :data:`~egpt.memory.types.NO_PROFILE` gets for "never wired".
+
+        **Read-modify-write, no lock or CAS.** ``self._semantic_profile.get`` is read, an LLM
+        call happens, then ``.write`` lands the result -- two overlapping passes for the *same*
+        scope can each read the same stale profile and the later write silently clobbers the
+        earlier one. This is the same class of exposure ``ConsolidationWorker.run_once`` already
+        documents for its cursor (safe against concurrent *distinct* scopes; not safe against two
+        callers driving the *same* scope at once) and that entity/relation merge carries too --
+        not a gap this ticket introduces, and not one it closes. ``ConsolidationWorker`` itself
+        never triggers this: it gathers one ``_drain_scope`` per *distinct* configured scope, so
+        the same scope is never consolidated twice in one tick. It is reachable only when a
+        caller drives ``consolidate``/``aconsolidate`` directly for one scope from more than one
+        place at once -- which should be serialized until a stronger guarantee exists here.
         """
         if self.profile_store is None:
             return NO_PROFILE
