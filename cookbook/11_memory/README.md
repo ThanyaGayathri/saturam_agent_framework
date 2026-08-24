@@ -193,8 +193,9 @@ This section demonstrates how EGPT agents persist and use user memories across r
 
 - `36_hybrid_retrieval_orchestration.py`: Feed-forward retriever orchestration (SM-H1 #131) --
   `read` fans out through `egpt.memory.retrieval.orchestrate`/`aorchestrate` (vector+BM25, and the
-  graph leg), with the lexical leg present in `MemorySlice.fusion["lexical_hits"]` but not yet
-  affecting ranking (SM-H2 #132 owns fusing it in). No database, no model, no network.
+  graph leg), with the lexical leg present in `MemorySlice.fusion["lexical_hits"]` but not
+  affecting the default `score_sum` ranking. `41_rrf_fusion.py` shows the opt-in strategy (SM-H2
+  #132) that does fold it in. No database, no model, no network.
 
 - `37_procedural_memory.py`: Procedural memory (SM-S2) -- `ProceduralReflectionPipeline` is
   importance-gated like `ReflectionPipeline`, but stateless across calls: PROCEDURAL takes no part
@@ -249,6 +250,14 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py`, and `feat/SM-C6` took
   `39_working_memory.py`, all while this branch was still catching up. Per this file's own
   convention, whoever merges second renumbers.**
+
+- `41_rrf_fusion.py`: Reciprocal Rank Fusion (SM-H2 #132) -- the opt-in alternative to
+  `36_`'s `score_sum` default: `config.fusion={"method": "rrf", "k": ...}` fuses all three legs,
+  including lexical, by rank rather than score, so it never needs the legs to share a scale. It
+  does not become the default -- ADR 0003 A.6 holds the 3-leg weighted-vs-RRF choice open, gated
+  on SM-X7's (#143) measurement. Same "cat dog" scenario `36_` uses, shown ranking differently
+  under `score_sum` vs `rrf`, plus `k`'s effect on the fused score. No database, no model, no
+  network.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

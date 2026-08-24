@@ -32,9 +32,11 @@ from typing import Any, Callable, Dict, List, Optional
 
 from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.retrieval.fuse import DEFAULT_RRF_K
 from egpt.providers.model_provider import ProviderMode
 
 __all__ = [
+    "FUSION_METHODS",
     "MemoryProviderConfig",
     "MemoryProviderConfigError",
     "ProviderFactory",
@@ -42,6 +44,55 @@ __all__ = [
     "register_provider",
     "registered_providers",
 ]
+
+#: The fusion strategies ``config.fusion["method"]`` accepts. ``score_sum`` is
+#: ``CoLocatedMemoryProvider``'s pre-SM-H2 default and stays the default -- ADR 0003 A.6 holds the
+#: 3-leg weighted-vs-RRF choice open, gated on SM-X7's (#143) measurement, so this ticket adds
+#: ``rrf`` as an opt-in, not a replacement. See ``egpt.memory.retrieval.fuse``.
+FUSION_METHODS = ("score_sum", "rrf")
+
+#: Keys ``config.fusion`` recognizes. A closed set, unlike ``vector``/``graph``'s opaque
+#: backend-settings bags: fusion is decided by this seam, not by a backend, so there is no third
+#: party whose keys this module must stay ignorant of.
+_FUSION_KNOWN_KEYS = frozenset({"method", "k"})
+
+
+def _validate_fusion(fusion: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate ``config.fusion`` at construction, per the four-questions boundary rule.
+
+    Filling in ``k``'s default here, rather than leaving it for a reader of ``config.fusion`` to
+    infer, is what lets ``CoLocatedMemoryProvider._merged`` treat a validated config as already
+    known-good -- the same bargain ``resolve_substrate`` strikes for the backend settings.
+    """
+    if not isinstance(fusion, dict):
+        raise MemoryProviderConfigError(
+            f"config.fusion must be a dict, got {type(fusion).__name__}.", field_name="fusion"
+        )
+    unknown = sorted(set(fusion) - _FUSION_KNOWN_KEYS)
+    if unknown:
+        raise MemoryProviderConfigError(
+            f"config.fusion has unknown key(s) {unknown}; only {sorted(_FUSION_KNOWN_KEYS)} are recognized.",
+            field_name="fusion",
+        )
+    method = fusion.get("method", "score_sum")
+    if method not in FUSION_METHODS:
+        raise MemoryProviderConfigError(
+            f"config.fusion['method'] must be one of {FUSION_METHODS}, got {method!r}.",
+            field_name="fusion.method",
+        )
+    validated = dict(fusion)
+    if "k" in validated:
+        k = validated["k"]
+        if isinstance(k, bool) or not isinstance(k, int) or k < 1:
+            raise MemoryProviderConfigError(
+                f"config.fusion['k'] must be a positive integer, got {k!r}.",
+                field_name="fusion.k",
+            )
+    elif method == "rrf":
+        # RRF's `k` is meaningless for `score_sum`, so it is only defaulted in for the method that
+        # reads it -- a stray default under `score_sum` would look like a knob that does something.
+        validated["k"] = DEFAULT_RRF_K
+    return validated
 
 
 @dataclass
@@ -52,15 +103,20 @@ class MemoryProviderConfig:
     stay untyped here on purpose: typing them would make this module name its backends, which is
     exactly the coupling the seam exists to prevent.
 
-    There are no fusion knobs. SM-R8 measured dense+BM25, never this seam's vector+graph pairing,
-    so a `method` or `vector_weight` here would be a setting nothing had measured and, with no
-    backend wired, nothing could measure. Rank fusion and its configuration are SM-H2's (#132).
+    ``fusion`` is different: it is decided by this seam, not a backend, so it is a closed,
+    validated shape rather than an opaque bag -- see :data:`FUSION_METHODS`. It defaults to
+    ``{}``, which reads as ``score_sum``, ``CoLocatedMemoryProvider``'s pre-SM-H2 default. SM-R8
+    measured dense+BM25, never this seam's vector+graph pairing, and ADR 0003 A.6 holds the 3-leg
+    weighted-vs-RRF choice open pending SM-X7's (#143) measurement -- so ``score_sum`` stays the
+    default here too. ``{"method": "rrf", "k": 60}`` opts into the measured alternative SM-H2
+    (#132) adds; see ``egpt.memory.retrieval.fuse``.
     """
 
     provider: str
     mode: ProviderMode = ProviderMode.LOCAL  # Mode A. FRONTIER is Mode B.
     vector: Dict[str, Any] = field(default_factory=dict)
     graph: Dict[str, Any] = field(default_factory=dict)
+    fusion: Dict[str, Any] = field(default_factory=dict)
     options: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -83,6 +139,8 @@ class MemoryProviderConfig:
                     f"Unknown mode {self.mode!r}. Expected one of: {known}.",
                     field_name="mode",
                 ) from None
+
+        self.fusion = _validate_fusion(self.fusion)
 
 
 def resolve_substrate(

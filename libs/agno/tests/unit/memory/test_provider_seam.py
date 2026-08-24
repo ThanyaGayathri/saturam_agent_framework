@@ -11,6 +11,7 @@ import pytest
 
 from egpt.memory import config as config_module
 from egpt.memory.config import (
+    FUSION_METHODS,
     MemoryProviderConfig,
     MemoryProviderConfigError,
     _reset_registry_for_tests,
@@ -19,6 +20,7 @@ from egpt.memory.config import (
     registered_providers,
 )
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.retrieval.fuse import DEFAULT_RRF_K
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     ConsolidationReport,
@@ -175,22 +177,50 @@ def test_a_missing_provider_key_is_rejected(blank):
         MemoryProviderConfig(provider=blank)  # type: ignore[arg-type]
 
 
-def test_the_config_rejects_a_fusion_knob_rather_than_absorbing_it():
-    """A knob nothing has measured is a knob that silently does nothing.
+def test_the_default_fusion_is_score_sum_unmeasured_for_the_3_leg_case():
+    """SM-H2 (#132) adds `fusion`, deliberately, but does not change the default it reads.
 
-    SM-R8 measured dense+BM25, never this seam's vector+graph pairing, and with no backend wired
-    there is nothing here that could measure it. Ranked fusion and its configuration are SM-H2's
-    (#132); a `fusion=` field would be finding F5 -- accepted at the boundary, read by nothing.
-
-    The assertion is that no *field* named `fusion` exists and that `options` does not smuggle one
-    back. `pytest.raises(TypeError, match="fusion")` on the constructor would have been an
-    assertion about CPython -- any undefined keyword raises a TypeError naming itself, so it passes
-    against a one-field dataclass that validates nothing.
+    ADR 0003 A.6 holds the 3-leg (+graph) weighted-vs-RRF choice open, gated on SM-X7's (#143)
+    measurement -- SM-R8 measured dense+BM25, never this seam's vector+graph pairing. An unset
+    `fusion` must therefore still mean `score_sum`, `CoLocatedMemoryProvider`'s pre-SM-H2 default,
+    not a value nothing has measured.
     """
     config = MemoryProviderConfig(provider="p")
 
-    assert "fusion" not in MemoryProviderConfig.__dataclass_fields__
+    assert config.fusion == {}
     assert not any("fusion" in key or "weight" in key for key in config.options)
+
+
+def test_an_unknown_fusion_key_is_rejected_rather_than_absorbed():
+    with pytest.raises(MemoryProviderConfigError, match="unknown key") as exc:
+        MemoryProviderConfig(provider="p", fusion={"vector_weight": 0.5})
+    assert exc.value.field_name == "fusion"
+
+
+def test_an_unknown_fusion_method_is_rejected_naming_the_valid_ones():
+    with pytest.raises(MemoryProviderConfigError, match="must be one of") as exc:
+        MemoryProviderConfig(provider="p", fusion={"method": "weighted"})
+    assert exc.value.field_name == "fusion.method"
+    assert set(FUSION_METHODS) == {"score_sum", "rrf"}
+
+
+@pytest.mark.parametrize("bad_k", [0, -1, 1.5, "60", True])
+def test_a_non_positive_or_non_integer_rrf_k_is_rejected(bad_k):
+    with pytest.raises(MemoryProviderConfigError, match="positive integer") as exc:
+        MemoryProviderConfig(provider="p", fusion={"method": "rrf", "k": bad_k})
+    assert exc.value.field_name == "fusion.k"
+
+
+def test_rrf_k_defaults_to_60_when_the_method_is_selected_without_one():
+    config = MemoryProviderConfig(provider="p", fusion={"method": "rrf"})
+
+    assert config.fusion["k"] == DEFAULT_RRF_K == 60
+
+
+def test_k_is_not_defaulted_in_under_score_sum_where_it_would_do_nothing():
+    config = MemoryProviderConfig(provider="p", fusion={"method": "score_sum"})
+
+    assert "k" not in config.fusion
 
 
 def test_backend_settings_stay_opaque():
