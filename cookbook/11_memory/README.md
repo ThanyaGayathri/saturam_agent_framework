@@ -174,13 +174,22 @@ This section demonstrates how EGPT agents persist and use user memories across r
   branch was still catching up. Per this file's own convention, whoever merges second renumbers --
   four times, this time.**
 
-- `34_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
+- `34_sleep_time_scheduling.py`: Sleep-time compute scheduling (SM-L9) -- `SleepTimeScheduleConfig`
+  bundles a daily `SleepWindow` (evaluated in a named timezone, not just UTC), an idle threshold,
+  and `mode` (Mode A/`LOCAL` by default). `build_sleep_time_trigger` wraps a fresh `IdleTrigger` so
+  the resulting trigger only fires inside the window, while `record_event` keeps accumulating
+  pending work at any hour. Plugs into `ConsolidationWorker` as `trigger=...`, no worker change.
+  Requires nothing; no database, no API key, no network.
+
+- `35_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
   default (`multihop_ppr_enabled`), a single-step ranked walk over a bi-temporally-filtered GDS
   projection rather than `28_`'s bounded-hop BFS. Shows PPR reaching a fourth-hop fact BFS's
   default `max_traverse_hops=2` cannot, and the same query composing correctly with an invalidated
   fact's bi-temporal bound. Needs the GDS plugin, not `28_`'s plain instance:
   `./cookbook/scripts/run_neo4j_gds.sh`. No API key; entities and fact edges are written directly.
   Runs with `.venvs/demo`.
+  **Renumbered from `34_` to `35_`: `feat/SM-L9` (#123) merged to `main` first and took `34_`
+  while this branch was still catching up.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
