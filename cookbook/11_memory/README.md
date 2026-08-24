@@ -202,6 +202,17 @@ This section demonstrates how EGPT agents persist and use user memories across r
   to be missing on `main`, not added here) while this branch was still catching up. Per this
   file's own convention, whoever merges second renumbers.**
 
+- `38_kb_and_memory_unified_retrieval.py`: The KB vs memory boundary (SM-S4) -- `unified_read()`
+  fans one query out across a `MemoryProvider` and a `KnowledgeRetrievable` leg without merging
+  the two stores, labeling every result `RetrievalSource.KB` or `RetrievalSource.MEMORY`. A leg
+  with no store wired returns an empty list, not an absent one; a raising leg does not silently
+  discard the other's result. No database, no API key.
+  **Renumbered from `34_` to `38_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`,
+  `feat/SM-L8` took `35_hierarchical_summarization.py`, `feat/SM-H1` took
+  `36_hybrid_retrieval_orchestration.py`, and `feat/SM-S2` took `37_procedural_memory.py`, all
+  while this branch was still catching up. Per this file's own convention, whoever merges second
+  renumbers -- four times, this time.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

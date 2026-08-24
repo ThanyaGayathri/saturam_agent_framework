@@ -987,3 +987,26 @@ Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
 **Renumbered from `35_` to `37_`: `feat/SM-L8` took `35_hierarchical_summarization.py` and
 `feat/SM-H1` took `36_hybrid_retrieval_orchestration.py` while this branch was still catching up.**
 Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 38_kb_and_memory_unified_retrieval.py
+
+**Status:** PASS
+
+**Description:** KB vs memory boundary (SM-S4): `unified_read()` fans a query out across a
+`MemoryProvider` and a `KnowledgeRetrievable` leg, labeling every result `RetrievalSource.KB` or
+`RetrievalSource.MEMORY`. Shows a KB-only match, a memory-only match, and a leg with no store
+wired returning an empty list rather than being silently absent.
+
+**Result:** Ran end to end -- a rate-limit query returns only the KB document (labeled `kb`), a
+dark-mode query returns only the memory record (labeled `memory`), and unwiring the KB leg leaves
+`slice_.kb == []` while memory still answers.
+
+**Requires:** No database, no API key. Run with `.venvs/demo`.
+
+**Renumbered from `34_` to `38_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`,
+`feat/SM-L8` took `35_hierarchical_summarization.py`, `feat/SM-H1` took
+`36_hybrid_retrieval_orchestration.py`, and `feat/SM-S2` took `37_procedural_memory.py`, all
+while this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers -- four times, this time.
