@@ -57,6 +57,12 @@ class _BufferSession:
         # falsy-zero branch and returned the *whole* buffer for the one input meant to return none
         # of it. Only currently unreachable because `SessionSummaryManager.__post_init__` requires
         # `conversation_limit > 0` -- an invariant this duck-type must not depend on to be correct.
+        # `last_n_runs` is accepted and silently unused: a buffer is not organised into runs, so
+        # there is nothing to apply it to. A `summary_manager` shared with real session
+        # summarization and configured with `last_n_runs` set gets un-windowed behavior here with
+        # no error -- disposed rather than fixed (raising needs `WorkingMemory` to inspect a
+        # manager's field at a point this duck-type does not control), documented on
+        # `WorkingMemory.summary_manager` instead so it is visible before a caller hits it.
         if limit is None:
             return list(self._messages)
         return self._messages[-limit:] if limit > 0 else []
@@ -84,9 +90,13 @@ def _merge_summary(previous: Optional[SessionSummary], new: SessionSummary) -> S
         return new
     topics = list(previous.topics or [])
     topics.extend(t for t in (new.topics or []) if t not in topics)
+    # `topics` unconditionally, not `topics or None`: an empty list here means both summaries
+    # genuinely named no topics, which is a real, distinguishable answer from "topics was never
+    # asked about" -- collapsing it to `None` would conflate the two the same way
+    # `last_offload_receipt` already documents as a known gap elsewhere in this file.
     return SessionSummary(
         summary="\n\n".join([previous.summary, new.summary]),
-        topics=topics or None,
+        topics=topics,
         updated_at=new.updated_at,
     )
 
@@ -104,20 +114,26 @@ class WorkingMemory:
     scope: Scope
     max_messages: int = 40
     keep_after_offload: int = 10
+    #: The default (`model=None`) never produces a summary -- `create_session_summary` declines
+    #: unconditionally without one -- so `offload`/`aoffload` are a permanent no-op unless a
+    #: manager carrying a real model is supplied. "Summarize/offload-when-large" is a bound this
+    #: buffer *can* enforce, not one it enforces unconditionally out of the box. A manager whose
+    #: `last_n_runs` is set is also accepted but silently unused here: see `_BufferSession`.
     summary_manager: SessionSummaryManager = field(default_factory=SessionSummaryManager)
 
     messages: List[Message] = field(default_factory=list)
     scratchpad: List[str] = field(default_factory=list)
     goals: List[str] = field(default_factory=list)
     summary: Optional[SessionSummary] = None
-    #: The receipt from the most recent offload's provider write, when there was one to make.
-    #: ``None`` conflates three states this field cannot currently tell apart: no offload with a
-    #: provider has run yet, the most recent one *had* a provider but every overflow message
-    #: lacked string content so there was nothing to write, or (before the reordering fixed in
-    #: this ticket) a declined summary. A caller that must distinguish "no provider" from
-    #: "provider given nothing to write" cannot do so from this field alone today -- narrowing it
-    #: needs a sentinel distinct from a genuine empty receipt, which is follow-up work, not this
-    #: ticket's.
+    #: The provider write from the **most recently completed** ``offload``/``aoffload`` call --
+    #: reset to ``None`` at the top of every call, not left holding a stale value from an earlier
+    #: one. ``None`` means that call did not write anything to long-term storage: it was a no-op
+    #: (below threshold, or the summary manager declined), it ran with no ``provider``, or it ran
+    #: with one but every overflow message lacked string content so there was nothing to hand it.
+    #: Those last two are still not distinguishable from each other here -- narrowing that needs a
+    #: sentinel distinct from a genuine empty receipt, left as follow-up rather than folded into
+    #: this fix -- but every non-``None`` value is now trustworthy as "the call that just returned
+    #: actually wrote this", which the reset is what guarantees.
     last_offload_receipt: Optional[WriteReceipt] = None
 
     def __post_init__(self) -> None:
@@ -191,34 +207,58 @@ class WorkingMemory:
         overflow slice would write the same events again on every subsequent decline, since nothing
         was ever trimmed to stop `_overflow` from recomputing it.
 
-        A no-op (returns ``None``, writes nothing, changes nothing) when :meth:`should_offload` is
-        false or the summary manager declines (``SessionSummaryManager`` returns ``None`` for an
-        empty or unmeaningful window) -- offload is never forced past what there is to say.
+        A no-op (returns ``None``, writes nothing, changes nothing, and resets
+        :attr:`last_offload_receipt` to ``None`` so a caller cannot read a stale receipt from an
+        earlier, unrelated offload) when :meth:`should_offload` is false or the summary manager
+        declines (``SessionSummaryManager`` returns ``None`` for an empty or unmeaningful window,
+        which is what the default, model-less :attr:`summary_manager` always does -- offload only
+        actually offloads once a manager carrying a real model is supplied).
+
+        Summarization is a real (usually blocking) model call, so :meth:`aoffload` is the primary
+        lane on a request path; this sync one is for tests, scripts, and manual triggers -- same
+        framing as :meth:`~egpt.memory.provider.MemoryProvider.consolidate`'s.
+
+        **Not safe to call concurrently on the same instance.** Both halves read ``self.messages``
+        before a real suspension point (a model call, and here an awaited provider write) and
+        mutate ``self.messages``/``self.summary``/``last_offload_receipt`` afterward with no guard.
+        Two in-flight calls can compute the same overflow, both write it through a given
+        ``provider`` (no dedup -- each stamps fresh event ids), and the second completion trims
+        against an already-shrunk buffer. A caller driving offload from more than one task must
+        serialize its own calls to one instance, the same responsibility ``consolidate``'s own
+        docstring places on a caller driving concurrent passes over one scope.
         """
         if not self.should_offload():
+            self.last_offload_receipt = None
             return None
         overflow = self._overflow()
         new_summary = self.summary_manager.create_session_summary(_as_session(overflow))
         if new_summary is None:
+            self.last_offload_receipt = None
             return None
         if provider is not None:
             events = self._events_for(overflow)
             self.last_offload_receipt = provider.write(self.scope, events) if events else None
+        else:
+            self.last_offload_receipt = None
         self.summary = _merge_summary(self.summary, new_summary)
         self.messages = self.messages[len(overflow) :]
         return self.summary
 
     async def aoffload(self, provider: Optional["MemoryProvider"] = None) -> Optional[SessionSummary]:
-        """Async variant of :meth:`offload`."""
+        """Async variant of :meth:`offload`, and the primary entry point -- see its docstring."""
         if not self.should_offload():
+            self.last_offload_receipt = None
             return None
         overflow = self._overflow()
         new_summary = await self.summary_manager.acreate_session_summary(_as_session(overflow))
         if new_summary is None:
+            self.last_offload_receipt = None
             return None
         if provider is not None:
             events = self._events_for(overflow)
             self.last_offload_receipt = await provider.awrite(self.scope, events) if events else None
+        else:
+            self.last_offload_receipt = None
         self.summary = _merge_summary(self.summary, new_summary)
         self.messages = self.messages[len(overflow) :]
         return self.summary

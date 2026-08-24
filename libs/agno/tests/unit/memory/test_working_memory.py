@@ -209,6 +209,42 @@ def test_offload_is_a_noop_below_threshold():
     assert len(wm.messages) == 1
 
 
+def test_offload_resets_a_stale_receipt_on_a_later_no_op_call():
+    """A caller reading `last_offload_receipt` after a call must see what *that* call did, not a
+    leftover from an earlier successful one. Sequence: offload succeeds with a provider (receipt
+    set), the buffer drops back below threshold, a later defensive `offload()` call is a genuine
+    no-op -- and must not still report the earlier receipt."""
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    wm = buffer(max_messages=1, keep_after_offload=0)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+    wm.offload(provider=provider)
+    assert wm.last_offload_receipt is not None  # sanity: the first call did write
+
+    result = wm.offload()  # buffer is now below threshold: a genuine no-op
+
+    assert result is None
+    assert wm.last_offload_receipt is None
+
+
+def test_offload_resets_a_stale_receipt_when_a_later_success_has_no_provider():
+    """A second successful offload that passes no `provider` did not write anything either, and
+    must not still report the first call's receipt."""
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    wm = buffer(max_messages=1, keep_after_offload=0)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+    wm.offload(provider=provider)
+    assert wm.last_offload_receipt is not None
+
+    wm.add_message(msg("user", "three"))
+    wm.add_message(msg("user", "four"))
+    result = wm.offload()  # succeeds, but no provider passed this time
+
+    assert result is not None
+    assert wm.last_offload_receipt is None
+
+
 def test_offload_summarizes_overflow_and_keeps_the_tail_verbatim():
     wm = buffer(max_messages=3, keep_after_offload=1)
     for i in range(4):
@@ -268,6 +304,20 @@ def test_a_second_offload_folds_into_the_running_summary_rather_than_replacing_i
 
     assert wm.summary.summary == "first summary\n\nsecond summary"
     assert wm.summary.topics == ["a", "b"]
+
+
+def test_a_second_offload_with_no_topics_on_either_side_merges_to_an_empty_list_not_none():
+    """`topics=[]` (both summaries genuinely named none) must stay distinguishable from
+    `topics=None` (never asked about) -- `topics or None` collapsed the two into the same value."""
+    manager = SessionSummaryManager(model=fake_model("second summary", topics=None))
+    wm = buffer(max_messages=1, keep_after_offload=0, summary_manager=manager)
+    wm.summary = SessionSummary(summary="first summary", topics=None)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+
+    wm.offload()
+
+    assert wm.summary.topics == []
 
 
 def test_offload_without_a_provider_never_touches_long_term_storage():
@@ -366,6 +416,21 @@ async def test_aoffload_with_a_provider_writes_nothing_when_the_summary_manager_
     assert wm.last_offload_receipt is None
     assert provider.vector.rows.get("acme", {}) == {}
     assert len(wm.messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_aoffload_resets_a_stale_receipt_on_a_later_no_op_call():
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    wm = buffer(max_messages=1, keep_after_offload=0)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+    await wm.aoffload(provider=provider)
+    assert wm.last_offload_receipt is not None
+
+    result = await wm.aoffload()  # below threshold: a genuine no-op
+
+    assert result is None
+    assert wm.last_offload_receipt is None
 
 
 # ---------------------------------------------------------------------------
