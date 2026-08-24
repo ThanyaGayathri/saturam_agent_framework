@@ -23,6 +23,20 @@ provider by declaring one, with no edit to this repository::
     [project.entry-points."egpt.models"]
     acme = "acme_egpt:AcmeModel"
 
+A package declares a *capability* through the entry-point spec's extras fragment, which is the
+only field the value string has left to carry one (aicoe-tracker#179)::
+
+    [project.entry-points."egpt.models"]
+    acme = "acme_egpt:AcmeModel [supports_adapters]"
+
+``supports_adapters`` is the one capability read today, and every PEP 685 spelling of it is
+equivalent (``[supports-adapters]``, ``[SUPPORTS_ADAPTERS]``, ...). Extras are bare names, so
+only boolean-presence flags can travel this way: ``provider_default`` and ``reconstructable``
+are read as booleans and *could* be encoded here if a package ever needed them, while
+``provider_display`` and ``default_name`` carry strings and could not. Nothing is wired to read
+either group off an entry point today -- a package that needs one still registers at runtime.
+A future capability carrying a *value* wants a different mechanism, not another extra.
+
 ``@register(kind, name)`` exists as a third mode for user and runtime code. It is
 deliberately **not** used in-tree: decorating a class means importing it, which is exactly
 what the declaration rows avoid. Code that registers its own class has already imported it,
@@ -40,6 +54,8 @@ import threading
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
+
+from packaging.utils import canonicalize_name
 
 from egpt.utils.log import log_warning
 
@@ -201,6 +217,71 @@ def _entry_point_origin(entry_point: Any) -> str:
     return str(getattr(dist, "name", None) or "<unknown distribution>")
 
 
+# The capability an `egpt.models` entry point can declare through its extras fragment
+# (aicoe-tracker#179), stored PEP 685-normalized so every spelling of it compares equal.
+_ADAPTER_EXTRA = "supports-adapters"
+
+
+def _is_near_miss(candidate: str, target: str) -> bool:
+    """Whether ``candidate`` is close enough to ``target`` to be a typo of it.
+
+    A prefix test (``startswith("supports")``) missed the shapes most likely to be typed --
+    a dropped letter, a transposition, a singular/plural slip -- so the warning covered the
+    population least in need of it. Levenshtein distance <= 2 over the canonical form covers
+    those, and the token-set check catches word-order slips like ``adapters-supports`` that
+    are far apart by edit distance but obviously the same intent.
+    """
+    if candidate == target:
+        return False
+    if set(candidate.split("-")) == set(target.split("-")):
+        return True
+    if abs(len(candidate) - len(target)) > 2:
+        return False
+    previous = list(range(len(target) + 1))
+    for i, a in enumerate(candidate, 1):
+        current = [i]
+        for j, b in enumerate(target, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a != b)))
+        previous = current
+    return previous[-1] <= 2
+
+
+def _declared_extras(value: str) -> Set[str]:
+    """The extras a `module:attr [a, b]` value declares, each canonicalized independently.
+
+    Parsed from the raw ``value`` rather than read off ``EntryPoint.extras`` **because that
+    property cannot answer this question**: ``importlib.metadata`` tokenizes the fragment with
+    ``re.findall(r"\w+", ...)``, which discards commas and separators alike, so
+    ``[supports-adapters]`` (one extra) and ``[supports, adapters]`` (two) both arrive as
+    ``["supports", "adapters"]``. Any comparison built on ``.extras`` therefore has to either
+    fuse distinct extras together or split a hyphenated one apart -- and both directions are
+    live bugs, found in review of the first attempt at this (PR #129):
+
+    * fusing dropped a genuine declaration -- ``[supports_adapters, telemetry]`` compared as
+      ``supports-adapters-telemetry`` and matched nothing, so the adapter was silently ignored,
+      which is the aicoe-tracker#165 failure this whole path exists to prevent;
+    * and it granted one nobody made -- ``[supports, adapters]`` fused into the capability, so a
+      backend with no multi-LoRA support rendered an adapter name as its model id.
+
+    The comma survives in ``value``, so splitting there first keeps each extra distinct.
+    ``packaging.utils.canonicalize_name`` then applies PEP 685 (``-``/``_``/``.`` are one
+    separator, case-insensitive), which is the same normalization setuptools uses when it
+    publishes ``Provides-Extra`` -- so an author who matches their own published metadata
+    matches here too.
+
+    Reading ``value`` also sidesteps a second hazard: ``EntryPoint.extras`` returned
+    ``re.Match`` objects rather than strings on CPython 3.9.0-3.9.10 and 3.10.0-3.10.2 (it
+    became ``re.findall`` in 3.9.11 and 3.10.3). ``pyproject.toml`` declares ``>=3.9`` and CI
+    pins ``"3.10"``, which resolves to a patched release -- so a membership test against that
+    property was silently always-False on supported interpreters, invisible to CI.
+    """
+    _, bracket, rest = value.partition("[")
+    if not bracket:
+        return set()
+    fragment = rest.rpartition("]")[0] if "]" in rest else rest
+    return {canonicalize_name(segment.strip()) for segment in fragment.split(",") if segment.strip()}
+
+
 def _merge_entry_points(kind: str, table: Dict[str, Registration]) -> None:
     """Fold a kind's entry points into ``table``, which the caller owns and may mutate.
 
@@ -234,7 +315,14 @@ def _merge_entry_points(kind: str, table: Dict[str, Registration]) -> None:
             continue
 
         value = getattr(entry_point, "value", "")
-        if ":" not in value:
+        # Guard the *target* half, not the raw value: a colon that lives only inside the extras
+        # fragment (`acme_pkg.model:[supports_adapters]`, `acme_pkg.model [ns:AcmeModel]`) passed
+        # a `":" in value` test while parsing to an empty `attr`, so the row registered, claimed
+        # the name against any later well-formed registration, and failed at request time with
+        # `getattr(module, "")` instead of being skipped here (PR #129 review).
+        target = value.partition("[")[0].strip()
+        module, _, attr = target.partition(":")
+        if ":" not in target or not module.strip() or not attr.strip():
             # Skip only this row: one malformed declaration should not cost a distribution
             # its other, well-formed providers.
             log_warning(
@@ -242,12 +330,49 @@ def _merge_entry_points(kind: str, table: Dict[str, Registration]) -> None:
             )
             continue
 
-        module, _, attr = value.partition(":")
+        # The extras fragment (` [supports_adapters]`) trails the module:attr pair and is not
+        # part of the attribute path -- strip it the same way `EntryPoint.attr` does before
+        # splitting, so a row declaring an extra still resolves the right target on `.load()`.
+        #
+        # Parsed here rather than delegated to `EntryPoint.module`/`.attr` on purpose: entry-point
+        # objects are duck-typed on this path (see `_entry_point_origin`), so those properties are
+        # not guaranteed to exist, and they *raise* on a value this function has already accepted
+        # -- which would cost the whole kind rather than one row. Verified equivalent to the
+        # stdlib properties on every value that passes the guard above; do not "simplify" it into
+        # a divergence.
+        metadata: Dict[str, Any] = {}
+        # `extras` is the standard `module:attr [extra1,extra2]` fragment `importlib.metadata`
+        # already parses -- the only way an entry point (a bare name/value pair, nothing else)
+        # can carry a capability flag. `supports_adapters` is the one flag Mode A reads
+        # (aicoe-tracker#179); listing it here is what lets an out-of-tree package opt in
+        # without a runtime `register()` call. Only boolean-presence capabilities can travel
+        # this way: an extra is a bare name, so the string-valued metadata keys a runtime
+        # `register()` can pass (`provider_display`, `default_name`, ...) have no encoding here
+        # and still require a runtime registration.
+        extras = _declared_extras(value)
+        if _ADAPTER_EXTRA in extras:
+            metadata["supports_adapters"] = True
+        else:
+            # A near-miss is the failure this whole path exists to prevent: the row still
+            # resolves, so the only symptom is an adapter silently ignored at request time
+            # (aicoe-tracker#165). Name the expected spelling rather than leaving it silent.
+            #
+            # Edit distance rather than a prefix test: the prefix version missed the typo
+            # shapes most likely to occur -- `support-adapters` (dropped s), `adapter-support`
+            # (transposed), `supports-adapter` (singular) -- which is precisely the population
+            # it existed to catch (PR #129 review).
+            for extra in sorted(extras):
+                if _is_near_miss(extra, _ADAPTER_EXTRA):
+                    log_warning(
+                        f"{kind} '{name}' from '{origin}' declares extra '{extra}', which is not a "
+                        f"capability this registry reads. Did you mean 'supports_adapters'?"
+                    )
         table[name] = Registration(
             kind=kind,
             name=name,
             module=module.strip(),
             attr=attr.strip(),
+            metadata=metadata,
             source=SOURCE_ENTRY_POINT,
             origin=origin,
         )
