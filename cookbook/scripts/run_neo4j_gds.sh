@@ -11,6 +11,12 @@
 # this combination (`gdsEdition: Unlicensed`), which is the capability SM-H4 needs. That probe does
 # not settle the license question -- see SM-R2's SPIKE.md section 5.3 before using this outside a
 # local dev/CI run.
+#
+# Pinned to 5.26, not bare `5` (round-3 review, Nit): TEST_LOG.md's PPR results are reported
+# against a specific engine/GDS combination (Neo4j 5.26.28, GDS 2.13.11); an unpinned tag drifts
+# to whatever `5.x` is latest on the next pull, so a result that stops reproducing cannot tell
+# "the code changed" from "the engine did." The GDS plugin version itself is not pinned here --
+# it is whatever `NEO4J_PLUGINS` resolves at pull time -- a residual, not solved by this alone.
 
 docker run -d \
   -e NEO4J_AUTH=neo4j/smh4testpassword \
@@ -18,7 +24,7 @@ docker run -d \
   -p 7692:7687 \
   -p 7477:7474 \
   --name neo4j-memory-gds \
-  neo4j:5
+  neo4j:5.26
 
 echo "Bolt: bolt://localhost:7692   Browser: http://localhost:7477"
 echo "Run the PPR integration suite with:"

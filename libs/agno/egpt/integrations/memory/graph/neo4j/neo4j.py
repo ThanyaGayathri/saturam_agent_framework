@@ -1104,15 +1104,39 @@ class Neo4jGraphSubstrate:
             "valid_to": window.valid_to if window else None,
         }
 
-    def _ppr_statements_for(self, scope: Scope, query: MemoryQuery, graph_name: str) -> Dict[str, Any]:
+    def _ppr_statements_for(
+        self, scope: Scope, query: MemoryQuery, graph_name: str
+    ) -> Dict[str, Tuple[str, Dict[str, Any]]]:
         # `**self._ppr_temporal(query)` type-checks as unsound to mypy: unpacking a
         # `Dict[str, Optional[int]]` leaves it unable to rule out the dict also supplying
         # `graph_name: Optional[str]`, so the three bounds are passed by name instead.
+        # Return type is the exact `Dict[str, Tuple[str, Dict[str, Any]]]` `cypher.ppr_statements`
+        # returns, not the wider `Dict[str, Any]` an earlier version had here (round-3 review,
+        # Minor) -- mypy did not complain either way, since `Any` subsumes it, but the looser
+        # annotation cost a caller the shape guarantee this method actually provides.
         temporal = self._ppr_temporal(query)
         return cypher.ppr_statements(
             scope,
             terms=_terms(query.text),
             seed_top_m=self.multihop_ppr_seed_top_m,
+            graph_name=graph_name,
+            as_of=temporal["as_of"],
+            valid_from=temporal["valid_from"],
+            valid_to=temporal["valid_to"],
+        )
+
+    def _ppr_rank_statement_for(
+        self, scope: Scope, query: MemoryQuery, seed_names: Sequence[str], graph_name: str
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Build the ``rank`` leg from ``seeds``' own resolved result (SM-H4 #134, round-3 review,
+        Major). See :func:`~egpt.integrations.memory.graph.neo4j.cypher.ppr_rank_statement`'s own
+        docstring for why this takes ``seed_names`` -- data already fetched from the database --
+        rather than re-deriving the anchor set with a second, unsynchronized ``MATCH``.
+        """
+        temporal = self._ppr_temporal(query)
+        return cypher.ppr_rank_statement(
+            scope,
+            seed_names=seed_names,
             alpha=self.multihop_ppr_alpha,
             tiers=_tiers(query),
             limit=query.limit,
@@ -1152,15 +1176,26 @@ class Neo4jGraphSubstrate:
         silently degrades to unseeded global PageRank rather than refusing). An empty result means
         this call never touches ``gds.graph.*`` at all, so there is nothing for the ``finally`` to
         clean up either.
+
+        **``seeds``' resolved names are threaded into ``rank``, not re-derived (round-3 review,
+        Major).** An earlier version had ``rank`` run its own independent ``MATCH`` over the same
+        anchor predicate ``seeds`` already evaluated -- two unsynchronized statements, a TOCTOU
+        race a concurrent entity write between them could exploit to silently seed ``rank`` from an
+        empty or different anchor set than ``seeds`` had verified. `:func:`~egpt.integrations.
+        memory.graph.neo4j.cypher.ppr_rank_statement`'s own docstring has the full account and the
+        residual this still leaves.
         """
         graph_name = f"{cypher.ppr_graph_name(scope)}_{uuid4().hex[:12]}"
         statements = self._ppr_statements_for(scope, query, graph_name)
         with self._translated("multihop PPR"), self._driver.session(database=self.database) as session:
-            if not [dict(record) for record in session.run(*statements["seeds"])]:
+            seed_rows = [dict(record) for record in session.run(*statements["seeds"])]
+            if not seed_rows:
                 return []
+            seed_names = [row["name"] for row in seed_rows]
+            rank_statement = self._ppr_rank_statement_for(scope, query, seed_names, graph_name)
             try:
                 session.run(*statements["project"]).consume()
-                return [dict(record) for record in session.run(*statements["rank"])]
+                return [dict(record) for record in session.run(*rank_statement)]
             finally:
                 self._drop_ppr_graph(session, graph_name, statements["drop"])
 
@@ -1180,17 +1215,21 @@ class Neo4jGraphSubstrate:
             log_warning(f"multihop PPR: failed to drop GDS graph {graph_name!r} during cleanup: {exc}")
 
     async def _appr_rows(self, scope: Scope, query: MemoryQuery) -> List[Dict[str, Any]]:
-        """Async twin of :meth:`_ppr_rows`, with the same unique-name/seeds-guard/drop-after rule."""
+        """Async twin of :meth:`_ppr_rows`, with the same unique-name/seeds-guard/seeds-into-rank/
+        drop-after rule."""
         graph_name = f"{cypher.ppr_graph_name(scope)}_{uuid4().hex[:12]}"
         statements = self._ppr_statements_for(scope, query, graph_name)
         with self._translated("multihop PPR"):
             async with self._async_driver().session(database=self.database) as session:
                 seed_result = await session.run(*statements["seeds"])
-                if not [dict(record) async for record in seed_result]:
+                seed_rows = [dict(record) async for record in seed_result]
+                if not seed_rows:
                     return []
+                seed_names = [row["name"] for row in seed_rows]
+                rank_statement = self._ppr_rank_statement_for(scope, query, seed_names, graph_name)
                 try:
                     await (await session.run(*statements["project"])).consume()
-                    result = await session.run(*statements["rank"])
+                    result = await session.run(*rank_statement)
                     return [dict(record) async for record in result]
                 finally:
                     await self._adrop_ppr_graph(session, graph_name, statements["drop"])

@@ -58,29 +58,46 @@ def all_statements(scope):
             for name, (text, params) in cypher.ppr_statements(
                 scope,
                 terms=["ada"],
+                as_of=1000,
+                graph_name=cypher.ppr_graph_name(scope),
+            ).items()
+        ],
+        # `rank` is built by a separate function since round-3 review (Major, TOCTOU fix): it takes
+        # `seeds`' own resolved names as data, not a fresh anchor predicate -- `["ada"]` here stands
+        # in for that already-fetched result, exactly as `Neo4jGraphSubstrate._ppr_rows`/`_appr_rows`
+        # supply it at runtime.
+        (
+            "ppr_rank",
+            *cypher.ppr_rank_statement(
+                scope,
+                seed_names=["ada"],
                 tiers=["semantic"],
                 as_of=1000,
                 limit=10,
                 graph_name=cypher.ppr_graph_name(scope),
-            ).items()
-        ],
-        # The window branch (round-1 review, Major): `project`/`rank` only, since anchor selection
-        # (`drop`/`seeds`) does not depend on which temporal branch is active.
-        *[
-            (f"ppr_window[{name}]", text, params)
-            for name in ("project", "rank")
-            for text, params in [
-                cypher.ppr_statements(
-                    scope,
-                    terms=["ada"],
-                    tiers=["semantic"],
-                    valid_from=1000,
-                    valid_to=2000,
-                    limit=10,
-                    graph_name=cypher.ppr_graph_name(scope),
-                )[name]
-            ]
-        ],
+            ),
+        ),
+        # The window branch (round-1 review, Major): `project` (from `ppr_statements`) and the
+        # `rank` leg (from `ppr_rank_statement`) only, since anchor selection (`drop`/`seeds`) does
+        # not depend on which temporal branch is active.
+        (
+            "ppr_window[project]",
+            *cypher.ppr_statements(
+                scope, terms=["ada"], valid_from=1000, valid_to=2000, graph_name=cypher.ppr_graph_name(scope)
+            )["project"],
+        ),
+        (
+            "ppr_window[rank]",
+            *cypher.ppr_rank_statement(
+                scope,
+                seed_names=["ada"],
+                tiers=["semantic"],
+                valid_from=1000,
+                valid_to=2000,
+                limit=10,
+                graph_name=cypher.ppr_graph_name(scope),
+            ),
+        ),
         *[(f"bounds[{i}]", text, params) for i, (text, params) in enumerate(cypher.bounds_statements(scope))],
         *[(f"live_row[{i}]", text, params) for i, (text, params) in enumerate(cypher.live_row_statements(scope))],
         *[(f"expire[{i}]", text, params) for i, (text, params) in enumerate(cypher.expire_statements(scope))],
@@ -192,7 +209,7 @@ GRAPH_NAME_SCOPED_STATEMENTS = ("ppr[drop]",)
 #: :func:`test_no_statement_applies_valid_time` guards (a different parameter, ``$ppr_as_of``, never
 #: ``$as_of``) -- see :func:`test_ppr_predicate_is_sm_r10_section_7s_5a_verbatim` for what *does*
 #: hold PPR to the same discipline every other bi-temporal predicate in this module follows.
-POINT_IN_TIME_STATEMENTS = ("ppr[project]", "ppr[rank]")
+POINT_IN_TIME_STATEMENTS = ("ppr[project]", "ppr_rank")
 
 
 @pytest.mark.parametrize(
@@ -325,6 +342,50 @@ def test_ppr_never_touches_the_providers_as_of(label):
     assert "ppr_as_of" in params
 
 
+@pytest.mark.parametrize("seed_top_m", [0, -1, 1.5, "3"])
+def test_ppr_statements_refuses_a_bad_seed_top_m(seed_top_m):
+    """Round-3 review, Minor: the validation logic itself was spot-checked correct but had no
+    direct unit test -- covered only incidentally by whatever `seed_top_m` the statement-shape
+    fixtures happened to pass. Exercised directly here instead."""
+    with pytest.raises(MemoryOperationError) as excinfo:
+        cypher.ppr_statements(FULL, terms=["ada"], seed_top_m=seed_top_m, graph_name="g")
+    assert excinfo.value.field_name == "seed_top_m"
+
+
+@pytest.mark.parametrize("alpha", [1.0, 1.5, -0.1, "0.5"])
+def test_ppr_rank_statement_refuses_a_bad_alpha(alpha):
+    """The `ppr_rank_statement` half of the same coverage gap (round-3 review, Minor) -- `alpha`
+    validation moved here from `ppr_statements` when the TOCTOU fix split `rank` out (round-3
+    review, Major, see `test_ppr_rank_statement_seeds_from_the_resolved_names_not_a_fresh_match`)."""
+    with pytest.raises(MemoryOperationError) as excinfo:
+        cypher.ppr_rank_statement(FULL, seed_names=["ada"], alpha=alpha, graph_name="g")
+    assert excinfo.value.field_name == "alpha"
+
+
+def test_ppr_rank_statement_seeds_from_the_resolved_names_not_a_fresh_match():
+    """Round-3 review, Major: an earlier version had `rank` run its own independent
+    `MATCH (anchor:Entity) WHERE <word-overlap predicate> ... LIMIT $seed_top_m`, re-deriving the
+    same anchor set `seeds` already resolved -- two unsynchronized statements with no shared
+    transaction, a TOCTOU race a concurrent entity write between them could exploit to silently
+    seed `rank` from an empty or different anchor set than `seeds` had already verified non-empty.
+
+    Pinned directly: `ppr_rank_statement`'s text must filter by exact `$seed_names` membership, not
+    re-run the word-overlap `$terms` predicate `_anchor_predicate`/`seeds` use -- and must not even
+    accept a `terms`/`seed_top_m` argument, so a caller cannot silently reintroduce the race by
+    passing them.
+    """
+    import inspect
+
+    text, params = cypher.ppr_rank_statement(FULL, seed_names=["ada", "bob"], graph_name="g")
+
+    assert "anchor.name IN $seed_names" in text
+    assert params["seed_names"] == ["ada", "bob"]
+    assert "$terms" not in text and "terms" not in params
+    assert "$seed_top_m" not in text and "seed_top_m" not in params
+    assert "seed_top_m" not in inspect.signature(cypher.ppr_rank_statement).parameters
+    assert "terms" not in inspect.signature(cypher.ppr_rank_statement).parameters
+
+
 def test_ppr_predicate_is_sm_r10_section_7s_5a_verbatim():
     """The binding constraint ADR 0003 section B.2 carries from SM-R9's spike into this ticket:
     the PPR projection must use SM-R10 section 7's full 5a predicate, not the simplified form an
@@ -336,7 +397,7 @@ def test_ppr_predicate_is_sm_r10_section_7s_5a_verbatim():
     open-ended, currently-true edge from the projection; dropping ``expired_at IS NULL`` would
     readmit superseded/retracted SCD-2 rows and inflate PPR's mass on stale facts.
     """
-    for label in ("ppr[project]", "ppr[rank]"):
+    for label in ("ppr[project]", "ppr_rank"):
         text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
         assert "t_valid IS NULL OR" in text and "t_valid <= $ppr_as_of" in text, (
             f"{label} does not apply the 5a lower bound with the null-is-open convention"
@@ -355,7 +416,7 @@ def test_ppr_score_is_capped_to_the_bfs_legs_own_ceiling():
     global (not same-id-only) sort/limit cut. `$score_ceiling` scales the normalised value down to
     :data:`cypher.PPR_SCORE_CEILING` instead of leaving it at a bare ``[0.0, 1.0]``.
     """
-    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == "ppr[rank]")
+    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == "ppr_rank")
     assert "$score_ceiling *" in text, "rank must scale the normalised score by $score_ceiling"
     assert params["score_ceiling"] == cypher.PPR_SCORE_CEILING
     assert 0.0 < cypher.PPR_SCORE_CEILING <= 0.5, "the ceiling must not exceed the BFS leg's own max"
@@ -368,7 +429,7 @@ def test_ppr_scopes_the_other_endpoint_too():
     was aspirational, not true. Scoped now, matching this module's SM-C4 (#92) convention of scoping
     every alias directly rather than trusting a join to carry an upstream one.
     """
-    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == "ppr[rank]")
+    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == "ppr_rank")
     assert "other.tenant_id = $tenant_id" in text, "the rank statement's `other` alias must be scoped"
     for slot in cypher.SCOPE_SLOTS:
         assert f"other.{slot} = ${slot}" in text, f"`other` is not filtered on {slot}"
@@ -406,11 +467,12 @@ def test_ppr_with_neither_as_of_nor_window_applies_no_temporal_restriction():
     restricts what is visible. `_window_predicate` with both bounds `None` is unconditionally true,
     so this is the same code path as the window branch above, not a third one to drift from it.
     """
-    statements = cypher.ppr_statements(
-        FULL, terms=["ada"], tiers=["semantic"], limit=10, graph_name=cypher.ppr_graph_name(FULL)
+    statements = cypher.ppr_statements(FULL, terms=["ada"], graph_name=cypher.ppr_graph_name(FULL))
+    project_text, project_params = statements["project"]
+    rank_text, rank_params = cypher.ppr_rank_statement(
+        FULL, seed_names=["ada"], tiers=["semantic"], limit=10, graph_name=cypher.ppr_graph_name(FULL)
     )
-    for label in ("project", "rank"):
-        text, params = statements[label]
+    for text, params in ((project_text, project_params), (rank_text, rank_params)):
         assert "$ppr_as_of" not in text and "ppr_as_of" not in params
         assert params["valid_from"] is None and params["valid_to"] is None
         assert "expired_at IS NULL" in text

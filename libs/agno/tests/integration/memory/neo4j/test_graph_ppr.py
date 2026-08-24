@@ -148,6 +148,65 @@ def test_the_flag_actually_gates_the_leg(graph_flag_off):
     assert "f3" not in ids(hits), "flag-off must not exercise the PPR leg at all"
 
 
+def test_traverse_applies_as_of_asymmetrically_ppr_honors_it_bfs_does_not(graph):
+    """Round-3 review, Major: the Protocol docstring (`substrates.py`) used to state unconditionally
+    that `traverse()` never applies `query.as_of`, while PPR is in fact the one leg that does --
+    the exception was previously disclosed only in a unit test's docstring, not the Protocol itself,
+    and nothing pinned the asymmetry at the `Neo4jGraphSubstrate.traverse()` level (every AC3 test
+    called `graph._ppr_rows()` directly instead).
+
+    Two facts, both with a `t_valid` in the *future* relative to the query's `as_of`: one within
+    BFS's default 2-hop reach, one reachable only via PPR (3 hops). If BFS genuinely ignores
+    `as_of` (as every row-shape/multi-hop leg but PPR does), the near fact must still appear in
+    `traverse()`'s merged output despite its future `t_valid`. If PPR genuinely honors `as_of` (the
+    fix this round adds), the far fact -- reachable *only* through PPR -- must be excluded.
+    """
+    graph.upsert_entities(
+        ACME, [EntityWrite(name=n, entity_type="place", scope=ACME) for n in ("west1", "west2", "west3", "west4")]
+    )
+    future_valid = 5_000_000
+    as_of_before_that = 1_000_000
+    graph.upsert_facts(
+        ACME,
+        [
+            # Hop 1 from "west1": within BFS's default max_traverse_hops=2 reach.
+            fact(
+                "w1",
+                "west1 relates_to west2",
+                subject="west1",
+                predicate="relates_to",
+                object="west2",
+                t_valid=future_valid,
+            ),
+            # Hop 2: still within BFS's reach.
+            fact(
+                "w2",
+                "west2 relates_to west3",
+                subject="west2",
+                predicate="relates_to",
+                object="west3",
+                t_valid=future_valid,
+            ),
+            # Hop 3: past BFS's bound, reachable only via PPR's unbounded ranked walk.
+            fact(
+                "w3",
+                "west3 relates_to west4",
+                subject="west3",
+                predicate="relates_to",
+                object="west4",
+                t_valid=future_valid,
+            ),
+        ],
+    )
+
+    query = MemoryQuery(text="west1", limit=10, as_of=as_of_before_that)
+    hits = ids(graph.traverse(ACME, query))
+
+    assert "w1" in hits, "BFS-reachable fact with a future t_valid must still appear -- BFS ignores as_of"
+    assert "w2" in hits, "same for the second BFS-reachable hop"
+    assert "w3" not in hits, "PPR-only-reachable fact with a future t_valid must be excluded -- PPR honors as_of"
+
+
 def test_ppr_composes_with_the_bitemporal_predicate(graph):
     """AC 3 ("composes with bi-temporal filtering"), exercised on this backend's real bi-temporal
     edges -- not the spike's toy chain and not asserted by inspection. SM-R10 section 7's 5a
@@ -314,3 +373,44 @@ def test_concurrent_same_scope_ppr_calls_do_not_collide(graph):
     # The sharpest check: neither call's topology leaked into the other's result.
     assert not set(results.get("north", [])) & {"f1", "f2", "f3"}, "north-seeded call saw the alpha chain"
     assert not set(results.get("alpha", [])) & {"n1", "n2", "n3"}, "alpha-seeded call saw the north chain"
+
+
+async def test_aconcurrent_same_scope_ppr_calls_do_not_collide():
+    """Async twin of `test_concurrent_same_scope_ppr_calls_do_not_collide` (round-3 review, Minor):
+    the uuid-based catalog-name uniqueness mechanism is shared code, not duplicated per sync/async
+    path, but the concurrency primitive is different (`asyncio.gather` over one shared async driver
+    vs. real OS threads each with their own sync session) and nothing had exercised it directly."""
+    import asyncio
+
+    substrate = Neo4jGraphSubstrate(**_settings(), multihop_ppr_enabled=True, multihop_ppr_seed_top_m=3)
+    with substrate._driver.session(database=substrate.database) as session:
+        session.run("MATCH (n) DETACH DELETE n")
+    _drop_all_ppr_graphs(substrate)
+    try:
+        substrate.upsert_entities(
+            ACME,
+            [EntityWrite(name=n, entity_type="place", scope=ACME) for n in ("north1", "north2", "north3", "north4")],
+        )
+        substrate.upsert_facts(
+            ACME,
+            [
+                fact("n1", "north1 relates_to north2", subject="north1", predicate="relates_to", object="north2"),
+                fact("n2", "north2 relates_to north3", subject="north2", predicate="relates_to", object="north3"),
+                fact("n3", "north3 relates_to north4", subject="north3", predicate="relates_to", object="north4"),
+            ],
+        )
+        _chain(substrate)
+
+        north_hits, alpha_hits = await asyncio.gather(
+            substrate._appr_rows(ACME, MemoryQuery(text="north1", limit=10)),
+            substrate._appr_rows(ACME, MemoryQuery(text="alpha", limit=10)),
+        )
+        north_ids, alpha_ids = raw_ids(north_hits), raw_ids(alpha_hits)
+
+        assert set(north_ids) & {"n1", "n2", "n3"}, north_ids
+        assert "f3" in alpha_ids, alpha_ids
+        assert not set(north_ids) & {"f1", "f2", "f3"}, "north-seeded call saw the alpha chain"
+        assert not set(alpha_ids) & {"n1", "n2", "n3"}, "alpha-seeded call saw the north chain"
+    finally:
+        _drop_all_ppr_graphs(substrate)
+        await substrate.aclose()
