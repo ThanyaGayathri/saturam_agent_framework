@@ -42,6 +42,7 @@ from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     EntityMerge,
     EntityWrite,
+    FactWrite,
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
@@ -49,7 +50,7 @@ from egpt.memory.types import (
     Scope,
     Substrate,
 )
-from tests.unit.memory.test_provider_swap import GLOBEX, WRITABLE_CONFIGS, mode_a_config
+from tests.unit.memory.test_provider_swap import ALL_CONFIGS, GLOBEX, WRITABLE_CONFIGS
 
 # `user_id` differs too, not just `tenant_id`: a sweep that only varied the tenant could pass
 # against a backend that scopes on tenant and ignores every other slot.
@@ -58,6 +59,15 @@ ACME = Scope(tenant_id="acme", user_id="ada")
 SECRET_ID = "acme-secret-episode"
 SECRET_CONTENT = "the acme board approved a confidential acquisition of globex"
 SECRET_ENTITY = "Acme Board"
+SECRET_FACT_ID = "acme-secret-fact"
+#: `Northwind`, not `Acme`: `traverse`'s lexical overlap lowercases and tokenises `.content`, and
+#: `SECRET_CONTENT` already contains the token `acme` -- a subject literally named `Acme` would
+#: make this fact match every `SECRET_CONTENT` query by token overlap, not by any leak.
+FACT_SUBJECT, FACT_PREDICATE, FACT_OBJECT = "Northwind", "owns", "SecretProject"
+#: Disjoint wording from `SECRET_CONTENT`/`SEMANTIC_CONTENT`, for the same reason those two are
+#: disjoint from each other -- `recall_facts` doesn't rank on text, but nothing stops a future
+#: query from being built against `.content` too.
+FACT_CONTENT = "Northwind owns SecretProject"
 #: Written for every wiring, including ``seed`` (which cannot serve EPISODIC) -- the one string
 #: guaranteed present in a genuine snapshot of tenant A's data, whatever the provider's shape.
 SEMANTIC_CONTENT = "quarterly earnings figures remain under wraps until Friday"
@@ -67,9 +77,18 @@ def build(name: str) -> MemoryProvider:
     return build_memory_provider(WRITABLE_CONFIGS[name]())
 
 
-def graph_backed_provider() -> MemoryProvider:
-    """Mode A: the one wiring with both substrates live, for the graph-only attacks below."""
-    return build_memory_provider(mode_a_config())
+def graph_provider(name: str) -> MemoryProvider:
+    """A provider from ``ALL_CONFIGS`` rather than ``WRITABLE_CONFIGS``: the graph-specific
+    attacks below need every graph-wired config, including ``graph_only`` -- excluded from
+    ``WRITABLE_CONFIGS`` for a documented, unrelated reason (``consolidate`` needs a vector leg to
+    enumerate episodes) that has nothing to do with whether its graph leg can be attacked."""
+    return build_memory_provider(ALL_CONFIGS[name]())
+
+
+#: Wirings with a graph substrate wired, for the graph-specific attacks below. ``vector_only`` (in
+#: ``WRITABLE_CONFIGS``) has no graph leg to attack; ``graph_only`` (excluded from
+#: ``WRITABLE_CONFIGS``, see ``graph_provider``) does. Both belong here.
+GRAPH_CONFIGS = ("graph_only", "mode_a")
 
 
 def graph_of(provider: MemoryProvider) -> Any:
@@ -102,6 +121,17 @@ def seed_tenant_a(provider: MemoryProvider) -> None:
     graph = getattr(provider, "graph", None)
     if provider.substrates().get(Substrate.GRAPH) and graph is not None:
         graph.upsert_entities(ACME, [EntityWrite(name=SECRET_ENTITY, entity_type="group", scope=ACME)])
+        graph.upsert_facts(
+            ACME,
+            [
+                FactWrite(
+                    record=MemoryRecord(id=SECRET_FACT_ID, tier=MemoryTier.SEMANTIC, content=FACT_CONTENT, scope=ACME),
+                    subject=FACT_SUBJECT,
+                    predicate=FACT_PREDICATE,
+                    object=FACT_OBJECT,
+                )
+            ],
+        )
 
 
 def tenant_a_state(provider: MemoryProvider) -> str:
@@ -256,11 +286,30 @@ def attempt_every_graph_op_as(provider: MemoryProvider, scope: Scope) -> None:
     attempts: List[Callable[[], Any]] = [
         lambda: graph.traverse(scope, query),
         lambda: graph.recall_episodes(scope, entities=[SECRET_ENTITY], limit=10),
+        lambda: graph.recall_facts(scope, entities=[FACT_SUBJECT], limit=10),
         lambda: graph.bounds_for_ids(scope, [SECRET_ID]),
         lambda: graph.invalidate(scope, SECRET_ID, t_invalid=1),
         lambda: graph.match_entities(
             scope, EntityWrite(name="Board", entity_type="group", scope=scope, embedding=[0.1, 0.2]), limit=5
         ),
+        # Id collision on every upsert verb: B writes its own content under A's exact episode,
+        # fact, and entity identities, hoping to overwrite them -- the write-side counterpart of
+        # `attempt_every_seam_op_as`'s id-collision attempt, one layer down.
+        lambda: graph.upsert_episodes(scope, [MemoryEvent(id=SECRET_ID, content="hijacked-episode", scope=scope)]),
+        lambda: graph.upsert_facts(
+            scope,
+            [
+                FactWrite(
+                    record=MemoryRecord(
+                        id=SECRET_FACT_ID, tier=MemoryTier.SEMANTIC, content="hijacked-fact", scope=scope
+                    ),
+                    subject=FACT_SUBJECT,
+                    predicate=FACT_PREDICATE,
+                    object=FACT_OBJECT,
+                )
+            ],
+        ),
+        lambda: graph.upsert_entities(scope, [EntityWrite(name=SECRET_ENTITY, entity_type="hijacked", scope=scope)]),
         # Kept despite being structurally guaranteed to miss: `FakeGraph.entities` is keyed on
         # `(scope.key(), name)`, so B's merge can only ever target `(GLOBEX.key(), name)` and never
         # collides with A's `(ACME.key(), name)` entry -- this is a regression check on that key
@@ -291,11 +340,29 @@ async def attempt_every_graph_op_as_async(provider: MemoryProvider, scope: Scope
     attempts: List[Callable[[], Awaitable[Any]]] = [
         lambda: graph.atraverse(scope, query),
         lambda: graph.arecall_episodes(scope, entities=[SECRET_ENTITY], limit=10),
+        lambda: graph.arecall_facts(scope, entities=[FACT_SUBJECT], limit=10),
         lambda: graph.abounds_for_ids(scope, [SECRET_ID]),
         lambda: graph.ainvalidate(scope, SECRET_ID, t_invalid=1),
         lambda: graph.amatch_entities(
             scope, EntityWrite(name="Board", entity_type="group", scope=scope, embedding=[0.1, 0.2]), limit=5
         ),
+        lambda: graph.aupsert_episodes(
+            scope, [MemoryEvent(id=SECRET_ID, content="hijacked-episode-async", scope=scope)]
+        ),
+        lambda: graph.aupsert_facts(
+            scope,
+            [
+                FactWrite(
+                    record=MemoryRecord(
+                        id=SECRET_FACT_ID, tier=MemoryTier.SEMANTIC, content="hijacked-fact-async", scope=scope
+                    ),
+                    subject=FACT_SUBJECT,
+                    predicate=FACT_PREDICATE,
+                    object=FACT_OBJECT,
+                )
+            ],
+        ),
+        lambda: graph.aupsert_entities(scope, [EntityWrite(name=SECRET_ENTITY, entity_type="hijacked", scope=scope)]),
         lambda: graph.amerge_entities(
             scope,
             [
@@ -367,20 +434,23 @@ def test_tenant_b_gets_a_genuinely_empty_read_not_an_error_masking_a_leak(name):
         assert SECRET_ID != record.id
 
 
-def test_tenant_b_cannot_traverse_or_recall_tenant_as_graph():
-    provider = graph_backed_provider()
+@pytest.mark.parametrize("name", GRAPH_CONFIGS)
+def test_tenant_b_cannot_traverse_or_recall_tenant_as_graph(name):
+    provider = graph_provider(name)
     seed_tenant_a(provider)
     graph = graph_of(provider)
 
     hits = graph.traverse(GLOBEX, MemoryQuery(text=SECRET_CONTENT, limit=10))
     recalled = graph.recall_episodes(GLOBEX, entities=[SECRET_ENTITY], limit=10)
+    recalled_facts = graph.recall_facts(GLOBEX, entities=[FACT_SUBJECT], limit=10)
 
     assert hits == []
     assert recalled == []
+    assert recalled_facts == []
 
 
 def test_tenant_b_cannot_search_or_scan_tenant_as_vector_rows():
-    provider = graph_backed_provider()
+    provider = graph_provider("mode_a")
     seed_tenant_a(provider)
     vector = vector_of(provider)
 
@@ -391,8 +461,9 @@ def test_tenant_b_cannot_search_or_scan_tenant_as_vector_rows():
     assert all(record.id != SECRET_ID for record in scanned)
 
 
-def test_tenant_b_cannot_match_tenant_as_entity():
-    provider = graph_backed_provider()
+@pytest.mark.parametrize("name", GRAPH_CONFIGS)
+def test_tenant_b_cannot_match_tenant_as_entity(name):
+    provider = graph_provider(name)
     seed_tenant_a(provider)
     graph = graph_of(provider)
 
@@ -439,8 +510,9 @@ def test_tenant_b_writing_tenant_as_id_does_not_alter_tenant_as_row(name):
     assert b_read[0].scope.tenant_id == GLOBEX.tenant_id
 
 
-def test_tenant_b_invalidating_tenant_as_edge_is_a_no_op():
-    provider = graph_backed_provider()
+@pytest.mark.parametrize("name", GRAPH_CONFIGS)
+def test_tenant_b_invalidating_tenant_as_edge_is_a_no_op(name):
+    provider = graph_provider(name)
     seed_tenant_a(provider)
     graph = graph_of(provider)
 
@@ -451,8 +523,9 @@ def test_tenant_b_invalidating_tenant_as_edge_is_a_no_op():
     assert still_current[0].expired_at is None
 
 
-def test_tenant_b_cannot_merge_tenant_as_entity_into_its_own():
-    provider = graph_backed_provider()
+@pytest.mark.parametrize("name", GRAPH_CONFIGS)
+def test_tenant_b_cannot_merge_tenant_as_entity_into_its_own(name):
+    provider = graph_provider(name)
     seed_tenant_a(provider)
     graph = graph_of(provider)
 
@@ -515,9 +588,10 @@ async def test_the_full_adversarial_sweep_leaves_tenant_a_byte_for_byte_intact_o
     assert tenant_a_state(provider) == before
 
 
-def test_tenant_a_can_still_operate_normally_after_the_sweep():
+@pytest.mark.parametrize("name", MULTI_TENANT_CONFIGS)
+def test_tenant_a_can_still_operate_normally_after_the_sweep(name):
     """Isolation must not have been achieved by breaking the provider for its rightful tenant."""
-    provider = graph_backed_provider()
+    provider = build(name)
     seed_tenant_a(provider)
 
     attempt_every_seam_op_as(provider, GLOBEX)
