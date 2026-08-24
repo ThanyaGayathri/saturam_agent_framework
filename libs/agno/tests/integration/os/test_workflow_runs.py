@@ -1,7 +1,7 @@
 """Integration tests for running Workflows in EgptOS."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -15,6 +15,8 @@ from egpt.db.base import ComponentType
 from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
+from egpt.os.middleware.jwt import INVALID_TENANT_CLAIM_ERROR
+from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
 from egpt.workflow.factory import WorkflowFactory
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput
@@ -258,18 +260,18 @@ def _issue_token(secret: str, os_id: str, sub: str, scopes: list[str]) -> str:
             "sub": sub,
             "aud": os_id,
             "scopes": scopes,
-            "exp": datetime.now(UTC) + timedelta(minutes=5),
-            "iat": datetime.now(UTC),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "iat": datetime.now(timezone.utc),
         },
         secret,
         algorithm="HS256",
     )
 
 
-def _authenticate_ws(ws, token: str, expected_user_id: str) -> None:
-    connection_event = json.loads(ws.receive_text())
-    assert connection_event["event"] == "connected"
-
+def _reauthenticate_ws(ws, token: str, expected_user_id: str) -> None:
+    """Send an ``authenticate`` action without expecting the connection-open ``connected``
+    frame first -- for a connection that has already authenticated at least once.
+    """
     ws.send_text(json.dumps({"action": "authenticate", "token": token}))
 
     for _ in range(5):
@@ -277,6 +279,12 @@ def _authenticate_ws(ws, token: str, expected_user_id: str) -> None:
         if frame.get("event") == "authenticated" and frame.get("user_id") == expected_user_id:
             return
     raise AssertionError(f"Did not receive authenticated event for user_id={expected_user_id}")
+
+
+def _authenticate_ws(ws, token: str, expected_user_id: str) -> None:
+    connection_event = json.loads(ws.receive_text())
+    assert connection_event["event"] == "connected"
+    _reauthenticate_ws(ws, token, expected_user_id)
 
 
 def _drain_until(ws, predicate, max_frames: int = 20) -> str:
@@ -365,6 +373,301 @@ def test_websocket_workflow_factory_rejects_missing_scope(
         assert "permission" in error_frame["error"].lower()
 
     assert factory_calls == [], "Factory must not be invoked when RBAC rejects the call"
+
+
+# =============================================================================
+# WS/HTTP Tenant Resolver Reconciliation (aicoe-tracker#174)
+# =============================================================================
+
+
+def _issue_tenant_token(secret: str, os_id: str, sub: str, scopes: list[str], tenant_id: str | None = None) -> str:
+    payload = {
+        "sub": sub,
+        "aud": os_id,
+        "scopes": scopes,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        "iat": datetime.now(timezone.utc),
+    }
+    if tenant_id is not None:
+        payload["tid"] = tenant_id
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+@pytest.fixture
+def db_workflow_tenancy_client(temp_storage_db_file):
+    """WS + HTTP client backed by a DB-only (non-factory) workflow scoped to tenant 'acme'.
+
+    Exercises the WS hydration path with a component that only exists in the DB -- the
+    in-memory `workflows` list stays empty, so neither the start-workflow nor the reconnect
+    lookup can take the in-memory exemption, and hydration always reaches `db.get_config`.
+    """
+    secret = "x" * 40
+    os_id = "ws-db-workflow-os"
+    db = SqliteDb(db_file=temp_storage_db_file)
+
+    db.create_component_with_config(
+        component_id="db-ws-workflow",
+        component_type=ComponentType.WORKFLOW,
+        name="DB WS Workflow",
+        config={"name": "DB WS Workflow", "id": "db-ws-workflow", "description": "DB-only workflow"},
+        stage="published",
+        tenant_id="acme",
+    )
+
+    app = EgptOS(
+        id=os_id,
+        db=db,
+        authorization=True,
+        authorization_config=AuthorizationConfig(
+            verification_keys=[secret],
+            algorithm="HS256",
+            tenant_id_claim="tid",
+        ),
+        telemetry=False,
+    ).get_app()
+
+    with TestClient(app) as client:
+        yield {"client": client, "secret": secret, "os_id": os_id}
+
+
+def test_ws_start_workflow_with_matching_tenant_claim_reaches_the_workflow(db_workflow_tenancy_client):
+    """A caller whose JWT carries the configured tenant claim reaches the DB-only workflow
+    over WS the same way it would over HTTP -- the positive side of aicoe-tracker#174.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    token = _issue_tenant_token(secret, os_id, sub="alice", scopes=["workflows:run"], tenant_id="acme")
+
+    async def fake_arun(*_args, **kwargs):
+        # arun normally emits its own events over the websocket; stand in for that so the
+        # test has a frame to wait on without running a real step.
+        run_websocket = kwargs.get("websocket")
+        if run_websocket is not None:
+            await run_websocket.send_text(json.dumps({"event": "WorkflowStarted", "workflow_id": "db-ws-workflow"}))
+
+    with patch.object(Workflow, "arun", new_callable=AsyncMock, side_effect=fake_arun) as mock_arun:
+        with client.websocket_connect("/workflows/ws") as ws:
+            _authenticate_ws(ws, token, expected_user_id="alice")
+            ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+            frame = _drain_until(ws, lambda f: "WorkflowStarted" in f or "error" in f)
+
+    assert '"event": "error"' not in frame, f"Expected the workflow to hydrate, got: {frame}"
+    assert mock_arun.await_count == 1
+
+
+def test_ws_start_workflow_with_no_tenant_claim_is_refused_not_scoped_to_user_id(db_workflow_tenancy_client):
+    """Regression for aicoe-tracker#174.
+
+    Before the fix, a verified caller with no tenant claim silently hydrated over WS against
+    `tenant_id=<their own user_id>` (`resolve_tenant_id`'s fallback) instead of failing closed
+    like the HTTP resolver does. Against this fixture -- the workflow is scoped to "acme", not
+    to any user id -- that surfaced as a misleading "Workflow ... not found" rather than the
+    explicit tenant-scope refusal HTTP gives the same principal. Confirm the WS path now
+    refuses explicitly instead of guessing a tenant.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    # No "tid" claim -- same principal shape as any other, minus the tenant.
+    token = _issue_tenant_token(secret, os_id, sub="bob", scopes=["workflows:run"])
+
+    with client.websocket_connect("/workflows/ws") as ws:
+        _authenticate_ws(ws, token, expected_user_id="bob")
+        ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+        error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
+
+    assert error_frame["error"] == TENANCY_REQUIRED_DETAIL
+
+
+def test_http_and_ws_refuse_the_same_untenanted_principal(db_workflow_tenancy_client):
+    """Acceptance criterion from aicoe-tracker#174: HTTP and WS/factory must produce the same
+    scope for the same principal. A caller with no tenant claim is refused on both, with the
+    same detail message.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    token = _issue_tenant_token(secret, os_id, sub="bob", scopes=["workflows:run", "workflows:read"])
+
+    http_response = client.get("/workflows/db-ws-workflow", headers={"Authorization": f"Bearer {token}"})
+    assert http_response.status_code == 403
+    assert http_response.json()["detail"] == TENANCY_REQUIRED_DETAIL
+
+    with client.websocket_connect("/workflows/ws") as ws:
+        _authenticate_ws(ws, token, expected_user_id="bob")
+        ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+        error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
+
+    assert error_frame["error"] == http_response.json()["detail"]
+
+
+def test_ws_reauthenticate_clears_a_stale_tenant(db_workflow_tenancy_client):
+    """Regression: re-authenticating on the same connection must not leak a prior tenant.
+
+    websocket_user_context["tenant_id"] is cached at authenticate-time, not recomputed per
+    dispatch. A connection can send "authenticate" more than once (token refresh, or a client
+    re-authenticating as a different principal without reconnecting); the second authenticate
+    must fully replace the tenant, not merely leave the first one in place when the new token
+    happens to carry no claim.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    tenanted_token = _issue_tenant_token(secret, os_id, sub="alice", scopes=["workflows:run"], tenant_id="acme")
+    untenanted_token = _issue_tenant_token(secret, os_id, sub="bob", scopes=["workflows:run"])
+
+    async def fake_arun(*_args, **kwargs):
+        run_websocket = kwargs.get("websocket")
+        if run_websocket is not None:
+            await run_websocket.send_text(json.dumps({"event": "WorkflowStarted", "workflow_id": "db-ws-workflow"}))
+
+    # If arun is ever reached, hydration silently succeeded under the stale "acme" tenant --
+    # the leak this test guards against. Patched (rather than left to run for real) so a
+    # regression fails the assertion below instead of hanging the test on a frame that would
+    # never arrive from a workflow with no steps.
+    with patch.object(Workflow, "arun", new_callable=AsyncMock, side_effect=fake_arun):
+        with client.websocket_connect("/workflows/ws") as ws:
+            _authenticate_ws(ws, tenanted_token, expected_user_id="alice")
+            _reauthenticate_ws(ws, untenanted_token, expected_user_id="bob")
+
+            ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+            frame = json.loads(_drain_until(ws, lambda f: "WorkflowStarted" in f or '"event": "error"' in f))
+
+    assert frame["event"] == "error", (
+        f"Expected the stale 'acme' tenant from the first authenticate to be cleared and the "
+        f"untenanted second identity refused, got: {frame}"
+    )
+    assert frame["error"] == TENANCY_REQUIRED_DETAIL
+
+
+def test_ws_reconnect_with_no_tenant_claim_is_refused(db_workflow_tenancy_client):
+    """The reconnect hydration gate (PR #121 review, finding 2).
+
+    A run_id absent from the event buffer sends reconnect to the DB arm, where the workflow is
+    hydrated to look the run up -- that hydration must fail closed for an untenanted caller the
+    same way start-workflow does, not scope to the caller's user id or surface a misleading
+    "not found". Reverting the gate to `hydration_tenant_id = ctx.tenant_id` fails this test.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    token = _issue_tenant_token(secret, os_id, sub="bob", scopes=["workflows:run"])
+
+    with client.websocket_connect("/workflows/ws") as ws:
+        _authenticate_ws(ws, token, expected_user_id="bob")
+        ws.send_text(
+            json.dumps(
+                {
+                    "action": "reconnect",
+                    "run_id": "run-not-in-any-buffer",
+                    "workflow_id": "db-ws-workflow",
+                    "session_id": "session-1",
+                }
+            )
+        )
+        error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
+
+    assert error_frame["error"] == TENANCY_REQUIRED_DETAIL
+
+
+def test_ws_continue_workflow_with_no_tenant_claim_is_refused(db_workflow_tenancy_client):
+    """The continue-workflow hydration gate (PR #121 review, finding 2) -- the only test in the
+    repository that drives this action. Reverting the gate to `ws_auth.tenant_id` fails it.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    token = _issue_tenant_token(secret, os_id, sub="bob", scopes=["workflows:run"])
+
+    with client.websocket_connect("/workflows/ws") as ws:
+        _authenticate_ws(ws, token, expected_user_id="bob")
+        ws.send_text(
+            json.dumps({"action": "continue-workflow", "workflow_id": "db-ws-workflow", "run_id": "paused-run-1"})
+        )
+        error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
+
+    assert error_frame["error"] == TENANCY_REQUIRED_DETAIL
+
+
+@pytest.mark.parametrize("bad_claim", [12345, {"a": 1}, "", "   "], ids=["int", "object", "empty", "blank"])
+def test_ws_rejects_a_malformed_tenant_claim_exactly_as_http_does(db_workflow_tenancy_client, bad_claim):
+    """A claim that is present but not a non-empty string is rejected on both transports with
+    the same words, and the socket is *not* authenticated (PR #121 review, finding 4). Before
+    this, WS silently degraded the caller to untenanted and accepted the session.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    payload = {
+        "sub": "mallory",
+        "aud": os_id,
+        "scopes": ["workflows:run", "workflows:read"],
+        "tid": bad_claim,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        "iat": datetime.now(timezone.utc),
+    }
+    token = jwt.encode(payload, secret, algorithm="HS256")
+
+    http_response = client.get("/workflows/db-ws-workflow", headers={"Authorization": f"Bearer {token}"})
+    assert http_response.status_code == 401
+    assert http_response.json()["detail"] == INVALID_TENANT_CLAIM_ERROR
+
+    with client.websocket_connect("/workflows/ws") as ws:
+        assert json.loads(ws.receive_text())["event"] == "connected"
+        ws.send_text(json.dumps({"action": "authenticate", "token": token}))
+        auth_frame = json.loads(ws.receive_text())
+        assert auth_frame["event"] == "auth_error", auth_frame
+        assert auth_frame["error"] == http_response.json()["detail"]
+
+        # The socket must still be unauthenticated: any action is met with auth_required.
+        ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+        assert json.loads(ws.receive_text())["event"] == "auth_required"
+
+
+def test_ws_failed_reauthenticate_drops_the_prior_identity(db_workflow_tenancy_client):
+    """A failed re-authenticate must not leave the previous principal live (PR #121 review
+    round 2). Authenticate as tenanted alice, then re-authenticate with a garbage token: the
+    socket must be unauthenticated afterwards -- a start-workflow is answered with
+    auth_required, not a run hydrated under alice's tenant.
+    """
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    tenanted_token = _issue_tenant_token(secret, os_id, sub="alice", scopes=["workflows:run"], tenant_id="acme")
+
+    async def fake_arun(*_args, **kwargs):
+        run_websocket = kwargs.get("websocket")
+        if run_websocket is not None:
+            await run_websocket.send_text(json.dumps({"event": "WorkflowStarted", "workflow_id": "db-ws-workflow"}))
+
+    # Patched so a regression (the run hydrating under the stale identity) fails the assertion
+    # below instead of hanging on a frame that never arrives.
+    with patch.object(Workflow, "arun", new_callable=AsyncMock, side_effect=fake_arun) as mock_arun:
+        with client.websocket_connect("/workflows/ws") as ws:
+            _authenticate_ws(ws, tenanted_token, expected_user_id="alice")
+
+            ws.send_text(json.dumps({"action": "authenticate", "token": "not-a-jwt"}))
+            auth_frame = json.loads(_drain_until(ws, lambda f: '"event": "auth_error"' in f))
+            assert auth_frame["event"] == "auth_error"
+
+            ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+            frame = json.loads(
+                _drain_until(
+                    ws, lambda f: any(e in f for e in ("WorkflowStarted", '"event": "error"', "auth_required"))
+                )
+            )
+
+    assert frame["event"] == "auth_required", f"Expected the failed re-auth to drop alice's identity, got: {frame}"
+    assert mock_arun.await_count == 0
 
 
 # =============================================================================
