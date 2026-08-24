@@ -7,6 +7,7 @@ background start/stop lifecycle.
 """
 
 import asyncio
+from datetime import datetime, timezone
 from typing import List
 
 import pytest
@@ -14,6 +15,7 @@ import pytest
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
 from egpt.memory.consolidation import ConsolidationOutcome, ConsolidationWorker, EventCountTrigger
+from egpt.memory.consolidation.sleeptime import SleepTimeScheduleConfig, SleepWindow, build_sleep_time_trigger
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import ConsolidationReport, MemoryEvent, Scope
 from tests.unit.memory._fakes import FakeGraph, FakeVector
@@ -460,6 +462,46 @@ async def test_run_once_drains_a_scope_the_trigger_has_fired_for():
     trigger = EventCountTrigger(threshold=1)
     trigger.record_event(ACME, now=0.0)
     worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: 0.0, retry_delay=0.001)
+
+    outcomes = await worker.run_once()
+
+    assert len(outcomes) == 1
+    assert outcomes[0].scope == ACME
+    assert outcomes[0].error is None
+
+
+def _utc(hour: int) -> float:
+    return datetime(2026, 1, 1, hour, 0, tzinfo=timezone.utc).timestamp()
+
+
+async def test_sleep_time_trigger_skips_a_scope_outside_its_window():
+    """SM-L9 (#130): `SleepTimeScheduleConfig`/`build_sleep_time_trigger` plug into
+    `ConsolidationWorker` as an ordinary `trigger=`, no worker change -- an idle scope outside the
+    configured window is left out of the tick, the same as an ordinary un-fired `EventCountTrigger`
+    scope above.
+
+    Mutation guard: if `SleepTimeTrigger.should_fire` ignored the window (e.g. `or` instead of
+    `and` against the inner trigger), this would drain ACME despite `now` being outside 01:00-06:00.
+    """
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    config = SleepTimeScheduleConfig(window=SleepWindow(start_hour=1, end_hour=6), idle_seconds=1)
+    trigger = build_sleep_time_trigger(config)
+    trigger.record_event(ACME, now=_utc(12) - 10)  # idle threshold met by check time, below
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: _utc(12), retry_delay=0.001)
+
+    outcomes = await worker.run_once()
+
+    assert outcomes == []
+
+
+async def test_sleep_time_trigger_drains_a_scope_inside_its_window():
+    provider, _, _ = make_provider()
+    provider.write(ACME, [event("the deploy failed on friday")])
+    config = SleepTimeScheduleConfig(window=SleepWindow(start_hour=1, end_hour=6), idle_seconds=1)
+    trigger = build_sleep_time_trigger(config)
+    trigger.record_event(ACME, now=_utc(2) - 10)  # idle threshold met, and 02:00 UTC is inside 01:00-06:00
+    worker = ConsolidationWorker(provider, [ACME], trigger=trigger, clock=lambda: _utc(2), retry_delay=0.001)
 
     outcomes = await worker.run_once()
 
