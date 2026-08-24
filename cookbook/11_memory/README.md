@@ -174,6 +174,15 @@ This section demonstrates how EGPT agents persist and use user memories across r
   branch was still catching up. Per this file's own convention, whoever merges second renumbers --
   four times, this time.**
 
+- `34_procedural_memory.py`: Procedural memory (SM-S2) -- `ProceduralReflectionPipeline` is
+  importance-gated like `ReflectionPipeline`, but stateless across calls: PROCEDURAL takes no part
+  in `consolidate`'s scan (`TIER_POLICY` reserves that sweep to EPISODIC/SEMANTIC), so it is
+  invoked directly over one episode batch. Once an `LLMProcedureSynthesizer` distills a reusable
+  rule/skill/prompt fragment, it becomes a plain `MemoryEvent` on the PROCEDURAL tier -- vector-only,
+  so the ordinary `write` needs no new routing -- and is retrieved and injected through an ordinary
+  `read` with no tier named, since PROCEDURAL is in `PERSISTENT_TIERS`. Requires a real model
+  (`OPENAI_API_KEY`); no database.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

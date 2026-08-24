@@ -868,3 +868,29 @@ Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
 `31_semantic_fact_store.py`, then `feat/SM-L3` took `32_fact_extraction_merge.py`, all while this
 branch was still catching up.** Per this file's own convention, whoever merges second renumbers --
 four times, this time.
+
+---
+
+### 34_procedural_memory.py
+
+**Status:** PARTIAL
+
+**Description:** Procedural memory (SM-S2): runs a `ProceduralReflectionPipeline` (threshold 1.2)
+directly over two episodes about the same Friday-deploy incident (importances 0.6/0.7, summing
+past the threshold), writes the synthesized procedure through the ordinary `CoLocatedMemoryProvider
+.write`, and reads it back through an ordinary default-tier `read`, showing it renders under a
+`[procedural]` line in `MemorySlice.as_context()`.
+
+**Result:** Verified structurally with a stub synthesizer standing in for
+`LLMProcedureSynthesizer` (no network) -- the pipeline/write/read path runs end to end:
+`report.details["triggered"]` is `True`, the write lands on the PROCEDURAL tier with no new
+routing, and the read returns it with `[procedural] Avoid Friday deploys` in the rendered context.
+**Not run against a real model**: no `OPENAI_API_KEY` was available in the environment that wrote
+this cookbook, the same gap `33_reflection.py` logs for its own `LLMInsightSynthesizer`.
+`ProceduralReflectionPipeline`'s own decisions (threshold gating, provenance, construction guards)
+and `LLMProcedureSynthesizer._extract`'s response-format handling are covered against a stub and a
+mocked `Model` respectively by `libs/agno/tests/unit/memory/test_procedural.py` -- what remains
+unverified is specifically the real-model response shape that mock cannot guarantee to match.
+Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
