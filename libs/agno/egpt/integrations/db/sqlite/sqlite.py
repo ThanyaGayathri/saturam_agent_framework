@@ -4068,6 +4068,20 @@ class SqliteDb(BaseDb):
             audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
+                # Serialize this upsert_config against other writers (aicoe-tracker#188).
+                # Without this, the label uniqueness check below is a plain SELECT that pysqlite
+                # runs in autocommit (its implicit-BEGIN only fires before DML, not SELECT): two
+                # concurrent calls creating new versions with the same label can both pass it
+                # before either commits, landing two rows with a duplicate label and no error to
+                # signal it. Issuing BEGIN IMMEDIATE as the very first statement forces pysqlite
+                # to acquire the RESERVED write lock right here instead of lazily before the
+                # first DML, so a concurrent writer blocks (rather than racing the read) until
+                # this transaction commits or rolls back. SQLite locks the whole database file,
+                # not a per-component row, so this also serializes writers on other components --
+                # a coarser bound than Postgres's per-component advisory lock, but SQLite's
+                # single-writer file lock already limited real write throughput to one at a time.
+                sess.execute(text("BEGIN IMMEDIATE"))
+
                 # Verify component exists and is not deleted. tenant_id comes along so the audit
                 # row can carry the component's actual tenant without a second round trip.
                 component_stmt = select(
@@ -4091,7 +4105,10 @@ class SqliteDb(BaseDb):
                 # concurrent publishes both claim they replaced the same version.
                 previous_current_version: Optional[int] = None
 
-                # Label uniqueness check
+                # Label uniqueness check. Safe from the TOCTOU race a plain SELECT would have
+                # here: BEGIN IMMEDIATE above already holds the database's write lock, so no
+                # concurrent upsert_config can land a same-label row between this check and the
+                # insert/update below.
                 if label is not None:
                     label_query = select(configs_table.c.version).where(
                         configs_table.c.component_id == component_id,

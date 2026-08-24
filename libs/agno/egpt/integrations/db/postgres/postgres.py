@@ -4153,6 +4153,19 @@ class PostgresDb(BaseDb):
             audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
+                # Serialize every upsert_config for this component_id against other writers on
+                # the same component (aicoe-tracker#188). Without this, the label uniqueness
+                # check below is a plain SELECT: two concurrent calls creating new versions with
+                # the same label can both pass it before either commits, landing two rows with a
+                # duplicate label and no error to signal it. pg_advisory_xact_lock is scoped to
+                # this transaction (auto-released on commit/rollback, no cleanup needed) and
+                # blocks rather than fails, so a losing caller simply waits its turn instead of
+                # retrying. hashtext() collisions between distinct component_ids only cause
+                # extra, harmless serialization -- never a missed lock.
+                sess.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:component_id))"), {"component_id": component_id}
+                )
+
                 # Verify component exists and is not deleted. tenant_id comes along so the audit
                 # row can carry the component's actual tenant without a second round trip.
                 component_stmt = select(
@@ -4176,7 +4189,10 @@ class PostgresDb(BaseDb):
                 # concurrent publishes both claim they replaced the same version.
                 previous_current_version: Optional[int] = None
 
-                # Label uniqueness check
+                # Label uniqueness check. Safe from the TOCTOU race a plain SELECT would have
+                # here: the advisory lock above already serializes every writer on this
+                # component_id, so no concurrent upsert_config can land a same-label row between
+                # this check and the insert/update below.
                 if label is not None:
                     label_query = select(configs_table.c.version).where(
                         configs_table.c.component_id == component_id,
