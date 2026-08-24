@@ -7,8 +7,10 @@ Two post-conditions are re-checked here rather than trusted to a backend, becaus
 silently and one puts another tenant's data into a prompt: tenant isolation and bi-temporal
 validity.
 
-Out of scope, deliberately: rank fusion beyond a score sum (SM-H2 #132), a consolidation scheduler
-(SM-L1 #122). **Retiring a fact whose source group changed** is SM-L3's (#124)
+Out of scope, deliberately: a consolidation scheduler (SM-L1 #122). Rank fusion beyond the default
+score-sum is SM-H2's (#132), wired -- see ``_fusion_method``/``_merged`` and
+``egpt.memory.retrieval.fuse``; the *default* stays score-sum until SM-X7 (#143) measures the
+3-leg pairing (ADR 0003 A.6). **Retiring a fact whose source group changed** is SM-L3's (#124)
 ``egpt.memory.consolidation.extract.FactExtractionPipeline`` -- opt-in via ``fact_pipeline``, same
 shape as ``entity_pipeline``/``relation_pipeline``; ``_distil``'s deterministic dedup below remains
 the zero-config default and still cannot retire what it subsumes (its own docstring).

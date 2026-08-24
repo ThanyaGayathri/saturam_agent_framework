@@ -223,6 +223,25 @@ def test_k_is_not_defaulted_in_under_score_sum_where_it_would_do_nothing():
     assert "k" not in config.fusion
 
 
+def test_an_explicit_k_under_score_sum_is_rejected_rather_than_silently_inert():
+    """`_merge` (score_sum's implementation) takes no `k` at all -- storing one anyway would be
+    exactly the "knob that does nothing" this module refuses to default in, reached instead by an
+    explicit value that is just as inert."""
+    with pytest.raises(MemoryProviderConfigError, match="only meaningful for method='rrf'") as exc:
+        MemoryProviderConfig(provider="p", fusion={"method": "score_sum", "k": 10})
+    assert exc.value.field_name == "fusion.k"
+
+    with pytest.raises(MemoryProviderConfigError, match="only meaningful for method='rrf'"):
+        MemoryProviderConfig(provider="p", fusion={"k": 10})  # method omitted -> implicit score_sum
+
+
+@pytest.mark.parametrize("bad_fusion", [None, [], "rrf", 5])
+def test_a_non_dict_fusion_is_rejected(bad_fusion):
+    with pytest.raises(MemoryProviderConfigError, match="must be a dict") as exc:
+        MemoryProviderConfig(provider="p", fusion=bad_fusion)
+    assert exc.value.field_name == "fusion"
+
+
 def test_backend_settings_stay_opaque():
     """Typing these would make the seam name its backends -- the coupling it exists to prevent."""
     config = MemoryProviderConfig(provider="p", vector={"dsn": "postgres://x", "dim": 768}, graph={"uri": "bolt://y"})

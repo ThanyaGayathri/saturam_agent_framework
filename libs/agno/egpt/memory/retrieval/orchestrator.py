@@ -1,16 +1,18 @@
 """Feed-forward retriever orchestration (SM-H1 #131).
 
 Fans a read out across the vector, BM25 (lexical) and graph legs and returns them unfused, tier-
-and scope-scoped, as :class:`RetrievalLegs`. Fusing the legs into one ranked slice is SM-H2's
-(#132) job -- ADR 0003 section A.6 holds the 3-leg RRF-vs-weighted choice open, so nothing here may
-pick a strategy or drop a leg's ranking.
+and scope-scoped, as :class:`RetrievalLegs`. Fusing the legs into one ranked slice is not this
+module's job -- it stays a fan-out, so nothing here may pick a strategy or drop a leg's ranking --
+but is decided now, by ``CoLocatedMemoryProvider`` (SM-H2 #132, ``_fusion_method``/``_merged``):
+the default ``score_sum`` still keeps the lexical leg diagnostics-only, since ADR 0003 A.6 holds
+the 3-leg RRF-vs-weighted *default* open pending SM-X7's (#143) measurement, but the opt-in
+``rrf`` strategy does fold it in -- rank-based fusion never needed the legs' scores to agree in
+the first place, which is what made that safe to wire ahead of the measurement.
 
-**That promise binds every caller, not only this module.** ``CoLocatedMemoryProvider`` folds the
-vector and graph legs into its interim score-sum today (a pre-existing, undecided placeholder --
-see its own module docstring), but must not fold the lexical leg into that sum: doing so would
-have this ticket implicitly pick how BM25 weighs against the other two, which is exactly the
-choice A.6 defers. The lexical leg reaches ``MemorySlice`` only as a diagnostic count until SM-H2
-decides how it participates in ranking.
+**That promise binds every caller, not only this module.** ``CoLocatedMemoryProvider``'s default
+still folds only the vector and graph legs into its score-sum (see its own module docstring); only
+its opt-in ``rrf`` strategy also folds in the lexical leg. The lexical leg reaches
+``MemorySlice`` as a diagnostic count in every case, ranked on or not.
 
 BM25 does not cost a separate round trip: a store implementing
 :class:`~egpt.memory.substrates.HybridSearchSubstrate` returns its vector and lexical legs from one
@@ -53,10 +55,13 @@ class RetrievalLegs:
     def legs(self) -> Dict[str, List[MemoryRecord]]:
         """The lists keyed by leg name, so a consumer iterates legs rather than field names.
 
-        **Not an endorsement of feeding all three into a ranking merge.** The lexical leg must not
-        enter a score-sum (or any other) merge until SM-H2 decides its fusion strategy (ADR 0003
-        A.6) -- see the module docstring for why. A caller that wants only the legs a merge may
-        currently use takes ``.vector`` and ``.graph`` directly, not this method's full iteration.
+        **Not an endorsement of feeding all three into every ranking merge.** Whether the lexical
+        leg enters ranking is ``CoLocatedMemoryProvider._merged``'s call (SM-H2 #132, ADR 0003
+        A.6): its default ``score_sum`` still takes only ``.vector`` and ``.graph`` directly, not
+        this method's full iteration, and its opt-in ``rrf`` strategy is what actually calls
+        ``.legs()`` to fold the lexical leg in -- rank-based fusion never needed the legs' scores
+        to agree in the first place, which is what made that safe ahead of SM-X7's (#143)
+        weighted-vs-RRF measurement. See the module docstring for the fuller picture.
         """
         return {"vector": self.vector, "lexical": self.lexical, "graph": self.graph}
 

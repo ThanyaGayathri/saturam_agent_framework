@@ -7,14 +7,17 @@ that: it reads each leg's *rank*, not its score, so it never needs the legs' sca
 the first place. That is what makes it safe to fuse all three legs -- vector, lexical, graph --
 starting here, with no measurement precondition to satisfy.
 
-**This does not make RRF the provider's default.** ADR 0003 A.6 holds the 3-leg weighted-vs-RRF
-choice open, gated on SM-G9's real graph retriever, and assigns *that* measurement to SM-X7
-(#143), not this ticket. ``rrf_fuse`` is wired and available -- a caller opts in via
-``MemoryProviderConfig(fusion={"method": "rrf", "k": ...})`` -- while ``score_sum`` stays the
-default until SM-X7's measurement says otherwise.
+**This does not make RRF the provider's default.** ADR 0003 A.6 directs SM-H2/H3 to measure 3-leg
+weighted-vs-RRF against a real graph retriever before either is ratified -- this module discharges
+the *wiring* half of that: both strategies exist, are N-leg-capable, and are opt-in via
+``MemoryProviderConfig(fusion={"method": ..., "k": ...})``, so the eventual measurement has
+something real to run against. It does not discharge the *measurement* itself, which A.6's own
+follow-up ruling (the "Related, and now MIS-owned" note) assigns specifically for the vector+graph
+pairing to SM-X7 (#143) -- superseding an earlier, unworkable assignment to SM-R13. Until that
+measurement lands, ``score_sum`` stays ``CoLocatedMemoryProvider``'s default.
 """
 
-from typing import Dict, List, Mapping, Sequence, Set
+from typing import Dict, List, Mapping, Sequence, Set, Tuple
 
 from egpt.memory.types import MemoryRecord
 
@@ -25,7 +28,7 @@ __all__ = ["DEFAULT_RRF_K", "deterministic_rank_key", "rrf_fuse"]
 DEFAULT_RRF_K = 60
 
 
-def deterministic_rank_key(record: MemoryRecord):
+def deterministic_rank_key(record: MemoryRecord) -> Tuple[float, str, str, str]:
     """The tie-break every fusion strategy in this package sorts by.
 
     Shared rather than duplicated per strategy (``_merge`` and :func:`rrf_fuse` both use it) --

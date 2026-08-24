@@ -82,6 +82,14 @@ def _validate_fusion(fusion: Dict[str, Any]) -> Dict[str, Any]:
         )
     validated = dict(fusion)
     if "k" in validated:
+        if method != "rrf":
+            # `k` is meaningless for `score_sum` -- `_merge` takes no `k` at all. Storing it
+            # anyway would be a knob that silently does nothing, exactly the shape this module's
+            # own principle (see the comment below) refuses to default *in*; refusing it when the
+            # caller supplies it explicitly is the same rule applied the other direction.
+            raise MemoryProviderConfigError(
+                "config.fusion['k'] is only meaningful for method='rrf'.", field_name="fusion.k"
+            )
         k = validated["k"]
         if isinstance(k, bool) or not isinstance(k, int) or k < 1:
             raise MemoryProviderConfigError(
