@@ -18,9 +18,9 @@ Key concepts:
   Knowledge.retrieve are called independently and composed after the fact.
 
 The two legs below are tiny stand-ins satisfying MemoryProvider and
-KnowledgeProtocol -- the same two ports 09_memory_provider_seam.py and a real
-Knowledge instance satisfy -- so this file needs no database, no model, and
-no API key.
+KnowledgeRetrievable -- the same two ports 09_memory_provider_seam.py and a
+real Knowledge instance satisfy -- so this file needs no database, no model,
+and no API key.
 """
 
 from dataclasses import replace
@@ -109,12 +109,12 @@ class ToyMemory(MemoryProvider):
 
 
 # ---------------------------------------------------------------------------
-# A tiny KB leg -- satisfies KnowledgeProtocol without a vector_db or reader
+# A tiny KB leg -- satisfies KnowledgeRetrievable without a vector_db or reader
 # ---------------------------------------------------------------------------
 
 
 class ToyKnowledge:
-    """Enough of KnowledgeProtocol to answer retrieve/aretrieve; a real Knowledge instance
+    """Enough of KnowledgeRetrievable to answer retrieve/aretrieve; a real Knowledge instance
     satisfies the same protocol via knowledge/knowledge.py's search()."""
 
     def __init__(self, documents: Sequence[Document]) -> None:

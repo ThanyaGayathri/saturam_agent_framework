@@ -7,8 +7,6 @@ test that fails without the code (a merged-store or unlabeled-result regression 
 
 from typing import Any, Dict, List, Optional, Sequence
 
-import pytest
-
 from egpt.knowledge.document import Document
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval import RetrievalSource, UnifiedResult, UnifiedSlice, aunified_read, unified_read
@@ -143,6 +141,19 @@ def test_neither_leg_wired_returns_an_empty_slice():
     assert result == UnifiedSlice(kb=[], memory=[])
 
 
+def test_kb_filters_are_forwarded_to_the_kb_leg_only():
+    knowledge = RecordingKnowledge([_document()])
+    memory = RecordingProvider([_memory_record()])
+    query = MemoryQuery(text="rate limit", limit=5)
+    kb_filters = {"section": "api"}
+
+    unified_read(SCOPE, query, memory=memory, knowledge=knowledge, kb_filters=kb_filters)
+
+    assert knowledge.calls == [("rate limit", 5, {"section": "api"})]
+    # No memory-side equivalent: the memory leg always reads the unfiltered query.
+    assert memory.calls == [(SCOPE, query)]
+
+
 # ---------------------------------------------------------------------------
 # AC2 -- one retrieval interface spans both
 # ---------------------------------------------------------------------------
@@ -157,7 +168,6 @@ def test_results_property_carries_both_legs_kb_first():
     assert [r.source for r in result.results] == [RetrievalSource.KB, RetrievalSource.MEMORY]
 
 
-@pytest.mark.asyncio
 async def test_async_variant_reaches_both_legs_the_same_way():
     knowledge = RecordingKnowledge([_document()])
     memory = RecordingProvider([_memory_record()])
@@ -168,6 +178,24 @@ async def test_async_variant_reaches_both_legs_the_same_way():
     assert knowledge.calls == [("rate limit", 5, None)]
     assert memory.calls == [(SCOPE, query)]
     assert [r.source for r in result.results] == [RetrievalSource.KB, RetrievalSource.MEMORY]
+
+
+async def test_async_leg_with_no_store_wired_is_not_called_and_is_empty():
+    knowledge = RecordingKnowledge([_document()])
+    memory = RecordingProvider([_memory_record()])
+    query = MemoryQuery(text="rate limit", limit=5)
+
+    result = await aunified_read(SCOPE, query, memory=memory, knowledge=None)
+
+    # The KB leg must not run at all, not merely return nothing.
+    assert knowledge.calls == []
+    assert result.kb == []
+    assert len(result.memory) == 1
+
+
+async def test_aunified_read_with_neither_leg_wired_returns_an_empty_slice():
+    result = await aunified_read(SCOPE, MemoryQuery(text="anything"))
+    assert result == UnifiedSlice(kb=[], memory=[])
 
 
 # ---------------------------------------------------------------------------
@@ -208,4 +236,20 @@ def test_memory_result_carries_record_identity_tier_and_score():
     assert memory_result.id == "m1"
     assert memory_result.source == RetrievalSource.MEMORY
     assert memory_result.score == 0.9
+    assert memory_result.metadata["tier"] == MemoryTier.SEMANTIC.value
+
+
+def test_the_stamped_tier_wins_over_a_colliding_tier_key_in_record_metadata():
+    record = MemoryRecord(
+        id="m2",
+        tier=MemoryTier.SEMANTIC,
+        content="user prefers dark mode",
+        scope=SCOPE,
+        metadata={"tier": "not-a-real-tier"},
+    )
+    memory = RecordingProvider([record])
+
+    result = unified_read(SCOPE, MemoryQuery(text="q"), memory=memory)
+
+    [memory_result] = result.memory
     assert memory_result.metadata["tier"] == MemoryTier.SEMANTIC.value
