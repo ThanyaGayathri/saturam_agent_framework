@@ -889,7 +889,43 @@ firing while `record_event`'s accumulation is unaffected by the hour it was call
 
 ---
 
-### 35_ppr_multihop.py
+### 35_hierarchical_summarization.py
+
+**Status:** PARTIAL
+
+**Description:** Hierarchical (session/day/global) summarization (SM-L8): wires a
+`SummaryPipeline` (`day_seconds=1`) into `CoLocatedMemoryProvider`, writes two sessions'
+episodes with a 1.1s gap between them, consolidates each, and reads the resulting SEMANTIC-tier
+session and day summary rows back through the ordinary read path.
+
+**Result:** Verified structurally with a mocked `Model.response` (no network) -- the script runs
+end to end: `second.details["summary"]["day"]` is `True` after the second consolidate, and both a
+`"session"`-level and a `"day"`-level summary come back from `memory.read`, each retrievable and
+tagged with the right `metadata["level"]`. The fake `InMemoryVector` needed real scope filtering
+(matching each set field, treating an unset one as a wildcard) rather than `33_reflection.py`'s
+tenant-only bucketing -- that cookbook only ever consolidates and reads under one scope, but this
+one consolidates two different sessions and then reads through a broader rollup scope that spans
+both, which `assert_scope_isolation` correctly rejects against the looser fake. **Not run against
+a real model**: no `OPENAI_API_KEY` was available in the environment that wrote this cookbook, the
+same gap `33_reflection.py`'s own entry logs. `SummaryPipeline`'s own decisions (rolling vs.
+periodic ids, rollup-key session stripping, retry-safety on a failed fold, sync/async parity) are
+covered against a stub summarizer by `libs/agno/tests/unit/memory/test_consolidation_summarize.py`
+-- what remains unverified is specifically the real-model response shape the mock cannot guarantee
+to match (the mocked response above returns raw JSON `SummarizeStrategy.optimize` does not parse,
+since the real, unmocked call there requests no structured output -- an artifact of this
+verification's single fixed mock answering both the structured session-summary call and the plain
+rollup-fold call, not a defect in the pipeline itself). Follow-up: re-run with a real key and flip
+this entry to a full PASS/FAIL when one is available (same tracking as `33_reflection.py`'s
+[aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192)).
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
+
+**Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
+branch was still catching up.** Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 36_ppr_multihop.py
 
 **Status:** PASS
 
@@ -906,10 +942,11 @@ composition acceptance criterion.
 with PPR enabled the same query reaches all four edges including
 `germany-member-of-eu`; the bi-temporal check reports `True` before the invalidation bound and
 `False` after. No API key needed -- entities and fact edges are written directly, the same way
-`28_` does.
+`28_` does. Re-verified after round-1 review fixes (empty-anchor guard, score ceiling, window
+overlap semantics, unique-per-call GDS catalog name): unchanged output.
 
 **Requires:** `./cookbook/scripts/run_neo4j_gds.sh` (a GDS-plugin Neo4j, not `28_`'s plain
 instance); no API key. Run with `.venvs/demo`.
 
-**Renumbered from `34_` to `35_`: `feat/SM-L9` (#123) merged to `main` first and took `34_` while
-this branch was still catching up.**
+**Renumbered from `34_` to `35_` to `36_` across two merges: `feat/SM-L9` (#123) took `34_`, then
+`feat/SM-L8` (#127) took `35_`, both while this branch was still catching up.**
