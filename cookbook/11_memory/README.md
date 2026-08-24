@@ -188,6 +188,13 @@ This section demonstrates how EGPT agents persist and use user memories across r
   summary lands on the SEMANTIC tier through the same write path a distilled fact or a reflected
   insight uses, tagged `metadata={"kind": "summary", "level": ...}` -- retrievable through an
   ordinary read. Requires a real model (`OPENAI_API_KEY`); no database.
+  **Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
+  branch was still catching up. Per this file's own convention, whoever merges second renumbers.**
+
+- `36_hybrid_retrieval_orchestration.py`: Feed-forward retriever orchestration (SM-H1 #131) --
+  `read` fans out through `egpt.memory.retrieval.orchestrate`/`aorchestrate` (vector+BM25, and the
+  graph leg), with the lexical leg present in `MemorySlice.fusion["lexical_hits"]` but not yet
+  affecting ranking (SM-H2 #132 owns fusing it in). No database, no model, no network.
 
 - `37_procedural_memory.py`: Procedural memory (SM-S2) -- `ProceduralReflectionPipeline` is
   importance-gated like `ReflectionPipeline`, but stateless across calls: PROCEDURAL takes no part
@@ -202,16 +209,58 @@ This section demonstrates how EGPT agents persist and use user memories across r
   to be missing on `main`, not added here) while this branch was still catching up. Per this
   file's own convention, whoever merges second renumbers.**
 
-- `38_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
+- `38_kb_and_memory_unified_retrieval.py`: The KB vs memory boundary (SM-S4) -- `unified_read()`
+  fans one query out across a `MemoryProvider` and a `KnowledgeRetrievable` leg without merging
+  the two stores, labeling every result `RetrievalSource.KB` or `RetrievalSource.MEMORY`. A leg
+  with no store wired returns an empty list, not an absent one; a raising leg does not silently
+  discard the other's result. No database, no API key.
+  **Renumbered from `34_` to `38_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`,
+  `feat/SM-L8` took `35_hierarchical_summarization.py`, `feat/SM-H1` took
+  `36_hybrid_retrieval_orchestration.py`, and `feat/SM-S2` took `37_procedural_memory.py`, all
+  while this branch was still catching up. Per this file's own convention, whoever merges second
+  renumbers -- four times, this time.**
+
+- `39_working_memory.py`: The WORKING tier's own buffer (SM-C6) -- `WorkingMemory` holds a run's
+  context messages, scratchpad and goals, and is never itself persisted (`TIER_POLICY[WORKING]`
+  routes to no substrate, and a direct `write_tier(WORKING, ...)` is still refused). Grows past
+  `max_messages`, offloads by reusing `SessionSummaryManager`, and -- given a `MemoryProvider` --
+  writes the overflow through as ordinary EPISODIC events before summarizing it away, which is the
+  boundary crossing into long-term memory. `provider.assemble_context()` then renders the buffer
+  next to a persistent-tier read, the WORKING half of SM-H6's future retrieval assembly. Requires
+  nothing; no database, no API key, no network (a minimal `Model` double stands in for
+  summarization, the same one `test_working_memory.py` uses under test).
+  **Renumbered from `35_` to `37_` to `39_`: `feat/SM-L8` took `35_hierarchical_summarization.py`,
+  `feat/SM-H1` took `36_hybrid_retrieval_orchestration.py`, then `feat/SM-S2` took
+  `37_procedural_memory.py` and `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py` while
+  this branch was still catching up. Per this file's own convention, whoever merges second
+  renumbers -- twice, this time.**
+
+- `40_user_profile_store.py`: Structured user profile updated on consolidation (SM-S3) --
+  `UserProfileStore`'s storage-free `extract_profile`/`aextract_profile` (a model call, no `db`)
+  wired into `CoLocatedMemoryProvider` via `profile_store=`, same opt-in shape as
+  `entity_pipeline`/`relation_pipeline`/`fact_pipeline`. Consolidation runs the extraction over the
+  pass's episodes and persists the result through `SemanticProfileStore` -- tenant/user-scoped
+  through the vector substrate, not the seed store's own single-tenant `self.db`. Shows a stated
+  preferred name surviving one consolidation pass. Requires `./cookbook/scripts/run_pgvector.sh`
+  and a real model (`OPENAI_API_KEY`).
+  **Renumbered from `34_` to `40_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`,
+  `feat/SM-L8` took `35_hierarchical_summarization.py`, `feat/SM-H1` took
+  `36_hybrid_retrieval_orchestration.py`, `feat/SM-S2` took `37_procedural_memory.py`,
+  `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py`, and `feat/SM-C6` took
+  `39_working_memory.py`, all while this branch was still catching up. Per this file's own
+  convention, whoever merges second renumbers.**
+
+- `41_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
   default (`multihop_ppr_enabled`), a single-step ranked walk over a bi-temporally-filtered GDS
   projection rather than `28_`'s bounded-hop BFS. Shows PPR reaching a fourth-hop fact BFS's
   default `max_traverse_hops=2` cannot, and the same query composing correctly with an invalidated
   fact's bi-temporal bound. Needs the GDS plugin, not `28_`'s plain instance:
   `./cookbook/scripts/run_neo4j_gds.sh`. No API key; entities and fact edges are written directly.
   Runs with `.venvs/demo`.
-  **Renumbered from `34_` to `35_` to `36_` to `37_` to `38_` across four merges: `feat/SM-L9`
-  (#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took `36_`,
-  then `feat/SM-S2` (#133) took `37_`, all while this branch was still catching up.**
+  **Renumbered from `34_` to `35_` to `36_` to `37_` to `38_` to `41_` across five merges:
+  `feat/SM-L9` (#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125)
+  took `36_`, then `feat/SM-S2` (#133) took `37_`, then `feat/SM-S4`/`feat/SM-C6`/`feat/SM-S3`
+  took `38_`/`39_`/`40_` together, all while this branch was still catching up.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

@@ -32,7 +32,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from dataclasses import fields as dc_fields
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Union, cast
 
 from egpt.learn.config import LearningMode, UserProfileConfig
 from egpt.learn.schemas import UserProfile
@@ -56,6 +56,17 @@ try:
     from egpt.tools.function import Function
 except ImportError:
     pass
+
+
+class _MutationTrackingTool(Protocol):
+    """The ``update_profile`` callable :meth:`UserProfileStore._build_capture_profile_tool`
+    returns: callable like any tool, plus the ``mutated`` flag :meth:`UserProfileStore
+    .extract_profile`/:meth:`aextract_profile` read back off it -- narrower than a bare
+    ``cast(Any, tool)`` at each read site (QC round 3, PR #135)."""
+
+    mutated: List[bool]
+
+    def __call__(self, **kwargs: Any) -> str: ...
 
 
 @dataclass
@@ -961,6 +972,175 @@ class UserProfileStore(LearningStore):
         log_debug("UserProfileStore: Extraction complete", center=True)
 
         return response.content or ("Profile updated" if self.profile_updated else "No updates needed")
+
+    # =========================================================================
+    # Storage-free Extraction (consolidation loop, SM-S3 #120)
+    # =========================================================================
+
+    def extract_profile(
+        self,
+        messages: List["Message"],
+        user_id: str,
+        existing_profile: Optional[UserProfile] = None,
+        run_metrics: Optional["RunMetrics"] = None,
+    ) -> Optional[UserProfile]:
+        """Extract profile field updates from ``messages``, without touching ``self.db``.
+
+        Same model call and system prompt as :meth:`extract_and_save`, but the
+        ``update_profile`` tool it exposes mutates a local copy instead of calling
+        :meth:`save` -- so this method never reads or writes storage, unlike every other
+        method on this class. It exists for a caller with its own tenant-scoped persistence
+        (``egpt.memory.semantic.profile.SemanticProfileStore``), which this class has no way
+        to reach: this class only knows the seed's single-tenant ``self.db``.
+
+        Returns ``existing_profile`` (deep-copied, or a fresh ``self.schema(user_id=user_id)``
+        when ``None``) with the extracted fields applied, or ``None`` when nothing was
+        extracted -- never an unchanged copy, so a caller can tell "no update this pass" from
+        "wrote back the same values" without a field-by-field diff.
+        """
+        if self.model is None:
+            log_warning("UserProfileStore.extract_profile: no model provided")
+            return None
+
+        conversation_text = get_conversation_text(messages)
+        if not conversation_text.strip():
+            return None
+
+        profile = deepcopy(existing_profile) if existing_profile is not None else self.schema(user_id=user_id)
+        tool = self._build_capture_profile_tool(profile)
+        if tool is None:
+            return None
+        functions = self._build_functions_for_model(tools=[tool])
+        if not functions:
+            return None
+
+        messages_for_model = [
+            self._get_system_message(existing_profile=profile),
+            Message(role="user", content=conversation_text),
+        ]
+
+        model_copy = deepcopy(self.model)
+        response = model_copy.response(messages=messages_for_model, tools=functions)
+
+        if run_metrics is not None and response.response_usage is not None:
+            from egpt.metrics import ModelType, accumulate_model_metrics
+
+            accumulate_model_metrics(response, model_copy, ModelType.LEARNING_MODEL, run_metrics)
+
+        # `tool_executions` alone is not enough: a call with every kwarg `None` still executes
+        # the tool and returns "No fields provided to update" without mutating anything, which
+        # `tool.mutated[0]` (set only when a field was actually assigned) tells apart from a real
+        # update -- see `_build_capture_profile_tool`'s docstring.
+        if not response.tool_executions or not tool.mutated[0]:
+            return None
+        return profile
+
+    async def aextract_profile(
+        self,
+        messages: List["Message"],
+        user_id: str,
+        existing_profile: Optional[UserProfile] = None,
+        run_metrics: Optional["RunMetrics"] = None,
+    ) -> Optional[UserProfile]:
+        """Async version of :meth:`extract_profile`, making the same decisions."""
+        if self.model is None:
+            log_warning("UserProfileStore.aextract_profile: no model provided")
+            return None
+
+        conversation_text = get_conversation_text(messages)
+        if not conversation_text.strip():
+            return None
+
+        profile = deepcopy(existing_profile) if existing_profile is not None else self.schema(user_id=user_id)
+        tool = self._build_capture_profile_tool(profile)
+        if tool is None:
+            return None
+        functions = self._build_functions_for_model(tools=[tool])
+        if not functions:
+            return None
+
+        messages_for_model = [
+            self._get_system_message(existing_profile=profile),
+            Message(role="user", content=conversation_text),
+        ]
+
+        model_copy = deepcopy(self.model)
+        response = await model_copy.aresponse(messages=messages_for_model, tools=functions)
+
+        if run_metrics is not None and response.response_usage is not None:
+            from egpt.metrics import ModelType, accumulate_model_metrics
+
+            accumulate_model_metrics(response, model_copy, ModelType.LEARNING_MODEL, run_metrics)
+
+        # Same distinction as the sync half -- see its comment.
+        if not response.tool_executions or not tool.mutated[0]:
+            return None
+        return profile
+
+    def _build_capture_profile_tool(self, profile: Any) -> Optional[_MutationTrackingTool]:
+        """Build the extraction-time ``update_profile`` tool: same signature as
+        :meth:`_build_update_profile_tool`, but it mutates ``profile`` in place and does no I/O
+        -- so unlike that method's sync/async pair, one builder serves both
+        :meth:`extract_profile` and :meth:`aextract_profile` (CLAUDE.md's exemption for a
+        pure-construction helper with nothing to await).
+        """
+        updateable = self._get_updateable_fields()
+        if not updateable:
+            return None
+
+        params = [
+            inspect.Parameter(
+                name=field_name,
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                default=None,
+                annotation=Optional[str],
+            )
+            for field_name in updateable
+        ]
+
+        fields_doc = "\n".join(f"            {name}: {info['description']}" for name, info in updateable.items())
+
+        docstring = f"""Update user profile fields.
+
+        Use this to update structured information about the user.
+        Only provide fields you want to update.
+
+        Args:
+{fields_doc}
+
+        Returns:
+            Confirmation of updated fields.
+        """
+
+        # A single-element list, not a bare `bool`: the closure below needs to *write* it, and a
+        # nested function cannot rebind an outer `bool` without `nonlocal` -- a mutable container
+        # sidesteps that and lets the caller read it back off the returned callable afterwards.
+        mutated = [False]
+
+        def update_profile(**kwargs) -> str:
+            changed = []
+            for field_name, value in kwargs.items():
+                if value is not None and field_name in updateable:
+                    setattr(profile, field_name, value)
+                    changed.append(f"{field_name}={value}")
+            if changed:
+                mutated[0] = True
+            return f"Profile updated: {', '.join(changed)}" if changed else "No fields provided to update"
+
+        func = cast(Any, update_profile)
+        func.__signature__ = inspect.Signature(params)
+        func.__doc__ = docstring
+        func.__name__ = "update_profile"
+        func.__annotations__ = {field_name: Optional[str] for field_name in updateable}
+        func.__annotations__["return"] = str
+        # Exposed so `extract_profile`/`aextract_profile` can tell "the model called this tool"
+        # (`response.tool_executions`) apart from "and at least one field actually changed" -- a
+        # tool call with every kwarg `None` produces the former without the latter, and the model
+        # calling this tool with nothing to say is not distinguishable from a real update by
+        # `tool_executions` alone.
+        func.mutated = mutated
+
+        return cast(_MutationTrackingTool, update_profile)
 
     # =========================================================================
     # Update Operations (called by agent tool)

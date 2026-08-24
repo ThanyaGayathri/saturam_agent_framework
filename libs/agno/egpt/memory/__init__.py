@@ -78,6 +78,15 @@ from egpt.memory.procedural import (
 )
 from egpt.memory.procedural import SYNTHESIZER_ID as PROCEDURAL_SYNTHESIZER_ID
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.retrieval import (
+    KbFilters,
+    KnowledgeRetrievable,
+    RetrievalSource,
+    UnifiedResult,
+    UnifiedSlice,
+    aunified_read,
+    unified_read,
+)
 from egpt.memory.schemas.episodic import (
     EPISODE_KEYS,
     PROVENANCE_KEYS,
@@ -152,6 +161,9 @@ from egpt.memory.validation import (
     reject_duplicate_ids,
     reject_foreign_scopes,
 )
+
+# The WORKING tier's own buffer (SM-C6)
+from egpt.memory.working import WorkingMemory
 
 # Write-back capture (SM-E2)
 from egpt.memory.writeback import (
@@ -324,4 +336,14 @@ __all__ = [
     # The consolidation scheduler (SM-L1)
     "ConsolidationOutcome",
     "ConsolidationWorker",
+    # The WORKING tier's own buffer (SM-C6)
+    "WorkingMemory",
+    # Unified KB + memory retrieval, source-labeled (SM-S4)
+    "KbFilters",
+    "KnowledgeRetrievable",
+    "RetrievalSource",
+    "UnifiedResult",
+    "UnifiedSlice",
+    "aunified_read",
+    "unified_read",
 ]

@@ -990,7 +990,95 @@ Per this file's own convention, whoever merges second renumbers.
 
 ---
 
-### 38_ppr_multihop.py
+### 38_kb_and_memory_unified_retrieval.py
+
+**Status:** PASS
+
+**Description:** KB vs memory boundary (SM-S4): `unified_read()` fans a query out across a
+`MemoryProvider` and a `KnowledgeRetrievable` leg, labeling every result `RetrievalSource.KB` or
+`RetrievalSource.MEMORY`. Shows a KB-only match, a memory-only match, and a leg with no store
+wired returning an empty list rather than being silently absent.
+
+**Result:** Ran end to end -- a rate-limit query returns only the KB document (labeled `kb`), a
+dark-mode query returns only the memory record (labeled `memory`), and unwiring the KB leg leaves
+`slice_.kb == []` while memory still answers.
+
+**Requires:** No database, no API key. Run with `.venvs/demo`.
+
+**Renumbered from `34_` to `38_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`,
+`feat/SM-L8` took `35_hierarchical_summarization.py`, `feat/SM-H1` took
+`36_hybrid_retrieval_orchestration.py`, and `feat/SM-S2` took `37_procedural_memory.py`, all
+while this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers -- four times, this time.
+
+---
+
+### 39_working_memory.py
+
+**Status:** PASS
+
+**Description:** The WORKING-tier buffer (SM-C6): builds a `WorkingMemory` (max_messages=3,
+keep_after_offload=1) with a goal, a scratchpad note, and messages, shows a direct
+`write_tier(WORKING, ...)` is still refused through the seam, grows the buffer past its threshold,
+calls `offload(provider=...)`, and reads `provider.assemble_context()` afterward.
+
+**Result:** Verified end to end with no database, no API key, no network (a minimal `Model` double
+stands in for `SessionSummaryManager`'s model call, the same one
+`libs/agno/tests/unit/memory/test_working_memory.py` exercises under test). `should_offload()` is
+`True` at the threshold; `offload` summarizes the two oldest messages, keeps the newest verbatim,
+and writes the two offloaded messages through the provider as `EPISODIC` events -- confirmed by
+reading them back out of the toy vector substrate. `assemble_context()` then renders the buffer's
+goal/summary/note/message lines followed by the offloaded episode from a persistent-tier read.
+
+**Requires:** Nothing. Run with `.venvs/demo`.
+
+**Renumbered from `35_` to `37_` to `39_`: `feat/SM-L8` took `35_hierarchical_summarization.py`,
+`feat/SM-H1` took `36_hybrid_retrieval_orchestration.py`, then `feat/SM-S2` took
+`37_procedural_memory.py` and `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py` while
+this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers -- twice, this time.
+
+---
+
+### 40_user_profile_store.py
+
+**Status:** PARTIAL
+
+**Description:** Structured user profile updated on consolidation (SM-S3 #120): wires a
+`UserProfileStore` (model-only, no `db`) into `CoLocatedMemoryProvider` via `profile_store=`,
+writes one episode where Ada introduces herself and states a preferred name, consolidates, and
+reads the resulting profile back through `SemanticProfileStore`.
+
+**Result:** Ran end to end up to the real model call against a real pgvector
+(`smv1-pgvector-5532`, table `memory_vectors_sm_s3`): the episodic write and the fact/entity
+consolidation passes all succeeded, `_update_profile` was reached and called
+`UserProfileStore.extract_profile`, which raised `ModelAuthenticationError` (`OPENAI_API_KEY not
+set`) -- caught and re-raised as `PartialWriteError`, exactly the behavior `co_located.py`'s own
+"a generic exception gives no reliable signal about which side of a fan-out it interrupted"
+comment documents. **Not run against a real model**: no `OPENAI_API_KEY` was available in this
+environment, the same gap `32_`/`33_` log. `UserProfileStore.extract_profile`/`aextract_profile`
+(the storage-free extraction this file exercises) are covered against a fake model in
+`libs/agno/tests/unit/learn/stores/test_user_profile_extract.py`, and the consolidation wiring
+(`_update_profile`/`_aupdate_profile`, the receipt-checking and scope-normalization fixed across
+QC rounds 2-4) against a stub `profile_store` in
+`libs/agno/tests/unit/memory/test_provider_profile_hook.py` -- what remains unverified is
+specifically the real-model extraction shape those doubles cannot guarantee to match. Re-run with
+a real key and flip this entry to a full PASS/FAIL when it lands.
+
+**Requires:** `./cookbook/scripts/run_pgvector.sh` and an `OPENAI_API_KEY`. Run with `.venvs/demo`
+with `PYTHONPATH=libs/agno` set from a worktree (no editable install there -- see this repo's
+`saturam-imp` skill).
+
+**Renumbered from `34_` to `40_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`, `feat/SM-L8`
+took `35_hierarchical_summarization.py`, `feat/SM-H1` took `36_hybrid_retrieval_orchestration.py`,
+`feat/SM-S2` took `37_procedural_memory.py`, `feat/SM-S4` took
+`38_kb_and_memory_unified_retrieval.py`, and `feat/SM-C6` took `39_working_memory.py`, all while
+this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers.
+
+---
+
+### 41_ppr_multihop.py
 
 **Status:** PASS
 
@@ -1007,13 +1095,14 @@ composition acceptance criterion.
 with PPR enabled the same query reaches all four edges including
 `germany-member-of-eu`; the bi-temporal check reports `True` before the invalidation bound and
 `False` after. No API key needed -- entities and fact edges are written directly, the same way
-`28_` does. Re-verified after round-1 and round-2 review fixes (empty-anchor guard, score ceiling,
-window overlap semantics, unique-per-call GDS catalog name, project-inside-try cleanup): unchanged
-output.
+`28_` does. Re-verified after round-1, round-2, and round-3 review fixes (empty-anchor guard,
+score ceiling, window overlap semantics, unique-per-call GDS catalog name, project-inside-try
+cleanup, seeds-into-rank TOCTOU fix): unchanged output.
 
 **Requires:** `./cookbook/scripts/run_neo4j_gds.sh` (a GDS-plugin Neo4j, not `28_`'s plain
 instance); no API key. Run with `.venvs/demo`.
 
-**Renumbered from `34_` to `35_` to `36_` to `37_` to `38_` across four merges: `feat/SM-L9`
-(#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took `36_`, then
-`feat/SM-S2` (#133) took `37_`, all while this branch was still catching up.**
+**Renumbered from `34_` to `35_` to `36_` to `37_` to `38_` to `41_` across five merges:
+`feat/SM-L9` (#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took
+`36_`, then `feat/SM-S2` (#133) took `37_`, then `feat/SM-S4`/`feat/SM-C6`/`feat/SM-S3` took
+`38_`/`39_`/`40_` together, all while this branch was still catching up.**
