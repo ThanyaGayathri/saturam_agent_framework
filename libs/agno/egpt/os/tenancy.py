@@ -42,7 +42,7 @@ control: this one decides whether a *principal* may proceed, the other whether a
 
 from typing import Optional
 
-from fastapi import HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 
 __all__ = ["TENANCY_REQUIRED_DETAIL", "current_tenant_id", "get_tenant_id", "require_tenant_id", "tenancy_enabled"]
 
@@ -75,15 +75,34 @@ async def get_tenant_id(request: Request) -> Optional[str]:
     return current_tenant_id(request)
 
 
-def tenancy_enabled(request: Request) -> bool:
-    """Whether this deployment has opted into tenancy.
+def tenancy_enabled_for_app(app: FastAPI) -> bool:
+    """Whether this deployment has opted into tenancy -- the one and only derivation.
 
     Reads ``app.state.tenant_id_claim``, which ``EgptOS`` stamps eagerly when it installs the
-    auth middleware. ``AuthMiddleware.dispatch`` also populates it lazily on the first request
-    carrying a validator; the eager write is what makes the flag true before any request and
-    assertable without issuing one.
+    auth middleware -- unconditionally, not only when a JWT key is configured, because a PAT-only
+    deployment (``tenant_id_claim`` set, no JWT key source) is a real tenancy deployment: its
+    service accounts carry a tenant and its untenanted callers must be refused. ``AuthMiddleware.
+    dispatch`` also populates it lazily on the first request carrying a validator; the eager
+    write is what makes the flag true before any request and assertable without issuing one.
+
+    Every transport must derive the flag from here. The HTTP path goes through
+    :func:`tenancy_enabled`; the WebSocket dispatcher, which has no ``Request``, calls this with
+    ``websocket.app``. It must *not* be derived from ``resolve_ws_jwt_config``: that helper
+    deliberately skips a ``JWTMiddleware`` entry with no key source and reports
+    ``tenant_id_claim=None`` for it, which is right for deciding whether JWTs are accepted and
+    wrong for deciding whether tenancy is on -- the two disagreed on exactly the PAT-only shape
+    (PR #121 review), the same one-flag-two-derivations bug aicoe-tracker#174 was about.
     """
-    return bool(getattr(request.app.state, "tenant_id_claim", None))
+    return bool(getattr(app.state, "tenant_id_claim", None))
+
+
+def tenancy_enabled(request: Request) -> bool:
+    """Whether this deployment has opted into tenancy, read off a ``Request``.
+
+    Thin wrapper over :func:`tenancy_enabled_for_app` so HTTP code keeps its ``Request``-shaped
+    accessor; the decision itself lives in one place.
+    """
+    return tenancy_enabled_for_app(request.app)
 
 
 async def require_tenant_id(request: Request) -> Optional[str]:

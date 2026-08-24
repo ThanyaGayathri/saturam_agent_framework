@@ -124,8 +124,10 @@ methods still raise `NotImplementedError` (maximally fail-closed: no data is rea
 ClickHouse's component reads still return empty. Their signatures were updated so a future
 implementer inherits the contract rather than reintroducing the fail-open default.
 
-**Two tenant resolvers still exist, and they disagree.** `egpt.os.utils.resolve_tenant_id` serves
-the factory/websocket path, which has no `Request` to read `request.state.tenant_id` from.
+**Two tenant resolvers existed, and they disagreed — resolved by
+[aicoe-tracker#174](https://github.com/Saturam-Inc/aicoe-tracker/issues/174).**
+`egpt.os.utils.resolve_tenant_id` serves the factory/websocket path, which has no `Request` to
+read `request.state.tenant_id` from.
 
 An earlier draft of this ADR claimed it "is not on the component data-access path". **That was
 wrong**, and the correction matters because it changes what the limit actually is.
@@ -133,25 +135,54 @@ wrong**, and the correction matters because it changes what the limit actually i
 which reaches hydration and `db.get_config` — so it *is* a component read path, and this ADR's
 enforcement applies to it.
 
-The real limit is that the two resolvers produce different answers for the same principal.
-`resolve_tenant_id` falls back to `user_id` (when that id is the middleware-verified one) where
-`egpt.os.tenancy.current_tenant_id` returns `None`:
+The underlying problem was that the two resolvers produced different answers for the same
+principal. `resolve_tenant_id` falls back to `user_id` (when that id is the middleware-verified
+one) where `egpt.os.tenancy.current_tenant_id` returns `None`:
 
-| Principal | HTTP path | WS / factory path |
+| Principal | HTTP path | WS / factory path (before the fix) |
 |---|---|---|
 | JWT with the tenant claim | that claim | that claim |
 | Verified JWT, **no** tenant claim | `None` → refused under `require_tenant_id` | `tenant_id="alice"` — the user id used as a tenant namespace |
 
-So the WS path fails **open** relative to HTTP: it scopes to a namespace derived from a user id
-rather than refusing. Reads stay confined to that namespace, so it is not a cross-tenant leak, but
-it is a second isolation model reachable from the same credential — and a component written under
-`tenant_id="alice"` is invisible to the same user's HTTP requests.
+So the WS path failed **open** relative to HTTP: it scoped to a namespace derived from a user id
+rather than refusing. Reads stayed confined to that namespace, so it was not a cross-tenant leak,
+but it was a second isolation model reachable from the same credential — and a component written
+under `tenant_id="alice"` was invisible to the same user's HTTP requests.
 
-Reconciling the two resolvers is out of scope here (it touches `ModelPolicy` selection, which this
-ADR does not otherwise reason about) and is tracked as
-[aicoe-tracker#174](https://github.com/Saturam-Inc/aicoe-tracker/issues/174) with the divergence
-table and acceptance criteria. What this ADR must not do is record it as a limit that does not
-apply to component access, because it does.
+The fix keeps `resolve_tenant_id`'s `user_id` fallback (it is the right default for
+`ModelPolicy`/budget selection — `RequestContext.tenant_id`, `RunContext.tenant_id` — which this
+ADR does not otherwise reason about) but stops it from ever reaching a component read. The
+WebSocket dispatcher (`egpt/os/router.py`) now populates `websocket_user_context["tenant_id"]`
+the same way `AuthMiddleware` populates `request.state.tenant_id`: the configured claim,
+via the same `extract_tenant_claim` the middleware uses, no fallback — so a claim that is
+present but malformed is rejected on WS (`auth_error`, socket left unauthenticated) exactly as it
+is on HTTP (401), rather than degrading to unscoped. `egpt.os.utils.tenant_for_ws_hydration` reads
+that (plus `tenancy_enabled`) off a typed `WebSocketAuthContext` to scope every WS hydration
+call — start-workflow, reconnect, and continue-workflow — with the same fail-closed contract
+`_tenant_for_hydration` already gave HTTP, in-memory components exempted the same way.
+
+Whether tenancy is on has exactly one derivation, `egpt.os.tenancy.tenancy_enabled_for_app`
+(`app.state.tenant_id_claim`), which both the HTTP `tenancy_enabled(request)` and the WS
+dispatcher consult. It is deliberately *not* read from the WS JWT config: `resolve_ws_jwt_config`
+skips a `JWTMiddleware` entry with no key source, so on a PAT-only tenancy deployment it reports
+no claim while HTTP's gate is live — one flag with two derivations, the same shape as the original
+divergence (caught in PR #121's review). A verified caller with no tenant claim is now refused
+identically on both paths, on JWT and PAT-only deployments alike; see
+`libs/agno/tests/unit/os/test_hydration_resolvers.py::TestTenantForWsHydration`,
+`libs/agno/tests/unit/os/test_tenancy_deployment_modes.py` (PAT-only parity), and
+`libs/agno/tests/integration/os/test_workflow_runs.py`'s WS/HTTP tenant-reconciliation tests,
+which cover all three WS actions.
+
+**Remaining limits, recorded rather than claimed away.** Two gaps are pre-existing, identical
+before and after the fix, and tracked separately:
+
+- A `reconnect` whose `run_id` is still in the `EventBuffer` replays without reaching the
+  hydration gate, because that gate sits on the DB arm and the buffer is keyed on `run_id`
+  alone — [aicoe-tracker#196](https://github.com/Saturam-Inc/aicoe-tracker/issues/196).
+  `continue-workflow` and `start-workflow` are not affected; their gates run unconditionally.
+- The reconciliation covers component *config* hydration. Run and session reads
+  (`Workflow.aget_run_output` → `aget_session` → `_aread_session`) take no `tenant_id` on either
+  transport — [aicoe-tracker#197](https://github.com/Saturam-Inc/aicoe-tracker/issues/197).
 
 **The non-HTTP entry points keep an unscoped default.** `Agent.save/delete`, `Team.save/delete`
 and `Workflow.save/delete` take `tenant_id` but default it to `None`. On a **non-strict** db that

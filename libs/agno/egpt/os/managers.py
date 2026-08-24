@@ -146,6 +146,17 @@ class WebSocketManager:
             )
         )
 
+    def deauthenticate_websocket(self, websocket: WebSocket) -> None:
+        """Mark a connection as no longer authenticated, without closing it.
+
+        Called at the start of every ``authenticate`` attempt so a failed re-authenticate on a
+        long-lived socket cannot leave the previous principal live: the caller must present a
+        valid credential again before any further action is served. Sync only -- a pure dict
+        write with nothing to await (see CLAUDE.md on pure-construction methods).
+        """
+        self.authenticated_connections[websocket] = False
+        logger.debug("WebSocket deauthenticated pending re-authentication")
+
     def is_authenticated(self, websocket: WebSocket) -> bool:
         """Check if a WebSocket connection is authenticated"""
         return self.authenticated_connections.get(websocket, False)
