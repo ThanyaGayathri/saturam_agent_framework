@@ -1010,3 +1010,30 @@ dark-mode query returns only the memory record (labeled `memory`), and unwiring 
 `36_hybrid_retrieval_orchestration.py`, and `feat/SM-S2` took `37_procedural_memory.py`, all
 while this branch was still catching up.** Per this file's own convention, whoever merges second
 renumbers -- four times, this time.
+
+---
+
+### 39_working_memory.py
+
+**Status:** PASS
+
+**Description:** The WORKING-tier buffer (SM-C6): builds a `WorkingMemory` (max_messages=3,
+keep_after_offload=1) with a goal, a scratchpad note, and messages, shows a direct
+`write_tier(WORKING, ...)` is still refused through the seam, grows the buffer past its threshold,
+calls `offload(provider=...)`, and reads `provider.assemble_context()` afterward.
+
+**Result:** Verified end to end with no database, no API key, no network (a minimal `Model` double
+stands in for `SessionSummaryManager`'s model call, the same one
+`libs/agno/tests/unit/memory/test_working_memory.py` exercises under test). `should_offload()` is
+`True` at the threshold; `offload` summarizes the two oldest messages, keeps the newest verbatim,
+and writes the two offloaded messages through the provider as `EPISODIC` events -- confirmed by
+reading them back out of the toy vector substrate. `assemble_context()` then renders the buffer's
+goal/summary/note/message lines followed by the offloaded episode from a persistent-tier read.
+
+**Requires:** Nothing. Run with `.venvs/demo`.
+
+**Renumbered from `35_` to `37_` to `39_`: `feat/SM-L8` took `35_hierarchical_summarization.py`,
+`feat/SM-H1` took `36_hybrid_retrieval_orchestration.py`, then `feat/SM-S2` took
+`37_procedural_memory.py` and `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py` while
+this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers -- twice, this time.
