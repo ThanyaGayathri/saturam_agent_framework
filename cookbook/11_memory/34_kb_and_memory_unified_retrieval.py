@@ -166,21 +166,17 @@ if __name__ == "__main__":
     )
 
     query = MemoryQuery(text="rate limit", limit=5)
-    print("Query: %r, wired to both KB and memory" % query.text)
+    print(f"Query: {query.text!r}, wired to both KB and memory")
     slice_ = unified_read(scope, query, memory=memory, knowledge=knowledge)
     for result in slice_.results:
-        print(
-            "  [%s] %s (score=%s)" % (result.source.value, result.content, result.score)
-        )
+        print(f"  [{result.source.value}] {result.content} (score={result.score})")
 
     query = MemoryQuery(text="dark mode", limit=5)
     print()
-    print("Query: %r, wired to both KB and memory" % query.text)
+    print(f"Query: {query.text!r}, wired to both KB and memory")
     slice_ = unified_read(scope, query, memory=memory, knowledge=knowledge)
     for result in slice_.results:
-        print(
-            "  [%s] %s (score=%s)" % (result.source.value, result.content, result.score)
-        )
+        print(f"  [{result.source.value}] {result.content} (score={result.score})")
 
     # A leg with no store wired is an empty list, not an absent one.
     print()

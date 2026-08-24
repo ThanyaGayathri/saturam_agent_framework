@@ -5,6 +5,7 @@ result is labeled by the store it came from -- the issue's three acceptance crit
 test that fails without the code (a merged-store or unlabeled-result regression would fail these).
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional, Sequence
 
 from egpt.knowledge.document import Document
@@ -96,6 +97,25 @@ class RecordingKnowledge:
         return self.retrieve(query, max_results=max_results, filters=filters)
 
 
+class RaisingKnowledge:
+    """A KB leg that always fails, recording whether it was ever called."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+        self.called = False
+
+    def retrieve(
+        self, query: str, max_results: Optional[int] = None, filters: Optional[Any] = None, **kwargs
+    ) -> List[Document]:
+        self.called = True
+        raise self._error
+
+    async def aretrieve(
+        self, query: str, max_results: Optional[int] = None, filters: Optional[Any] = None, **kwargs
+    ) -> List[Document]:
+        return self.retrieve(query, max_results=max_results, filters=filters)
+
+
 def _memory_record(record_id: str = "m1", content: str = "user prefers dark mode") -> MemoryRecord:
     return MemoryRecord(
         id=record_id,
@@ -152,6 +172,145 @@ def test_kb_filters_are_forwarded_to_the_kb_leg_only():
     assert knowledge.calls == [("rate limit", 5, {"section": "api"})]
     # No memory-side equivalent: the memory leg always reads the unfiltered query.
     assert memory.calls == [(SCOPE, query)]
+
+
+def test_limit_zero_means_zero_kb_results_not_the_kb_default_page():
+    # Knowledge.search computes `max_results or self.max_results`, so a naive forward of
+    # limit=0 would silently fall back to the KB's own default page instead of returning nothing.
+    knowledge = RecordingKnowledge([_document()])
+    memory = RecordingProvider([_memory_record()])
+    query = MemoryQuery(text="q", limit=0)
+
+    result = unified_read(SCOPE, query, memory=memory, knowledge=knowledge)
+
+    assert knowledge.calls == []  # the KB leg must not even be called
+    assert result.kb == []
+
+
+async def test_async_limit_zero_means_zero_kb_results():
+    knowledge = RecordingKnowledge([_document()])
+    result = await aunified_read(SCOPE, MemoryQuery(text="q", limit=0), knowledge=knowledge)
+
+    assert knowledge.calls == []
+    assert result.kb == []
+
+
+# ---------------------------------------------------------------------------
+# Fault isolation: one leg raising must not silently discard the other's result
+# ---------------------------------------------------------------------------
+
+
+def test_a_raising_kb_leg_does_not_prevent_the_memory_leg_from_running():
+    knowledge = RaisingKnowledge(ValueError("kb boom"))
+    memory = RecordingProvider([_memory_record()])
+
+    try:
+        unified_read(SCOPE, MemoryQuery(text="q"), memory=memory, knowledge=knowledge)
+        assert False, "expected the KB leg's exception to propagate"
+    except ValueError as exc:
+        assert str(exc) == "kb boom"
+
+    assert knowledge.called
+    assert memory.calls == [(SCOPE, MemoryQuery(text="q"))]  # memory leg still ran
+
+
+async def test_async_raising_kb_leg_still_lets_the_memory_leg_run_to_completion():
+    knowledge = RaisingKnowledge(ValueError("kb boom"))
+    memory = RecordingProvider([_memory_record()])
+
+    try:
+        await aunified_read(SCOPE, MemoryQuery(text="q"), memory=memory, knowledge=knowledge)
+        assert False, "expected the KB leg's exception to propagate"
+    except ValueError as exc:
+        assert str(exc) == "kb boom"
+
+    assert knowledge.called
+    assert memory.calls == [(SCOPE, MemoryQuery(text="q"))]  # memory leg still ran, not orphaned
+
+
+async def test_async_raising_kb_leg_does_not_leave_the_memory_leg_orphaned():
+    # A slower memory leg that genuinely suspends, paired with a KB leg that raises with no
+    # await at all -- without gather(..., return_exceptions=True), gather propagates the KB
+    # exception as soon as it fires and does not wait for the still-sleeping memory task, so this
+    # test would observe memory_finished as False if that flag were removed (verified by
+    # mutation: reverting return_exceptions=True to the gather default makes this test flaky-to-
+    # reliably-fail on a slow machine, and fails outright when the sleep is lengthened).
+    memory_finished = False
+
+    class SlowMemory(MemoryProvider):
+        provider_key = "slow"
+        config = None
+
+        async def aread(self, scope, query):
+            nonlocal memory_finished
+            await asyncio.sleep(0.05)
+            memory_finished = True
+            return MemorySlice(scope=scope, query=query, records=[])
+
+        def read(self, scope, query):
+            raise NotImplementedError
+
+        async def awrite(self, scope, events):
+            raise NotImplementedError
+
+        def write(self, scope, events):
+            raise NotImplementedError
+
+        def consolidate(self, scope, tiers=None):
+            raise NotImplementedError
+
+        async def aconsolidate(self, scope, tiers=None):
+            raise NotImplementedError
+
+        def read_tier(self, scope, tier, query):
+            raise NotImplementedError
+
+        async def aread_tier(self, scope, tier, query):
+            raise NotImplementedError
+
+        def write_tier(self, scope, tier, events):
+            raise NotImplementedError
+
+        async def awrite_tier(self, scope, tier, events):
+            raise NotImplementedError
+
+        def substrates(self):
+            return {}
+
+        def tiers(self):
+            return {}
+
+    knowledge = RaisingKnowledge(ValueError("kb boom"))
+
+    try:
+        await aunified_read(SCOPE, MemoryQuery(text="q"), memory=SlowMemory(), knowledge=knowledge)
+        assert False, "expected the KB leg's exception to propagate"
+    except ValueError:
+        pass
+
+    # aunified_read must not return control to the caller until the memory leg has actually
+    # finished -- checked immediately, with no extra sleep on the test's side.
+    assert memory_finished is True
+
+
+def test_kb_error_wins_over_memory_error_when_both_legs_raise():
+    knowledge = RaisingKnowledge(ValueError("kb boom"))
+
+    class RaisingMemory(RecordingProvider):
+        def read(self, scope, query):
+            super().read(scope, query)
+            raise RuntimeError("memory boom")
+
+    memory = RaisingMemory([])
+
+    try:
+        unified_read(SCOPE, MemoryQuery(text="q"), memory=memory, knowledge=knowledge)
+        assert False, "expected an exception"
+    except ValueError as exc:
+        assert str(exc) == "kb boom"
+
+    assert knowledge.called
+    assert len(memory.calls) == 1  # memory leg still ran despite the kb failure
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +396,14 @@ def test_memory_result_carries_record_identity_tier_and_score():
     assert memory_result.source == RetrievalSource.MEMORY
     assert memory_result.score == 0.9
     assert memory_result.metadata["tier"] == MemoryTier.SEMANTIC.value
+
+
+def test_kb_result_id_falls_back_to_content_id_only_when_id_is_none_not_empty():
+    knowledge = RecordingKnowledge([Document(content="c", id="", content_id="fallback")])
+    result = unified_read(SCOPE, MemoryQuery(text="q"), knowledge=knowledge)
+
+    [kb_result] = result.kb
+    assert kb_result.id == ""  # an explicit empty string is not "missing"
 
 
 def test_the_stamped_tier_wins_over_a_colliding_tier_key_in_record_metadata():

@@ -62,6 +62,7 @@ from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, 
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval import (
+    KbFilters,
     KnowledgeRetrievable,
     RetrievalSource,
     UnifiedResult,
@@ -306,6 +307,7 @@ __all__ = [
     "ConsolidationOutcome",
     "ConsolidationWorker",
     # Unified KB + memory retrieval, source-labeled (SM-S4)
+    "KbFilters",
     "KnowledgeRetrievable",
     "RetrievalSource",
     "UnifiedResult",

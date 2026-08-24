@@ -1,4 +1,5 @@
 from egpt.memory.retrieval.unified import (
+    KbFilters,
     KnowledgeRetrievable,
     RetrievalSource,
     UnifiedResult,
@@ -8,6 +9,7 @@ from egpt.memory.retrieval.unified import (
 )
 
 __all__ = [
+    "KbFilters",
     "KnowledgeRetrievable",
     "RetrievalSource",
     "UnifiedResult",
