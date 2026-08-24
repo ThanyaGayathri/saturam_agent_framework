@@ -3,8 +3,16 @@ path, idempotent and retryable.
 
 This package is deliberately thin. The consolidation *stages* -- fact extraction (SM-L3 #124,
 `extract.py`), near-duplicate fact folding (SM-L4 #125, `dedup.py`), contradiction resolution
-(SM-L5 #126), episodic->semantic (SM-L7 #128), summarization (SM-L8 #129) -- extraction and
-folding are the first two to ship, plus reflection (SM-L6 #127, `reflect.py`); the rest are still
+(SM-L5 #126), summarization (SM-L8 #129) -- extraction and folding are the first two to ship, plus
+reflection (SM-L6 #127, `reflect.py`). Episodic->semantic promotion itself is `extract.py`
+(RESEARCH.md's mem0-style backbone, "SM-L7 owns the actual change" in its provenance section);
+SM-L7 (#128) adds the referential anti-lossiness check promotion's provenance needs,
+`provenance.py`. It deliberately does not add a citation-aware exclusion to
+`egpt.memory.episodic.forget`'s prune gate -- DECISION.md section 4 (ratified, ADR 0003 section
+A.7) already measured and rejected exactly that class of extra condition as too conservative to
+bound growth, and it would be redundant regardless: pruning there is row-level `expired_at`, never
+a delete, so a cited episode's row survives and its provenance stays resolvable across a prune pass
+by construction -- see `provenance.py`'s own docstring. The rest are still
 `CoLocatedMemoryProvider._distil_facts`'s deterministic-dedup default (SM-C1 #89), now followed by
 `dedup`'s near-duplicate fold, when no `fact_pipeline` (SM-L3) is wired -- a wired pipeline already
 decides ADD/UPDATE/DELETE/NOOP against existing facts itself and skips the fold (see
@@ -35,6 +43,11 @@ from egpt.memory.consolidation.extract import (
     MergeDecider,
     MergeDecision,
     fact_extraction_details,
+)
+from egpt.memory.consolidation.provenance import (
+    ProvenanceReport,
+    dangling_source_episode_ids,
+    provenance_report,
 )
 from egpt.memory.consolidation.reflect import (
     DEFAULT_IMPORTANCE_THRESHOLD,
@@ -91,6 +104,7 @@ __all__ = [
     "MergeDecider",
     "MergeDecision",
     "PerTenantThreshold",
+    "ProvenanceReport",
     "ReflectionPipeline",
     "ReflectionReport",
     "SizeTrigger",
@@ -100,6 +114,8 @@ __all__ = [
     "SynthesizedInsight",
     "ThresholdSource",
     "build_sleep_time_trigger",
+    "dangling_source_episode_ids",
     "fact_extraction_details",
     "merge_near_duplicate_facts",
+    "provenance_report",
 ]
