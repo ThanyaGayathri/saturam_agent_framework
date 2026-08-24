@@ -181,7 +181,15 @@ This section demonstrates how EGPT agents persist and use user memories across r
   pending work at any hour. Plugs into `ConsolidationWorker` as `trigger=...`, no worker change.
   Requires nothing; no database, no API key, no network.
 
-- `35_procedural_memory.py`: Procedural memory (SM-S2) -- `ProceduralReflectionPipeline` is
+- `35_hierarchical_summarization.py`: Hierarchical (session/day/global) summarization (SM-L8) --
+  `SummaryPipeline`, opt-in via `summary_pipeline`: a rolling session summary reuses
+  `SessionSummaryResponse` (`session/summary.py`); day/global periodic rollups are gated by
+  `LatencyTrigger` and folded via `SummarizeStrategy` (`memory/strategies/summarize.py`). Every
+  summary lands on the SEMANTIC tier through the same write path a distilled fact or a reflected
+  insight uses, tagged `metadata={"kind": "summary", "level": ...}` -- retrievable through an
+  ordinary read. Requires a real model (`OPENAI_API_KEY`); no database.
+
+- `37_procedural_memory.py`: Procedural memory (SM-S2) -- `ProceduralReflectionPipeline` is
   importance-gated like `ReflectionPipeline`, but stateless across calls: PROCEDURAL takes no part
   in `consolidate`'s scan (`TIER_POLICY` reserves that sweep to EPISODIC/SEMANTIC), so it is
   invoked directly over one episode batch. Once an `LLMProcedureSynthesizer` distills a reusable
@@ -189,8 +197,10 @@ This section demonstrates how EGPT agents persist and use user memories across r
   so the ordinary `write` needs no new routing -- and is retrieved and injected through an ordinary
   `read` with no tier named, since PROCEDURAL is in `PERSISTENT_TIERS`. Requires a real model
   (`OPENAI_API_KEY`); no database.
-  **Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
-  branch was still catching up. Per this file's own convention, whoever merges second renumbers.**
+  **Renumbered from `35_` to `37_`: `feat/SM-L8` took `35_hierarchical_summarization.py` and
+  `feat/SM-H1` took `36_hybrid_retrieval_orchestration.py` (the latter's own README entry appears
+  to be missing on `main`, not added here) while this branch was still catching up. Per this
+  file's own convention, whoever merges second renumbers.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

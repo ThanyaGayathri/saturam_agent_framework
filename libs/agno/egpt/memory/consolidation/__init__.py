@@ -3,8 +3,9 @@ path, idempotent and retryable.
 
 This package is deliberately thin. The consolidation *stages* -- fact extraction (SM-L3 #124,
 `extract.py`), near-duplicate fact folding (SM-L4 #125, `dedup.py`), contradiction resolution
-(SM-L5 #126), summarization (SM-L8 #129) -- extraction and folding are the first two to ship, plus
-reflection (SM-L6 #127, `reflect.py`). Episodic->semantic promotion itself is `extract.py`
+(SM-L5 #126), summarization (SM-L8 #129, `summarize.py`) -- extraction, folding, and summarization
+are shipped, plus reflection (SM-L6 #127, `reflect.py`); contradiction resolution is still open.
+Episodic->semantic promotion itself is `extract.py`
 (RESEARCH.md's mem0-style backbone, "SM-L7 owns the actual change" in its provenance section);
 SM-L7 (#128) adds the referential anti-lossiness check promotion's provenance needs,
 `provenance.py`. It deliberately does not add a citation-aware exclusion to
@@ -12,10 +13,10 @@ SM-L7 (#128) adds the referential anti-lossiness check promotion's provenance ne
 A.7) already measured and rejected exactly that class of extra condition as too conservative to
 bound growth, and it would be redundant regardless: pruning there is row-level `expired_at`, never
 a delete, so a cited episode's row survives and its provenance stays resolvable across a prune pass
-by construction -- see `provenance.py`'s own docstring. The rest are still
-`CoLocatedMemoryProvider._distil_facts`'s deterministic-dedup default (SM-C1 #89), now followed by
-`dedup`'s near-duplicate fold, when no `fact_pipeline` (SM-L3) is wired -- a wired pipeline already
-decides ADD/UPDATE/DELETE/NOOP against existing facts itself and skips the fold (see
+by construction -- see `provenance.py`'s own docstring. Facts absent a `fact_pipeline` (SM-L3)
+still come from `CoLocatedMemoryProvider._distil_facts`'s deterministic-dedup default (SM-C1 #89),
+now followed by `dedup`'s near-duplicate fold -- a wired pipeline already decides
+ADD/UPDATE/DELETE/NOOP against existing facts itself and skips the fold (see
 `co_located.CoLocatedMemoryProvider._distil_facts`'s docstring for why). What lives here does not
 know or care which stages `consolidate` runs: it calls the method, retries a failure, and calls it
 again while a pass reports itself incomplete. A future stage lands inside `consolidate` and this
@@ -64,6 +65,16 @@ from egpt.memory.consolidation.sleeptime import (
     SleepWindow,
     build_sleep_time_trigger,
 )
+from egpt.memory.consolidation.summarize import (
+    DEFAULT_DAY_SECONDS,
+    DEFAULT_GLOBAL_SECONDS,
+    DEFAULT_MAX_PENDING_ROLLUP_ITEMS,
+    DEFAULT_MAX_TRACKED_SCOPES,
+    LLMSessionSummarizer,
+    SessionSummarizer,
+    SummaryPipeline,
+    SummaryReport,
+)
 from egpt.memory.consolidation.triggers import (
     AnyTrigger,
     ConsolidationTrigger,
@@ -87,8 +98,12 @@ __all__ = [
     "ConsolidationOutcome",
     "ConsolidationTrigger",
     "ConsolidationWorker",
+    "DEFAULT_DAY_SECONDS",
+    "DEFAULT_GLOBAL_SECONDS",
     "DEFAULT_IMPORTANCE_THRESHOLD",
     "DEFAULT_MAX_EPISODES_PER_REFLECTION",
+    "DEFAULT_MAX_PENDING_ROLLUP_ITEMS",
+    "DEFAULT_MAX_TRACKED_SCOPES",
     "EventCountTrigger",
     "ExtractedFacts",
     "FactCandidate",
@@ -100,6 +115,7 @@ __all__ = [
     "LLMFactExtractor",
     "LLMInsightSynthesizer",
     "LLMMergeDecider",
+    "LLMSessionSummarizer",
     "LatencyTrigger",
     "MergeDecider",
     "MergeDecision",
@@ -107,10 +123,13 @@ __all__ = [
     "ProvenanceReport",
     "ReflectionPipeline",
     "ReflectionReport",
+    "SessionSummarizer",
     "SizeTrigger",
     "SleepTimeScheduleConfig",
     "SleepTimeTrigger",
     "SleepWindow",
+    "SummaryPipeline",
+    "SummaryReport",
     "SynthesizedInsight",
     "ThresholdSource",
     "build_sleep_time_trigger",

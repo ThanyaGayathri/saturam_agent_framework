@@ -297,6 +297,17 @@ def test_fusion_diagnostics_always_carries_the_contract_keys():
     assert set(FUSION_KEYS) <= set(fusion_diagnostics(method="weighted", extra="allowed"))
 
 
+def test_lexical_hits_is_in_the_floor_not_an_adapter_extra():
+    """`set(FUSION_KEYS) <= set(payload)` alone cannot catch a key dropped from the floor tuple --
+    the key still lands in every payload via `fusion_diagnostics`'s own named parameter regardless
+    of what `FUSION_KEYS` requires, so that assertion passes whether or not `lexical_hits` is
+    actually part of the contract (SM-H1 #131 round-1 review, finding 1). Assert membership in the
+    tuple directly."""
+    from egpt.memory.types import FUSION_KEYS
+
+    assert "lexical_hits" in FUSION_KEYS
+
+
 @pytest.mark.parametrize(
     "separator",
     ["\n", "\r\n", "\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", " ", " "],
