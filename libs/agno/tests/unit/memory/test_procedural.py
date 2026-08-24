@@ -90,6 +90,18 @@ def procedure(title="Ask before deploying", content="Confirm with the on-call be
 
 
 @pytest.mark.parametrize("is_async", [False, True])
+def test_empty_episodes_returns_untriggered_report(is_async):
+    pipe = ProceduralReflectionPipeline(StubSynthesizer(), importance_threshold=1.0)
+
+    call = pipe.arun(ACME, []) if is_async else pipe.run(ACME, [])
+    report = asyncio.run(call) if is_async else call
+
+    assert report.details["triggered"] is False
+    assert report.write is None
+    assert report.accumulated_importance == 0.0
+
+
+@pytest.mark.parametrize("is_async", [False, True])
 def test_below_threshold_never_synthesizes(is_async):
     synth = StubSynthesizer(result=procedure())
     pipe = ProceduralReflectionPipeline(synth, importance_threshold=5.0)
@@ -168,8 +180,9 @@ def test_a_non_episodic_source_is_refused():
     pipe = ProceduralReflectionPipeline(StubSynthesizer())
     semantic_row = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="a fact", scope=ACME)
 
-    with pytest.raises(MemoryOperationError):
+    with pytest.raises(MemoryOperationError) as excinfo:
         pipe.run(ACME, [semantic_row])
+    assert excinfo.value.field_name == "tier"
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +202,28 @@ def test_importance_threshold_is_validated(bad):
     with pytest.raises(MemoryOperationError) as excinfo:
         ProceduralReflectionPipeline(StubSynthesizer(), importance_threshold=bad)
     assert excinfo.value.field_name == "importance_threshold"
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True])
+def test_max_episodes_per_pass_is_validated(bad):
+    with pytest.raises(MemoryOperationError) as excinfo:
+        ProceduralReflectionPipeline(StubSynthesizer(), max_episodes_per_pass=bad)
+    assert excinfo.value.field_name == "max_episodes_per_pass"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_max_episodes_per_pass_caps_what_the_synthesizer_sees(is_async):
+    """Regression: an uncapped pass sent every episode to the synthesizer regardless of how many
+    there were, risking a model context-length failure on a large backlog."""
+    synth = StubSynthesizer(result=procedure())
+    pipe = ProceduralReflectionPipeline(synth, importance_threshold=0.01, max_episodes_per_pass=2)
+    episodes = [episode(str(i), f"e{i}", importance=0.1) for i in range(5)]
+
+    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
+    report = asyncio.run(call) if is_async else call
+
+    assert report.episodes_considered == 2
+    assert len(synth.calls[0]) == 2
 
 
 @pytest.mark.parametrize("is_async", [False, True])
@@ -229,14 +264,28 @@ def test_the_procedure_id_is_derived_from_its_source_set():
 
 
 def test_to_write_refuses_a_blank_title_or_content():
-    """`_to_write`'s own bare-truthiness re-check, for a caller reaching it through a
-    `ProcedureSynthesizer` other than `LLMProcedureSynthesizer` -- whose `_extract` already
-    strips before this point, so a whitespace-only string never reaches `_to_write` on that path."""
+    """`_to_write`'s own re-check, for a caller reaching it through a `ProcedureSynthesizer` other
+    than `LLMProcedureSynthesizer` -- whose `_extract` already strips before this point, but the
+    Protocol makes a custom synthesizer's path part of the public contract, so `_to_write` cannot
+    assume its input was already validated."""
     pipe = ProceduralReflectionPipeline(StubSynthesizer())
     batch = [episode("a", "e1")]
 
     with pytest.raises(MemoryOperationError) as excinfo:
         pipe._to_write(ACME, batch, SynthesizedProcedure(has_procedure=True, kind="rule", title="", content="x"))
+    assert excinfo.value.field_name == "content"
+
+
+def test_to_write_refuses_a_whitespace_only_title_or_content():
+    """Regression: bare truthiness (`if not procedure.title`) lets `"   "` through unchallenged,
+    since a whitespace-only string is truthy -- this is the case `_to_write`'s own re-check must
+    catch for a custom synthesizer that does not strip, since only `LLMProcedureSynthesizer._extract`
+    does."""
+    pipe = ProceduralReflectionPipeline(StubSynthesizer())
+    batch = [episode("a", "e1")]
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        pipe._to_write(ACME, batch, SynthesizedProcedure(has_procedure=True, kind="rule", title="   ", content="x"))
     assert excinfo.value.field_name == "content"
 
 
@@ -294,6 +343,15 @@ def test_a_decline_is_collapsed_to_none():
     synth = LLMProcedureSynthesizer(model=_model_with_procedure(has_procedure=False))
 
     assert synth.synthesize([episode("a", "e1")]) is None
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_synthesize_refuses_empty_episodes(is_async):
+    synth = LLMProcedureSynthesizer(model=_model_with_procedure())
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        asyncio.run(synth.asynthesize([])) if is_async else synth.synthesize([])
+    assert excinfo.value.field_name == "episodes"
 
 
 # ---------------------------------------------------------------------------

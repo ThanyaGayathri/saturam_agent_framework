@@ -61,7 +61,11 @@ from egpt.memory.episodic.segment import (
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 
-# Procedural memory: reflection-driven skill/rule synthesis (SM-S2)
+# Procedural memory: reflection-driven skill/rule synthesis (SM-S2). Two of these names are
+# aliased on import to a package-prefixed name, since a bare re-export of e.g.
+# `DEFAULT_IMPORTANCE_THRESHOLD` would read as this package's own constant. Split across three
+# statements because ruff's own import sort re-splits an aliased name grouped with plain ones
+# back apart -- every `ruff check --select I --fix` re-produces this shape, not one combined block.
 from egpt.memory.procedural import DEFAULT_IMPORTANCE_THRESHOLD as PROCEDURAL_DEFAULT_IMPORTANCE_THRESHOLD
 from egpt.memory.procedural import (
     PROCEDURAL_REFLECTION_KEYS,

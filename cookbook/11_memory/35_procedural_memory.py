@@ -30,6 +30,7 @@ provider's credentials) -- there is no offline path for LLM-synthesized
 procedures.
 """
 
+import asyncio
 from dataclasses import replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -170,10 +171,12 @@ print(
 
 # ---------------------------------------------------------------------------
 # 3. Reflect. The accumulated importance (1.3) crosses the 1.2 threshold, so
-#    this call asks the synthesizer to distill a rule from the cluster.
+#    this call asks the synthesizer to distill a rule from the cluster. Sync
+#    and async make the identical decision -- either call site works; this
+#    example uses arun() to double as a copy-pasteable async starting point.
 # ---------------------------------------------------------------------------
 
-report = pipeline.run(SCOPE, episode_records)
+report = asyncio.run(pipeline.arun(SCOPE, episode_records))
 
 print()
 print("Procedural reflection report")
@@ -187,9 +190,11 @@ print("  accumulated_importance:", report.accumulated_importance)
 # ---------------------------------------------------------------------------
 
 if report.write is not None:
-    memory.write(SCOPE, [report.write])
+    asyncio.run(memory.awrite(SCOPE, [report.write]))
 
-    slice_ = memory.read(SCOPE, MemoryQuery(text="should we deploy on Friday"))
+    slice_ = asyncio.run(
+        memory.aread(SCOPE, MemoryQuery(text="should we deploy on Friday"))
+    )
 
     print()
     print("Injected context for a related task:")

@@ -33,13 +33,25 @@ insights), and the meta-prompt scheduling policy that decides *when* to invoke t
 
 from dataclasses import dataclass, field
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple, Union, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+    runtime_checkable,
+)
 from uuid import NAMESPACE_OID, uuid5
 
 from pydantic import BaseModel, Field
 
 from egpt.db.schemas.memory import PROCEDURAL_KINDS
-from egpt.memory.consolidation.reflect import _clamped_importance, _envelope
+from egpt.memory.consolidation.reflect import DEFAULT_MAX_EPISODES_PER_REFLECTION, _clamped_importance, _envelope
 from egpt.memory.graph.passes import select_current_episodes
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, MemoryOperationError, MemoryRecord, Scope, require_scope
@@ -172,7 +184,7 @@ class LLMProcedureSynthesizer:
     def __init__(self, model: "Model") -> None:
         self._model = model
 
-    def _response_format(self) -> Union[Dict[str, Any], type]:
+    def _response_format(self) -> Union[Dict[str, Any], Type[SynthesizedProcedure]]:
         if self._model.supports_native_structured_outputs:
             return SynthesizedProcedure
         if self._model.supports_json_schema_outputs:
@@ -186,7 +198,7 @@ class LLMProcedureSynthesizer:
         return {"type": "json_object"}
 
     def _messages(
-        self, episodes: Sequence[MemoryRecord], response_format: Union[Dict[str, Any], type]
+        self, episodes: Sequence[MemoryRecord], response_format: Union[Dict[str, Any], Type[SynthesizedProcedure]]
     ) -> List["Message"]:
         from egpt.models.message import Message
 
@@ -224,13 +236,13 @@ class LLMProcedureSynthesizer:
         # `LLMInsightSynthesizer._extract` guards against.
         if not (parsed.title or "").strip() or not (parsed.content or "").strip():
             raise MemoryOperationError(
-                "SynthesizedProcedure reported has_procedure=true with a blank title or content; "
+                "SynthesizedProcedure reported has_procedure=True with a blank title or content; "
                 "both are required whenever a procedure is reported.",
                 field_name="content",
             )
         if parsed.kind not in PROCEDURAL_KINDS:
             raise MemoryOperationError(
-                f"SynthesizedProcedure reported has_procedure=true with kind={parsed.kind!r}, "
+                f"SynthesizedProcedure reported has_procedure=True with kind={parsed.kind!r}, "
                 f"which is not one of {sorted(PROCEDURAL_KINDS)}.",
                 field_name="kind",
             )
@@ -311,12 +323,19 @@ class ProceduralReflectionPipeline:
     accumulator to keep in sync -- each call is judged entirely on the batch it is given, the same
     per-call shape ``LearnedKnowledgeStore.extract_and_save`` already uses. A caller wanting
     cross-session accumulation composes that itself by holding onto episodes between calls.
+
+    Statelessness does not mean unbounded, though: ``max_episodes_per_pass`` still caps how many
+    episodes any single call hands to the synthesizer, the same protection
+    ``DEFAULT_MAX_EPISODES_PER_REFLECTION`` gives ``ReflectionPipeline``'s accumulator -- a caller
+    draining a large backlog in one call must not send an unbounded batch to a model and hit a
+    context-length failure it has no way to anticipate.
     """
 
     def __init__(
         self,
         synthesizer: ProcedureSynthesizer,
         importance_threshold: float = DEFAULT_IMPORTANCE_THRESHOLD,
+        max_episodes_per_pass: int = DEFAULT_MAX_EPISODES_PER_REFLECTION,
     ) -> None:
         missing = [verb for verb in ("synthesize", "asynthesize") if not callable(getattr(synthesizer, verb, None))]
         if missing:
@@ -335,8 +354,18 @@ class ProceduralReflectionPipeline:
                 f"importance_threshold must be a positive number, got {importance_threshold!r}.",
                 field_name="importance_threshold",
             )
+        if (
+            isinstance(max_episodes_per_pass, bool)
+            or not isinstance(max_episodes_per_pass, int)
+            or max_episodes_per_pass < 1
+        ):
+            raise MemoryOperationError(
+                f"max_episodes_per_pass must be an integer >= 1, got {max_episodes_per_pass!r}.",
+                field_name="max_episodes_per_pass",
+            )
         self.synthesizer = synthesizer
         self.importance_threshold = float(importance_threshold)
+        self.max_episodes_per_pass = max_episodes_per_pass
 
     @staticmethod
     def _to_write(scope: Scope, batch: Sequence[MemoryRecord], procedure: SynthesizedProcedure) -> MemoryEvent:
@@ -346,7 +375,7 @@ class ProceduralReflectionPipeline:
         ``co_located._prepare`` already uses to round-trip a plain ``MemoryEvent``'s metadata
         straight onto the stored ``MemoryRecord`` for every tier, not only ``SEMANTIC``.
         """
-        if not procedure.title or not procedure.content:
+        if not (procedure.title or "").strip() or not (procedure.content or "").strip():
             raise MemoryOperationError(
                 f"The synthesizer reported has_procedure=True with a blank title or content "
                 f"({procedure!r}); both are required whenever a procedure is reported.",
@@ -399,7 +428,7 @@ class ProceduralReflectionPipeline:
         """
         require_scope(scope, method="run")
         selected, _truncated = select_current_episodes(
-            episodes, max_episodes_per_pass=len(episodes), purpose="Procedural reflection"
+            episodes, max_episodes_per_pass=self.max_episodes_per_pass, purpose="Procedural reflection"
         )
         total = sum(_clamped_importance(episode) for episode in selected)
         if not selected or total < self.importance_threshold:
@@ -412,7 +441,7 @@ class ProceduralReflectionPipeline:
         """Async variant of :meth:`run`, making the same decisions."""
         require_scope(scope, method="arun")
         selected, _truncated = select_current_episodes(
-            episodes, max_episodes_per_pass=len(episodes), purpose="Procedural reflection"
+            episodes, max_episodes_per_pass=self.max_episodes_per_pass, purpose="Procedural reflection"
         )
         total = sum(_clamped_importance(episode) for episode in selected)
         if not selected or total < self.importance_threshold:
