@@ -6,13 +6,15 @@ from typing import Optional
 from egpt.learn.schemas import UserProfile
 from egpt.memory.semantic import SemanticProfileStore, profile_record_id
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryScopeRequiredError, Scope
+from egpt.memory.types import MemoryRecord, MemoryScopeRequiredError, Scope
 from tests.unit.memory._fakes import FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="ada")
 ACME_BOB = Scope(tenant_id="acme", user_id="bob")
 GLOBEX = Scope(tenant_id="globex", user_id="ada")
 TENANT_WIDE = Scope(tenant_id="acme")
+ACME_BOT_A = Scope(tenant_id="acme", user_id="ada", agent_id="bot-a")
+ACME_BOT_B = Scope(tenant_id="acme", user_id="ada", agent_id="bot-b")
 
 
 def store():
@@ -132,6 +134,42 @@ def test_cross_tenant_isolation():
     assert vector.rows["acme"].keys() != vector.rows["globex"].keys() or len(vector.rows) == 2
 
 
+def test_a_write_under_one_agent_scope_is_visible_from_another_agent_scope_for_the_same_user():
+    """A profile is per-(tenant, user), not per-(tenant, user, agent) -- two agents
+    consolidating the same user must land on and read the same row (QC round 2, PR #135:
+    `profile_record_id` keyed on tenant+user while `_record` stored the full caller `Scope`,
+    so an agent-scoped write was invisible to, and silently overwritable by, a different
+    agent's consolidation pass for the same user)."""
+    s, vector = store()
+    s.write(ACME_BOT_A, UserProfile(user_id="ada", name="Ada Lovelace"))
+
+    assert s.get(ACME_BOT_B) is not None
+    assert s.get(ACME_BOT_B).name == "Ada Lovelace"
+    assert s.get(ACME) is not None
+    assert s.get(ACME).name == "Ada Lovelace"
+    # One row, not one per agent scope.
+    assert len(vector.rows["acme"]) == 1
+
+
+def test_a_second_agents_write_updates_the_same_row_rather_than_a_shadow_copy():
+    s, vector = store()
+    s.write(ACME_BOT_A, UserProfile(user_id="ada", name="Ada"))
+    s.write(ACME_BOT_B, UserProfile(user_id="ada", name="Ada Lovelace"))
+
+    assert len(vector.rows["acme"]) == 1
+    assert s.get(ACME).name == "Ada Lovelace"
+
+
+async def test_agent_scope_normalization_holds_for_the_async_half_too():
+    s, vector = store()
+    await s.awrite(ACME_BOT_A, UserProfile(user_id="ada", name="Ada Lovelace"))
+
+    got = await s.aget(ACME_BOT_B)
+    assert got is not None
+    assert got.name == "Ada Lovelace"
+    assert len(vector.rows["acme"]) == 1
+
+
 def test_an_unscoped_call_is_refused():
     s, _vector = store()
     try:
@@ -171,6 +209,38 @@ def test_the_record_is_marked_so_a_fact_scan_cannot_be_mistaken_for_a_profile():
     stored = vector.rows["acme"][profile_record_id(ACME)]
     assert stored.metadata["record_kind"] == "user_profile"
     assert stored.tier is MemoryTier.SEMANTIC
+
+
+def test_get_ignores_a_same_id_row_carrying_the_wrong_record_kind():
+    """Exercises the `record_kind` filter through `get()` itself -- unlike the test above, which
+    only inspects `vector.rows` directly and cannot fail if `get()`'s own marker check were
+    removed (QC round 2, PR #135). Simulates a row at the profile's exact id whose marker
+    doesn't match, which the deterministic id alone cannot rule out."""
+    s, vector = store()
+    wrong_marker = MemoryRecord(
+        id=profile_record_id(ACME),
+        tier=MemoryTier.SEMANTIC,
+        content="not actually a profile",
+        scope=ACME,
+        metadata={"record_kind": "something_else", "profile": {"user_id": "ada", "name": "Wrong"}},
+    )
+    vector.upsert(ACME, [wrong_marker])
+
+    assert s.get(ACME) is None
+
+
+async def test_aget_ignores_a_same_id_row_carrying_the_wrong_record_kind():
+    s, vector = store()
+    wrong_marker = MemoryRecord(
+        id=profile_record_id(ACME),
+        tier=MemoryTier.SEMANTIC,
+        content="not actually a profile",
+        scope=ACME,
+        metadata={"record_kind": "something_else", "profile": {"user_id": "ada", "name": "Wrong"}},
+    )
+    await vector.aupsert(ACME, [wrong_marker])
+
+    assert await s.aget(ACME) is None
 
 
 # -- extending the schema (documented usage) ------------------------------------

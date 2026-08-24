@@ -174,6 +174,15 @@ This section demonstrates how EGPT agents persist and use user memories across r
   branch was still catching up. Per this file's own convention, whoever merges second renumbers --
   four times, this time.**
 
+- `34_user_profile_store.py`: Structured user profile updated on consolidation (SM-S3) --
+  `UserProfileStore`'s storage-free `extract_profile`/`aextract_profile` (a model call, no `db`)
+  wired into `CoLocatedMemoryProvider` via `profile_store=`, same opt-in shape as
+  `entity_pipeline`/`relation_pipeline`/`fact_pipeline`. Consolidation runs the extraction over the
+  pass's episodes and persists the result through `SemanticProfileStore` -- tenant/user-scoped
+  through the vector substrate, not the seed store's own single-tenant `self.db`. Shows a stated
+  preferred name surviving one consolidation pass. Requires `./cookbook/scripts/run_pgvector.sh`
+  and a real model (`OPENAI_API_KEY`).
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

@@ -43,6 +43,54 @@ class _StubProfileStore:
         return UserProfile(user_id=user_id, name=self.name)
 
 
+class _NoneExtractingProfileStore:
+    """Simulates a real extraction pass that finds nothing to save (blank conversation, no tool
+    call) -- unlike ``_StubProfileStore``, which always returns a profile, so no existing test
+    exercised the ``if updated is None`` guard with the extractor actually invoked (QC round 2,
+    PR #135)."""
+
+    def __init__(self):
+        self.extract_calls = []
+        self.aextract_calls = []
+
+    def extract_profile(self, messages, user_id, existing_profile=None, run_metrics=None):
+        self.extract_calls.append((user_id, existing_profile))
+        return None
+
+    async def aextract_profile(self, messages, user_id, existing_profile=None, run_metrics=None):
+        self.aextract_calls.append((user_id, existing_profile))
+        return None
+
+
+class _NoOpWriteSemanticProfile:
+    """A ``SemanticProfileStore`` double whose write always fails to persist (``None``, matching
+    an unwired substrate or an unserialisable profile) -- swapped in for the provider's real
+    ``_semantic_profile`` to prove ``_update_profile``/``_aupdate_profile`` report what actually
+    landed rather than discarding the write's return value (QC round 2, PR #135). Also records
+    every write call, since ``SemanticProfileStore.write``/``awrite`` returning ``None`` for a
+    ``None`` profile (``to_dict_safe(None)`` is falsy) would otherwise make a *removed*
+    ``if updated is None`` guard produce the same report -- `write_calls`/`awrite_calls` catch
+    that the guard's real job is skipping the call entirely, not just its return value."""
+
+    def __init__(self):
+        self.write_calls = []
+        self.awrite_calls = []
+
+    def write(self, scope, profile):
+        self.write_calls.append(profile)
+        return None
+
+    async def awrite(self, scope, profile):
+        self.awrite_calls.append(profile)
+        return None
+
+    def get(self, scope):
+        return None
+
+    async def aget(self, scope):
+        return None
+
+
 def make_provider(profile_store=None):
     vector, graph = FakeVector(), FakeGraph()
     config = MemoryProviderConfig(provider="co_located")
@@ -102,6 +150,42 @@ def test_a_pass_with_no_episodes_does_not_call_the_store(is_async):
 
     assert report.details["profile"] == {"complete": True, "updated": False}
     assert not stub.extract_calls and not stub.aextract_calls
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_extraction_with_episodes_present_that_finds_nothing_reports_updated_false(is_async):
+    """Distinct from `test_a_pass_with_no_episodes_does_not_call_the_store`: here the extractor
+    is actually invoked (episodes present) and itself returns `None` -- the `if updated is None`
+    guard's own coverage, not the earlier empty-messages short-circuit's. Asserts on the write
+    call, not only the report shape: `SemanticProfileStore.write`/`awrite` already return `None`
+    for a `None` profile (`to_dict_safe(None)` is falsy), so the report alone can't tell a removed
+    guard from a present one -- see `_NoOpWriteSemanticProfile`'s docstring."""
+    stub = _NoneExtractingProfileStore()
+    memory, _v, _g = make_provider(profile_store=stub)
+    memory._semantic_profile = _NoOpWriteSemanticProfile()
+    memory.write(ACME, [event("what's the weather?")])
+
+    report = asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+    assert report.details["profile"] == {"complete": True, "updated": False}
+    extract_calls = stub.aextract_calls if is_async else stub.extract_calls
+    assert extract_calls and extract_calls[0][0] == "ada"
+    write_calls = memory._semantic_profile.awrite_calls if is_async else memory._semantic_profile.write_calls
+    assert write_calls == []
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_write_that_persists_nothing_reports_updated_false_not_true(is_async):
+    """`_semantic_profile.write`/`awrite` return `Optional[WriteReceipt]`; discarding that and
+    reporting `updated: True` unconditionally is exactly the bug this pins (QC round 2, PR #135)."""
+    stub = _StubProfileStore(name="Ada")
+    memory, _v, _g = make_provider(profile_store=stub)
+    memory._semantic_profile = _NoOpWriteSemanticProfile()
+    memory.write(ACME, [event("I'm Ada")])
+
+    report = asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+    assert report.details["profile"] == {"complete": True, "updated": False}
 
 
 def test_a_second_pass_reuses_the_first_passs_profile_as_existing():

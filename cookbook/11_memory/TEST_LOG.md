@@ -868,3 +868,34 @@ Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
 `31_semantic_fact_store.py`, then `feat/SM-L3` took `32_fact_extraction_merge.py`, all while this
 branch was still catching up.** Per this file's own convention, whoever merges second renumbers --
 four times, this time.
+
+---
+
+### 34_user_profile_store.py
+
+**Status:** PARTIAL
+
+**Description:** Structured user profile updated on consolidation (SM-S3 #120): wires a
+`UserProfileStore` (model-only, no `db`) into `CoLocatedMemoryProvider` via `profile_store=`,
+writes one episode where Ada introduces herself and states a preferred name, consolidates, and
+reads the resulting profile back through `SemanticProfileStore`.
+
+**Result:** Ran end to end up to the real model call against a real pgvector
+(`smv1-pgvector-5532`, table `memory_vectors_sm_s3`): the episodic write and the fact/entity
+consolidation passes all succeeded, `_update_profile` was reached and called
+`UserProfileStore.extract_profile`, which raised `ModelAuthenticationError` (`OPENAI_API_KEY not
+set`) -- caught and re-raised as `PartialWriteError`, exactly the behavior `co_located.py`'s own
+"a generic exception gives no reliable signal about which side of a fan-out it interrupted"
+comment documents. **Not run against a real model**: no `OPENAI_API_KEY` was available in this
+environment, the same gap `32_`/`33_` log. `UserProfileStore.extract_profile`/`aextract_profile`
+(the storage-free extraction this file exercises) are covered against a fake model in
+`libs/agno/tests/unit/learn/stores/test_user_profile_extract.py`, and the consolidation wiring
+(`_update_profile`/`_aupdate_profile`, the receipt-checking and scope-normalization fixed in QC
+round 2) against a stub `profile_store` in
+`libs/agno/tests/unit/memory/test_provider_profile_hook.py` -- what remains unverified is
+specifically the real-model extraction shape those doubles cannot guarantee to match. Re-run with
+a real key and flip this entry to a full PASS/FAIL when it lands.
+
+**Requires:** `./cookbook/scripts/run_pgvector.sh` and an `OPENAI_API_KEY`. Run with `.venvs/demo`
+with `PYTHONPATH=libs/agno` set from a worktree (no editable install there -- see this repo's
+`saturam-imp` skill).

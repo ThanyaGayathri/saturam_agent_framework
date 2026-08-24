@@ -22,6 +22,16 @@ scan on every consolidation pass. A true point lookup needs a
 ``VectorSubstrate.get_record(scope, id)`` port method that does not exist yet -- tracked as
 aicoe-tracker #187, not built here: it is a substrate-port change with implications for every
 other caller of this seam, a decision this ticket does not own.
+
+**Every profile read/write operates on a scope narrowed to ``(tenant_id, user_id)`` only**
+(:func:`_profile_scope`), regardless of what ``agent_id``/``team_id``/``session_id`` the caller's
+``scope`` carries. A profile is per-user, not per-(user, agent) or per-(user, session) -- and
+``VectorSubstrate``'s conjunctive scoping contract means a caller ``scope`` that sets any of those
+three slots would otherwise read and write a *different* row than a caller that leaves them unset,
+for the same tenant and user (QC round 2, PR #135). Narrowing once, at the top of every public
+method, and threading the narrowed scope through id derivation, the stored record, and every
+substrate call keeps them from drifting apart -- the bug this fixes was exactly two of those four
+places using the raw ``scope`` and the other two not.
 """
 
 from typing import Any, Optional, Type
@@ -38,12 +48,24 @@ from egpt.memory.types import (
     escape_key_slot,
     require_scope,
 )
+from egpt.utils.log import log_debug
 
 __all__ = ["SemanticProfileStore", "profile_record_id"]
 
 #: Marks a vector row as this store's, so a scan over the SEMANTIC tier -- which also holds
 #: ordinary facts (SM-S1 #118) -- can tell the two apart without guessing from the id shape alone.
 _RECORD_KIND = "user_profile"
+
+#: Above this many scanned rows, :meth:`SemanticProfileStore.get`/:meth:`aget` log rather than
+#: stay silent -- an interim signal for the O(N) cost this module's docstring already names,
+#: cheap enough to carry until aicoe-tracker #187 lands a real point lookup.
+_SCAN_WARNING_THRESHOLD = 500
+
+
+def _profile_scope(scope: Scope) -> Scope:
+    """Narrow ``scope`` to ``(tenant_id, user_id)`` -- see the module docstring for why every
+    profile read/write must use this, never the raw caller ``scope``, from here on."""
+    return Scope(tenant_id=scope.tenant_id, user_id=scope.user_id)
 
 
 def profile_record_id(scope: Scope) -> str:
@@ -59,6 +81,10 @@ def profile_record_id(scope: Scope) -> str:
     separator inside a tenant- or user-supplied id is exactly the collision that function exists
     to prevent (its own docstring gives the worked example), and a second, differently-escaped
     id scheme here would just relocate the risk rather than remove it.
+
+    Takes ``scope`` as given rather than narrowing it itself -- callers (:meth:`_record`,
+    :meth:`SemanticProfileStore.get`/:meth:`aget`) already pass the output of
+    :func:`_profile_scope`, and narrowing twice would hide a call site that forgot to.
     """
     if not scope.user_id:
         raise MemoryScopeRequiredError(
@@ -83,6 +109,8 @@ class SemanticProfileStore:
         self.schema = schema
 
     def _record(self, scope: Scope, profile: Any) -> Optional[MemoryRecord]:
+        """``scope`` here is already the narrowed ``(tenant_id, user_id)`` scope -- every caller
+        below passes :func:`_profile_scope`'s output, never the raw one."""
         content = to_dict_safe(profile)
         if not content:
             return None
@@ -100,10 +128,11 @@ class SemanticProfileStore:
         require_scope(scope, method="write")
         if self.vector is None:
             return None
-        record = self._record(scope, profile)
+        narrowed = _profile_scope(scope)
+        record = self._record(narrowed, profile)
         if record is None:
             return None
-        self.vector.upsert(scope, [record])
+        self.vector.upsert(narrowed, [record])
         return WriteReceipt(accepted=1, event_ids=[record.id], tiers_written=[MemoryTier.SEMANTIC])
 
     async def awrite(self, scope: Scope, profile: Any) -> Optional[WriteReceipt]:
@@ -111,10 +140,11 @@ class SemanticProfileStore:
         require_scope(scope, method="awrite")
         if self.vector is None:
             return None
-        record = self._record(scope, profile)
+        narrowed = _profile_scope(scope)
+        record = self._record(narrowed, profile)
         if record is None:
             return None
-        await self.vector.aupsert(scope, [record])
+        await self.vector.aupsert(narrowed, [record])
         return WriteReceipt(accepted=1, event_ids=[record.id], tiers_written=[MemoryTier.SEMANTIC])
 
     def get(self, scope: Scope) -> Optional[Any]:
@@ -122,8 +152,15 @@ class SemanticProfileStore:
         require_scope(scope, method="get")
         if self.vector is None:
             return None
-        record_id = profile_record_id(scope)
-        for record in self.vector.scan(scope, MemoryTier.SEMANTIC):
+        narrowed = _profile_scope(scope)
+        record_id = profile_record_id(narrowed)
+        rows = self.vector.scan(narrowed, MemoryTier.SEMANTIC)
+        if len(rows) > _SCAN_WARNING_THRESHOLD:
+            log_debug(
+                f"SemanticProfileStore.get: scanned {len(rows)} SEMANTIC-tier rows for one "
+                f"profile lookup (user_id={narrowed.user_id}); see aicoe-tracker #187."
+            )
+        for record in rows:
             if record.id == record_id and record.metadata.get("record_kind") == _RECORD_KIND:
                 return from_dict_safe(self.schema, record.metadata.get("profile"))
         return None
@@ -133,8 +170,15 @@ class SemanticProfileStore:
         require_scope(scope, method="aget")
         if self.vector is None:
             return None
-        record_id = profile_record_id(scope)
-        for record in await self.vector.ascan(scope, MemoryTier.SEMANTIC):
+        narrowed = _profile_scope(scope)
+        record_id = profile_record_id(narrowed)
+        rows = await self.vector.ascan(narrowed, MemoryTier.SEMANTIC)
+        if len(rows) > _SCAN_WARNING_THRESHOLD:
+            log_debug(
+                f"SemanticProfileStore.aget: scanned {len(rows)} SEMANTIC-tier rows for one "
+                f"profile lookup (user_id={narrowed.user_id}); see aicoe-tracker #187."
+            )
+        for record in rows:
             if record.id == record_id and record.metadata.get("record_kind") == _RECORD_KIND:
                 return from_dict_safe(self.schema, record.metadata.get("profile"))
         return None

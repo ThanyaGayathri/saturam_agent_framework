@@ -1245,8 +1245,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         updated = self.profile_store.extract_profile(messages, user_id=scope.user_id, existing_profile=existing)
         if updated is None:
             return {"complete": True, "updated": False}
-        self._semantic_profile.write(scope, updated)
-        return {"complete": True, "updated": True}
+        receipt = self._semantic_profile.write(scope, updated)
+        return {"complete": True, "updated": receipt is not None}
 
     async def _aupdate_profile(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ProfileSummary:
         """Async variant of :meth:`_update_profile`, making the same decisions."""
@@ -1261,8 +1261,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         updated = await self.profile_store.aextract_profile(messages, user_id=scope.user_id, existing_profile=existing)
         if updated is None:
             return {"complete": True, "updated": False}
-        await self._semantic_profile.awrite(scope, updated)
-        return {"complete": True, "updated": True}
+        receipt = await self._semantic_profile.awrite(scope, updated)
+        return {"complete": True, "updated": receipt is not None}
 
     def _reflect(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], ReflectionSummary]:
         """Run SM-L6's (#127) reflection over the episodes this pass kept.
