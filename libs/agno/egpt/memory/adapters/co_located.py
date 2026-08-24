@@ -1086,11 +1086,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # in separate fields rather than summed into one that neither could be recovered from.
             duplicates_merged=merged,
             near_duplicate_facts_folded=folded,
-            # Zero by design: knowing two facts *disagree* needs extraction, which is SM-L5's
-            # (#126). `fact_pipeline`'s UPDATE/DELETE resolve a *candidate against its own*
-            # similar facts, not two already-stored facts against each other -- a narrower
-            # question than SM-L5's, so this stays zero even when it is wired.
-            contradictions_resolved=0,
+            # `relations["edges_invalidated"]` (SM-L5 #126), not hard-coded 0: `_relations`/
+            # `_arelations` hand back only `RelationExtractionReport.details`, and before SM-L5
+            # added `edges_invalidated` to that dict (`relations.py`'s own `_report`), the count
+            # SM-G5's pipeline was already producing had nowhere to reach this field from -- it
+            # stayed 0 even on a pass that genuinely invalidated edges. `relations` is a bare
+            # string (`NO_RELATIONS`) when no pipeline is wired, hence the `isinstance` guard
+            # rather than a plain `.get`.
+            #
+            # `fact_pipeline`'s own UPDATE/DELETE retirements are deliberately not folded in here:
+            # per ADR 0003 SS B.6, "the graph remains sole authority for semantic contradiction/
+            # invalidation" -- a vector-side transaction-time supersede is a *different* mechanism
+            # (module docstring, `consolidation/extract.py`), not a second contradiction this field
+            # should also count.
+            contradictions_resolved=relations.get("edges_invalidated", 0) if isinstance(relations, dict) else 0,
             details=consolidation_details(
                 derived_by=derived_by,
                 # `>=`, deliberately conservative: `scan` returns at most `limit`, so a full page
@@ -1159,10 +1168,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """
         if self.relation_pipeline is None:
             return NO_RELATIONS
+        # TODO(aicoe-tracker #195): this discards the typed `RelationExtractionReport` entirely,
+        # keeping only `.details` -- a `Dict[str, Any]`. `edges_invalidated` survives that only
+        # because `relations.py`'s own `_report` deliberately duplicates it into `.details` as a
+        # workaround (see that call site's comment); any *other* field added to the typed report
+        # in the future will silently fail to reach `ConsolidationReport` the same way
+        # `edges_invalidated` did before SM-L5, unless it gets the same manual duplication.
+        # Returning the typed report itself (or a richer summary than `RelationSummary`'s
+        # `Union[Dict[str, Any], str]`) would close this for good, but changes this method's
+        # public return shape and every `NO_RELATIONS`-pattern-matching call site -- wider than
+        # one ticket, tracked separately at aicoe-tracker #195.
         return self.relation_pipeline.run(scope, episodes).details
 
     async def _arelations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationSummary:
-        """Async variant of :meth:`_relations`, making the same decisions."""
+        """Async variant of :meth:`_relations`, making the same decisions -- including the same
+        `.details`-only TODO gap; see that method's comment."""
         if self.relation_pipeline is None:
             return NO_RELATIONS
         return (await self.relation_pipeline.arun(scope, episodes)).details
