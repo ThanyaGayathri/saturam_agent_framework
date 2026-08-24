@@ -53,6 +53,7 @@ __all__ = [
     "NO_ENTITIES",
     "NO_REFLECTION",
     "NO_RELATIONS",
+    "NO_SUMMARY",
     "normalize_entity_name",
     "PartialWriteError",
     "require_scope",
@@ -1053,6 +1054,13 @@ NO_RELATIONS = "not extracted -- no relation pipeline wired (SM-G3 #101)"
 #: ``consolidation_details``, same treatment as ``details["relations"]`` -- see
 #: ``co_located.ReflectionSummary``'s docstring.
 NO_REFLECTION = "not reflected -- no reflection pipeline wired (SM-L6 #127)"
+
+#: The ``summary`` counterpart to :data:`NO_ENTITIES` (SM-L8 #129): a pass with no summary
+#: pipeline produced no session/day/global summary node, which a scheduler cannot tell from a
+#: pass whose rollups simply were not due yet. ``details["summary"]`` is a free extra key on
+#: ``consolidation_details``, same treatment as ``details["relations"]``/``details["reflection"]``
+#: -- see ``co_located.SummarySummary``'s docstring.
+NO_SUMMARY = "not summarized -- no summary pipeline wired (SM-L8 #129)"
 
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
