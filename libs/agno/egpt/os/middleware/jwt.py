@@ -359,6 +359,36 @@ class JWTValidator:
         }
 
 
+INVALID_TENANT_CLAIM_ERROR = "Invalid token tenant"
+"""Error text for a present-but-malformed tenant claim. Shared by the HTTP 401 and the WebSocket
+``auth_error`` frame so the two transports reject the same token with the same words."""
+
+
+def extract_tenant_claim(payload: Dict[str, Any], tenant_id_claim: Optional[str]) -> Optional[str]:
+    """The tenant a verified JWT payload claims, or None when no tenant claim is configured.
+
+    Returns None -- meaning "unscoped" -- only when the operator has not configured a claim at
+    all, or the token simply omits it. Once a claim is configured, a value that is present but
+    not a non-empty string raises rather than degrading: "unscoped" is the *widest* tenancy, so
+    silently falling back to it would turn a malformed claim into an escalation.
+
+    This is the single derivation for both transports: ``JWTMiddleware._extract_tenant_id``
+    (HTTP, 401) and the WebSocket ``authenticate`` branch in ``egpt.os.router`` (``auth_error``)
+    both call it, so a token rejected on one is rejected on the other.
+
+    Raises:
+        ValueError: the claim is configured and present but is not a usable tenant id.
+    """
+    if not tenant_id_claim:
+        return None
+    raw = payload.get(tenant_id_claim)
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError(f"Claim '{tenant_id_claim}' must be a non-empty string tenant id")
+    return raw.strip()
+
+
 def jwt_kwargs_have_key_source(kwargs: Dict[str, Any]) -> bool:
     """Whether ``add_middleware`` kwargs carry a JWT key source (or disable validation).
 
@@ -738,22 +768,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
     def _extract_tenant_id(self, payload: Dict[str, Any]) -> Optional[str]:
         """The tenant this token claims, or None when no tenant claim is configured.
 
-        Returns None -- meaning "unscoped" -- only when the operator has not configured a claim
-        at all. Once they have, a claim that is present but not a non-empty string raises
-        rather than degrading: "unscoped" is the *widest* tenancy, so silently falling back to
-        it would turn a malformed claim into an escalation.
+        Delegates to :func:`extract_tenant_claim` so the WebSocket dispatcher, which has no
+        middleware instance, applies the identical rule.
 
         Raises:
             ValueError: the claim is configured and present but is not a usable tenant id.
         """
-        if not self.tenant_id_claim:
-            return None
-        raw = payload.get(self.tenant_id_claim)
-        if raw is None:
-            return None
-        if not isinstance(raw, str) or not raw.strip():
-            raise ValueError(f"Claim '{self.tenant_id_claim}' must be a non-empty string tenant id")
-        return raw.strip()
+        return extract_tenant_claim(payload, self.tenant_id_claim)
 
     def _get_default_excluded_routes(self) -> List[str]:
         """Get default routes that should be excluded from RBAC checks."""
@@ -1080,7 +1101,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 tenant_id = self._extract_tenant_id(payload)
             except ValueError as e:
                 log_warning(f"Rejected JWT with an unusable tenant claim: {e}")
-                return self._create_error_response(401, "Invalid token tenant", origin, cors_allowed_origins)
+                return self._create_error_response(401, INVALID_TENANT_CLAIM_ERROR, origin, cors_allowed_origins)
 
             # Store claims in request.state
             request.state.authenticated = True

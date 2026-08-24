@@ -24,7 +24,7 @@ from egpt.memory.types import (
     Scope,
     ValidWindow,
 )
-from tests.unit.memory._fakes import FakeGraph, FakeVector
+from tests.unit.memory._fakes import FakeGraph, FakeHybridVector, FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="u1")
 OTHER = Scope(tenant_id="globex", user_id="u1")
@@ -292,3 +292,41 @@ def test_the_graph_leg_now_narrows_to_the_valid_time_window():
     assert [r.id for r in result.records] == ["inside"]
     assert result.fusion["dropped_outside_window"] == 0
     assert result.fusion["dropped_by_validity"] == 0
+
+
+# -- The hybrid store's two legs (SM-H1 #131 round-4 review) ------------------
+
+
+def test_the_hybrid_stores_two_legs_both_narrow_to_the_window():
+    """`HybridSearchSubstrate.search_candidates` shares `VectorSubstrate.search`'s contract --
+    apply `query.window()` before ranking, on every leg the store has. `FakeHybridVector`'s
+    `_candidates` used to skip it entirely: an out-of-window row round-tripped through both the
+    vector and the lexical leg, which no result-only assertion on the fused read could see, since
+    the provider's own post-condition (`dropped_outside_window`) only catches a row that reached
+    it -- one silently filtered by neither leg looks identical to one that was never in the corpus.
+    """
+    vector = FakeHybridVector()
+    inside = record("inside", 500, content="alpha beta gamma")
+    outside = record("outside", 100, 200, content="alpha beta gamma")
+    vector.upsert(ACME, [inside, outside])
+
+    windowed = MemoryQuery(text="alpha beta gamma", valid_from=400, valid_to=600, limit=5)
+    candidates = vector.search_candidates(ACME, windowed)
+
+    assert {r.id for r in candidates.vector} == {"inside"}
+    assert {r.id for r in candidates.lexical} == {"inside"}
+    assert vector.search_windows[-1] == ValidWindow(valid_from=400, valid_to=600)
+
+
+async def test_the_hybrid_stores_async_leg_narrows_to_the_window_too():
+    vector = FakeHybridVector()
+    inside = record("inside", 500, content="alpha beta gamma")
+    outside = record("outside", 100, 200, content="alpha beta gamma")
+    vector.upsert(ACME, [inside, outside])
+
+    windowed = MemoryQuery(text="alpha beta gamma", valid_from=400, valid_to=600, limit=5)
+    candidates = await vector.asearch_candidates(ACME, windowed)
+
+    assert {r.id for r in candidates.vector} == {"inside"}
+    assert {r.id for r in candidates.lexical} == {"inside"}
+    assert vector.search_windows[-1] == ValidWindow(valid_from=400, valid_to=600)

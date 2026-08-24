@@ -871,7 +871,176 @@ four times, this time.
 
 ---
 
-### 34_user_profile_store.py
+### 34_sleep_time_scheduling.py
+
+**Status:** PASS
+
+**Description:** Sleep-time scheduling (SM-L9): builds a `SleepTimeScheduleConfig` (01:00-06:00
+`America/New_York` window, 300s idle threshold), wraps it into a trigger via
+`build_sleep_time_trigger`, and wires it into `ConsolidationWorker`. A fake clock drives two
+`run_once` ticks against the same recorded event: one at 14:10 (idle threshold met, outside the
+window) and one at Jan 16 02:00 (idle threshold met, inside the window).
+
+**Result:** Verified end to end with no database, no API key, no network. The 14:10 tick drains 0
+scopes; the 02:00 tick drains the scope and produces 1 semantic fact, confirming the window gates
+firing while `record_event`'s accumulation is unaffected by the hour it was called at.
+
+**Requires:** Nothing. Run with `.venvs/demo`.
+
+---
+
+### 35_hierarchical_summarization.py
+
+**Status:** PARTIAL
+
+**Description:** Hierarchical (session/day/global) summarization (SM-L8): wires a
+`SummaryPipeline` (`day_seconds=1`) into `CoLocatedMemoryProvider`, writes two sessions'
+episodes with a 1.1s gap between them, consolidates each, and reads the resulting SEMANTIC-tier
+session and day summary rows back through the ordinary read path.
+
+**Result:** Verified structurally with a mocked `Model.response` (no network) -- the script runs
+end to end: `second.details["summary"]["day"]` is `True` after the second consolidate, and both a
+`"session"`-level and a `"day"`-level summary come back from `memory.read`, each retrievable and
+tagged with the right `metadata["level"]`. The fake `InMemoryVector` needed real scope filtering
+(matching each set field, treating an unset one as a wildcard) rather than `33_reflection.py`'s
+tenant-only bucketing -- that cookbook only ever consolidates and reads under one scope, but this
+one consolidates two different sessions and then reads through a broader rollup scope that spans
+both, which `assert_scope_isolation` correctly rejects against the looser fake. **Not run against
+a real model**: no `OPENAI_API_KEY` was available in the environment that wrote this cookbook, the
+same gap `33_reflection.py`'s own entry logs. `SummaryPipeline`'s own decisions (rolling vs.
+periodic ids, rollup-key session stripping, retry-safety on a failed fold, sync/async parity) are
+covered against a stub summarizer by `libs/agno/tests/unit/memory/test_consolidation_summarize.py`
+-- what remains unverified is specifically the real-model response shape the mock cannot guarantee
+to match (the mocked response above returns raw JSON `SummarizeStrategy.optimize` does not parse,
+since the real, unmocked call there requests no structured output -- an artifact of this
+verification's single fixed mock answering both the structured session-summary call and the plain
+rollup-fold call, not a defect in the pipeline itself). Follow-up: re-run with a real key and flip
+this entry to a full PASS/FAIL when one is available (same tracking as `33_reflection.py`'s
+[aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192)).
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
+
+**Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
+branch was still catching up.** Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 36_hybrid_retrieval_orchestration.py
+
+**Status:** PASS
+
+**Description:** Feed-forward retriever orchestration (SM-H1 #131): `provider.read` fans out
+across the vector+BM25 leg and the graph leg via `egpt.memory.retrieval.orchestrate`, and BM25
+participates whenever the wired vector store implements `HybridSearchSubstrate` -- no code at the
+`read` call site knows or cares. Writes two episodes where word overlap (vector + graph) and exact
+substring containment (lexical) disagree about which one the query favours, then shows the lexical
+leg's `MemorySlice.fusion["lexical_hits"]` count without it moving the ranking -- ADR 0003 section
+A.6 holds the three-leg fusion strategy open, pending SM-H2 (#132), so the interim score-sum still
+runs over vector+graph only.
+
+**Result:** Runs end to end with no database, no model, no network -- both substrates are
+self-contained in-memory stand-ins (the same pattern `09_memory_provider_seam.py` uses, extended so
+the vector one also satisfies `HybridSearchSubstrate`). Output: `lexical_hits=1` (only
+`has_phrase` contains the literal query phrase), and `higher_overlap` ranks first in
+`slice_.records` regardless (word-overlap score 1.33 vs 0.67) -- confirming BM25 ran and did not
+influence the merge.
+
+**Note:** `09_memory_provider_seam.py`'s `InMemoryGraph` currently fails `checked_graph`'s
+structural check (missing `upsert_entities`/`match_entities`/`merge_entities`/`recall_facts` +
+async twins, added to `GraphSubstrate` after that file was last updated) -- confirmed on
+unmodified `origin/main`, unrelated to this PR. This file's own `InMemoryGraph` implements the
+full current protocol. Filing the `09_` fix is out of scope for SM-H1; flagged here rather than
+silently worked around.
+
+**Requires:** nothing. Run with `.venvs/demo` (`PYTHONPATH=libs/agno` from a worktree).
+
+**Renumbered from `34_` to `36_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`, then
+`feat/SM-L8` took `35_hierarchical_summarization.py`, while this branch was still catching up.**
+Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 37_procedural_memory.py
+
+**Status:** PARTIAL
+
+**Description:** Procedural memory (SM-S2): runs a `ProceduralReflectionPipeline` (threshold 1.2)
+directly over two episodes about the same Friday-deploy incident (importances 0.6/0.7, summing
+past the threshold), writes the synthesized procedure through the ordinary `CoLocatedMemoryProvider
+.write`, and reads it back through an ordinary default-tier `read`, showing it renders under a
+`[procedural]` line in `MemorySlice.as_context()`.
+
+**Result:** Verified structurally with a stub synthesizer standing in for
+`LLMProcedureSynthesizer` (no network) -- the pipeline/write/read path runs end to end:
+`report.details["triggered"]` is `True`, the write lands on the PROCEDURAL tier with no new
+routing, and the read returns it with `[procedural] Avoid Friday deploys` in the rendered context.
+**Not run against a real model**: no `OPENAI_API_KEY` was available in the environment that wrote
+this cookbook, the same gap `33_reflection.py` logs for its own `LLMInsightSynthesizer`.
+`ProceduralReflectionPipeline`'s own decisions (threshold gating, provenance, construction guards)
+and `LLMProcedureSynthesizer._extract`'s response-format handling are covered against a stub and a
+mocked `Model` respectively by `libs/agno/tests/unit/memory/test_procedural.py` -- what remains
+unverified is specifically the real-model response shape that mock cannot guarantee to match.
+Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
+
+**Renumbered from `35_` to `37_`: `feat/SM-L8` took `35_hierarchical_summarization.py` and
+`feat/SM-H1` took `36_hybrid_retrieval_orchestration.py` while this branch was still catching up.**
+Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 38_kb_and_memory_unified_retrieval.py
+
+**Status:** PASS
+
+**Description:** KB vs memory boundary (SM-S4): `unified_read()` fans a query out across a
+`MemoryProvider` and a `KnowledgeRetrievable` leg, labeling every result `RetrievalSource.KB` or
+`RetrievalSource.MEMORY`. Shows a KB-only match, a memory-only match, and a leg with no store
+wired returning an empty list rather than being silently absent.
+
+**Result:** Ran end to end -- a rate-limit query returns only the KB document (labeled `kb`), a
+dark-mode query returns only the memory record (labeled `memory`), and unwiring the KB leg leaves
+`slice_.kb == []` while memory still answers.
+
+**Requires:** No database, no API key. Run with `.venvs/demo`.
+
+**Renumbered from `34_` to `38_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`,
+`feat/SM-L8` took `35_hierarchical_summarization.py`, `feat/SM-H1` took
+`36_hybrid_retrieval_orchestration.py`, and `feat/SM-S2` took `37_procedural_memory.py`, all
+while this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers -- four times, this time.
+
+---
+
+### 39_working_memory.py
+
+**Status:** PASS
+
+**Description:** The WORKING-tier buffer (SM-C6): builds a `WorkingMemory` (max_messages=3,
+keep_after_offload=1) with a goal, a scratchpad note, and messages, shows a direct
+`write_tier(WORKING, ...)` is still refused through the seam, grows the buffer past its threshold,
+calls `offload(provider=...)`, and reads `provider.assemble_context()` afterward.
+
+**Result:** Verified end to end with no database, no API key, no network (a minimal `Model` double
+stands in for `SessionSummaryManager`'s model call, the same one
+`libs/agno/tests/unit/memory/test_working_memory.py` exercises under test). `should_offload()` is
+`True` at the threshold; `offload` summarizes the two oldest messages, keeps the newest verbatim,
+and writes the two offloaded messages through the provider as `EPISODIC` events -- confirmed by
+reading them back out of the toy vector substrate. `assemble_context()` then renders the buffer's
+goal/summary/note/message lines followed by the offloaded episode from a persistent-tier read.
+
+**Requires:** Nothing. Run with `.venvs/demo`.
+
+**Renumbered from `35_` to `37_` to `39_`: `feat/SM-L8` took `35_hierarchical_summarization.py`,
+`feat/SM-H1` took `36_hybrid_retrieval_orchestration.py`, then `feat/SM-S2` took
+`37_procedural_memory.py` and `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py` while
+this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers -- twice, this time.
+
+---
+
+### 40_user_profile_store.py
 
 **Status:** PARTIAL
 
@@ -890,8 +1059,8 @@ comment documents. **Not run against a real model**: no `OPENAI_API_KEY` was ava
 environment, the same gap `32_`/`33_` log. `UserProfileStore.extract_profile`/`aextract_profile`
 (the storage-free extraction this file exercises) are covered against a fake model in
 `libs/agno/tests/unit/learn/stores/test_user_profile_extract.py`, and the consolidation wiring
-(`_update_profile`/`_aupdate_profile`, the receipt-checking and scope-normalization fixed in QC
-round 2) against a stub `profile_store` in
+(`_update_profile`/`_aupdate_profile`, the receipt-checking and scope-normalization fixed across
+QC rounds 2-4) against a stub `profile_store` in
 `libs/agno/tests/unit/memory/test_provider_profile_hook.py` -- what remains unverified is
 specifically the real-model extraction shape those doubles cannot guarantee to match. Re-run with
 a real key and flip this entry to a full PASS/FAIL when it lands.
@@ -899,3 +1068,10 @@ a real key and flip this entry to a full PASS/FAIL when it lands.
 **Requires:** `./cookbook/scripts/run_pgvector.sh` and an `OPENAI_API_KEY`. Run with `.venvs/demo`
 with `PYTHONPATH=libs/agno` set from a worktree (no editable install there -- see this repo's
 `saturam-imp` skill).
+
+**Renumbered from `34_` to `40_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`, `feat/SM-L8`
+took `35_hierarchical_summarization.py`, `feat/SM-H1` took `36_hybrid_retrieval_orchestration.py`,
+`feat/SM-S2` took `37_procedural_memory.py`, `feat/SM-S4` took
+`38_kb_and_memory_unified_retrieval.py`, and `feat/SM-C6` took `39_working_memory.py`, all while
+this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers.

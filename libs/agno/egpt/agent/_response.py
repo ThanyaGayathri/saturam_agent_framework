@@ -1077,8 +1077,14 @@ def handle_model_response_stream(
 
     from egpt.agent._run import build_after_tool_results_callback
 
+    # Never None below: served_model feeds call_model_stream_with_fallback first, which raises
+    # before any event is yielded if there's no model. The `if served_model else None` guards at
+    # the read sites match _telemetry.py's style for a served_model that, there, can genuinely be
+    # None.
+    served_model = run_model(agent, run_context)
+
     for model_response_event in call_model_stream_with_fallback(
-        run_model(agent, run_context),
+        served_model,
         agent.fallback_config,
         messages=run_messages.messages,
         response_format=response_format,
@@ -1104,8 +1110,8 @@ def handle_model_response_stream(
                     yield handle_event(  # type: ignore
                         create_model_request_started_event(
                             from_run_response=run_response,
-                            model=agent.model.id,
-                            model_provider=agent.model.provider,
+                            model=served_model.id if served_model else None,
+                            model_provider=served_model.provider if served_model else None,
                         ),
                         run_response,
                         events_to_skip=agent.events_to_skip,  # type: ignore
@@ -1118,8 +1124,8 @@ def handle_model_response_stream(
                     yield handle_event(  # type: ignore
                         create_model_request_completed_event(
                             from_run_response=run_response,
-                            model=agent.model.id,
-                            model_provider=agent.model.provider,
+                            model=served_model.id if served_model else None,
+                            model_provider=served_model.provider if served_model else None,
                             input_tokens=model_response_event.input_tokens,
                             output_tokens=model_response_event.output_tokens,
                             total_tokens=model_response_event.total_tokens,
@@ -1237,8 +1243,12 @@ async def ahandle_model_response_stream(
 
     from egpt.agent._run import abuild_after_tool_results_callback
 
+    # Never None below: served_model feeds acall_model_stream_with_fallback first, which raises
+    # before any event is yielded if there's no model.
+    served_model = run_model(agent, run_context)
+
     model_response_stream = acall_model_stream_with_fallback(
-        run_model(agent, run_context),
+        served_model,
         agent.fallback_config,
         messages=run_messages.messages,
         response_format=response_format,
@@ -1266,8 +1276,8 @@ async def ahandle_model_response_stream(
                     yield handle_event(  # type: ignore
                         create_model_request_started_event(
                             from_run_response=run_response,
-                            model=agent.model.id,
-                            model_provider=agent.model.provider,
+                            model=served_model.id if served_model else None,
+                            model_provider=served_model.provider if served_model else None,
                         ),
                         run_response,
                         events_to_skip=agent.events_to_skip,  # type: ignore
@@ -1280,8 +1290,8 @@ async def ahandle_model_response_stream(
                     yield handle_event(  # type: ignore
                         create_model_request_completed_event(
                             from_run_response=run_response,
-                            model=agent.model.id,
-                            model_provider=agent.model.provider,
+                            model=served_model.id if served_model else None,
+                            model_provider=served_model.provider if served_model else None,
                             input_tokens=model_response_event.input_tokens,
                             output_tokens=model_response_event.output_tokens,
                             total_tokens=model_response_event.total_tokens,

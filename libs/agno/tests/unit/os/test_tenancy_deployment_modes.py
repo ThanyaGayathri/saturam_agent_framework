@@ -22,6 +22,8 @@ from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os.app import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.service_accounts import generate_token
+from egpt.os.tenancy import tenancy_enabled_for_app
+from egpt.os.utils import resolve_ws_jwt_config
 
 SECURITY_KEY = "test-security-key-for-tenancy-modes"
 JWT_SECRET = "test-secret-key-for-tenancy-deployment-modes"
@@ -102,6 +104,46 @@ class TestAClaimWithoutJwtTurnsTenancyOn:
         db, app = deployment
         token = mint(db, None, ["components:read"])
         assert get_components(app, token).status_code == 403
+
+    def test_tenancy_is_on_for_every_transport_even_though_no_jwt_is_configured(self, deployment):
+        """The one flag, one derivation (PR #121 review, finding 1).
+
+        `resolve_ws_jwt_config` deliberately skips the key-less JWTMiddleware entry this
+        deployment installs, so it reports `tenant_id_claim=None` -- correct for "are JWTs
+        accepted?", wrong for "is tenancy on?". The WebSocket dispatcher used to derive its
+        tenancy flag from it and went inert here while HTTP refused. Pin both: the JWT-config
+        view stays None (it governs WS JWT acceptance), and `tenancy_enabled_for_app` -- what
+        both transports must consult -- is True.
+        """
+        _, app = deployment
+        assert resolve_ws_jwt_config(app)["tenant_id_claim"] is None
+        assert tenancy_enabled_for_app(app) is True
+
+    def test_an_untenanted_pat_is_refused_over_websocket_too(self, deployment):
+        """Same principal, same refusal on the WS surface -- the case finding 1 reproduced."""
+        from egpt.db.base import ComponentType
+        from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
+
+        db, app = deployment
+        db.create_component_with_config(
+            component_id="db-wf",
+            component_type=ComponentType.WORKFLOW,
+            name="DB WF",
+            config={"name": "DB WF", "id": "db-wf"},
+            stage="published",
+            tenant_id=TENANT,
+        )
+        token = mint(db, None, ["workflows:run"])
+        with TestClient(app) as client:
+            with client.websocket_connect("/workflows/ws") as ws:
+                ws.send_text('{"action": "authenticate", "token": "%s"}' % token)
+                ws.send_text('{"action": "start-workflow", "workflow_id": "db-wf", "message": "go"}')
+                frames = []
+                while not any('"event": "error"' in f for f in frames):
+                    frames.append(ws.receive_text())
+                    assert len(frames) < 10, frames
+        assert any('"authenticated"' in f for f in frames), frames
+        assert TENANCY_REQUIRED_DETAIL in frames[-1], frames
 
     def test_the_operator_is_warned_at_startup(self, tmp_path, caplog):
         """The 403 blames the credential for what is usually a forgotten authorization=True."""

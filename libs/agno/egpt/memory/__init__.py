@@ -60,7 +60,33 @@ from egpt.memory.episodic.segment import (
 )
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
+
+# Procedural memory: reflection-driven skill/rule synthesis (SM-S2). Two of these names are
+# aliased on import to a package-prefixed name, since a bare re-export of e.g.
+# `DEFAULT_IMPORTANCE_THRESHOLD` would read as this package's own constant. Split across three
+# statements because ruff's own import sort re-splits an aliased name grouped with plain ones
+# back apart -- every `ruff check --select I --fix` re-produces this shape, not one combined block.
+from egpt.memory.procedural import DEFAULT_IMPORTANCE_THRESHOLD as PROCEDURAL_DEFAULT_IMPORTANCE_THRESHOLD
+from egpt.memory.procedural import (
+    PROCEDURAL_REFLECTION_KEYS,
+    LLMProcedureSynthesizer,
+    ProceduralReflectionPipeline,
+    ProceduralReflectionReport,
+    ProcedureSynthesizer,
+    SynthesizedProcedure,
+    procedural_reflection_details,
+)
+from egpt.memory.procedural import SYNTHESIZER_ID as PROCEDURAL_SYNTHESIZER_ID
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.retrieval import (
+    KbFilters,
+    KnowledgeRetrievable,
+    RetrievalSource,
+    UnifiedResult,
+    UnifiedSlice,
+    aunified_read,
+    unified_read,
+)
 from egpt.memory.schemas.episodic import (
     EPISODE_KEYS,
     PROVENANCE_KEYS,
@@ -135,6 +161,9 @@ from egpt.memory.validation import (
     reject_duplicate_ids,
     reject_foreign_scopes,
 )
+
+# The WORKING tier's own buffer (SM-C6)
+from egpt.memory.working import WorkingMemory
 
 # Write-back capture (SM-E2)
 from egpt.memory.writeback import (
@@ -238,6 +267,16 @@ __all__ = [
     "SPO_PROVENANCE_KEYS",
     "SemanticFactStore",
     "fact_record",
+    # Procedural memory: reflection-driven skill/rule synthesis (SM-S2)
+    "PROCEDURAL_DEFAULT_IMPORTANCE_THRESHOLD",
+    "PROCEDURAL_REFLECTION_KEYS",
+    "PROCEDURAL_SYNTHESIZER_ID",
+    "LLMProcedureSynthesizer",
+    "ProceduralReflectionPipeline",
+    "ProceduralReflectionReport",
+    "ProcedureSynthesizer",
+    "SynthesizedProcedure",
+    "procedural_reflection_details",
     # Episodic recency-decay scoring (SM-E4)
     "DEFAULT_BASE_HALF_LIFE_S",
     "DEFAULT_IMP_FACTOR",
@@ -297,4 +336,14 @@ __all__ = [
     # The consolidation scheduler (SM-L1)
     "ConsolidationOutcome",
     "ConsolidationWorker",
+    # The WORKING tier's own buffer (SM-C6)
+    "WorkingMemory",
+    # Unified KB + memory retrieval, source-labeled (SM-S4)
+    "KbFilters",
+    "KnowledgeRetrievable",
+    "RetrievalSource",
+    "UnifiedResult",
+    "UnifiedSlice",
+    "aunified_read",
+    "unified_read",
 ]

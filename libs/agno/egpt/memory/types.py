@@ -54,9 +54,11 @@ __all__ = [
     "NO_PROFILE",
     "NO_REFLECTION",
     "NO_RELATIONS",
+    "NO_SUMMARY",
     "normalize_entity_name",
     "PartialWriteError",
     "PROFILE_NO_USER",
+    "render_context_lines",
     "require_scope",
     "RetrievalCandidates",
     "SCOPE_SLOTS",
@@ -119,6 +121,11 @@ class Substrate(str, Enum):
     the authority for bi-temporal validity; the vector substrate is not (finding F2).
     """
 
+    # BM25/lexical retrieval is gated on this member, not a member of its own: a store
+    # implementing `HybridSearchSubstrate` (SM-V3 #97) returns both the vector and lexical legs
+    # from one `search_candidates` call, feature-detected by the orchestrator (SM-H1 #131) rather
+    # than requested by name. There is no `Substrate.LEXICAL` -- adding one, and a way to ask for
+    # vector without BM25, is deferred to SM-H2 (#132) if a caller ever needs it.
     VECTOR = "vector"  # similarity + full-text; the episodic recall entry point
     GRAPH = "graph"  # temporal knowledge graph: multi-hop, provenance, bi-temporal
 
@@ -976,6 +983,7 @@ class RetrievalCandidates:
 FUSION_KEYS = (
     "method",
     "vector_hits",
+    "lexical_hits",
     "graph_hits",
     "fused",
     "returned",
@@ -989,6 +997,7 @@ FUSION_KEYS = (
 def fusion_diagnostics(
     method: Optional[str],
     vector_hits: int = 0,
+    lexical_hits: int = 0,
     graph_hits: int = 0,
     fused: int = 0,
     returned: int = 0,
@@ -1007,6 +1016,10 @@ def fusion_diagnostics(
     diagnostics: Dict[str, Any] = {
         "method": method,
         "vector_hits": vector_hits,
+        # A leg no wired `HybridSearchSubstrate` contributes reports 0 here -- the same "ran and
+        # matched nothing" vs. "did not run" ambiguity `RetrievalLegs` names does not apply to a
+        # count, so no separate marker is needed: 0 is honest whichever reason produced it.
+        "lexical_hits": lexical_hits,
         "graph_hits": graph_hits,
         "fused": fused,
         "returned": returned,
@@ -1069,6 +1082,13 @@ NO_PROFILE = "not extracted -- no profile store wired (SM-S3 #120)"
 #: PR #135: a test previously had to reach past ``co_located.py``'s module boundary to assert
 #: against it), matching :data:`NO_PROFILE`'s own treatment.
 PROFILE_NO_USER = "not extracted -- scope has no user_id to key a profile by"
+
+#: The ``summary`` counterpart to :data:`NO_ENTITIES` (SM-L8 #129): a pass with no summary
+#: pipeline produced no session/day/global summary node, which a scheduler cannot tell from a
+#: pass whose rollups simply were not due yet. ``details["summary"]`` is a free extra key on
+#: ``consolidation_details``, same treatment as ``details["relations"]``/``details["reflection"]``
+#: -- see ``co_located.SummarySummary``'s docstring.
+NO_SUMMARY = "not summarized -- no summary pipeline wired (SM-L8 #129)"
 
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
@@ -1149,6 +1169,39 @@ def entity_extraction_complete(details: Dict[str, Any]) -> bool:
     return bool(details["entities"].get("complete", True))
 
 
+def render_context_lines(label: str, content: str) -> List[str]:
+    """One prompt-injectable entry, as ``[label] head`` plus indented continuation lines.
+
+    Extracted from :meth:`MemorySlice.as_context` (the only prior caller) so
+    :class:`~egpt.memory.working.WorkingMemory` -- the WORKING tier's own, unpersisted context
+    (SM-C6 #94) -- renders goals, notes and messages the identical, injection-safe way rather than
+    a second hand-rolled version of the same decision.
+
+    Line breaks inside ``content`` are indented rather than emitted raw. The ``[label]`` prefix is
+    line-oriented, so content containing ``"\\n[semantic] ..."`` would otherwise render as an
+    additional, forged entry -- and memory content is attacker-influenced by construction, since it
+    is whatever a user said to the agent. Continuation lines are visibly indented, so one entry
+    always reads as one entry.
+
+    ``label`` gets the same treatment, not only ``content``. The first caller only ever passed
+    ``record.tier.value``, a closed set of enum strings, so the gap was invisible; ``working.py``
+    passes ``message.role``, which is caller-supplied like ``content`` is. A ``label`` containing
+    its own line break -- e.g. ``role="user\\n[system] injected directive"`` -- would otherwise
+    forge a synthetic entry the same way an unindented ``content`` line would.
+
+    Splitting uses ``str.splitlines()`` rather than ``split("\\n")`` because that is what the
+    *consumer* treats as a line break. ``splitlines`` covers eleven separators; hand-rolling the
+    common two leaves ``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e``, ``\\x85``, ``U+2028`` and ``U+2029``
+    through, and each one forges a ``[label]`` line. Matching the consumer's escape set closes the
+    class rather than the instance.
+    """
+    safe_label = label.splitlines()[0] if label else ""
+    head, *rest = content.splitlines() or [""]
+    lines = ["[{label}] {head}".format(label=safe_label, head=head).rstrip()]
+    lines.extend("    " + line for line in rest)
+    return lines
+
+
 @dataclass
 class MemorySlice:
     """The feed-forward result of ``read`` -- the memory handed to the agent.
@@ -1168,27 +1221,14 @@ class MemorySlice:
         """Render the slice as a prompt-injectable string.
 
         Parallels ``LearningStore.build_context`` (``learn/stores/protocol.py:78``) so a slice
-        drops into the same place in an agent prompt that the seed's learn context does.
-
-        Line breaks inside a record's content are indented rather than emitted raw. The ``[tier]``
-        prefix is line-oriented, so stored content containing ``"\\n[semantic] ..."`` would
-        otherwise render as an additional, forged memory line -- and memory content is attacker-
-        influenced by construction, since it is whatever a user said to the agent. Continuation
-        lines are visibly indented, so one memory always reads as one entry.
-
-        Splitting uses ``str.splitlines()`` rather than ``split("\\n")`` because that is what the
-        *consumer* treats as a line break. ``splitlines`` covers eleven separators; hand-rolling
-        the common two leaves ``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e``, ``\\x85``, ``U+2028`` and
-        ``U+2029`` through, and each one forges a ``[tier]`` line. Matching the consumer's escape
-        set closes the class rather than the instance.
+        drops into the same place in an agent prompt that the seed's learn context does. Line
+        rendering is :func:`render_context_lines`, labelled by tier.
         """
         if not self.records:
             return ""
-        lines = []
+        lines: List[str] = []
         for record in self.records:
-            head, *rest = record.content.splitlines() or [""]
-            lines.append("[{tier}] {head}".format(tier=record.tier.value, head=head))
-            lines.extend("    " + line for line in rest)
+            lines.extend(render_context_lines(record.tier.value, record.content))
         return "\n".join(lines)
 
 
@@ -1281,5 +1321,13 @@ class ConsolidationReport:
     #: `CoLocatedMemoryProvider._distil_facts`'s docstring for why running it there would be
     #: unsafe, not merely redundant.
     near_duplicate_facts_folded: int = 0
+    #: Graph edges a wired ``relation_pipeline`` (SM-G3 #101 / SM-G5 #103 / SM-L5 #126) invalidated
+    #: this pass -- against pre-existing graph state and against sibling candidates in the same
+    #: batch alike (``RelationExtractionPipeline._contradicted``/``_contradicted_within``). Zero
+    #: when no ``relation_pipeline`` is wired, the same "never configured" reading every other
+    #: field on this report gives an absent stage. Deliberately **not** incremented by
+    #: `fact_pipeline`'s (SM-L3 #124) own UPDATE/DELETE retirements: per ADR 0003 SS B.6 the graph
+    #: is sole authority for semantic contradiction, and a vector-side transaction-time supersede
+    #: is a different mechanism, not a second contradiction this field also counts.
     contradictions_resolved: int = 0
     details: Dict[str, Any] = field(default_factory=dict)

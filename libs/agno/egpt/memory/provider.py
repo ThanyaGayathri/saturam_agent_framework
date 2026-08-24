@@ -39,6 +39,7 @@ from egpt.memory.types import (
 
 if TYPE_CHECKING:  # `config` imports this module, so the annotation cannot be a runtime import
     from egpt.memory.config import MemoryProviderConfig
+    from egpt.memory.working import WorkingMemory
 
 __all__ = ["MemoryProvider"]
 
@@ -251,3 +252,44 @@ class MemoryProvider(ABC):
 
     async def aclose(self) -> None:
         """Async variant of :meth:`close`, for substrates whose driver has an async half."""
+
+    # -- working-tier hook (SM-C6 #94) -----------------------------------------
+
+    def assemble_context(
+        self,
+        scope: Scope,
+        working: "WorkingMemory",
+        query: Optional[MemoryQuery] = None,
+    ) -> str:
+        """Combine a :class:`~egpt.memory.working.WorkingMemory` buffer with a persistent-tier
+        read into one prompt string -- the WORKING half of SM-H6's retrieval assembly.
+
+        Concrete rather than abstract: every adapter inherits it for free via :meth:`read`, and it
+        does not touch a WORKING row a backend could serve differently -- there is none, per
+        ``TIER_POLICY[WORKING]``. What SM-H6 (once it exists) owns is *how* a ranked persistent
+        slice should interleave with a live buffer rather than simply follow it; this method
+        guarantees both halves reach one caller-visible surface today, not the fusion between them.
+
+        ``query`` is required for a meaningful persistent half. Omitting it falls back to
+        ``MemoryQuery(text="")``, which resolves ``tiers`` to every persistent tier
+        (:data:`~egpt.memory.tiers.PERSISTENT_TIERS` -- WORKING is never among them, so it is
+        never double-rendered), but an **empty-text query is not an unrestricted one**: it is a
+        real similarity query with nothing to compare against, and a vector-backed substrate scores
+        it at or near zero for every candidate and returns nothing, so ``persistent`` comes back
+        empty on any real deployment. (An in-memory test double may answer it anyway, which is why
+        this looked unrestricted in tests -- see ``FakeVector.search``'s lexical-overlap scoring.)
+        Pass the caller's actual query text to get a real persistent slice; the fallback exists so
+        the call does not raise, not because it is a substitute for one.
+        """
+        persistent = self.read(scope, query if query is not None else MemoryQuery(text=""))
+        return working.as_context(persistent)
+
+    async def aassemble_context(
+        self,
+        scope: Scope,
+        working: "WorkingMemory",
+        query: Optional[MemoryQuery] = None,
+    ) -> str:
+        """Async variant of :meth:`assemble_context`."""
+        persistent = await self.aread(scope, query if query is not None else MemoryQuery(text=""))
+        return working.as_context(persistent)
