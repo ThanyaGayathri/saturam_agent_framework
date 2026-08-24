@@ -132,14 +132,26 @@ _TRUNCATION_MARKER = "[earlier summary truncated]"
 
 
 def _cap_summary(text: str, max_chars: int) -> str:
-    """``text``, capped to (approximately) ``max_chars`` by dropping the *oldest* paragraphs first.
+    """``text``, capped to **at most** ``max_chars`` by dropping the *oldest* paragraphs first.
 
     Paragraphs are ``_merge_summary``'s own unit -- each offload appends one via ``"\\n\\n".join``
     -- so capping at that boundary drops whole prior-offload contributions rather than truncating
-    mid-sentence. The newest paragraph is always kept, even alone over ``max_chars``: a hard-cut
-    newest entry is still more useful than an empty summary. A cap that removed anything is marked
-    with :data:`_TRUNCATION_MARKER` so the loss shows up in `WorkingMemory.as_context`, not just in
-    a shrinking string a caller has no way to notice.
+    mid-sentence, when there is more than one paragraph to drop from. A cap that removed anything
+    is marked with :data:`_TRUNCATION_MARKER` so the loss shows up in `WorkingMemory.as_context`,
+    not just in a shrinking string a caller has no way to notice.
+
+    The bound is unconditional, applied by slicing the assembled ``marker + kept`` string to
+    ``max_chars`` as the final step -- not only when the paragraph-dropping loop below ran.
+    That loop can leave ``kept`` holding *every* paragraph, identical in count to the input,
+    while the joined text is still over ``max_chars``: the common case is a buffer's first-ever
+    offload, whose summary is one paragraph (``_merge_summary`` returns ``new`` untouched when
+    there is no ``previous``), so the loop -- which only ever compares *candidates that add a
+    second paragraph* -- never runs at all. A one-paragraph-over-cap input previously round-
+    tripped through this function unmarked and untruncated, because "kept still has all the
+    paragraphs it started with" was mistaken for "nothing needs capping." Slicing at the end
+    closes that regardless of how many paragraphs there were, and also covers ``max_chars``
+    smaller than :data:`_TRUNCATION_MARKER` itself -- a marker that alone would overflow the cap
+    is truncated along with the content rather than emitted in full.
     """
     if len(text) <= max_chars:
         return text
@@ -151,18 +163,7 @@ def _cap_summary(text: str, max_chars: int) -> str:
             kept = candidate
         else:
             break
-    if len(kept) == len(paragraphs):
-        return "\n\n".join(kept)
-    result = "\n\n".join([_TRUNCATION_MARKER, *kept])
-    if len(result) > max_chars:
-        # Only reachable when `kept` never grew past the newest paragraph alone, and even *that*
-        # plus the marker overflows -- hard-truncate the paragraph itself rather than emit a
-        # summary longer than the caller's own bound. Checked against the marker+paragraph
-        # combination, not the paragraph alone: a paragraph shorter than `max_chars` can still
-        # overflow once the marker is added, which a bare `len(kept[0]) > max_chars` check misses.
-        prefix = _TRUNCATION_MARKER + "\n\n"
-        result = prefix + kept[-1][: max(0, max_chars - len(prefix))]
-    return result
+    return "\n\n".join([_TRUNCATION_MARKER, *kept])[:max_chars]
 
 
 def _merge_summary(

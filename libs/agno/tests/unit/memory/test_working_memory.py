@@ -481,6 +481,31 @@ def test_cap_summary_hard_truncates_when_even_the_newest_paragraph_overflows():
     assert capped.startswith("[earlier summary truncated]")
 
 
+def test_cap_summary_bounds_a_single_paragraph_over_the_cap():
+    """The common case, not an edge case: a buffer's first-ever offload always produces a
+    single-paragraph summary (`_merge_summary` returns `new` untouched when there is no
+    `previous`). The paragraph-dropping loop never runs for a single paragraph -- nothing to drop
+    *to* -- so `kept` trivially ends up holding every paragraph the input started with, which a
+    bare "did the paragraph count change" check mistakes for "already within the cap." Caught by
+    a prior review round pointing out `_cap_summary("x"*5000, 50)` returned the full 5000 chars."""
+    from egpt.memory.working import _cap_summary
+
+    capped = _cap_summary("x" * 5000, max_chars=50)
+
+    assert len(capped) <= 50
+    assert capped.startswith("[earlier summary truncated]")
+
+
+def test_cap_summary_bounds_even_when_max_chars_is_smaller_than_the_marker():
+    """`max_chars` smaller than `_TRUNCATION_MARKER` itself must still be honoured -- the marker
+    is truncated along with the content rather than emitted in full regardless of the cap."""
+    from egpt.memory.working import _cap_summary
+
+    capped = _cap_summary("x" * 100, max_chars=10)
+
+    assert len(capped) == 10
+
+
 def test_offload_caps_the_running_summary_across_repeated_cycles():
     manager = SessionSummaryManager(model=fake_model("x" * 40))
     wm = WorkingMemory(
@@ -495,6 +520,21 @@ def test_offload_caps_the_running_summary_across_repeated_cycles():
     wm.offload()
     wm.add_message(msg("user", "three"))
     wm.add_message(msg("user", "four"))
+    wm.offload()
+
+    assert len(wm.summary.summary) <= 50
+    assert wm.summary.summary.startswith("[earlier summary truncated]")
+
+
+def test_offload_caps_a_single_paragraph_summary_on_the_very_first_offload():
+    """The very first offload never has a `previous` summary to merge against, so `_merge_summary`
+    returns `new` untouched -- a one-paragraph `SessionSummary`. The cap must still apply to it,
+    not just to the two-or-more-paragraph case every other capping test here exercises."""
+    manager = SessionSummaryManager(model=fake_model("x" * 5000))
+    wm = buffer(max_messages=1, keep_after_offload=0, summary_manager=manager, max_summary_chars=50)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+
     wm.offload()
 
     assert len(wm.summary.summary) <= 50
