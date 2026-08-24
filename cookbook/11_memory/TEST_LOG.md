@@ -871,7 +871,61 @@ four times, this time.
 
 ---
 
-### 34_hybrid_retrieval_orchestration.py
+### 34_sleep_time_scheduling.py
+
+**Status:** PASS
+
+**Description:** Sleep-time scheduling (SM-L9): builds a `SleepTimeScheduleConfig` (01:00-06:00
+`America/New_York` window, 300s idle threshold), wraps it into a trigger via
+`build_sleep_time_trigger`, and wires it into `ConsolidationWorker`. A fake clock drives two
+`run_once` ticks against the same recorded event: one at 14:10 (idle threshold met, outside the
+window) and one at Jan 16 02:00 (idle threshold met, inside the window).
+
+**Result:** Verified end to end with no database, no API key, no network. The 14:10 tick drains 0
+scopes; the 02:00 tick drains the scope and produces 1 semantic fact, confirming the window gates
+firing while `record_event`'s accumulation is unaffected by the hour it was called at.
+
+**Requires:** Nothing. Run with `.venvs/demo`.
+
+---
+
+### 35_hierarchical_summarization.py
+
+**Status:** PARTIAL
+
+**Description:** Hierarchical (session/day/global) summarization (SM-L8): wires a
+`SummaryPipeline` (`day_seconds=1`) into `CoLocatedMemoryProvider`, writes two sessions'
+episodes with a 1.1s gap between them, consolidates each, and reads the resulting SEMANTIC-tier
+session and day summary rows back through the ordinary read path.
+
+**Result:** Verified structurally with a mocked `Model.response` (no network) -- the script runs
+end to end: `second.details["summary"]["day"]` is `True` after the second consolidate, and both a
+`"session"`-level and a `"day"`-level summary come back from `memory.read`, each retrievable and
+tagged with the right `metadata["level"]`. The fake `InMemoryVector` needed real scope filtering
+(matching each set field, treating an unset one as a wildcard) rather than `33_reflection.py`'s
+tenant-only bucketing -- that cookbook only ever consolidates and reads under one scope, but this
+one consolidates two different sessions and then reads through a broader rollup scope that spans
+both, which `assert_scope_isolation` correctly rejects against the looser fake. **Not run against
+a real model**: no `OPENAI_API_KEY` was available in the environment that wrote this cookbook, the
+same gap `33_reflection.py`'s own entry logs. `SummaryPipeline`'s own decisions (rolling vs.
+periodic ids, rollup-key session stripping, retry-safety on a failed fold, sync/async parity) are
+covered against a stub summarizer by `libs/agno/tests/unit/memory/test_consolidation_summarize.py`
+-- what remains unverified is specifically the real-model response shape the mock cannot guarantee
+to match (the mocked response above returns raw JSON `SummarizeStrategy.optimize` does not parse,
+since the real, unmocked call there requests no structured output -- an artifact of this
+verification's single fixed mock answering both the structured session-summary call and the plain
+rollup-fold call, not a defect in the pipeline itself). Follow-up: re-run with a real key and flip
+this entry to a full PASS/FAIL when one is available (same tracking as `33_reflection.py`'s
+[aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192)).
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
+
+**Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
+branch was still catching up.** Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 36_hybrid_retrieval_orchestration.py
 
 **Status:** PASS
 
@@ -899,3 +953,7 @@ full current protocol. Filing the `09_` fix is out of scope for SM-H1; flagged h
 silently worked around.
 
 **Requires:** nothing. Run with `.venvs/demo` (`PYTHONPATH=libs/agno` from a worktree).
+
+**Renumbered from `34_` to `36_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`, then
+`feat/SM-L8` took `35_hierarchical_summarization.py`, while this branch was still catching up.**
+Per this file's own convention, whoever merges second renumbers.

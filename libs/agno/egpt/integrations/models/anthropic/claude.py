@@ -179,9 +179,7 @@ class Claude(Model):
 
     def __post_init__(self):
         """Validate model configuration after initialization"""
-        # Chained so `Model.__post_init__` snapshots the declared connection; without it
-        # `same_model` falls back to live values for this class and mis-compares once the first
-        # request fills `api_key`/`auth_token` from the environment.
+        # Chained so `Model.__post_init__` can auto-fill `provider` and run its own setup.
         super().__post_init__()
         # Validate thinking support immediately at model creation
         if self.thinking:
@@ -199,16 +197,16 @@ class Claude(Model):
     def _get_client_params(self) -> Dict[str, Any]:
         client_params: Dict[str, Any] = {}
 
-        self.api_key = self.api_key or getenv("ANTHROPIC_API_KEY")
-        self.auth_token = self.auth_token or getenv("ANTHROPIC_AUTH_TOKEN")
-        if not (self.api_key or self.auth_token):
+        api_key = self.api_key or getenv("ANTHROPIC_API_KEY")
+        auth_token = self.auth_token or getenv("ANTHROPIC_AUTH_TOKEN")
+        if not (api_key or auth_token):
             log_error(
                 "ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN not set. Please set the ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN environment variable."
             )
 
         # Add API key to client parameters
-        client_params["api_key"] = self.api_key
-        client_params["auth_token"] = self.auth_token
+        client_params["api_key"] = api_key
+        client_params["auth_token"] = auth_token
         if self.timeout is not None:
             client_params["timeout"] = self.timeout
 

@@ -85,13 +85,13 @@ class MistralChat(Model):
         """
         client_params: Dict[str, Any] = {}
 
-        self.api_key = self.api_key or getenv("MISTRAL_API_KEY")
-        if not self.api_key:
+        api_key = self.api_key or getenv("MISTRAL_API_KEY")
+        if not api_key:
             log_error("MISTRAL_API_KEY not set. Please set the MISTRAL_API_KEY environment variable.")
 
         client_params.update(
             {
-                "api_key": self.api_key,
+                "api_key": api_key,
                 "endpoint": self.endpoint,
                 "max_retries": self.max_retries,
                 "timeout": self.timeout,

@@ -116,9 +116,13 @@ class OpenAIResponses(Model):
 
         return base_params
 
-    def _get_client_params(self) -> Dict[str, Any]:
+    def _get_client_params(self, *, api_key: Optional[str] = None, base_url: Optional[str] = None) -> Dict[str, Any]:
         """
         Get client parameters for API requests.
+
+        `api_key`/`base_url` let a delegating subclass (one that resolves its own
+        provider-specific env var) pass in the already-resolved value instead of this method
+        falling back to OPENAI_API_KEY / self.base_url.
 
         Returns:
             Dict[str, Any]: Client parameters
@@ -126,19 +130,21 @@ class OpenAIResponses(Model):
         from os import getenv
 
         # Fetch API key from env if not already set
-        if not self.api_key:
-            self.api_key = getenv("OPENAI_API_KEY")
-            if not self.api_key:
+        resolved_api_key = api_key if api_key is not None else self.api_key
+        if not resolved_api_key:
+            resolved_api_key = getenv("OPENAI_API_KEY")
+            if not resolved_api_key:
                 raise ModelAuthenticationError(
                     message="OPENAI_API_KEY not set. Please set the OPENAI_API_KEY environment variable.",
                     model_name=self.name,
                 )
+        resolved_base_url = base_url if base_url is not None else self.base_url
 
         # Define base client params
         base_params = {
-            "api_key": self.api_key,
+            "api_key": resolved_api_key,
             "organization": self.organization,
-            "base_url": self.base_url,
+            "base_url": resolved_base_url,
             "timeout": self.timeout,
             "max_retries": self.max_retries,
             "default_headers": self.default_headers,

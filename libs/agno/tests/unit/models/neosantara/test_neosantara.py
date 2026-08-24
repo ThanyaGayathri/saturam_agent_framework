@@ -26,8 +26,9 @@ def test_neosantara_initialization_without_api_key():
 def test_neosantara_initialization_with_env_api_key():
     with patch.dict(os.environ, {"NEOSANTARA_API_KEY": "env-api-key"}):
         model = Neosantara(id="grok-4.1-fast-non-reasoning")
-        model._get_client_params()
-        assert model.api_key == "env-api-key"
+        client_params = model._get_client_params()
+        assert client_params["api_key"] == "env-api-key"
+        assert model.api_key is None, "_get_client_params must not mutate api_key on self"
 
 
 def test_neosantara_client_params():

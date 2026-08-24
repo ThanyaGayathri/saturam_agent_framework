@@ -39,6 +39,7 @@ from egpt.memory.config import (
 )
 from egpt.memory.consolidation import FACT_ID_NAMESPACE, merge_near_duplicate_facts
 from egpt.memory.consolidation.extract import STRATEGY_ID as FACT_PIPELINE_STRATEGY_ID
+from egpt.memory.consolidation.provenance import provenance_report
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.orchestrator import aorchestrate, orchestrate
@@ -58,6 +59,7 @@ from egpt.memory.types import (
     NO_ENTITIES,
     NO_REFLECTION,
     NO_RELATIONS,
+    NO_SUMMARY,
     NO_SUPERSEDE,
     ConsolidationReport,
     FactWrite,
@@ -89,6 +91,7 @@ from egpt.utils.log import log_warning
 if TYPE_CHECKING:
     from egpt.memory.consolidation.extract import FactExtractionPipeline
     from egpt.memory.consolidation.reflect import ReflectionPipeline
+    from egpt.memory.consolidation.summarize import SummaryPipeline
     from egpt.memory.graph.entities import EntityExtractionPipeline
     from egpt.memory.graph.relations import RelationExtractionPipeline
 
@@ -140,6 +143,28 @@ RelationSummary = Union[Dict[str, Any], str]
 #: :data:`~egpt.memory.types.NO_REFLECTION` from an unwired one. Same free-extra-key treatment as
 #: :data:`RelationSummary` -- not a ``types.CONSOLIDATION_KEYS`` floor member.
 ReflectionSummary = Union[Dict[str, Any], str]
+
+#: The ``details["summary"]`` counterpart to :data:`EntitySummary` (SM-L8 #129): a
+#: ``summary_details`` payload from a wired pipeline, or :data:`~egpt.memory.types.NO_SUMMARY` from
+#: an unwired one. Same free-extra-key treatment as :data:`RelationSummary`/:data:`ReflectionSummary`
+#: -- not a ``types.CONSOLIDATION_KEYS`` floor member.
+SummarySummary = Union[Dict[str, Any], str]
+
+
+def summary_failed_details(exc: BaseException) -> Dict[str, Any]:
+    """The ``details["summary"]`` shape for a pass whose summarization call raised.
+
+    Same minimal-literal treatment :func:`reflection_failed_details` gives its own pipeline, for
+    the same reason (``summarize.py`` stays duck-typed here, not imported at runtime).
+    """
+    return {
+        "summarizer": None,
+        "complete": False,
+        "session": False,
+        "day": False,
+        "global": False,
+        "error": str(exc),
+    }
 
 
 def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:
@@ -293,6 +318,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         relation_pipeline: Optional["RelationExtractionPipeline"] = None,
         reflection_pipeline: Optional["ReflectionPipeline"] = None,
         fact_pipeline: Optional["FactExtractionPipeline"] = None,
+        summary_pipeline: Optional["SummaryPipeline"] = None,
     ) -> None:
         if vector is None and graph is None:
             raise MemoryProviderConfigError(
@@ -325,6 +351,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #: this pipeline's writes flow through the same fact-write path ``_distil`` feeds --
         #: see ``consolidate``.
         self.fact_pipeline = _checked_pipeline(fact_pipeline, option="fact_pipeline", verbs=("distil", "adistil"))
+        #: SM-L8's (#129) hierarchical (session/day/global) summarization, run by ``consolidate``
+        #: right after reflection. Same duck-typed, opt-in shape as the pipelines above, and the
+        #: same reason: an LLM pass a provider must be asked for, not upgraded into -- and like
+        #: reflection, it produces ``FactWrite`` candidates the caller writes through the same
+        #: SEMANTIC path as a distilled fact (see ``summarize.py``'s docstring).
+        self.summary_pipeline = _checked_pipeline(summary_pipeline, option="summary_pipeline")
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         #: Ceiling on one consolidation pass. Adjustable because the default is a safety bound, not
         #: a policy: a tier larger than this has its tail consolidated over multiple passes, tracked
@@ -1054,10 +1086,27 @@ class CoLocatedMemoryProvider(MemoryProvider):
         entities: EntitySummary,
         relations: RelationSummary,
         reflection: ReflectionSummary,
+        summary: SummarySummary,
         derived_by: str = _DETERMINISTIC_DEDUP_STRATEGY_ID,
         supersede: str = NO_SUPERSEDE,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
+        # AC#3's anti-lossiness detection (SM-L7 #128), wired here rather than left as an unwired
+        # library call (round-3 review) -- this is the one place `consolidate`/`aconsolidate`
+        # already has both `facts` and the episode ids this pass read, with no extra I/O.
+        #
+        # **Scoped to `scanned`, not the scope's full episodic history -- read this caveat before
+        # trusting a value below 1.0 as corruption.** A fact's `source_episode_ids` can legitimately
+        # carry citations unioned forward from an *earlier* `consolidate` call's episode batch
+        # (RESEARCH.md's own union-forward rule), which this pass never read and so cannot verify --
+        # a scope-wide audit against every retained episode, not only this pass's scan window, needs
+        # a full-tier read this method does not perform on every call (cost concern raised in
+        # aicoe-tracker#194, which owns that audit). A value here that is `< 1.0` is therefore a
+        # signal to investigate, not by itself proof of a dangling citation; a citation to an episode
+        # this pass genuinely never read reads identically to one pointing at nothing. Detection
+        # only -- nothing here raises or blocks the write on it, matching the round-2/3 review's own
+        # "policy on violation stays in #194" boundary.
+        provenance = provenance_report(facts, resolved_episode_ids={r.id for r in scanned})
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=len(scanned),
@@ -1067,11 +1116,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # in separate fields rather than summed into one that neither could be recovered from.
             duplicates_merged=merged,
             near_duplicate_facts_folded=folded,
-            # Zero by design: knowing two facts *disagree* needs extraction, which is SM-L5's
-            # (#126). `fact_pipeline`'s UPDATE/DELETE resolve a *candidate against its own*
-            # similar facts, not two already-stored facts against each other -- a narrower
-            # question than SM-L5's, so this stays zero even when it is wired.
-            contradictions_resolved=0,
+            # `relations["edges_invalidated"]` (SM-L5 #126), not hard-coded 0: `_relations`/
+            # `_arelations` hand back only `RelationExtractionReport.details`, and before SM-L5
+            # added `edges_invalidated` to that dict (`relations.py`'s own `_report`), the count
+            # SM-G5's pipeline was already producing had nowhere to reach this field from -- it
+            # stayed 0 even on a pass that genuinely invalidated edges. `relations` is a bare
+            # string (`NO_RELATIONS`) when no pipeline is wired, hence the `isinstance` guard
+            # rather than a plain `.get`.
+            #
+            # `fact_pipeline`'s own UPDATE/DELETE retirements are deliberately not folded in here:
+            # per ADR 0003 SS B.6, "the graph remains sole authority for semantic contradiction/
+            # invalidation" -- a vector-side transaction-time supersede is a *different* mechanism
+            # (module docstring, `consolidation/extract.py`), not a second contradiction this field
+            # should also count.
+            contradictions_resolved=relations.get("edges_invalidated", 0) if isinstance(relations, dict) else 0,
             details=consolidation_details(
                 derived_by=derived_by,
                 # `>=`, deliberately conservative: `scan` returns at most `limit`, so a full page
@@ -1081,17 +1139,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 complete=not hit_cap,
                 supersede=supersede,
                 entities=entities,
-                # `relations` and `reflection` are free extra keys, not `CONSOLIDATION_KEYS` floor
-                # members (see `RelationSummary`'s docstring): promoting either is a separate,
-                # deliberate decision this ticket does not make.
+                # `relations`, `reflection` and `summary` are free extra keys, not
+                # `CONSOLIDATION_KEYS` floor members (see `RelationSummary`'s docstring): promoting
+                # any of them is a separate, deliberate decision this ticket does not make.
                 relations=relations,
                 reflection=reflection,
+                summary=summary,
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
                 # Renamed from `tail_unreachable` (SM-C1): that name stopped being true once
                 # `_advance_cursor` shipped -- the tail is reachable, by calling `consolidate` again
                 # on this instance. `tail_pending` says what is actually still known: this pass
                 # stopped at the cap and left rows unread, without claiming they are unreachable.
                 tail_pending=hit_cap,
+                # Free extra key, same treatment as `relations`/`reflection` above -- not promoted
+                # to `CONSOLIDATION_KEYS` (see this method's own comment on `provenance` above for
+                # what a value below 1.0 does and does not mean).
+                provenance_validity=provenance.validity,
+                provenance_dangling=list(provenance.dangling),
             ),
         )
 
@@ -1140,10 +1204,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """
         if self.relation_pipeline is None:
             return NO_RELATIONS
+        # TODO(aicoe-tracker #195): this discards the typed `RelationExtractionReport` entirely,
+        # keeping only `.details` -- a `Dict[str, Any]`. `edges_invalidated` survives that only
+        # because `relations.py`'s own `_report` deliberately duplicates it into `.details` as a
+        # workaround (see that call site's comment); any *other* field added to the typed report
+        # in the future will silently fail to reach `ConsolidationReport` the same way
+        # `edges_invalidated` did before SM-L5, unless it gets the same manual duplication.
+        # Returning the typed report itself (or a richer summary than `RelationSummary`'s
+        # `Union[Dict[str, Any], str]`) would close this for good, but changes this method's
+        # public return shape and every `NO_RELATIONS`-pattern-matching call site -- wider than
+        # one ticket, tracked separately at aicoe-tracker #195.
         return self.relation_pipeline.run(scope, episodes).details
 
     async def _arelations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationSummary:
-        """Async variant of :meth:`_relations`, making the same decisions."""
+        """Async variant of :meth:`_relations`, making the same decisions -- including the same
+        `.details`-only TODO gap; see that method's comment."""
         if self.relation_pipeline is None:
             return NO_RELATIONS
         return (await self.relation_pipeline.arun(scope, episodes)).details
@@ -1225,6 +1300,61 @@ class CoLocatedMemoryProvider(MemoryProvider):
             log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
             return [], reflection_failed_details(exc)
         return report.insights, report.details
+
+    def _summarize(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], SummarySummary]:
+        """Run SM-L8's (#129) hierarchical summarization over the episodes this pass kept.
+
+        Same shape as :meth:`_reflect`: candidate ``FactWrite``s are returned, not written --
+        ``summarize.py``'s own "one write model" docstring -- and a failure here is caught and
+        logged rather than propagated, for the identical reason ``_reflect``'s docstring gives at
+        length: summarization is optional and additive, an LLM call is the flakiest step in this
+        lane, and the mandatory dedup/entity/relation work bolted onto the same pass must not go
+        down because a summarizer had a bad day.
+
+        **Retry safety is not uniform across the two things this pass can fail at.** A day/global
+        *fold* failure genuinely retries: ``SummaryPipeline``'s own pending accumulation and trigger
+        are left armed (its ``_roll_up_day``/``_roll_up_global`` docstrings), untouched by anything
+        that happens up here, so the next call to this same pipeline instance folds the identical
+        pending set again. A *session-narration* failure does not have that guarantee: this
+        episodic batch's episodes are still consumed by ``consolidate``'s own scan cursor
+        regardless of whether summarization succeeded (that cursor is shared with dedup/entity/
+        relation extraction, not owned by this pipeline), so the next ``consolidate`` call scans a
+        new batch and these specific episodes are never re-presented to the session summarizer.
+        Unlike ``ReflectionPipeline`` -- whose whole flow *is* the accumulate-then-conditionally-fire
+        pattern, so its "will retry next pass" claim covers everything it does -- this pipeline has
+        a step (session narration) that sits outside that pattern, which is why the same claim does
+        not cover it here. Giving this pipeline its own resumption cursor, independent of
+        ``consolidate``'s, would close the gap; this ticket does not make that change.
+
+        **``MemoryScopeRequiredError`` is not caught here -- it propagates**, the same carve-out
+        ``_reflect`` makes: a scope failing its own validity check is a caller bug, not a runtime
+        failure worth retrying silently forever.
+        """
+        if self.summary_pipeline is None:
+            return [], NO_SUMMARY
+        try:
+            report = self.summary_pipeline.run(scope, episodes)
+        except MemoryScopeRequiredError:
+            raise
+        except Exception as exc:
+            log_warning(f"Summarization failed for scope {scope.key()!r}, will retry next pass: {exc}")
+            return [], summary_failed_details(exc)
+        return report.summaries, report.details
+
+    async def _asummarize(
+        self, scope: Scope, episodes: Sequence[MemoryRecord]
+    ) -> Tuple[List[FactWrite], SummarySummary]:
+        """Async variant of :meth:`_summarize`, making the same decisions."""
+        if self.summary_pipeline is None:
+            return [], NO_SUMMARY
+        try:
+            report = await self.summary_pipeline.arun(scope, episodes)
+        except MemoryScopeRequiredError:
+            raise
+        except Exception as exc:
+            log_warning(f"Summarization failed for scope {scope.key()!r}, will retry next pass: {exc}")
+            return [], summary_failed_details(exc)
+        return report.summaries, report.details
 
     @staticmethod
     def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
@@ -1392,6 +1522,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # takes the `if facts:` path rather than needing a second, parallel write branch.
         insight_facts, reflection = self._reflect(scope, episodes)
         facts += insight_facts
+        # Same fold-before-branch reasoning as reflection, one stage later: a summary node is
+        # written through the exact same vector/graph loop, receipt, and `PartialWriteError`
+        # accounting a distilled fact or an insight is (`summarize.py`'s "one write model").
+        summary_facts, summary = self._summarize(scope, episodes)
+        facts += summary_facts
 
         if facts:
             self._check_distilled(facts)
@@ -1463,7 +1598,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # about, reincarnated one layer down.
         self._advance_cursor(cursor_key, scanned)
         return self._report(
-            scope, scanned, episodes, facts, merged, folded, entities, relations, reflection, derived_by, supersede
+            scope,
+            scanned,
+            episodes,
+            facts,
+            merged,
+            folded,
+            entities,
+            relations,
+            reflection,
+            summary,
+            derived_by,
+            supersede,
         )
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
@@ -1486,6 +1632,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Same fold-before-branch as the sync half, for the same reason -- see its comment.
         insight_facts, reflection = await self._areflect(scope, episodes)
         facts += insight_facts
+        # See the sync half's comment: same fold-before-branch reasoning, one stage later.
+        summary_facts, summary = await self._asummarize(scope, episodes)
+        facts += summary_facts
 
         if facts:
             self._check_distilled(facts)
@@ -1533,7 +1682,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
             relations = await self._arelations(scope, episodes)
         self._advance_cursor(cursor_key, scanned)
         return self._report(
-            scope, scanned, episodes, facts, merged, folded, entities, relations, reflection, derived_by, supersede
+            scope,
+            scanned,
+            episodes,
+            facts,
+            merged,
+            folded,
+            entities,
+            relations,
+            reflection,
+            summary,
+            derived_by,
+            supersede,
         )
 
 
@@ -1584,4 +1744,8 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
         # Same reasoning again: `FactExtractionPipeline` (SM-L3 #124) needs a model and the
         # already-resolved vector substrate, neither of which belongs in provider config.
         fact_pipeline=config.options.get("fact_pipeline"),
+        # Same reasoning again: `SummaryPipeline` (SM-L8 #129) needs a model (wrapped in a
+        # `SessionSummarizer`) and a `SummarizeStrategy`, neither of which belongs in provider
+        # config.
+        summary_pipeline=config.options.get("summary_pipeline"),
     )

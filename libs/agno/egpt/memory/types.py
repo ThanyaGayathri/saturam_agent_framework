@@ -53,6 +53,7 @@ __all__ = [
     "NO_ENTITIES",
     "NO_REFLECTION",
     "NO_RELATIONS",
+    "NO_SUMMARY",
     "normalize_entity_name",
     "PartialWriteError",
     "require_scope",
@@ -1065,6 +1066,13 @@ NO_RELATIONS = "not extracted -- no relation pipeline wired (SM-G3 #101)"
 #: ``co_located.ReflectionSummary``'s docstring.
 NO_REFLECTION = "not reflected -- no reflection pipeline wired (SM-L6 #127)"
 
+#: The ``summary`` counterpart to :data:`NO_ENTITIES` (SM-L8 #129): a pass with no summary
+#: pipeline produced no session/day/global summary node, which a scheduler cannot tell from a
+#: pass whose rollups simply were not due yet. ``details["summary"]`` is a free extra key on
+#: ``consolidation_details``, same treatment as ``details["relations"]``/``details["reflection"]``
+#: -- see ``co_located.SummarySummary``'s docstring.
+NO_SUMMARY = "not summarized -- no summary pipeline wired (SM-L8 #129)"
+
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
 #:
@@ -1276,5 +1284,13 @@ class ConsolidationReport:
     #: `CoLocatedMemoryProvider._distil_facts`'s docstring for why running it there would be
     #: unsafe, not merely redundant.
     near_duplicate_facts_folded: int = 0
+    #: Graph edges a wired ``relation_pipeline`` (SM-G3 #101 / SM-G5 #103 / SM-L5 #126) invalidated
+    #: this pass -- against pre-existing graph state and against sibling candidates in the same
+    #: batch alike (``RelationExtractionPipeline._contradicted``/``_contradicted_within``). Zero
+    #: when no ``relation_pipeline`` is wired, the same "never configured" reading every other
+    #: field on this report gives an absent stage. Deliberately **not** incremented by
+    #: `fact_pipeline`'s (SM-L3 #124) own UPDATE/DELETE retirements: per ADR 0003 SS B.6 the graph
+    #: is sole authority for semantic contradiction, and a vector-side transaction-time supersede
+    #: is a different mechanism, not a second contradiction this field also counts.
     contradictions_resolved: int = 0
     details: Dict[str, Any] = field(default_factory=dict)
