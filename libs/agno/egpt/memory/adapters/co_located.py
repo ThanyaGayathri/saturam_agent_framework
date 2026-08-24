@@ -60,6 +60,7 @@ from egpt.memory.types import (
     NO_REFLECTION,
     NO_RELATIONS,
     NO_SUPERSEDE,
+    PROFILE_NO_USER,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
@@ -148,13 +149,6 @@ ReflectionSummary = Union[Dict[str, Any], str]
 #: a wired profile store, or :data:`~egpt.memory.types.NO_PROFILE` from an unwired one. Same
 #: free-extra-key treatment as :data:`RelationSummary`/:data:`ReflectionSummary`.
 ProfileSummary = Union[Dict[str, Any], str]
-
-#: The ``details["profile"]`` value for a wired store handed a scope with no ``user_id`` -- a
-#: consolidation pass can run tenant-wide (``Scope.user_id is None``), and a profile is per-user
-#: by definition (:func:`~egpt.memory.semantic.profile.profile_record_id`), so there is no single
-#: profile to update. Distinct from :data:`~egpt.memory.types.NO_PROFILE`: that means "not asked
-#: for," this means "asked for, but this pass's scope has no user to key it by."
-_PROFILE_NO_USER = "not extracted -- scope has no user_id to key a profile by"
 
 
 def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:
@@ -386,6 +380,25 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """A tier is served when a wired substrate stores it, so a vector-only provider serves
         three of the four and a graph-only one serves two."""
         return {tier: bool(substrates_for_tier(tier) & self._wired()) for tier in MemoryTier}
+
+    def get_profile(self, scope: Scope) -> Optional[Any]:
+        """The user's structured profile (SM-S3 #120), or ``None`` when unwired, never
+        consolidated, or unparseable.
+
+        Not part of ``MemoryProvider``'s abstract interface -- ``read``/``read_tier`` are
+        embedding-relevance search over a tier's ``content``, not a lookup by kind, and a
+        profile's fixed placeholder content (``f"user profile for {scope.user_id}"``) is not
+        guaranteed to surface for an arbitrary query even if it did route there. Adding an
+        abstract verb to ``MemoryProvider`` would force every other implementor (including one
+        with no notion of a profile) to answer it; a concrete method on this adapter, over the
+        ``_semantic_profile`` it already owns, is the narrower change (QC round 3, PR #135 --
+        before this, the only way to reach a stored profile was the private attribute directly).
+        """
+        return self._semantic_profile.get(scope)
+
+    async def aget_profile(self, scope: Scope) -> Optional[Any]:
+        """Async twin of :meth:`get_profile`, making the same decisions."""
+        return await self._semantic_profile.aget(scope)
 
     def close(self) -> None:
         """Close whichever substrates hold something. Duck-typed, because the ports do not name it.
@@ -1219,7 +1232,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         Same wired-vs-never-wired distinction as :meth:`_entities`, plus one more: a tenant-wide
         pass (``scope.user_id is None``) has no single user to key a profile by, so it reports
-        :data:`_PROFILE_NO_USER` rather than silently skipping -- the same reasoning
+        :data:`PROFILE_NO_USER` rather than silently skipping -- the same reasoning
         :data:`~egpt.memory.types.NO_PROFILE` gets for "never wired".
 
         **Read-modify-write, no lock or CAS.** ``self._semantic_profile.get`` is read, an LLM
@@ -1237,7 +1250,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         if self.profile_store is None:
             return NO_PROFILE
         if scope.user_id is None:
-            return _PROFILE_NO_USER
+            return PROFILE_NO_USER
         messages = self._profile_messages(episodes)
         if not messages:
             return {"complete": True, "updated": False}
@@ -1253,7 +1266,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         if self.profile_store is None:
             return NO_PROFILE
         if scope.user_id is None:
-            return _PROFILE_NO_USER
+            return PROFILE_NO_USER
         messages = self._profile_messages(episodes)
         if not messages:
             return {"complete": True, "updated": False}
@@ -1574,6 +1587,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
             # branch above, not an oversight against it -- see the review-round-3 note in
             # `_entities`'s own docstring.
+            #
+            # `_update_profile`'s write below carries the identical gap (QC round 3, PR #135):
+            # its own `SemanticProfileStore.write` failure here is a plain refusal too, uncounted
+            # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
+            # leg specifically.
             entities = self._entities(scope, episodes)
             relations = self._relations(scope, episodes)
             profile = self._update_profile(scope, episodes)
@@ -1661,6 +1679,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
             # branch above, not an oversight against it -- see the review-round-3 note in
             # `_entities`'s own docstring.
+            #
+            # `_aupdate_profile`'s write below carries the identical gap (QC round 3, PR #135):
+            # its own `SemanticProfileStore.awrite` failure here is a plain refusal too, uncounted
+            # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
+            # leg specifically.
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
             profile = await self._aupdate_profile(scope, episodes)

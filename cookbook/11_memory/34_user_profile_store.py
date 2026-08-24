@@ -67,10 +67,10 @@ provider.write(
 report = provider.consolidate(ACME_ADA)
 print(f"--- consolidation report: profile={report.details['profile']} ---")
 
-# No public read verb for a profile yet (the seam's `read`/`aread` covers episodic/semantic-fact
-# retrieval, not this store) -- `provider._semantic_profile` is the actual, if internal, path
-# `consolidate` itself just wrote through.
-profile = provider._semantic_profile.get(ACME_ADA)
+# `get_profile`/`aget_profile`, not the seam's `read`/`aread`: those are embedding-relevance
+# search over episodic/semantic-fact content, not a lookup by kind, and wouldn't reliably
+# surface a profile's fixed placeholder content even if they routed here at all.
+profile = provider.get_profile(ACME_ADA)
 if profile is None:
     raise RuntimeError("Expected consolidation to have written a profile for ada.")
 print(

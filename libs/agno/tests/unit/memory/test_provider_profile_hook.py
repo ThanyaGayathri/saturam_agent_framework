@@ -12,9 +12,9 @@ import asyncio
 import pytest
 
 from egpt.learn.schemas import UserProfile
-from egpt.memory.adapters.co_located import _PROFILE_NO_USER, CoLocatedMemoryProvider
+from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError
-from egpt.memory.types import NO_PROFILE, MemoryEvent, Scope
+from egpt.memory.types import NO_PROFILE, PROFILE_NO_USER, MemoryEvent, Scope
 from tests.unit.memory._fakes import FakeGraph, FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="ada")
@@ -120,9 +120,38 @@ def test_a_wired_store_updates_and_persists_the_profile(is_async):
     calls = stub.aextract_calls if is_async else stub.extract_calls
     assert calls[0][0] == "ada"
 
-    got = memory._semantic_profile.get(ACME)
+    got = memory.get_profile(ACME)
     assert got is not None
     assert got.name == "Ada Lovelace"
+
+
+def test_get_profile_and_aget_profile_are_public_and_return_what_consolidate_wrote():
+    """Before this (QC round 3, PR #135), the only way to reach a stored profile was the
+    private ``provider._semantic_profile`` attribute directly -- this pins the public accessor
+    the cookbook and any other caller now use instead."""
+    stub = _StubProfileStore(name="Ada Lovelace")
+    memory, _v, _g = make_provider(profile_store=stub)
+    memory.write(ACME, [event("I'm Ada Lovelace")])
+    memory.consolidate(ACME)
+
+    assert memory.get_profile(ACME) is not None
+    assert memory.get_profile(ACME).name == "Ada Lovelace"
+
+
+async def test_aget_profile_returns_what_consolidate_wrote():
+    stub = _StubProfileStore(name="Ada Lovelace")
+    memory, _v, _g = make_provider(profile_store=stub)
+    memory.write(ACME, [event("I'm Ada Lovelace")])
+    await memory.aconsolidate(ACME)
+
+    got = await memory.aget_profile(ACME)
+    assert got is not None
+    assert got.name == "Ada Lovelace"
+
+
+def test_get_profile_before_any_consolidation_is_none():
+    memory, _v, _g = make_provider(profile_store=_StubProfileStore())
+    assert memory.get_profile(ACME) is None
 
 
 @pytest.mark.parametrize("is_async", [False, True])
@@ -136,7 +165,7 @@ def test_a_tenant_wide_pass_has_no_user_to_key_a_profile_by(is_async):
     report = asyncio.run(memory.aconsolidate(TENANT_WIDE)) if is_async else memory.consolidate(TENANT_WIDE)
 
     assert report.details["profile"] != NO_PROFILE
-    assert report.details["profile"] == _PROFILE_NO_USER
+    assert report.details["profile"] == PROFILE_NO_USER
     assert not stub.extract_calls and not stub.aextract_calls
 
 

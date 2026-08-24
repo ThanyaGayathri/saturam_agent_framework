@@ -116,6 +116,23 @@ def test_existing_profile_is_deep_copied_not_mutated_in_place():
     assert result.name == "Ada Lovelace"  # unrelated fields carry over
 
 
+async def test_async_existing_profile_is_deep_copied_not_mutated_in_place():
+    """Async twin of `test_existing_profile_is_deep_copied_not_mutated_in_place` -- the sync/async
+    bodies are near-identical, but nothing pinned this specific guarantee for `aextract_profile`
+    on its own before this (QC round 3, PR #135)."""
+    store = profile_store(calls_with={"preferred_name": "Ada"})
+    existing = UserProfile(user_id="ada", name="Ada Lovelace")
+
+    result = await store.aextract_profile(
+        [Message(role="user", content="call me Ada")], user_id="ada", existing_profile=existing
+    )
+
+    assert result is not existing
+    assert existing.preferred_name is None
+    assert result.preferred_name == "Ada"
+    assert result.name == "Ada Lovelace"
+
+
 async def test_async_extraction_makes_the_same_decisions_as_sync():
     store = profile_store(calls_with={"name": "Ada"})
 

@@ -229,6 +229,65 @@ def test_get_ignores_a_same_id_row_carrying_the_wrong_record_kind():
     assert s.get(ACME) is None
 
 
+def test_get_finds_a_profile_beyond_the_first_scan_page():
+    """`get`/`aget` paginate in `_SCAN_BATCH_SIZE`-row batches (QC round 3, PR #135) rather than
+    one unbounded scan -- this forces the profile row into the *second* page and proves the loop
+    actually continues past a full first page instead of stopping at it."""
+    s, vector = store()
+    # 200 filler rows sorting (by id, tied on created_at=None/0) before "user_profile/...",
+    # matching `_SCAN_BATCH_SIZE`'s default of 200 exactly, so page one is entirely fillers.
+    fillers = [
+        MemoryRecord(id=f"aaa{i:04d}", tier=MemoryTier.SEMANTIC, content="filler", scope=ACME) for i in range(200)
+    ]
+    vector.upsert(ACME, fillers)
+    s.write(ACME, UserProfile(user_id="ada", name="Ada"))
+
+    got = s.get(ACME)
+    assert got is not None
+    assert got.name == "Ada"
+
+
+async def test_aget_finds_a_profile_beyond_the_first_scan_page():
+    s, vector = store()
+    fillers = [
+        MemoryRecord(id=f"aaa{i:04d}", tier=MemoryTier.SEMANTIC, content="filler", scope=ACME) for i in range(200)
+    ]
+    await vector.aupsert(ACME, fillers)
+    await s.awrite(ACME, UserProfile(user_id="ada", name="Ada"))
+
+    got = await s.aget(ACME)
+    assert got is not None
+    assert got.name == "Ada"
+
+
+def test_get_logs_when_a_matched_row_fails_to_parse(caplog):
+    """Distinct from "never written": the id and marker matched, but `from_dict_safe` could not
+    build a `UserProfile` from the stored payload -- logged so the two are distinguishable
+    (QC round 3, PR #135). `log_debug` is gated behind the module-global `debug_on` flag
+    (unlike stdlib logging levels), so this needs `set_log_level_to_debug()` -- `caplog.at_level`
+    alone is not enough, since the flag short-circuits before any logger is touched."""
+    from egpt.utils.log import set_log_level_to_debug, set_log_level_to_info
+
+    s, vector = store()
+    corrupted = MemoryRecord(
+        id=profile_record_id(ACME),
+        tier=MemoryTier.SEMANTIC,
+        content="corrupted",
+        scope=ACME,
+        metadata={"record_kind": "user_profile", "profile": "not-a-dict"},
+    )
+    vector.upsert(ACME, [corrupted])
+
+    set_log_level_to_debug()
+    try:
+        with caplog.at_level("DEBUG", logger="egpt"):
+            assert s.get(ACME) is None
+    finally:
+        set_log_level_to_info()
+
+    assert any("could not parse" in message for message in caplog.messages)
+
+
 async def test_aget_ignores_a_same_id_row_carrying_the_wrong_record_kind():
     s, vector = store()
     wrong_marker = MemoryRecord(

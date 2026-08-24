@@ -20,7 +20,7 @@ also holds every ordinary fact (SM-S1 #118). ``scope.user_id`` narrows *which te
 is scanned, not how many rows within it are read; a user with many accumulated facts pays this
 scan on every consolidation pass. A true point lookup needs a
 ``VectorSubstrate.get_record(scope, id)`` port method that does not exist yet -- tracked as
-aicoe-tracker #187, not built here: it is a substrate-port change with implications for every
+aicoe-tracker #198, not built here: it is a substrate-port change with implications for every
 other caller of this seam, a decision this ticket does not own.
 
 **Every profile read/write operates on a scope narrowed to ``(tenant_id, user_id)`` only**
@@ -58,8 +58,13 @@ _RECORD_KIND = "user_profile"
 
 #: Above this many scanned rows, :meth:`SemanticProfileStore.get`/:meth:`aget` log rather than
 #: stay silent -- an interim signal for the O(N) cost this module's docstring already names,
-#: cheap enough to carry until aicoe-tracker #187 lands a real point lookup.
+#: cheap enough to carry until aicoe-tracker #198 lands a real point lookup.
 _SCAN_WARNING_THRESHOLD = 500
+
+#: Page size for :meth:`SemanticProfileStore.get`/:meth:`aget`'s paginated scan. Still O(N) round
+#: trips over the tier in the worst case (no point-lookup port method exists -- #198), but bounds
+#: peak memory to one page rather than the whole tier, which an unbounded ``scan()`` call did not.
+_SCAN_BATCH_SIZE = 200
 
 
 def _profile_scope(scope: Scope) -> Scope:
@@ -147,22 +152,47 @@ class SemanticProfileStore:
         await self.vector.aupsert(narrowed, [record])
         return WriteReceipt(accepted=1, event_ids=[record.id], tiers_written=[MemoryTier.SEMANTIC])
 
+    def _parse(self, narrowed: Scope, record: MemoryRecord) -> Optional[Any]:
+        parsed = from_dict_safe(self.schema, record.metadata.get("profile"))
+        if parsed is None:
+            # Distinct from "never written": the id and marker matched, so a row is there --
+            # `from_dict_safe` failed to parse it (QC round 3, PR #135). Without this the two
+            # cases were indistinguishable to a caller, the same gap the scan-count log below
+            # closes for volume rather than shape.
+            log_debug(
+                f"SemanticProfileStore: matched profile row {record.id!r} for "
+                f"user_id={narrowed.user_id!r} but from_dict_safe could not parse it -- "
+                f"possibly corrupted or written under an incompatible schema."
+            )
+        return parsed
+
     def get(self, scope: Scope) -> Optional[Any]:
-        """The user's profile, or ``None`` when unwired, never written, or unparseable."""
+        """The user's profile, or ``None`` when unwired, never written, or unparseable.
+
+        Paginated in ``_SCAN_BATCH_SIZE``-row batches rather than one unbounded
+        ``vector.scan`` call: still O(N) in the scope's SEMANTIC-tier row count (there is no
+        point-lookup port method -- see the module docstring, aicoe-tracker #198), but this
+        bounds *peak memory* to one batch instead of the whole tier, and a batch smaller than
+        the page size is how the loop knows the tier is exhausted without a second round trip.
+        """
         require_scope(scope, method="get")
         if self.vector is None:
             return None
         narrowed = _profile_scope(scope)
         record_id = profile_record_id(narrowed)
-        rows = self.vector.scan(narrowed, MemoryTier.SEMANTIC)
-        if len(rows) > _SCAN_WARNING_THRESHOLD:
-            log_debug(
-                f"SemanticProfileStore.get: scanned {len(rows)} SEMANTIC-tier rows for one "
-                f"profile lookup (user_id={narrowed.user_id}); see aicoe-tracker #187."
-            )
-        for record in rows:
-            if record.id == record_id and record.metadata.get("record_kind") == _RECORD_KIND:
-                return from_dict_safe(self.schema, record.metadata.get("profile"))
+        after: Optional[Any] = None
+        scanned = 0
+        while True:
+            batch = self.vector.scan(narrowed, MemoryTier.SEMANTIC, limit=_SCAN_BATCH_SIZE, after=after)
+            scanned += len(batch)
+            for record in batch:
+                if record.id == record_id and record.metadata.get("record_kind") == _RECORD_KIND:
+                    self._warn_if_large_scan("get", narrowed, scanned)
+                    return self._parse(narrowed, record)
+            if len(batch) < _SCAN_BATCH_SIZE:
+                break
+            after = (batch[-1].created_at or 0, batch[-1].id)
+        self._warn_if_large_scan("get", narrowed, scanned)
         return None
 
     async def aget(self, scope: Scope) -> Optional[Any]:
@@ -172,13 +202,25 @@ class SemanticProfileStore:
             return None
         narrowed = _profile_scope(scope)
         record_id = profile_record_id(narrowed)
-        rows = await self.vector.ascan(narrowed, MemoryTier.SEMANTIC)
-        if len(rows) > _SCAN_WARNING_THRESHOLD:
-            log_debug(
-                f"SemanticProfileStore.aget: scanned {len(rows)} SEMANTIC-tier rows for one "
-                f"profile lookup (user_id={narrowed.user_id}); see aicoe-tracker #187."
-            )
-        for record in rows:
-            if record.id == record_id and record.metadata.get("record_kind") == _RECORD_KIND:
-                return from_dict_safe(self.schema, record.metadata.get("profile"))
+        after: Optional[Any] = None
+        scanned = 0
+        while True:
+            batch = await self.vector.ascan(narrowed, MemoryTier.SEMANTIC, limit=_SCAN_BATCH_SIZE, after=after)
+            scanned += len(batch)
+            for record in batch:
+                if record.id == record_id and record.metadata.get("record_kind") == _RECORD_KIND:
+                    self._warn_if_large_scan("aget", narrowed, scanned)
+                    return self._parse(narrowed, record)
+            if len(batch) < _SCAN_BATCH_SIZE:
+                break
+            after = (batch[-1].created_at or 0, batch[-1].id)
+        self._warn_if_large_scan("aget", narrowed, scanned)
         return None
+
+    @staticmethod
+    def _warn_if_large_scan(method: str, narrowed: Scope, scanned: int) -> None:
+        if scanned > _SCAN_WARNING_THRESHOLD:
+            log_debug(
+                f"SemanticProfileStore.{method}: scanned {scanned} SEMANTIC-tier rows for one "
+                f"profile lookup (user_id={narrowed.user_id}); see aicoe-tracker #198."
+            )

@@ -32,7 +32,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from dataclasses import fields as dc_fields
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Union, cast
 
 from egpt.learn.config import LearningMode, UserProfileConfig
 from egpt.learn.schemas import UserProfile
@@ -56,6 +56,17 @@ try:
     from egpt.tools.function import Function
 except ImportError:
     pass
+
+
+class _MutationTrackingTool(Protocol):
+    """The ``update_profile`` callable :meth:`UserProfileStore._build_capture_profile_tool`
+    returns: callable like any tool, plus the ``mutated`` flag :meth:`UserProfileStore
+    .extract_profile`/:meth:`aextract_profile` read back off it -- narrower than a bare
+    ``cast(Any, tool)`` at each read site (QC round 3, PR #135)."""
+
+    mutated: List[bool]
+
+    def __call__(self, **kwargs: Any) -> str: ...
 
 
 @dataclass
@@ -1020,7 +1031,7 @@ class UserProfileStore(LearningStore):
         # the tool and returns "No fields provided to update" without mutating anything, which
         # `tool.mutated[0]` (set only when a field was actually assigned) tells apart from a real
         # update -- see `_build_capture_profile_tool`'s docstring.
-        if not response.tool_executions or not cast(Any, tool).mutated[0]:
+        if not response.tool_executions or not tool.mutated[0]:
             return None
         return profile
 
@@ -1062,11 +1073,11 @@ class UserProfileStore(LearningStore):
             accumulate_model_metrics(response, model_copy, ModelType.LEARNING_MODEL, run_metrics)
 
         # Same distinction as the sync half -- see its comment.
-        if not response.tool_executions or not cast(Any, tool).mutated[0]:
+        if not response.tool_executions or not tool.mutated[0]:
             return None
         return profile
 
-    def _build_capture_profile_tool(self, profile: Any) -> Optional[Callable]:
+    def _build_capture_profile_tool(self, profile: Any) -> Optional[_MutationTrackingTool]:
         """Build the extraction-time ``update_profile`` tool: same signature as
         :meth:`_build_update_profile_tool`, but it mutates ``profile`` in place and does no I/O
         -- so unlike that method's sync/async pair, one builder serves both
@@ -1129,7 +1140,7 @@ class UserProfileStore(LearningStore):
         # `tool_executions` alone.
         func.mutated = mutated
 
-        return update_profile
+        return cast(_MutationTrackingTool, update_profile)
 
     # =========================================================================
     # Update Operations (called by agent tool)

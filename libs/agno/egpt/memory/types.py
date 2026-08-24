@@ -56,6 +56,7 @@ __all__ = [
     "NO_RELATIONS",
     "normalize_entity_name",
     "PartialWriteError",
+    "PROFILE_NO_USER",
     "require_scope",
     "RetrievalCandidates",
     "SCOPE_SLOTS",
@@ -1060,6 +1061,14 @@ NO_REFLECTION = "not reflected -- no reflection pipeline wired (SM-L6 #127)"
 #: profile-worthy information. ``details["profile"]`` is a free extra key on
 #: ``consolidation_details``, same treatment as ``details["relations"]``/``details["reflection"]``.
 NO_PROFILE = "not extracted -- no profile store wired (SM-S3 #120)"
+
+#: The other reason ``details["profile"]`` can be a sentinel rather than a dict: the store is
+#: wired but this pass's ``scope`` has no ``user_id`` (a tenant-wide consolidation), so there is
+#: no single user to key a profile by. Distinct from :data:`NO_PROFILE` -- "asked for, but this
+#: pass names no user" vs. "not asked for" -- and public rather than module-private (QC round 3,
+#: PR #135: a test previously had to reach past ``co_located.py``'s module boundary to assert
+#: against it), matching :data:`NO_PROFILE`'s own treatment.
+PROFILE_NO_USER = "not extracted -- scope has no user_id to key a profile by"
 
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
