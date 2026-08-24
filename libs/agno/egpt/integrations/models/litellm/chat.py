@@ -73,16 +73,15 @@ class LiteLLM(Model):
         if self.append_trailing_user_message is None:
             self.append_trailing_user_message = not supports_prefill(self.id)
 
-        # Set up API key from environment variable if not already set
-        if not self.client and not self.api_key:
-            self.api_key = getenv("LITELLM_API_KEY")
-            if not self.api_key:
-                # Check for other present valid keys, e.g. OPENAI_API_KEY if self.id is an OpenAI model
-                env_validation = validate_environment(model=self.id, api_base=self.api_base)
-                if not env_validation.get("keys_in_environment"):
-                    log_error(
-                        "LITELLM_API_KEY not set. Please set the LITELLM_API_KEY or other valid environment variables."
-                    )
+        # Warn if no key will be resolvable at request time, without mutating self.api_key --
+        # the actual resolution happens in get_request_params, at read time.
+        if not self.client and not self.api_key and not getenv("LITELLM_API_KEY"):
+            # Check for other present valid keys, e.g. OPENAI_API_KEY if self.id is an OpenAI model
+            env_validation = validate_environment(model=self.id, api_base=self.api_base)
+            if not env_validation.get("keys_in_environment"):
+                log_error(
+                    "LITELLM_API_KEY not set. Please set the LITELLM_API_KEY or other valid environment variables."
+                )
 
     def get_client(self) -> Any:
         """
@@ -221,8 +220,9 @@ class LiteLLM(Model):
 
         if self.max_tokens:
             base_params["max_tokens"] = self.max_tokens
-        if self.api_key:
-            base_params["api_key"] = self.api_key
+        api_key = self.api_key or getenv("LITELLM_API_KEY")
+        if api_key:
+            base_params["api_key"] = api_key
         if self.api_base:
             base_params["api_base"] = self.api_base
         if self.extra_headers:

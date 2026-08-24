@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 from os import getenv
 from typing import Any, Dict, Optional
 
-from egpt.exceptions import ModelAuthenticationError
 from egpt.integrations.models.openai_like import OpenAILike
 from egpt.models.message import Message
 
@@ -36,14 +35,8 @@ class AIMLAPI(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        if not self.api_key:
-            self.api_key = getenv("AIMLAPI_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="AIMLAPI_API_KEY not set. Please set the AIMLAPI_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+        api_key = self._resolve_required_api_key("AIMLAPI_API_KEY")
+        return super()._get_client_params(api_key=api_key)
 
     def _format_message(self, message: Message) -> Dict[str, Any]:
         """

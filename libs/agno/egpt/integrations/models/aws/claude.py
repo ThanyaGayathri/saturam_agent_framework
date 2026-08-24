@@ -68,27 +68,27 @@ class Claude(AnthropicClaude):
                 "aws_region": self.aws_region or self.session.region_name,
             }
         else:
-            self.api_key = self.api_key or getenv("AWS_BEDROCK_API_KEY")
-            if self.api_key:
+            bedrock_api_key = self.api_key or getenv("AWS_BEDROCK_API_KEY")
+            if bedrock_api_key:
                 raise ValueError(
                     "AWS_BEDROCK_API_KEY authentication is not currently supported by AnthropicBedrock. "
                     "Use IAM credentials (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY[/AWS_SESSION_TOKEN]) "
                     "or provide a boto3 session instead."
                 )
 
-            self.aws_access_key = self.aws_access_key or getenv("AWS_ACCESS_KEY_ID") or getenv("AWS_ACCESS_KEY")
-            self.aws_secret_key = self.aws_secret_key or getenv("AWS_SECRET_ACCESS_KEY") or getenv("AWS_SECRET_KEY")
-            self.aws_session_token = self.aws_session_token or getenv("AWS_SESSION_TOKEN")
-            self.aws_region = self.aws_region or getenv("AWS_REGION")
+            aws_access_key = self.aws_access_key or getenv("AWS_ACCESS_KEY_ID") or getenv("AWS_ACCESS_KEY")
+            aws_secret_key = self.aws_secret_key or getenv("AWS_SECRET_ACCESS_KEY") or getenv("AWS_SECRET_KEY")
+            aws_session_token = self.aws_session_token or getenv("AWS_SESSION_TOKEN")
+            aws_region = self.aws_region or getenv("AWS_REGION")
 
             client_params = {
-                "aws_secret_key": self.aws_secret_key,
-                "aws_access_key": self.aws_access_key,
-                "aws_session_token": self.aws_session_token,
-                "aws_region": self.aws_region,
+                "aws_secret_key": aws_secret_key,
+                "aws_access_key": aws_access_key,
+                "aws_session_token": aws_session_token,
+                "aws_region": aws_region,
             }
 
-            if not (self.aws_access_key and self.aws_secret_key):
+            if not (aws_access_key and aws_secret_key):
                 log_warning(
                     "AWS credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables or provide a boto3 session."
                 )

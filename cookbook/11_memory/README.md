@@ -174,6 +174,13 @@ This section demonstrates how EGPT agents persist and use user memories across r
   branch was still catching up. Per this file's own convention, whoever merges second renumbers --
   four times, this time.**
 
+- `34_sleep_time_scheduling.py`: Sleep-time compute scheduling (SM-L9) -- `SleepTimeScheduleConfig`
+  bundles a daily `SleepWindow` (evaluated in a named timezone, not just UTC), an idle threshold,
+  and `mode` (Mode A/`LOCAL` by default). `build_sleep_time_trigger` wraps a fresh `IdleTrigger` so
+  the resulting trigger only fires inside the window, while `record_event` keeps accumulating
+  pending work at any hour. Plugs into `ConsolidationWorker` as `trigger=...`, no worker change.
+  Requires nothing; no database, no API key, no network.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

@@ -14,6 +14,7 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
+    FrozenSet,
     Iterator,
     List,
     Literal,
@@ -193,23 +194,6 @@ class Model(ABC):
     def __post_init__(self):
         if self.provider is None and self.name is not None:
             self.provider = f"{self.name} ({self.id})"
-        self._snapshot_declared_connection()
-
-    def _snapshot_declared_connection(self) -> None:
-        """Record which connection attributes the *caller* declared, before any lazy fill.
-
-        Needed because providers resolve credentials and endpoints inside ``_get_client_params``
-        and write them back onto ``self`` (``if not self.api_key: self.api_key = getenv(...)``).
-        So a model that has served one request carries values its own reconstruction does not, and
-        a by-value comparison of the live attributes reports an identical rebuild as "different"
-        from run 2 onward -- which re-opens the pin laundering ``same_model`` exists to close.
-
-        Called from ``Model.__post_init__``. A subclass that defines ``__post_init__`` without
-        chaining to ``super()`` takes no snapshot; ``same_model`` then falls back to the live
-        values for that class, which is the pre-snapshot behaviour rather than a crash.
-        ``tests/unit/models/test_same_model.py`` asserts every constructible subclass carries one.
-        """
-        self._declared_connection = {name: getattr(self, name, None) for name in _CONNECTION_ATTRS}
 
     def _get_retry_delay(self, attempt: int) -> float:
         """Calculate the delay before the next retry attempt."""
@@ -3200,6 +3184,46 @@ class Model(ABC):
 
         return new_model
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Block writing a connection attribute back onto ``self`` after it was already set once.
+
+        This is the structural half of the invariant ``same_model`` relies on (see below): no
+        provider's ``_get_client_params``/``get_client``/``get_async_client`` may resolve a
+        credential or endpoint and write it back onto ``self`` -- that is the exact EGPT-171
+        mutation bug. The check is "already present in ``__dict__``", not a post-construction
+        flag, because that is true for every field the very first time the dataclass-generated
+        ``__init__`` sets it (including via ``__deepcopy__``, which builds via ``cls.__new__``
+        into an empty ``__dict__``, so every attribute is a first write there too) and false
+        for every subsequent write, which is exactly what needs to be blocked. No in-tree
+        provider `__post_init__` sets a connection attr a second time -- verified across every
+        override in `egpt/integrations/models/`.
+
+        A few call sites legitimately patch a connection attr on an already-constructed model
+        (e.g. clearing a placeholder `api_key`, or restoring a pinned local model's `base_url`
+        after `Agent.from_dict(..., require_endpoint=False)`) rather than reintroducing the bug
+        this guards against. Those use `_set_connection_attr` instead of raw assignment.
+        """
+        if name in _CONNECTION_ATTRS_SET and name in self.__dict__:
+            raise AttributeError(
+                f"{type(self).__name__}.{name} is a connection attribute and cannot be "
+                "reassigned after construction -- same_model() compares it live (EGPT-171). "
+                "Resolve env/default fallbacks into a local variable instead of writing back "
+                "onto self. For a legitimate one-off patch (e.g. restoring a pinned model's "
+                "endpoint), use Model._set_connection_attr(self, name, value)."
+            )
+        object.__setattr__(self, name, value)
+
+    def _set_connection_attr(self, name: str, value: Any) -> None:
+        """Sanctioned post-construction write to a `_CONNECTION_ATTRS` field.
+
+        For the few call sites that legitimately patch a restored/proxy model's connection --
+        clearing a placeholder `api_key` (`models/utils.py::get_model_from_dict`), or restoring
+        a pinned local model's `base_url`/`host` after `Agent.from_dict(...,
+        require_endpoint=False)` -- rather than reintroducing the EGPT-171 self-mutation bug
+        `__setattr__` guards against.
+        """
+        object.__setattr__(self, name, value)
+
 
 # ---------------------------------------------------------------------------
 # Model sameness, for copy/resolve decisions
@@ -3269,6 +3293,9 @@ _CONNECTION_ATTRS: Tuple[str, ...] = (
     "vertexai",  # google gemini: flips the whole auth path
 )
 
+#: Fast membership check for `Model.__setattr__`'s post-construction mutation guard.
+_CONNECTION_ATTRS_SET: FrozenSet[str] = frozenset(_CONNECTION_ATTRS)
+
 #: Object-valued connection inputs excluded from `same_model` by decision, not oversight. Named
 #: explicitly so the drift test can distinguish "accepted gap" from "forgotten". See the note above
 #: for why comparing each would be worse than the gap it leaves.
@@ -3300,37 +3327,6 @@ _CONNECTION_NON_DISCRIMINATORS: Tuple[str, ...] = (
 )
 
 
-def _declared_connection_value(model: Any, name: str) -> Any:
-    """The value the *caller* declared for ``name``, ignoring lazy environment fill-in.
-
-    Every in-tree provider resolves credentials and endpoints inside ``_get_client_params`` and
-    writes them onto ``self``, guarded ``if not self.X:``. That guard is what makes this readable:
-
-    * ``None -> value`` after construction is **ambiguous** -- an environment fill or a caller
-      edit -- so it is treated as undeclared and reported as ``None``.
-    * ``value -> value`` is **unambiguously** a caller edit, since the guard would not have fired,
-      so the live value is honoured.
-
-    Why not the simpler "skip an attribute when either side is ``None``": that reads ``None`` as a
-    wildcard, and it is not one. A bare ``OpenAIResponses(id="gpt-5.5")`` -- or the coerced
-    ``"openai:gpt-5.5"`` -- has every connection attribute ``None`` *by construction*, so every
-    comparison would be skipped, the rule would degenerate to class-and-id, and a tenant-A-pinned
-    agent would keep tenant A's ``base_url`` and ``api_key`` through a live run. ``None`` there is
-    a positive assertion of the default public endpoint, not an absence of information. That
-    version passes the rest of this tree's suite, which is why the discriminating tests in
-    ``tests/unit/models/test_same_model.py`` matter more than this helper's line count.
-
-    Falls back to the live value when no snapshot exists, so a subclass whose ``__post_init__``
-    does not chain to ``super()`` degrades to the pre-snapshot behaviour rather than crashing.
-    """
-    snapshot = getattr(model, "_declared_connection", None)
-    if snapshot is None:
-        return getattr(model, name, None)
-    if snapshot.get(name) is None:
-        return None
-    return getattr(model, name, None)
-
-
 def same_model(candidate: Any, existing: Any) -> bool:
     """Whether two model references denote the same model *and the same connection*.
 
@@ -3350,10 +3346,19 @@ def same_model(candidate: Any, existing: Any) -> bool:
     from the previous tenant's endpoint with the previous tenant's key.
 
     So: identical objects match; otherwise same class, same id, and every scalar connection
-    attribute equal -- compared as **declared at construction**, not as currently live. See
-    ``_declared_connection_value``: providers fill credentials and endpoints in lazily, so
-    comparing live values reported an identical reconstruction as "different" from run 2 onward
-    and re-opened both directions of this bug.
+    attribute equal -- compared **live**. This is safe because no in-tree provider mutates these
+    attributes after construction: ``_get_client_params`` (and its equivalents) resolve
+    credentials and endpoints from the environment into local variables, never writing them back
+    onto ``self``. So ``self.<attr>`` always equals what the caller declared, or ``None``, for the
+    whole life of the object -- including after a client has been built.
+
+    That invariant is enforced two ways: structurally, by ``Model.__setattr__``, which raises if
+    a connection attribute is written a second time (a legitimate one-off patch, e.g. restoring
+    a pinned model's endpoint, goes through ``Model._set_connection_attr`` instead); and by
+    ``tests/unit/models/test_same_model.py::TestNoProviderMutatesConnectionAttrsAfterClientBuild``,
+    which builds a client for every constructible provider and asserts the connection attributes
+    it left unset are still unset afterward. A provider that reintroduces the mutation fails
+    fast at the call site, not just in that test.
 
     An absent side never matches -- an agent with no model cannot already be using the one being
     offered.
@@ -3366,10 +3371,7 @@ def same_model(candidate: Any, existing: Any) -> bool:
         return False
     if getattr(candidate, "id", None) != getattr(existing, "id", None):
         return False
-    return all(
-        _declared_connection_value(candidate, name) == _declared_connection_value(existing, name)
-        for name in _CONNECTION_ATTRS
-    )
+    return all(getattr(candidate, name, None) == getattr(existing, name, None) for name in _CONNECTION_ATTRS)
 
 
 def carry_over_pin(pin: Any) -> Any:
@@ -3377,18 +3379,23 @@ def carry_over_pin(pin: Any) -> Any:
 
     Returns a *copy* rather than the original object. The pin is not inert state: `mode_a`'s
     resolver returns `request.requested` as the serving model (`providers/mode_a.py:277`), so the
-    pinned object is what a run actually calls -- and `_get_client_params` writes environment
-    credentials onto the model it is given (aicoe-tracker#171). Sharing one object across copies
-    therefore lets one request's client build write `api_key`/`base_url` into the pin every other
-    copy resolves to. That is a cross-tenant hazard on the hottest path in the system: `os/utils.py`
-    deep-copies an agent per request, and `team/_utils.py` copies every member.
+    pinned object is what a run actually calls. `_get_client_params` no longer writes environment
+    credentials onto the model it is given (aicoe-tracker#171 fixed the mutation that motivated
+    this helper), but two things still make a shared pin object unsafe: `get_client()`/
+    `get_async_client()` cache the built SDK client onto `self.client`/`self.async_client`, and
+    `Model._set_connection_attr` -- the sanctioned escape hatch for the few call sites that
+    legitimately repin a connection post-construction (e.g. restoring a `require_endpoint=False`
+    model's `base_url`) -- writes straight onto the shared object too. Sharing one pin across
+    copies would let either kind of write from one copy's request reach every sibling copy. That
+    is on the hottest path in the system: `os/utils.py` deep-copies an agent per request, and
+    `team/_utils.py` copies every member.
 
     Shallow rather than deep, and the guarantee is narrower than "the copies are independent":
     a shallow copy isolates *top-level rebinds* and shares every nested mutable. That is the right
-    depth here because every credential path assigns a scalar attribute -- `_get_client_params`
-    does `self.api_key = getenv(...)`, `get_client()` does `self.client = ...` -- so the tenancy
-    hazard this helper exists to close is isolated, and a deep copy would duplicate the clients
-    and connection pools `deep_copy_field` deliberately shares by reference.
+    depth here because every path this helper defends against assigns a scalar attribute --
+    `get_client()` does `self.client = ...`, `get_async_client()` does `self.async_client = ...`
+    -- so the hazard this helper exists to close is isolated, and a deep copy would duplicate the
+    clients and connection pools `deep_copy_field` deliberately shares by reference.
 
     What it does **not** isolate is a provider that mutates a container in place. There is one in
     tree: `openai/responses.py`'s `_set_reasoning_request_param` aliases `self.reasoning` into its

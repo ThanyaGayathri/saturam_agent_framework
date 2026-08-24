@@ -177,10 +177,12 @@ def get_model_from_dict(model_data: Dict[str, Any]) -> Optional[Model]:
     # must not leave the deployment). Such a model would otherwise fall back to the vendor SDK
     # default, i.e. leave the VPC, so refuse the placeholder credential that hides the problem:
     # None restores `OpenAIChat`'s own env fallback, and Mode A reconfigures both explicitly.
-    # getattr/setattr, not attribute access: `api_key` is declared by the concrete OpenAI-schema
-    # classes, not by the `Model` base this function is typed against.
+    # getattr, not attribute access, for the read: `api_key` is declared by the concrete
+    # OpenAI-schema classes, not by the `Model` base this function is typed against. The write
+    # goes through `_set_connection_attr` -- `Model.__setattr__` blocks a second raw assignment
+    # to a connection attr, and this is the one sanctioned exception to that guard.
     if getattr(model, "is_openai_compatible_proxy", False) and getattr(model, "api_key", None) == "not-provided":
-        setattr(model, "api_key", None)
+        model._set_connection_attr("api_key", None)
     return model
 
 

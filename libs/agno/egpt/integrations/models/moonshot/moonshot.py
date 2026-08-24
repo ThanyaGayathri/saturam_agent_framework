@@ -28,9 +28,10 @@ class MoonShot(OpenAILike):
 
     def _get_client_params(self) -> Dict[str, Any]:
         # Fetch API key from env if not already set
-        if not self.api_key:
-            self.api_key = getenv("MOONSHOT_API_KEY")
-            if not self.api_key:
+        api_key = self.api_key
+        if not api_key:
+            api_key = getenv("MOONSHOT_API_KEY")
+            if not api_key:
                 # Raise error immediately if key is missing
                 raise ModelAuthenticationError(
                     message="MOONSHOT_API_KEY not set. Please set the MOONSHOT_API_KEY environment variable.",
@@ -39,7 +40,7 @@ class MoonShot(OpenAILike):
 
         # Define base client params
         base_params = {
-            "api_key": self.api_key,
+            "api_key": api_key,
             "organization": self.organization,
             "base_url": self.base_url,
             "timeout": self.timeout,

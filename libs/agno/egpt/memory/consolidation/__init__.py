@@ -25,7 +25,9 @@ package's contract does not change.
 configured scopes are worth draining on a given tick, rather than draining every one of them
 every time. `reflect.ReflectionPipeline` reuses `SizeTrigger` from that same policy layer for its
 own, narrower question -- once a scope *is* being drained, whether its episodes' accumulated
-importance is worth synthesizing into an insight.
+importance is worth synthesizing into an insight. `sleeptime` (SM-L9 #130) adds a wall-clock
+window on top of `triggers`, so a caller can confine heavy consolidation to an idle/off-peak
+period instead of firing at any hour a scope happens to go quiet.
 """
 
 from egpt.memory.consolidation.dedup import FACT_ID_NAMESPACE, merge_near_duplicate_facts
@@ -55,6 +57,12 @@ from egpt.memory.consolidation.reflect import (
     ReflectionPipeline,
     ReflectionReport,
     SynthesizedInsight,
+)
+from egpt.memory.consolidation.sleeptime import (
+    SleepTimeScheduleConfig,
+    SleepTimeTrigger,
+    SleepWindow,
+    build_sleep_time_trigger,
 )
 from egpt.memory.consolidation.triggers import (
     AnyTrigger,
@@ -100,8 +108,12 @@ __all__ = [
     "ReflectionPipeline",
     "ReflectionReport",
     "SizeTrigger",
+    "SleepTimeScheduleConfig",
+    "SleepTimeTrigger",
+    "SleepWindow",
     "SynthesizedInsight",
     "ThresholdSource",
+    "build_sleep_time_trigger",
     "dangling_source_episode_ids",
     "fact_extraction_details",
     "merge_near_duplicate_facts",

@@ -46,16 +46,16 @@ class VLLM(OpenAILike):
         Returns:
             Dict[str, Any]: A dictionary of client parameters for API requests.
         """
-        if not self.api_key:
-            self.api_key = getenv("VLLM_API_KEY")
-            if not self.api_key:
+        api_key = self.api_key
+        if not api_key:
+            api_key = getenv("VLLM_API_KEY")
+            if not api_key:
                 raise ModelAuthenticationError(
                     message="VLLM_API_KEY not set. Please set the VLLM_API_KEY environment variable.",
                     model_name=self.name,
                 )
-        if not self.base_url:
-            self.base_url = getenv("VLLM_BASE_URL", "http://localhost:8000/v1/")
-        return super()._get_client_params()
+        base_url = self.base_url or getenv("VLLM_BASE_URL", "http://localhost:8000/v1/")
+        return super()._get_client_params(api_key=api_key, base_url=base_url)
 
     def get_request_params(
         self,
