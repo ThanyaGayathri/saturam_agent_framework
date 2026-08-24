@@ -520,7 +520,7 @@ def _run_tasks(
         # Cleanup and store
         _cleanup_and_store(team, run_response=run_response, session=session)
 
-        log_team_telemetry(team, session_id=session.session_id, run_id=run_response.run_id)
+        log_team_telemetry(team, session_id=session.session_id, run_id=run_response.run_id, run_context=run_context)
 
         log_debug(f"Team Task Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -1012,7 +1012,7 @@ def _run_tasks_stream(
         if yield_run_output:
             yield run_response
 
-        log_team_telemetry(team, session_id=session.session_id, run_id=run_response.run_id)
+        log_team_telemetry(team, session_id=session.session_id, run_id=run_response.run_id, run_context=run_context)
 
         log_debug(f"Team Task Run (Stream) End: {run_response.run_id}", center=True, symbol="*")
 
@@ -1381,7 +1381,9 @@ def _run(
                 _cleanup_and_store(team, run_response=run_response, session=session)
 
                 # Log Team Telemetry
-                log_team_telemetry(team, session_id=session.session_id, run_id=run_response.run_id)
+                log_team_telemetry(
+                    team, session_id=session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Team Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -1848,7 +1850,9 @@ def _run_stream(
                     yield run_response
 
                 # Log Team Telemetry
-                log_team_telemetry(team, session_id=session.session_id, run_id=run_response.run_id)
+                log_team_telemetry(
+                    team, session_id=session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Team Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -2447,7 +2451,9 @@ async def _arun_tasks(
         # Cleanup and store
         await _acleanup_and_store(team, run_response=run_response, session=team_session)
 
-        await alog_team_telemetry(team, session_id=team_session.session_id, run_id=run_response.run_id)
+        await alog_team_telemetry(
+            team, session_id=team_session.session_id, run_id=run_response.run_id, run_context=run_context
+        )
 
         log_debug(f"Team Task Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -2978,7 +2984,9 @@ async def _arun_tasks_stream(
         if yield_run_output:
             yield run_response
 
-        await alog_team_telemetry(team, session_id=team_session.session_id, run_id=run_response.run_id)
+        await alog_team_telemetry(
+            team, session_id=team_session.session_id, run_id=run_response.run_id, run_context=run_context
+        )
 
         log_debug(f"Team Task Run (Async Stream) End: {run_response.run_id}", center=True, symbol="*")
 
@@ -3400,7 +3408,9 @@ async def _arun(
                 await _acleanup_and_store(team, run_response=run_response, session=team_session)
 
                 # Log Team Telemetry
-                await alog_team_telemetry(team, session_id=team_session.session_id, run_id=run_response.run_id)
+                await alog_team_telemetry(
+                    team, session_id=team_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Team Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -4134,7 +4144,9 @@ async def _arun_stream(
                     yield run_response
 
                 # Log Team Telemetry
-                await alog_team_telemetry(team, session_id=team_session.session_id, run_id=run_response.run_id)
+                await alog_team_telemetry(
+                    team, session_id=team_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Team Run End: {run_response.run_id}", center=True, symbol="*")
                 break
@@ -7450,7 +7462,9 @@ def _continue_run(
                 run_response.status = RunStatus.completed
                 _cleanup_and_store(team, run_response=run_response, session=session)
 
-                log_team_telemetry(team, session_id=session.session_id, run_id=run_response.run_id)
+                log_team_telemetry(
+                    team, session_id=session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
                 log_debug(f"Team Continue Run End: {run_response.run_id}", center=True, symbol="*")
 
                 return run_response
@@ -7713,7 +7727,9 @@ def _continue_run_stream(
                 if yield_run_output:
                     yield run_response
 
-                log_team_telemetry(team, session_id=session.session_id, run_id=run_response.run_id)
+                log_team_telemetry(
+                    team, session_id=session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
                 log_debug(f"Team Continue Run End: {run_response.run_id}", center=True, symbol="*")
                 break
 
@@ -8520,7 +8536,9 @@ async def _acontinue_run(
 
                 run_response.status = RunStatus.completed
                 await _acleanup_and_store(team, run_response=run_response, session=team_session)
-                await alog_team_telemetry(team, session_id=team_session.session_id, run_id=run_response.run_id)
+                await alog_team_telemetry(
+                    team, session_id=team_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
                 log_debug(f"Team Continue Run End: {run_response.run_id}", center=True, symbol="*")
 
                 return run_response
@@ -9188,7 +9206,9 @@ async def _acontinue_run_stream(
                 if yield_run_output:
                     yield run_response
 
-                await alog_team_telemetry(team, session_id=team_session.session_id, run_id=run_response.run_id)
+                await alog_team_telemetry(
+                    team, session_id=team_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
                 log_debug(f"Team Continue Run End: {run_response.run_id}", center=True, symbol="*")
                 break
 

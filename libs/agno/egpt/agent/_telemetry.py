@@ -7,17 +7,25 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 if TYPE_CHECKING:
     from egpt.agent.agent import Agent
 
+from egpt.run import RunContext, run_model
 from egpt.utils.log import log_debug
 
 
-def get_telemetry_data(agent: Agent) -> Dict[str, Any]:
-    """Get the telemetry data for the agent."""
+def get_telemetry_data(agent: Agent, run_context: Optional[RunContext] = None) -> Dict[str, Any]:
+    """Get the telemetry data for the agent.
+
+    Reports the model that served the run, not the model the agent was configured with:
+    `run_model` returns `run_context.resolved_model` when a provider escalated this run,
+    falling back to `agent.model` when it did not (aicoe-tracker#182). Reading `agent.model`
+    directly here would attribute every escalated run's frontier usage to the primary model.
+    """
+    served_model = run_model(agent, run_context)
     return {
         "agent_id": agent.id,
         "db_type": agent.db.__class__.__name__ if agent.db else None,
-        "model_provider": agent.model.provider if agent.model else None,
-        "model_name": agent.model.name if agent.model else None,
-        "model_id": agent.model.id if agent.model else None,
+        "model_provider": served_model.provider if served_model else None,
+        "model_name": served_model.name if served_model else None,
+        "model_id": served_model.id if served_model else None,
         "parser_model": agent.parser_model.to_dict() if agent.parser_model else None,
         "output_model": agent.output_model.to_dict() if agent.output_model else None,
         "has_tools": agent.tools is not None,
@@ -36,7 +44,9 @@ def get_telemetry_data(agent: Agent) -> Dict[str, Any]:
     }
 
 
-def log_agent_telemetry(agent: Agent, session_id: str, run_id: Optional[str] = None) -> None:
+def log_agent_telemetry(
+    agent: Agent, session_id: str, run_id: Optional[str] = None, run_context: Optional[RunContext] = None
+) -> None:
     """Send a telemetry event to the API for a created Agent run."""
     from egpt.agent import _init
 
@@ -51,14 +61,16 @@ def log_agent_telemetry(agent: Agent, session_id: str, run_id: Optional[str] = N
             run=AgentRunCreate(
                 session_id=session_id,
                 run_id=run_id,
-                data=get_telemetry_data(agent),
+                data=get_telemetry_data(agent, run_context=run_context),
             ),
         )
     except Exception as e:
         log_debug(f"Could not create Agent run telemetry event: {e}")
 
 
-async def alog_agent_telemetry(agent: Agent, session_id: str, run_id: Optional[str] = None) -> None:
+async def alog_agent_telemetry(
+    agent: Agent, session_id: str, run_id: Optional[str] = None, run_context: Optional[RunContext] = None
+) -> None:
     """Send a telemetry event to the API for a created Agent async run."""
     from egpt.agent import _init
 
@@ -73,7 +85,7 @@ async def alog_agent_telemetry(agent: Agent, session_id: str, run_id: Optional[s
             run=AgentRunCreate(
                 session_id=session_id,
                 run_id=run_id,
-                data=get_telemetry_data(agent),
+                data=get_telemetry_data(agent, run_context=run_context),
             )
         )
     except Exception as e:

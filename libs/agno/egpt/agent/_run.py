@@ -1112,7 +1112,9 @@ def _run(
                 )
 
                 # Log Agent Telemetry
-                log_agent_telemetry(agent, session_id=agent_session.session_id, run_id=run_response.run_id)
+                log_agent_telemetry(
+                    agent, session_id=agent_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Agent Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -1655,7 +1657,9 @@ def _run_stream(
                     yield run_response
 
                 # Log Agent Telemetry
-                log_agent_telemetry(agent, session_id=agent_session.session_id, run_id=run_response.run_id)
+                log_agent_telemetry(
+                    agent, session_id=agent_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Agent Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -2317,7 +2321,9 @@ async def _arun(
                 )
 
                 # Log Agent Telemetry
-                await alog_agent_telemetry(agent, session_id=agent_session.session_id, run_id=run_response.run_id)
+                await alog_agent_telemetry(
+                    agent, session_id=agent_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Agent Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -3107,7 +3113,9 @@ async def _arun_stream(
                     yield run_response
 
                 # Log Agent Telemetry
-                await alog_agent_telemetry(agent, session_id=agent_session.session_id, run_id=run_response.run_id)
+                await alog_agent_telemetry(
+                    agent, session_id=agent_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Agent Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -4297,7 +4305,9 @@ def _continue_run(
                 )
 
                 # Log Agent Telemetry
-                log_agent_telemetry(agent, session_id=session.session_id, run_id=run_response.run_id)
+                log_agent_telemetry(
+                    agent, session_id=session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 return run_response
             except RunCancelledException as e:
@@ -4576,7 +4586,9 @@ def _continue_run_stream(
                     yield run_response
 
                 # Log Agent Telemetry
-                log_agent_telemetry(agent, session_id=session.session_id, run_id=run_response.run_id)
+                log_agent_telemetry(
+                    agent, session_id=session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Agent Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -5436,7 +5448,9 @@ async def _acontinue_run(
                 )
 
                 # Log Agent Telemetry
-                await alog_agent_telemetry(agent, session_id=agent_session.session_id, run_id=run_response.run_id)
+                await alog_agent_telemetry(
+                    agent, session_id=agent_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Agent Run End: {run_response.run_id}", center=True, symbol="*")
 
@@ -6031,7 +6045,9 @@ async def _acontinue_run_stream(
                     yield run_response
 
                 # Log Agent Telemetry
-                await alog_agent_telemetry(agent, session_id=agent_session.session_id, run_id=run_response.run_id)
+                await alog_agent_telemetry(
+                    agent, session_id=agent_session.session_id, run_id=run_response.run_id, run_context=run_context
+                )
 
                 log_debug(f"Agent Run End: {run_response.run_id}", center=True, symbol="*")
 
