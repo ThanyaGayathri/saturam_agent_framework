@@ -868,3 +868,20 @@ Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
 `31_semantic_fact_store.py`, then `feat/SM-L3` took `32_fact_extraction_merge.py`, all while this
 branch was still catching up.** Per this file's own convention, whoever merges second renumbers --
 four times, this time.
+
+---
+
+### 34_kb_and_memory_unified_retrieval.py
+
+**Status:** PASS
+
+**Description:** KB vs memory boundary (SM-S4): `unified_read()` fans a query out across a
+`MemoryProvider` and a `KnowledgeProtocol` leg, labeling every result `RetrievalSource.KB` or
+`RetrievalSource.MEMORY`. Shows a KB-only match, a memory-only match, and a leg with no store
+wired returning an empty list rather than being silently absent.
+
+**Result:** Ran end to end -- a rate-limit query returns only the KB document (labeled `kb`), a
+dark-mode query returns only the memory record (labeled `memory`), and unwiring the KB leg leaves
+`slice_.kb == []` while memory still answers.
+
+**Requires:** No database, no API key. Run with `.venvs/demo`.

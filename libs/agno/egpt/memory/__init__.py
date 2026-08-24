@@ -61,6 +61,7 @@ from egpt.memory.episodic.segment import (
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.retrieval import RetrievalSource, UnifiedResult, UnifiedSlice, aunified_read, unified_read
 from egpt.memory.schemas.episodic import (
     EPISODE_KEYS,
     PROVENANCE_KEYS,
@@ -297,4 +298,10 @@ __all__ = [
     # The consolidation scheduler (SM-L1)
     "ConsolidationOutcome",
     "ConsolidationWorker",
+    # Unified KB + memory retrieval, source-labeled (SM-S4)
+    "RetrievalSource",
+    "UnifiedResult",
+    "UnifiedSlice",
+    "aunified_read",
+    "unified_read",
 ]

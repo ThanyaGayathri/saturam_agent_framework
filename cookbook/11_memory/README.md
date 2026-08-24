@@ -174,6 +174,11 @@ This section demonstrates how EGPT agents persist and use user memories across r
   branch was still catching up. Per this file's own convention, whoever merges second renumbers --
   four times, this time.**
 
+- `34_kb_and_memory_unified_retrieval.py`: The KB vs memory boundary (SM-S4) -- `unified_read()`
+  fans one query out across a `MemoryProvider` and a `KnowledgeProtocol` leg without merging the
+  two stores, labeling every result `RetrievalSource.KB` or `RetrievalSource.MEMORY`. A leg with
+  no store wired returns an empty list, not an absent one. No database, no API key.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
