@@ -960,7 +960,60 @@ Per this file's own convention, whoever merges second renumbers.
 
 ---
 
-### 37_working_memory.py
+### 37_procedural_memory.py
+
+**Status:** PARTIAL
+
+**Description:** Procedural memory (SM-S2): runs a `ProceduralReflectionPipeline` (threshold 1.2)
+directly over two episodes about the same Friday-deploy incident (importances 0.6/0.7, summing
+past the threshold), writes the synthesized procedure through the ordinary `CoLocatedMemoryProvider
+.write`, and reads it back through an ordinary default-tier `read`, showing it renders under a
+`[procedural]` line in `MemorySlice.as_context()`.
+
+**Result:** Verified structurally with a stub synthesizer standing in for
+`LLMProcedureSynthesizer` (no network) -- the pipeline/write/read path runs end to end:
+`report.details["triggered"]` is `True`, the write lands on the PROCEDURAL tier with no new
+routing, and the read returns it with `[procedural] Avoid Friday deploys` in the rendered context.
+**Not run against a real model**: no `OPENAI_API_KEY` was available in the environment that wrote
+this cookbook, the same gap `33_reflection.py` logs for its own `LLMInsightSynthesizer`.
+`ProceduralReflectionPipeline`'s own decisions (threshold gating, provenance, construction guards)
+and `LLMProcedureSynthesizer._extract`'s response-format handling are covered against a stub and a
+mocked `Model` respectively by `libs/agno/tests/unit/memory/test_procedural.py` -- what remains
+unverified is specifically the real-model response shape that mock cannot guarantee to match.
+Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
+
+**Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
+
+**Renumbered from `35_` to `37_`: `feat/SM-L8` took `35_hierarchical_summarization.py` and
+`feat/SM-H1` took `36_hybrid_retrieval_orchestration.py` while this branch was still catching up.**
+Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 38_kb_and_memory_unified_retrieval.py
+
+**Status:** PASS
+
+**Description:** KB vs memory boundary (SM-S4): `unified_read()` fans a query out across a
+`MemoryProvider` and a `KnowledgeRetrievable` leg, labeling every result `RetrievalSource.KB` or
+`RetrievalSource.MEMORY`. Shows a KB-only match, a memory-only match, and a leg with no store
+wired returning an empty list rather than being silently absent.
+
+**Result:** Ran end to end -- a rate-limit query returns only the KB document (labeled `kb`), a
+dark-mode query returns only the memory record (labeled `memory`), and unwiring the KB leg leaves
+`slice_.kb == []` while memory still answers.
+
+**Requires:** No database, no API key. Run with `.venvs/demo`.
+
+**Renumbered from `34_` to `38_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`,
+`feat/SM-L8` took `35_hierarchical_summarization.py`, `feat/SM-H1` took
+`36_hybrid_retrieval_orchestration.py`, and `feat/SM-S2` took `37_procedural_memory.py`, all
+while this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers -- four times, this time.
+
+---
+
+### 39_working_memory.py
 
 **Status:** PASS
 
@@ -979,6 +1032,8 @@ goal/summary/note/message lines followed by the offloaded episode from a persist
 
 **Requires:** Nothing. Run with `.venvs/demo`.
 
-**Renumbered from `35_` to `37_`: `feat/SM-L8` took `35_hierarchical_summarization.py` and
-`feat/SM-H1` took `36_hybrid_retrieval_orchestration.py` while this branch was still catching up.**
-Per this file's own convention, whoever merges second renumbers.
+**Renumbered from `35_` to `37_` to `39_`: `feat/SM-L8` took `35_hierarchical_summarization.py`,
+`feat/SM-H1` took `36_hybrid_retrieval_orchestration.py`, then `feat/SM-S2` took
+`37_procedural_memory.py` and `feat/SM-S4` took `38_kb_and_memory_unified_retrieval.py` while
+this branch was still catching up.** Per this file's own convention, whoever merges second
+renumbers -- twice, this time.

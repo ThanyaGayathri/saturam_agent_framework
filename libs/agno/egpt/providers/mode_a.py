@@ -94,15 +94,22 @@ _PRIVATE_SUFFIXES: Tuple[str, ...] = (
 # vLLM fork had its adapter silently dropped: the request succeeded, `ModelResolveResult.adapter`
 # reported None, and the tenant got base weights with no signal (aicoe-tracker#165).
 #
-# An `egpt.models` *entry point* cannot declare this yet: `_merge_entry_points` builds its
-# `Registration` from nothing but the `name = module:attr` string the entry-point spec allows, so
-# `metadata` is always empty for that source and every entry-point row falls through to this tuple
-# regardless of what its server actually supports. Runtime `register()` is the only opt-in path
-# today. Tracked as a follow-up to extend declaration to entry points.
+# An `egpt.models` *entry point* declares it via the standard `module:attr [extras]` fragment --
+# `acme = "acme_pkg.model:AcmeModel [supports_adapters]"` -- which `_merge_entry_points` parses out
+# of the entry point's value into the same `metadata["supports_adapters"]` key runtime
+# registration uses (aicoe-tracker#179).
 #
-# This tuple stays live for exactly that fallback: an entry-point row, or a runtime registration
-# that never named the kwarg, is still answered by name here rather than losing adapter support
-# outright.
+# What this tuple actually answers is narrower than it looks, so do not treat it as the list of
+# adapter-capable backends (PR #129 review). Every in-tree row is stamped
+# `supports_adapters=key in _ADAPTER_BACKENDS` by a *second* copy of this set in
+# `registry/_declarations/models.py:43`, so `_supports_adapters()` short-circuits on
+# `in metadata` before ever reaching here for a builtin; and an entry point named `vllm` or
+# `openai-like` is refused as a builtin collision in `discovery.py`. The only rows that reach
+# this line are therefore out-of-tree ones whose names are *not* in the set -- so it answers
+# False for them, and adding a name here would not grant a builtin anything.
+#
+# Adding a new adapter-capable builtin means editing the declarations copy; the two sets must be
+# kept in step by hand, which is worth collapsing into one source of truth in a follow-up.
 _ADAPTER_BACKENDS: Tuple[str, ...] = ("vllm", "openai-like")
 
 # Which ProviderSettings field carries each backend's own documented credential. Read through
@@ -379,9 +386,10 @@ class LocalModelProvider(BaseModelProvider):
         The registration is the authority when it has an opinion: a row declaring
         ``supports_adapters=True`` at runtime registration gets adapter rendering whatever it is
         called, so a backend registered via ``discovery.register(..., supports_adapters=True)``
-        works without being named in ``_ADAPTER_BACKENDS``. An ``egpt.models`` entry point cannot
-        declare this yet (see the comment on ``_ADAPTER_BACKENDS``) and falls through to the
-        tuple, same as a runtime registration that omitted the kwarg.
+        works without being named in ``_ADAPTER_BACKENDS``. An ``egpt.models`` entry point declares
+        it the same way via the ``[supports_adapters]`` extras fragment (see the comment on
+        ``_ADAPTER_BACKENDS``); omitting it falls through to the tuple, same as a runtime
+        registration that omitted the kwarg.
 
         Read through this one method by both ``capabilities()`` and ``_adapter_applies`` on
         purpose: the capability reported and the behaviour applied cannot disagree if they cannot
