@@ -36,8 +36,8 @@ probe (``benchmarks/memory_graph_engine/run_ppr_route.py``) against the free tie
 on Neo4j Community. **Deliberately not built here:** SM-H2's rank fusion (this leg merges into
 ``traverse``'s own dedup-keep-higher-score rule, the same as every other leg -- a distinct
 fusion strategy is SM-H2's #132); SM-H1's orchestrator wiring (``retrieval/orchestrator.py`` does
-not exist yet -- #131 is open); a re-projection cache/cadence (each call projects fresh and drops
-after, self-healing rather than caching -- SM-R2 section "GDS graph projections are static
+not exist yet -- #131 is open); a re-projection cache/cadence (each call projects fresh under a
+call-unique catalog name and drops it after -- SM-R2 section "GDS graph projections are static
 snapshots" flags the cost as unmeasured at scale, not this ticket's to resolve); IDF-style edge
 weighting (no such property exists anywhere in this graph tier yet -- the projection is unweighted);
 and the full statistical ranking-quality study SM-R9's spike assigned this ticket (recall/all-hops
@@ -72,7 +72,7 @@ from egpt.memory.types import (
     TemporalBounds,
 )
 from egpt.utils.dttm import now_epoch_s
-from egpt.utils.log import log_debug
+from egpt.utils.log import log_debug, log_warning
 
 if TYPE_CHECKING:
     from neo4j import AsyncDriver
@@ -1064,21 +1064,45 @@ class Neo4jGraphSubstrate:
         return self._merge_hits(rows, scope, query)
 
     @staticmethod
-    def _ppr_as_of(query: MemoryQuery) -> int:
-        """The point-in-time PPR's GDS projection is filtered as-of (SM-H4 #134).
+    def _ppr_temporal(query: MemoryQuery) -> Dict[str, Optional[int]]:
+        """The bounds :func:`~egpt.integrations.memory.graph.neo4j.cypher.ppr_statements`'s
+        ``as_of``/``valid_from``/``valid_to`` branch on (SM-H4 #134).
 
-        A GDS projection is a static snapshot, not a range -- so unlike the other four legs, which
-        apply :meth:`_window_params`'s half-open range, PPR needs one instant. ``query.as_of`` wins
-        when the caller asked for a specific one; a windowed read (``valid_from``/``valid_to`` -- the
-        two are mutually exclusive on :class:`MemoryQuery`) contributes its ``valid_to`` bound, read
-        as "the graph as it stood at the end of the requested window"; with neither set, "now".
+        ``query.as_of`` and a window are mutually exclusive on :class:`MemoryQuery` (validated
+        there), so this passes through whichever the caller actually set and lets the statement
+        builder pick the matching predicate -- point-in-time for ``as_of``, overlap
+        (:func:`~egpt.integrations.memory.graph.neo4j.cypher._window_predicate`) for a window or for
+        neither set. A prior version collapsed a window to its ``valid_to`` bound and ran it through
+        the point-in-time predicate, which is a *stricter*, different question than "does this
+        edge's validity overlap my window" -- round-1 review, Major; see ``ppr_statements``'s own
+        docstring for the worked counter-example.
         """
         if query.as_of is not None:
-            return query.as_of
+            return {"as_of": query.as_of, "valid_from": None, "valid_to": None}
         window = query.window()
-        if window is not None and window.valid_to is not None:
-            return window.valid_to
-        return now_epoch_s()
+        return {
+            "as_of": None,
+            "valid_from": window.valid_from if window else None,
+            "valid_to": window.valid_to if window else None,
+        }
+
+    def _ppr_statements_for(self, scope: Scope, query: MemoryQuery, graph_name: str) -> Dict[str, Any]:
+        # `**self._ppr_temporal(query)` type-checks as unsound to mypy: unpacking a
+        # `Dict[str, Optional[int]]` leaves it unable to rule out the dict also supplying
+        # `graph_name: Optional[str]`, so the three bounds are passed by name instead.
+        temporal = self._ppr_temporal(query)
+        return cypher.ppr_statements(
+            scope,
+            terms=_terms(query.text),
+            seed_top_m=self.multihop_ppr_seed_top_m,
+            alpha=self.multihop_ppr_alpha,
+            tiers=_tiers(query),
+            limit=query.limit,
+            graph_name=graph_name,
+            as_of=temporal["as_of"],
+            valid_from=temporal["valid_from"],
+            valid_to=temporal["valid_to"],
+        )
 
     def _ppr_rows(self, scope: Scope, query: MemoryQuery) -> List[Dict[str, Any]]:
         """The PPR leg's rows, run and cleaned up outside :meth:`_run`'s transaction (SM-H4 #134).
@@ -1089,51 +1113,76 @@ class Neo4jGraphSubstrate:
         unlike an ordinary write. So cleanup here is a Python ``try``/``finally`` around plain
         per-statement ``session.run`` calls (the same style :meth:`init_schema` already uses for
         catalog/schema-shaped operations, for the identical reason), not the driver's transactional
-        rollback. ``drop`` runs unconditionally before ``project`` too (:func:`~egpt.integrations.
-        memory.graph.neo4j.cypher.ppr_graph_name`'s docstring), so a leak from a prior failed call
-        self-heals on the next one rather than accumulating.
+        rollback.
+
+        **The catalog name is unique per call** (:func:`~egpt.integrations.memory.graph.neo4j.
+        cypher.ppr_graph_name`'s deterministic per-scope prefix, plus a fresh ``uuid4`` suffix here
+        -- round-1 review, Major). A deterministic per-scope name let two concurrent PPR calls for
+        the same scope collide on one catalog entry: one call's cleanup ``drop`` could destroy
+        another's in-flight projection, two ``project`` calls could race GDS's "already exists"
+        refusal, or -- worse, with no error at all -- one call's ``rank`` could silently complete
+        over a *different* concurrent call's re-projected topology built at a different ``as_of``. A
+        unique name per call cannot collide with a concurrent one. The residual is a **smaller**,
+        different risk than what it replaces: a hard crash between creating the projection and this
+        method's own ``finally`` leaves one orphaned catalog entry under a name nothing will ever
+        reuse, rather than a live correctness hazard. Bounded and recoverable (an admin
+        ``gds.graph.drop`` or an engine restart clears it); a periodic sweep is the natural mitigation
+        if this proves to matter in practice, not built here.
+
+        **``seeds`` is checked before any GDS call at all** (:func:`~egpt.integrations.memory.
+        graph.neo4j.cypher.ppr_statements`'s own docstring explains why -- an empty ``sourceNodes``
+        silently degrades to unseeded global PageRank rather than refusing). An empty result means
+        this call never touches ``gds.graph.*`` at all, so there is nothing for the ``finally`` to
+        clean up either.
         """
-        graph_name = cypher.ppr_graph_name(scope)
-        statements = cypher.ppr_statements(
-            scope,
-            terms=_terms(query.text),
-            seed_top_m=self.multihop_ppr_seed_top_m,
-            alpha=self.multihop_ppr_alpha,
-            tiers=_tiers(query),
-            as_of=self._ppr_as_of(query),
-            limit=query.limit,
-            graph_name=graph_name,
-        )
+        graph_name = f"{cypher.ppr_graph_name(scope)}_{uuid4().hex[:12]}"
+        statements = self._ppr_statements_for(scope, query, graph_name)
         with self._translated("multihop PPR"), self._driver.session(database=self.database) as session:
-            session.run(*statements["drop"]).consume()
+            if not [dict(record) for record in session.run(*statements["seeds"])]:
+                return []
+            session.run(*statements["project"]).consume()
             try:
-                session.run(*statements["project"]).consume()
                 return [dict(record) for record in session.run(*statements["rank"])]
             finally:
-                session.run(*statements["drop"]).consume()
+                self._drop_ppr_graph(session, graph_name, statements["drop"])
+
+    def _drop_ppr_graph(self, session: Any, graph_name: str, drop_statement: Tuple[str, Dict[str, Any]]) -> None:
+        """Cleanup ``drop``, isolated so its own failure cannot mask ``rank``'s (SM-H4 #134, round-1
+        review, Minor). A bare ``finally: session.run(...)`` that itself raised (the same
+        connectivity problem that failed ``rank``, say) replaces the original exception outright --
+        Python keeps only the most recent one -- so the actual root cause never reaches
+        ``_translated``'s wrapping. Logged and swallowed instead: the original exception (if any) is
+        what propagates, and an orphaned catalog entry here is the same bounded, recoverable residual
+        this method's own docstring already accepts for a hard crash -- one more code path landing
+        in the same place, not a new risk.
+        """
+        try:
+            session.run(*drop_statement).consume()
+        except Exception as exc:  # noqa: BLE001 -- cleanup-only; the caller's own exception must win
+            log_warning(f"multihop PPR: failed to drop GDS graph {graph_name!r} during cleanup: {exc}")
 
     async def _appr_rows(self, scope: Scope, query: MemoryQuery) -> List[Dict[str, Any]]:
-        """Async twin of :meth:`_ppr_rows`, with the same drop-before/try-finally-drop-after rule."""
-        graph_name = cypher.ppr_graph_name(scope)
-        statements = cypher.ppr_statements(
-            scope,
-            terms=_terms(query.text),
-            seed_top_m=self.multihop_ppr_seed_top_m,
-            alpha=self.multihop_ppr_alpha,
-            tiers=_tiers(query),
-            as_of=self._ppr_as_of(query),
-            limit=query.limit,
-            graph_name=graph_name,
-        )
+        """Async twin of :meth:`_ppr_rows`, with the same unique-name/seeds-guard/drop-after rule."""
+        graph_name = f"{cypher.ppr_graph_name(scope)}_{uuid4().hex[:12]}"
+        statements = self._ppr_statements_for(scope, query, graph_name)
         with self._translated("multihop PPR"):
             async with self._async_driver().session(database=self.database) as session:
-                await (await session.run(*statements["drop"])).consume()
+                seed_result = await session.run(*statements["seeds"])
+                if not [dict(record) async for record in seed_result]:
+                    return []
+                await (await session.run(*statements["project"])).consume()
                 try:
-                    await (await session.run(*statements["project"])).consume()
                     result = await session.run(*statements["rank"])
                     return [dict(record) async for record in result]
                 finally:
-                    await (await session.run(*statements["drop"])).consume()
+                    await self._adrop_ppr_graph(session, graph_name, statements["drop"])
+
+    async def _adrop_ppr_graph(self, session: Any, graph_name: str, drop_statement: Tuple[str, Dict[str, Any]]) -> None:
+        """Async twin of :meth:`_drop_ppr_graph`, with the same swallow-and-log rule."""
+        try:
+            await (await session.run(*drop_statement)).consume()
+        except Exception as exc:  # noqa: BLE001 -- cleanup-only; the caller's own exception must win
+            log_warning(f"multihop PPR: failed to drop GDS graph {graph_name!r} during cleanup: {exc}")
 
     def recall_episodes(
         self,

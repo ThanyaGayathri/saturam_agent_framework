@@ -24,7 +24,7 @@ import pytest
 pytest.importorskip("neo4j", reason="the Neo4j graph substrate imports its driver at module level")
 
 from egpt.integrations.memory.graph.neo4j import Neo4jGraphSubstrate  # noqa: E402
-from egpt.memory.types import MemoryQuery  # noqa: E402
+from egpt.memory.types import EntityWrite, MemoryQuery  # noqa: E402
 
 from .test_graph_substrate import ACME, fact, ids  # noqa: E402
 
@@ -210,3 +210,107 @@ async def test_sync_and_async_ppr_agree():
     finally:
         _drop_all_ppr_graphs(substrate)
         await substrate.aclose()
+
+
+def test_a_query_naming_no_entity_contributes_nothing_not_a_wrong_answer(graph):
+    """Round-1 review, Major, against a real engine (not assumed from the statement shape): GDS's
+    ``gds.pageRank.stream(..., {sourceNodes: []})`` does not refuse -- it silently falls back to
+    unseeded global PageRank, which this leg's own max-normalisation then hands a full-strength
+    score, indistinguishable from a genuinely personalized result. Measured directly: before the
+    fix, this exact scenario returned an unrelated fact at `score=1.0`. The fix must make it return
+    nothing, and must not raise either (the reviewer's originally-suspected failure mode was an
+    abort; measured, it wasn't -- see the PR reply on this thread).
+    """
+    _chain(graph)
+
+    rows = graph._ppr_rows(ACME, MemoryQuery(text="zzz shares no word with any entity", limit=10))
+
+    assert rows == [], "an empty anchor set must contribute nothing, not an unseeded global ranking"
+
+
+def test_ppr_score_never_exceeds_the_bfs_legs_ceiling(graph):
+    """Round-1 review, Major, measured against a real ranked run rather than only asserted on the
+    statement text: every returned score must sit at or below the BFS leg's own ceiling, so PPR
+    cannot structurally outrank every possible BFS hit in `_merge_hits`'s global sort/limit cut."""
+    _chain(graph)
+
+    rows = graph._ppr_rows(ACME, MemoryQuery(text="alpha", limit=10))
+
+    assert rows, "setup check: must actually rank something to bound"
+    assert all(row["score"] <= 0.5 + 1e-9 for row in rows), [row["score"] for row in rows]
+
+
+def test_ppr_window_honours_overlap_not_a_collapsed_point(graph):
+    """Round-1 review, Major, the worked counter-example from the review reproduced against a real
+    engine: a fact valid ``[100, 200)`` under a query window ``[100, 1000)`` overlaps that window
+    (visible to every other leg via `ValidWindow.overlaps`) but fails a point-in-time check at
+    ``T=1000`` (`1000 < 200` is false) -- which is exactly what an earlier version's `valid_to`
+    collapse did. The fix must surface it under the window, not silently drop it.
+    """
+    graph.upsert_facts(
+        ACME,
+        [
+            fact(
+                "f1",
+                "alpha relates_to bravo",
+                subject="alpha",
+                predicate="relates_to",
+                object="bravo",
+                t_valid=100,
+                t_invalid=200,
+            )
+        ],
+    )
+
+    rows = graph._ppr_rows(ACME, MemoryQuery(text="alpha", limit=10, valid_from=100, valid_to=1000))
+
+    assert "f1" in raw_ids(rows), "an edge whose validity overlaps the window must be visible under PPR too"
+
+
+def test_concurrent_same_scope_ppr_calls_do_not_collide(graph):
+    """Round-1 review, Major: a deterministic per-scope GDS catalog name let two concurrent PPR
+    calls for the same scope race on one entry. Two real concurrent calls against the live engine,
+    each against a distinct chain so a wrong-topology result would be visible as the wrong evidence
+    rather than merely an exception."""
+    import threading
+
+    graph.upsert_entities(
+        ACME,
+        [EntityWrite(name=n, entity_type="place", scope=ACME) for n in ("north1", "north2", "north3", "north4")],
+    )
+    graph.upsert_facts(
+        ACME,
+        [
+            fact("n1", "north1 relates_to north2", subject="north1", predicate="relates_to", object="north2"),
+            fact("n2", "north2 relates_to north3", subject="north2", predicate="relates_to", object="north3"),
+            fact("n3", "north3 relates_to north4", subject="north3", predicate="relates_to", object="north4"),
+        ],
+    )
+    _chain(graph)  # a second, independent chain sharing the same scope
+
+    results: dict = {}
+    errors: list = []
+    barrier = threading.Barrier(2)
+
+    def run(key, text):
+        try:
+            barrier.wait(timeout=10)
+            results[key] = raw_ids(graph._ppr_rows(ACME, MemoryQuery(text=text, limit=10)))
+        except Exception as exc:  # a loud, correctly-scoped failure would also be an accepted outcome
+            errors.append((key, exc))
+
+    threads = [
+        threading.Thread(target=run, args=("north", "north1")),
+        threading.Thread(target=run, args=("alpha", "alpha")),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not errors, f"concurrent calls must not fail each other: {errors}"
+    assert set(results.get("north", [])) & {"n1", "n2", "n3"}, results.get("north")
+    assert "f3" in results.get("alpha", []), results.get("alpha")
+    # The sharpest check: neither call's topology leaked into the other's result.
+    assert not set(results.get("north", [])) & {"f1", "f2", "f3"}, "north-seeded call saw the alpha chain"
+    assert not set(results.get("alpha", [])) & {"n1", "n2", "n3"}, "alpha-seeded call saw the north chain"

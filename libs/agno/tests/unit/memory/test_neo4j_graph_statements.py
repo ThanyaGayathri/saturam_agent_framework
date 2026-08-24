@@ -64,6 +64,23 @@ def all_statements(scope):
                 graph_name=cypher.ppr_graph_name(scope),
             ).items()
         ],
+        # The window branch (round-1 review, Major): `project`/`rank` only, since anchor selection
+        # (`drop`/`seeds`) does not depend on which temporal branch is active.
+        *[
+            (f"ppr_window[{name}]", text, params)
+            for name in ("project", "rank")
+            for text, params in [
+                cypher.ppr_statements(
+                    scope,
+                    terms=["ada"],
+                    tiers=["semantic"],
+                    valid_from=1000,
+                    valid_to=2000,
+                    limit=10,
+                    graph_name=cypher.ppr_graph_name(scope),
+                )[name]
+            ]
+        ],
         *[(f"bounds[{i}]", text, params) for i, (text, params) in enumerate(cypher.bounds_statements(scope))],
         *[(f"live_row[{i}]", text, params) for i, (text, params) in enumerate(cypher.live_row_statements(scope))],
         *[(f"expire[{i}]", text, params) for i, (text, params) in enumerate(cypher.expire_statements(scope))],
@@ -328,6 +345,75 @@ def test_ppr_predicate_is_sm_r10_section_7s_5a_verbatim():
             f"{label} does not apply the 5a upper bound (coalesce(t_invalid, infinity))"
         )
         assert "expired_at IS NULL" in text, f"{label} does not exclude superseded/retracted rows"
+
+
+def test_ppr_score_is_capped_to_the_bfs_legs_own_ceiling():
+    """Round-1 review, Major: a bare max-normalisation lets PPR's top row always reach exactly
+    ``1.0``, whichever the run -- outranking every possible BFS score (bounded to ``(0.0, 0.5]``,
+    :func:`~egpt.integrations.memory.graph.neo4j.cypher._traverse_multihop`'s nearest hop) and all
+    but a near-exact lexical match, on every PPR-enabled call, in `Neo4jGraphSubstrate._merge_hits`'s
+    global (not same-id-only) sort/limit cut. `$score_ceiling` scales the normalised value down to
+    :data:`cypher.PPR_SCORE_CEILING` instead of leaving it at a bare ``[0.0, 1.0]``.
+    """
+    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == "ppr[rank]")
+    assert "$score_ceiling *" in text, "rank must scale the normalised score by $score_ceiling"
+    assert params["score_ceiling"] == cypher.PPR_SCORE_CEILING
+    assert 0.0 < cypher.PPR_SCORE_CEILING <= 0.5, "the ceiling must not exceed the BFS leg's own max"
+
+
+def test_ppr_scopes_the_other_endpoint_too():
+    """Round-1 review, Minor: an earlier version's docstring claimed "every alias is scoped
+    directly" while ``other`` in ``rank``'s join went unscoped -- not currently exploitable (the
+    returned row is ``r`` itself, whose own scope is checked via ``rel_predicate``), but the claim
+    was aspirational, not true. Scoped now, matching this module's SM-C4 (#92) convention of scoping
+    every alias directly rather than trusting a join to carry an upstream one.
+    """
+    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == "ppr[rank]")
+    assert "other.tenant_id = $tenant_id" in text, "the rank statement's `other` alias must be scoped"
+    for slot in cypher.SCOPE_SLOTS:
+        assert f"other.{slot} = ${slot}" in text, f"`other` is not filtered on {slot}"
+
+
+def test_ppr_window_uses_overlap_not_point_in_time_semantics():
+    """Round-1 review, Major: a query carrying ``valid_from``/``valid_to`` asks an *overlap*
+    question ("does this edge's validity intersect my window"), the one every other leg answers
+    with ``_window_predicate`` -- not the *stricter* point-in-time question ``as_of`` asks. An
+    earlier version collapsed a window to its ``valid_to`` bound and ran the point-in-time predicate
+    against it: a fact valid ``[day1, day5)`` under a window ``[day1, day10)`` overlaps (visible on
+    every other leg) but fails ``day10 < day5`` under the point-in-time predicate -- silently
+    invisible to PPR alone. Asserted as "not the point-in-time predicate" and "is the window one",
+    together, because either alone leaves the ambiguous case (a predicate that happens to satisfy
+    neither shape) unnoticed.
+    """
+    for label in ("ppr_window[project]", "ppr_window[rank]"):
+        text, params = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+        assert "$ppr_as_of" not in text and "ppr_as_of" not in params, (
+            f"{label} must not reference the point-in-time parameter when a window is given"
+        )
+        assert "$valid_to IS NULL OR" in text and "t_valid < $valid_to" in text, (
+            f"{label} does not apply _window_predicate's lower bound"
+        )
+        assert "$valid_from IS NULL OR" in text and "t_invalid > $valid_from" in text, (
+            f"{label} does not apply _window_predicate's upper bound"
+        )
+        assert params["valid_from"] == 1000 and params["valid_to"] == 2000, f"{label} binds the wrong window"
+
+
+def test_ppr_with_neither_as_of_nor_window_applies_no_temporal_restriction():
+    """The common, unwindowed call: matches how :func:`~egpt.integrations.memory.graph.neo4j.
+    cypher._traverse`/:func:`~egpt.integrations.memory.graph.neo4j.cypher._traverse_multihop` apply
+    no valid-time filter to an unwindowed read either -- only current belief (`expired_at IS NULL`)
+    restricts what is visible. `_window_predicate` with both bounds `None` is unconditionally true,
+    so this is the same code path as the window branch above, not a third one to drift from it.
+    """
+    statements = cypher.ppr_statements(
+        FULL, terms=["ada"], tiers=["semantic"], limit=10, graph_name=cypher.ppr_graph_name(FULL)
+    )
+    for label in ("project", "rank"):
+        text, params = statements[label]
+        assert "$ppr_as_of" not in text and "ppr_as_of" not in params
+        assert params["valid_from"] is None and params["valid_to"] is None
+        assert "expired_at IS NULL" in text
 
 
 @pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name.startswith("traverse")])
@@ -1272,12 +1358,28 @@ async def test_appr_leg_translates_errors_identically():
         )
 
 
-def test_ppr_drops_the_projection_even_when_ranking_raises():
-    """The GDS catalog entry is not part of the Neo4j transaction (`ppr_graph_name`'s docstring),
-    so cleanup is this module's own `try`/`finally`, not the driver's rollback. Pinned directly:
-    a failure between `project` and `rank` must still run a second `drop`, or the catalog entry
-    this call created leaks and only self-heals on some future call for the same scope."""
-    calls = []
+class _Empty:
+    def consume(self):
+        return None
+
+    def __iter__(self):
+        return iter(())
+
+
+class _OneRow:
+    def consume(self):
+        return None
+
+    def __iter__(self):
+        return iter([{"name": "ada"}])
+
+
+def _ppr_call_recording_session(calls, *, rank_raises=True):
+    """A fake session that classifies each statement by which named leg it belongs to (`seeds`,
+    `project`, `rank`, `drop`), recording the call order rather than matching on Cypher substrings
+    that could match more than one statement (`ppr_statements` deliberately keeps `seeds`' text a
+    prefix of `rank`'s -- see that function's own docstring -- so a substring match would misfile
+    one as the other)."""
 
     class _Session:
         def __enter__(self):
@@ -1293,15 +1395,101 @@ def test_ppr_drops_the_projection_even_when_ranking_raises():
             if "gds.graph.project" in text:
                 calls.append("project")
                 return _Empty()
+            if "RETURN anchor.name AS name" in text:
+                calls.append("seeds")
+                return _OneRow()
             calls.append("rank")
-            raise RuntimeError("pageRank blew up")
+            if rank_raises:
+                raise RuntimeError("pageRank blew up")
+            return _Empty()
 
-    class _Empty:
-        def consume(self):
-            return None
+    class _Driver:
+        def session(self, **_kwargs):
+            return _Session()
 
-        def __iter__(self):
-            return iter(())
+    return _Driver()
+
+
+def test_ppr_drops_the_projection_even_when_ranking_raises():
+    """The GDS catalog entry is not part of the Neo4j transaction (`ppr_graph_name`'s docstring),
+    so cleanup is this module's own `try`/`finally`, not the driver's rollback. Pinned directly:
+    a failure inside `rank` must still run `drop`, or the catalog entry this call created leaks."""
+    calls: list = []
+    substrate = _ppr_enabled(Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate))
+    substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
+    substrate._driver = _ppr_call_recording_session(calls)
+
+    with pytest.raises(RuntimeError):
+        substrate._ppr_rows(FULL, MemoryQuery(text="ada", limit=10))
+
+    assert calls == ["seeds", "project", "rank", "drop"], (
+        f"expected the anchor guard, project, the failing rank, then drop-after; got {calls}"
+    )
+
+
+def test_ppr_never_touches_gds_when_the_anchor_set_is_empty():
+    """Round-1 review, Major: `gds.pageRank.stream(..., {sourceNodes: []})` does not refuse on a
+    real engine -- it silently falls back to unseeded global PageRank, which this leg's own
+    max-normalisation then hands a full-strength score, indistinguishable from a genuinely
+    personalized result (measured against a live GDS instance, not assumed). `seeds` is checked
+    before any `gds.*` call specifically so this path returns `[]` without ever reaching `project`
+    or `rank` -- pinned here at the call-order level, not only by the statement shape."""
+    calls: list = []
+
+    class _EmptySeedsSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, text, *_args, **_kwargs):
+            if "RETURN anchor.name AS name" in text:
+                calls.append("seeds")
+                return _Empty()
+            calls.append("unexpected: " + text[:40])
+            raise AssertionError("must not reach project/rank/drop when seeds is empty")
+
+    class _Driver:
+        def session(self, **_kwargs):
+            return _EmptySeedsSession()
+
+    substrate = _ppr_enabled(Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate))
+    substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
+    substrate._driver = _Driver()
+
+    assert substrate._ppr_rows(FULL, MemoryQuery(text="zzz no overlap", limit=10)) == []
+    assert calls == ["seeds"], f"must call only the anchor guard, got {calls}"
+
+
+def test_ppr_cleanup_failure_does_not_mask_the_original_exception():
+    """Round-1 review, Minor: a bare `finally: session.run(drop)` that itself raises replaces the
+    original `rank` exception outright (Python keeps only the most recent one), so the actual root
+    cause never reaches `_translated`'s wrapping. `_drop_ppr_graph` must swallow-and-log its own
+    failure instead, so the original exception is what a caller actually sees."""
+    calls: list = []
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, text, *_args, **_kwargs):
+            if "RETURN anchor.name AS name" in text:
+                calls.append("seeds")
+                return _OneRow()
+            if "gds.graph.project" in text:
+                calls.append("project")
+                return _Empty()
+            if "gds.graph.drop" in text:
+                calls.append("drop")
+                raise RuntimeError("cleanup also blew up")
+            calls.append("rank")
+            from neo4j.exceptions import ClientError
+
+            raise ClientError("the real root cause")
 
     class _Driver:
         def session(self, **_kwargs):
@@ -1311,9 +1499,10 @@ def test_ppr_drops_the_projection_even_when_ranking_raises():
     substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
     substrate._driver = _Driver()
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(MemoryOperationError) as excinfo:
         substrate._ppr_rows(FULL, MemoryQuery(text="ada", limit=10))
 
-    assert calls == ["drop", "project", "rank", "drop"], (
-        f"expected drop-before, project, the failing rank, then drop-after; got {calls}"
+    assert "the real root cause" in str(excinfo.value), (
+        f"the cleanup failure must not replace rank's own exception; got: {excinfo.value}"
     )
+    assert calls == ["seeds", "project", "rank", "drop"]

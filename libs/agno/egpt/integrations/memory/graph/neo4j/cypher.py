@@ -464,18 +464,27 @@ DEFAULT_PPR_SEED_TOP_M = 3
 
 
 def ppr_graph_name(scope: Scope) -> str:
-    """The GDS graph-catalog name PPR projects into, for this scope.
+    """A deterministic, per-scope **prefix** for the GDS graph-catalog name PPR projects into.
 
-    **Deterministic, not per-call.** A GDS projection is a named, in-memory, server-side catalog
-    entry that is *not* governed by the Neo4j transaction it was created in -- a projection made in
-    a transaction that later rolls back is not automatically dropped, unlike an ordinary write.
-    A random per-call name would leak one catalog entry per failed call with nothing to clean it up.
-    A name fixed to the scope instead means the *next* call for this scope drops-and-recreates it
-    (:func:`ppr_statements`'s ``drop`` statement always runs first), so a prior leak self-heals
-    rather than accumulating -- at the cost of two concurrent PPR reads for the same scope racing
-    on one catalog entry, which is an accepted, documented limit (SM-R2 section "GDS graph
-    projections are static snapshots" already flags re-projection cost as unmeasured at scale; a
-    second projection barely changes that story).
+    **Deterministic, but not the full per-call name.** ``Neo4jGraphSubstrate._ppr_rows``/
+    ``_appr_rows`` append a fresh ``uuid4`` suffix to this prefix for every call (round-1 review,
+    Major) -- a deterministic *full* name let two concurrent PPR calls for the same scope collide on
+    one catalog entry: one call's cleanup ``drop`` could destroy another's in-flight projection, or
+    (worse, with no error at all) one call's ranking could silently complete over a *different*
+    concurrent call's re-projected topology, built at a different point in time. A GDS projection is
+    a named, in-memory, server-side catalog entry that is not governed by the Neo4j transaction it
+    was created in -- a projection made mid-transaction is not automatically dropped if the
+    transaction later rolls back -- so the residual risk of a unique-per-call name is a hard crash
+    between creating the projection and the caller's own cleanup leaving one orphaned catalog entry
+    under a name nothing will ever reuse. Bounded and recoverable (an admin ``gds.graph.drop`` or an
+    engine restart clears it), and a smaller, different risk than the concurrency hazard it
+    replaces; a periodic sweep is the natural mitigation if this proves to matter in practice, not
+    built here.
+
+    This function stays deterministic (scope-keyed only) because it is what makes the prefix
+    grep-able in a ``gds.graph.list()`` dump back to the tenant/scope that created it, and because
+    keeping it pure and scope-only is what lets this function itself stay directly unit-testable
+    against ``tests/unit/memory/test_tenant_scoping.py``'s scope-refusal property.
 
     Hashed rather than the raw ``scope.key()`` because a GDS graph name must be a plain identifier
     and the key contains ``/`` and ``*`` (:meth:`~egpt.memory.types.Scope.key`'s own escaping is for
@@ -513,6 +522,19 @@ def _point_in_time_predicate(alias: str) -> str:
     return f"({alias}.t_valid IS NULL OR {alias}.t_valid <= $ppr_as_of) AND ({alias}.t_invalid IS NULL OR $ppr_as_of < {alias}.t_invalid)"
 
 
+#: PPR's normalised score is capped to the same ``(0.0, 0.5]`` band :func:`_traverse_multihop`'s
+#: nearest hop produces (``1.0 / (1 + 1)``), not the full ``[0.0, 1.0]`` the port's contract allows
+#: (round-1 review, Major). :meth:`Neo4jGraphSubstrate._merge_hits`'s cut is global across every
+#: leg, not scoped to same-id collisions, so a leg whose own max reaches ``1.0`` -- a value only the
+#: row-shape legs' *exact* lexical match or a genuinely maximal PPR run should reach -- would
+#: silently outrank every possible BFS hit and all but a near-exact lexical one on every PPR-enabled
+#: call, not only an edge case. Capping PPR's ceiling to the BFS leg's own places it as a comparably
+#: weighted *ranked associative* signal rather than a leg that structurally dominates the merge by
+#: construction. This is a placement choice, not a measured one -- re-tuning the constant, or
+#: replacing it with SM-H2's fusion once that ships, is expected.
+PPR_SCORE_CEILING = 0.5
+
+
 def ppr_statements(
     scope: Scope,
     *,
@@ -521,27 +543,41 @@ def ppr_statements(
     alpha: float = DEFAULT_PPR_ALPHA,
     tiers: Sequence[str] = (),
     as_of: Optional[int] = None,
+    valid_from: Optional[int] = None,
+    valid_to: Optional[int] = None,
     limit: Optional[int] = None,
     graph_name: Optional[str] = None,
     method: str = "ppr_statements",
 ) -> Dict[str, Tuple[str, Dict[str, Any]]]:
     """Personalized PageRank over a bi-temporally-filtered GDS projection (SM-H4 #134).
 
-    Three named statements, run in order by the driver, **not** merged through
-    :meth:`~egpt.integrations.memory.graph.neo4j.neo4j.Neo4jGraphSubstrate._merge_hits` the way
-    :func:`traverse_statements`'s legs are -- ``drop``/``project`` return GDS catalog bookkeeping,
-    not ranked rows, and feeding them to a merge expecting :data:`_RETURN`'s columns would raise.
-    Only ``rank`` is a leg: it is shaped exactly like :func:`traverse_statements`'s other legs
-    (:data:`_RETURN`, ordered and limited by :data:`_ORDER`), so it merges into the same list with
-    no special case at the call site. See :func:`ppr_graph_name` for why ``drop`` runs before
-    ``project`` unconditionally rather than only on a cache hit.
+    Four named statements, run in order by the driver. ``drop``/``project`` return GDS catalog
+    bookkeeping, not ranked rows, and are **not** merged through :meth:`~egpt.integrations.memory.
+    graph.neo4j.neo4j.Neo4jGraphSubstrate._merge_hits` the way :func:`traverse_statements`'s legs
+    are -- feeding them to a merge expecting :data:`_RETURN`'s columns would raise. ``seeds`` is a
+    guard, not a leg (see below). Only ``rank`` is a leg: shaped exactly like
+    :func:`traverse_statements`'s other legs (:data:`_RETURN`, ordered and limited by
+    :data:`_ORDER`), so it merges into the same list with no special case at the call site. See
+    :func:`ppr_graph_name` for why ``drop`` runs before ``project`` unconditionally rather than only
+    on a cache hit.
+
+    **``seeds`` exists because an empty anchor set does not fail loudly (round-1 review, Major).**
+    An earlier version skipped straight to ``rank``, trusting ``gds.pageRank.stream(...,
+    {sourceNodes: []})`` to refuse the way the port's own contract would suggest. Measured against a
+    real engine, it does not refuse -- GDS silently falls back to **unseeded global PageRank** over
+    the whole projection, and this leg's own max-normalisation then hands that irrelevant ranking a
+    full-strength score, indistinguishable from a genuinely personalized result. That is a wrong
+    answer with no error, on the *common* path (any query whose text names no entity verbatim), not
+    an edge case. ``Neo4jGraphSubstrate._ppr_rows``/``_appr_rows`` run ``seeds`` first and return
+    ``[]`` without ever calling ``project``/``rank`` when it comes back empty -- cheap, since it is
+    the same anchor lookup ``rank`` would otherwise run, with no graph walk.
 
     **Route A** (``gds.pageRank(sourceNodes=...)`` over a native GDS projection) -- confirmed
     available on self-hosted Neo4j Community + the free GDS tier by SM-R2's live probe
-    (``benchmarks/memory_graph_engine/run_ppr_route.py``: personalization verified real, i.e.
-    seeding from different anchors produces different rankings, not a silent fallback to unseeded
-    global PageRank). Route B (hand-rolled power-iteration for a non-GDS engine) is not built here;
-    SM-R2 ratified Neo4j, so Route A is the live path and Route B is not owned by this ticket.
+    (``benchmarks/memory_graph_engine/run_ppr_route.py``: personalization verified real when
+    ``sourceNodes`` is non-empty, i.e. seeding from different anchors produces different rankings).
+    Route B (hand-rolled power-iteration for a non-GDS engine) is not built here; SM-R2 ratified
+    Neo4j, so Route A is the live path and Route B is not owned by this ticket.
 
     **Seeding is LLM-free**, reusing :func:`_anchor_predicate`'s word-overlap anchor selection
     unchanged rather than adding query-time NER -- the same anchor mechanism
@@ -559,30 +595,50 @@ def ppr_statements(
     warn about: a weighting scheme this change also had to write the ground truth for. Deliberately
     not built; a real weighting scheme is a separate, measurable ticket.
 
-    **Scores are max-normalised into ``[0.0, 1.0]``**, matching the port's similarity contract
-    (:meth:`~egpt.memory.substrates.GraphSubstrate.traverse`'s docstring) -- ``gds.pageRank``'s raw
-    stationary-probability scores are not bounded to that range in general, so each edge's score is
-    divided by the run's own maximum rather than asserted to already fit it. A row reachable through
-    two ranked endpoints keeps the higher of the two raw scores before normalising, mirroring
+    **Scores are max-normalised, then capped to :data:`PPR_SCORE_CEILING`** (round-1 review, Major
+    -- see that constant's own docstring for why a bare ``[0.0, 1.0]`` normalisation is wrong, not
+    only generous). ``gds.pageRank``'s raw stationary-probability scores are not bounded to
+    ``[0, 1]`` in general, so each edge's score is first divided by the run's own maximum, then
+    scaled into the BFS leg's own ceiling. A row reachable through two ranked endpoints keeps the
+    higher of the two raw scores before normalising, mirroring
     :meth:`Neo4jGraphSubstrate._merge_hits`'s own "keep the higher score" rule one level down.
 
-    **Every alias is scoped directly** (anchor, the two projection endpoints, and the join edge),
-    per this module's SM-C4 (#92) convention of scoping each alias rather than trusting a join to
-    carry an upstream one -- :func:`_traverse_multihop`'s docstring explains why a prior version of
-    that leg only checked the two ends of a path.
+    **The temporal predicate branches on what the query actually asked for** (round-1 review,
+    Major). A GDS projection is a static snapshot and must be built from *some* topology, but a
+    query carrying a ``valid_from``/``valid_to`` window is asking an **overlap** question ("does
+    this edge's validity intersect my window"), not a point one -- every other leg answers it with
+    :func:`_window_predicate`, and a prior version of this function collapsed a window to the single
+    instant ``valid_to`` and ran :func:`_point_in_time_predicate` against it, which is a *stricter*,
+    different question: an edge valid ``[day1, day5)`` under a window ``[day1, day10)`` overlaps
+    (visible everywhere else) but fails ``day10 < day5`` (silently invisible to PPR alone). ``as_of``
+    is genuinely a point-in-time request (SM-R10's own point-in-time reads) and keeps
+    :func:`_point_in_time_predicate`, which is what SM-R10 section 7's 5a predicate names. Neither
+    set (the common unwindowed read) reduces to :func:`_window_predicate` with both bounds ``None``,
+    which is unconditionally true -- no restriction, matching how :func:`_traverse` and
+    :func:`_traverse_multihop` apply no valid-time filter to an unwindowed call either. ``as_of`` and
+    a window are mutually exclusive on ``MemoryQuery`` (validated there), so callers never supply
+    both.
+
+    **Every alias is scoped directly** (anchor, the two projection endpoints, the join edge, and
+    ``other``), per this module's SM-C4 (#92) convention of scoping each alias rather than trusting
+    a join to carry an upstream one -- :func:`_traverse_multihop`'s docstring explains why a prior
+    version of that leg only checked the two ends of a path. (A prior version of *this* docstring
+    claimed this while ``other`` in ``rank`` went unscoped -- not currently exploitable, since the
+    returned row is ``r`` itself and ``r``'s own scope is checked via ``rel_predicate``, but the
+    claim is now true rather than aspirational; round-1 review, Minor.)
 
     Refuses (:class:`~egpt.memory.errors.MemoryOperationError`) for a non-positive ``seed_top_m`` or
     an ``alpha`` outside ``[0.0, 1.0)`` -- ``gds.pageRank`` itself refuses ``dampingFactor >= 1.0``
     with a less legible error, and this module's own convention is to guard at the builder rather
     than let a backend's own message stand in for one that names the field.
 
-    ``terms``/``tiers``/``as_of``/``limit``/``graph_name`` default to empty/``None`` -- not because
-    an empty call is meaningful (an unset ``graph_name`` or ``as_of`` produces Cypher this module
-    never actually runs that way), but because ``scope`` is the only parameter every other builder
-    here defaults every *other* argument around, so ``tests/unit/memory/test_tenant_scoping.py``'s
-    scope-refusal property -- discovered by signature, not listed by hand -- can call this builder
-    with a bare scope like it does every sibling. ``Neo4jGraphSubstrate._ppr_rows``/``_appr_rows``
-    always pass every one of them explicitly.
+    ``terms``/``tiers``/``as_of``/``valid_from``/``valid_to``/``limit``/``graph_name`` default to
+    empty/``None`` -- not because an empty call is meaningful, but because ``scope`` is the only
+    parameter every other builder here defaults every *other* argument around, so
+    ``tests/unit/memory/test_tenant_scoping.py``'s scope-refusal property -- discovered by
+    signature, not listed by hand -- can call this builder with a bare scope like it does every
+    sibling. ``Neo4jGraphSubstrate._ppr_rows``/``_appr_rows`` always pass every one of them
+    explicitly.
     """
     if not isinstance(seed_top_m, int) or isinstance(seed_top_m, bool) or seed_top_m < 1:
         raise MemoryOperationError(
@@ -602,21 +658,35 @@ def ppr_statements(
     node_predicate, node_params = scope_predicate("n", scope, method=method)
     endpoint_predicate, endpoint_params = scope_predicate("m", scope, method=method)
     rel_predicate, rel_params = scope_predicate("r", scope, method=method)
-    assert anchor_params == node_params == endpoint_params == rel_params, (
+    other_predicate, other_params = scope_predicate("other", scope, method=method)
+    assert anchor_params == node_params == endpoint_params == rel_params == other_params, (
         "every alias here is built from the same `scope`, so their params must agree -- key by "
         "alias before this function is ever asked to scope two different scopes at once"
     )
+
+    if as_of is not None:
+        temporal_clause = _point_in_time_predicate
+        temporal_params: Dict[str, Any] = {"ppr_as_of": as_of}
+    else:
+        temporal_clause = _window_predicate
+        temporal_params = {"valid_from": valid_from, "valid_to": valid_to}
 
     drop = (
         "CALL gds.graph.drop($ppr_graph_name, false) YIELD graphName RETURN graphName",
         {"ppr_graph_name": graph_name},
     )
+    seeds = (
+        f"MATCH (anchor:{ENTITY}) WHERE {anchor_predicate} "
+        "WITH DISTINCT anchor ORDER BY anchor.name ASC LIMIT $seed_top_m "
+        "RETURN anchor.name AS name",
+        {**anchor_params, "terms": list(terms), "seed_top_m": seed_top_m},
+    )
     project = (
         f"MATCH (n:{ENTITY}) WHERE {node_predicate} "
         f"OPTIONAL MATCH (n)-[r:{REL}]-(m:{ENTITY}) "
-        f"WHERE {endpoint_predicate} AND {rel_predicate} AND {_live('r')} AND {_point_in_time_predicate('r')} "
+        f"WHERE {endpoint_predicate} AND {rel_predicate} AND {_live('r')} AND {temporal_clause('r')} "
         "RETURN gds.graph.project($ppr_graph_name, n, m) AS projected",
-        {**node_params, "ppr_graph_name": graph_name, "ppr_as_of": as_of},
+        {**node_params, **temporal_params, "ppr_graph_name": graph_name},
     )
     rank = (
         f"MATCH (anchor:{ENTITY}) WHERE {anchor_predicate} "
@@ -629,9 +699,11 @@ def ppr_statements(
         "UNWIND scored AS item "
         "WITH item.node AS n, item.raw AS raw, max_score "
         f"MATCH (n)-[r:{REL}]-(other:{ENTITY}) "
-        f"WHERE {rel_predicate} AND {_live('r')} AND r.tier IN $tiers AND {_point_in_time_predicate('r')} "
+        f"WHERE {rel_predicate} AND {other_predicate} AND {_live('r')} AND r.tier IN $tiers "
+        f"AND {temporal_clause('r')} "
         "WITH r AS row, max(raw) AS raw_score, max_score "
-        "WITH row, (CASE WHEN max_score > 0.0 THEN raw_score / max_score ELSE 0.0 END) AS score "
+        "WITH row, $score_ceiling * "
+        "(CASE WHEN max_score > 0.0 THEN raw_score / max_score ELSE 0.0 END) AS score "
         f"{_RETURN} {_ORDER}",
         {
             **anchor_params,
@@ -640,11 +712,12 @@ def ppr_statements(
             "ppr_graph_name": graph_name,
             "alpha": alpha,
             "tiers": list(tiers),
-            "ppr_as_of": as_of,
+            "score_ceiling": PPR_SCORE_CEILING,
             "limit": limit,
+            **temporal_params,
         },
     )
-    return {"drop": drop, "project": project, "rank": rank}
+    return {"drop": drop, "seeds": seeds, "project": project, "rank": rank}
 
 
 _BOUNDS_RETURN = (
