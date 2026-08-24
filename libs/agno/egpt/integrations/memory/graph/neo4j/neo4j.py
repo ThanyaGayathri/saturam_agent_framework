@@ -35,8 +35,11 @@ behind ``multihop_ppr_enabled`` (default ``False``) -- Route A, confirmed by SM-
 probe (``benchmarks/memory_graph_engine/run_ppr_route.py``) against the free tier of the GDS plugin
 on Neo4j Community. **Deliberately not built here:** SM-H2's rank fusion (this leg merges into
 ``traverse``'s own dedup-keep-higher-score rule, the same as every other leg -- a distinct
-fusion strategy is SM-H2's #132); SM-H1's orchestrator wiring (``retrieval/orchestrator.py`` does
-not exist yet -- #131 is open); a re-projection cache/cadence (each call projects fresh under a
+fusion strategy is SM-H2's #132); PPR-specific orchestrator wiring -- SM-H1 (#131) has since merged
+and its ``retrieval.orchestrate``/``aorchestrate`` call ``graph.traverse``/``atraverse`` directly
+(``egpt.memory.adapters.co_located``), so this leg is already exercised transparently whenever the
+flag is on, but the orchestrator itself has no PPR-specific knowledge -- it sees one graph leg,
+exactly as it did before this ticket; a re-projection cache/cadence (each call projects fresh under a
 call-unique catalog name and drops it after -- SM-R2 section "GDS graph projections are static
 snapshots" flags the cost as unmeasured at scale, not this ticket's to resolve); a k-hop/fan-out
 bound on the projection itself, unlike the sibling BFS leg's ``max_hops``/``max_anchor_entities``

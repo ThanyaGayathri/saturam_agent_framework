@@ -873,6 +873,21 @@ def resolve_tenant_id(
 
     The claim name is configurable (``EGPT_TENANT_CLAIM``) because IdPs disagree: Auth0 emits
     ``org_id``, Entra emits ``tid``.
+
+    Two resolvers, two purposes (aicoe-tracker#174)
+    ------------------------------------------------
+    This is deliberately not ``egpt.os.tenancy.current_tenant_id``, and the ``user_id``
+    fallback above is the reason: it exists for ``ModelPolicy``/budget selection
+    (``RequestContext.tenant_id``, ``RunContext.tenant_id``), where a verified caller with no
+    tenant claim getting their own per-user policy is a reasonable default. It must **never**
+    reach a component *data-access* call -- ``tenant_id=None`` at the DB layer means "no
+    predicate", so a guessed ``user_id`` tenant there would either widen a read past
+    ``require_tenant_id``'s fail-closed refusal, or silently write into a tenant namespace no
+    operator configured. Component hydration -- including the WebSocket/factory path, which has
+    no ``Request`` for ``current_tenant_id`` to read -- must resolve through
+    ``tenant_for_ws_hydration`` (or ``_tenant_for_hydration``/``tenant_for_direct_read`` off a
+    real ``Request``) instead, all of which fail closed the same way ``require_tenant_id`` does
+    rather than falling back to ``user_id``.
     """
     from egpt.settings.providers import resolve_provider_setting
 
@@ -1384,7 +1399,12 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             if admin_scope:
                 state.admin_scope = admin_scope
             state.user_isolation_enabled = user_isolation
-            state.tenant_id_claim = tenant_id_claim
+            # Guarded like admin_scope above: an entry that names no claim must not clear one
+            # EgptOS (or an earlier entry) already stamped. tenancy_enabled_for_app reads this
+            # attribute for both transports, so an unconditional None here would silently turn
+            # tenancy off everywhere (PR #121 review).
+            if tenant_id_claim:
+                state.tenant_id_claim = tenant_id_claim
 
             return {
                 "validator": lazy_validator,
@@ -2084,6 +2104,7 @@ def _tenant_for_hydration(
     *,
     in_memory: bool,
     db: Optional[Union[BaseDb, AsyncBaseDb]],
+    tenancy_enabled_override: Optional[bool] = None,
 ) -> Optional[str]:
     """The tenant a resolve_* call hydrates as, failing closed on the DB arm (EGPT-2.5).
 
@@ -2093,9 +2114,20 @@ def _tenant_for_hydration(
     refused with the same 403 the components routes give -- `tenant_id=None` at the DB layer
     means *no predicate*, so letting it through would hydrate across every tenant. The
     in-memory list is exempt: code-defined agents are deployment-owned, not tenant rows.
+
+    `tenancy_enabled_override` lets a caller with no `Request` (the WebSocket surface, which
+    has no `request.state` for `tenancy_enabled` to read) supply the same yes/no it would
+    otherwise derive from one -- see `tenant_for_ws_hydration`. Left unset, this falls back to
+    `request is not None and tenancy_enabled(request)`, unchanged from before this parameter
+    existed.
     """
     tenant = tenant_id if tenant_id is not None else current_tenant_id(request)
-    if tenant is None and not in_memory and db is not None and request is not None and tenancy_enabled(request):
+    enabled = (
+        tenancy_enabled_override
+        if tenancy_enabled_override is not None
+        else (request is not None and tenancy_enabled(request))
+    )
+    if tenant is None and not in_memory and db is not None and enabled:
         raise HTTPException(status_code=403, detail=TENANCY_REQUIRED_DETAIL)
     return tenant
 
@@ -2124,6 +2156,58 @@ def tenant_for_direct_read(
         and any(getattr(c, "id", None) == component_id for c in components)
     )
     return _tenant_for_hydration(request, None, in_memory=in_memory, db=db)
+
+
+def tenant_for_ws_hydration(
+    tenant_id: Optional[str],
+    tenancy_enabled_override: bool,
+    *,
+    in_memory: bool,
+    db: Optional[Union[BaseDb, AsyncBaseDb]],
+) -> Optional[str]:
+    """The tenant a WebSocket/factory hydration call scopes to (aicoe-tracker#174).
+
+    This is the WebSocket counterpart of `_tenant_for_hydration`: same fail-closed contract,
+    reached the way a websocket connection actually carries a tenant. A websocket has no
+    `Request` for `current_tenant_id` to read `request.state.tenant_id` off of, so
+    `get_websocket_router` populates `websocket_user_context["tenant_id"]` at authenticate-time
+    the same way `AuthMiddleware` populates `request.state.tenant_id`: the configured tenant
+    claim via the same `extract_tenant_claim`, with no fallback to `user_id`. The dispatcher then
+    hands every hydrating handler a typed `WebSocketAuthContext` (built once, in
+    `build_ws_auth`), and callers pass its `tenant_id`/`tenancy_enabled` fields here -- never a
+    raw `.get()` off the untyped context dict, so a typo in a field name fails under mypy instead
+    of silently resolving to `None`/`False` and failing the gate *open*.
+
+    An empty or whitespace-only `tenant_id` is normalised to `None` before the gate: `""` is not
+    a tenant, and `"" is not None` would otherwise let it through.
+
+    Deliberately does **not** call `resolve_tenant_id`. That function's `user_id` fallback
+    exists for `ModelPolicy` selection (`RequestContext.tenant_id`, `RunContext.tenant_id`) --
+    a verified user acting as their own tenant is a reasonable default for policy in a
+    deployment with no tenancy configured. It is not a reasonable default for scoping a
+    component *read*: `tenant_id=None` at the DB layer means "no predicate", so a lookup that
+    fell through to the DB unscoped would return another tenant's row if the ids happened to
+    collide, and a write would land in a tenant namespace no operator configured. Component
+    hydration must fail closed instead, exactly as the HTTP resolver does -- see
+    aicoe-tracker#174 and `docs/adr/0004-component-tenant-isolation.md`.
+
+    `tenancy_enabled_override` carries the deployment's opt-in (`tenant_id_claim` configured),
+    which the dispatcher derives from `egpt.os.tenancy.tenancy_enabled_for_app(websocket.app)` --
+    the same function the HTTP path's `tenancy_enabled(request)` wraps, so both transports agree
+    on whether the gate is live. (Named like `_tenant_for_hydration`'s parameter rather than
+    `tenancy_enabled`, which is that imported function.) The in-memory list is exempt, same as
+    `_tenant_for_hydration`: a workflow served from the in-memory `workflows`/`agents`/`teams`
+    list (including a matched factory, which never reaches the DB through this call) is
+    code-defined, not a tenant row.
+    """
+    normalised_tenant = tenant_id.strip() if isinstance(tenant_id, str) and tenant_id.strip() else None
+    return _tenant_for_hydration(
+        None,
+        normalised_tenant,
+        in_memory=in_memory,
+        db=db,
+        tenancy_enabled_override=tenancy_enabled_override,
+    )
 
 
 async def resolve_agent(

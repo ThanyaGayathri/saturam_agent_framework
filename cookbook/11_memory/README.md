@@ -191,15 +191,16 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `34_` to `35_`: `feat/SM-L9` took `34_sleep_time_scheduling.py` while this
   branch was still catching up. Per this file's own convention, whoever merges second renumbers.**
 
-- `36_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
+- `37_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
   default (`multihop_ppr_enabled`), a single-step ranked walk over a bi-temporally-filtered GDS
   projection rather than `28_`'s bounded-hop BFS. Shows PPR reaching a fourth-hop fact BFS's
   default `max_traverse_hops=2` cannot, and the same query composing correctly with an invalidated
   fact's bi-temporal bound. Needs the GDS plugin, not `28_`'s plain instance:
   `./cookbook/scripts/run_neo4j_gds.sh`. No API key; entities and fact edges are written directly.
   Runs with `.venvs/demo`.
-  **Renumbered from `34_` to `35_` to `36_` across two merges: `feat/SM-L9` (#123) took `34_`, then
-  `feat/SM-L8` (#127) took `35_`, both while this branch was still catching up.**
+  **Renumbered from `34_` to `35_` to `36_` to `37_` across three merges: `feat/SM-L9` (#123) took
+  `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took `36_`, all while this
+  branch was still catching up.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

@@ -925,7 +925,42 @@ branch was still catching up.** Per this file's own convention, whoever merges s
 
 ---
 
-### 36_ppr_multihop.py
+### 36_hybrid_retrieval_orchestration.py
+
+**Status:** PASS
+
+**Description:** Feed-forward retriever orchestration (SM-H1 #131): `provider.read` fans out
+across the vector+BM25 leg and the graph leg via `egpt.memory.retrieval.orchestrate`, and BM25
+participates whenever the wired vector store implements `HybridSearchSubstrate` -- no code at the
+`read` call site knows or cares. Writes two episodes where word overlap (vector + graph) and exact
+substring containment (lexical) disagree about which one the query favours, then shows the lexical
+leg's `MemorySlice.fusion["lexical_hits"]` count without it moving the ranking -- ADR 0003 section
+A.6 holds the three-leg fusion strategy open, pending SM-H2 (#132), so the interim score-sum still
+runs over vector+graph only.
+
+**Result:** Runs end to end with no database, no model, no network -- both substrates are
+self-contained in-memory stand-ins (the same pattern `09_memory_provider_seam.py` uses, extended so
+the vector one also satisfies `HybridSearchSubstrate`). Output: `lexical_hits=1` (only
+`has_phrase` contains the literal query phrase), and `higher_overlap` ranks first in
+`slice_.records` regardless (word-overlap score 1.33 vs 0.67) -- confirming BM25 ran and did not
+influence the merge.
+
+**Note:** `09_memory_provider_seam.py`'s `InMemoryGraph` currently fails `checked_graph`'s
+structural check (missing `upsert_entities`/`match_entities`/`merge_entities`/`recall_facts` +
+async twins, added to `GraphSubstrate` after that file was last updated) -- confirmed on
+unmodified `origin/main`, unrelated to this PR. This file's own `InMemoryGraph` implements the
+full current protocol. Filing the `09_` fix is out of scope for SM-H1; flagged here rather than
+silently worked around.
+
+**Requires:** nothing. Run with `.venvs/demo` (`PYTHONPATH=libs/agno` from a worktree).
+
+**Renumbered from `34_` to `36_`: `feat/SM-L9` took `34_sleep_time_scheduling.py`, then
+`feat/SM-L8` took `35_hierarchical_summarization.py`, while this branch was still catching up.**
+Per this file's own convention, whoever merges second renumbers.
+
+---
+
+### 37_ppr_multihop.py
 
 **Status:** PASS
 
@@ -942,11 +977,13 @@ composition acceptance criterion.
 with PPR enabled the same query reaches all four edges including
 `germany-member-of-eu`; the bi-temporal check reports `True` before the invalidation bound and
 `False` after. No API key needed -- entities and fact edges are written directly, the same way
-`28_` does. Re-verified after round-1 review fixes (empty-anchor guard, score ceiling, window
-overlap semantics, unique-per-call GDS catalog name): unchanged output.
+`28_` does. Re-verified after round-1 and round-2 review fixes (empty-anchor guard, score ceiling,
+window overlap semantics, unique-per-call GDS catalog name, project-inside-try cleanup): unchanged
+output.
 
 **Requires:** `./cookbook/scripts/run_neo4j_gds.sh` (a GDS-plugin Neo4j, not `28_`'s plain
 instance); no API key. Run with `.venvs/demo`.
 
-**Renumbered from `34_` to `35_` to `36_` across two merges: `feat/SM-L9` (#123) took `34_`, then
-`feat/SM-L8` (#127) took `35_`, both while this branch was still catching up.**
+**Renumbered from `34_` to `35_` to `36_` to `37_` across three merges: `feat/SM-L9` (#123) took
+`34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took `36_`, all while this
+branch was still catching up.**
