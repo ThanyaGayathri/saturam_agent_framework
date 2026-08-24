@@ -181,6 +181,16 @@ This section demonstrates how EGPT agents persist and use user memories across r
   pending work at any hour. Plugs into `ConsolidationWorker` as `trigger=...`, no worker change.
   Requires nothing; no database, no API key, no network.
 
+- `35_working_memory.py`: The WORKING tier's own buffer (SM-C6) -- `WorkingMemory` holds a run's
+  context messages, scratchpad and goals, and is never itself persisted (`TIER_POLICY[WORKING]`
+  routes to no substrate, and a direct `write_tier(WORKING, ...)` is still refused). Grows past
+  `max_messages`, offloads by reusing `SessionSummaryManager`, and -- given a `MemoryProvider` --
+  writes the overflow through as ordinary EPISODIC events before summarizing it away, which is the
+  boundary crossing into long-term memory. `provider.assemble_context()` then renders the buffer
+  next to a persistent-tier read, the WORKING half of SM-H6's future retrieval assembly. Requires
+  nothing; no database, no API key, no network (a minimal `Model` double stands in for
+  summarization, the same one `test_working_memory.py` uses under test).
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

@@ -886,3 +886,24 @@ scopes; the 02:00 tick drains the scope and produces 1 semantic fact, confirming
 firing while `record_event`'s accumulation is unaffected by the hour it was called at.
 
 **Requires:** Nothing. Run with `.venvs/demo`.
+
+---
+
+### 35_working_memory.py
+
+**Status:** PASS
+
+**Description:** The WORKING-tier buffer (SM-C6): builds a `WorkingMemory` (max_messages=3,
+keep_after_offload=1) with a goal, a scratchpad note, and messages, shows a direct
+`write_tier(WORKING, ...)` is still refused through the seam, grows the buffer past its threshold,
+calls `offload(provider=...)`, and reads `provider.assemble_context()` afterward.
+
+**Result:** Verified end to end with no database, no API key, no network (a minimal `Model` double
+stands in for `SessionSummaryManager`'s model call, the same one
+`libs/agno/tests/unit/memory/test_working_memory.py` exercises under test). `should_offload()` is
+`True` at the threshold; `offload` summarizes the two oldest messages, keeps the newest verbatim,
+and writes the two offloaded messages through the provider as `EPISODIC` events -- confirmed by
+reading them back out of the toy vector substrate. `assemble_context()` then renders the buffer's
+goal/summary/note/message lines followed by the offloaded episode from a persistent-tier read.
+
+**Requires:** Nothing. Run with `.venvs/demo`.
