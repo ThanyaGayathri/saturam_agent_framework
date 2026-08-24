@@ -50,7 +50,7 @@ from egpt.utils.log import log_debug, log_error, log_info, log_warning
 from egpt.utils.string import generate_id
 
 try:
-    from sqlalchemy import Column, MetaData, String, Table, func, or_, select, text
+    from sqlalchemy import Column, MetaData, String, Table, event, func, or_, select, text
     from sqlalchemy.dialects import sqlite
     from sqlalchemy.engine import Engine, create_engine
     from sqlalchemy.orm import scoped_session, sessionmaker
@@ -61,6 +61,17 @@ except ImportError:
 # Where a SqliteDb built with no connection argument puts its database. Shared between the
 # id seed and the engine below so the two cannot describe different files.
 DEFAULT_DB_FILE = "./egpt.db"
+
+# pysqlite's own default (5s) is short enough that upsert_config's BEGIN IMMEDIATE
+# (aicoe-tracker#188) can outlast it under sustained contention, surfacing an uncaught
+# OperationalError("database is locked") -- a raw 500 -- instead of the caller simply waiting
+# its turn. Set on every connection so any writer blocked on SQLite's file lock waits up to
+# this long before that error is even possible.
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+
+
+def _set_sqlite_busy_timeout(dbapi_connection, connection_record) -> None:
+    dbapi_connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
 
 
 class SqliteDb(BaseDb):
@@ -194,6 +205,9 @@ class SqliteDb(BaseDb):
                 _engine = create_engine(f"sqlite:///{default_db_path}")
                 db_file = str(default_db_path)
                 log_debug(f"Created SQLite database: {default_db_path}")
+
+        if not event.contains(_engine, "connect", _set_sqlite_busy_timeout):
+            event.listens_for(_engine, "connect")(_set_sqlite_busy_timeout)
 
         self.db_engine: Engine = _engine
         self.db_url: Optional[str] = db_url
@@ -4075,11 +4089,15 @@ class SqliteDb(BaseDb):
                 # before either commits, landing two rows with a duplicate label and no error to
                 # signal it. Issuing BEGIN IMMEDIATE as the very first statement forces pysqlite
                 # to acquire the RESERVED write lock right here instead of lazily before the
-                # first DML, so a concurrent writer blocks (rather than racing the read) until
-                # this transaction commits or rolls back. SQLite locks the whole database file,
-                # not a per-component row, so this also serializes writers on other components --
-                # a coarser bound than Postgres's per-component advisory lock, but SQLite's
-                # single-writer file lock already limited real write throughput to one at a time.
+                # first DML, so a concurrent writer blocks (rather than racing the read) for up
+                # to SQLITE_BUSY_TIMEOUT_MS -- the module-level PRAGMA busy_timeout raises that
+                # from pysqlite's 5s default, which sustained contention here could otherwise
+                # outlast, surfacing as an uncaught OperationalError("database is locked")
+                # instead of the caller simply waiting its turn. SQLite locks the whole database
+                # file, not a per-component row, so this also serializes writers on other
+                # components -- a coarser bound than Postgres's per-component advisory lock, but
+                # SQLite's single-writer file lock already limited real write throughput to one
+                # at a time.
                 sess.execute(text("BEGIN IMMEDIATE"))
 
                 # Verify component exists and is not deleted. tenant_id comes along so the audit
@@ -4141,19 +4159,18 @@ class SqliteDb(BaseDb):
                     # read-modify-write: two concurrent creators can read the same max and
                     # compute the same next version. ON CONFLICT DO NOTHING turns the loser's
                     # collision on the (component_id, version) primary key into rowcount 0
-                    # instead of an IntegrityError that would poison the open transaction;
-                    # the loser re-reads (pysqlite runs the SELECT in autocommit, so it sees
-                    # the winner's committed row) and retries. RETURNING is the success signal,
-                    # not rowcount -- see the Postgres twin of this loop for why rowcount can't
-                    # be trusted there either. Each consumed attempt means another writer landed
-                    # a version, so the bound is wider than the publish CAS's: N simultaneous
-                    # creators herd and the last needs up to N-1 attempts. That bound is sized
-                    # to, and only empirically validated against, real Postgres contention
-                    # (test_upsert_config_concurrency.py, up to N=11): SQLite's single-writer
-                    # file lock serializes concurrent creators enough that this backend's own
-                    # tests, unit and integration alike, never observe more than ~2 attempts
-                    # even at 8 threads. Kept at 10 for byte-for-byte parity with the Postgres
-                    # backend rather than re-derived from SQLite's own (much lower) contention.
+                    # instead of an IntegrityError that would poison the open transaction, and
+                    # RETURNING is the success signal, not rowcount -- see the Postgres twin of
+                    # this loop for why rowcount can't be trusted there either. Retrying on a
+                    # miss is kept as defense-in-depth, but BEGIN IMMEDIATE above (aicoe-tracker
+                    # #188) makes a collision unreachable in practice for SQLite: it holds the
+                    # whole-file write lock for this entire transaction, so no second
+                    # upsert_config can be far enough along to have landed a competing version by
+                    # the time this INSERT runs. That bound is sized to, and only empirically
+                    # validated against, real Postgres contention (test_upsert_config_concurrency.py,
+                    # up to N=11), where no such file-wide lock exists. Kept at 10 for
+                    # byte-for-byte parity with the Postgres backend rather than re-derived from
+                    # SQLite's own (now effectively zero) contention.
                     def _attempt_create_version() -> Optional[int]:
                         max_version = sess.execute(
                             select(configs_table.c.version)
