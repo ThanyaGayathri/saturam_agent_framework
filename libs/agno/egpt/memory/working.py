@@ -42,6 +42,14 @@ class _BufferSession:
     def __init__(self, messages: Sequence[Message]) -> None:
         self._messages = list(messages)
         self.summary: Optional[SessionSummary] = None
+        #: What the most recent :meth:`get_messages` call actually returned. `offload` reads this
+        #: after summarizing to trim/write exactly what got captured -- `conversation_limit` can
+        #: narrow the input below the full buffer, and blindly trimming/writing the whole input
+        #: regardless (PR #132 round 3 finding) silently drops the un-summarized remainder when no
+        #: provider is given, or writes content the summary text never accounted for when one is.
+        #: Starts as the full input: a manager with no model never calls `get_messages` at all
+        #: (`create_session_summary` returns `None` first), and that branch never reads this field.
+        self.messages_used: List[Message] = list(messages)
 
     def get_messages(
         self,
@@ -63,19 +71,35 @@ class _BufferSession:
         # no error -- disposed rather than fixed (raising needs `WorkingMemory` to inspect a
         # manager's field at a point this duck-type does not control), documented on
         # `WorkingMemory.summary_manager` instead so it is visible before a caller hits it.
-        if limit is None:
-            return list(self._messages)
-        return self._messages[-limit:] if limit > 0 else []
+        selected = list(self._messages) if limit is None else (self._messages[-limit:] if limit > 0 else [])
+        self.messages_used = selected
+        return selected
 
 
-def _as_session(overflow: Sequence[Message]) -> Union["AgentSession", "TeamSession"]:
-    """Build the summary manager's argument, typed as what it declares rather than what it checks.
+def _typed(session: _BufferSession) -> Union["AgentSession", "TeamSession"]:
+    """Type an already-built :class:`_BufferSession`, as what the summary manager declares rather
+    than what it checks.
 
     ``SessionSummaryManager.create_session_summary`` is annotated ``Union[AgentSession,
     TeamSession]`` but only ever calls the two members :class:`_BufferSession` implements -- the
-    cast states that gap once, here, instead of an ``# type: ignore`` at every call site.
+    cast states that gap once, here, instead of an ``# type: ignore`` at every call site. Takes the
+    already-built session (rather than building one itself, as the single-purpose helper this
+    replaced did) so a caller keeps a typed reference to read ``.messages_used`` off after the
+    summary call returns.
     """
-    return cast("Union[AgentSession, TeamSession]", _BufferSession(overflow))
+    return cast("Union[AgentSession, TeamSession]", session)
+
+
+def _has_text(message: Message) -> bool:
+    """Whether ``message`` carries content this seam's ``str``-only fields can hold.
+
+    One predicate, used everywhere a message must clear this bar before it can become a
+    ``MemoryEvent`` (:meth:`WorkingMemory._events_for`) or a rendered context line
+    (:meth:`WorkingMemory.as_context`) -- both used to hand-roll the same
+    ``isinstance(message.content, str) and message.content.strip()`` check, which is exactly the
+    "one decision, two copies" shape the rest of this package extracts rather than repeats.
+    """
+    return isinstance(message.content, str) and bool(message.content.strip())
 
 
 def _merge_summary(previous: Optional[SessionSummary], new: SessionSummary) -> SessionSummary:
@@ -85,6 +109,16 @@ def _merge_summary(previous: Optional[SessionSummary], new: SessionSummary) -> S
     exactly the "ignored parameter returns a wrong answer that looks right" shape the rest of this
     package refuses. Topics are unioned, order-stable; the summary text is appended as a new
     paragraph so a later offload reads as "what I knew, plus what happened since."
+
+    **Known limitation, not fixed here: unbounded growth.** Nothing here caps, ages out, or
+    re-compacts the running summary -- a long-lived buffer that offloads many times accumulates an
+    ever-longer ``summary.summary``, which `WorkingMemory.as_context` renders in full every call.
+    That directly works against "summarize/offload-when-large"'s own point, which is to keep
+    prompt size bounded. Left as an explicit follow-up rather than fixed in this pass: a real fix
+    needs a design decision this ticket doesn't own -- a length/age cap with truncation loses
+    information silently unless it is itself disclosed, and periodic re-compaction is another
+    (bounded) model call on the offload path. Whoever picks this up should decide which, and
+    where the bound lives (a `WorkingMemory` field, most likely).
     """
     if previous is None:
         return new
@@ -153,7 +187,17 @@ class WorkingMemory:
         self.messages.append(message)
 
     def note(self, text: str) -> None:
-        """Append a scratchpad entry -- working state that is not a conversation turn."""
+        """Append a scratchpad entry -- working state that is not a conversation turn.
+
+        **Known limitation, not fixed here: unbounded.** `should_offload`/`offload` size the
+        buffer by `len(self.messages)` alone; nothing here caps or offloads `scratchpad`, despite
+        it being one of the three things the module docstring and the ticket describe this buffer
+        as holding. `goals` doesn't share this gap in practice -- `set_goals` replaces rather than
+        appends -- but a caller calling `note()` in a loop grows this list without bound. Left as
+        an explicit follow-up: whether scratchpad entries should offload at all (they're not
+        conversation turns `SessionSummaryManager` knows how to summarize) is a product decision
+        this ticket doesn't settle, not a mechanical fix.
+        """
         stripped = text.strip()
         if stripped:
             self.scratchpad.append(stripped)
@@ -175,37 +219,78 @@ class WorkingMemory:
         cut = len(self.messages) - self.keep_after_offload
         return self.messages[:cut] if cut > 0 else []
 
-    def _events_for(self, overflow: Sequence[Message]) -> List[MemoryEvent]:
-        """One ``EPISODIC``-tier event per offloaded message with real content.
+    def _events_for(self, messages: Sequence[Message]) -> List[MemoryEvent]:
+        """One ``EPISODIC``-tier event per message with real content.
 
         Raw and non-lossy, per the write path's own contract (``provider.py`` on ``write``) --
         offload does not distil, it hands the untouched turn to the tier that does. A message with
         no string content (multimodal-only, or empty) has nothing this seam's ``MemoryEvent.content``
         can carry, so it is summarized but not separately written.
+
+        ``occurred_at`` carries ``message.created_at`` -- valid time, when the turn actually
+        happened -- rather than being left unstamped. Left ``None``, the write path defaults it to
+        write time (``now``), which is wrong here specifically because `keep_after_offload` can
+        leave a message sitting in the buffer for a long time before an offload finally writes it:
+        every such event's ``t_valid`` would silently read as "wrote it", not "said it."
         """
         events = []
-        for message in overflow:
-            if isinstance(message.content, str) and message.content.strip():
+        for message in messages:
+            if _has_text(message):
                 events.append(
                     MemoryEvent(
-                        content=message.content,
+                        content=message.content,  # type: ignore[arg-type]  # narrowed by _has_text
                         scope=self.scope,
                         tier=DEFAULT_WRITE_TIER,
                         role=message.role,
+                        occurred_at=message.created_at,
                     )
                 )
         return events
+
+    @staticmethod
+    def _trim(current: List[Message], overflow_len: int, summarized_len: int) -> List[Message]:
+        """The buffer after removing exactly the messages that got summarized.
+
+        ``summarized_len`` may be **less** than ``overflow_len``: ``summary_manager`` may carry a
+        ``conversation_limit`` that narrows what ``get_messages`` actually returned to
+        `SessionSummaryManager` below the full overflow. Trimming the whole overflow regardless
+        used to silently drop the un-summarized remainder when no ``provider`` was given (data
+        loss with no trace), or write it through while the summary text disagreed about what was
+        captured (with one). Trimming only what was truly summarized leaves the rest in the buffer
+        for a later cycle instead -- consistent with the ordinary "not summarized yet" case.
+        """
+        unsummarized = overflow_len - summarized_len
+        return current[:unsummarized] + current[overflow_len:]
 
     def offload(self, provider: Optional["MemoryProvider"] = None) -> Optional[SessionSummary]:
         """Summarize the overflow and drop it from the buffer, keeping the tail verbatim.
 
         Summarization runs **first**. Only once the summary manager actually produces a summary
-        does the overflow get written through ``provider`` (as ``EPISODIC`` events -- offload **to
-        long-term**, not merely compaction) and trimmed from the buffer. Reordering this the other
-        way round -- write, then summarize -- made a declined summary a *partial* no-op: the
-        docstring promised "changes nothing," but the write had already landed, and the same
-        overflow slice would write the same events again on every subsequent decline, since nothing
-        was ever trimmed to stop `_overflow` from recomputing it.
+        does the *summarized subset* get written through ``provider`` (as ``EPISODIC`` events --
+        offload **to long-term**, not merely compaction) and trimmed from the buffer. Reordering
+        this the other way round -- write, then summarize -- made a declined summary a *partial*
+        no-op: the docstring promised "changes nothing," but the write had already landed, and the
+        same overflow slice would write the same events again on every subsequent decline, since
+        nothing was ever trimmed to stop `_overflow` from recomputing it.
+
+        **The summarized subset, not the whole overflow.** ``summary_manager.conversation_limit``,
+        if set, narrows what actually gets summarized below `_overflow`'s full slice; what gets
+        written and trimmed now follows that same narrower set (:meth:`_trim`), so a message
+        `conversation_limit` excluded from the summary stays in the buffer for a later cycle
+        instead of silently disappearing (no provider) or being written under a summary that never
+        described it (with one).
+
+        Each written event carries ``occurred_at=message.created_at`` -- the turn's own valid time,
+        not write time -- since `keep_after_offload` can leave a message sitting in the buffer for
+        a long time before an offload finally writes it out.
+
+        **Not idempotent under a partial provider failure.** Every `MemoryEvent` here is built with
+        no ``id``, so a caller that catches `~egpt.memory.types.PartialWriteError` (real per
+        `CoLocatedMemoryProvider._prepare`) and calls `offload` again recomputes the overflow from
+        scratch and mints **fresh** ids for content that may already have landed on the first,
+        partial attempt -- duplicating it. `PartialWriteError.event_ids` names exactly the ids a
+        safe retry should reuse; this method does not thread them back in. A caller whose `provider`
+        can fail partway must not blindly retry by calling `offload` again.
 
         A no-op (returns ``None``, writes nothing, changes nothing, and resets
         :attr:`last_offload_receipt` to ``None`` so a caller cannot read a stale receipt from an
@@ -231,17 +316,23 @@ class WorkingMemory:
             self.last_offload_receipt = None
             return None
         overflow = self._overflow()
-        new_summary = self.summary_manager.create_session_summary(_as_session(overflow))
+        session = _BufferSession(overflow)
+        new_summary = self.summary_manager.create_session_summary(_typed(session))
         if new_summary is None:
             self.last_offload_receipt = None
             return None
+        summarized = session.messages_used
         if provider is not None:
-            events = self._events_for(overflow)
-            self.last_offload_receipt = provider.write(self.scope, events) if events else None
+            # Cleared before attempting: if `provider.write` raises, this call confirmed no write,
+            # and a stale receipt from an earlier successful call must not survive it.
+            self.last_offload_receipt = None
+            events = self._events_for(summarized)
+            if events:
+                self.last_offload_receipt = provider.write(self.scope, events)
         else:
             self.last_offload_receipt = None
         self.summary = _merge_summary(self.summary, new_summary)
-        self.messages = self.messages[len(overflow) :]
+        self.messages = self._trim(self.messages, len(overflow), len(summarized))
         return self.summary
 
     async def aoffload(self, provider: Optional["MemoryProvider"] = None) -> Optional[SessionSummary]:
@@ -250,17 +341,21 @@ class WorkingMemory:
             self.last_offload_receipt = None
             return None
         overflow = self._overflow()
-        new_summary = await self.summary_manager.acreate_session_summary(_as_session(overflow))
+        session = _BufferSession(overflow)
+        new_summary = await self.summary_manager.acreate_session_summary(_typed(session))
         if new_summary is None:
             self.last_offload_receipt = None
             return None
+        summarized = session.messages_used
         if provider is not None:
-            events = self._events_for(overflow)
-            self.last_offload_receipt = await provider.awrite(self.scope, events) if events else None
+            self.last_offload_receipt = None
+            events = self._events_for(summarized)
+            if events:
+                self.last_offload_receipt = await provider.awrite(self.scope, events)
         else:
             self.last_offload_receipt = None
         self.summary = _merge_summary(self.summary, new_summary)
-        self.messages = self.messages[len(overflow) :]
+        self.messages = self._trim(self.messages, len(overflow), len(summarized))
         return self.summary
 
     # -- assembly ----------------------------------------------------------------------------------
@@ -287,8 +382,8 @@ class WorkingMemory:
         for entry in self.scratchpad:
             lines.extend(render_context_lines("note", entry))
         for message in self.messages:
-            if isinstance(message.content, str) and message.content.strip():
-                lines.extend(render_context_lines(message.role, message.content))
+            if _has_text(message):
+                lines.extend(render_context_lines(message.role, cast(str, message.content)))
         text = "\n".join(lines)
         if persistent is not None:
             persistent_text = persistent.as_context()

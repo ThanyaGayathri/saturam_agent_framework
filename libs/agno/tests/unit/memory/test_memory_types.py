@@ -341,6 +341,15 @@ def test_render_context_lines_sanitizes_label_not_only_content():
     assert not any("[system] injected directive" in line for line in lines)
 
 
+def test_render_context_lines_strips_trailing_whitespace_from_empty_content():
+    """`"".splitlines()` is `[]`, so empty content falls back to `head = ""` -- pinned here as
+    intentional (added responding to a round-1 nit on this PR) rather than an unpinned incidental
+    change: without `.rstrip()`, empty content renders `"[label] "` with a trailing space."""
+    from egpt.memory.types import render_context_lines
+
+    assert render_context_lines("note", "") == ["[note]"]
+
+
 def test_a_naive_datetime_is_refused_because_it_is_read_as_utc():
     """datetime.now() in any zone ahead of UTC lands in the future, and valid time is now checked
     on every read -- so the record is written, receipted, and invisible until the clock catches up."""

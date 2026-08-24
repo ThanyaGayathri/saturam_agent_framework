@@ -51,10 +51,10 @@ def buffer(**kwargs) -> WorkingMemory:
     return WorkingMemory(scope=ACME, **kwargs)
 
 
-def msg(role: str, content: str):
+def msg(role: str, content: str, **kwargs):
     from egpt.models.message import Message
 
-    return Message(role=role, content=content)
+    return Message(role=role, content=content, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +351,98 @@ def test_offload_with_a_provider_writes_the_overflow_as_episodic_events():
     assert all(r.tier == DEFAULT_WRITE_TIER for r in landed)
 
 
+def test_offload_carries_the_messages_own_created_at_as_occurred_at():
+    """`MemoryEvent.occurred_at` must be *valid* time (when the turn happened), not write time --
+    left unstamped, the write path defaults it to `now`, which is wrong specifically because
+    `keep_after_offload` can leave a message sitting in the buffer a long time before it's offloaded."""
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    wm = buffer(max_messages=1, keep_after_offload=0)
+    old_message = msg("user", "said a while ago", created_at=1_700_000_000)
+    wm.add_message(old_message)
+    wm.add_message(msg("user", "and now"))
+
+    wm.offload(provider=provider)
+
+    landed = {r.content: r.t_valid for r in provider.vector.rows["acme"].values()}
+    assert landed["said a while ago"] == 1_700_000_000
+
+
+def test_offload_with_a_provider_that_raises_leaves_no_stale_receipt():
+    """A caller catching a write failure and inspecting `last_offload_receipt` must not see an
+    earlier, unrelated successful receipt -- the same staleness class round 2 fixed for the no-op
+    and no-provider branches, here on the branch where `provider.write` itself raises."""
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    wm = buffer(max_messages=1, keep_after_offload=0)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+    wm.offload(provider=provider)
+    assert wm.last_offload_receipt is not None  # sanity: first call did write
+
+    raising_provider = Mock(spec=MemoryProvider)
+    raising_provider.write = Mock(side_effect=RuntimeError("boom"))
+    wm.add_message(msg("user", "three"))
+    wm.add_message(msg("user", "four"))
+
+    with pytest.raises(RuntimeError):
+        wm.offload(provider=raising_provider)
+
+    assert wm.last_offload_receipt is None
+
+
+@pytest.mark.asyncio
+async def test_aoffload_with_a_provider_that_raises_leaves_no_stale_receipt():
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    wm = buffer(max_messages=1, keep_after_offload=0)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+    await wm.aoffload(provider=provider)
+    assert wm.last_offload_receipt is not None
+
+    raising_provider = Mock(spec=MemoryProvider)
+    raising_provider.awrite = AsyncMock(side_effect=RuntimeError("boom"))
+    wm.add_message(msg("user", "three"))
+    wm.add_message(msg("user", "four"))
+
+    with pytest.raises(RuntimeError):
+        await wm.aoffload(provider=raising_provider)
+
+    assert wm.last_offload_receipt is None
+
+
+def test_offload_with_conversation_limit_keeps_the_unsummarized_remainder_without_a_provider():
+    """The literal data-loss scenario: `conversation_limit` narrows what gets summarized below the
+    full overflow, and offload must not trim more than what was actually captured."""
+    manager = SessionSummaryManager(model=fake_model("only the newest"), conversation_limit=1)
+    wm = WorkingMemory(scope=ACME, max_messages=1, keep_after_offload=0, summary_manager=manager)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+    wm.add_message(msg("user", "three"))
+
+    wm.offload()
+
+    # Only "three" (the newest, per conversation_limit=1) was summarized and trimmed; "one" and
+    # "two" must still be in the buffer rather than silently gone.
+    assert [m.content for m in wm.messages] == ["one", "two"]
+    assert wm.summary.summary == "only the newest"
+
+
+def test_offload_with_conversation_limit_and_a_provider_writes_only_what_was_summarized():
+    """With a provider, the write must match the summary -- not the whole overflow, which would
+    write content the summary text never described."""
+    manager = SessionSummaryManager(model=fake_model("only the newest"), conversation_limit=1)
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    wm = WorkingMemory(scope=ACME, max_messages=1, keep_after_offload=0, summary_manager=manager)
+    wm.add_message(msg("user", "one"))
+    wm.add_message(msg("user", "two"))
+    wm.add_message(msg("user", "three"))
+
+    wm.offload(provider=provider)
+
+    landed = {r.content for r in provider.vector.rows["acme"].values()}
+    assert landed == {"three"}
+    assert [m.content for m in wm.messages] == ["one", "two"]
+
+
 def test_offload_skips_messages_with_no_string_content_when_writing_through():
     provider = CoLocatedMemoryProvider(vector=FakeVector())
     wm = buffer(max_messages=1, keep_after_offload=0)
@@ -455,10 +547,28 @@ def test_assemble_context_combines_the_buffer_with_a_persistent_read():
 def test_assemble_context_never_double_reads_working_because_it_is_not_searched_by_default():
     """`MemoryQuery(text="").tiers` is `None`, which resolves to `PERSISTENT_TIERS` --
     `WORKING` is not among them, so the persistent half of `assemble_context` can never surface
-    the same content the buffer half already rendered."""
-    from egpt.memory.tiers import PERSISTENT_TIERS
+    the same content the buffer half already rendered.
 
-    assert MemoryTier.WORKING not in PERSISTENT_TIERS
+    Actually calls `assemble_context` (not just the standing fact `WORKING not in
+    PERSISTENT_TIERS`): captures the `MemoryQuery` the persistent read was made with and checks
+    what `assemble_context` itself resolved, so a future change to how it builds that query would
+    fail this test even if the `PERSISTENT_TIERS` fact alone stayed true."""
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    captured = {}
+    real_read = provider.read
+
+    def spy_read(scope, query):
+        captured["query"] = query
+        return real_read(scope, query)
+
+    provider.read = spy_read  # type: ignore[method-assign]
+    wm = buffer()
+    wm.note("a scratchpad note")
+
+    rendered = provider.assemble_context(ACME, wm)
+
+    assert rendered == "[note] a scratchpad note"
+    assert MemoryTier.WORKING not in captured["query"].resolved_tiers()
 
 
 @pytest.mark.asyncio
