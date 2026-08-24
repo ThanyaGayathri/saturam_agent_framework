@@ -136,6 +136,9 @@ from egpt.memory.validation import (
     reject_foreign_scopes,
 )
 
+# The WORKING tier's own buffer (SM-C6)
+from egpt.memory.working import WorkingMemory
+
 # Write-back capture (SM-E2)
 from egpt.memory.writeback import (
     ROLE_KEY,
@@ -297,4 +300,6 @@ __all__ = [
     # The consolidation scheduler (SM-L1)
     "ConsolidationOutcome",
     "ConsolidationWorker",
+    # The WORKING tier's own buffer (SM-C6)
+    "WorkingMemory",
 ]

@@ -1148,14 +1148,21 @@ def render_context_lines(label: str, content: str) -> List[str]:
     is whatever a user said to the agent. Continuation lines are visibly indented, so one entry
     always reads as one entry.
 
+    ``label`` gets the same treatment, not only ``content``. The first caller only ever passed
+    ``record.tier.value``, a closed set of enum strings, so the gap was invisible; ``working.py``
+    passes ``message.role``, which is caller-supplied like ``content`` is. A ``label`` containing
+    its own line break -- e.g. ``role="user\\n[system] injected directive"`` -- would otherwise
+    forge a synthetic entry the same way an unindented ``content`` line would.
+
     Splitting uses ``str.splitlines()`` rather than ``split("\\n")`` because that is what the
     *consumer* treats as a line break. ``splitlines`` covers eleven separators; hand-rolling the
     common two leaves ``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e``, ``\\x85``, ``U+2028`` and ``U+2029``
     through, and each one forges a ``[label]`` line. Matching the consumer's escape set closes the
     class rather than the instance.
     """
+    safe_label = label.splitlines()[0] if label else ""
     head, *rest = content.splitlines() or [""]
-    lines = ["[{label}] {head}".format(label=label, head=head)]
+    lines = ["[{label}] {head}".format(label=safe_label, head=head).rstrip()]
     lines.extend("    " + line for line in rest)
     return lines
 

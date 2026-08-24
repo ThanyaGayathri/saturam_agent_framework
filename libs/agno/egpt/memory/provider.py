@@ -270,9 +270,16 @@ class MemoryProvider(ABC):
         slice should interleave with a live buffer rather than simply follow it; this method
         guarantees both halves reach one caller-visible surface today, not the fusion between them.
 
-        ``query`` defaults to an unrestricted read over the persistent tiers
-        (:data:`~egpt.memory.tiers.PERSISTENT_TIERS`, via ``MemoryQuery.tiers=None``); WORKING is
-        never among them (``searched_by_default=False``), so it is never double-rendered.
+        ``query`` is required for a meaningful persistent half. Omitting it falls back to
+        ``MemoryQuery(text="")``, which resolves ``tiers`` to every persistent tier
+        (:data:`~egpt.memory.tiers.PERSISTENT_TIERS` -- WORKING is never among them, so it is
+        never double-rendered), but an **empty-text query is not an unrestricted one**: it is a
+        real similarity query with nothing to compare against, and a vector-backed substrate scores
+        it at or near zero for every candidate and returns nothing, so ``persistent`` comes back
+        empty on any real deployment. (An in-memory test double may answer it anyway, which is why
+        this looked unrestricted in tests -- see ``FakeVector.search``'s lexical-overlap scoring.)
+        Pass the caller's actual query text to get a real persistent slice; the fallback exists so
+        the call does not raise, not because it is a substitute for one.
         """
         persistent = self.read(scope, query if query is not None else MemoryQuery(text=""))
         return working.as_context(persistent)

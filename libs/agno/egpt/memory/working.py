@@ -43,9 +43,23 @@ class _BufferSession:
         self._messages = list(messages)
         self.summary: Optional[SessionSummary] = None
 
-    def get_messages(self, last_n_runs: Optional[int] = None, limit: Optional[int] = None) -> List[Message]:
+    def get_messages(
+        self,
+        last_n_runs: Optional[int] = None,
+        limit: Optional[int] = None,
+        **_: object,  # absorbs any keyword `_prepare_summary_messages` adds later, so a call
+        # shape this duck-type does not yet know about degrades to "narrows by less" instead of
+        # `TypeError` three frames from anything this module controls.
+    ) -> List[Message]:
         # `last_n_runs` has no meaning here -- there are no runs -- so only `limit` narrows.
-        return self._messages[-limit:] if limit else list(self._messages)
+        # `limit=0` must mean "return nothing", not "return everything": `self._messages[-0:]` is
+        # `self._messages[0:]` (Python's `-0 == 0`), so a naive `if limit` ternary took the
+        # falsy-zero branch and returned the *whole* buffer for the one input meant to return none
+        # of it. Only currently unreachable because `SessionSummaryManager.__post_init__` requires
+        # `conversation_limit > 0` -- an invariant this duck-type must not depend on to be correct.
+        if limit is None:
+            return list(self._messages)
+        return self._messages[-limit:] if limit > 0 else []
 
 
 def _as_session(overflow: Sequence[Message]) -> Union["AgentSession", "TeamSession"]:
@@ -96,9 +110,14 @@ class WorkingMemory:
     scratchpad: List[str] = field(default_factory=list)
     goals: List[str] = field(default_factory=list)
     summary: Optional[SessionSummary] = None
-    #: The receipt from the most recent offload that had a provider to write through, or ``None``
-    #: before the first one -- observability for a caller that wants to know whether the overflow
-    #: actually reached long-term storage, without threading a return value through every write.
+    #: The receipt from the most recent offload's provider write, when there was one to make.
+    #: ``None`` conflates three states this field cannot currently tell apart: no offload with a
+    #: provider has run yet, the most recent one *had* a provider but every overflow message
+    #: lacked string content so there was nothing to write, or (before the reordering fixed in
+    #: this ticket) a declined summary. A caller that must distinguish "no provider" from
+    #: "provider given nothing to write" cannot do so from this field alone today -- narrowing it
+    #: needs a sentinel distinct from a genuine empty receipt, which is follow-up work, not this
+    #: ticket's.
     last_offload_receipt: Optional[WriteReceipt] = None
 
     def __post_init__(self) -> None:
@@ -130,7 +149,10 @@ class WorkingMemory:
     # -- offload -----------------------------------------------------------------------------------
 
     def should_offload(self) -> bool:
-        return len(self.messages) > self.max_messages
+        # `>=`, not `>`: `max_messages` is the bound the buffer stays *at*, not one past. `>` let
+        # the buffer hold `max_messages + 1` messages before triggering, which reads as an
+        # off-by-one against a name a caller reasonably takes as a ceiling.
+        return len(self.messages) >= self.max_messages
 
     def _overflow(self) -> List[Message]:
         """The messages an offload right now would summarize away, oldest-first."""
@@ -161,24 +183,27 @@ class WorkingMemory:
     def offload(self, provider: Optional["MemoryProvider"] = None) -> Optional[SessionSummary]:
         """Summarize the overflow and drop it from the buffer, keeping the tail verbatim.
 
-        When ``provider`` is given, the overflow is first written through it as ``EPISODIC``
-        events -- offload **to long-term**, not merely compaction -- before being summarized away
-        from the buffer. Without one, this only keeps the buffer bounded; nothing is lost from the
-        run, since the summary folds the overflow's content in either way.
+        Summarization runs **first**. Only once the summary manager actually produces a summary
+        does the overflow get written through ``provider`` (as ``EPISODIC`` events -- offload **to
+        long-term**, not merely compaction) and trimmed from the buffer. Reordering this the other
+        way round -- write, then summarize -- made a declined summary a *partial* no-op: the
+        docstring promised "changes nothing," but the write had already landed, and the same
+        overflow slice would write the same events again on every subsequent decline, since nothing
+        was ever trimmed to stop `_overflow` from recomputing it.
 
-        A no-op (returns ``None``, changes nothing) when :meth:`should_offload` is false or the
-        summary manager declines (``SessionSummaryManager`` returns ``None`` for an empty or
-        unmeaningful window) -- offload is never forced past what there is to say.
+        A no-op (returns ``None``, writes nothing, changes nothing) when :meth:`should_offload` is
+        false or the summary manager declines (``SessionSummaryManager`` returns ``None`` for an
+        empty or unmeaningful window) -- offload is never forced past what there is to say.
         """
         if not self.should_offload():
             return None
         overflow = self._overflow()
-        if provider is not None:
-            events = self._events_for(overflow)
-            self.last_offload_receipt = provider.write(self.scope, events) if events else None
         new_summary = self.summary_manager.create_session_summary(_as_session(overflow))
         if new_summary is None:
             return None
+        if provider is not None:
+            events = self._events_for(overflow)
+            self.last_offload_receipt = provider.write(self.scope, events) if events else None
         self.summary = _merge_summary(self.summary, new_summary)
         self.messages = self.messages[len(overflow) :]
         return self.summary
@@ -188,12 +213,12 @@ class WorkingMemory:
         if not self.should_offload():
             return None
         overflow = self._overflow()
-        if provider is not None:
-            events = self._events_for(overflow)
-            self.last_offload_receipt = await provider.awrite(self.scope, events) if events else None
         new_summary = await self.summary_manager.acreate_session_summary(_as_session(overflow))
         if new_summary is None:
             return None
+        if provider is not None:
+            events = self._events_for(overflow)
+            self.last_offload_receipt = await provider.awrite(self.scope, events) if events else None
         self.summary = _merge_summary(self.summary, new_summary)
         self.messages = self.messages[len(overflow) :]
         return self.summary
