@@ -6,7 +6,7 @@ from typing import Optional
 from egpt.learn.schemas import UserProfile
 from egpt.memory.semantic import SemanticProfileStore, profile_record_id
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryRecord, MemoryScopeRequiredError, Scope
+from egpt.memory.types import MemoryOperationError, MemoryRecord, MemoryScopeRequiredError, Scope
 from tests.unit.memory._fakes import FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="ada")
@@ -260,14 +260,13 @@ async def test_aget_finds_a_profile_beyond_the_first_scan_page():
     assert got.name == "Ada"
 
 
-def test_get_logs_when_a_matched_row_fails_to_parse(caplog):
+def test_get_logs_a_warning_when_a_matched_row_fails_to_parse(caplog):
     """Distinct from "never written": the id and marker matched, but `from_dict_safe` could not
     build a `UserProfile` from the stored payload -- logged so the two are distinguishable
-    (QC round 3, PR #135). `log_debug` is gated behind the module-global `debug_on` flag
-    (unlike stdlib logging levels), so this needs `set_log_level_to_debug()` -- `caplog.at_level`
-    alone is not enough, since the flag short-circuits before any logger is touched."""
-    from egpt.utils.log import set_log_level_to_debug, set_log_level_to_info
-
+    (QC round 3, PR #135). At `warning`, not `debug` (QC round 4): a corrupted/incompatible-schema
+    row is a data problem worth an operator's attention on normal logs, unlike the scan-count
+    log's routine-volume `debug`. Uses `log_warning`, not the module-global-gated `log_debug`, so
+    (unlike the scan-count log) this needs no `set_log_level_to_debug()` to observe."""
     s, vector = store()
     corrupted = MemoryRecord(
         id=profile_record_id(ACME),
@@ -278,14 +277,11 @@ def test_get_logs_when_a_matched_row_fails_to_parse(caplog):
     )
     vector.upsert(ACME, [corrupted])
 
-    set_log_level_to_debug()
-    try:
-        with caplog.at_level("DEBUG", logger="egpt"):
-            assert s.get(ACME) is None
-    finally:
-        set_log_level_to_info()
+    with caplog.at_level("WARNING", logger="egpt"):
+        assert s.get(ACME) is None
 
-    assert any("could not parse" in message for message in caplog.messages)
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("could not parse" in r.message for r in warnings)
 
 
 async def test_aget_ignores_a_same_id_row_carrying_the_wrong_record_kind():
@@ -315,3 +311,26 @@ def test_an_extended_schema_roundtrips_its_own_fields():
     s.write(ACME, TeamUserProfile(user_id="ada", name="Ada", company="Acme"))
     got = s.get(ACME)
     assert got.company == "Acme"
+
+
+def test_write_refuses_a_profile_that_is_not_an_instance_of_the_stores_schema():
+    """Now meaningful (QC round 4, PR #135): before `CoLocatedMemoryProvider` threaded a wired
+    `profile_store`'s schema through to its `SemanticProfileStore`, this store was always built
+    with the base `UserProfile`, so an `isinstance` check here would have passed for *any*
+    subclass and caught nothing. Uses the base `UserProfile` against a `TeamUserProfile`-schema'd
+    store -- the base is not an instance of its own subclass."""
+    s = SemanticProfileStore(vector=FakeVector(), schema=TeamUserProfile)
+    try:
+        s.write(ACME, UserProfile(user_id="ada", name="Ada"))
+        raise AssertionError("expected MemoryOperationError")
+    except MemoryOperationError as exc:
+        assert exc.field_name == "profile"
+
+
+def test_write_refuses_a_completely_unrelated_object():
+    s = SemanticProfileStore(vector=FakeVector())
+    try:
+        s.write(ACME, object())
+        raise AssertionError("expected MemoryOperationError")
+    except MemoryOperationError:
+        pass

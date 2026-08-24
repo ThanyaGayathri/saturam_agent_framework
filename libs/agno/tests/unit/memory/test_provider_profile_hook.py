@@ -8,6 +8,8 @@ reported), not LLM extraction -- that is pinned in ``test_user_profile_extract.p
 """
 
 import asyncio
+from dataclasses import dataclass
+from typing import Optional
 
 import pytest
 
@@ -152,6 +154,37 @@ async def test_aget_profile_returns_what_consolidate_wrote():
 def test_get_profile_before_any_consolidation_is_none():
     memory, _v, _g = make_provider(profile_store=_StubProfileStore())
     assert memory.get_profile(ACME) is None
+
+
+@dataclass
+class _TeamProfile(UserProfile):
+    company: Optional[str] = None
+
+
+class _TeamProfileStore:
+    """A ``profile_store`` double carrying an extended schema -- exercises that the provider
+    threads ``profile_store.schema`` through to its ``SemanticProfileStore`` rather than always
+    defaulting to the base ``UserProfile`` (QC round 4, PR #135: before this fix, `company`
+    would have been silently dropped on every read through the provider)."""
+
+    schema = _TeamProfile
+
+    def extract_profile(self, messages, user_id, existing_profile=None, run_metrics=None):
+        return _TeamProfile(user_id=user_id, name="Ada", company="Acme")
+
+    async def aextract_profile(self, messages, user_id, existing_profile=None, run_metrics=None):
+        return _TeamProfile(user_id=user_id, name="Ada", company="Acme")
+
+
+def test_get_profile_preserves_an_extended_schemas_extra_fields():
+    memory, _v, _g = make_provider(profile_store=_TeamProfileStore())
+    memory.write(ACME, [event("I'm Ada, I work at Acme")])
+    memory.consolidate(ACME)
+
+    got = memory.get_profile(ACME)
+    assert got is not None
+    assert isinstance(got, _TeamProfile)
+    assert got.company == "Acme"
 
 
 @pytest.mark.parametrize("is_async", [False, True])

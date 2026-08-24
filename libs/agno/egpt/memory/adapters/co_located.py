@@ -349,7 +349,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #: Built here rather than injected: it is a thin wrapper over ``self.vector``, which the
         #: provider already owns, so a second injection point for the identical substrate would
         #: only invite the two to drift.
-        self._semantic_profile = SemanticProfileStore(vector=self.vector)
+        #:
+        #: ``schema=`` is read off ``self.profile_store`` (``getattr``, not an attribute access
+        #: that would break a duck-typed double lacking one), not defaulted to the base
+        #: ``UserProfile`` -- a wired store carrying an extended schema (e.g. a subclass adding
+        #: `company`) previously had its extra fields silently dropped on every read through this
+        #: provider (`get_profile`, and `_update_profile`'s own existing-profile read, which feeds
+        #: the LLM's "current values" context on every consolidation pass) because this store was
+        #: built with the default schema regardless of what was actually wired (QC round 4, PR
+        #: #135). ``None`` (no store wired) falls through to ``SemanticProfileStore``'s own default.
+        profile_schema = getattr(self.profile_store, "schema", None)
+        self._semantic_profile = (
+            SemanticProfileStore(vector=self.vector, schema=profile_schema)
+            if profile_schema is not None
+            else SemanticProfileStore(vector=self.vector)
+        )
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         #: Ceiling on one consolidation pass. Adjustable because the default is a safety bound, not
         #: a policy: a tier larger than this has its tail consolidated over multiple passes, tracked

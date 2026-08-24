@@ -41,6 +41,7 @@ from egpt.learn.utils import from_dict_safe, to_dict_safe
 from egpt.memory.substrates import VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    MemoryOperationError,
     MemoryRecord,
     MemoryScopeRequiredError,
     Scope,
@@ -48,7 +49,7 @@ from egpt.memory.types import (
     escape_key_slot,
     require_scope,
 )
-from egpt.utils.log import log_debug
+from egpt.utils.log import log_debug, log_warning
 
 __all__ = ["SemanticProfileStore", "profile_record_id"]
 
@@ -115,7 +116,32 @@ class SemanticProfileStore:
 
     def _record(self, scope: Scope, profile: Any) -> Optional[MemoryRecord]:
         """``scope`` here is already the narrowed ``(tenant_id, user_id)`` scope -- every caller
-        below passes :func:`_profile_scope`'s output, never the raw one."""
+        below passes :func:`_profile_scope`'s output, never the raw one.
+
+        Refuses a ``profile`` that is not an instance of ``self.schema`` rather than silently
+        serialising whatever ``to_dict_safe`` can extract from it (QC round 4, PR #135) -- now
+        meaningful because ``self.schema`` is the schema this store was actually built with
+        (:class:`CoLocatedMemoryProvider` threads a wired ``profile_store``'s own schema through
+        at construction), not always the base :class:`~egpt.learn.schemas.UserProfile`. Checking
+        this *before* that fix would have caught nothing useful: every schema in practice
+        subclasses ``UserProfile``, so an ``isinstance`` check against a store that never saw the
+        subclass would still pass.
+        """
+        if not isinstance(profile, self.schema):
+            raise MemoryOperationError(
+                f"SemanticProfileStore is configured with schema={self.schema.__name__}, but got "
+                f"a {type(profile).__name__}. A profile must be an instance of the store's own "
+                "schema to serialise correctly.",
+                field_name="profile",
+            )
+        # In practice unreachable for a well-formed instance of `self.schema`: `user_id` is a
+        # required field on every real profile dataclass, so `to_dict_safe` never returns empty
+        # once the `isinstance` check above has already passed (QC round 4, PR #135 -- the
+        # `write`/`awrite` docstrings previously implied this guards against a legitimate empty
+        # profile, which it does not). What it still catches: `to_dict_safe` itself raising and
+        # being swallowed internally, for a `self.schema` whose fields aren't plain dataclass
+        # fields `asdict`-compatible -- a schema-shape problem the `isinstance` check above cannot
+        # see, since it only checks the *type*, not the *fields*.
         content = to_dict_safe(profile)
         if not content:
             return None
@@ -129,7 +155,8 @@ class SemanticProfileStore:
 
     def write(self, scope: Scope, profile: Any) -> Optional[WriteReceipt]:
         """Upsert ``profile`` under ``scope``. Returns ``None`` when there is nothing to write --
-        no vector substrate wired, or a profile with no fields ``to_dict_safe`` could serialise."""
+        no vector substrate wired -- and raises :class:`~egpt.memory.types.MemoryOperationError`
+        when ``profile`` is not an instance of ``self.schema`` (see :meth:`_record`)."""
         require_scope(scope, method="write")
         if self.vector is None:
             return None
@@ -153,13 +180,18 @@ class SemanticProfileStore:
         return WriteReceipt(accepted=1, event_ids=[record.id], tiers_written=[MemoryTier.SEMANTIC])
 
     def _parse(self, narrowed: Scope, record: MemoryRecord) -> Optional[Any]:
+        """Both cases -- "never written" and "written, but unparseable" -- return ``None`` to the
+        caller (see :meth:`get`'s docstring); a corrupted row is not, on its own, grounds to raise
+        out of a read path every consolidation pass depends on. ``get``/``aget`` staying silent
+        does not mean *nothing* stays silent, though: a mismatched-schema or corrupted row is a
+        data problem, not routine cache-miss volume, so it logs at ``warning`` rather than the
+        scan-count log's ``debug`` just below (QC round 4, PR #135) -- loud enough that an
+        operator watching normal logs sees it, without changing the return contract every existing
+        caller (including this store's own tests) already relies on.
+        """
         parsed = from_dict_safe(self.schema, record.metadata.get("profile"))
         if parsed is None:
-            # Distinct from "never written": the id and marker matched, so a row is there --
-            # `from_dict_safe` failed to parse it (QC round 3, PR #135). Without this the two
-            # cases were indistinguishable to a caller, the same gap the scan-count log below
-            # closes for volume rather than shape.
-            log_debug(
+            log_warning(
                 f"SemanticProfileStore: matched profile row {record.id!r} for "
                 f"user_id={narrowed.user_id!r} but from_dict_safe could not parse it -- "
                 f"possibly corrupted or written under an incompatible schema."
