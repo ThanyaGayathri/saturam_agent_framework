@@ -28,7 +28,13 @@ producing the slice's contents.
 Deliberately out of scope, and not this ticket's to build: retiring or superseding a procedure
 whose source episodes are later invalidated (the same gap SM-L3/SM-L6 name for distilled facts and
 insights), and the meta-prompt scheduling policy that decides *when* to invoke this pipeline
-(SM-L1 already schedules ``consolidate``; nothing here assumes it also drives this pipeline).
+(SM-L1 already schedules ``consolidate``; nothing here assumes it also drives this pipeline). Also
+out of scope: near-duplicate folding across procedures. Because ``consolidates_from``/``into`` are
+both ``False`` for ``PROCEDURAL``, ``consolidation/dedup.py``'s ``merge_near_duplicate_facts`` --
+the fold ``SEMANTIC`` facts get -- structurally never runs against this tier; this pipeline is the
+sole producer, with no merge step of its own, so repeated similar episode clusters accumulate as
+separate rule rows rather than folding into one. Not inherited "for free" from the SEMANTIC
+lineage this module otherwise mirrors.
 """
 
 from dataclasses import dataclass, field
@@ -374,6 +380,12 @@ class ProceduralReflectionPipeline:
         (kind/trigger/tags/provenance) carried in ``metadata`` -- the same convention
         ``co_located._prepare`` already uses to round-trip a plain ``MemoryEvent``'s metadata
         straight onto the stored ``MemoryRecord`` for every tier, not only ``SEMANTIC``.
+
+        "Idempotent" means the **id** is stable across a re-run over the identical source set, not
+        that every field is: ``occurred_at`` is stamped fresh each call, so a re-run upserts the
+        same row with a newer timestamp. Harmless on ``PROCEDURAL``, which carries no bi-temporal
+        ``as_of``/decay semantics (``TIER_POLICY`` -- vector-only, not ``BiTemporal``/``Decaying``);
+        would need reconsidering for any tier where ``occurred_at`` feeds a decay or validity read.
         """
         if not (procedure.title or "").strip() or not (procedure.content or "").strip():
             raise MemoryOperationError(
@@ -409,13 +421,14 @@ class ProceduralReflectionPipeline:
         total: float,
         write: Optional[MemoryEvent],
         triggered: bool,
+        complete: bool,
     ) -> ProceduralReflectionReport:
         return ProceduralReflectionReport(
             scope=scope,
             episodes_considered=considered,
             accumulated_importance=total,
             write=write,
-            details=procedural_reflection_details(synthesizer=SYNTHESIZER_ID, complete=True, triggered=triggered),
+            details=procedural_reflection_details(synthesizer=SYNTHESIZER_ID, complete=complete, triggered=triggered),
         )
 
     def run(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ProceduralReflectionReport:
@@ -427,25 +440,25 @@ class ProceduralReflectionPipeline:
         (or a grown) batch re-evaluates cleanly.
         """
         require_scope(scope, method="run")
-        selected, _truncated = select_current_episodes(
+        selected, truncated = select_current_episodes(
             episodes, max_episodes_per_pass=self.max_episodes_per_pass, purpose="Procedural reflection"
         )
         total = sum(_clamped_importance(episode) for episode in selected)
         if not selected or total < self.importance_threshold:
-            return self._report(scope, len(selected), total, None, triggered=False)
+            return self._report(scope, len(selected), total, None, triggered=False, complete=not truncated)
         procedure = self.synthesizer.synthesize(selected)
         write = self._to_write(scope, selected, procedure) if procedure is not None else None
-        return self._report(scope, len(selected), total, write, triggered=True)
+        return self._report(scope, len(selected), total, write, triggered=True, complete=not truncated)
 
     async def arun(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ProceduralReflectionReport:
         """Async variant of :meth:`run`, making the same decisions."""
         require_scope(scope, method="arun")
-        selected, _truncated = select_current_episodes(
+        selected, truncated = select_current_episodes(
             episodes, max_episodes_per_pass=self.max_episodes_per_pass, purpose="Procedural reflection"
         )
         total = sum(_clamped_importance(episode) for episode in selected)
         if not selected or total < self.importance_threshold:
-            return self._report(scope, len(selected), total, None, triggered=False)
+            return self._report(scope, len(selected), total, None, triggered=False, complete=not truncated)
         procedure = await self.synthesizer.asynthesize(selected)
         write = self._to_write(scope, selected, procedure) if procedure is not None else None
-        return self._report(scope, len(selected), total, write, triggered=True)
+        return self._report(scope, len(selected), total, write, triggered=True, complete=not truncated)

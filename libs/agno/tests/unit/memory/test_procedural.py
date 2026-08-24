@@ -18,7 +18,9 @@ import pytest
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
+from egpt.memory.consolidation.reflect import DEFAULT_IMPORTANCE_THRESHOLD as REFLECT_DEFAULT_IMPORTANCE_THRESHOLD
 from egpt.memory.procedural import (
+    DEFAULT_IMPORTANCE_THRESHOLD,
     PROCEDURAL_REFLECTION_KEYS,
     SYNTHESIZER_ID,
     LLMProcedureSynthesizer,
@@ -114,6 +116,23 @@ def test_below_threshold_never_synthesizes(is_async):
     assert report.write is None
     assert report.accumulated_importance == pytest.approx(0.5)
     assert synth.calls == [], "the synthesizer must not be asked before the threshold is crossed"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_importance_exactly_at_the_threshold_triggers(is_async):
+    """The gate is ``total < threshold`` -- not-triggering is reserved for *strictly below*, so
+    exactly ``==`` must fire. Without this case, a ``<`` -> ``<=`` boundary mutation survives every
+    other test in this file (all of which sit strictly clear of the boundary on both sides)."""
+    synth = StubSynthesizer(result=procedure())
+    pipe = ProceduralReflectionPipeline(synth, importance_threshold=1.0)
+    episodes = [episode("a", "e1", importance=0.5), episode("b", "e2", importance=0.5)]
+
+    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
+    report = asyncio.run(call) if is_async else call
+
+    assert report.accumulated_importance == pytest.approx(1.0)
+    assert report.details["triggered"] is True
+    assert synth.calls == [("e1", "e2")]
 
 
 @pytest.mark.parametrize("is_async", [False, True])
@@ -224,6 +243,32 @@ def test_max_episodes_per_pass_caps_what_the_synthesizer_sees(is_async):
 
     assert report.episodes_considered == 2
     assert len(synth.calls[0]) == 2
+    assert report.details["complete"] is False, (
+        "a batch truncated by max_episodes_per_pass left episodes unread this call; "
+        "complete must say so rather than defaulting to True"
+    )
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_untruncated_batch_reports_complete(is_async):
+    synth = StubSynthesizer(result=procedure())
+    pipe = ProceduralReflectionPipeline(synth, importance_threshold=1.0, max_episodes_per_pass=10)
+    episodes = [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)]
+
+    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
+    report = asyncio.run(call) if is_async else call
+
+    assert report.details["complete"] is True
+
+
+def test_default_importance_threshold_matches_reflect_pys():
+    """Pin against silent drift: this module's own comment argues the two thresholds should stay
+    equal (no evidence procedural extraction should fire on a different cadence than insight
+    synthesis), but nothing besides this test enforces it -- the same "vocabularies have to agree,
+    so the coupling is a test rather than an import" pattern
+    `test_memory_schemas.py::test_the_tier_vocabulary_tracks_the_memory_package` uses for
+    MEMORY_TIER_VALUES."""
+    assert DEFAULT_IMPORTANCE_THRESHOLD == REFLECT_DEFAULT_IMPORTANCE_THRESHOLD
 
 
 @pytest.mark.parametrize("is_async", [False, True])
