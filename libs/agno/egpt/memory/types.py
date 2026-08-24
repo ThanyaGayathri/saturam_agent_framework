@@ -1054,6 +1054,12 @@ NO_RELATIONS = "not extracted -- no relation pipeline wired (SM-G3 #101)"
 #: ``co_located.ReflectionSummary``'s docstring.
 NO_REFLECTION = "not reflected -- no reflection pipeline wired (SM-L6 #127)"
 
+#: The ``profile`` counterpart to :data:`NO_ENTITIES` (SM-S3 #120): a pass with no profile store
+#: wired updated no profile, which a scheduler cannot tell from a pass whose episodes carried no
+#: profile-worthy information. ``details["profile"]`` is a free extra key on
+#: ``consolidation_details``, same treatment as ``details["relations"]``/``details["reflection"]``.
+NO_PROFILE = "not extracted -- no profile store wired (SM-S3 #120)"
+
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
 #:
