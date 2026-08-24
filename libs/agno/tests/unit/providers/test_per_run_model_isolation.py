@@ -211,27 +211,6 @@ from egpt.team.team import Team  # noqa: E402
 from tests.unit.providers.test_dual_mode_e2e import RecordingModel, _RecordingProvider  # noqa: E402
 
 
-@pytest.fixture(autouse=True)
-def _no_leaked_default_provider():
-    """Reset the process-wide state a live run mutates, so ordering cannot decide an outcome.
-
-    Two globals, both of which outlive the test that set them:
-
-    * the default model provider, and
-    * ``egpt.utils.log.logger`` -- ``Team.run``/``Agent.run`` call ``use_team_logger()`` /
-      ``use_agent_logger()`` and never restore it. A later test doing
-      ``caplog.set_level(logger="egpt")`` then captures nothing, because records are going to
-      ``egpt-team``. That is what turned the whole of ``test_escalation_logging.py`` red in a
-      full-tree run while every targeted run stayed green.
-    """
-    import egpt.utils.log as _log
-
-    before = _log.logger
-    yield
-    set_default_model_provider(None)
-    _log.logger = before
-
-
 class TestALiveRunServesTheResolvedModel:
     def test_an_agent_turn_serves_the_providers_model_and_leaves_the_component_alone(self):
         configured = RecordingModel("configured")

@@ -41,32 +41,21 @@ def restore_discovery_table():
 
 
 @pytest.fixture(autouse=True)
-def restore_the_global_logger():
-    """`Agent.run`/`Team.run` swap `egpt.utils.log.logger` and never put it back.
-
-    `use_agent_logger()`/`use_team_logger()`/`use_workflow_logger()` reassign the module-global,
-    so any test in this package that drives a live run leaves it pointing at `egpt-agent` or
-    `egpt-team` for everything after it. A later test doing
-    `caplog.set_level(logger="egpt")` then captures nothing, because the records are being
-    emitted somewhere else -- which is how a budget-denial test added here turned the whole of
-    `test_escalation_logging.py` red while every targeted run stayed green.
-
-    Restores it around each test, alongside the other process-global restores in this file. The
-    underlying leak is repo-wide and tracked as aicoe-tracker#184; this keeps it out of this package
-    meanwhile.
-    """
-    import egpt.utils.log as _log
-
-    saved = _log.logger
-    try:
-        yield
-    finally:
-        _log.logger = saved
-
-
-@pytest.fixture(autouse=True)
 def restore_default_model_provider():
-    """Restore the process-wide default provider around every test in this package."""
+    """Restore the process-wide default provider around every test in this package.
+
+    This is the only fixture that writes the provider global. ``test_per_run_model_isolation.py``
+    carried its own autouse copy that set it to ``None`` on teardown; that was dead -- this
+    fixture sets up first and tears down last, so its restore of the saved value overwrote the
+    ``None`` unconditionally -- and it would have started clobbering a legitimately restored
+    provider if that file ever moved out of this package or fixture ordering shifted. Removed in
+    the #130 review; see ``reset_resolution_counter`` below for why two autouse fixtures writing
+    one global is the hazard.
+
+    ``egpt.utils.log``'s globals used to need the same treatment in this package. That is now
+    handled once for every test by ``tests/conftest.py`` (aicoe-tracker#184), with a regression
+    test in ``tests/unit/test_logger_isolation.py``.
+    """
     saved = get_default_model_provider()
     try:
         yield
