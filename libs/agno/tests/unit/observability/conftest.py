@@ -5,10 +5,20 @@ Provides an InMemorySpanExporter wired into a fresh TracerProvider so that
 tests can assert on emitted spans without any external network or database.
 
 The EGPT package is published as ``egpt`` but the third-party instrumentor
-(openinference-instrumentation-agno) imports from ``agno.*``.  We register
-sys.modules aliases so the instrumentor resolves the same objects as the
-framework.  This is the same mechanism that the framework's own tracing
-setup.py uses in production.
+(openinference-instrumentation-agno) imports from ``agno.*``.  This is a
+test-only workaround that lets the instrumentor's hardcoded ``agno.*``
+imports resolve against this framework's ``egpt.*`` package.  Production code
+(``tracing/setup.py``) never needs this because it calls
+``AgnoInstrumentor().instrument(tracer_provider=...)`` directly without
+importing from the instrumented package by that name.
+
+Coverage gaps (documented, follow-up work):
+- ``find_model_subclasses()`` auto-discovery is not exercised: StubModel is
+  defined here (not under an ``agno.models.*``-resolvable path), so we
+  manually wrap it.  A future follow-up could define the stub inside a
+  package discoverable by ``pkgutil.walk_packages`` to cover that path.
+- Only ``invoke``/``invoke_stream`` are wrapped; ``ainvoke``/``ainvoke_stream``
+  are not (no async tests yet).  A follow-up should add async coverage.
 """
 
 from __future__ import annotations
@@ -18,10 +28,15 @@ from typing import Generator
 
 import pytest
 
+pytest.importorskip("openinference", reason="observability tests require openinference-instrumentation-agno")
+pytest.importorskip("opentelemetry.sdk", reason="observability tests require opentelemetry-sdk")
+
 # ---------------------------------------------------------------------------
-# Step 1: Register egpt.* as agno.* in sys.modules BEFORE any OTel import.
-# This allows the AgnoInstrumentor to resolve `agno.agent._run`, etc.
+# sys.modules aliasing for agno.* -> egpt.*
 # ---------------------------------------------------------------------------
+# Must happen at module level (before the openinference imports below attempt
+# to resolve ``agno.*``).  Tracked in _AGNO_ALIASES for teardown in the
+# session-scoped fixture.
 
 import egpt  # noqa: E402
 import egpt.agent  # noqa: E402
@@ -39,16 +54,20 @@ import egpt.run.agent  # noqa: E402
 import egpt.run.team  # noqa: E402
 import egpt.run.messages  # noqa: E402
 
+_AGNO_ALIASES: list[str] = []
+
 sys.modules["agno"] = egpt
+_AGNO_ALIASES.append("agno")
+
 for _mod_name in list(sys.modules.keys()):
     if _mod_name.startswith("egpt."):
         _alias = "agno." + _mod_name[5:]
         if _alias not in sys.modules:
             sys.modules[_alias] = sys.modules[_mod_name]
+            _AGNO_ALIASES.append(_alias)
 
 # ---------------------------------------------------------------------------
-# Step 2: Define the StubModel (must exist before instrumentation so we can
-# manually wrap it like the instrumentor wraps discovered model subclasses).
+# StubModel definition
 # ---------------------------------------------------------------------------
 
 from egpt.metrics import MessageMetrics  # noqa: E402
@@ -116,6 +135,18 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from wrapt import wrap_function_wrapper  # noqa: E402
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _cleanup_agno_aliases():
+    """Remove agno.* sys.modules aliases after the test session.
+
+    The aliases are registered at module level (required for import resolution)
+    but cleaned up here to avoid polluting other tests sharing the same process.
+    """
+    yield
+    for alias in _AGNO_ALIASES:
+        sys.modules.pop(alias, None)
+
+
 @pytest.fixture
 def otel_setup() -> Generator[tuple[InMemorySpanExporter, TracerProvider], None, None]:
     """
@@ -123,6 +154,11 @@ def otel_setup() -> Generator[tuple[InMemorySpanExporter, TracerProvider], None,
     AgnoInstrumentor wired in and the StubModel manually instrumented.
 
     Yields (exporter, provider).
+
+    Note: StubModel is manually wrapped because find_model_subclasses()
+    only discovers classes under agno.models.* subpackages via
+    pkgutil.walk_packages.  This means the auto-discovery path is NOT
+    exercised by these tests — see module docstring for the coverage gap.
     """
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
@@ -134,6 +170,7 @@ def otel_setup() -> Generator[tuple[InMemorySpanExporter, TracerProvider], None,
 
     # Manually wrap StubModel.invoke/invoke_stream since find_model_subclasses()
     # cannot discover classes defined outside agno.models.* subpackages.
+    # TODO: Also wrap ainvoke/ainvoke_stream and add async test coverage.
     oi_tracer = OITracer(
         trace_api.get_tracer("egpt-observability-tests", tracer_provider=provider),
         config=TraceConfig(),
