@@ -881,13 +881,14 @@ class TestAdapterSupportIsDeclaredNotHardcoded:
     served multi-LoRA identically. The request succeeded and `ModelResolveResult.adapter` reported
     None, so the result was self-consistent and the deployment's intent was lost with no signal.
 
-    Runtime registration (`discovery.register(..., supports_adapters=True)`) is the opt-in path
-    this fixes today -- see `test_an_out_of_tree_backend_declaring_support_gets_its_adapter`
-    below. An `egpt.models` *entry point* -- a package installed from outside this repository,
-    which is the seam's stated extensibility mechanism -- cannot declare this yet, because an
-    entry point is a bare `name = module:attr` string with nowhere to carry it. See
-    `test_an_entry_point_registration_cannot_declare_it_yet` below, which pins that gap rather
-    than leaving it implicit.
+    Two opt-in paths: runtime registration (`discovery.register(..., supports_adapters=True)`,
+    see `test_an_out_of_tree_backend_declaring_support_gets_its_adapter` below), and an
+    `egpt.models` *entry point* -- a package installed from outside this repository, the seam's
+    stated extensibility mechanism -- declaring it via the standard `module:attr [supports_adapters]`
+    extras fragment (aicoe-tracker#179, see `test_an_entry_point_declares_it_via_the_extras_fragment`
+    below). An entry point that omits the extra still falls back to the tuple, same as a runtime
+    registration that omits the kwarg -- see
+    `test_an_entry_point_without_the_extra_still_falls_back_to_the_tuple`.
     """
 
     def test_an_out_of_tree_backend_declaring_support_gets_its_adapter(self):
@@ -913,17 +914,14 @@ class TestAdapterSupportIsDeclaredNotHardcoded:
         assert result.adapter == "support-v3", "a declared capability must be honoured"
         assert result.model.id == "support-v3", "model-id convention renders the adapter as the id"
 
-    def test_an_entry_point_registration_cannot_declare_it_yet(self, monkeypatch):
-        """The gap the fix above does not close: an `egpt.models` entry point has nowhere to
-        carry `supports_adapters`, and this is the actual pre-image of the original bug report --
-        an out-of-tree *package*, not a runtime `register()` call.
+    def test_an_entry_point_without_the_extra_still_falls_back_to_the_tuple(self, monkeypatch):
+        """The original bug report's exact shape: an out-of-tree *package*, not a runtime
+        `register()` call, wrapping a vLLM fork under a name Mode A has never heard of.
 
-        `_merge_entry_points` builds its `Registration` from nothing but the entry point's own
-        `name = module:attr` string (the packaging spec has no field for extra metadata), so
-        `metadata` is always `{}` for a `SOURCE_ENTRY_POINT` row and it falls through to
-        `_ADAPTER_BACKENDS` regardless of what the backend actually supports. This is the state
-        of the world today, pinned so a future change that closes it (see the tracked follow-up
-        named in the module docstring) fails this test loudly rather than going unnoticed.
+        Without the `[supports_adapters]` extra (see the class below for the opt-in case), the
+        entry point carries no metadata and falls through to `_ADAPTER_BACKENDS` regardless of
+        what the backend actually supports -- unchanged since before aicoe-tracker#179, and still
+        the correct behaviour for a package that never declared the capability.
         """
         from importlib.metadata import EntryPoint
 
@@ -941,7 +939,7 @@ class TestAdapterSupportIsDeclaredNotHardcoded:
         registration = discovery.get("model", "acme-entry-point-server")
         assert registration is not None, "the entry point itself must resolve"
         assert registration.source == discovery.SOURCE_ENTRY_POINT
-        assert registration.metadata == {}, "an entry point carries no metadata today"
+        assert registration.metadata == {}, "no [supports_adapters] extra means no metadata"
 
         provider = LocalModelProvider(
             settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
@@ -951,10 +949,46 @@ class TestAdapterSupportIsDeclaredNotHardcoded:
         result = provider.resolve_detailed(ModelResolveRequest(adapter="support-v3"))
 
         assert result.adapter is None, (
-            "the entry point cannot say supports_adapters=True yet, so this falls back to the "
-            "tuple and the adapter is ignored -- exactly the original bug report's shape"
+            "no declaration means this falls back to the tuple and the adapter is ignored -- "
+            "exactly the original bug report's shape"
         )
         assert result.model.id == "qwen"
+
+    def test_an_entry_point_declares_it_via_the_extras_fragment(self, monkeypatch):
+        """aicoe-tracker#179: the gap the class above's sibling test used to pin is now closed.
+
+        `acme = "module:attr [supports_adapters]"` is a standard entry-point value -- the
+        `[...]` extras fragment is already parsed by `importlib.metadata` into `EntryPoint.extras`,
+        so `_merge_entry_points` can read it with no new entry-point group and no `.load()` before
+        resolve (which would have broken the laziness guarantee `test_discovery_laziness.py` pins).
+        """
+        from importlib.metadata import EntryPoint
+
+        from egpt.registry import discovery as discovery_module
+
+        group = discovery.entry_point_group("model")
+        entry_point = EntryPoint(
+            name="acme-entry-point-server",
+            value="tests.unit.providers.test_mode_a:_FakeOpenAISchemaBackend [supports_adapters]",
+            group=group,
+        )
+        monkeypatch.setattr(discovery_module, "_all_entry_points", lambda: {group: [entry_point]})
+        discovery_module._READY.discard("model")
+
+        registration = discovery.get("model", "acme-entry-point-server")
+        assert registration is not None
+        assert registration.source == discovery.SOURCE_ENTRY_POINT
+        assert registration.metadata == {"supports_adapters": True}
+
+        provider = LocalModelProvider(
+            settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+            backend="acme-entry-point-server",
+        )
+
+        result = provider.resolve_detailed(ModelResolveRequest(adapter="support-v3"))
+
+        assert result.adapter == "support-v3", "a package-declared capability must be honoured"
+        assert result.model.id == "support-v3", "model-id convention renders the adapter as the id"
 
     def test_an_out_of_tree_backend_without_the_declaration_still_ignores_it(self):
         """The documented behaviour that must survive the fix.

@@ -26,7 +26,10 @@ import pytest
 from egpt.agent._run import aapply_run_model, apply_run_model, run_model
 from egpt.providers.escalation import EscalatingModelProvider
 from egpt.providers.model_provider import ProviderMode
+from egpt.run.agent import ModelRequestCompletedEvent, ModelRequestStartedEvent
 from egpt.run.base import RunContext
+from egpt.run.team import ModelRequestCompletedEvent as TeamModelRequestCompletedEvent
+from egpt.run.team import ModelRequestStartedEvent as TeamModelRequestStartedEvent
 from tests.unit.providers.test_escalation import FRONTIER, SMALL, FakeDetailedProvider, FakeModel
 from tests.unit.providers.test_run_model_hook import StubAgent
 
@@ -336,6 +339,149 @@ class TestStreamingServesTheResolvedModel:
         assert served.invocations == 1
         assert configured.invocations == 0
         assert team.model is configured
+
+
+class TestStreamingEventsReportTheResolvedModel:
+    """aicoe-tracker#182's sibling gap: the model call itself resolved correctly, but the
+    ``model_request_started``/``model_request_completed`` event payloads emitted alongside it
+    still read ``agent.model``/``team.model`` directly, so a stream consumer (as opposed to
+    telemetry) still saw the caller's configured model for an escalated run. Reverting either
+    event-payload site to ``agent.model``/``team.model`` must turn these red.
+    """
+
+    def test_an_agent_streams_events_naming_the_resolved_model(self):
+        configured = RecordingModel("configured")
+        served = RecordingModel("provider-chose-this")
+        set_default_model_provider(_RecordingProvider("mode-a", served, ProviderMode.LOCAL))
+
+        agent = Agent(telemetry=False, model=configured)
+        events = list(
+            agent.run(
+                "hello",
+                stream=True,
+                stream_events=True,
+                run_context=RunContext(run_id="r-1", session_id="s-1"),
+            )
+        )
+
+        model_events = [e for e in events if isinstance(e, (ModelRequestStartedEvent, ModelRequestCompletedEvent))]
+        assert model_events, "the run must emit at least one model-request event"
+        for event in model_events:
+            assert event.model == served.id, "the streamed event must name the resolved model"
+            assert event.model_provider == served.provider
+
+    @pytest.mark.asyncio
+    async def test_an_async_agent_streams_events_naming_the_resolved_model(self):
+        configured = RecordingModel("configured")
+        served = RecordingModel("provider-chose-this")
+        set_default_model_provider(_RecordingProvider("mode-a", served, ProviderMode.LOCAL))
+
+        agent = Agent(telemetry=False, model=configured)
+        events = [
+            e
+            async for e in agent.arun(
+                "hello",
+                stream=True,
+                stream_events=True,
+                run_context=RunContext(run_id="r-1", session_id="s-1"),
+            )
+        ]
+
+        model_events = [e for e in events if isinstance(e, (ModelRequestStartedEvent, ModelRequestCompletedEvent))]
+        assert model_events, "the run must emit at least one model-request event"
+        for event in model_events:
+            assert event.model == served.id
+            assert event.model_provider == served.provider
+
+    def test_a_team_streams_events_naming_the_resolved_model(self):
+        configured = RecordingModel("configured")
+        served = RecordingModel("provider-chose-this")
+        set_default_model_provider(_RecordingProvider("mode-a", served, ProviderMode.LOCAL))
+
+        team = Team(members=[], name="t", model=configured, telemetry=False)
+        events = list(
+            team.run(
+                "hello",
+                stream=True,
+                stream_events=True,
+                run_context=RunContext(run_id="r-1", session_id="s-1"),
+            )
+        )
+
+        model_events = [
+            e for e in events if isinstance(e, (TeamModelRequestStartedEvent, TeamModelRequestCompletedEvent))
+        ]
+        assert model_events, "the run must emit at least one model-request event"
+        for event in model_events:
+            assert event.model == served.id
+            assert event.model_provider == served.provider
+
+    @pytest.mark.asyncio
+    async def test_an_async_team_streams_events_naming_the_resolved_model(self):
+        configured = RecordingModel("configured")
+        served = RecordingModel("provider-chose-this")
+        set_default_model_provider(_RecordingProvider("mode-a", served, ProviderMode.LOCAL))
+
+        team = Team(members=[], name="t", model=configured, telemetry=False)
+        events = [
+            e
+            async for e in team.arun(
+                "hello",
+                stream=True,
+                stream_events=True,
+                run_context=RunContext(run_id="r-1", session_id="s-1"),
+            )
+        ]
+
+        model_events = [
+            e for e in events if isinstance(e, (TeamModelRequestStartedEvent, TeamModelRequestCompletedEvent))
+        ]
+        assert model_events, "the run must emit at least one model-request event"
+        for event in model_events:
+            assert event.model == served.id
+            assert event.model_provider == served.provider
+
+    def test_events_name_the_configured_model_with_no_escalation(self):
+        """The baseline the escalation tests above must not disturb: with no provider set,
+        run_model falls back to component.model, so the streamed events must still name the
+        caller's configured model -- exactly what they read before this class's fix existed.
+        """
+        configured = RecordingModel("configured")
+        set_default_model_provider(None)
+
+        agent = Agent(telemetry=False, model=configured)
+        events = list(
+            agent.run(
+                "hello",
+                stream=True,
+                stream_events=True,
+                run_context=RunContext(run_id="r-1", session_id="s-1"),
+            )
+        )
+
+        model_events = [e for e in events if isinstance(e, (ModelRequestStartedEvent, ModelRequestCompletedEvent))]
+        assert model_events, "the run must emit at least one model-request event"
+        for event in model_events:
+            assert event.model == configured.id
+            assert event.model_provider == configured.provider
+
+        team = Team(members=[], name="t", model=configured, telemetry=False)
+        team_events = list(
+            team.run(
+                "hello",
+                stream=True,
+                stream_events=True,
+                run_context=RunContext(run_id="r-2", session_id="s-2"),
+            )
+        )
+
+        team_model_events = [
+            e for e in team_events if isinstance(e, (TeamModelRequestStartedEvent, TeamModelRequestCompletedEvent))
+        ]
+        assert team_model_events, "the team run must emit at least one model-request event"
+        for team_event in team_model_events:
+            assert team_event.model == configured.id
+            assert team_event.model_provider == configured.provider
 
 
 class TestASharedRunContextDoesNotLeakAcrossComponents:
