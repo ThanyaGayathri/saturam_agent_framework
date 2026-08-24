@@ -3427,6 +3427,30 @@ class SqliteDb(BaseDb):
             log_error(f"Error getting component: {str(e)}")
             raise
 
+    def component_id_is_taken(self, component_id: str) -> bool:
+        """Whether a live component row holds this id, in any tenant.
+
+        Deliberately unscoped, and deliberately answering with a single bit -- see
+        ``BaseDb.component_id_is_taken``. Declared in
+        ``egpt.db.component_scope.UNSCOPED_EXISTENCE_PROBES``, which is what exempts it from the
+        tenant-guard requirement the fail-closed tests hold every other component method to.
+        """
+        try:
+            table = self._get_table(table_type="components")
+            if table is None:
+                return False
+
+            with self.Session() as sess:
+                stmt = select(table.c.component_id).where(
+                    table.c.component_id == component_id,
+                    table.c.deleted_at.is_(None),
+                )
+                return sess.execute(stmt).first() is not None
+
+        except Exception as e:
+            log_error(f"Error probing component id: {str(e)}")
+            raise
+
     def upsert_component(
         self,
         component_id: str,

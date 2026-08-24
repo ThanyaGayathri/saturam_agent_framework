@@ -809,11 +809,16 @@ class TestImportAndSeedUnderEnforcedTenancy:
 
     ``_plan_entry`` probes for an id collision with a deliberately *unscoped* read, because
     ``component_id`` is the global primary key and only an unscoped read predicts what the write
-    will do. A db built with ``require_tenant_id`` refuses unscoped component reads -- and
+    will do. A db built with ``require_tenant_id`` refuses unscoped component *reads* -- and
     ``EgptOS`` turns that on for every db the moment a tenant claim is configured. The two
     features met for the first time here, and import returned 500 on every tenancy-enabled
     deployment. Both of the suites that would have caught it were gated on Postgres and so had
     never run.
+
+    The probe is now ``component_id_is_taken`` (aicoe-tracker#176): unscoped, permitted on a
+    strict db, and answering with a single bit. The interim fix (#70) fell back to a *scoped*
+    read here, which kept import up but could not see an id held by another tenant -- the
+    cross-tenant test below is the case that fallback got wrong.
 
     These live at the PR-gate tier deliberately: the defect has nothing to do with a backend, and
     pinning it behind the Postgres gate is what let it ship.
@@ -876,11 +881,7 @@ class TestImportAndSeedUnderEnforcedTenancy:
         assert client.get("/components/copy-source-agent", headers=auth(tenant=TENANT_A)).status_code == 200
 
     def test_a_second_import_of_the_same_bundle_is_a_conflict_not_a_crash(self, client):
-        """The probe's job is still done: a repeat import is refused, and legibly.
-
-        Under the scoped fallback the caller *does* own the row, so this path is unchanged -- the
-        fallback only loses visibility of ids held by *other* tenants.
-        """
+        """The probe's job is still done: a repeat import is refused, and legibly."""
         assert (
             client.post("/components/import", json={"document": self.BUNDLE}, headers=auth(tenant=TENANT_A)).status_code
             == 201
@@ -889,6 +890,28 @@ class TestImportAndSeedUnderEnforcedTenancy:
         again = client.post("/components/import", json={"document": self.BUNDLE}, headers=auth(tenant=TENANT_A))
 
         assert again.status_code == 409, again.text
+
+    def test_a_foreign_tenants_collision_is_the_same_conflict(self, client):
+        """The case the scoped fallback of #70 got wrong on a strict db.
+
+        The foreign holder was invisible to the pre-pass, so the import proceeded to the write,
+        whose "already exists" ValueError is reserved for soft-deleted holders -- a live
+        collision with another tenant surfaced as "already exists as a soft-deleted component.
+        Hard-delete it", an actively wrong instruction. The unscoped probe restores the same 409
+        the owning tenant gets, with the same body: the collision is observable either way, so a
+        distinct message would only hand a prober a cleaner ownership oracle.
+        """
+        assert (
+            client.post("/components/import", json={"document": self.BUNDLE}, headers=auth(tenant=TENANT_A)).status_code
+            == 201
+        )
+
+        mine = client.post("/components/import", json={"document": self.BUNDLE}, headers=auth(tenant=TENANT_A))
+        theirs = client.post("/components/import", json={"document": self.BUNDLE}, headers=auth(tenant=TENANT_B))
+
+        assert theirs.status_code == 409, theirs.text
+        assert theirs.json() == mine.json()
+        assert "soft-deleted" not in theirs.text
 
     def test_seeding_from_a_directory_works_on_a_strict_db(self, db, client, registry, tmp_path):
         """The non-HTTP entry point into the same planner.

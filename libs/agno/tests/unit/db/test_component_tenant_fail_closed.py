@@ -34,6 +34,7 @@ from egpt.db.base import BaseDb, ComponentType
 from egpt.db.component_scope import (
     COMPONENT_DATA_ACCESS_METHODS,
     TENANT_SCOPED_COMPONENT_TABLES,
+    UNSCOPED_EXISTENCE_PROBES,
     TenantScopeRequiredError,
     resolve_tenant_scope,
 )
@@ -270,6 +271,12 @@ class TestTenantIdIsRequired:
             for fn in node.body:
                 if not isinstance(fn, ast.FunctionDef):
                     continue
+                if fn.name in UNSCOPED_EXISTENCE_PROBES:
+                    # The declared exception (aicoe-tracker#176): an existence probe that touches
+                    # the components table with no tenant parameter at all, answering with a
+                    # single bit. Exempt here by declaration only -- its own contract is pinned
+                    # by ``TestUnscopedExistenceProbe`` below.
+                    continue
                 if not _touches_tenant_scoped_table(fn):
                     continue
                 if not _has_tenant_guard(fn):
@@ -301,6 +308,64 @@ class TestTenantIdIsRequired:
 
         missing = found - set(COMPONENT_DATA_ACCESS_METHODS)
         assert not missing, f"guarded public methods missing from COMPONENT_DATA_ACCESS_METHODS: {sorted(missing)}"
+
+
+# ============================================================================
+# 1b. THE ONE DECLARED EXCEPTION: THE UNSCOPED EXISTENCE PROBE
+# ============================================================================
+
+
+class TestUnscopedExistenceProbe:
+    """``component_id_is_taken`` is exempt from the guard, and stays inside its declaration.
+
+    ``component_id`` is the global primary key, so only an unscoped probe predicts what a write
+    will do -- a scoped one cannot see a foreign tenant's holder, which is how the same id
+    collision came to raise ``ComponentIdConflictError`` on a lax db and a raw primary-key error
+    on a strict one (aicoe-tracker#176). The probe closes that divergence by being allowed
+    everywhere, and these tests pin what keeps the exemption tolerable: it carries no tenant
+    parameter to drift on, and it answers with one bit rather than a row.
+    """
+
+    def test_the_exemption_list_is_exactly_the_probe(self):
+        """Growing this list is a deliberate act that has to happen in two places at once."""
+        assert UNSCOPED_EXISTENCE_PROBES == ("component_id_is_taken",)
+
+    @pytest.mark.parametrize("class_name", sorted(_backend_classes()))
+    @pytest.mark.parametrize("method_name", UNSCOPED_EXISTENCE_PROBES)
+    def test_the_probe_takes_no_tenant_parameter(self, class_name, method_name):
+        """No ``tenant_id`` argument exists, even optionally.
+
+        The signature is the audit trail. An unscoped probe that later grew a tenant parameter
+        would be a scoped probe wearing the exemption -- back to mispredicting the write."""
+        cls = _backend_classes()[class_name]
+        method = getattr(cls, method_name, None)
+        if method is None:
+            pytest.skip(f"{class_name} does not declare {method_name}")
+        assert "tenant_id" not in inspect.signature(method).parameters, (
+            f"{class_name}.{method_name} takes a tenant_id. The probe is exempt from the tenant "
+            f"guard precisely because it cannot be scoped; a tenant parameter forfeits that."
+        )
+
+    def test_the_probe_is_allowed_on_a_strict_db(self, strict_db):
+        """The whole point: require_tenant_id must not change the answer or refuse the call."""
+        strict_db.create_component_with_config(tenant_id=TENANT_A, **METHOD_CALLS["create_component_with_config"])
+
+        assert strict_db.component_id_is_taken("c1") is True
+        assert strict_db.component_id_is_taken("free-id") is False
+
+    def test_the_probe_sees_a_foreign_tenants_holder(self, sqlite_db):
+        """One bit crosses the tenant boundary; there is no scoped variant to miss it."""
+        sqlite_db.create_component_with_config(tenant_id=TENANT_A, **METHOD_CALLS["create_component_with_config"])
+
+        assert sqlite_db.component_id_is_taken("c1") is True
+
+    def test_a_soft_deleted_holder_is_not_counted(self, sqlite_db):
+        """Matches ``get_component``: a soft-deleted row is invisible to every read API, and
+        stays a write-time concern (``ComponentSoftDeletedError``)."""
+        sqlite_db.create_component_with_config(tenant_id=TENANT_A, **METHOD_CALLS["create_component_with_config"])
+        sqlite_db.delete_component("c1", tenant_id=TENANT_A)
+
+        assert sqlite_db.component_id_is_taken("c1") is False
 
 
 # ============================================================================

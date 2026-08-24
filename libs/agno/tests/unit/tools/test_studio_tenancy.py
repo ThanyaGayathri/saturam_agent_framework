@@ -75,6 +75,32 @@ class TestReadsAreScoped:
         assert db.get_config.call_args.kwargs["tenant_id"] is None
 
 
+class TestIdProbeSeesEveryTenant:
+    """The id-uniqueness probe is the deliberately unscoped one (aicoe-tracker#176).
+
+    A probe scoped to the studio's own tenant misses an id held by a foreign tenant, and the id
+    this toolkit then vouches for fails the insert on the global primary key. So
+    ``_component_id_exists`` asks ``component_id_is_taken`` -- one bit, no tenant parameter --
+    and ``_unique_component_id`` walks past a foreign holder instead.
+    """
+
+    def test_the_db_probe_is_the_unscoped_one(self):
+        db = _mock_db(row=None)
+        db.component_id_is_taken = MagicMock(side_effect=lambda cid: cid == "held-by-globex")
+        studio = _studio(db, tenant_id="acme")
+
+        assert studio._component_id_exists("held-by-globex", db) is True
+        assert studio._component_id_exists("fresh-id", db) is False
+        db.component_id_is_taken.assert_called_with("fresh-id")
+
+    def test_a_foreign_holder_is_stepped_over_not_collided_with(self):
+        db = _mock_db(row=None)
+        db.component_id_is_taken = MagicMock(side_effect=lambda cid: cid == "math-tutor")
+        studio = _studio(db, tenant_id="acme")
+
+        assert studio._unique_component_id("Math Tutor", db) == "math-tutor-2"
+
+
 class TestWritesCarryTheTenant:
     def test_delete_is_scoped(self):
         db = _mock_db()

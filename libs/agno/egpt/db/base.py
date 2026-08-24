@@ -746,6 +746,36 @@ class BaseDb(ABC):
         """
         raise NotImplementedError
 
+    def component_id_is_taken(self, component_id: str) -> bool:
+        """Whether a live component row holds this id, in the caller's tenant or any other.
+
+        The one deliberately unscoped component read, and the only probe that predicts what a
+        write will do: ``component_id`` is the *global* primary key, while every other read
+        applies a row-level tenant predicate. A scoped probe cannot see an id held by a foreign
+        tenant, so the same collision would surface as ``ComponentIdConflictError`` on one
+        deployment and as a raw primary-key violation on another -- the divergence this method
+        exists to close (aicoe-tracker#176).
+
+        It takes no ``tenant_id`` on purpose. The signature is the audit trail: the probe cannot
+        drift into a scoped read, and it cannot return a foreign row's data because it returns
+        nothing but one bit. For the same reason it is permitted on a db built with
+        ``require_tenant_id`` -- refusing it protects nothing, it only degrades the caller's
+        conflict error. The method is declared in
+        ``egpt.db.component_scope.UNSCOPED_EXISTENCE_PROBES``, which is what exempts it from the
+        fail-closed guard requirement every other component method is held to.
+
+        Soft-deleted rows are not counted, matching what ``get_component`` shows the planners: a
+        soft-deleted holder is invisible to every read API and remains a write-time concern
+        (``ComponentSoftDeletedError`` in ``registry/io.py``).
+
+        Args:
+            component_id: The id to probe.
+
+        Returns:
+            True if a live component row holds the id, regardless of tenant.
+        """
+        raise NotImplementedError
+
     def upsert_component(
         self,
         component_id: str,

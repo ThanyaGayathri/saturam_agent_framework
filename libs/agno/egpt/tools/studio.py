@@ -1727,18 +1727,17 @@ class StudioTools(Toolkit):
         return candidate
 
     def _component_id_exists(self, component_id: str, db: "BaseDb") -> bool:
-        """Whether this id is already taken, as far as this toolkit is allowed to see.
+        """Whether this id is already taken, anywhere.
 
-        The DB probe is scoped to ``self.tenant_id`` (EGPT-2.7), which makes the answer
-        deliberately incomplete: ``component_id`` is a *global* primary key, so another tenant
-        may hold an id this returns ``False`` for. The insert then fails on the primary key.
-
-        That trade is the right way round. An unscoped probe would answer correctly, but it is
-        also a cross-tenant existence oracle -- minting ids until one collides enumerates other
-        tenants' component names -- and it would be refused outright on a db built with
-        ``require_tenant_id``. A clear ``IntegrityError`` on a rare id collision is a better
-        failure than a working enumeration channel. Narrowing it properly means giving
-        ``component_id`` a per-tenant primary key, which is a schema change.
+        ``component_id`` is a *global* primary key, so the DB probe has to see every tenant's
+        rows to answer truthfully -- a probe scoped to ``self.tenant_id`` misses a foreign
+        holder, and the id this method vouched for then fails the insert on the primary key.
+        ``component_id_is_taken`` is the dedicated existence probe for exactly this question:
+        unscoped, permitted on a db built with ``require_tenant_id``, and answering with a
+        single bit rather than a row, which is what keeps it from being the cross-tenant
+        enumeration channel a full unscoped ``get_component`` would have been. With it,
+        ``_unique_component_id`` steps over a foreign-held id instead of handing the caller an
+        ``IntegrityError``. See docs/tenancy.md section 7.
         """
         for component in [*self._iter_agents(), *self._iter_teams(), *self._iter_workflows()]:
             component_name = getattr(component, "name", None)
@@ -1748,7 +1747,7 @@ class StudioTools(Toolkit):
                 or (component_name is not None and _slugify(component_name) == component_id)
             ):
                 return True
-        return db.get_component(component_id, tenant_id=self.tenant_id) is not None
+        return db.component_id_is_taken(component_id)
 
     def _resolve_members(self, member_ids: List[str]) -> tuple[List[TeamMember], List[str]]:
         members: List[TeamMember] = []

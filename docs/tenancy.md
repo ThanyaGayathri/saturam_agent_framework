@@ -381,10 +381,22 @@ change with a migration rather than an enforcement change — tracked separately
 ## 7. Known limits
 
 - **`component_id` is globally unique**, so two tenants cannot both own `support-agent`. The 404
-  hides who holds it; the id is still unavailable. It also means `tools/studio.py`'s id-uniqueness
-  probe is scoped to its own tenant and can therefore miss a foreign holder — the insert then
-  fails on the primary key. That is the deliberate trade: an unscoped probe would answer correctly
-  but is a cross-tenant existence oracle. Narrowing it properly means a per-tenant primary key.
+  hides who holds it; the id is still unavailable. Every "is this id taken?" question — the
+  import/seed planner's collision pre-pass and `tools/studio.py`'s id-uniqueness probe — therefore
+  goes through one deliberately **unscoped** probe, `BaseDb.component_id_is_taken`
+  ([aicoe-tracker#176](https://github.com/Saturam-Inc/aicoe-tracker/issues/176)): it sees every
+  tenant's live rows, takes no `tenant_id` parameter at all, and is permitted even under
+  `require_tenant_id`. That is a one-bit cross-tenant existence oracle, accepted deliberately.
+  What keeps it tolerable: the probe returns no row data, and the conflict it produces
+  (`ComponentIdConflictError`, HTTP 409) reads identically whether the holder is the caller's
+  tenant or a foreign one, so it hands a prober nothing the collision itself does not already
+  reveal. The alternative — a probe scoped to the caller's tenant — answers wrongly: the collision
+  then surfaces as a raw primary-key error, and on the import path was misreported as a
+  soft-deleted holder. The exemption is declared in
+  `egpt/db/component_scope.py::UNSCOPED_EXISTENCE_PROBES` and pinned by
+  `tests/unit/db/test_component_tenant_fail_closed.py`, which asserts the probe can never grow a
+  tenant parameter. Removing the oracle entirely still means a per-tenant primary key, which
+  remains the correct end state if that migration ever gets appetite.
 - **Sessions, memories and runs are unscoped.** Hydration itself is scoped (section 5) and the
   agents/teams/workflows routers are tenant-gated, but the surrounding run/session data is not.
   Needs a `tenant_id` column and migration on those tables; follow-up work, not EGPT-2.7.

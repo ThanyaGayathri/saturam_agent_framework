@@ -16,11 +16,11 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
-from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
 )
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.utils import (
     deserialize_session,
     deserialize_session_json_fields,
@@ -3585,6 +3585,9 @@ class AsyncSqliteDb(AsyncBaseDb):
         *,
         tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError("Component methods not yet supported for async databases")
+
+    def component_id_is_taken(self, component_id: str) -> bool:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
     def upsert_component(
