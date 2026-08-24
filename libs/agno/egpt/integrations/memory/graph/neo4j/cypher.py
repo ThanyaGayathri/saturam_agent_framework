@@ -740,15 +740,30 @@ def ppr_rank_statement(
     collections of them can -- which is why this takes names, not the anchor nodes ``seeds``
     matched.
 
-    **Residual, stated rather than silently accepted:** an anchor entity renamed or deleted between
-    ``seeds`` and this call drops out of the exact-name match, shrinking (never widening or
-    substituting) the effective seed set for this one call. Narrower than the race this replaces --
-    a deterministic exact-match miss on a since-gone name, not a fresh, unbounded re-evaluation
-    that could silently pick up an entirely different anchor set -- and not solved here; wrapping
-    ``seeds`` and this call in one shared transaction would close it fully but conflicts with
-    keeping GDS catalog operations (``project``, sitting between the two) outside the transactional
-    model this module otherwise uses for them (see ``Neo4jGraphSubstrate._ppr_rows``'s own
-    docstring).
+    **Residual, stated rather than silently accepted (round-4 review, Minor -- an earlier version
+    of this paragraph documented only the first of three windows below).** The ``seeds`` ->
+    ``project`` -> ``rank`` pipeline is three separate driver calls, not one transaction, so graph
+    drift is possible at each boundary, in three distinct ways:
+
+    1. **Between ``seeds`` and this call**, an anchor renamed or deleted drops out of the exact-name
+       match here, shrinking (never widening or substituting) the effective seed set -- a
+       deterministic exact-match miss on a since-gone name, not a fresh, unbounded re-evaluation
+       that could silently pick up an entirely different anchor set. This is the race the round-3
+       fix actually closes; the two below are pre-existing, not introduced or widened by it.
+    2. **Between ``seeds`` and ``project``**, the projection's own topology ``MATCH`` (built by
+       :func:`ppr_statements`, not this function) can see graph writes that landed after ``seeds``
+       resolved -- affecting what gets ranked, independent of which anchors seed the ranking.
+    3. **Between ``project`` and this call's own final ``MATCH (n)-[r:REL]-(other)``**, the join
+       reads *current* graph state, not the state the GDS projection actually scored -- a
+       **widening** effect unlike the other two: an edge written after ``project`` ran, never part
+       of what PageRank ranked at all, can still surface in this statement's results.
+
+    None of the three is solved here; wrapping the whole pipeline in one shared transaction would
+    close them but conflicts with keeping GDS catalog operations (``project``) outside the
+    transactional model this module otherwise uses for them (see ``Neo4jGraphSubstrate._ppr_rows``'s
+    own docstring). All three are the same class of residual: a GDS-based ranked read over a live,
+    concurrently-written graph, bounded by how fresh each of this pipeline's own reads is, not by
+    anything sharper.
 
     Refuses (:class:`~egpt.memory.errors.MemoryOperationError`) for an ``alpha`` outside
     ``[0.0, 1.0)``, the identical guard :func:`ppr_statements` applies -- this function, not that

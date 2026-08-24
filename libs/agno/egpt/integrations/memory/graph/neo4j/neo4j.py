@@ -200,15 +200,18 @@ class Neo4jGraphSubstrate:
         self.max_traverse_anchor_entities = max_traverse_anchor_entities
         self.multihop_ppr_enabled = multihop_ppr_enabled
         # `multihop_ppr_alpha`/`multihop_ppr_seed_top_m` are deferred like `max_traverse_hops`
-        # above, but *less* deferred than that comment's own pattern might suggest (round-2 review,
-        # Nit -- checked directly, not assumed from `max_traverse_hops`'s shape): `_ppr_rows`/
-        # `_appr_rows` build every statement, `rank` included, via `_ppr_statements_for` *before*
-        # checking whether `seeds` came back empty, and `cypher.ppr_statements` validates both
-        # fields while building `rank`. So a misconfigured `alpha`/`seed_top_m` raises
-        # `MemoryOperationError` on the first `traverse`/`atraverse` call whose query actually
-        # reaches this leg -- non-empty `query.text` and a positive `limit`, `traverse`'s own guard
-        # for every leg -- not only once that query's anchor set happens to be non-empty. Accepted
-        # silently here at construction, and by any call too trivial to reach the leg at all.
+        # above, but the two now differ from each other in exactly how (round-4 review, Minor --
+        # this comment previously claimed both raised together, which stopped being true when the
+        # round-3 TOCTOU fix split validation across two functions). `seed_top_m` is still validated
+        # in `cypher.ppr_statements`, which `_ppr_statements_for` calls unconditionally -- so a bad
+        # `seed_top_m` raises `MemoryOperationError` on the first `traverse`/`atraverse` call whose
+        # query reaches this leg at all (non-empty `query.text`, a positive `limit`), regardless of
+        # whether any anchor is found. `alpha`, moved to `cypher.ppr_rank_statement` with the
+        # TOCTOU fix, is validated only when `_ppr_rank_statement_for` actually runs -- which
+        # `_ppr_rows`/`_appr_rows` gate on `seed_rows` being non-empty. So a bad `alpha` on a query
+        # whose anchor set resolves empty does not raise at all; it silently no-ops, the same as a
+        # correctly-configured empty-anchor call would. Both are accepted silently here at
+        # construction either way.
         self.multihop_ppr_alpha = multihop_ppr_alpha
         self.multihop_ppr_seed_top_m = multihop_ppr_seed_top_m
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
@@ -1181,7 +1184,7 @@ class Neo4jGraphSubstrate:
         Major).** An earlier version had ``rank`` run its own independent ``MATCH`` over the same
         anchor predicate ``seeds`` already evaluated -- two unsynchronized statements, a TOCTOU
         race a concurrent entity write between them could exploit to silently seed ``rank`` from an
-        empty or different anchor set than ``seeds`` had verified. `:func:`~egpt.integrations.
+        empty or different anchor set than ``seeds`` had verified. :func:`~egpt.integrations.
         memory.graph.neo4j.cypher.ppr_rank_statement`'s own docstring has the full account and the
         residual this still leaves.
         """
