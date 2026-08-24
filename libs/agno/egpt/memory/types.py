@@ -1286,5 +1286,13 @@ class ConsolidationReport:
     #: `CoLocatedMemoryProvider._distil_facts`'s docstring for why running it there would be
     #: unsafe, not merely redundant.
     near_duplicate_facts_folded: int = 0
+    #: Graph edges a wired ``relation_pipeline`` (SM-G3 #101 / SM-G5 #103 / SM-L5 #126) invalidated
+    #: this pass -- against pre-existing graph state and against sibling candidates in the same
+    #: batch alike (``RelationExtractionPipeline._contradicted``/``_contradicted_within``). Zero
+    #: when no ``relation_pipeline`` is wired, the same "never configured" reading every other
+    #: field on this report gives an absent stage. Deliberately **not** incremented by
+    #: `fact_pipeline`'s (SM-L3 #124) own UPDATE/DELETE retirements: per ADR 0003 SS B.6 the graph
+    #: is sole authority for semantic contradiction, and a vector-side transaction-time supersede
+    #: is a different mechanism, not a second contradiction this field also counts.
     contradictions_resolved: int = 0
     details: Dict[str, Any] = field(default_factory=dict)

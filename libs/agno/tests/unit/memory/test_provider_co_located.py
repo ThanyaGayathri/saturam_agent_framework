@@ -17,6 +17,9 @@ from egpt.memory.config import (
     build_memory_provider,
     registered_providers,
 )
+from egpt.memory.consolidation.extract import FactExtractionReport
+from egpt.memory.graph.relations import ExtractedRelation, RelationExtractionPipeline
+from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor, ValidTimeSpan
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FUSION_KEYS,
@@ -557,12 +560,158 @@ async def test_near_duplicate_facts_from_different_users_never_merge(half, monke
     assert report.near_duplicate_facts_folded == 0
 
 
-def test_contradictions_resolved_stays_zero_and_says_why():
-    """Resolution needs extraction to know two facts disagree -- that is SM-L5's."""
+def test_contradictions_resolved_stays_zero_with_no_relation_pipeline_wired():
+    """No `relation_pipeline` means no graph-edge contradiction detection ever runs -- SM-L5
+    (#126) surfaces `relation_pipeline`'s own count here, but has nothing to surface when the
+    pipeline was never configured (`NO_RELATIONS`, not a dict)."""
     p, _, _ = provider()
     p.write(ACME, [event("anything at all")])
 
     assert p.consolidate(ACME).contradictions_resolved == 0
+
+
+class _RelationStub:
+    """Returns one relation per episode, keyed on content -- same shape as
+    ``test_graph_relations.py``'s ``StubExtractor``, kept local since only two tests in this file
+    use it (review finding, PR #126 round 1: move to ``conftest.py`` once a *second* file needs a
+    stub ``RelationExtractor``, not before)."""
+
+    def __init__(self, by_content):
+        self.by_content = by_content
+
+    def extract(self, episode):
+        return list(self.by_content.get(episode.content, ()))
+
+    async def aextract(self, episode):
+        return self.extract(episode)
+
+
+class _FixedValidTime:
+    """A :class:`ValidTimeExtractor` double that returns an explicit, pre-assigned span per
+    episode content, bypassing date-prose parsing entirely (review finding, PR #126 round 2):
+    coupling a contradiction-detection test's pass/fail to ``RuleBasedValidTimeExtractor``
+    correctly parsing "since Jan 2024" would make a date-parsing regression and a
+    `_contradicted_within` regression indistinguishable from the same failing assertion."""
+
+    def __init__(self, by_content):
+        self.by_content = by_content
+
+    def extract(self, content, ingest_time=None):
+        return self.by_content[content]
+
+    async def aextract(self, content, ingest_time=None):
+        return self.extract(content, ingest_time)
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_contradictions_resolved_reflects_a_real_graph_edge_invalidation(half):
+    """SM-L5 (#126): `ConsolidationReport.contradictions_resolved` used to stay hard-coded at 0
+    even once a wired `relation_pipeline` (SM-G3/SM-G5) genuinely invalidated an edge -- the count
+    existed on `RelationExtractionReport` but `_relations`/`_arelations` discarded it, keeping only
+    `.details`. Two consolidation passes over contradicting facts must now report a nonzero count,
+    end to end through `consolidate`/`aconsolidate`, not just through `RelationExtractionPipeline`
+    directly (already covered in `test_graph_relations.py`).
+
+    **Cross-pass only** (review finding, PR #126 round 1): the second `consolidate` call's batch
+    holds exactly one new candidate, so this exercises `_contradictions_for` against the graph's
+    pre-existing edge -- SM-G5 behaviour, unchanged by this ticket. It does not exercise
+    `_contradicted_within` (SM-L5's own same-pass addition), which exits immediately on a
+    one-candidate batch. See
+    :func:`test_contradictions_resolved_counts_a_same_pass_invalidation_too` for that path."""
+    extractor = _RelationStub(
+        by_content={
+            "Ada works at Acme since Jan 2024": [
+                ExtractedRelation(source="Ada", relation="works_at", target="Acme Corp")
+            ],
+            "Ada works at Beta since Jan 2025": [
+                ExtractedRelation(source="Ada", relation="works_at", target="Beta Inc")
+            ],
+        }
+    )
+    vector, graph = FakeVector(), FakeGraph()
+    relation_pipeline = RelationExtractionPipeline(
+        graph=graph, extractor=extractor, valid_time_extractor=RuleBasedValidTimeExtractor()
+    )
+    p = CoLocatedMemoryProvider(
+        vector=vector,
+        graph=graph,
+        config=MemoryProviderConfig(provider="co_located"),
+        relation_pipeline=relation_pipeline,
+    )
+
+    # Explicit, lexicographically-ordered ids: `_advance_cursor` orders `(created_at, id)`, and
+    # both writes land within the same wall-clock second under a fast test run -- a random
+    # per-event id (the default `event()` gives none, so the provider mints a UUID) would leave
+    # the cursor's tiebreak a coin flip on whether the second write is even visible to the second
+    # consolidate call.
+    if half == "sync":
+        p.write(ACME, [event("Ada works at Acme since Jan 2024", id="e1")])
+        p.consolidate(ACME)
+        p.write(ACME, [event("Ada works at Beta since Jan 2025", id="e2")])
+        report = p.consolidate(ACME)
+    else:
+        await p.awrite(ACME, [event("Ada works at Acme since Jan 2024", id="e1")])
+        await p.aconsolidate(ACME)
+        await p.awrite(ACME, [event("Ada works at Beta since Jan 2025", id="e2")])
+        report = await p.aconsolidate(ACME)
+
+    assert report.contradictions_resolved == 1
+    assert report.details["relations"]["edges_invalidated"] == 1
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_contradictions_resolved_counts_a_same_pass_invalidation_too(half):
+    """Review finding (PR #126, round 1): the previous test writes and consolidates in two
+    separate passes, so the second `consolidate` call's batch holds exactly one new candidate --
+    `_contradictions_for` (cross-pass, vs. the graph's pre-existing edge) is what fires, and
+    `_contradicted_within` (same-pass, SM-L5's own addition) exits immediately on a one-candidate
+    batch without ever comparing anything. A regression that completely disabled
+    `_contradicted_within` would not have failed that test.
+
+    Both contradicting episodes land in **one** `write()`/`awrite()` call here, so one
+    `consolidate`/`aconsolidate` pass hands `relation_pipeline.run`/`arun` a batch with both
+    candidates -- the same shape `test_graph_relations.py`'s
+    `test_two_same_pass_candidates_contradicting_each_other_invalidate_the_earlier_one` already
+    covers at the pipeline level, exercised here end to end through the provider instead.
+
+    Valid times are explicit (`_FixedValidTime`), not parsed from content (review finding, PR
+    #126 round 2): the assertion below must be sensitive to `_contradicted_within`, not to
+    whether `RuleBasedValidTimeExtractor` still parses a given date phrase.
+    """
+    extractor = _RelationStub(
+        by_content={
+            "Ada works at Acme": [ExtractedRelation(source="Ada", relation="works_at", target="Acme Corp")],
+            "Ada works at Beta": [ExtractedRelation(source="Ada", relation="works_at", target="Beta Inc")],
+        }
+    )
+    valid_time = _FixedValidTime(
+        by_content={
+            "Ada works at Acme": ValidTimeSpan(t_valid=100),
+            "Ada works at Beta": ValidTimeSpan(t_valid=200),
+        }
+    )
+    vector, graph = FakeVector(), FakeGraph()
+    relation_pipeline = RelationExtractionPipeline(graph=graph, extractor=extractor, valid_time_extractor=valid_time)
+    p = CoLocatedMemoryProvider(
+        vector=vector,
+        graph=graph,
+        config=MemoryProviderConfig(provider="co_located"),
+        relation_pipeline=relation_pipeline,
+    )
+    episodes = [
+        event("Ada works at Acme", id="e1"),
+        event("Ada works at Beta", id="e2"),
+    ]
+
+    if half == "sync":
+        p.write(ACME, episodes)
+        report = p.consolidate(ACME)
+    else:
+        await p.awrite(ACME, episodes)
+        report = await p.aconsolidate(ACME)
+
+    assert report.contradictions_resolved == 1
+    assert report.details["relations"]["edges_invalidated"] == 1
 
 
 def test_consolidation_without_a_vector_substrate_fails_loudly():
@@ -1801,6 +1950,53 @@ def test_consolidation_does_not_retire_and_says_so():
     live = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC and r.is_current_belief()]
     assert len(live) == 2, "the known limitation: SM-L3 (#124) makes this 1"
     assert "invalidate" not in graph.calls and "upsert_facts" in graph.calls
+
+
+def test_consolidation_reports_provenance_validity_for_the_deterministic_dedup_default():
+    """SM-L7 (#128): `consolidate`'s report now carries `details["provenance_validity"]`, computed
+    against the episodes this pass actually scanned -- a real production call site for
+    `provenance_report`, not only a library function exercised in its own unit tests. The
+    deterministic-dedup default path's facts all cite real, just-scanned episodes, so this is the
+    ordinary, expected 1.0 case."""
+    p, vector, graph = provider()
+    p.write(ACME, [event("ada prefers async standups", id="e1")])
+
+    report = p.consolidate(ACME)
+
+    assert report.details["provenance_validity"] == 1.0
+    assert report.details["provenance_dangling"] == []
+
+
+class _StubPipelineWithADanglingCitation:
+    """A `fact_pipeline` double that hands back one fact citing an episode id no scan ever
+    produced -- the only way to exercise `provenance_report`'s `< 1.0` branch through
+    `consolidate` without a real corruption, since the deterministic-dedup default always cites
+    real, just-read episodes by construction."""
+
+    def distil(self, scope, episodes):
+        fact = FactWrite(
+            record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=scope),
+            source_episode_ids=["ghost-episode"],
+        )
+        return [fact], FactExtractionReport(scope=scope, episodes_read=len(episodes))
+
+    async def adistil(self, scope, episodes):
+        return self.distil(scope, episodes)
+
+
+def test_consolidation_reports_a_dangling_citation_without_raising():
+    """The negative case: a fact_pipeline that produces a dangling citation is *reported*, not
+    refused -- `provenance_report` here is detection only (round-3 review: "policy on violation
+    stays in aicoe-tracker#194"), so `consolidate` must still complete and write the fact."""
+    vector, graph = FakeVector(), FakeGraph()
+    provider = CoLocatedMemoryProvider(vector=vector, graph=graph, fact_pipeline=_StubPipelineWithADanglingCitation())
+    provider.write(ACME, [event("ada prefers async standups", id="e1")])
+
+    report = provider.consolidate(ACME)
+
+    assert report.details["provenance_validity"] == 0.0
+    assert report.details["provenance_dangling"] == ["f1"]
+    assert report.semantic_written == 1, "detection does not block the write"
 
 
 def test_a_refusal_during_consolidation_is_a_partial_write():

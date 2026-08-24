@@ -868,3 +868,21 @@ Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
 `31_semantic_fact_store.py`, then `feat/SM-L3` took `32_fact_extraction_merge.py`, all while this
 branch was still catching up.** Per this file's own convention, whoever merges second renumbers --
 four times, this time.
+
+---
+
+### 34_sleep_time_scheduling.py
+
+**Status:** PASS
+
+**Description:** Sleep-time scheduling (SM-L9): builds a `SleepTimeScheduleConfig` (01:00-06:00
+`America/New_York` window, 300s idle threshold), wraps it into a trigger via
+`build_sleep_time_trigger`, and wires it into `ConsolidationWorker`. A fake clock drives two
+`run_once` ticks against the same recorded event: one at 14:10 (idle threshold met, outside the
+window) and one at Jan 16 02:00 (idle threshold met, inside the window).
+
+**Result:** Verified end to end with no database, no API key, no network. The 14:10 tick drains 0
+scopes; the 02:00 tick drains the scope and produces 1 semantic fact, confirming the window gates
+firing while `record_event`'s accumulation is unaffected by the hour it was called at.
+
+**Requires:** Nothing. Run with `.venvs/demo`.
