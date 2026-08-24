@@ -39,6 +39,7 @@ from egpt.memory.types import (
 
 if TYPE_CHECKING:  # `config` imports this module, so the annotation cannot be a runtime import
     from egpt.memory.config import MemoryProviderConfig
+    from egpt.memory.working import WorkingMemory
 
 __all__ = ["MemoryProvider"]
 
@@ -251,3 +252,37 @@ class MemoryProvider(ABC):
 
     async def aclose(self) -> None:
         """Async variant of :meth:`close`, for substrates whose driver has an async half."""
+
+    # -- working-tier hook (SM-C6 #94) -----------------------------------------
+
+    def assemble_context(
+        self,
+        scope: Scope,
+        working: "WorkingMemory",
+        query: Optional[MemoryQuery] = None,
+    ) -> str:
+        """Combine a :class:`~egpt.memory.working.WorkingMemory` buffer with a persistent-tier
+        read into one prompt string -- the WORKING half of SM-H6's retrieval assembly.
+
+        Concrete rather than abstract: every adapter inherits it for free via :meth:`read`, and it
+        does not touch a WORKING row a backend could serve differently -- there is none, per
+        ``TIER_POLICY[WORKING]``. What SM-H6 (once it exists) owns is *how* a ranked persistent
+        slice should interleave with a live buffer rather than simply follow it; this method
+        guarantees both halves reach one caller-visible surface today, not the fusion between them.
+
+        ``query`` defaults to an unrestricted read over the persistent tiers
+        (:data:`~egpt.memory.tiers.PERSISTENT_TIERS`, via ``MemoryQuery.tiers=None``); WORKING is
+        never among them (``searched_by_default=False``), so it is never double-rendered.
+        """
+        persistent = self.read(scope, query if query is not None else MemoryQuery(text=""))
+        return working.as_context(persistent)
+
+    async def aassemble_context(
+        self,
+        scope: Scope,
+        working: "WorkingMemory",
+        query: Optional[MemoryQuery] = None,
+    ) -> str:
+        """Async variant of :meth:`assemble_context`."""
+        persistent = await self.aread(scope, query if query is not None else MemoryQuery(text=""))
+        return working.as_context(persistent)
