@@ -5,6 +5,7 @@ config persistence path is exercised, not mocked.
 """
 
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict
 
@@ -290,16 +291,20 @@ class TestCreateAgent:
         assert out["tools"] == []
 
     def test_slug_collisions_get_unique_ids(self, studio, db):
+        """The disambiguator is random, not a dense ``-2`` walk: a dense suffix returned in a
+        successful response counts existing holders, and the probe underneath is unscoped, so
+        the count could be another tenant's (docs/tenancy.md section 7)."""
         first = _loads(studio.create_agent(name="My Agent", instructions="i", model_id="gpt-5.4"))
         second = _loads(studio.create_agent(name="my-agent", instructions="i", model_id="gpt-5.4"))
         third = _loads(studio.create_agent(name="My--Agent", instructions="i", model_id="gpt-5.4"))
 
         assert first["id"] == "my-agent"
-        assert second["id"] == "my-agent-2"
-        assert third["id"] == "my-agent-3"
+        assert re.fullmatch(r"my-agent-[0-9a-f]{6}", second["id"])
+        assert re.fullmatch(r"my-agent-[0-9a-f]{6}", third["id"])
+        assert len({first["id"], second["id"], third["id"]}) == 3
         assert db.get_component("my-agent", tenant_id=None)["name"] == "My Agent"
-        assert db.get_component("my-agent-2", tenant_id=None)["name"] == "my-agent"
-        assert db.get_component("my-agent-3", tenant_id=None)["name"] == "My--Agent"
+        assert db.get_component(second["id"], tenant_id=None)["name"] == "my-agent"
+        assert db.get_component(third["id"], tenant_id=None)["name"] == "My--Agent"
 
     def test_component_ids_share_global_namespace(self, studio):
         studio.create_agent(name="member", instructions="i", model_id="gpt-5.4")
@@ -307,7 +312,7 @@ class TestCreateAgent:
         agent = _loads(studio.create_agent(name="reporter", instructions="i", model_id="gpt-5.4"))
 
         assert team["id"] == "reporter"
-        assert agent["id"] == "reporter-2"
+        assert re.fullmatch(r"reporter-[0-9a-f]{6}", agent["id"])
 
     def test_persist_failure_returns_error(self, studio, db, monkeypatch):
         def fail_upsert_config(*args, **kwargs):

@@ -3842,11 +3842,23 @@ class SqliteDb(BaseDb):
                 # Check if component already exists. Deliberately NOT tenant-scoped:
                 # component_id is the primary key and therefore globally unique, so a
                 # tenant-scoped check would pass here and then fail on a raw PK violation.
+                #
+                # deleted_at is read here too, not just component_id: a competing create can
+                # land between the planner's pre-pass probe and this write (TOCTOU), and this
+                # is the only check that reads the same snapshot the write fails against. A
+                # live holder and a soft-deleted one are different failure modes for the
+                # caller -- see the two distinct messages below -- and only this in-transaction
+                # read can tell them apart; a post-hoc re-probe cannot, since the winner's row
+                # could itself be soft-deleted between the failed insert and the re-probe.
                 existing = sess.execute(
-                    select(components_table.c.component_id).where(components_table.c.component_id == component_id)
-                ).scalar_one_or_none()
+                    select(components_table.c.component_id, components_table.c.deleted_at).where(
+                        components_table.c.component_id == component_id
+                    )
+                ).first()
 
                 if existing is not None:
+                    if existing.deleted_at is not None:
+                        raise ValueError(f"Component {component_id} already exists as a soft-deleted component")
                     raise ValueError(f"Component {component_id} already exists")
 
                 # Check label uniqueness (scoped to the component, which is already unique)

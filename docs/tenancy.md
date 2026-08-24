@@ -243,8 +243,10 @@ caller's tenant end to end:
   cannot be built raises `HydrationError` (rendered as a 500 with the cause) instead of
   collapsing into a misleading 404.
 - **`tools/studio.py` takes a constructor `tenant_id`** and scopes every component read and
-  write to it. The default `None` keeps the old unscoped behaviour — acceptable only for
-  single-tenant or operator-facing agents.
+  write to it, with one exception: the id-uniqueness probe behind `create_*` is the same
+  deliberately unscoped `component_id_is_taken` described in section 7, since only an
+  unscoped check predicts what the write will do. The default `None` keeps the old unscoped
+  behaviour — acceptable only for single-tenant or operator-facing agents.
 - **The write-validation dry run is scoped**: a team or workflow config naming another
   tenant's component as a member/step no longer hydrates it, closing the foreign-id
   existence oracle.
@@ -284,6 +286,11 @@ A required parameter rather than a sentinel default (`UNSCOPED`) was chosen so m
 mistake statically; `disable_error_code = ["override"]` in `libs/agno/pyproject.toml` means a
 sentinel would have produced no type-checker signal at all. See
 [adr/0004-component-tenant-isolation.md](adr/0004-component-tenant-isolation.md).
+
+There is a fifteenth component method, `component_id_is_taken`, and its `tenant_id` story is
+different from every method above: it carries no `tenant_id` parameter at all, not even a
+keyword-only one, and it is the one deliberate exception to the guard this section describes.
+See section 7 for why.
 
 ### Turning on strict mode
 
@@ -363,10 +370,12 @@ Three tests keep it that way:
   `tenant_id` is keyword-only with no default, and parses each backend's AST to assert the guard
   is the first statement of all fourteen methods. A backend added later without either cannot pass
   CI.
-- `tests/unit/db/test_component_tenant_adversarial.py` — tenant B attempts all fourteen methods
+- `tests/unit/db/test_component_tenant_adversarial.py` — tenant B attempts all fifteen methods
   against tenant A's ids; tenant A's four tables are then compared row by row via raw SQL. A
   mutation refusing in its return value while having already written is caught here, as is any
-  audit row written by a refused mutation.
+  audit row written by a refused mutation. The fifteenth, `component_id_is_taken`, is expected
+  to *succeed* and see tenant A's id -- it is the deliberate exception -- so its assertion is
+  that tenant A's state is untouched, not that the call is refused.
 - `tests/integration/os/tenancy_postgres/test_adversarial_tenant_isolation.py` — the same sweep on
   real Postgres, plus every component route driven with tenant B's real JWT. The route assertion
   is *indistinguishability* from a nonexistent component rather than a fixed status code: routes
@@ -397,6 +406,22 @@ change with a migration rather than an enforcement change — tracked separately
   `tests/unit/db/test_component_tenant_fail_closed.py`, which asserts the probe can never grow a
   tenant parameter. Removing the oracle entirely still means a per-tenant primary key, which
   remains the correct end state if that migration ever gets appetite.
+
+  The one-bit and "reads identically" claims above hold only for a **live** holder. The probe
+  does not count soft-deleted rows (matching `get_component`'s visibility), so a *soft-deleted
+  foreign* holder is invisible to it — and to `upsert_component`'s tenant-scoped existing-row
+  lookup, which studio's insert relies on. Two asymmetries follow from that gap, both scoped
+  down to this one case. `tools/studio.py`'s `create_*` still ends in a raw `IntegrityError` for
+  a soft-deleted foreign holder (the probe only steps over a foreign-held *live* id). And the
+  two write routes disagree with each other: `POST /components` maps both a live and a
+  soft-deleted collision to the same owner-blind "already exists" 409, but the import route
+  still maps a soft-deleted collision to the distinct `ComponentSoftDeletedError` body ("Hard-
+  delete it...") — so a prober can learn a second bit (live vs. soft-deleted foreign) from the
+  import route specifically, using the direct-create route's own behaviour as the tell.
+  Aligning the import route's soft-deleted-holder body with the direct-create route's
+  owner-blind one, and degrading studio's write-time `IntegrityError` to
+  `ComponentIdConflictError` when the holder is foreign, are both tracked as follow-up work
+  under aicoe-tracker#176.
 - **Sessions, memories and runs are unscoped.** Hydration itself is scoped (section 5) and the
   agents/teams/workflows routers are tenant-gated, but the surrounding run/session data is not.
   Needs a `tenant_id` column and migration on those tables; follow-up work, not EGPT-2.7.

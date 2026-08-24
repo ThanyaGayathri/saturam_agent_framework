@@ -284,13 +284,18 @@ def attach_routes(
             # 409-for-mine and 404-for-theirs would therefore not conceal the collision, it
             # would only *label* it, handing a prober a cleaner ownership oracle than the
             # undifferentiated 400 this replaces.
-            # Matched exactly, not by substring: the label-uniqueness ValueError raised further
-            # down the same db method also contains "already exists", and a substring test
-            # would relabel a duplicate `label` as an id collision -- reporting a field the
-            # caller got right and discarding the one they got wrong. The reasoning above is
-            # about *id* collisions only, so everything else falls through to its real message
-            # (which is what the sibling version-creating routes already do).
-            if str(e) == f"Component {component_id} already exists":
+            # Matched by prefix, not exact equality: the db raises two id-collision messages
+            # (live holder vs. soft-deleted holder -- see create_component_with_config in
+            # sqlite.py/postgres.py) that share this prefix, and both are owner-blind 409s
+            # here on purpose -- a soft-deleted-vs-live distinction is a second bit a prober
+            # should not get for free. Not a substring test either: the label-uniqueness
+            # ValueError raised further down the same db method also contains "already
+            # exists", and a substring match would relabel a duplicate `label` as an id
+            # collision -- reporting a field the caller got right and discarding the one they
+            # got wrong. `startswith` catches both id messages without catching that one,
+            # since it starts with "Label", not "Component". Everything else falls through to
+            # its real message (which is what the sibling version-creating routes already do).
+            if str(e).startswith(f"Component {component_id} already exists"):
                 raise HTTPException(status_code=409, detail=f"Component {component_id} already exists")
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:

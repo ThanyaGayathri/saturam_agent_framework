@@ -367,6 +367,32 @@ class TestUnscopedExistenceProbe:
 
         assert sqlite_db.component_id_is_taken("c1") is False
 
+    @pytest.mark.parametrize("class_name", sorted(_backend_classes()))
+    def test_a_backend_with_component_reads_also_declares_the_probe(self, class_name):
+        """Catches the ClickHouse-shaped regression: a backend that overrides
+        ``get_component`` (so component reads are meant to work, or to be a deliberate
+        no-op) but not ``component_id_is_taken`` silently inherits ``BaseDb``'s
+        ``raise NotImplementedError`` -- turning a previously-working call into a hard
+        failure with no signal from this suite.
+
+        Checked with ``__dict__``, not ``getattr``: resolving the *inherited* method (as the
+        signature test above does, deliberately, since it wants to check every backend's
+        effective signature) would find ``BaseDb.component_id_is_taken`` and pass vacuously
+        for exactly the backend that needs to be caught.
+
+        A backend that overrides neither method (Mongo, MySQL, Redis, ...) never worked for
+        components at all, so it is not held to this -- there is no "component reads work but
+        the probe doesn't" regression to have.
+        """
+        cls = _backend_classes()[class_name]
+        if "get_component" not in cls.__dict__:
+            pytest.skip(f"{class_name} does not override get_component -- component reads were never wired up")
+        assert "component_id_is_taken" in cls.__dict__, (
+            f"{class_name} overrides get_component but not component_id_is_taken, so the probe "
+            f"falls through to BaseDb's raise NotImplementedError -- a working component read "
+            f"path becomes a hard failure."
+        )
+
 
 # ============================================================================
 # 2. EXPLICIT None IS REFUSED UNDER require_tenant_id

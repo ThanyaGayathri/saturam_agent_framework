@@ -1026,7 +1026,7 @@ def _plan_entry(
     # refuses the unscoped call (EGPT-2.7), and the scoped fallback this code briefly shipped
     # with (#70) could not see an id held by another tenant -- the same collision then raised
     # `ComponentIdConflictError` on a lax db but a raw primary-key error on a strict one, and the
-    # write-time ValueError in `_import_entry` misread that live foreign holder as a soft-deleted
+    # write-time ValueError in `_apply_plan` misread that live foreign holder as a soft-deleted
     # row. The dedicated probe answers with one bit, carries no tenant parameter, and is
     # permitted on a strict db, so every deployment takes the same path. See docs/tenancy.md
     # section 7 and aicoe-tracker#176.
@@ -1179,14 +1179,24 @@ def _apply_plan(
                 audit_note=note,
             )
         except ValueError as exc:
-            # The pre-pass saw no component under this id, so the only thing that can hold the
-            # primary key now is a soft-deleted row -- invisible to every read API. This is the
-            # one decision that cannot be made in the planning phase, which is why `on_deleted`
-            # has to reach this far down.
-            if str(exc) == f"Component {entry.component_id} already exists":
+            # The pre-pass saw no component under this id. Two things can still hold the
+            # primary key by the time the write runs: a soft-deleted row -- invisible to every
+            # read API, which is why this decision cannot be made in the planning phase, and
+            # `on_deleted` has to reach this far down -- or a *live* row from a competing write
+            # that landed in the race window between the pre-pass and this write. The db's two
+            # distinct messages (sqlite.py/postgres.py `create_component_with_config`) are what
+            # tell the two apart; collapsing them here would misreport a lost race as a
+            # soft-deleted holder, which is exactly the misreport this exemption exists to
+            # avoid (aicoe-tracker#176).
+            exc_str = str(exc)
+            if exc_str == f"Component {entry.component_id} already exists as a soft-deleted component":
                 if on_deleted == "skip":
                     return ImportResult(entry.component_id, entry.component_type, "skipped", None, "soft_deleted")
                 raise ComponentSoftDeletedError(entry.component_id) from exc
+            if exc_str == f"Component {entry.component_id} already exists":
+                # A live collision the pre-pass missed: the same failure the planner itself
+                # would have produced had it seen the row in time.
+                raise ComponentIdConflictError(entry.component_id) from exc
             raise
         return ImportResult(entry.component_id, entry.component_type, "created", config_row["version"])
 

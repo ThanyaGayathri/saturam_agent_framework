@@ -56,6 +56,7 @@ Persistence:
 from __future__ import annotations
 
 import json
+import secrets
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from egpt.tools.function import Function
@@ -1717,13 +1718,21 @@ class StudioTools(Toolkit):
 
         Components use ``component_id`` as the primary key, so agents, teams,
         and workflows intentionally share one id namespace.
+
+        The disambiguator after a collision is *random*, not a dense ``-2``, ``-3`` walk.
+        The existence check underneath is deliberately unscoped (see ``_component_id_exists``),
+        and the id this method picks is returned to the caller in a successful response: a
+        dense walk would hand back a *count* of existing holders -- create "Acme Billing",
+        receive ``acme-billing-3``, learn that two other components (possibly another
+        tenant's) exist under that name. A random suffix reveals only that the base id was
+        taken, which is the single bit the collision itself already discloses. That keeps
+        this path inside the one-bit budget the unscoped probe is argued under
+        (docs/tenancy.md section 7).
         """
         base = _slugify(name)
         candidate = base
-        suffix = 2
         while self._component_id_exists(candidate, db):
-            candidate = f"{base}-{suffix}"
-            suffix += 1
+            candidate = f"{base}-{secrets.token_hex(3)}"
         return candidate
 
     def _component_id_exists(self, component_id: str, db: "BaseDb") -> bool:
@@ -1736,8 +1745,15 @@ class StudioTools(Toolkit):
         unscoped, permitted on a db built with ``require_tenant_id``, and answering with a
         single bit rather than a row, which is what keeps it from being the cross-tenant
         enumeration channel a full unscoped ``get_component`` would have been. With it,
-        ``_unique_component_id`` steps over a foreign-held id instead of handing the caller an
-        ``IntegrityError``. See docs/tenancy.md section 7.
+        ``_unique_component_id`` steps over a foreign-held *live* id instead of handing the
+        caller an ``IntegrityError``. See docs/tenancy.md section 7.
+
+        Live only: the probe does not count soft-deleted rows (matching ``get_component``'s
+        visibility), and ``upsert_component``'s existing-row lookup is tenant-scoped, so a
+        *soft-deleted foreign* holder is invisible to both -- the insert then still fails on
+        the primary key and surfaces as a raw ``IntegrityError`` in the create_* error JSON.
+        Degrading that write-time failure to a ``ComponentIdConflictError`` when the holder
+        is foreign is tracked as follow-up work under aicoe-tracker#176.
         """
         for component in [*self._iter_agents(), *self._iter_teams(), *self._iter_workflows()]:
             component_name = getattr(component, "name", None)

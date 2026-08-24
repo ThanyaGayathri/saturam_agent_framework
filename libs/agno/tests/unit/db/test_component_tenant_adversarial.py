@@ -318,7 +318,7 @@ class TestAuditTrailIsolation:
 
 
 def _sweep_every_method_as(db, tenant_id):
-    """Call all fourteen component methods against tenant A's ids as ``tenant_id``.
+    """Call all fifteen component methods against tenant A's ids as ``tenant_id``.
 
     Exceptions are swallowed: this is the attacker trying everything and not caring what comes
     back. What the caller asserts is the state left behind.
@@ -344,6 +344,12 @@ def _sweep_every_method_as(db, tenant_id):
         lambda: db.set_current_version("agent-a", version=1, tenant_id=tenant_id),
         lambda: db.delete_config("agent-a", version=2, tenant_id=tenant_id),
         lambda: db.delete_component("agent-a", hard_delete=True, tenant_id=tenant_id),
+        # The fifteenth method, and the one an attacker would actually lean on: it is
+        # deliberately unscoped (aicoe-tracker#176) and takes no tenant_id at all, so it is
+        # the one call in this sweep that is *supposed* to see tenant A's row -- the
+        # assertion below is that seeing it changes nothing about tenant A's state, not that
+        # the call itself is refused.
+        lambda: db.component_id_is_taken("agent-a"),
     ]
     for attempt in attempts:
         try:

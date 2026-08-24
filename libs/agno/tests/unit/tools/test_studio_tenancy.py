@@ -6,6 +6,7 @@ The default None keeps the pre-2.5 unscoped behavior for single-tenant deploymen
 """
 
 import copy
+import re
 from unittest.mock import MagicMock
 
 from egpt.db.base import BaseDb
@@ -81,7 +82,9 @@ class TestIdProbeSeesEveryTenant:
     A probe scoped to the studio's own tenant misses an id held by a foreign tenant, and the id
     this toolkit then vouches for fails the insert on the global primary key. So
     ``_component_id_exists`` asks ``component_id_is_taken`` -- one bit, no tenant parameter --
-    and ``_unique_component_id`` walks past a foreign holder instead.
+    and ``_unique_component_id`` steps past a foreign holder with a *random* suffix: a dense
+    ``-2``, ``-3`` walk returned in a successful response would count the foreign holders,
+    turning the one-bit probe into an enumeration channel.
     """
 
     def test_the_db_probe_is_the_unscoped_one(self):
@@ -98,7 +101,22 @@ class TestIdProbeSeesEveryTenant:
         db.component_id_is_taken = MagicMock(side_effect=lambda cid: cid == "math-tutor")
         studio = _studio(db, tenant_id="acme")
 
-        assert studio._unique_component_id("Math Tutor", db) == "math-tutor-2"
+        assert re.fullmatch(r"math-tutor-[0-9a-f]{6}", studio._unique_component_id("Math Tutor", db))
+
+    def test_the_suffix_does_not_count_the_holders(self):
+        """Two foreign holders, one create: the returned id must not encode "two exist".
+
+        With a dense walk, ``math-tutor`` plus ``math-tutor-2`` held elsewhere yields
+        ``math-tutor-3`` -- a count of another tenant's components inside a successful
+        response. The random suffix keeps the answer to the one bit the collision itself
+        reveals."""
+        db = _mock_db(row=None)
+        db.component_id_is_taken = MagicMock(side_effect=lambda cid: cid in {"math-tutor", "math-tutor-2"})
+        studio = _studio(db, tenant_id="acme")
+
+        candidate = studio._unique_component_id("Math Tutor", db)
+        assert candidate not in {"math-tutor-2", "math-tutor-3"}
+        assert re.fullmatch(r"math-tutor-[0-9a-f]{6}", candidate)
 
 
 class TestWritesCarryTheTenant:
