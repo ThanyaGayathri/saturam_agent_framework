@@ -121,6 +121,54 @@ class StubModel(Model):
         return response
 
 
+class StubModelWithToolCall(StubModel):
+    """A stub model that requests a tool call on the first invocation, then returns content.
+
+    Defines its own invoke() so it must also be wrapt-wrapped in the otel_setup
+    fixture to emit LLM spans (Python MRO means the wrapper on StubModel.invoke
+    is never reached for instances of this subclass).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._call_count = 0
+
+    def invoke(self, messages=None, **kwargs):  # type: ignore[override]
+        self._call_count += 1
+        if self._call_count == 1:
+            # First call: request a tool call
+            return ModelResponse(
+                content=None,
+                role="assistant",
+                tool_calls=[
+                    {
+                        "id": "call_001",
+                        "type": "function",
+                        "function": {
+                            "name": "add",
+                            "arguments": '{"a": 2, "b": 3}',
+                        },
+                    }
+                ],
+                response_usage=MessageMetrics(
+                    input_tokens=15,
+                    output_tokens=8,
+                    total_tokens=23,
+                ),
+            )
+        else:
+            # Second call: return final response after tool result
+            return ModelResponse(
+                content="The sum of 2 and 3 is 5.",
+                role="assistant",
+                response_usage=MessageMetrics(
+                    input_tokens=20,
+                    output_tokens=10,
+                    total_tokens=30,
+                ),
+            )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -176,17 +224,26 @@ def otel_setup() -> Generator[tuple[InMemorySpanExporter, TracerProvider], None,
         config=TraceConfig(),
     )
     model_wrapper = _ModelWrapper(tracer=oi_tracer)
+
+    # Save originals before wrapping (for teardown restoration).
+    _original_stub_invoke = StubModel.invoke
+    _original_stub_invoke_stream = StubModel.invoke_stream
+    _original_tool_invoke = StubModelWithToolCall.invoke
+
     wrap_function_wrapper(StubModel, "invoke", model_wrapper.run)
     wrap_function_wrapper(StubModel, "invoke_stream", model_wrapper.run_stream)
+    wrap_function_wrapper(StubModelWithToolCall, "invoke", model_wrapper.run)
 
     yield exporter, provider
 
-    # Cleanup
+    # Cleanup: restore original methods to avoid nesting wrappers across tests.
     provider.shutdown()
     try:
         instrumentor.uninstrument()
-    except Exception:
-        pass
+    finally:
+        StubModel.invoke = _original_stub_invoke  # type: ignore[method-assign]
+        StubModel.invoke_stream = _original_stub_invoke_stream  # type: ignore[method-assign]
+        StubModelWithToolCall.invoke = _original_tool_invoke  # type: ignore[method-assign]
 
 
 @pytest.fixture

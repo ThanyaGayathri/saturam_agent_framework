@@ -29,11 +29,9 @@ from __future__ import annotations
 from typing import Any
 
 from egpt.agent.agent import Agent
-from egpt.metrics import MessageMetrics
-from egpt.models.response import ModelResponse
 from egpt.tools.toolkit import Toolkit
 
-from .conftest import StubModel
+from .conftest import StubModelWithToolCall
 
 
 # ---------------------------------------------------------------------------
@@ -272,49 +270,6 @@ class _CalculatorToolkit(Toolkit):
         return str(a + b)
 
 
-class StubModelWithToolCall(StubModel):
-    """A stub model that requests a tool call on the first invocation, then returns content."""
-
-    def __init__(self):
-        super().__init__()
-        self._call_count = 0
-
-    def invoke(self, messages=None, **kwargs):  # type: ignore[override]
-        self._call_count += 1
-        if self._call_count == 1:
-            # First call: request a tool call
-            return ModelResponse(
-                content=None,
-                role="assistant",
-                tool_calls=[
-                    {
-                        "id": "call_001",
-                        "type": "function",
-                        "function": {
-                            "name": "add",
-                            "arguments": '{"a": 2, "b": 3}',
-                        },
-                    }
-                ],
-                response_usage=MessageMetrics(
-                    input_tokens=15,
-                    output_tokens=8,
-                    total_tokens=23,
-                ),
-            )
-        else:
-            # Second call: return final response after tool result
-            return ModelResponse(
-                content="The sum of 2 and 3 is 5.",
-                role="assistant",
-                response_usage=MessageMetrics(
-                    input_tokens=20,
-                    output_tokens=10,
-                    total_tokens=30,
-                ),
-            )
-
-
 class TestToolSpans:
     """Verify that tool executions produce child spans."""
 
@@ -351,6 +306,14 @@ class TestToolSpans:
             "TOOL span must share the same trace_id as the AGENT span "
             f"(tool trace_id={tool_span.context.trace_id}, "
             f"agent trace_id={agent_span.context.trace_id})"
+        )
+
+        # Verify LLM span is also present in tool-calling traces (nandha review)
+        llm_spans = _get_spans_by_kind(spans, "LLM")
+        assert llm_spans, (
+            f"No LLM span found in tool-calling trace. The observability contract "
+            f"requires LLM and TOOL spans to coexist. "
+            f"All spans: {[(s.name, s.attributes.get('openinference.span.kind')) for s in spans]}"
         )
 
     def test_tool_span_has_tool_name(self, otel_setup):
