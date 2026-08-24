@@ -174,6 +174,14 @@ This section demonstrates how EGPT agents persist and use user memories across r
   branch was still catching up. Per this file's own convention, whoever merges second renumbers --
   four times, this time.**
 
+- `34_ppr_multihop.py`: Personalized PageRank multi-hop retrieval (SM-H4) -- optional, off by
+  default (`multihop_ppr_enabled`), a single-step ranked walk over a bi-temporally-filtered GDS
+  projection rather than `28_`'s bounded-hop BFS. Shows PPR reaching a fourth-hop fact BFS's
+  default `max_traverse_hops=2` cannot, and the same query composing correctly with an invalidated
+  fact's bi-temporal bound. Needs the GDS plugin, not `28_`'s plain instance:
+  `./cookbook/scripts/run_neo4j_gds.sh`. No API key; entities and fact edges are written directly.
+  Runs with `.venvs/demo`.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

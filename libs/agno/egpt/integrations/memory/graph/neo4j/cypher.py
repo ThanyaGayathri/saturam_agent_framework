@@ -23,6 +23,7 @@ to a node and a relationship alike.
   bi-temporal envelope of its own, so it is replaced with the episode rather than expired.
 """
 
+import hashlib
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from egpt.memory.errors import MemoryOperationError
@@ -38,6 +39,8 @@ from egpt.memory.types import SCOPE_SLOTS, Scope, require_scope
 __all__ = [
     "DEFAULT_MAX_ANCHOR_ENTITIES",
     "DEFAULT_MAX_HOPS",
+    "DEFAULT_PPR_ALPHA",
+    "DEFAULT_PPR_SEED_TOP_M",
     "ENTITY",
     "ENTITY_PROPERTIES",
     "EPISODE",
@@ -59,6 +62,8 @@ __all__ = [
     "match_entities_by_embedding_statement",
     "match_entities_by_key_statement",
     "mentioning_episodes_statement",
+    "ppr_graph_name",
+    "ppr_statements",
     "recall_episodes_statement",
     "recall_facts_statement",
     "scope_predicate",
@@ -442,6 +447,204 @@ def traverse_statements(
         _traverse(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "traverse_statements"),
         _traverse_multihop(scope, max_hops, max_anchor_entities, "traverse_statements"),
     ]
+
+
+#: Default damping factor for :func:`ppr_statements`, matching ``gds.pageRank``'s own default and
+#: the value SM-R2's live-engine probe (``benchmarks/memory_graph_engine/run_ppr_route.py``) ran
+#: against. SM-R9's flag sketch named ``alpha: float=0.5`` as an *illustrative* example only --
+#: never ratified (its own switch thresholds are marked "SM-R1 ratifies"), so this does not inherit
+#: that number.
+DEFAULT_PPR_ALPHA = 0.85
+
+#: Default number of anchor entities PPR seeds `sourceNodes` from, matching SM-R9's flag sketch
+#: (``seed_top_m: int=3``) -- the one number in that sketch this module does adopt, since nothing
+#: here has re-measured a better one and a small seed set is what keeps personalization *personal*
+#: (a large one degrades toward unseeded global PageRank).
+DEFAULT_PPR_SEED_TOP_M = 3
+
+
+def ppr_graph_name(scope: Scope) -> str:
+    """The GDS graph-catalog name PPR projects into, for this scope.
+
+    **Deterministic, not per-call.** A GDS projection is a named, in-memory, server-side catalog
+    entry that is *not* governed by the Neo4j transaction it was created in -- a projection made in
+    a transaction that later rolls back is not automatically dropped, unlike an ordinary write.
+    A random per-call name would leak one catalog entry per failed call with nothing to clean it up.
+    A name fixed to the scope instead means the *next* call for this scope drops-and-recreates it
+    (:func:`ppr_statements`'s ``drop`` statement always runs first), so a prior leak self-heals
+    rather than accumulating -- at the cost of two concurrent PPR reads for the same scope racing
+    on one catalog entry, which is an accepted, documented limit (SM-R2 section "GDS graph
+    projections are static snapshots" already flags re-projection cost as unmeasured at scale; a
+    second projection barely changes that story).
+
+    Hashed rather than the raw ``scope.key()`` because a GDS graph name must be a plain identifier
+    and the key contains ``/`` and ``*`` (:meth:`~egpt.memory.types.Scope.key`'s own escaping is for
+    Cypher string equality, not for a catalog name). Truncated to 24 hex characters -- short enough
+    to read in a GDS ``gds.graph.list()`` dump, long enough that two distinct scopes colliding is not
+    a real risk.
+    """
+    require_scope(scope, method="ppr_graph_name")
+    digest = hashlib.sha256(scope.key().encode("utf-8")).hexdigest()[:24]
+    return f"ppr_{digest}"
+
+
+def _point_in_time_predicate(alias: str) -> str:
+    """SM-R10 section 7's 5a predicate, verbatim, in this backend's epoch-second encoding.
+
+    ``t_valid <= T < coalesce(t_invalid, infinity)`` -- the point-in-time projection filter PPR's
+    GDS graph must apply, per ADR 0003 section B.2 and SM-R9's own composition writeup. Both halves
+    are correctness bugs if dropped, not cosmetic ones, because both change the graph *topology* PPR
+    ranks over:
+
+    * Omitting ``coalesce(t_invalid, infinity)`` -- written here as ``t_invalid IS NULL``, this
+      backend's encoding of "no known end, so still valid" -- would silently exclude every
+      open-ended (currently-true) edge from the projection.
+    * Omitting the ``expired_at IS NULL`` half (applied separately, by :func:`_live`, exactly as
+      every other predicate in this module composes the two) would readmit superseded/retracted
+      SCD-2 rows, inflating PPR's stationary mass on stale facts.
+
+    Written against plain epoch-second integers, not a Cypher ``datetime()``, because that is how
+    ``t_valid``/``t_invalid`` are actually stored here (:class:`~egpt.memory.types.MemoryEvent`),
+    matching :func:`_window_predicate`'s own encoding rather than the ``datetime()``-typed form
+    SM-R9's prototype and SM-R2's toy probe used. An unset ``t_valid`` reads as "no known lower
+    bound", the same three-valued convention :func:`_window_predicate` already uses -- a row is not
+    excluded for having an unknown start.
+    """
+    return f"({alias}.t_valid IS NULL OR {alias}.t_valid <= $ppr_as_of) AND ({alias}.t_invalid IS NULL OR $ppr_as_of < {alias}.t_invalid)"
+
+
+def ppr_statements(
+    scope: Scope,
+    *,
+    terms: Sequence[str] = (),
+    seed_top_m: int = DEFAULT_PPR_SEED_TOP_M,
+    alpha: float = DEFAULT_PPR_ALPHA,
+    tiers: Sequence[str] = (),
+    as_of: Optional[int] = None,
+    limit: Optional[int] = None,
+    graph_name: Optional[str] = None,
+    method: str = "ppr_statements",
+) -> Dict[str, Tuple[str, Dict[str, Any]]]:
+    """Personalized PageRank over a bi-temporally-filtered GDS projection (SM-H4 #134).
+
+    Three named statements, run in order by the driver, **not** merged through
+    :meth:`~egpt.integrations.memory.graph.neo4j.neo4j.Neo4jGraphSubstrate._merge_hits` the way
+    :func:`traverse_statements`'s legs are -- ``drop``/``project`` return GDS catalog bookkeeping,
+    not ranked rows, and feeding them to a merge expecting :data:`_RETURN`'s columns would raise.
+    Only ``rank`` is a leg: it is shaped exactly like :func:`traverse_statements`'s other legs
+    (:data:`_RETURN`, ordered and limited by :data:`_ORDER`), so it merges into the same list with
+    no special case at the call site. See :func:`ppr_graph_name` for why ``drop`` runs before
+    ``project`` unconditionally rather than only on a cache hit.
+
+    **Route A** (``gds.pageRank(sourceNodes=...)`` over a native GDS projection) -- confirmed
+    available on self-hosted Neo4j Community + the free GDS tier by SM-R2's live probe
+    (``benchmarks/memory_graph_engine/run_ppr_route.py``: personalization verified real, i.e.
+    seeding from different anchors produces different rankings, not a silent fallback to unseeded
+    global PageRank). Route B (hand-rolled power-iteration for a non-GDS engine) is not built here;
+    SM-R2 ratified Neo4j, so Route A is the live path and Route B is not owned by this ticket.
+
+    **Seeding is LLM-free**, reusing :func:`_anchor_predicate`'s word-overlap anchor selection
+    unchanged rather than adding query-time NER -- the same anchor mechanism
+    :func:`_traverse_multihop` already seeds its walk from, so "which entities does this query name"
+    means one thing across both multi-hop legs. Anchors are capped at ``seed_top_m`` (SM-R9's flag
+    name), ordered by name before the cut for the identical determinism reason
+    :data:`DEFAULT_MAX_ANCHOR_ENTITIES` gives.
+
+    **The projection is undirected and unweighted.** Undirected matches
+    :func:`_traverse_multihop`'s own ``-[:REL*1..N]-`` walk (an anchor set is "involves this
+    entity", not a direction to privilege). Unweighted because no IDF-style membership weighting
+    exists anywhere in this codebase's graph tier today -- SM-R9's prototype computed one, but only
+    inside its own benchmark harness, never validated against a real backend -- and inventing one
+    here would be exactly the unfalsifiable-by-construction mistake `saturam-imp`'s scope rules
+    warn about: a weighting scheme this change also had to write the ground truth for. Deliberately
+    not built; a real weighting scheme is a separate, measurable ticket.
+
+    **Scores are max-normalised into ``[0.0, 1.0]``**, matching the port's similarity contract
+    (:meth:`~egpt.memory.substrates.GraphSubstrate.traverse`'s docstring) -- ``gds.pageRank``'s raw
+    stationary-probability scores are not bounded to that range in general, so each edge's score is
+    divided by the run's own maximum rather than asserted to already fit it. A row reachable through
+    two ranked endpoints keeps the higher of the two raw scores before normalising, mirroring
+    :meth:`Neo4jGraphSubstrate._merge_hits`'s own "keep the higher score" rule one level down.
+
+    **Every alias is scoped directly** (anchor, the two projection endpoints, and the join edge),
+    per this module's SM-C4 (#92) convention of scoping each alias rather than trusting a join to
+    carry an upstream one -- :func:`_traverse_multihop`'s docstring explains why a prior version of
+    that leg only checked the two ends of a path.
+
+    Refuses (:class:`~egpt.memory.errors.MemoryOperationError`) for a non-positive ``seed_top_m`` or
+    an ``alpha`` outside ``[0.0, 1.0)`` -- ``gds.pageRank`` itself refuses ``dampingFactor >= 1.0``
+    with a less legible error, and this module's own convention is to guard at the builder rather
+    than let a backend's own message stand in for one that names the field.
+
+    ``terms``/``tiers``/``as_of``/``limit``/``graph_name`` default to empty/``None`` -- not because
+    an empty call is meaningful (an unset ``graph_name`` or ``as_of`` produces Cypher this module
+    never actually runs that way), but because ``scope`` is the only parameter every other builder
+    here defaults every *other* argument around, so ``tests/unit/memory/test_tenant_scoping.py``'s
+    scope-refusal property -- discovered by signature, not listed by hand -- can call this builder
+    with a bare scope like it does every sibling. ``Neo4jGraphSubstrate._ppr_rows``/``_appr_rows``
+    always pass every one of them explicitly.
+    """
+    if not isinstance(seed_top_m, int) or isinstance(seed_top_m, bool) or seed_top_m < 1:
+        raise MemoryOperationError(
+            f"ppr_statements seed_top_m must be a positive integer, got {seed_top_m!r}. A common "
+            "query word otherwise matches every entity whose name contains it, with nothing "
+            "capping how many of them PPR seeds from.",
+            field_name="seed_top_m",
+        )
+    if not isinstance(alpha, (int, float)) or isinstance(alpha, bool) or not (0.0 <= alpha < 1.0):
+        raise MemoryOperationError(
+            f"ppr_statements alpha must be a float in [0.0, 1.0), got {alpha!r}. "
+            "gds.pageRank's dampingFactor refuses 1.0 and above.",
+            field_name="alpha",
+        )
+    anchor_predicate, anchor_params = scope_predicate("anchor", scope, method=method)
+    anchor_predicate = f"{anchor_predicate} AND {_anchor_predicate('anchor')}"
+    node_predicate, node_params = scope_predicate("n", scope, method=method)
+    endpoint_predicate, endpoint_params = scope_predicate("m", scope, method=method)
+    rel_predicate, rel_params = scope_predicate("r", scope, method=method)
+    assert anchor_params == node_params == endpoint_params == rel_params, (
+        "every alias here is built from the same `scope`, so their params must agree -- key by "
+        "alias before this function is ever asked to scope two different scopes at once"
+    )
+
+    drop = (
+        "CALL gds.graph.drop($ppr_graph_name, false) YIELD graphName RETURN graphName",
+        {"ppr_graph_name": graph_name},
+    )
+    project = (
+        f"MATCH (n:{ENTITY}) WHERE {node_predicate} "
+        f"OPTIONAL MATCH (n)-[r:{REL}]-(m:{ENTITY}) "
+        f"WHERE {endpoint_predicate} AND {rel_predicate} AND {_live('r')} AND {_point_in_time_predicate('r')} "
+        "RETURN gds.graph.project($ppr_graph_name, n, m) AS projected",
+        {**node_params, "ppr_graph_name": graph_name, "ppr_as_of": as_of},
+    )
+    rank = (
+        f"MATCH (anchor:{ENTITY}) WHERE {anchor_predicate} "
+        "WITH DISTINCT anchor ORDER BY anchor.name ASC LIMIT $seed_top_m "
+        "WITH collect(anchor) AS seeds "
+        "CALL gds.pageRank.stream($ppr_graph_name, {sourceNodes: seeds, dampingFactor: $alpha}) "
+        "YIELD nodeId, score AS ppr_score "
+        "WITH gds.util.asNode(nodeId) AS ranked, ppr_score WHERE ppr_score > 0.0 "
+        "WITH collect({node: ranked, raw: ppr_score}) AS scored, max(ppr_score) AS max_score "
+        "UNWIND scored AS item "
+        "WITH item.node AS n, item.raw AS raw, max_score "
+        f"MATCH (n)-[r:{REL}]-(other:{ENTITY}) "
+        f"WHERE {rel_predicate} AND {_live('r')} AND r.tier IN $tiers AND {_point_in_time_predicate('r')} "
+        "WITH r AS row, max(raw) AS raw_score, max_score "
+        "WITH row, (CASE WHEN max_score > 0.0 THEN raw_score / max_score ELSE 0.0 END) AS score "
+        f"{_RETURN} {_ORDER}",
+        {
+            **anchor_params,
+            "terms": list(terms),
+            "seed_top_m": seed_top_m,
+            "ppr_graph_name": graph_name,
+            "alpha": alpha,
+            "tiers": list(tiers),
+            "ppr_as_of": as_of,
+            "limit": limit,
+        },
+    )
+    return {"drop": drop, "project": project, "rank": rank}
 
 
 _BOUNDS_RETURN = (

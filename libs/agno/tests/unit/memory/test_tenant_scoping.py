@@ -74,7 +74,7 @@ def cypher_module() -> Any:
 #: How many public builders in ``cypher`` take a scope. Exact rather than a floor: the point of
 #: the discovery below is that a builder added later is covered, and a floor would equally pass
 #: when one is removed or renamed out of the sweep.
-SCOPE_TAKING_BUILDERS = 19
+SCOPE_TAKING_BUILDERS = 21  # SM-H4 (#134) added two: ppr_graph_name, ppr_statements
 
 
 def build(config_name: str) -> MemoryProvider:

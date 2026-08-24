@@ -53,6 +53,17 @@ def all_statements(scope):
             for shape, (text, params) in cypher.upsert_facts_statements(scope).items()
         ],
         *[(f"traverse[{i}]", text, params) for i, (text, params) in enumerate(cypher.traverse_statements(scope))],
+        *[
+            (f"ppr[{name}]", text, params)
+            for name, (text, params) in cypher.ppr_statements(
+                scope,
+                terms=["ada"],
+                tiers=["semantic"],
+                as_of=1000,
+                limit=10,
+                graph_name=cypher.ppr_graph_name(scope),
+            ).items()
+        ],
         *[(f"bounds[{i}]", text, params) for i, (text, params) in enumerate(cypher.bounds_statements(scope))],
         *[(f"live_row[{i}]", text, params) for i, (text, params) in enumerate(cypher.live_row_statements(scope))],
         *[(f"expire[{i}]", text, params) for i, (text, params) in enumerate(cypher.expire_statements(scope))],
@@ -150,10 +161,32 @@ KEY_SCOPED_STATEMENTS = (
     "delete_entities",
 )
 
+#: SM-H4 (#134)'s fourth scoping mechanism: neither a row predicate, an exact ``scope_key`` filter,
+#: nor a write merge -- ``ppr[drop]`` addresses a **GDS graph-catalog name**, not a row, and that
+#: name is itself derived from the scope by hashing (:func:`~egpt.integrations.memory.graph.neo4j.
+#: cypher.ppr_graph_name`), so two tenants' PPR calls cannot collide on one catalog entry even
+#: though the drop statement's own text carries no per-row predicate to assert on here.
+GRAPH_NAME_SCOPED_STATEMENTS = ("ppr[drop]",)
+
+#: SM-H4 (#134)'s point-in-time leg: unlike every other statement, PPR's ``project``/``rank``
+#: **must** apply a valid-time predicate, because a GDS graph projection is a static snapshot that
+#: has to be built from *some* topology -- there is no "reconcile it on the merged set afterwards"
+#: for a ranking that already ran over a fixed graph. This is not the provider's ``as_of`` mechanism
+#: :func:`test_no_statement_applies_valid_time` guards (a different parameter, ``$ppr_as_of``, never
+#: ``$as_of``) -- see :func:`test_ppr_predicate_is_sm_r10_section_7s_5a_verbatim` for what *does*
+#: hold PPR to the same discipline every other bi-temporal predicate in this module follows.
+POINT_IN_TIME_STATEMENTS = ("ppr[project]", "ppr[rank]")
+
 
 @pytest.mark.parametrize(
     "label",
-    [name for name in statement_ids(FULL) if name not in WRITE_STATEMENTS and name not in KEY_SCOPED_STATEMENTS],
+    [
+        name
+        for name in statement_ids(FULL)
+        if name not in WRITE_STATEMENTS
+        and name not in KEY_SCOPED_STATEMENTS
+        and name not in GRAPH_NAME_SCOPED_STATEMENTS
+    ],
 )
 def test_every_read_statement_filters_on_every_scope_slot(label):
     """A backend that honours the tenant and ignores the user leaks inside the tenant.
@@ -194,8 +227,14 @@ def test_every_key_scoped_statement_filters_on_the_exact_bound_scope_key(label):
 
 def test_every_statement_is_scoped_by_one_mechanism_or_the_other():
     """Nothing may be unscoped. Checked over the whole set so a new statement cannot slip through
-    by belonging to none of the three categories above."""
-    for label, text, _ in all_statements(FULL):
+    by belonging to none of the four categories above."""
+    for label, text, params in all_statements(FULL):
+        if label in GRAPH_NAME_SCOPED_STATEMENTS:
+            # `ppr_graph_name` hashes `scope.key()` into the catalog name this statement's own
+            # `$ppr_graph_name` parameter binds -- the scoping is in the value, not in a predicate
+            # this statement's text could carry (it addresses a catalog entry, not a row).
+            assert params["ppr_graph_name"] == cypher.ppr_graph_name(FULL), f"{label} names the wrong graph"
+            continue
         scoped = (
             ".tenant_id = $tenant_id" in text
             or "scope_key: row.scope_key" in text
@@ -217,7 +256,13 @@ def test_the_row_builder_supplies_the_scope_key_a_write_merges_on():
 
 @pytest.mark.parametrize(
     "label",
-    [name for name in statement_ids(TENANT_ONLY) if name not in WRITE_STATEMENTS and name not in KEY_SCOPED_STATEMENTS],
+    [
+        name
+        for name in statement_ids(TENANT_ONLY)
+        if name not in WRITE_STATEMENTS
+        and name not in KEY_SCOPED_STATEMENTS
+        and name not in GRAPH_NAME_SCOPED_STATEMENTS
+    ],
 )
 def test_an_unset_slot_contributes_no_clause(label):
     """``None`` means "any". Filtering on it would narrow a tenant-wide read to nothing."""
@@ -229,17 +274,60 @@ def test_an_unset_slot_contributes_no_clause(label):
         assert slot not in params
 
 
-@pytest.mark.parametrize("label", statement_ids(FULL))
+@pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name not in POINT_IN_TIME_STATEMENTS])
 def test_no_statement_applies_valid_time(label):
     """Valid time is the provider's, enforced once on the merged set (finding F2).
 
     A substrate that filtered ``as_of`` itself would withhold the SCD-2 successor row carrying
     ``t_invalid`` -- which is the evidence that catches an invalidated fact on the other leg.
+
+    PPR's ``project``/``rank`` (:data:`POINT_IN_TIME_STATEMENTS`) are the sanctioned exception,
+    checked separately by :func:`test_ppr_predicate_is_sm_r10_section_7s_5a_verbatim` -- a GDS
+    projection is a snapshot that must be built from *some* topology, so there is no "merged set"
+    for this leg's point-in-time filtering to be deferred to.
     """
     text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
 
     assert "$as_of" not in text
     assert "t_valid <=" not in text and "<= $at" not in text
+
+
+@pytest.mark.parametrize("label", POINT_IN_TIME_STATEMENTS)
+def test_ppr_never_touches_the_providers_as_of(label):
+    """PPR's point-in-time predicate is its own parameter, not a hidden alias for the provider's.
+
+    ``$ppr_as_of`` and ``$as_of`` must never be the same name, or a provider that later starts
+    forwarding its own ``$as_of`` binding into every statement's params (a plausible future change
+    that owns nothing about this ticket) would silently overwrite PPR's snapshot instant with the
+    provider's reconciliation-time one -- two different meanings colliding on one parameter name.
+    """
+    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+
+    assert "$as_of" not in text
+    assert "as_of" not in params
+    assert "ppr_as_of" in params
+
+
+def test_ppr_predicate_is_sm_r10_section_7s_5a_verbatim():
+    """The binding constraint ADR 0003 section B.2 carries from SM-R9's spike into this ticket:
+    the PPR projection must use SM-R10 section 7's full 5a predicate, not the simplified form an
+    earlier draft of that spike wrote and then had to correct.
+
+    Both halves are asserted because either alone is the exact defect that predicate correction
+    fixed: dropping the ``t_invalid IS NULL`` disjunct (this backend's coalesce-to-infinity, since
+    ``t_invalid`` is epoch-int here, not a Cypher ``datetime()``) would silently exclude every
+    open-ended, currently-true edge from the projection; dropping ``expired_at IS NULL`` would
+    readmit superseded/retracted SCD-2 rows and inflate PPR's mass on stale facts.
+    """
+    for label in ("ppr[project]", "ppr[rank]"):
+        text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+        assert "t_valid IS NULL OR" in text and "t_valid <= $ppr_as_of" in text, (
+            f"{label} does not apply the 5a lower bound with the null-is-open convention"
+        )
+        assert "t_invalid IS NULL OR $ppr_as_of < " in text, (
+            f"{label} does not apply the 5a upper bound (coalesce(t_invalid, infinity))"
+        )
+        assert "expired_at IS NULL" in text, f"{label} does not exclude superseded/retracted rows"
 
 
 @pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name.startswith("traverse")])
@@ -1134,3 +1222,98 @@ async def test_merge_entities_runs_the_read_and_the_write_in_one_transaction(hal
         await substrate.amerge_entities(FULL, [merge])
 
     assert opened == ["tx"], f"expected exactly one transaction, got {len(opened)}"
+
+
+def _ppr_enabled(substrate):
+    """Turn a bare `Neo4jGraphSubstrate.__new__` fake into one with PPR on, matching the
+    constructor defaults `multihop_ppr_alpha`/`multihop_ppr_seed_top_m` set for a real one."""
+    substrate.multihop_ppr_enabled = True
+    substrate.multihop_ppr_alpha = cypher.DEFAULT_PPR_ALPHA
+    substrate.multihop_ppr_seed_top_m = cypher.DEFAULT_PPR_SEED_TOP_M
+    return substrate
+
+
+def test_ppr_leg_translates_a_deterministic_driver_error_too():
+    """SM-H4 (#134)'s leg is not exempt from the module's error-translation contract just because
+    it runs outside `_run`'s transaction (see `Neo4jGraphSubstrate._ppr_rows`'s docstring for why)."""
+    from neo4j.exceptions import ClientError
+
+    substrate = _ppr_enabled(_substrate_whose_driver_raises(ClientError("bad cypher")))
+
+    with pytest.raises(MemoryOperationError):
+        substrate.traverse(FULL, MemoryQuery(text="x"))
+
+
+def test_ppr_leg_leaves_a_transient_driver_error_alone():
+    """The other half of the same contract, for the same reason `test_a_transient_driver_error_is_
+    left_alone` gives every other leg: a network blip must not look like `MemoryOperationError`'s
+    "this will never work"."""
+    from neo4j.exceptions import ServiceUnavailable
+
+    substrate = _ppr_enabled(_substrate_whose_driver_raises(ServiceUnavailable("no route to host")))
+
+    with pytest.raises(ServiceUnavailable):
+        substrate.traverse(FULL, MemoryQuery(text="x"))
+
+
+async def test_appr_leg_translates_errors_identically():
+    """The async half of the two tests above, for the identical reason
+    `test_the_async_half_translates_errors_identically` checks every other leg on both sides."""
+    from neo4j.exceptions import ClientError, ServiceUnavailable
+
+    with pytest.raises(MemoryOperationError):
+        await _ppr_enabled(_async_substrate_whose_driver_raises(ClientError("bad cypher"))).atraverse(
+            FULL, MemoryQuery(text="x")
+        )
+
+    with pytest.raises(ServiceUnavailable):
+        await _ppr_enabled(_async_substrate_whose_driver_raises(ServiceUnavailable("no route"))).atraverse(
+            FULL, MemoryQuery(text="x")
+        )
+
+
+def test_ppr_drops_the_projection_even_when_ranking_raises():
+    """The GDS catalog entry is not part of the Neo4j transaction (`ppr_graph_name`'s docstring),
+    so cleanup is this module's own `try`/`finally`, not the driver's rollback. Pinned directly:
+    a failure between `project` and `rank` must still run a second `drop`, or the catalog entry
+    this call created leaks and only self-heals on some future call for the same scope."""
+    calls = []
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, text, *_args, **_kwargs):
+            if "gds.graph.drop" in text:
+                calls.append("drop")
+                return _Empty()
+            if "gds.graph.project" in text:
+                calls.append("project")
+                return _Empty()
+            calls.append("rank")
+            raise RuntimeError("pageRank blew up")
+
+    class _Empty:
+        def consume(self):
+            return None
+
+        def __iter__(self):
+            return iter(())
+
+    class _Driver:
+        def session(self, **_kwargs):
+            return _Session()
+
+    substrate = _ppr_enabled(Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate))
+    substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
+    substrate._driver = _Driver()
+
+    with pytest.raises(RuntimeError):
+        substrate._ppr_rows(FULL, MemoryQuery(text="ada", limit=10))
+
+    assert calls == ["drop", "project", "rank", "drop"], (
+        f"expected drop-before, project, the failing rank, then drop-after; got {calls}"
+    )

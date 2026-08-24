@@ -69,6 +69,11 @@ _PATH_ENV_REQUIREMENTS: tuple[tuple[str, str], ...] = (
     ("os/hydration_postgres", "EGPT_INTEGRATION_POSTGRES"),
     # The component lifecycle audit trail (EGPT-2.6), same rationale.
     ("os/audit_postgres", "EGPT_INTEGRATION_POSTGRES"),
+    # SM-H4 (#134)'s PPR suite needs the GDS plugin, which the default SM-G1 dev instance
+    # (`run_neo4j.sh`) does not install (see `run_neo4j_gds.sh`'s own comment on why not folded
+    # in) -- a more specific fragment, checked before the general one below, so it does not need
+    # `EGPT_INTEGRATION_NEO4J` *and* this flag both set.
+    ("memory/neo4j/test_graph_ppr", "EGPT_INTEGRATION_NEO4J_GDS"),
     ("memory/neo4j", "EGPT_INTEGRATION_NEO4J"),
     ("memory/pgvector", "EGPT_INTEGRATION_PGVECTOR"),
     # Seeding and portable import/export of definitions (EGPT-2.8). Needs real Postgres for a
@@ -132,8 +137,16 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
         item.add_marker(pytest.mark.integration)
         path = str(getattr(item, "path", item.fspath)).replace("\\", "/")
         for frag, env in _PATH_ENV_REQUIREMENTS:
-            if frag in path and not os.getenv(env):
-                item.add_marker(pytest.mark.skip(reason=f"{env} not set"))
+            if frag in path:
+                # SM-H4 (#134): the table's own docstring says "first matching fragment wins", but
+                # this only broke out of the loop on a *skip* -- a fragment whose env was already
+                # set fell through to the next (broader) match instead of stopping, so a more
+                # specific entry with its flag set could still be skipped by a later, broader one
+                # requiring a *different* flag nobody asked this suite to set. Latent until a
+                # fragment nested inside a broader one (`memory/neo4j/test_graph_ppr` inside
+                # `memory/neo4j`) actually exercised the fall-through.
+                if not os.getenv(env):
+                    item.add_marker(pytest.mark.skip(reason=f"{env} not set"))
                 break
 
 

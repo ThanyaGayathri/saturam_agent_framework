@@ -539,6 +539,17 @@ class GraphSubstrate(Protocol):
         An untripled fact -- no subject/predicate/object -- has no entity to anchor the multi-hop
         leg from, so it is reachable only through the direct-content leg here, and independently
         through :meth:`VectorSubstrate.search` over the semantic-fact tier.
+
+        **A backend may add a sixth, optional leg: Personalized PageRank (SM-H4 #134), off by
+        default, behind a per-tenant flag.** Where BFS ranks by hop distance from an anchor, PPR
+        ranks by stationary probability over a bi-temporally-filtered graph projection -- a
+        *ranked* single-step multi-hop, seeded from the same LLM-free anchor selection the BFS leg
+        uses, composing with a point-in-time snapshot of the same current-belief predicate this
+        method applies everywhere else. It is not part of this Protocol's required surface (no
+        other backend implements it), and a caller cannot ask for it per call -- like the hop
+        bound, it is a construction-time capability the backend either has enabled or does not.
+        See :class:`~egpt.integrations.memory.graph.neo4j.neo4j.Neo4jGraphSubstrate` for the
+        shipped implementation.
         """
         ...
 

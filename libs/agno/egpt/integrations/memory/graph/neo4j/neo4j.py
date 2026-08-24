@@ -19,16 +19,33 @@ emit.
 Deliberately **not** here, each with an owner: entity and relation extraction (SM-G2 #100 /
 SM-G3 #101), contradiction *detection* (SM-G5 #103 -- this ships the primitive, not the decision to
 call it), valid-time extraction from content (SM-G4 #102), append-only enforcement via APOC trigger
-or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), and PPR over a GDS projection
-(SM-H4 #134). Bounded-hop BFS traversal from anchor entities, and the bi-temporal window pushed
-into every leg of it, shipped with SM-G9 (#107); graph *enumeration* -- what an unfiltered walk
-means over a temporal graph -- remains open and unowned, named at each refusal site
-(``egpt.memory.graph.episodic``/``semantic``) rather than here. Episode-to-entity mention links
-arrived with SM-G6 (#104); the entity names they link
+or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1). Bounded-hop BFS traversal from
+anchor entities, and the bi-temporal window pushed into every leg of it, shipped with SM-G9 (#107);
+graph *enumeration* -- what an unfiltered walk means over a temporal graph -- remains open and
+unowned, named at each refusal site (``egpt.memory.graph.episodic``/``semantic``) rather than here.
+Episode-to-entity mention links arrived with SM-G6 (#104); the entity names they link
 are supplied on the event, not extracted here. **Entity resolution's mechanism, not its policy**
 (SM-G8 #106): ``match_entities`` and ``merge_entities`` are the primitives -- lookup and fold --
 this backend can support; *which* candidates should merge and at what threshold is
 ``egpt.memory.graph.resolve.EntityResolutionPipeline``'s decision, not this module's.
+
+**PPR over a GDS projection (SM-H4 #134) is here, gated off by default.** Personalized PageRank
+is a fifth, optional leg of :meth:`~Neo4jGraphSubstrate.traverse`/:meth:`~Neo4jGraphSubstrate.atraverse`,
+behind ``multihop_ppr_enabled`` (default ``False``) -- Route A, confirmed by SM-R2's live-engine
+probe (``benchmarks/memory_graph_engine/run_ppr_route.py``) against the free tier of the GDS plugin
+on Neo4j Community. **Deliberately not built here:** SM-H2's rank fusion (this leg merges into
+``traverse``'s own dedup-keep-higher-score rule, the same as every other leg -- a distinct
+fusion strategy is SM-H2's #132); SM-H1's orchestrator wiring (``retrieval/orchestrator.py`` does
+not exist yet -- #131 is open); a re-projection cache/cadence (each call projects fresh and drops
+after, self-healing rather than caching -- SM-R2 section "GDS graph projections are static
+snapshots" flags the cost as unmeasured at scale, not this ticket's to resolve); IDF-style edge
+weighting (no such property exists anywhere in this graph tier yet -- the projection is unweighted);
+and the full statistical ranking-quality study SM-R9's spike assigned this ticket (recall/all-hops
+gains under a bi-temporal projection, at real per-tenant scale) -- that is a benchmark-scale
+measurement effort in its own right, not a "feat" PR's deliverable, and needs its own tracking
+ticket. What *is* built and tested here: the mechanism is correct against a real GDS-backed engine
+(not a benchmark double), the flag defaults off, and the projection uses SM-R10 section 7's 5a
+predicate verbatim -- see :func:`~egpt.integrations.memory.graph.neo4j.cypher.ppr_statements`.
 """
 
 import json
@@ -124,6 +141,18 @@ class Neo4jGraphSubstrate:
     #: ``AttributeError`` unrelated to whatever the test is actually checking.
     max_traverse_hops: int = cypher.DEFAULT_MAX_HOPS
     max_traverse_anchor_entities: int = cypher.DEFAULT_MAX_ANCHOR_ENTITIES
+    #: Per-tenant flag (SM-H4 #134): construction-time, like ``max_traverse_hops`` above, and off
+    #: by default per SM-R9's ratified switch threshold (ADR 0003: "PPR off by default, per-tenant
+    #: flag"). "Per-tenant" here means per `MemoryProviderConfig` -- SM-C5 (#93), the per-tenant
+    #: config *resolver*, has not shipped, so today one substrate instance is one flag value; a
+    #: deployment wanting this on for one tenant and off for another already gets that by giving
+    #: each tenant its own `graph={"backend": "neo4j", "multihop_ppr_enabled": True, ...}` config
+    #: (`MemoryProviderConfig.graph`'s settings dict is passed straight through to this
+    #: constructor as kwargs, per `egpt.memory.config.resolve_substrate`) -- SM-C5, when it lands,
+    #: resolves *which* config a call uses, not how this flag reaches the substrate once it has one.
+    multihop_ppr_enabled: bool = False
+    multihop_ppr_alpha: float = cypher.DEFAULT_PPR_ALPHA
+    multihop_ppr_seed_top_m: int = cypher.DEFAULT_PPR_SEED_TOP_M
 
     def __init__(
         self,
@@ -134,6 +163,9 @@ class Neo4jGraphSubstrate:
         auto_init_schema: bool = True,
         max_traverse_hops: int = cypher.DEFAULT_MAX_HOPS,
         max_traverse_anchor_entities: int = cypher.DEFAULT_MAX_ANCHOR_ENTITIES,
+        multihop_ppr_enabled: bool = False,
+        multihop_ppr_alpha: float = cypher.DEFAULT_PPR_ALPHA,
+        multihop_ppr_seed_top_m: int = cypher.DEFAULT_PPR_SEED_TOP_M,
     ) -> None:
         resolved_uri: str = uri or os.getenv("NEO4J_URI") or "bolt://localhost:7687"
         username = username or os.getenv("NEO4J_USERNAME")
@@ -159,6 +191,9 @@ class Neo4jGraphSubstrate:
         # than this constructor (round-3 review).
         self.max_traverse_hops = max_traverse_hops
         self.max_traverse_anchor_entities = max_traverse_anchor_entities
+        self.multihop_ppr_enabled = multihop_ppr_enabled
+        self.multihop_ppr_alpha = multihop_ppr_alpha
+        self.multihop_ppr_seed_top_m = multihop_ppr_seed_top_m
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
         self._adriver: Optional["AsyncDriver"] = None
         # Eager, unlike `PgVector`'s deferred `create_schema`. The statements are idempotent, so a
@@ -1005,6 +1040,8 @@ class Neo4jGraphSubstrate:
             tiers=_tiers(query),
             **self._window_params(query),
         )
+        if self.multihop_ppr_enabled:
+            rows = [*rows, self._ppr_rows(scope, query)]
         return self._merge_hits(rows, scope, query)
 
     async def atraverse(
@@ -1022,7 +1059,81 @@ class Neo4jGraphSubstrate:
             tiers=_tiers(query),
             **self._window_params(query),
         )
+        if self.multihop_ppr_enabled:
+            rows = [*rows, await self._appr_rows(scope, query)]
         return self._merge_hits(rows, scope, query)
+
+    @staticmethod
+    def _ppr_as_of(query: MemoryQuery) -> int:
+        """The point-in-time PPR's GDS projection is filtered as-of (SM-H4 #134).
+
+        A GDS projection is a static snapshot, not a range -- so unlike the other four legs, which
+        apply :meth:`_window_params`'s half-open range, PPR needs one instant. ``query.as_of`` wins
+        when the caller asked for a specific one; a windowed read (``valid_from``/``valid_to`` -- the
+        two are mutually exclusive on :class:`MemoryQuery`) contributes its ``valid_to`` bound, read
+        as "the graph as it stood at the end of the requested window"; with neither set, "now".
+        """
+        if query.as_of is not None:
+            return query.as_of
+        window = query.window()
+        if window is not None and window.valid_to is not None:
+            return window.valid_to
+        return now_epoch_s()
+
+    def _ppr_rows(self, scope: Scope, query: MemoryQuery) -> List[Dict[str, Any]]:
+        """The PPR leg's rows, run and cleaned up outside :meth:`_run`'s transaction (SM-H4 #134).
+
+        Not folded into :meth:`_run`'s one-transaction-per-call model, on purpose: a GDS graph
+        projection is a server-side catalog entry that the surrounding Neo4j transaction does not
+        govern -- a projection made mid-transaction is not rolled back if the transaction later is,
+        unlike an ordinary write. So cleanup here is a Python ``try``/``finally`` around plain
+        per-statement ``session.run`` calls (the same style :meth:`init_schema` already uses for
+        catalog/schema-shaped operations, for the identical reason), not the driver's transactional
+        rollback. ``drop`` runs unconditionally before ``project`` too (:func:`~egpt.integrations.
+        memory.graph.neo4j.cypher.ppr_graph_name`'s docstring), so a leak from a prior failed call
+        self-heals on the next one rather than accumulating.
+        """
+        graph_name = cypher.ppr_graph_name(scope)
+        statements = cypher.ppr_statements(
+            scope,
+            terms=_terms(query.text),
+            seed_top_m=self.multihop_ppr_seed_top_m,
+            alpha=self.multihop_ppr_alpha,
+            tiers=_tiers(query),
+            as_of=self._ppr_as_of(query),
+            limit=query.limit,
+            graph_name=graph_name,
+        )
+        with self._translated("multihop PPR"), self._driver.session(database=self.database) as session:
+            session.run(*statements["drop"]).consume()
+            try:
+                session.run(*statements["project"]).consume()
+                return [dict(record) for record in session.run(*statements["rank"])]
+            finally:
+                session.run(*statements["drop"]).consume()
+
+    async def _appr_rows(self, scope: Scope, query: MemoryQuery) -> List[Dict[str, Any]]:
+        """Async twin of :meth:`_ppr_rows`, with the same drop-before/try-finally-drop-after rule."""
+        graph_name = cypher.ppr_graph_name(scope)
+        statements = cypher.ppr_statements(
+            scope,
+            terms=_terms(query.text),
+            seed_top_m=self.multihop_ppr_seed_top_m,
+            alpha=self.multihop_ppr_alpha,
+            tiers=_tiers(query),
+            as_of=self._ppr_as_of(query),
+            limit=query.limit,
+            graph_name=graph_name,
+        )
+        with self._translated("multihop PPR"):
+            async with self._async_driver().session(database=self.database) as session:
+                await (await session.run(*statements["drop"])).consume()
+                try:
+                    await (await session.run(*statements["project"])).consume()
+                    result = await session.run(*statements["rank"])
+                    return [dict(record) async for record in result]
+                finally:
+                    await (await session.run(*statements["drop"])).consume()
 
     def recall_episodes(
         self,
