@@ -38,7 +38,11 @@ on Neo4j Community. **Deliberately not built here:** SM-H2's rank fusion (this l
 fusion strategy is SM-H2's #132); SM-H1's orchestrator wiring (``retrieval/orchestrator.py`` does
 not exist yet -- #131 is open); a re-projection cache/cadence (each call projects fresh under a
 call-unique catalog name and drops it after -- SM-R2 section "GDS graph projections are static
-snapshots" flags the cost as unmeasured at scale, not this ticket's to resolve); IDF-style edge
+snapshots" flags the cost as unmeasured at scale, not this ticket's to resolve); a k-hop/fan-out
+bound on the projection itself, unlike the sibling BFS leg's ``max_hops``/``max_anchor_entities``
+(round-2 review, Major-tracking -- filed as
+`aicoe-tracker#199 <https://github.com/Saturam-Inc/aicoe-tracker/issues/199>`_, since the flag
+defaults off and no tenant pays this cost without opting in); IDF-style edge
 weighting (no such property exists anywhere in this graph tier yet -- the projection is unweighted);
 and the full statistical ranking-quality study SM-R9's spike assigned this ticket (recall/all-hops
 gains under a bi-temporal projection, at real per-tenant scale) -- that is a benchmark-scale
@@ -192,6 +196,16 @@ class Neo4jGraphSubstrate:
         self.max_traverse_hops = max_traverse_hops
         self.max_traverse_anchor_entities = max_traverse_anchor_entities
         self.multihop_ppr_enabled = multihop_ppr_enabled
+        # `multihop_ppr_alpha`/`multihop_ppr_seed_top_m` are deferred like `max_traverse_hops`
+        # above, but *less* deferred than that comment's own pattern might suggest (round-2 review,
+        # Nit -- checked directly, not assumed from `max_traverse_hops`'s shape): `_ppr_rows`/
+        # `_appr_rows` build every statement, `rank` included, via `_ppr_statements_for` *before*
+        # checking whether `seeds` came back empty, and `cypher.ppr_statements` validates both
+        # fields while building `rank`. So a misconfigured `alpha`/`seed_top_m` raises
+        # `MemoryOperationError` on the first `traverse`/`atraverse` call whose query actually
+        # reaches this leg -- non-empty `query.text` and a positive `limit`, `traverse`'s own guard
+        # for every leg -- not only once that query's anchor set happens to be non-empty. Accepted
+        # silently here at construction, and by any call too trivial to reach the leg at all.
         self.multihop_ppr_alpha = multihop_ppr_alpha
         self.multihop_ppr_seed_top_m = multihop_ppr_seed_top_m
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
@@ -980,8 +994,9 @@ class Neo4jGraphSubstrate:
         """Merge the legs, dedup by ``(scope, id)`` keeping the higher score, re-rank, and apply
         ``limit``.
 
-        Each statement applied ``limit`` to its own leg, so the union can hold up to four times it;
-        ranking across legs and cutting again is what makes ``limit`` mean what it says.
+        Each statement applied ``limit`` to its own leg, so the union can hold up to four times it --
+        five when ``multihop_ppr_enabled`` adds its fifth leg (SM-H4 #134) -- ranking across legs
+        and cutting again is what makes ``limit`` mean what it says.
 
         **Deduped by ``(scope, id)``, not merely concatenated (SM-G9 #107).** The three row-shape
         legs cannot collide -- each addresses a disjoint shape -- but the anchor-seeded multi-hop leg
@@ -1140,8 +1155,8 @@ class Neo4jGraphSubstrate:
         with self._translated("multihop PPR"), self._driver.session(database=self.database) as session:
             if not [dict(record) for record in session.run(*statements["seeds"])]:
                 return []
-            session.run(*statements["project"]).consume()
             try:
+                session.run(*statements["project"]).consume()
                 return [dict(record) for record in session.run(*statements["rank"])]
             finally:
                 self._drop_ppr_graph(session, graph_name, statements["drop"])
@@ -1170,8 +1185,8 @@ class Neo4jGraphSubstrate:
                 seed_result = await session.run(*statements["seeds"])
                 if not [dict(record) async for record in seed_result]:
                     return []
-                await (await session.run(*statements["project"])).consume()
                 try:
+                    await (await session.run(*statements["project"])).consume()
                     result = await session.run(*statements["rank"])
                     return [dict(record) async for record in result]
                 finally:

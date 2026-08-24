@@ -557,9 +557,13 @@ def ppr_statements(
     are -- feeding them to a merge expecting :data:`_RETURN`'s columns would raise. ``seeds`` is a
     guard, not a leg (see below). Only ``rank`` is a leg: shaped exactly like
     :func:`traverse_statements`'s other legs (:data:`_RETURN`, ordered and limited by
-    :data:`_ORDER`), so it merges into the same list with no special case at the call site. See
-    :func:`ppr_graph_name` for why ``drop`` runs before ``project`` unconditionally rather than only
-    on a cache hit.
+    :data:`_ORDER`), so it merges into the same list with no special case at the call site. ``drop``
+    runs exactly once, from :meth:`~egpt.integrations.memory.graph.neo4j.neo4j.Neo4jGraphSubstrate.
+    _ppr_rows`/``_appr_rows``'s own ``finally`` cleanup after ``project``/``rank`` -- not
+    unconditionally before ``project`` (round-2 review, Minor: an earlier, deterministic-name design
+    ran ``drop`` before ``project`` too, to self-heal a prior leak; a call-unique catalog name
+    (:func:`ppr_graph_name`) has nothing to self-heal *from*, so that call was dropped along with
+    the design it belonged to).
 
     **``seeds`` exists because an empty anchor set does not fail loudly (round-1 review, Major).**
     An earlier version skipped straight to ``rank``, trusting ``gds.pageRank.stream(...,
@@ -585,6 +589,16 @@ def ppr_statements(
     means one thing across both multi-hop legs. Anchors are capped at ``seed_top_m`` (SM-R9's flag
     name), ordered by name before the cut for the identical determinism reason
     :data:`DEFAULT_MAX_ANCHOR_ENTITIES` gives.
+
+    **The anchor cap does not bound ``project`` itself (round-2 review, Major-tracking, non-blocking
+    since the flag defaults off).** ``seed_top_m`` limits how many anchors seed the *ranking*;
+    ``project`` scans and projects every live entity/relationship in the whole tenant scope
+    regardless, with no neighborhood limit comparable to :func:`_traverse_multihop`'s
+    ``max_hops``/``max_anchor_entities`` and no GDS-side timeout or memory guard anywhere in this
+    module. Filed as `aicoe-tracker#199 <https://github.com/Saturam-Inc/aicoe-tracker/issues/199>`_
+    rather than fixed here -- bounding the projection to a k-hop neighborhood of the seed anchors is
+    a different Cypher shape with its own correctness properties to pin, not a small follow-up to
+    this statement.
 
     **The projection is undirected and unweighted.** Undirected matches
     :func:`_traverse_multihop`'s own ``-[:REL*1..N]-`` walk (an anchor set is "involves this

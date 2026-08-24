@@ -1374,7 +1374,7 @@ class _OneRow:
         return iter([{"name": "ada"}])
 
 
-def _ppr_call_recording_session(calls, *, rank_raises=True):
+def _ppr_call_recording_session(calls, *, rank_raises=True, project_raises=False):
     """A fake session that classifies each statement by which named leg it belongs to (`seeds`,
     `project`, `rank`, `drop`), recording the call order rather than matching on Cypher substrings
     that could match more than one statement (`ppr_statements` deliberately keeps `seeds`' text a
@@ -1394,6 +1394,8 @@ def _ppr_call_recording_session(calls, *, rank_raises=True):
                 return _Empty()
             if "gds.graph.project" in text:
                 calls.append("project")
+                if project_raises:
+                    raise RuntimeError("project blew up")
                 return _Empty()
             if "RETURN anchor.name AS name" in text:
                 calls.append("seeds")
@@ -1424,6 +1426,87 @@ def test_ppr_drops_the_projection_even_when_ranking_raises():
 
     assert calls == ["seeds", "project", "rank", "drop"], (
         f"expected the anchor guard, project, the failing rank, then drop-after; got {calls}"
+    )
+
+
+def test_ppr_drops_the_projection_even_when_project_itself_raises():
+    """Round-2 review, Major: `project` used to run *before* the `try` guarding cleanup -- only
+    `rank`'s failure was covered. Any non-fatal `project` failure (a GDS-side validation error, a
+    dropped connection, a timeout, not only a process crash) skipped `finally` entirely, orphaning
+    the freshly-UUID-named catalog entry forever, since a unique name means nothing will ever
+    reference it again to self-heal. Reproduced directly before the fix (`drop` never appeared in
+    `calls`); pinned here so `project` failing is exercised as its own case, not assumed to behave
+    like `rank` failing.
+    """
+    calls: list = []
+    substrate = _ppr_enabled(Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate))
+    substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
+    substrate._driver = _ppr_call_recording_session(calls, project_raises=True)
+
+    with pytest.raises(RuntimeError):
+        substrate._ppr_rows(FULL, MemoryQuery(text="ada", limit=10))
+
+    assert calls == ["seeds", "project", "drop"], (
+        f"expected the anchor guard, the failing project, then drop-after (rank never reached); got {calls}"
+    )
+
+
+async def test_appr_drops_the_projection_even_when_project_itself_raises():
+    """Async twin of the sync test above -- the same defect existed in `_appr_rows` independently
+    (round-2 review, Major), a separate method with its own `try`/`finally`, not a shared helper
+    whose fix would have covered both automatically."""
+    calls: list = []
+
+    class _AResult:
+        def __init__(self, rows):
+            self._rows = iter(rows)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._rows)
+            except StopIteration:
+                raise StopAsyncIteration from None
+
+        async def consume(self):
+            return None
+
+    class _ASession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def run(self, text, *_args, **_kwargs):
+            if "gds.graph.drop" in text:
+                calls.append("drop")
+                return _AResult([])
+            if "gds.graph.project" in text:
+                calls.append("project")
+                raise RuntimeError("project blew up")
+            if "RETURN anchor.name AS name" in text:
+                calls.append("seeds")
+                return _AResult([{"name": "ada"}])
+            calls.append("rank")
+            return _AResult([])
+
+    class _ADriver:
+        def session(self, **_kwargs):
+            return _ASession()
+
+    substrate = _ppr_enabled(Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate))
+    substrate.database, substrate.uri = "neo4j", "bolt://x"
+    substrate._adriver = _ADriver()
+    substrate._async_driver = lambda: substrate._adriver
+
+    with pytest.raises(RuntimeError):
+        await substrate._appr_rows(FULL, MemoryQuery(text="ada", limit=10))
+
+    assert calls == ["seeds", "project", "drop"], (
+        f"expected the anchor guard, the failing project, then drop-after (rank never reached); got {calls}"
     )
 
 
