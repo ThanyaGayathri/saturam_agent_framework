@@ -47,6 +47,13 @@ from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.fuse import DEFAULT_RRF_K, deterministic_rank_key, rrf_fuse
 from egpt.memory.retrieval.orchestrator import RetrievalLegs, aorchestrate, orchestrate
+from egpt.memory.retrieval.rerank import (
+    DEFAULT_BUDGET_MS as DEFAULT_RERANK_BUDGET_MS,
+)
+from egpt.memory.retrieval.rerank import (
+    DEFAULT_CANDIDATES as DEFAULT_RERANK_CANDIDATES,
+)
+from egpt.memory.retrieval.rerank import arerank_records, rerank_records
 from egpt.memory.schemas.semantic import fact_record
 from egpt.memory.semantic.profile import SemanticProfileStore
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
@@ -855,6 +862,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         bounds_reconciled: bool,
         *,
         lexical_hits: List[MemoryRecord],
+        rerank_diagnostics: Dict[str, Any],
     ) -> MemorySlice:
         """Filter the reconciled set and package it. Bounds must already be authoritative."""
         # Both predicates, always. `is_current_belief` is transaction time only, and under SCD-2
@@ -920,6 +928,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # was asked about. `False` means rows the graph might have bounded went unchecked.
                 bounds_reconciled=bounds_reconciled,
                 instant=instant,
+                **rerank_diagnostics,
             ),
         )
 
@@ -966,6 +975,41 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self._assert_requested_tiers(query, merged)
         return merged
 
+    def _rerank(self, query: MemoryQuery, merged: List[MemoryRecord]) -> Tuple[List[MemoryRecord], Dict[str, Any]]:
+        """Optional cross-encoder rerank over the fused list (SM-H3 #133), off unless configured.
+
+        Runs between fusion and bounds reconciliation: the fused order is what "top ~50 fused
+        candidates" (the issue's own words) refers to, and reranking before reconciliation means a
+        reordering never needs to know which rows a later validity check will still drop.
+        ``config.rerank`` decides everything else -- see its own docstring and
+        ``egpt.memory.retrieval.rerank``.
+        """
+        if not self.config.rerank.get("enabled", False):
+            return merged, {}
+        outcome = rerank_records(
+            query.text,
+            merged,
+            reranker=self.config.rerank["reranker"],
+            candidates=self.config.rerank.get("candidates", DEFAULT_RERANK_CANDIDATES),
+            budget_ms=self.config.rerank.get("budget_ms", DEFAULT_RERANK_BUDGET_MS),
+        )
+        return outcome.records, outcome.diagnostics()
+
+    async def _arerank(
+        self, query: MemoryQuery, merged: List[MemoryRecord]
+    ) -> Tuple[List[MemoryRecord], Dict[str, Any]]:
+        """Async variant of :meth:`_rerank`, making the same decisions over ``arerank_records``."""
+        if not self.config.rerank.get("enabled", False):
+            return merged, {}
+        outcome = await arerank_records(
+            query.text,
+            merged,
+            reranker=self.config.rerank["reranker"],
+            candidates=self.config.rerank.get("candidates", DEFAULT_RERANK_CANDIDATES),
+            budget_ms=self.config.rerank.get("budget_ms", DEFAULT_RERANK_BUDGET_MS),
+        )
+        return outcome.records, outcome.diagnostics()
+
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         require_scope(scope, method="read")
         return self._read(scope, query, method="read")
@@ -993,9 +1037,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # #132): the default `score_sum` keeps it diagnostics-only (ADR 0003 A.6), `rrf` folds it
         # in. See `_merged`'s docstring.
         merged = self._merged(scope, query, legs, method=method)
+        merged, rerank_diagnostics = self._rerank(query, merged)
         reconciled = self._reconcile_bounds(scope, merged)
         return self._slice(
-            scope, query, merged, legs.vector, legs.graph, instant, reconciled, lexical_hits=legs.lexical
+            scope,
+            query,
+            merged,
+            legs.vector,
+            legs.graph,
+            instant,
+            reconciled,
+            lexical_hits=legs.lexical,
+            rerank_diagnostics=rerank_diagnostics,
         )
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
@@ -1009,9 +1062,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         legs = await aorchestrate(scope, query, vector=self.vector, graph=self.graph)
         # See `_read`'s comment: `_merged`/`_fusion_method` decide whether lexical enters ranking.
         merged = self._merged(scope, query, legs, method=method)
+        merged, rerank_diagnostics = await self._arerank(query, merged)
         reconciled = await self._areconcile_bounds(scope, merged)
         return self._slice(
-            scope, query, merged, legs.vector, legs.graph, instant, reconciled, lexical_hits=legs.lexical
+            scope,
+            query,
+            merged,
+            legs.vector,
+            legs.graph,
+            instant,
+            reconciled,
+            lexical_hits=legs.lexical,
+            rerank_diagnostics=rerank_diagnostics,
         )
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:

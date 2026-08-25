@@ -33,10 +33,12 @@ from typing import Any, Callable, Dict, List, Optional
 from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.fuse import DEFAULT_RRF_K
+from egpt.memory.retrieval.rerank import DEFAULT_BUDGET_MS, DEFAULT_CANDIDATES, RerankerLike
 from egpt.providers.model_provider import ProviderMode
 
 __all__ = [
     "FUSION_METHODS",
+    "RERANK_OFFLINE_CAPABLE",
     "MemoryProviderConfig",
     "MemoryProviderConfigError",
     "ProviderFactory",
@@ -104,6 +106,105 @@ def _validate_fusion(fusion: Dict[str, Any]) -> Dict[str, Any]:
     return validated
 
 
+#: Keys ``config.rerank`` recognizes -- a closed set, same reasoning as ``_FUSION_KNOWN_KEYS``.
+_RERANK_KNOWN_KEYS = frozenset({"enabled", "reranker", "candidates", "budget_ms"})
+
+#: Reranker module names that stay inside the air gap, mirroring ``egpt.memory.embedding``'s
+#: ``OFFLINE_CAPABLE`` for embedders (ADR 0003 A.3c) applied to the analogous rerank case (SM-R8
+#: DECISION.md S1.2/S5): ``sentence_transformer`` runs the cross-encoder in-process, ``infinity``
+#: reaches an in-VPC served instance -- both stay inside the air gap. ``cohere``/``aws_bedrock`` are
+#: Mode-B-only network reranker APIs and are deliberately absent.
+RERANK_OFFLINE_CAPABLE = frozenset({"sentence_transformer", "infinity"})
+
+
+def _reject_online_reranker_for_local(reranker: RerankerLike) -> None:
+    """Refuse a reranker that reaches the network when the deployment is air-gapped.
+
+    Mirrors ``egpt.memory.embedding._reject_online_for_local`` (ADR 0003 A.3c): a reranker is
+    accepted for Mode A either because its class lives in a :data:`RERANK_OFFLINE_CAPABLE` module,
+    or because it declares ``offline_capable = True`` itself -- the same two escape hatches, and
+    the same acknowledged limit that a module path is a proxy for the property, not the property
+    (see that function's own docstring for why neither arm is a security boundary).
+    """
+    if getattr(reranker, "offline_capable", False) is True:
+        return
+    module = type(reranker).__module__ or ""
+    if module.rsplit(".", 1)[-1] in RERANK_OFFLINE_CAPABLE:
+        return
+    raise MemoryProviderConfigError(
+        f"{type(reranker).__name__} (from {module!r}) is not one of the offline-capable rerankers, and "
+        f"mode={ProviderMode.LOCAL.value!r} (Mode A) is the air-gapped deployment path (ADR 0003 A.3c). "
+        f"Offline-capable: {', '.join(sorted(RERANK_OFFLINE_CAPABLE))}. Pass one of those; or set "
+        "offline_capable = True on it, which asserts that it reaches nothing outside the air gap; or run "
+        f"this tenant in mode={ProviderMode.FRONTIER.value!r} if reaching a provider is intended.",
+        field_name="rerank.reranker",
+    )
+
+
+def _validate_rerank(rerank: Dict[str, Any], mode: ProviderMode) -> Dict[str, Any]:
+    """Validate ``config.rerank`` at construction, per the four-questions boundary rule.
+
+    ``{}`` reads as disabled -- SM-R8's ruling (DECISION.md S1.2) is that cross-encoder rerank
+    stays off the default hot path, so the zero-config case must not turn it on. Enabling it
+    requires a ``reranker`` instance (SM-H3 reuses ``egpt.integrations.knowledge.reranker.*`` per
+    S5 rather than building a new one), validated for the deployment's mode the same way
+    ``resolve_substrate`` validates a backend for it.
+    """
+    if not isinstance(rerank, dict):
+        raise MemoryProviderConfigError(
+            f"config.rerank must be a dict, got {type(rerank).__name__}.", field_name="rerank"
+        )
+    unknown = sorted(set(rerank) - _RERANK_KNOWN_KEYS)
+    if unknown:
+        raise MemoryProviderConfigError(
+            f"config.rerank has unknown key(s) {unknown}; only {sorted(_RERANK_KNOWN_KEYS)} are recognized.",
+            field_name="rerank",
+        )
+    enabled = rerank.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise MemoryProviderConfigError(
+            f"config.rerank['enabled'] must be a bool, got {enabled!r}.", field_name="rerank.enabled"
+        )
+    if not enabled:
+        if set(rerank) - {"enabled"}:
+            # `reranker`/`candidates`/`budget_ms` are meaningless while disabled -- the same "no
+            # knob that silently does nothing" rule `_validate_fusion` applies to `k`.
+            raise MemoryProviderConfigError(
+                "config.rerank['reranker'/'candidates'/'budget_ms'] are only meaningful when enabled=True.",
+                field_name="rerank",
+            )
+        return {"enabled": False}
+
+    reranker = rerank.get("reranker")
+    if not isinstance(reranker, RerankerLike):
+        raise MemoryProviderConfigError(
+            f"config.rerank['reranker'] must be a Reranker instance when enabled=True, got "
+            f"{type(reranker).__name__ if reranker is not None else None!r}.",
+            field_name="rerank.reranker",
+        )
+    if mode is ProviderMode.LOCAL:
+        _reject_online_reranker_for_local(reranker)
+
+    validated: Dict[str, Any] = {"enabled": True, "reranker": reranker}
+
+    candidates = rerank.get("candidates", DEFAULT_CANDIDATES)
+    if isinstance(candidates, bool) or not isinstance(candidates, int) or candidates < 1:
+        raise MemoryProviderConfigError(
+            f"config.rerank['candidates'] must be a positive integer, got {candidates!r}.",
+            field_name="rerank.candidates",
+        )
+    validated["candidates"] = candidates
+
+    budget_ms = rerank.get("budget_ms", DEFAULT_BUDGET_MS)
+    if isinstance(budget_ms, bool) or not isinstance(budget_ms, (int, float)) or budget_ms <= 0:
+        raise MemoryProviderConfigError(
+            f"config.rerank['budget_ms'] must be a positive number, got {budget_ms!r}.",
+            field_name="rerank.budget_ms",
+        )
+    validated["budget_ms"] = float(budget_ms)
+    return validated
+
+
 @dataclass
 class MemoryProviderConfig:
     """Everything needed to build a provider, with no call site touched.
@@ -119,6 +220,14 @@ class MemoryProviderConfig:
     weighted-vs-RRF choice open, gated on SM-G9 (#107) and SM-H2/H3's own measurement -- so
     ``score_sum`` stays the default here too. ``{"method": "rrf", "k": 60}`` opts into the
     strategy SM-H2 (#132) adds; see ``egpt.memory.retrieval.fuse``.
+
+    ``rerank`` is the same shape of seam as ``fusion``: closed, validated, off by default.
+    ``{}`` reads as disabled -- SM-R8 DECISION.md S1.2 measured CPU cross-encoder rerank at
+    ~100x its own ~300ms budget, so the zero-config case must not turn it on.
+    ``{"enabled": True, "reranker": SentenceTransformerReranker(...), "budget_ms": 300}`` opts
+    into the stage SM-H3 (#133) adds; see ``egpt.memory.retrieval.rerank``. Because this config is
+    the per-tenant unit SM-C5 (#93) will resolve to (see the module docstring), this is also how
+    rerank is "toggleable per tenant" -- one tenant's config, not a global switch.
     """
 
     provider: str
@@ -126,6 +235,7 @@ class MemoryProviderConfig:
     vector: Dict[str, Any] = field(default_factory=dict)
     graph: Dict[str, Any] = field(default_factory=dict)
     fusion: Dict[str, Any] = field(default_factory=dict)
+    rerank: Dict[str, Any] = field(default_factory=dict)
     options: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -150,6 +260,7 @@ class MemoryProviderConfig:
                 ) from None
 
         self.fusion = _validate_fusion(self.fusion)
+        self.rerank = _validate_rerank(self.rerank, self.mode)
 
 
 def resolve_substrate(
