@@ -2,19 +2,22 @@
 
 The three primitives this locks -- point-in-time queries (SM-G4), invalidate-not-delete
 (SM-G5), and decay/reinforcement (SM-E4) -- already carry extensive unit coverage of their own
-(``test_provider_co_located.py``, ``test_episodic_decay.py``, ``test_episodic_forget.py``,
-``test_graph_substrate.py``). This file does not repeat that: it covers what none of those files
-does -- a belief chain longer than one supersession, and the row-vs-edge boundary ADR 0003
-section B.6 rules on (episodic archival/reinforcement and semantic-fact invalidation are
-independent write authorities that must never blur into each other).
+(``test_provider_co_located.py``, ``test_episodic_decay.py``, ``test_episodic_forget.py`` here,
+plus ``libs/agno/tests/integration/memory/neo4j/test_graph_substrate.py`` against the real
+engine). This file does not repeat that: it covers what none of those files does -- a belief
+chain longer than one supersession, and the row-vs-edge boundary ADR 0003 section B.6 rules on
+(episodic archival/reinforcement and semantic-fact invalidation are independent write authorities
+that must never blur into each other).
 """
+
+import inspect
 
 import pytest
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
 from egpt.memory.episodic.decay import reinforce
-from egpt.memory.episodic.forget import DEFAULT_PRUNE_THRESHOLD, is_prune_eligible
+from egpt.memory.episodic.forget import DEFAULT_PRUNE_THRESHOLD, forget, is_prune_eligible
 from egpt.memory.graph.relations import ExtractedRelation, RelationExtractionPipeline
 from egpt.memory.graph.temporal import ValidTimeSpan
 from egpt.memory.schemas.episodic import EpisodicRecord
@@ -31,11 +34,11 @@ def event(content, **kwargs):
 
 class _RelationStub:
     """Same shape as ``test_provider_co_located.py``'s local stub -- kept local here too per
-    that file's own note ("move to conftest.py once a second file needs a stub RelationExtractor"):
-    this is that second file, but the stub differs enough (keyed by episode id, not content, since
-    this file's three episodes share no distinguishing substring a content-keyed stub could use)
-    that consolidating it would need to change both call sites, which is out of this ticket's
-    scope."""
+    that file's own note (review finding, PR #126 round 1: "move to ``conftest.py`` once a
+    *second* file needs a stub ``RelationExtractor``, not before"): this is that second file, but
+    the stub differs enough (keyed by episode id, not content, since this file's three episodes
+    share no distinguishing substring a content-keyed stub could use) that consolidating it would
+    need to change both call sites, which is out of this ticket's scope."""
 
     def __init__(self, by_id):
         self.by_id = by_id
@@ -81,7 +84,10 @@ def _three_state_employer_chain():
         vector=vector, graph=graph, config=MemoryProviderConfig(provider="co_located"), relation_pipeline=pipeline
     )
 
-    p.write(ACME, [event("Ada joined Acme", id="e1")])
+    # `metadata` is seeded on e1 specifically for the row-vs-edge boundary test below, which
+    # asserts a value survives an unrelated graph invalidation untouched -- an unset `{}` on both
+    # sides of that comparison would make the assertion vacuous regardless of correctness.
+    p.write(ACME, [event("Ada joined Acme", id="e1", metadata={"importance": 0.7})])
     p.consolidate(ACME)
     p.write(ACME, [event("Ada moved to Beta", id="e2")])
     p.consolidate(ACME)
@@ -188,8 +194,19 @@ def test_every_superseded_state_in_the_chain_remains_queryable_and_untouched():
 # notes no scheduled pass wires episode archival into a path that could reach the graph yet. A
 # test asserting the converse today would pass for a reason unrelated to any regression the code
 # could actually introduce (Python simply cannot call a method on an object a function was never
-# given), so it is named here rather than written.
+# given), so it is named here rather than written. The signature claim itself is checked below,
+# so a future change that adds one is caught rather than silently outdating this comment.
 # ---------------------------------------------------------------------------
+
+
+def test_forget_carries_no_graph_substrate_reference():
+    """Makes the boundary comment above self-checking: the argument that a converse test would be
+    vacuous rests on `forget()` (SM-E9 episode archival) never receiving a `GraphSubstrate`, which
+    is a claim about its signature, not its body. If that ever changes, this fails instead of
+    leaving a stale comment as the only place the assumption was recorded."""
+    params = inspect.signature(forget).parameters
+    assert "graph" not in params
+    assert all("Graph" not in str(p.annotation) for p in params.values())
 
 
 @pytest.mark.parametrize("half", ["sync", "async"])
@@ -229,8 +246,10 @@ async def test_invalidating_a_semantic_fact_leaves_its_source_episodes_row_untou
     assert source_episode.expired_at is None
     assert after_episode.t_valid == source_episode.t_valid
     assert after_episode.t_invalid == source_episode.t_invalid
-    assert after_episode.metadata.get("importance") == source_episode.metadata.get("importance")
-    assert after_episode.metadata.get("last_accessed_at") == source_episode.metadata.get("last_accessed_at")
+    # Not just equal to each other -- both must equal the seeded value, or a code path that drops
+    # `importance` on every episode equally (both sides `None`) would pass this vacuously.
+    assert source_episode.metadata.get("importance") == 0.7
+    assert after_episode.metadata.get("importance") == 0.7
 
 
 def _edge_id_for(graph, content):
