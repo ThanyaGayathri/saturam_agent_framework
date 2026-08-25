@@ -145,3 +145,23 @@ def test_a_process_with_an_abandoned_slow_call_exits_promptly():
     # Generous relative to the 0.05s startup delay above -- this asserts "did not wait out the
     # full abandoned call," not a tight timing bound.
     assert elapsed_s < 3.0
+
+
+def test_a_work_item_that_misbehaves_beyond_run_does_not_kill_its_worker():
+    """Round-5 review finding: `_worker_loop` had no `try/except` around `item.run()` itself --
+    latent, since nothing today calls `.cancel()` on one of this pool's futures, but a worker
+    thread that dies here is never replaced (workers are started once, at construction), so the
+    pool would permanently shrink by one. Simulates the class of failure `_WorkItem.run`'s own
+    try/except cannot cover -- something raising from *within* `run` after the callable already
+    returned -- by handing the queue a work item whose `run` itself raises, then confirming a
+    normal submission still completes afterward."""
+    executor = BoundedDaemonExecutor(max_workers=1, max_queue=4, thread_name_prefix="t")
+
+    class ExplodingItem:
+        def run(self):
+            raise RuntimeError("boom from inside run(), not from the wrapped callable")
+
+    executor._queue.put_nowait(ExplodingItem())
+
+    future = executor.submit(lambda: "still alive")
+    assert future.result(timeout=1.0) == "still alive"

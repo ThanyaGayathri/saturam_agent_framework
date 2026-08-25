@@ -57,6 +57,14 @@ class RerankerLike(Protocol):
     Every ``egpt`` reranker adapter satisfies this already: ``rerank`` is the interface every
     adapter has always implemented, and ``arerank`` is the default this ticket adds to the base
     class (thread-offloading ``rerank``, or a real async override like ``InfinityReranker``'s).
+
+    **A single instance may be invoked concurrently** (round-5 review finding): one
+    ``MemoryProviderConfig.rerank["reranker"]`` instance is shared across every read for that
+    tenant, and ``rerank``/``arerank`` can each run on a worker thread from this stage's
+    ``BoundedDaemonExecutor``-backed pools at the same time as one another, or as a call from an
+    unrelated ``egpt.knowledge`` caller reusing the same instance. This is not new exposure this
+    ticket introduces -- the knowledge/RAG pipeline could already call a shared instance's
+    ``rerank`` from multiple threads -- but implementers should not assume single-threaded access.
     """
 
     def rerank(self, query: str, documents: List[Document]) -> List[Document]:
@@ -90,6 +98,17 @@ DEFAULT_CANDIDATES = 50
 #: docstring for the full tradeoff -- uses daemon threads (never joined at exit) behind a bounded
 #: queue (8 = 2x the worker count; past that, ``submit`` fails fast into the same fallback path a
 #: budget overrun already takes, rather than retaining unbounded abandoned-call state).
+#:
+#: **Deliberately separate from** ``egpt.integrations.knowledge.reranker.base``'s
+#: ``_ARERANK_EXECUTOR`` (round-5 review question: "worth confirming this is intentional") --
+#: sharing one pool across this stage's sync path and the base class's async-offload default
+#: would let one tenant's sync reads and another's async reads (or an unrelated
+#: ``egpt.knowledge`` caller reusing ``_ARERANK_EXECUTOR``, which this module has no visibility
+#: into) starve each other for worker slots. A cross-layer shared instance would also need a home
+#: in ``egpt.utils.concurrency`` importable from both ``egpt/memory/`` (services) and
+#: ``egpt/integrations/`` (integrations) without either depending on the other, which is a real
+#: design change, not a one-line fix -- not made here without evidence one 4-worker ceiling
+#: across both paths is actually the right default over two independent ones summing to 8.
 _EXECUTOR = BoundedDaemonExecutor(max_workers=4, max_queue=8, thread_name_prefix="egpt-memory-rerank")
 
 
@@ -100,6 +119,11 @@ class RerankOutcome:
     records: List[MemoryRecord]
     applied: bool
     budget_exceeded: bool
+    #: An adapter-internal failure that swallowed its own exception and returned the input
+    #: unchanged (round-5 review finding) -- see :func:`_is_identity_noop`. Distinct from
+    #: ``budget_exceeded`` and plain corruption: the call completed, on time, with a
+    #: structurally-valid response that happens to carry no evidence any work was done.
+    no_op: bool
     candidates: int
     elapsed_ms: float
 
@@ -107,13 +131,16 @@ class RerankOutcome:
         return {
             "rerank_applied": self.applied,
             "rerank_budget_exceeded": self.budget_exceeded,
+            "rerank_no_op": self.no_op,
             "rerank_candidates": self.candidates,
             "rerank_elapsed_ms": round(self.elapsed_ms, 2),
         }
 
 
 def _empty_outcome(records: Sequence[MemoryRecord]) -> RerankOutcome:
-    return RerankOutcome(records=list(records), applied=False, budget_exceeded=False, candidates=0, elapsed_ms=0.0)
+    return RerankOutcome(
+        records=list(records), applied=False, budget_exceeded=False, no_op=False, candidates=0, elapsed_ms=0.0
+    )
 
 
 def _to_documents(records: Sequence[MemoryRecord]) -> List[Document]:
@@ -160,6 +187,26 @@ def _rerank_corrupted(pool_ids: Set[str], reranked_docs: Sequence[Document], ord
     ``not ordered`` alone already means "non-empty pool, zero survivors."
     """
     return _has_duplicate_pool_id(pool_ids, reranked_docs) or not ordered
+
+
+def _is_identity_noop(pool: Sequence[MemoryRecord], reranked_docs: Sequence[Document]) -> bool:
+    """Whether ``reranked_docs`` is exactly ``pool``'s ids, in order, with no score set on any of
+    them -- the signature every shipped ``egpt`` reranker adapter's own internal failure handling
+    leaves behind (round-5 review finding). ``SentenceTransformerReranker.rerank``,
+    ``InfinityReranker.rerank``/``arerank``, and ``AwsBedrockReranker.rerank`` each catch their
+    own construction/connection failure internally and return the input ``documents`` list
+    unchanged rather than raising -- which is a *valid* permutation (no duplicates, no foreign
+    ids), so :func:`_rerank_corrupted` cannot see it, and reporting it ``applied=True`` would be
+    indistinguishable from a reranker that genuinely ran and happened to agree with the fused
+    order.
+
+    Both conditions are required, not just unchanged order: a real reranker that legitimately
+    agrees with the fused order still sets ``reranking_score`` on every document as part of doing
+    actual work, so requiring "no score set" too is what keeps this from misfiring on that case.
+    """
+    if [doc.id for doc in reranked_docs] != [record.id for record in pool]:
+        return False
+    return all(doc.reranking_score is None for doc in reranked_docs)
 
 
 def _reordered(pool: Sequence[MemoryRecord], reranked_docs: Sequence[Document]) -> List[MemoryRecord]:
@@ -220,24 +267,57 @@ def rerank_records(
         elapsed_ms = (time.monotonic() - start) * 1000.0
         log_warning(f"Memory rerank exceeded its {budget_ms:.0f}ms budget ({elapsed_ms:.0f}ms); using fused order.")
         return RerankOutcome(
-            records=list(records), applied=False, budget_exceeded=True, candidates=len(pool), elapsed_ms=elapsed_ms
+            records=list(records),
+            applied=False,
+            budget_exceeded=True,
+            no_op=False,
+            candidates=len(pool),
+            elapsed_ms=elapsed_ms,
         )
     except Exception:
         elapsed_ms = (time.monotonic() - start) * 1000.0
         log_warning("Memory rerank raised; using fused order.")
         return RerankOutcome(
-            records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
+            records=list(records),
+            applied=False,
+            budget_exceeded=False,
+            no_op=False,
+            candidates=len(pool),
+            elapsed_ms=elapsed_ms,
         )
 
     elapsed_ms = (time.monotonic() - start) * 1000.0
     pool_ids = {record.id for record in pool}
     ordered = _reordered(pool, reranked_docs)
     if _rerank_corrupted(pool_ids, reranked_docs, ordered):
+        log_warning("Memory rerank returned corrupted output (duplicate or foreign ids); using fused order.")
         return RerankOutcome(
-            records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
+            records=list(records),
+            applied=False,
+            budget_exceeded=False,
+            no_op=False,
+            candidates=len(pool),
+            elapsed_ms=elapsed_ms,
+        )
+    if _is_identity_noop(pool, reranked_docs):
+        log_warning(
+            "Memory rerank returned the input unchanged with no scores set; the reranker likely failed internally without raising. Using fused order."
+        )
+        return RerankOutcome(
+            records=list(records),
+            applied=False,
+            budget_exceeded=False,
+            no_op=True,
+            candidates=len(pool),
+            elapsed_ms=elapsed_ms,
         )
     return RerankOutcome(
-        records=ordered + tail, applied=True, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
+        records=ordered + tail,
+        applied=True,
+        budget_exceeded=False,
+        no_op=False,
+        candidates=len(pool),
+        elapsed_ms=elapsed_ms,
     )
 
 
@@ -268,22 +348,55 @@ async def arerank_records(
         elapsed_ms = (time.monotonic() - start) * 1000.0
         log_warning(f"Memory rerank exceeded its {budget_ms:.0f}ms budget ({elapsed_ms:.0f}ms); using fused order.")
         return RerankOutcome(
-            records=list(records), applied=False, budget_exceeded=True, candidates=len(pool), elapsed_ms=elapsed_ms
+            records=list(records),
+            applied=False,
+            budget_exceeded=True,
+            no_op=False,
+            candidates=len(pool),
+            elapsed_ms=elapsed_ms,
         )
     except Exception:
         elapsed_ms = (time.monotonic() - start) * 1000.0
         log_warning("Memory rerank raised; using fused order.")
         return RerankOutcome(
-            records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
+            records=list(records),
+            applied=False,
+            budget_exceeded=False,
+            no_op=False,
+            candidates=len(pool),
+            elapsed_ms=elapsed_ms,
         )
 
     elapsed_ms = (time.monotonic() - start) * 1000.0
     pool_ids = {record.id for record in pool}
     ordered = _reordered(pool, reranked_docs)
     if _rerank_corrupted(pool_ids, reranked_docs, ordered):
+        log_warning("Memory rerank returned corrupted output (duplicate or foreign ids); using fused order.")
         return RerankOutcome(
-            records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
+            records=list(records),
+            applied=False,
+            budget_exceeded=False,
+            no_op=False,
+            candidates=len(pool),
+            elapsed_ms=elapsed_ms,
+        )
+    if _is_identity_noop(pool, reranked_docs):
+        log_warning(
+            "Memory rerank returned the input unchanged with no scores set; the reranker likely failed internally without raising. Using fused order."
+        )
+        return RerankOutcome(
+            records=list(records),
+            applied=False,
+            budget_exceeded=False,
+            no_op=True,
+            candidates=len(pool),
+            elapsed_ms=elapsed_ms,
         )
     return RerankOutcome(
-        records=ordered + tail, applied=True, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
+        records=ordered + tail,
+        applied=True,
+        budget_exceeded=False,
+        no_op=False,
+        candidates=len(pool),
+        elapsed_ms=elapsed_ms,
     )

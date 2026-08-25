@@ -78,7 +78,14 @@ class BoundedDaemonExecutor(Executor):
     def _worker_loop(self) -> None:
         while True:
             item = self._queue.get()
-            item.run()
+            try:
+                item.run()
+            except BaseException:  # noqa: BLE001 - a worker thread that dies here permanently
+                # shrinks the pool (nothing replaces it); `_WorkItem.run` already reports the
+                # callable's own exception through the future, so anything reaching this branch
+                # is `run` itself misbehaving (round-5 review finding: not currently reachable --
+                # nothing here cancels a future -- but cheap enough to guard regardless).
+                pass
 
     def submit(self, fn: Callable[..., T], /, *args: Any, **kwargs: Any) -> "Future[T]":
         """Queue ``fn(*args, **kwargs)``, or fail the returned future if the queue is full.

@@ -230,6 +230,20 @@ def test_a_reranker_returning_a_duplicate_id_falls_back_rather_than_silently_dro
     assert [r.id for r in outcome.records] == ["1", "2", "3"]
 
 
+def test_corrupted_reranker_output_is_logged_not_silent(monkeypatch):
+    """Round-5 review finding: the corruption-fallback branch had no `log_warning` call, unlike
+    the sibling budget-overrun and exception branches immediately above it -- so a genuinely
+    corrupted response produced zero log signal, only the (correctly logged) no-op case did."""
+    calls = []
+    monkeypatch.setattr(rerank_module, "log_warning", lambda *args, **kwargs: calls.append(args))
+
+    records = [record(str(i)) for i in range(1, 4)]
+    rerank_records("q", records, reranker=DuplicateIdReranker(), budget_ms=1000)
+
+    assert len(calls) == 1
+    assert "corrupted" in calls[0][0].lower()
+
+
 async def test_an_async_reranker_returning_a_duplicate_id_also_falls_back():
     records = [record(str(i)) for i in range(1, 4)]
 
@@ -286,6 +300,7 @@ def test_diagnostics_carries_every_key_fusion_diagnostics_folds_in():
     assert set(diagnostics) == {
         "rerank_applied",
         "rerank_budget_exceeded",
+        "rerank_no_op",
         "rerank_candidates",
         "rerank_elapsed_ms",
     }
@@ -303,22 +318,67 @@ def test_zero_candidates_yields_no_pool_to_rerank():
     assert [r.id for r in outcome.records] == ["1", "2", "3"]
 
 
-def test_a_reranker_that_drops_the_reranking_score_keeps_the_records_fused_score():
-    """`SentenceTransformerReranker.rerank`'s own exception handler returns the *input* documents
-    unmodified on a construction failure (`reranking_score` stays `None`) -- this must not be
-    read as "reranked to a null score", or a real quality regression in the reranker itself would
-    silently zero out every downstream ranking signal."""
+class PassthroughReranker(Reranker):
+    """Mirrors `SentenceTransformerReranker.rerank`'s own exception handler: on an internal
+    construction/connection failure it swallows the error and returns `documents` unmodified,
+    `reranking_score` left at its `Document` default (`None`), rather than raising."""
 
-    class PassthroughReranker(Reranker):
-        def rerank(self, query, documents):
-            return documents  # unmodified: reranking_score left at its Document default (None)
+    def rerank(self, query, documents):
+        return documents
 
-    records = [record("a", score=0.7)]
+
+class AsyncPassthroughReranker(Reranker):
+    async def arerank(self, query, documents):
+        return documents
+
+
+def test_a_reranker_that_silently_swallowed_its_own_failure_is_not_reported_as_applied():
+    """Round-5 review finding: an adapter-internal failure that returns the input unchanged is a
+    *valid* permutation (no duplicates, no foreign ids) -- `_rerank_corrupted` cannot see it, so
+    it used to reach `applied=True`, indistinguishable from a reranker that genuinely ran and
+    happened to agree with the fused order. Multi-record on purpose: a single-record pool makes
+    "unchanged order" trivially true regardless of cause, which is exactly what let this through
+    the first time."""
+    records = [record(str(i), score=1.0 / i) for i in range(1, 4)]
 
     outcome = rerank_records("q", records, reranker=PassthroughReranker(), budget_ms=1000)
 
-    assert outcome.records[0].score == 0.7
+    assert outcome.applied is False
+    assert outcome.no_op is True
+    assert outcome.budget_exceeded is False
+    # Falls back to the original fused records, scores included -- not "reranked to a null score".
+    assert [r.id for r in outcome.records] == ["1", "2", "3"]
+    assert [r.score for r in outcome.records] == [1.0, 0.5, 1.0 / 3]
+
+
+async def test_an_async_reranker_that_silently_swallowed_its_own_failure_is_also_not_applied():
+    records = [record(str(i)) for i in range(1, 4)]
+
+    outcome = await arerank_records("q", records, reranker=AsyncPassthroughReranker(), budget_ms=1000)
+
+    assert outcome.applied is False
+    assert outcome.no_op is True
+    assert [r.id for r in outcome.records] == ["1", "2", "3"]
+
+
+def test_a_reranker_that_genuinely_agrees_with_the_fused_order_is_still_reported_as_applied():
+    """The other half of the round-5 fix: unchanged order alone must not trigger the no-op signal
+    -- a reranker that did real work and simply agreed with the fused ranking sets
+    `reranking_score` on every document, which is what distinguishes it from a silent failure."""
+
+    class AgreesButScoresReranker(Reranker):
+        def rerank(self, query, documents):
+            for index, doc in enumerate(documents):
+                doc.reranking_score = float(len(documents) - index)  # same order, real scores
+            return documents
+
+    records = [record(str(i)) for i in range(1, 4)]
+
+    outcome = rerank_records("q", records, reranker=AgreesButScoresReranker(), budget_ms=1000)
+
     assert outcome.applied is True
+    assert outcome.no_op is False
+    assert [r.id for r in outcome.records] == ["1", "2", "3"]
 
 
 def test_the_sync_executor_is_a_bounded_module_level_singleton_not_one_per_call():
