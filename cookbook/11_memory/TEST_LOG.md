@@ -1148,7 +1148,9 @@ gets.
 important + relevant episode ranks correctly"). The unscoped query kept both dated episodes; the
 windowed query kept only `today`. `recency=0.0` and `recency=5.0` both scored `1.00` on the same
 record -- confirms the recency signal, not just the weight, is what is pinned. The malformed
-record raised `MemoryOperationError` naming `field_name="importance"`.
+record raised `MemoryOperationError` naming `field_name="importance_metadata"` -- distinct from
+`composite_episodic_score`'s own `field_name="importance"` for a present-but-out-of-range value
+(PR #146 review round 1).
 
 **Requires:** Nothing; no database, no API key, no network.
 

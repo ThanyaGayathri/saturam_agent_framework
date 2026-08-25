@@ -144,14 +144,115 @@ def test_a_missing_score_is_treated_as_zero_relevance():
     assert ranked[0].score == pytest.approx(0.0 + 0.5)
 
 
-# -- missing importance is refused, not silently skipped ----------------------------------------
+# -- missing/invalid importance is refused, not silently skipped or raised as a raw TypeError ---
 
 
 def test_an_episodic_record_with_no_importance_in_metadata_is_refused():
+    # SeedMemoryProvider._store_records builds bare MemoryRecords with metadata={} for every
+    # tier, including EPISODIC -- not (yet) a valid input to rank(), per the module docstring.
     record = MemoryRecord(id="a", tier=MemoryTier.EPISODIC, content="a", scope=ACME, score=0.5, metadata={})
     with pytest.raises(MemoryOperationError) as exc_info:
         rank([record], query())
-    assert exc_info.value.field_name == "importance"
+    assert exc_info.value.field_name == "importance_metadata"
+
+
+def test_a_non_numeric_importance_is_refused_with_memory_operation_error_not_a_raw_type_error():
+    record = MemoryRecord(
+        id="a", tier=MemoryTier.EPISODIC, content="a", scope=ACME, score=0.5, metadata={"importance": "high"}
+    )
+    with pytest.raises(MemoryOperationError) as exc_info:
+        rank([record], query())
+    assert exc_info.value.field_name == "importance_metadata"
+
+
+def test_a_bool_importance_is_refused_rather_than_silently_becoming_zero_or_one():
+    record = MemoryRecord(
+        id="a", tier=MemoryTier.EPISODIC, content="a", scope=ACME, score=0.5, metadata={"importance": True}
+    )
+    with pytest.raises(MemoryOperationError) as exc_info:
+        rank([record], query())
+    assert exc_info.value.field_name == "importance_metadata"
+
+
+def test_missing_vs_out_of_range_importance_are_told_apart_by_field_name():
+    # composite_episodic_score itself raises field_name="importance" for a present-but-invalid
+    # value; this module's own field_name for a missing key must not collide with that.
+    missing = MemoryRecord(id="a", tier=MemoryTier.EPISODIC, content="a", scope=ACME, score=0.5, metadata={})
+    out_of_range = episode("b", score=0.5, importance=1.5)
+
+    with pytest.raises(MemoryOperationError) as missing_exc:
+        rank([missing], query())
+    with pytest.raises(MemoryOperationError) as range_exc:
+        rank([out_of_range], query())
+
+    assert missing_exc.value.field_name == "importance_metadata"
+    assert range_exc.value.field_name == "importance"
+    assert missing_exc.value.field_name != range_exc.value.field_name
+
+
+# -- invalid weights: every field, not only recency ----------------------------------------------
+
+
+@pytest.mark.parametrize("field_name", ["relevance", "recency", "importance"])
+def test_every_invalid_weight_field_is_refused_not_only_recency(field_name):
+    records = [episode("a", score=0.4, importance=0.6)]
+    kwargs = {"relevance": 1.0, "recency": 0.0, "importance": 1.0, field_name: -1.0}
+    with pytest.raises(MemoryOperationError) as exc_info:
+        rank(records, query(), weights=EpisodicScoreWeights(**kwargs))
+    assert exc_info.value.field_name == f"{field_name}_weight"
+
+
+# -- negative score, an asymmetry with weight validation documented in the module docstring -----
+
+
+def test_a_negative_score_is_clamped_to_zero_rather_than_refused():
+    record = episode("a", score=-0.3, importance=0.5)
+    ranked = rank([record], query())
+    assert ranked[0].score == pytest.approx(0.0 + 0.5)
+
+
+# -- empty input ----------------------------------------------------------------------------------
+
+
+def test_an_empty_record_list_returns_an_empty_list():
+    assert rank([], query()) == []
+
+
+# -- filter and blend compose: filtering runs before scoring, not after -------------------------
+
+
+def test_the_temporal_filter_runs_before_scoring_a_dropped_record_is_never_blended():
+    # An episode with no importance would raise if scored -- if it survives the window filter
+    # instead of being dropped by it, this call raises and the test fails for the wrong reason.
+    kept = episode("kept", score=0.6, importance=0.7, t_valid=100, t_invalid=200)
+    dropped_and_malformed = MemoryRecord(
+        id="dropped",
+        tier=MemoryTier.EPISODIC,
+        content="dropped",
+        scope=ACME,
+        score=0.9,
+        t_valid=0,
+        t_invalid=50,
+        metadata={},
+    )
+    ranked = rank([kept, dropped_and_malformed], query(valid_from=100, valid_to=200))
+    assert [r.id for r in ranked] == ["kept"]
+    assert ranked[0].score == pytest.approx(0.6 + 0.7)
+
+
+# -- a non-episodic record under an active time window --------------------------------------------
+
+
+def test_a_non_episodic_record_is_still_subject_to_the_temporal_filter():
+    in_window = MemoryRecord(
+        id="in", tier=MemoryTier.SEMANTIC, content="in", scope=ACME, score=0.5, t_valid=100, t_invalid=200
+    )
+    out_of_window = MemoryRecord(
+        id="out", tier=MemoryTier.SEMANTIC, content="out", scope=ACME, score=0.5, t_valid=0, t_invalid=50
+    )
+    ranked = rank([in_window, out_of_window], query(valid_from=100, valid_to=200))
+    assert [r.id for r in ranked] == ["in"]
+    assert ranked[0].score == pytest.approx(0.5)  # non-episodic score still passes through unblended
 
 
 # -- deterministic tie-break ----------------------------------------------------------------------

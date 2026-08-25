@@ -28,9 +28,25 @@ device, and a semantic/procedural record carries no ``importance`` for it to con
 ``score``, clamped into ``[0.0, 1.0]``: ``RetrievalCandidates``/``VectorSubstrate.search`` promise
 a single leg's score is already in that range, but ``_merge``'s score-sum default adds two such
 legs together (up to ``2.0``), which the composite's signal validation would otherwise reject
-outright. Clamping the upper bound is a deliberately small correction -- neither leg's score goes
-negative (same contract), so only the sum can overshoot, and clamping preserves relative order
-among every record that does not itself saturate above ``1.0``.
+outright. Only the upper bound is clamped -- a *negative* ``score`` is passed through to the clamp
+unchanged (and then floored at ``0.0`` by the same ``max(0.0, ...)``) rather than refused, because
+``score`` is a trusted-upstream value under this module's contract (every leg's own score is
+already non-negative), unlike ``weights``, which is caller-supplied config and *is* refused when
+negative (:func:`composite_episodic_score`'s own signal validation). Clamping the upper bound
+preserves relative order among every record that does not itself saturate above ``1.0``.
+
+**Not every ``MemoryRecord`` this module accepts is a valid input.** ``importance`` in
+``metadata`` is a promise :func:`~egpt.memory.schemas.episodic.episode_to_record` makes for
+episodic records that pass through it -- ``CoLocatedMemoryProvider``'s own projection. It is
+**not** a promise every ``MemoryProvider`` keeps: ``SeedMemoryProvider._store_records``
+(``adapters/seed.py``) builds bare ``MemoryRecord``s with no ``metadata`` kwarg (so it defaults
+to ``{}``) for any tier a seed store is bound to, including EPISODIC. Seed-provider output is not
+(yet) a valid input to :func:`rank` for that reason -- it is not wired to call this module today,
+so this is a documented precondition on a future caller, not a live bug.
+
+**``query.limit`` is not applied here.** Truncating to a page size is ``MemorySlice`` assembly's
+job (SM-H6), the same boundary every other scope this module does not enforce (SM-E8, SM-E4,
+wiring into the provider) is drawn at.
 
 **Recency signal is always ``0.0``, not read from ``weights``.** ADR 0003 B.1 (citing SM-R8's
 measured ``recency_weight`` degradation, 0.8934 -> 0.7265) rules out a per-query additive recency
@@ -89,16 +105,32 @@ def _blended_score(record: MemoryRecord, weights: EpisodicScoreWeights) -> float
         return record.score if record.score is not None else 0.0
     importance = record.metadata.get("importance")
     if importance is None:
-        # `episode_to_record` (SM-E1 #108) floors every episodic `MemoryRecord.metadata` with
+        # `episode_to_record`'s projection floors every episodic `MemoryRecord.metadata` with
         # `importance` via `episode_details`'s own default -- a record reaching this function
-        # without one did not come through that projection, which is a caller bug, not an
-        # episode this module can silently skip scoring.
+        # without one did not come through that projection (see the module docstring:
+        # `SeedMemoryProvider` output does not, today). `field_name` is deliberately
+        # `"importance_metadata"`, not `"importance"` -- `composite_episodic_score` below raises
+        # `field_name="importance"` for a *present but out-of-range* value, and a caller branching
+        # on `exc.field_name` needs to tell "not recorded" from "recorded but invalid" apart.
         raise MemoryOperationError(
             f"Episodic record {record.id!r} carries no 'importance' in metadata, so its composite "
-            "score cannot be computed. Every episodic MemoryRecord the seam returns carries one "
-            "(egpt.memory.schemas.episodic.episode_to_record); this record did not come through "
-            "that projection.",
-            field_name="importance",
+            "score cannot be computed. Every episodic MemoryRecord CoLocatedMemoryProvider "
+            "returns carries one (egpt.memory.schemas.episodic.episode_to_record); this record "
+            "did not come through that projection.",
+            field_name="importance_metadata",
+        )
+    if isinstance(importance, bool) or not isinstance(importance, (int, float)):
+        # `bool` is an `int` subclass, excluded for the reason every other epoch/weight guard in
+        # this package excludes it: `True` would silently become `importance=1`. A non-numeric
+        # value (a string, most plausibly) would otherwise reach `composite_episodic_score`'s
+        # `math.isfinite()` and raise a raw `TypeError`, breaking this module's "refuse cleanly at
+        # the boundary" convention -- `MemoryOperationError` here keeps every refusal this module
+        # raises the same class, not just the missing-key one above.
+        raise MemoryOperationError(
+            f"Episodic record {record.id!r} carries importance={importance!r} in metadata, which "
+            f"is a {type(importance).__name__}, not a number. Composite scoring needs a finite "
+            "value in [0.0, 1.0].",
+            field_name="importance_metadata",
         )
     relevance = _clamp_unit(record.score)
     return composite_episodic_score(relevance, recency=0.0, importance=importance, weights=weights)
@@ -122,11 +154,15 @@ def rank(
     every fusion strategy in this package uses, so two calls over the same input produce the same
     order regardless of dict/set iteration order upstream.
 
+    ``query.limit`` is not applied -- see the module docstring.
+
     Raises:
         MemoryOperationError: an episodic record in ``records`` carries no ``importance`` in
-            ``metadata`` (``field_name="importance"``), or is propagated from
+            ``metadata``, or a non-numeric one (``field_name="importance_metadata"`` for both --
+            see the module docstring for why that differs from ``composite_episodic_score``'s own
+            ``field_name="importance"``), or is propagated from
             :func:`~egpt.memory.episodic.score.composite_episodic_score` for an invalid ``weights``
-            field.
+            field or an out-of-range (but present and numeric) ``importance``.
     """
     filtered = _temporal_filter(records, query.window())
     scored: List[MemoryRecord] = []
