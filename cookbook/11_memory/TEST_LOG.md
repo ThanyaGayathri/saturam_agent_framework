@@ -1128,3 +1128,30 @@ fused scores visibly change) without flipping this fixture's ranking again.
 
 **Renumbered from `41_` to `42_`: `feat/SM-H4` took `41_ppr_multihop.py` while this branch was
 still catching up. Per this file's own convention, whoever merges second renumbers.**
+
+---
+
+### 43_time_aware_ranking.py
+
+**Status:** PASS
+
+**Description:** Time-aware blended ranking (SM-H5 #135): `rank()` over a plain in-memory
+`MemoryRecord` list -- an explicit time-window pre-filter, then SM-E7's composite score (`26_`)
+blended into every episodic record's fused score. Five sections: a three-episode fixture ranked by
+composite score, the temporal filter run once with no window and once with a window that drops an
+out-of-range episode, a nonzero recency weight shown to change nothing (the composite's recency
+*signal* is pinned to `0.0`), and the refusal an episodic record with no `importance` in metadata
+gets.
+
+**Result:** Ran end to end, no database, no model, no network. Fixture ranked `shipped_v2` (1.75)
+> `status_ping` (0.80) > `small_talk` (0.25), matching the issue's own Testing Note ("a recent +
+important + relevant episode ranks correctly"). The unscoped query kept both dated episodes; the
+windowed query kept only `today`. `recency=0.0` and `recency=5.0` both scored `1.00` on the same
+record -- confirms the recency signal, not just the weight, is what is pinned. The malformed
+record raised `MemoryOperationError` naming `field_name="importance"`.
+
+**Requires:** Nothing; no database, no API key, no network.
+
+**Numbered `43_`, not `42_`: `42_rrf_fusion.py` (SM-H2) was already on `main` when this branch was
+created off it. Per this file's own convention, checked against `origin/main` at merge time, not
+at branch time.**
