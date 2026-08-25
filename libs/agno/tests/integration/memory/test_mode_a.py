@@ -25,6 +25,7 @@ actually agreeing on what got consolidated.
   exercises against fakes -- proving the *wiring*, not a new extraction strategy.
 """
 
+import asyncio
 import os
 
 import pytest
@@ -72,6 +73,10 @@ class OfflineTokenEmbedder:
         return vector
 
     async def async_get_embedding(self, text_):
+        # A real suspension point, matching `test_vector_substrate.py`'s `TokenEmbedder`: without
+        # one the async paths are exercised as thinly-disguised sync ones, which is exactly the
+        # regression class this file's async round-trip test exists to guard against.
+        await asyncio.sleep(0)
         return self.get_embedding(text_)
 
 
@@ -111,21 +116,29 @@ def provider():
     clears the graph, so one test's rows cannot leak into the next."""
     built = build_memory_provider(_mode_a_config())
     assert isinstance(built, CoLocatedMemoryProvider)  # the factory this key resolves to, sanity-checked once
-    with built.vector._engine.begin() as connection:  # type: ignore[union-attr]
+    with built.vector._engine.begin() as connection:
         connection.execute(text(f"DELETE FROM {sql.qualified('ai', PG_TABLE)}"))
-    with built.graph._driver.session(database=built.graph.database) as session:  # type: ignore[union-attr]
+    with built.graph._driver.session(database=built.graph.database) as session:
         session.run("MATCH (n) DETACH DELETE n")
     yield built
-    built.vector.close()  # type: ignore[union-attr]
-    built.graph.close()  # type: ignore[union-attr]
+    built.vector.close()
+    built.graph.close()
 
 
 @pytest.fixture
-async def async_provider(provider):
-    """The same provider, for the async half. Async teardown needs its own close."""
-    yield provider
-    await provider.vector.aclose()  # type: ignore[union-attr]
-    await provider.graph.aclose()  # type: ignore[union-attr]
+async def async_provider():
+    """An independently-built provider for the async half, mirroring the ``store``/``async_store``
+    and ``graph``/``async_graph`` split ``test_vector_substrate.py``/``test_graph_substrate.py``
+    use -- sharing ``provider``'s substrate instances would leave sync and async teardown touching
+    the same connections, which those sibling files avoid on purpose."""
+    built = build_memory_provider(_mode_a_config())
+    with built.vector._engine.begin() as connection:
+        connection.execute(text(f"DELETE FROM {sql.qualified('ai', PG_TABLE)}"))
+    with built.graph._driver.session(database=built.graph.database) as session:
+        session.run("MATCH (n) DETACH DELETE n")
+    yield built
+    await built.vector.aclose()
+    await built.graph.aclose()
 
 
 def test_build_memory_provider_wires_both_real_substrates(provider):
@@ -160,7 +173,10 @@ def test_write_consolidate_read_round_trips_through_both_engines(provider):
 
     report = provider.consolidate(ACME)
     assert report.episodic_scanned == 2
-    assert report.semantic_written >= 1
+    # Two byte-identical episodes always land in one `_distil` group (Jaccard similarity 1.0), and
+    # no reflection/summary pipeline is wired in `_mode_a_config()` -- deterministic, not a range.
+    assert report.duplicates_merged == 1
+    assert report.semantic_written == 1
 
     slice_ = provider.read(ACME, MemoryQuery(text="deploy pipeline owned compute", tiers=[MemoryTier.SEMANTIC]))
     assert slice_.records, "consolidation wrote a fact but the fused read found nothing"
@@ -171,9 +187,9 @@ def test_write_consolidate_read_round_trips_through_both_engines(provider):
     # ``(:Fact)`` node on the graph side -- outside ``recall_facts``'s entity/relation-filtered
     # shape (its own docstring) -- and is checked directly, the same way the fixtures above check
     # backend state directly rather than through the seam.
-    vector_hits = provider.vector.search(ACME, MemoryQuery(text="deploy pipeline", tiers=[MemoryTier.SEMANTIC]))  # type: ignore[union-attr]
+    vector_hits = provider.vector.search(ACME, MemoryQuery(text="deploy pipeline", tiers=[MemoryTier.SEMANTIC]))
     assert vector_hits, "the fact never reached pgvector"
-    with provider.graph._driver.session(database=provider.graph.database) as session:  # type: ignore[union-attr]
+    with provider.graph._driver.session(database=provider.graph.database) as session:
         count = session.run(
             "MATCH (f:Fact {tenant_id: $tenant_id}) RETURN count(f) AS n", tenant_id=ACME.tenant_id
         ).single()["n"]
@@ -190,8 +206,9 @@ async def test_async_write_consolidate_read_round_trips_through_both_engines(asy
     )
 
     report = await async_provider.aconsolidate(GLOBEX)
+    # A single episode, so `_distil` groups it alone -- deterministic, not a range.
     assert report.episodic_scanned == 1
-    assert report.semantic_written >= 1
+    assert report.semantic_written == 1
 
     slice_ = await async_provider.aread(
         GLOBEX, MemoryQuery(text="on-call rotation owned compute", tiers=[MemoryTier.SEMANTIC])
@@ -199,16 +216,39 @@ async def test_async_write_consolidate_read_round_trips_through_both_engines(asy
     assert slice_.records
     assert all(r.tier is MemoryTier.SEMANTIC for r in slice_.records)
 
+    # The same direct-per-engine checks the sync test makes, driven through the async half: a
+    # provider whose `awrite`/`aconsolidate` silently no-op on one substrate but whose fused
+    # `aread` still surfaces the other substrate's record would otherwise pass this test clean.
+    vector_hits = await async_provider.vector.asearch(
+        GLOBEX, MemoryQuery(text="on-call rotation", tiers=[MemoryTier.SEMANTIC])
+    )
+    assert vector_hits, "the fact never reached pgvector"
+    async with async_provider.graph._async_driver().session(database=async_provider.graph.database) as session:
+        result = await session.run(
+            "MATCH (f:Fact {tenant_id: $tenant_id}) RETURN count(f) AS n", tenant_id=GLOBEX.tenant_id
+        )
+        count = (await result.single())["n"]
+    assert count >= 1, "the fact never reached neo4j"
+
 
 def test_tenant_isolation_holds_on_real_engines(provider):
     """The property a double can share a bug on: SM-C4's (#92) scope rule, checked against a real
-    Postgres ``WHERE`` and a real Cypher tenant predicate rather than a dict keyed by tenant."""
+    Postgres ``WHERE`` and a real Cypher tenant predicate rather than a dict keyed by tenant.
+
+    Checked in **both** directions, and each side asserts its own fact is actually returned before
+    asserting the other tenant's is absent -- a provider whose real predicate silently matched
+    nothing for every read would pass an absence-only check trivially, which is exactly the gap
+    that would undercut this test's claim."""
     provider.write(ACME, [MemoryEvent(content="acme deploy secret", scope=ACME, id="a1")])
     provider.write(GLOBEX, [MemoryEvent(content="globex deploy secret", scope=GLOBEX, id="b1")])
     provider.consolidate(ACME)
     provider.consolidate(GLOBEX)
 
-    leaked = [
-        r for r in provider.read(GLOBEX, MemoryQuery(text="deploy secret")).records if r.content.startswith("acme")
-    ]
-    assert leaked == []
+    acme_seen = provider.read(ACME, MemoryQuery(text="deploy secret")).records
+    globex_seen = provider.read(GLOBEX, MemoryQuery(text="deploy secret")).records
+
+    assert any(r.content.startswith("acme") for r in acme_seen), "acme's own fact went missing from its own read"
+    assert not any(r.content.startswith("globex") for r in acme_seen), "globex's fact leaked into acme's read"
+
+    assert any(r.content.startswith("globex") for r in globex_seen), "globex's own fact went missing from its own read"
+    assert not any(r.content.startswith("acme") for r in globex_seen), "acme's fact leaked into globex's read"
