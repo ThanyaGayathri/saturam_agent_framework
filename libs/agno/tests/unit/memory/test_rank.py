@@ -144,6 +144,25 @@ def test_a_missing_score_is_treated_as_zero_relevance():
     assert ranked[0].score == pytest.approx(0.0 + 0.5)
 
 
+@pytest.mark.parametrize("bad_score", [float("nan"), float("inf")])
+def test_a_non_finite_score_is_refused_rather_than_silently_becoming_maximum_relevance(bad_score):
+    # max(0.0, min(1.0, float("nan"))) and the +inf case both evaluate to 1.0 under plain
+    # min/max -- a corrupted score must not silently win the maximum possible relevance.
+    record = episode("a", score=bad_score, importance=0.5)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        rank([record], query())
+    assert exc_info.value.field_name == "score"
+
+
+def test_negative_infinity_score_is_still_refused_not_floored_to_zero():
+    # -inf happens to floor to 0.0 under plain min/max, same as a merely negative score -- but
+    # it is still corrupted input, not a valid extreme, and must be refused like NaN/+inf.
+    record = episode("a", score=float("-inf"), importance=0.5)
+    with pytest.raises(MemoryOperationError) as exc_info:
+        rank([record], query())
+    assert exc_info.value.field_name == "score"
+
+
 # -- missing/invalid importance is refused, not silently skipped or raised as a raw TypeError ---
 
 
@@ -162,7 +181,7 @@ def test_a_non_numeric_importance_is_refused_with_memory_operation_error_not_a_r
     )
     with pytest.raises(MemoryOperationError) as exc_info:
         rank([record], query())
-    assert exc_info.value.field_name == "importance_metadata"
+    assert exc_info.value.field_name == "importance_metadata_type"
 
 
 def test_a_bool_importance_is_refused_rather_than_silently_becoming_zero_or_one():
@@ -171,7 +190,23 @@ def test_a_bool_importance_is_refused_rather_than_silently_becoming_zero_or_one(
     )
     with pytest.raises(MemoryOperationError) as exc_info:
         rank([record], query())
-    assert exc_info.value.field_name == "importance_metadata"
+    assert exc_info.value.field_name == "importance_metadata_type"
+
+
+def test_missing_vs_wrong_type_importance_are_told_apart_by_field_name():
+    missing = MemoryRecord(id="a", tier=MemoryTier.EPISODIC, content="a", scope=ACME, score=0.5, metadata={})
+    wrong_type = MemoryRecord(
+        id="b", tier=MemoryTier.EPISODIC, content="b", scope=ACME, score=0.5, metadata={"importance": "high"}
+    )
+
+    with pytest.raises(MemoryOperationError) as missing_exc:
+        rank([missing], query())
+    with pytest.raises(MemoryOperationError) as type_exc:
+        rank([wrong_type], query())
+
+    assert missing_exc.value.field_name == "importance_metadata"
+    assert type_exc.value.field_name == "importance_metadata_type"
+    assert missing_exc.value.field_name != type_exc.value.field_name
 
 
 def test_missing_vs_out_of_range_importance_are_told_apart_by_field_name():

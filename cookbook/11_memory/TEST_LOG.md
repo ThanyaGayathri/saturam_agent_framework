@@ -1150,7 +1150,10 @@ windowed query kept only `today`. `recency=0.0` and `recency=5.0` both scored `1
 record -- confirms the recency signal, not just the weight, is what is pinned. The malformed
 record raised `MemoryOperationError` naming `field_name="importance_metadata"` -- distinct from
 `composite_episodic_score`'s own `field_name="importance"` for a present-but-out-of-range value
-(PR #146 review round 1).
+(PR #146 review round 1), and from `field_name="importance_metadata_type"` for a present-but-
+non-numeric value, and `field_name="score"` for a non-finite fused score (PR #146 review round
+2 -- `_clamp_unit` now refuses `NaN`/`+-inf` rather than silently mapping `NaN`/`+inf` to `1.0`,
+the maximum relevance, under plain `min`/`max`).
 
 **Requires:** Nothing; no database, no API key, no network.
 

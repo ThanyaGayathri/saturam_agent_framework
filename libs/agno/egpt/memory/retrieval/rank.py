@@ -19,21 +19,25 @@ explicitly time-scoped queries." A query with no window is not implicitly narrow
 default-to-current-instant behaviour already belongs to
 ``CoLocatedMemoryProvider._slice`` (paired with the current-belief predicate, which this module
 does not have the bounds to evaluate), and duplicating a *different* default here would make the
-two disagree about what an unscoped read means. This module's filter is the narrower of the two:
-a strict subset of what the provider re-applies downstream, never a replacement for it.
+two disagree about what an unscoped read means. **This is not a subset relationship** between what
+this module keeps and what ``_slice`` keeps: on an *unscoped* query this module drops nothing,
+while ``_slice`` still narrows to "now" downstream -- the two agree only once a window is
+explicitly set. Relatedly, an unscoped call here does not check ``is_current_belief()`` either (a
+transaction-time predicate ``_slice`` applies unconditionally, windowed or not) -- this module has
+no bounds to evaluate it against, so a superseded record can rank above a current one until SM-H6
+wires this in ahead of, or alongside, ``_slice``'s own filtering.
 
 **Composite blend.** Episodic-tier records only -- SM-E7's composite is an episodic scoring
 device, and a semantic/procedural record carries no ``importance`` for it to consume. The
 ``relevance`` signal :func:`composite_episodic_score` requires is the record's own fused
-``score``, clamped into ``[0.0, 1.0]``: ``RetrievalCandidates``/``VectorSubstrate.search`` promise
-a single leg's score is already in that range, but ``_merge``'s score-sum default adds two such
-legs together (up to ``2.0``), which the composite's signal validation would otherwise reject
-outright. Only the upper bound is clamped -- a *negative* ``score`` is passed through to the clamp
-unchanged (and then floored at ``0.0`` by the same ``max(0.0, ...)``) rather than refused, because
-``score`` is a trusted-upstream value under this module's contract (every leg's own score is
-already non-negative), unlike ``weights``, which is caller-supplied config and *is* refused when
-negative (:func:`composite_episodic_score`'s own signal validation). Clamping the upper bound
-preserves relative order among every record that does not itself saturate above ``1.0``.
+``score``, clamped into ``[0.0, 1.0]`` by :func:`_clamp_unit` -- a genuine two-sided clamp, both
+directions live: ``RetrievalCandidates``/``VectorSubstrate.search`` promise a single leg's score
+is already in ``[0.0, 1.0]``, but ``_merge``'s score-sum default adds two such legs together (up
+to ``2.0``, clamped down), and nothing upstream of this module refuses a corrupted or
+adversarial negative ``score`` either (clamped up). A non-finite ``score`` (``NaN``/``inf``) is
+refused rather than clamped -- silently mapping it into the valid range would either invent a
+value or, worse, hand a corrupted signal the *maximum* possible relevance, the opposite of what
+"malformed input loses" means everywhere else in this module.
 
 **Not every ``MemoryRecord`` this module accepts is a valid input.** ``importance`` in
 ``metadata`` is a promise :func:`~egpt.memory.schemas.episodic.episode_to_record` makes for
@@ -74,6 +78,7 @@ read-side ranking function has no substrate handle to perform, and no acceptance
 asks for it.
 """
 
+import math
 from typing import List, Optional, Sequence
 
 from egpt.memory.episodic.score import (
@@ -94,9 +99,18 @@ def _temporal_filter(records: Sequence[MemoryRecord], window: Optional[ValidWind
     return [record for record in records if window.overlaps(record.t_valid, record.t_invalid)]
 
 
-def _clamp_unit(value: Optional[float]) -> float:
-    """``value`` (or ``0.0`` when unset) clamped into ``[0.0, 1.0]``. See the module docstring for
-    why only the upper bound is ever reachable in practice."""
+def _clamp_unit(value: Optional[float], *, record_id: str) -> float:
+    """``value`` (or ``0.0`` when unset) clamped into ``[0.0, 1.0]``, both directions live. See the
+    module docstring for why. A non-finite ``value`` is refused rather than silently mapped to a
+    bound -- ``max(0.0, min(1.0, float("nan")))`` and the ``+inf`` case both evaluate to ``1.0``
+    under plain ``min``/``max``, which would hand a corrupted score the *maximum* relevance."""
+    if value is not None and not math.isfinite(value):
+        raise MemoryOperationError(
+            f"Episodic record {record_id!r} carries a non-finite fused score ({value!r}), which "
+            "cannot be clamped into a relevance signal. A NaN or infinite score is corrupted "
+            "upstream input, not a valid extreme.",
+            field_name="score",
+        )
     return max(0.0, min(1.0, value if value is not None else 0.0))
 
 
@@ -125,14 +139,17 @@ def _blended_score(record: MemoryRecord, weights: EpisodicScoreWeights) -> float
         # value (a string, most plausibly) would otherwise reach `composite_episodic_score`'s
         # `math.isfinite()` and raise a raw `TypeError`, breaking this module's "refuse cleanly at
         # the boundary" convention -- `MemoryOperationError` here keeps every refusal this module
-        # raises the same class, not just the missing-key one above.
+        # raises the same class, not just the missing-key one above. `field_name` is distinct from
+        # both the missing-key case above (`"importance_metadata"`) and
+        # `composite_episodic_score`'s own out-of-range case (`"importance"`) -- three
+        # distinguishable failure modes, three names.
         raise MemoryOperationError(
             f"Episodic record {record.id!r} carries importance={importance!r} in metadata, which "
             f"is a {type(importance).__name__}, not a number. Composite scoring needs a finite "
             "value in [0.0, 1.0].",
-            field_name="importance_metadata",
+            field_name="importance_metadata_type",
         )
-    relevance = _clamp_unit(record.score)
+    relevance = _clamp_unit(record.score, record_id=record.id)
     return composite_episodic_score(relevance, recency=0.0, importance=importance, weights=weights)
 
 
@@ -158,11 +175,12 @@ def rank(
 
     Raises:
         MemoryOperationError: an episodic record in ``records`` carries no ``importance`` in
-            ``metadata``, or a non-numeric one (``field_name="importance_metadata"`` for both --
-            see the module docstring for why that differs from ``composite_episodic_score``'s own
-            ``field_name="importance"``), or is propagated from
+            ``metadata`` (``field_name="importance_metadata"``), a non-numeric one
+            (``field_name="importance_metadata_type"``), or a non-finite fused ``score``
+            (``field_name="score"``); or is propagated from
             :func:`~egpt.memory.episodic.score.composite_episodic_score` for an invalid ``weights``
-            field or an out-of-range (but present and numeric) ``importance``.
+            field or an out-of-range (but present and numeric) ``importance``
+            (``field_name="importance"``) -- four distinguishable failure modes, four names.
     """
     filtered = _temporal_filter(records, query.window())
     scored: List[MemoryRecord] = []
