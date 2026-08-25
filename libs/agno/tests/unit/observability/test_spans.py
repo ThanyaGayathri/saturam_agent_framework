@@ -162,8 +162,7 @@ class TestAgentRunSpanAttributes:
         span = agent_spans[0]
         duration_ns = span.end_time - span.start_time
         assert duration_ns > 0, (
-            f"AGENT span duration must be positive, got {duration_ns}ns "
-            f"(start={span.start_time}, end={span.end_time})"
+            f"AGENT span duration must be positive, got {duration_ns}ns (start={span.start_time}, end={span.end_time})"
         )
 
 
@@ -248,9 +247,7 @@ class TestModelSpanAttributes:
 
         span = llm_spans[0]
         duration_ns = span.end_time - span.start_time
-        assert duration_ns > 0, (
-            f"LLM span duration must be positive, got {duration_ns}ns"
-        )
+        assert duration_ns > 0, f"LLM span duration must be positive, got {duration_ns}ns"
 
 
 # ---------------------------------------------------------------------------
@@ -291,8 +288,7 @@ class TestToolSpans:
         tool_spans = _get_spans_by_kind(spans, "TOOL")
 
         assert agent_spans, (
-            f"No AGENT span found. All spans: "
-            f"{[(s.name, s.attributes.get('openinference.span.kind')) for s in spans]}"
+            f"No AGENT span found. All spans: {[(s.name, s.attributes.get('openinference.span.kind')) for s in spans]}"
         )
         assert tool_spans, (
             f"No TOOL span found. Tool calls should produce child spans. "
@@ -306,6 +302,15 @@ class TestToolSpans:
             "TOOL span must share the same trace_id as the AGENT span "
             f"(tool trace_id={tool_span.context.trace_id}, "
             f"agent trace_id={agent_span.context.trace_id})"
+        )
+        # Verify actual parent linkage (not just shared trace)
+        assert tool_span.parent is not None, (
+            "TOOL span must have a parent span context (should be child of AGENT or LLM)"
+        )
+        assert tool_span.parent.span_id == agent_span.context.span_id, (
+            "TOOL span's parent_span_id must point to the AGENT span. "
+            f"Got parent_span_id={tool_span.parent.span_id}, "
+            f"expected agent span_id={agent_span.context.span_id}"
         )
 
         # Verify LLM span is also present in tool-calling traces (nandha review)
@@ -335,9 +340,7 @@ class TestToolSpans:
 
         span = tool_spans[0]
         tool_name = _assert_attribute_present(span, "tool.name", "TOOL span: ")
-        assert tool_name == "add", (
-            f"TOOL span tool.name = {tool_name!r}, expected 'add'"
-        )
+        assert tool_name == "add", f"TOOL span tool.name = {tool_name!r}, expected 'add'"
 
     def test_tool_span_has_parameters(self, otel_setup):
         """TOOL span must carry tool.parameters attribute."""
@@ -378,9 +381,7 @@ class TestToolSpans:
 
         span = tool_spans[0]
         output = _assert_attribute_present(span, "output.value", "TOOL span: ")
-        assert "5" in str(output), (
-            f"TOOL span output.value should contain '5' (result of 2+3), got: {output}"
-        )
+        assert output == "5", f"TOOL span output.value should be '5' (result of add(2, 3)), got: {output!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -462,16 +463,13 @@ class TestCostAttribute:
         span = llm_spans[0]
         # Assert building blocks for cost derivation are present.
         model_name = _assert_attribute_present(
-            span, "llm.model_name",
-            "Cost derivation requires model identity. LLM span: "
+            span, "llm.model_name", "Cost derivation requires model identity. LLM span: "
         )
         prompt_tokens = _assert_attribute_present(
-            span, "llm.token_count.prompt",
-            "Cost derivation requires prompt token count. LLM span: "
+            span, "llm.token_count.prompt", "Cost derivation requires prompt token count. LLM span: "
         )
         completion_tokens = _assert_attribute_present(
-            span, "llm.token_count.completion",
-            "Cost derivation requires completion token count. LLM span: "
+            span, "llm.token_count.completion", "Cost derivation requires completion token count. LLM span: "
         )
 
         # Verify the values match StubModel's fixture (proving derivability):
@@ -626,9 +624,7 @@ class TestNoNetwork:
             connections.append(address)
             if isinstance(address, tuple) and address[0] in ("127.0.0.1", "localhost", "::1"):
                 return original_connect(self, address)
-            raise ConnectionError(
-                f"Unexpected network egress to {address} during observability test"
-            )
+            raise ConnectionError(f"Unexpected network egress to {address} during observability test")
 
         def _track_getaddrinfo(*args, **kwargs):
             host = args[0] if args else kwargs.get("host")
@@ -650,12 +646,47 @@ class TestNoNetwork:
 
         # If we got here without ConnectionError, no external network was hit.
         external = [
-            addr for addr in connections
-            if isinstance(addr, tuple) and addr[0] not in ("127.0.0.1", "localhost", "::1")
+            addr for addr in connections if isinstance(addr, tuple) and addr[0] not in ("127.0.0.1", "localhost", "::1")
         ]
-        assert not external, (
-            f"Unexpected external network connections during test: {external}"
-        )
-        assert not dns_lookups, (
-            f"Unexpected DNS lookups during test: {dns_lookups}"
+        assert not external, f"Unexpected external network connections during test: {external}"
+        assert not dns_lookups, f"Unexpected DNS lookups during test: {dns_lookups}"
+
+
+# ---------------------------------------------------------------------------
+# Test: setup_tracing() production entry point actually instruments
+# ---------------------------------------------------------------------------
+
+
+class TestSetupTracingEntryPoint:
+    """Verify that the real setup_tracing() entry point actually instruments.
+
+    This catches the pre-existing bug where AgnoInstrumentor's dependency check
+    for 'agno >= 2.5.0' silently fails under this fork (distribution is 'egpt'),
+    causing instrument() to return without wrapping anything while setup_tracing()
+    logs success regardless.
+    """
+
+    def test_setup_tracing_instruments_agent_run(self, tmp_path, monkeypatch):
+        """setup_tracing() must result in agent runs producing spans."""
+        from opentelemetry import trace as trace_api
+        from opentelemetry.sdk.trace import TracerProvider
+
+        from egpt.integrations.db.sqlite import SqliteDb
+
+        # Reset global tracer so setup_tracing() doesn't short-circuit.
+        monkeypatch.setattr(trace_api, "_TRACER_PROVIDER", None)
+        monkeypatch.setattr(trace_api, "_TRACER_PROVIDER_SET_ONCE", trace_api._TRACER_PROVIDER_SET_ONCE.__class__())
+
+        db = SqliteDb(db_file=str(tmp_path / "trace_test.db"))
+
+        # Call the real production entry point.
+        from egpt.tracing.setup import setup_tracing
+
+        setup_tracing(db=db)
+
+        # Verify the global tracer provider is now a real TracerProvider.
+        provider = trace_api.get_tracer_provider()
+        assert isinstance(provider, TracerProvider), (
+            f"setup_tracing() did not set a TracerProvider. Got: {type(provider)}. "
+            "This means the instrumentor's dependency check likely failed silently."
         )

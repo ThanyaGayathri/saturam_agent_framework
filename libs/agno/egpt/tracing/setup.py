@@ -105,7 +105,19 @@ def setup_tracing(
 
         # Instrument EGPT with OpenInference (the instrumentor package retains its
         # upstream `agno` name -- it is a third-party distribution, not our brand).
-        AgnoInstrumentor().instrument(tracer_provider=tracer_provider)
+        # skip_dep_check=True is required because the instrumentor hardcodes
+        # `agno >= 2.5.0` in its dependency check, but this fork's distribution is
+        # named `egpt`.  Without this flag, instrument() silently returns without
+        # wrapping anything.
+        instrumentor = AgnoInstrumentor()
+        instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
+
+        if not instrumentor.is_instrumented_by_opentelemetry:
+            log_error(
+                "AgnoInstrumentor.instrument() completed but is_instrumented_by_opentelemetry "
+                "is False — tracing may not be active. Check that openinference-instrumentation-agno "
+                "is installed and compatible."
+            )
 
         log_info("EGPT tracing successfully set up with database storage")
     except Exception as e:

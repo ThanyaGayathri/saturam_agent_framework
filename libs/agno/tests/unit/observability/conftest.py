@@ -8,9 +8,12 @@ The EGPT package is published as ``egpt`` but the third-party instrumentor
 (openinference-instrumentation-agno) imports from ``agno.*``.  This is a
 test-only workaround that lets the instrumentor's hardcoded ``agno.*``
 imports resolve against this framework's ``egpt.*`` package.  Production code
-(``tracing/setup.py``) never needs this because it calls
-``AgnoInstrumentor().instrument(tracer_provider=...)`` directly without
-importing from the instrumented package by that name.
+(``tracing/setup.py``) passes ``skip_dep_check=True`` to bypass the same
+incompatibility but does not need module aliasing because it never imports
+from the instrumented paths directly.  Note: ``find_model_subclasses()``
+(called inside ``instrument()``) walks all ``agno.models.*`` subpackages and
+wraps 35-46 real Model subclasses in production; here we only wrap StubModel
+and StubModelWithToolCall manually.
 
 Coverage gaps (documented, follow-up work):
 - ``find_model_subclasses()`` auto-discovery is not exercised: StubModel is
@@ -240,8 +243,8 @@ def otel_setup() -> Generator[tuple[InMemorySpanExporter, TracerProvider], None,
     yield exporter, provider
 
     # Cleanup: restore original methods to avoid nesting wrappers across tests.
-    provider.shutdown()
     try:
+        provider.shutdown()
         instrumentor.uninstrument()
     finally:
         StubModel.invoke = _original_stub_invoke  # type: ignore[method-assign]
