@@ -1128,3 +1128,24 @@ fused scores visibly change) without flipping this fixture's ranking again.
 
 **Renumbered from `41_` to `42_`: `feat/SM-H4` took `41_ppr_multihop.py` while this branch was
 still catching up. Per this file's own convention, whoever merges second renumbers.**
+
+---
+
+### 43_token_bounded_memory_slice.py
+
+**Status:** PASS
+
+**Description:** Token-bounded `MemorySlice` assembly + context injection (SM-H6 #136):
+`provider.assemble_context(..., max_tokens=...)` against the same toy vector substrate
+`39_working_memory.py` uses, read three times -- unbounded (the pre-SM-H6 default,
+`max_tokens=None`), bounded to fit the working buffer plus exactly one ranked record, and bounded
+to `0`.
+
+**Result:** Ran end to end, no database, no model. Unbounded appends all three ranked records
+after the working buffer. Bounded-to-one-record keeps only the top-ranked episode, matching the
+ranking `36_`/`42_` already produce -- a prefix cut, not a re-rank. Bounded-to-zero renders the
+working buffer (goal) alone and drops every persistent record, confirmed by an in-file assertion
+that the working half is never truncated even when the whole budget is spent on it.
+
+**Requires:** Nothing; no database, no API key, no network. Runs correctly whether or not
+`tiktoken` is installed (`count_text_tokens` falls back to a character-based estimate).

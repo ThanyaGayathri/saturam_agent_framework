@@ -273,6 +273,13 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `41_` to `42_`: `feat/SM-H4` took `41_ppr_multihop.py` while this branch was
   still catching up. Per this file's own convention, whoever merges second renumbers.**
 
+- `43_token_bounded_memory_slice.py`: Token-bounded `MemorySlice` assembly + context injection
+  (SM-H6 #136) -- `provider.assemble_context(..., max_tokens=...)` spends the budget on the
+  (never-truncated) `WorkingMemory` half first and cuts the ranked persistent slice's prefix to
+  whatever remains, rather than `39_`'s unbounded append. The ranking itself is unchanged (still
+  `36_`/`42_`'s job); this is a token-aware cut of an already-ranked list, shown unbounded, bounded
+  to one record, and bounded to zero. No database, no model, no network.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

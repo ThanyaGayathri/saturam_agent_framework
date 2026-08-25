@@ -260,15 +260,16 @@ class MemoryProvider(ABC):
         scope: Scope,
         working: "WorkingMemory",
         query: Optional[MemoryQuery] = None,
+        *,
+        max_tokens: Optional[int] = None,
+        model_id: str = "gpt-4o",
     ) -> str:
         """Combine a :class:`~egpt.memory.working.WorkingMemory` buffer with a persistent-tier
         read into one prompt string -- the WORKING half of SM-H6's retrieval assembly.
 
         Concrete rather than abstract: every adapter inherits it for free via :meth:`read`, and it
         does not touch a WORKING row a backend could serve differently -- there is none, per
-        ``TIER_POLICY[WORKING]``. What SM-H6 (once it exists) owns is *how* a ranked persistent
-        slice should interleave with a live buffer rather than simply follow it; this method
-        guarantees both halves reach one caller-visible surface today, not the fusion between them.
+        ``TIER_POLICY[WORKING]``.
 
         ``query`` is required for a meaningful persistent half. Omitting it falls back to
         ``MemoryQuery(text="")``, which resolves ``tiers`` to every persistent tier
@@ -280,16 +281,44 @@ class MemoryProvider(ABC):
         this looked unrestricted in tests -- see ``FakeVector.search``'s lexical-overlap scoring.)
         Pass the caller's actual query text to get a real persistent slice; the fallback exists so
         the call does not raise, not because it is a substitute for one.
+
+        ``max_tokens`` (SM-H6 #136) is *how* the ranked persistent slice interleaves with the live
+        buffer: ``None`` (the default) keeps the pre-SM-H6 behaviour of appending the persistent
+        slice in full, unbounded; a real value routes through
+        :func:`~egpt.memory.retrieval.slice.assemble_bounded_context`, which spends the budget on
+        the working half first (never truncated) and cuts the persistent ranking's prefix to
+        whatever remains. ``model_id`` selects the tokenizer :func:`~egpt.utils.tokens.count_text_tokens`
+        uses to price both halves; it is an estimator, not a claim about which model actually
+        serves this scope.
         """
+        # Deferred imports: break the provider <-> retrieval <-> working import cycle
+        # (`retrieval/__init__.py`'s own docstring covers the same trade-off for `orchestrate`).
+        # Validated before `self.read` so a bad budget is refused without spending a real,
+        # possibly network-bound, persistent-tier read on a call that was always going to raise.
+        from egpt.memory.retrieval.slice import assemble_bounded_context, require_token_budget
+
+        if max_tokens is not None:
+            require_token_budget(max_tokens)
         persistent = self.read(scope, query if query is not None else MemoryQuery(text=""))
-        return working.as_context(persistent)
+        if max_tokens is None:
+            return working.as_context(persistent)
+        return assemble_bounded_context(working, persistent, max_tokens=max_tokens, model_id=model_id)
 
     async def aassemble_context(
         self,
         scope: Scope,
         working: "WorkingMemory",
         query: Optional[MemoryQuery] = None,
+        *,
+        max_tokens: Optional[int] = None,
+        model_id: str = "gpt-4o",
     ) -> str:
         """Async variant of :meth:`assemble_context`."""
+        from egpt.memory.retrieval.slice import assemble_bounded_context, require_token_budget
+
+        if max_tokens is not None:
+            require_token_budget(max_tokens)
         persistent = await self.aread(scope, query if query is not None else MemoryQuery(text=""))
-        return working.as_context(persistent)
+        if max_tokens is None:
+            return working.as_context(persistent)
+        return assemble_bounded_context(working, persistent, max_tokens=max_tokens, model_id=model_id)
