@@ -97,7 +97,7 @@ def _neo4j_settings():
     }
 
 
-def _mode_a_config(**graph_overrides) -> MemoryProviderConfig:
+def _mode_a_config() -> MemoryProviderConfig:
     """One config, both legs real, mode=LOCAL (Mode A). The only construction call site is
     ``build_memory_provider`` -- nothing here names ``CoLocatedMemoryProvider`` directly."""
     return MemoryProviderConfig(
@@ -111,7 +111,7 @@ def _mode_a_config(**graph_overrides) -> MemoryProviderConfig:
             "table": PG_TABLE,
             "auto_init_schema": True,
         },
-        graph={"backend": "neo4j", **_neo4j_settings(), **graph_overrides},
+        graph={"backend": "neo4j", **_neo4j_settings()},
     )
 
 
@@ -127,8 +127,7 @@ def provider():
     with built.graph._driver.session(database=built.graph.database) as session:
         session.run("MATCH (n) DETACH DELETE n")
     yield built
-    built.vector.close()
-    built.graph.close()
+    built.close()
 
 
 @pytest.fixture
@@ -143,8 +142,7 @@ async def async_provider():
     with built.graph._driver.session(database=built.graph.database) as session:
         session.run("MATCH (n) DETACH DELETE n")
     yield built
-    await built.vector.aclose()
-    await built.graph.aclose()
+    await built.aclose()
 
 
 def test_build_memory_provider_wires_both_real_substrates(provider):
