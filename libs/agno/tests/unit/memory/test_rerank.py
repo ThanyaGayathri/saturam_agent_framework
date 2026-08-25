@@ -11,6 +11,7 @@ import asyncio
 import time
 
 from egpt.integrations.knowledge.reranker.base import Reranker
+from egpt.knowledge.document import Document
 from egpt.memory.retrieval import rerank as rerank_module
 from egpt.memory.retrieval.rerank import DEFAULT_BUDGET_MS, DEFAULT_CANDIDATES, arerank_records, rerank_records
 from egpt.memory.types import MemoryRecord, MemoryTier, Scope
@@ -96,6 +97,22 @@ class DuplicateIdReranker(Reranker):
 class AsyncDuplicateIdReranker(Reranker):
     async def arerank(self, query, documents):
         return [documents[0], documents[0], *documents[1:-1]]
+
+
+class AllForeignIdsReranker(Reranker):
+    """A misbehaving adapter: every returned id is foreign to the pool -- `_reordered` drops all
+    of them, `_has_duplicate_pool_id` sees no *pool* id repeated (there are none), so neither
+    round-3 check alone catches it. The output is a non-empty, duplicate-free `Document` list,
+    which is exactly why a length- or duplicate-only check reports `applied=True` with zero real
+    survivors (round-4 review finding)."""
+
+    def rerank(self, query, documents):
+        return [Document(id=f"not-a-pool-id-{i}", content=doc.content) for i, doc in enumerate(documents)]
+
+
+class AsyncAllForeignIdsReranker(Reranker):
+    async def arerank(self, query, documents):
+        return [Document(id=f"not-a-pool-id-{i}", content=doc.content) for i, doc in enumerate(documents)]
 
 
 def test_defaults_match_sm_r8_decision_md():
@@ -222,6 +239,28 @@ async def test_an_async_reranker_returning_a_duplicate_id_also_falls_back():
     assert [r.id for r in outcome.records] == ["1", "2", "3"]
 
 
+def test_a_reranker_returning_only_foreign_ids_falls_back_rather_than_reporting_zero_survivors_as_success():
+    """Round-4 review finding: a non-empty, duplicate-free response that matches *no* pool id
+    used to reach `applied=True` with an empty `records` list -- a data-loss bug disguised as
+    success, since the round-3 duplicate check has nothing to catch here (there are no repeated
+    *pool* ids -- there are no pool ids at all)."""
+    records = [record(str(i)) for i in range(1, 4)]
+
+    outcome = rerank_records("q", records, reranker=AllForeignIdsReranker(), budget_ms=1000)
+
+    assert outcome.applied is False
+    assert [r.id for r in outcome.records] == ["1", "2", "3"]
+
+
+async def test_an_async_reranker_returning_only_foreign_ids_also_falls_back():
+    records = [record(str(i)) for i in range(1, 4)]
+
+    outcome = await arerank_records("q", records, reranker=AsyncAllForeignIdsReranker(), budget_ms=1000)
+
+    assert outcome.applied is False
+    assert [r.id for r in outcome.records] == ["1", "2", "3"]
+
+
 def test_reranking_an_empty_list_is_a_no_op():
     outcome = rerank_records("q", [], reranker=ReverseReranker(), budget_ms=1000)
 
@@ -304,7 +343,16 @@ def test_the_sync_executor_is_a_bounded_module_level_singleton_not_one_per_call(
         rerank_module._EXECUTOR.submit = real_submit
 
     assert len(calls) == 2
-    assert rerank_module._EXECUTOR._max_workers == 4
+    assert len(rerank_module._EXECUTOR._threads) == 4
+
+
+def test_the_sync_executors_workers_are_daemon_threads():
+    """Round-4 review finding: non-daemon worker threads block graceful process exit (CPython's
+    `atexit` hook joins them, abandoned/in-flight work included). `_EXECUTOR`'s own type
+    (`BoundedDaemonExecutor`) guarantees this; `egpt.utils.concurrency`'s own tests cover the
+    mechanism in depth -- this just pins that the module-level singleton this stage actually uses
+    is one."""
+    assert all(t.daemon for t in rerank_module._EXECUTOR._threads)
 
 
 def test_document_ids_travel_through_reranking_unaltered():

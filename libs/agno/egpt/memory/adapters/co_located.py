@@ -863,8 +863,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
         *,
         lexical_hits: List[MemoryRecord],
         rerank_diagnostics: Dict[str, Any],
+        fused_count: int,
     ) -> MemorySlice:
-        """Filter the reconciled set and package it. Bounds must already be authoritative."""
+        """Filter the reconciled set and package it. Bounds must already be authoritative.
+
+        ``fused_count`` is ``len(merged)`` captured by the caller *before* an optional rerank
+        stage (SM-H3 #133) can narrow ``merged`` -- via a reranker's own ``top_n`` -- so that the
+        ``fused`` diagnostic below keeps its pre-existing meaning, "how many records the fusion
+        stage produced," rather than silently becoming "how many survived reranking" whenever
+        rerank is enabled (round-4 review finding). ``dropped_as_superseded`` below is
+        deliberately **not** rebased the same way: it answers "of what this filtering pass is
+        about to examine, how many got knocked out," which is ``merged`` (the post-rerank pool
+        actually being filtered) by definition -- the docstring on that key already documents that
+        it and ``fused`` are not expected to reconcile via a sum, for an unrelated reason (the
+        `query.limit` truncation), so a rerank-narrowed pool is one more instance of an already-
+        acknowledged gap, not a new one.
+        """
         # Both predicates, always. `is_current_belief` is transaction time only, and under SCD-2
         # the successor row carries a past `t_invalid` with `expired_at = None` -- so checking only
         # current belief let `read()` and `read(as_of=now)` disagree at the same instant.
@@ -898,7 +912,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 vector_hits=len(vector_hits),
                 lexical_hits=len(lexical_hits),
                 graph_hits=len(graph_hits),
-                fused=len(merged),
+                fused=fused_count,
                 returned=len(records),
                 # A short result with non-zero hits is ambiguous otherwise: an empty corpus and a
                 # page the validity filter emptied look identical. Precision is handled by
@@ -1037,6 +1051,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # #132): the default `score_sum` keeps it diagnostics-only (ADR 0003 A.6), `rrf` folds it
         # in. See `_merged`'s docstring.
         merged = self._merged(scope, query, legs, method=method)
+        # Captured before `_rerank` can narrow `merged` (a reranker's own `top_n`, SM-H3 #133,
+        # round-4 review) -- `_slice`'s `fused` diagnostic means "true fusion output count" and
+        # always has (pre-dating this PR); passing it through explicitly is what keeps that
+        # meaning from silently becoming "post-rerank count" once rerank narrows the pool.
+        fused_count = len(merged)
         merged, rerank_diagnostics = self._rerank(query, merged)
         reconciled = self._reconcile_bounds(scope, merged)
         return self._slice(
@@ -1049,6 +1068,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             reconciled,
             lexical_hits=legs.lexical,
             rerank_diagnostics=rerank_diagnostics,
+            fused_count=fused_count,
         )
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
@@ -1062,6 +1082,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         legs = await aorchestrate(scope, query, vector=self.vector, graph=self.graph)
         # See `_read`'s comment: `_merged`/`_fusion_method` decide whether lexical enters ranking.
         merged = self._merged(scope, query, legs, method=method)
+        # See `_read`'s comment: captured before `_arerank` can narrow `merged`.
+        fused_count = len(merged)
         merged, rerank_diagnostics = await self._arerank(query, merged)
         reconciled = await self._areconcile_bounds(scope, merged)
         return self._slice(
@@ -1074,6 +1096,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             reconciled,
             lexical_hits=legs.lexical,
             rerank_diagnostics=rerank_diagnostics,
+            fused_count=fused_count,
         )
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:

@@ -1401,6 +1401,17 @@ class _FakeSlowReranker(Reranker):
         return documents
 
 
+class _FakeTopNReranker(Reranker):
+    """A well-behaved reranker narrowing to `top_n`, the idiomatic pattern every shipped `egpt`
+    reranker adapter supports (`aws_bedrock.py`'s own docstring recommends setting it)."""
+
+    offline_capable: bool = True
+    top_n: int = 1
+
+    def rerank(self, query, documents):
+        return documents[: self.top_n]
+
+
 def test_rerank_is_opt_in_the_default_leaves_fusion_order_untouched():
     p, _, _ = provider()  # no rerank= kwarg
     p.write(ACME, [event("alpha beta")])
@@ -1463,6 +1474,35 @@ def test_rerank_toggle_is_per_config_not_global():
 
     assert on.read(ACME, MemoryQuery(text="alpha")).fusion["rerank_applied"] is True
     assert "rerank_applied" not in off.read(ACME, MemoryQuery(text="alpha")).fusion
+
+
+def test_rerank_narrowing_via_top_n_does_not_change_what_the_fused_diagnostic_means():
+    """Round-4 review finding: `fused` has always meant "how many records the fusion stage
+    produced" (pre-dating SM-H3) -- `_merged`/`_merge` set that meaning before rerank existed.
+    Once a reranker narrows the pool via its own `top_n`, `fused` must keep reporting the true
+    pre-rerank fusion count, not silently drift to "how many survived reranking"."""
+    p, _, _ = provider(rerank={"enabled": True, "reranker": _FakeTopNReranker(top_n=1)})
+    p.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+
+    fused_only = provider()[0]
+    fused_only.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+    true_fused_count = fused_only.read(ACME, MemoryQuery(text="alpha")).fusion["fused"]
+
+    slice_ = p.read(ACME, MemoryQuery(text="alpha"))
+
+    assert len(slice_.records) == 1  # top_n=1 narrowed the returned page
+    assert slice_.fusion["fused"] == true_fused_count == 2  # but `fused` still counts pre-rerank
+    assert slice_.fusion["returned"] == 1  # `returned`, unlike `fused`, does track the final page
+
+
+async def test_rerank_narrowing_preserves_the_fused_diagnostic_on_the_async_path_too():
+    p, _, _ = provider(rerank={"enabled": True, "reranker": _FakeTopNReranker(top_n=1)})
+    p.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+
+    slice_ = await p.aread(ACME, MemoryQuery(text="alpha"))
+
+    assert len(slice_.records) == 1
+    assert slice_.fusion["fused"] == 2
 
 
 def test_reading_the_working_tier_is_empty_while_writing_it_is_refused():

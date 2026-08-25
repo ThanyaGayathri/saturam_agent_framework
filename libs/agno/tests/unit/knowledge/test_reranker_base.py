@@ -88,4 +88,13 @@ async def test_the_default_arerank_uses_a_dedicated_bounded_executor_not_the_sha
         reranker_base._ARERANK_EXECUTOR.submit = real_submit
 
     assert len(calls) == 2
-    assert reranker_base._ARERANK_EXECUTOR._max_workers == 4
+    assert len(reranker_base._ARERANK_EXECUTOR._threads) == 4
+
+
+def test_the_arerank_executors_workers_are_daemon_threads():
+    """Round-4 review finding: non-daemon worker threads block graceful process exit (CPython's
+    `atexit` hook joins them, abandoned/in-flight work included). `_ARERANK_EXECUTOR`'s own type
+    (`BoundedDaemonExecutor`) guarantees this; `egpt.utils.concurrency`'s own tests cover the
+    mechanism in depth -- this just pins that the module-level singleton this default actually
+    uses is one."""
+    assert all(t.daemon for t in reranker_base._ARERANK_EXECUTOR._threads)

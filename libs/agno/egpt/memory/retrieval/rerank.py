@@ -30,13 +30,13 @@ only needs to satisfy the shape below.
 
 import asyncio
 import time
-from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol, Sequence, Set, runtime_checkable
 
 from egpt.knowledge.document import Document
 from egpt.memory.types import MemoryRecord
+from egpt.utils.concurrency import BoundedDaemonExecutor
 from egpt.utils.log import log_warning
 
 __all__ = [
@@ -78,15 +78,19 @@ DEFAULT_BUDGET_MS = 300.0
 #: truncate on its own, so a reranker with no ``top_n`` set simply reorders all ``candidates``.
 DEFAULT_CANDIDATES = 50
 
-#: Shared and bounded, not one-per-call (round-3 review finding): a ``ThreadPoolExecutor``
-#: created fresh per call and abandoned on every budget overrun -- which the module docstring
-#: already says is the *expected* case for a CPU-served Mode-A reranker (SM-R8 DECISION.md S1.2:
-#: ~2.0-2.5s/query against this stage's ~300ms default budget) -- leaks one OS thread per overrun,
-#: unbounded. A small, shared, module-level pool caps it instead: a sustained run of overruns
-#: still queues work behind, at most, ``max_workers`` permanently-busy slots rather than spawning
-#: another OS thread every time. Every call across every tenant's config shares this pool
-#: deliberately -- rerank is meant to be an occasional, budgeted stage, not a throughput path.
-_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="egpt-memory-rerank")
+#: Shared, bounded, and daemon-threaded (round-3 + round-4 review findings). Round 3: a
+#: ``ThreadPoolExecutor`` created fresh per call and abandoned on every budget overrun --
+#: expected, not rare, for a CPU-served Mode-A reranker (SM-R8 DECISION.md S1.2: ~2.0-2.5s/query
+#: against this stage's ~300ms default budget) -- leaked one OS thread per overrun, unbounded.
+#: Round 4: a *shared* stdlib ``ThreadPoolExecutor`` still isn't enough -- its worker threads are
+#: non-daemon with no public way to change that, and CPython's ``atexit`` hook
+#: (``concurrent.futures.thread._python_exit``) then untimed-``join()``s every one of them,
+#: abandoned/in-flight work included, blocking graceful process exit for as long as that work
+#: takes (or forever). :class:`~egpt.utils.concurrency.BoundedDaemonExecutor` -- see its own
+#: docstring for the full tradeoff -- uses daemon threads (never joined at exit) behind a bounded
+#: queue (8 = 2x the worker count; past that, ``submit`` fails fast into the same fallback path a
+#: budget overrun already takes, rather than retaining unbounded abandoned-call state).
+_EXECUTOR = BoundedDaemonExecutor(max_workers=4, max_queue=8, thread_name_prefix="egpt-memory-rerank")
 
 
 @dataclass(frozen=True)
@@ -119,11 +123,12 @@ def _to_documents(records: Sequence[MemoryRecord]) -> List[Document]:
 def _has_duplicate_pool_id(pool_ids: Set[str], reranked_docs: Sequence[Document]) -> bool:
     """Whether ``reranked_docs`` names the same pool id twice.
 
-    The signal for "the reranker corrupted the set" (round-3 review finding): a duplicate means
-    one real record was returned under two entries while a different one silently vanished, since
-    every adapter reranks a fixed input set rather than inventing new ids. A hallucinated id (not
-    in ``pool_ids`` at all) is not counted here -- :func:`_reordered` already drops it, a no-op
-    rather than a data-loss bug.
+    One of two corruption signals :func:`_rerank_corrupted` checks (round-3 review finding): a
+    duplicate means one real record was returned under two entries while a different one silently
+    vanished, since every adapter reranks a fixed input set rather than inventing new ids. A
+    hallucinated id (not in ``pool_ids`` at all) is not counted *here* -- :func:`_reordered`
+    already drops it on its own, a no-op rather than a data-loss bug *as long as some real ids
+    also came back*; see :func:`_rerank_corrupted` for the case where none did.
     """
     seen: Set[str] = set()
     for doc in reranked_docs:
@@ -135,6 +140,28 @@ def _has_duplicate_pool_id(pool_ids: Set[str], reranked_docs: Sequence[Document]
     return False
 
 
+def _rerank_corrupted(pool_ids: Set[str], reranked_docs: Sequence[Document], ordered: Sequence[MemoryRecord]) -> bool:
+    """Whether the reranker's output should be treated as corrupted rather than trusted.
+
+    Two independent signals, either one enough to fail safe to the fused order (round-3 + round-4
+    review findings):
+
+    * a duplicate pool id (:func:`_has_duplicate_pool_id`) -- one real record doubled, another
+      silently dropped, at whatever the resulting length happens to be;
+    * ``ordered`` is empty despite a non-empty ``pool`` -- every returned id was ``None`` or
+      foreign to the pool, so :func:`_reordered` matched nothing. A reranker's own ``top_n`` can
+      legitimately narrow the result to *fewer* records, but never to *zero real* ones; a shorter,
+      duplicate-free, all-real-ids result is accepted (round-3), while an all-garbage-ids result
+      that would otherwise report ``applied=True`` with zero surviving records is not (round-4) --
+      the two rounds' findings are the same principle applied to the two different ways a
+      reranker's output can stop being trustworthy.
+
+    ``pool`` is always non-empty at both call sites (both check it before reaching here), so
+    ``not ordered`` alone already means "non-empty pool, zero survivors."
+    """
+    return _has_duplicate_pool_id(pool_ids, reranked_docs) or not ordered
+
+
 def _reordered(pool: Sequence[MemoryRecord], reranked_docs: Sequence[Document]) -> List[MemoryRecord]:
     """Map reranked ``Document``s back onto their ``MemoryRecord``s, by id, carrying the new score.
 
@@ -142,8 +169,11 @@ def _reordered(pool: Sequence[MemoryRecord], reranked_docs: Sequence[Document]) 
     adapter has its own ``top_n`` field that truncates its output when configured (round-3 review
     finding -- `aws_bedrock.py`'s own docstring shows ``top_n=5`` as the idiomatic construction,
     not an edge case), so a shorter, duplicate-free result is a legitimate narrowing, not
-    corruption. The caller checks for duplicates separately, with :func:`_has_duplicate_pool_id`,
-    which *is* the corruption signal a length mismatch was standing in for.
+    corruption. Also silently drops a doc whose id is ``None`` or not in ``pool`` -- a hallucinated
+    id is a no-op *by itself*, but if every returned id is hallucinated the result is an empty
+    list from a non-empty pool, which is corruption; the caller checks for both this and
+    duplicates with :func:`_rerank_corrupted`, which *is* the signal a length mismatch alone was
+    standing in for.
     """
     by_id = {record.id: record for record in pool}
     ordered: List[MemoryRecord] = []
@@ -169,11 +199,12 @@ def rerank_records(
     """Rerank the top ``candidates`` fused ``records``; anything past that stays in fused order.
 
     Falls back to the untouched fused ``records`` -- ``applied=False`` -- on a budget overrun, on
-    any exception the reranker raises, or on a reranker returning a duplicate of a pool id (round-3
-    review finding: two entries for one real record, silently dropping another). A shorter,
-    duplicate-free result -- e.g. from the reranker's own ``top_n`` -- is accepted as a legitimate
-    narrowing, not treated as corruption. A caller turned this on to *improve* precision; a failure
-    in an optional stage must never be the reason a read comes back empty or wrong.
+    any exception the reranker raises, or on the reranker's own output being corrupted
+    (:func:`_rerank_corrupted`: a duplicate pool id, round-3, or zero real survivors from a
+    non-empty pool, round-4). A shorter, duplicate-free, all-real-ids result -- e.g. from the
+    reranker's own ``top_n`` -- is accepted as a legitimate narrowing, not treated as corruption.
+    A caller turned this on to *improve* precision; a failure in an optional stage must never be
+    the reason a read comes back empty or wrong.
     """
     pool = list(records[:candidates])
     tail = list(records[candidates:])
@@ -200,11 +231,11 @@ def rerank_records(
 
     elapsed_ms = (time.monotonic() - start) * 1000.0
     pool_ids = {record.id for record in pool}
-    if _has_duplicate_pool_id(pool_ids, reranked_docs):
+    ordered = _reordered(pool, reranked_docs)
+    if _rerank_corrupted(pool_ids, reranked_docs, ordered):
         return RerankOutcome(
             records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
         )
-    ordered = _reordered(pool, reranked_docs)
     return RerankOutcome(
         records=ordered + tail, applied=True, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
     )
@@ -248,11 +279,11 @@ async def arerank_records(
 
     elapsed_ms = (time.monotonic() - start) * 1000.0
     pool_ids = {record.id for record in pool}
-    if _has_duplicate_pool_id(pool_ids, reranked_docs):
+    ordered = _reordered(pool, reranked_docs)
+    if _rerank_corrupted(pool_ids, reranked_docs, ordered):
         return RerankOutcome(
             records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
         )
-    ordered = _reordered(pool, reranked_docs)
     return RerankOutcome(
         records=ordered + tail, applied=True, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
     )

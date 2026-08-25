@@ -1,19 +1,23 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 from pydantic import BaseModel, ConfigDict
 
 from egpt.knowledge.document import Document
+from egpt.utils.concurrency import BoundedDaemonExecutor
 
 #: Dedicated to the default `arerank`'s thread-offload, not `asyncio.to_thread`'s process-wide
 #: default executor (round-3 review finding on `egpt.memory.retrieval.rerank`, this default's
 #: first caller): that caller budgets and abandons an overrun rather than waiting on it, so a
 #: slow/hung rerank call would otherwise pin a slot in the shared default pool for as long as the
 #: call keeps running -- degrading every unrelated `asyncio.to_thread` use in the process, not
-#: just later rerank calls. Small and bounded on purpose, the same reasoning as the caller's own
-#: pool: rerank is not a throughput path, and a caller wanting more concurrency raises this.
-_ARERANK_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="egpt-reranker-arerank")
+#: just later rerank calls. `BoundedDaemonExecutor` over a plain `ThreadPoolExecutor` (round-4
+#: finding): the stdlib class's worker threads are non-daemon with no public way to change that,
+#: so CPython's `atexit` hook (`concurrent.futures.thread._python_exit`) untimed-`join()`s them
+#: at process exit, abandoned/in-flight work included -- see that class's own docstring for the
+#: full tradeoff. Small and bounded on purpose, the same reasoning as the caller's own pool:
+#: rerank is not a throughput path, and a caller wanting more concurrency raises this.
+_ARERANK_EXECUTOR = BoundedDaemonExecutor(max_workers=4, max_queue=8, thread_name_prefix="egpt-reranker-arerank")
 
 
 class Reranker(BaseModel):
