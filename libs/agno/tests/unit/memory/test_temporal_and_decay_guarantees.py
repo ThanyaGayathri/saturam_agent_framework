@@ -124,7 +124,7 @@ def test_point_in_time_reconstructs_every_link_of_a_three_step_belief_chain():
     assert _current_employer(p, as_of=None) == "Ada works_at Gamma LLC"  # current belief, no as_of
 
 
-def test_a_point_in_time_query_between_two_valid_windows_sees_nothing():
+def test_a_point_in_time_query_before_the_first_valid_window_sees_nothing():
     """t=100 is Acme's open bound; querying strictly before it must find no belief at all, not
     the nearest one -- a chain regression that silently widened a window would slip past a test
     that only ever asks inside a valid range."""
@@ -262,4 +262,11 @@ def test_reinforcement_does_not_rescue_an_episode_that_is_already_archived():
 
     reinforced = reinforce(archived, at=now)
 
+    # Asserted directly, not just through `is_prune_eligible`: that check's decay-score path is
+    # independently driven to a non-eligible score by `reinforce()` resetting `last_accessed_at`
+    # to `now` (age 0 gives the maximum score), so it returns `False` whether or not `expired_at`
+    # survived -- a `reinforce()` that buggily un-archives the episode would pass the eligibility
+    # check below for the wrong reason. This is the assertion that actually distinguishes them.
+    assert reinforced.expired_at == archived.expired_at
+    assert reinforced.expired_at is not None
     assert is_prune_eligible(reinforced, now=now, prune_threshold=DEFAULT_PRUNE_THRESHOLD) is False
