@@ -262,6 +262,13 @@ This section demonstrates how EGPT agents persist and use user memories across r
   took `36_`, then `feat/SM-S2` (#133) took `37_`, then `feat/SM-S4`/`feat/SM-C6`/`feat/SM-S3`
   took `38_`/`39_`/`40_` together, all while this branch was still catching up.**
 
+- `42_mode_a_end_to_end.py`: Mode A -- co-located memory, end to end (SM-X1) -- pgvector and Neo4j
+  wired into one provider by config alone (`mode=ProviderMode.LOCAL`), driven through a full
+  write -> consolidate -> read pass rather than one substrate at a time the way `10_`/`13_` do.
+  Consolidation is the deterministic default; real extraction is `17_`/`19_`'s. Needs
+  `./cookbook/scripts/run_pgvector.sh` and `./cookbook/scripts/run_neo4j.sh`; no API key --
+  `mode` selects the offline Mode A embedder, downloaded on first run same as `13_`.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

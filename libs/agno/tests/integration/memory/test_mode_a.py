@@ -209,8 +209,6 @@ def test_tenant_isolation_holds_on_real_engines(provider):
     provider.consolidate(GLOBEX)
 
     leaked = [
-        r
-        for r in provider.read(GLOBEX, MemoryQuery(text="deploy secret")).records
-        if r.content.startswith("acme")
+        r for r in provider.read(GLOBEX, MemoryQuery(text="deploy secret")).records if r.content.startswith("acme")
     ]
     assert leaked == []

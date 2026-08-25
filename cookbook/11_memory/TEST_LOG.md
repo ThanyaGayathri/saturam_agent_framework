@@ -1106,3 +1106,26 @@ instance); no API key. Run with `.venvs/demo`.
 `feat/SM-L9` (#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took
 `36_`, then `feat/SM-S2` (#133) took `37_`, then `feat/SM-S4`/`feat/SM-C6`/`feat/SM-S3` took
 `38_`/`39_`/`40_` together, all while this branch was still catching up.**
+
+---
+
+### 42_mode_a_end_to_end.py
+
+**Status:** PASS
+
+**Description:** Mode A -- co-located memory (SM-X1 #137) -- pgvector and Neo4j wired into one
+`CoLocatedMemoryProvider` by config alone (`mode=ProviderMode.LOCAL`), then driven through the full
+episodic -> semantic pass: write two identical episodes, `consolidate` (deterministic dedup, no
+extraction pipeline wired), read the resulting fact back fused across both substrates.
+
+**Result:** Run against real Postgres+pgvector (`./cookbook/scripts/run_pgvector.sh`) and real
+Neo4j (`./cookbook/scripts/run_neo4j.sh`), with the real Mode A default embedder
+(`bge-base-en-v1.5`, downloaded on first run, same as `13_`): `substrates()` reports both wired;
+2 episodic rows written; `consolidate` reports `episodic_scanned=2`, `duplicates_merged=1`,
+`semantic_written=1`; the fused read returns exactly the one distilled fact, present in both the
+vector and graph legs (`fusion["vector_hits"] == fusion["graph_hits"] == 1`). Re-run twice with no
+code change: identical output both times (stable ids upsert the same rows rather than
+accumulating a fresh set).
+
+**Requires:** `./cookbook/scripts/run_pgvector.sh`, `./cookbook/scripts/run_neo4j.sh`; no API key.
+Run with `.venvs/demo`.
