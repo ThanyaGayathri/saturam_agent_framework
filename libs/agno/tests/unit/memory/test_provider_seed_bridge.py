@@ -274,6 +274,29 @@ def test_a_bridge_with_nothing_to_wrap_is_a_misconfiguration():
         SeedMemoryProvider()
 
 
+def test_enabling_rerank_is_refused_rather_than_silently_having_no_effect():
+    """Round-3 review finding (PR #148): this provider has no fused candidate list for a
+    cross-encoder to reorder, and never reads `config.rerank` -- so `enabled=True` used to build
+    cleanly and then do nothing, failing SM-H3's own "toggleable per tenant" criterion silently.
+    Refused at construction instead, the same way an undeclarable `store_slots` entry is."""
+    from egpt.integrations.knowledge.reranker.base import Reranker
+
+    class _FakeReranker(Reranker):
+        offline_capable: bool = True
+
+        def rerank(self, query, documents):
+            return documents
+
+    config = MemoryProviderConfig(
+        provider="seed",
+        options={"single_tenant": True, "tenant_id": ACME.tenant_id},
+        rerank={"enabled": True, "reranker": _FakeReranker()},
+    )
+
+    with pytest.raises(MemoryProviderConfigError, match="has no effect on provider='seed'"):
+        SeedMemoryProvider(manager=FakeManager(), config=config)
+
+
 def test_the_bridge_reports_no_substrates_because_the_seed_has_none():
     """Not a defect: the seed has no vector-search-over-memory and no temporal graph.
 

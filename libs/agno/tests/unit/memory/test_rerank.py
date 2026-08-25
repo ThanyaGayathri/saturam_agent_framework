@@ -11,6 +11,7 @@ import asyncio
 import time
 
 from egpt.integrations.knowledge.reranker.base import Reranker
+from egpt.memory.retrieval import rerank as rerank_module
 from egpt.memory.retrieval.rerank import DEFAULT_BUDGET_MS, DEFAULT_CANDIDATES, arerank_records, rerank_records
 from egpt.memory.types import MemoryRecord, MemoryTier, Scope
 
@@ -73,11 +74,28 @@ class AsyncBoomReranker(Reranker):
         raise RuntimeError("boom")
 
 
-class WrongCountReranker(Reranker):
-    """A misbehaving adapter: drops a document rather than returning a permutation."""
+class TopNReranker(Reranker):
+    """A well-behaved adapter narrowing via its own ``top_n`` -- the idiomatic pattern every
+    shipped `egpt` reranker supports (`aws_bedrock.py`'s own docstring shows `top_n=5` as the
+    normal construction, not an edge case). Returns fewer, distinct documents -- not corruption."""
+
+    top_n: int = 2
 
     def rerank(self, query, documents):
-        return documents[:-1]
+        return documents[: self.top_n]
+
+
+class DuplicateIdReranker(Reranker):
+    """A misbehaving adapter: returns one real document twice while silently dropping another,
+    at the *same* output length as the input -- the corruption a naive length check cannot see."""
+
+    def rerank(self, query, documents):
+        return [documents[0], documents[0], *documents[1:-1]]
+
+
+class AsyncDuplicateIdReranker(Reranker):
+    async def arerank(self, query, documents):
+        return [documents[0], documents[0], *documents[1:-1]]
 
 
 def test_defaults_match_sm_r8_decision_md():
@@ -172,13 +190,36 @@ async def test_an_async_reranker_exception_also_falls_back_to_fused_order():
     assert [r.id for r in outcome.records] == ["1", "2", "3"]
 
 
-def test_a_reranker_returning_a_non_permutation_falls_back_rather_than_returning_a_short_page():
+def test_a_rerankers_own_top_n_truncation_is_accepted_not_treated_as_corruption():
+    """Round-3 review finding: a naive length check against `pool` broke every reranker with
+    `top_n` set, since that's an intentional narrowing to fewer, distinct records -- not the
+    reranker failing to return a full permutation."""
+    records = [record(str(i)) for i in range(1, 6)]
+
+    outcome = rerank_records("q", records, reranker=TopNReranker(top_n=2), candidates=5, budget_ms=1000)
+
+    assert outcome.applied is True
+    assert len(outcome.records) == 2
+
+
+def test_a_reranker_returning_a_duplicate_id_falls_back_rather_than_silently_dropping_a_record():
+    """Round-3 review finding: same output *length* as the pool, but one real record is doubled
+    while another vanishes -- a defect a length-only check cannot see."""
     records = [record(str(i)) for i in range(1, 4)]
 
-    outcome = rerank_records("q", records, reranker=WrongCountReranker(), budget_ms=1000)
+    outcome = rerank_records("q", records, reranker=DuplicateIdReranker(), budget_ms=1000)
 
     assert outcome.applied is False
-    assert len(outcome.records) == 3
+    assert [r.id for r in outcome.records] == ["1", "2", "3"]
+
+
+async def test_an_async_reranker_returning_a_duplicate_id_also_falls_back():
+    records = [record(str(i)) for i in range(1, 4)]
+
+    outcome = await arerank_records("q", records, reranker=AsyncDuplicateIdReranker(), budget_ms=1000)
+
+    assert outcome.applied is False
+    assert [r.id for r in outcome.records] == ["1", "2", "3"]
 
 
 def test_reranking_an_empty_list_is_a_no_op():
@@ -239,6 +280,31 @@ def test_a_reranker_that_drops_the_reranking_score_keeps_the_records_fused_score
 
     assert outcome.records[0].score == 0.7
     assert outcome.applied is True
+
+
+def test_the_sync_executor_is_a_bounded_module_level_singleton_not_one_per_call():
+    """Round-3 review finding: a fresh `ThreadPoolExecutor` per call, abandoned on every budget
+    overrun, leaks one OS thread per overrun -- unbounded. Pins the fix: `rerank_records` submits
+    to the one shared, bounded, module-level pool rather than constructing its own -- spying on
+    `_EXECUTOR.submit` itself, not just checking the module attribute is untouched, since a
+    per-call executor built alongside it would leave the singleton's identity unchanged too."""
+    real_submit = rerank_module._EXECUTOR.submit
+    calls = []
+
+    def spy_submit(*args, **kwargs):
+        calls.append(1)
+        return real_submit(*args, **kwargs)
+
+    rerank_module._EXECUTOR.submit = spy_submit
+    try:
+        records = [record("a")]
+        rerank_records("q", records, reranker=ReverseReranker(), budget_ms=1000)
+        rerank_records("q", records, reranker=ReverseReranker(), budget_ms=1000)
+    finally:
+        rerank_module._EXECUTOR.submit = real_submit
+
+    assert len(calls) == 2
+    assert rerank_module._EXECUTOR._max_workers == 4
 
 
 def test_document_ids_travel_through_reranking_unaltered():

@@ -33,7 +33,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
-from typing import Any, Dict, List, Protocol, Sequence, runtime_checkable
+from typing import Any, Dict, List, Protocol, Sequence, Set, runtime_checkable
 
 from egpt.knowledge.document import Document
 from egpt.memory.types import MemoryRecord
@@ -78,6 +78,16 @@ DEFAULT_BUDGET_MS = 300.0
 #: truncate on its own, so a reranker with no ``top_n`` set simply reorders all ``candidates``.
 DEFAULT_CANDIDATES = 50
 
+#: Shared and bounded, not one-per-call (round-3 review finding): a ``ThreadPoolExecutor``
+#: created fresh per call and abandoned on every budget overrun -- which the module docstring
+#: already says is the *expected* case for a CPU-served Mode-A reranker (SM-R8 DECISION.md S1.2:
+#: ~2.0-2.5s/query against this stage's ~300ms default budget) -- leaks one OS thread per overrun,
+#: unbounded. A small, shared, module-level pool caps it instead: a sustained run of overruns
+#: still queues work behind, at most, ``max_workers`` permanently-busy slots rather than spawning
+#: another OS thread every time. Every call across every tenant's config shares this pool
+#: deliberately -- rerank is meant to be an occasional, budgeted stage, not a throughput path.
+_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="egpt-memory-rerank")
+
 
 @dataclass(frozen=True)
 class RerankOutcome:
@@ -106,12 +116,34 @@ def _to_documents(records: Sequence[MemoryRecord]) -> List[Document]:
     return [Document(id=record.id, content=record.content) for record in records]
 
 
+def _has_duplicate_pool_id(pool_ids: Set[str], reranked_docs: Sequence[Document]) -> bool:
+    """Whether ``reranked_docs`` names the same pool id twice.
+
+    The signal for "the reranker corrupted the set" (round-3 review finding): a duplicate means
+    one real record was returned under two entries while a different one silently vanished, since
+    every adapter reranks a fixed input set rather than inventing new ids. A hallucinated id (not
+    in ``pool_ids`` at all) is not counted here -- :func:`_reordered` already drops it, a no-op
+    rather than a data-loss bug.
+    """
+    seen: Set[str] = set()
+    for doc in reranked_docs:
+        if doc.id is None or doc.id not in pool_ids:
+            continue
+        if doc.id in seen:
+            return True
+        seen.add(doc.id)
+    return False
+
+
 def _reordered(pool: Sequence[MemoryRecord], reranked_docs: Sequence[Document]) -> List[MemoryRecord]:
     """Map reranked ``Document``s back onto their ``MemoryRecord``s, by id, carrying the new score.
 
-    A length mismatch against ``pool`` -- an adapter returning something other than a permutation
-    of what it was given -- is the caller's signal to fail safe rather than trust this function's
-    output; it deliberately does not guess which records to drop to make the lengths agree.
+    Deliberately does not require ``len(reranked_docs) == len(pool)``: every shipped reranker
+    adapter has its own ``top_n`` field that truncates its output when configured (round-3 review
+    finding -- `aws_bedrock.py`'s own docstring shows ``top_n=5`` as the idiomatic construction,
+    not an edge case), so a shorter, duplicate-free result is a legitimate narrowing, not
+    corruption. The caller checks for duplicates separately, with :func:`_has_duplicate_pool_id`,
+    which *is* the corruption signal a length mismatch was standing in for.
     """
     by_id = {record.id: record for record in pool}
     ordered: List[MemoryRecord] = []
@@ -137,9 +169,11 @@ def rerank_records(
     """Rerank the top ``candidates`` fused ``records``; anything past that stays in fused order.
 
     Falls back to the untouched fused ``records`` -- ``applied=False`` -- on a budget overrun, on
-    any exception the reranker raises, or on a reranker returning something that is not a
-    permutation of what it was given. A caller turned this on to *improve* precision; a failure in
-    an optional stage must never be the reason a read comes back empty or wrong.
+    any exception the reranker raises, or on a reranker returning a duplicate of a pool id (round-3
+    review finding: two entries for one real record, silently dropping another). A shorter,
+    duplicate-free result -- e.g. from the reranker's own ``top_n`` -- is accepted as a legitimate
+    narrowing, not treated as corruption. A caller turned this on to *improve* precision; a failure
+    in an optional stage must never be the reason a read comes back empty or wrong.
     """
     pool = list(records[:candidates])
     tail = list(records[candidates:])
@@ -147,35 +181,30 @@ def rerank_records(
         return _empty_outcome(records)
 
     documents = _to_documents(pool)
-    executor = ThreadPoolExecutor(max_workers=1)
     start = time.monotonic()
     try:
-        future = executor.submit(reranker.rerank, query_text, documents)
-        try:
-            reranked_docs = future.result(timeout=budget_ms / 1000.0)
-        except FutureTimeoutError:
-            elapsed_ms = (time.monotonic() - start) * 1000.0
-            log_warning(f"Memory rerank exceeded its {budget_ms:.0f}ms budget ({elapsed_ms:.0f}ms); using fused order.")
-            return RerankOutcome(
-                records=list(records), applied=False, budget_exceeded=True, candidates=len(pool), elapsed_ms=elapsed_ms
-            )
-        except Exception:
-            elapsed_ms = (time.monotonic() - start) * 1000.0
-            log_warning("Memory rerank raised; using fused order.")
-            return RerankOutcome(
-                records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
-            )
-    finally:
-        # Not `wait=True`: on a timeout the call is still running in this thread and waiting for it
-        # would defeat the whole point of the budget. Left to finish and be garbage-collected.
-        executor.shutdown(wait=False)
-
-    elapsed_ms = (time.monotonic() - start) * 1000.0
-    ordered = _reordered(pool, reranked_docs)
-    if len(ordered) != len(pool):
+        future = _EXECUTOR.submit(reranker.rerank, query_text, documents)
+        reranked_docs = future.result(timeout=budget_ms / 1000.0)
+    except FutureTimeoutError:
+        elapsed_ms = (time.monotonic() - start) * 1000.0
+        log_warning(f"Memory rerank exceeded its {budget_ms:.0f}ms budget ({elapsed_ms:.0f}ms); using fused order.")
+        return RerankOutcome(
+            records=list(records), applied=False, budget_exceeded=True, candidates=len(pool), elapsed_ms=elapsed_ms
+        )
+    except Exception:
+        elapsed_ms = (time.monotonic() - start) * 1000.0
+        log_warning("Memory rerank raised; using fused order.")
         return RerankOutcome(
             records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
         )
+
+    elapsed_ms = (time.monotonic() - start) * 1000.0
+    pool_ids = {record.id for record in pool}
+    if _has_duplicate_pool_id(pool_ids, reranked_docs):
+        return RerankOutcome(
+            records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
+        )
+    ordered = _reordered(pool, reranked_docs)
     return RerankOutcome(
         records=ordered + tail, applied=True, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
     )
@@ -218,11 +247,12 @@ async def arerank_records(
         )
 
     elapsed_ms = (time.monotonic() - start) * 1000.0
-    ordered = _reordered(pool, reranked_docs)
-    if len(ordered) != len(pool):
+    pool_ids = {record.id for record in pool}
+    if _has_duplicate_pool_id(pool_ids, reranked_docs):
         return RerankOutcome(
             records=list(records), applied=False, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
         )
+    ordered = _reordered(pool, reranked_docs)
     return RerankOutcome(
         records=ordered + tail, applied=True, budget_exceeded=False, candidates=len(pool), elapsed_ms=elapsed_ms
     )
