@@ -7,8 +7,11 @@ Two post-conditions are re-checked here rather than trusted to a backend, becaus
 silently and one puts another tenant's data into a prompt: tenant isolation and bi-temporal
 validity.
 
-Out of scope, deliberately: rank fusion beyond a score sum (SM-H2 #132), a consolidation scheduler
-(SM-L1 #122). **Retiring a fact whose source group changed** is SM-L3's (#124)
+Out of scope, deliberately: a consolidation scheduler (SM-L1 #122). Rank fusion beyond the default
+score-sum is SM-H2's (#132), wired -- see ``_fusion_method``/``_merged`` and
+``egpt.memory.retrieval.fuse``; the *default* stays score-sum until SM-H2/H3 measure the 3-leg
+pairing against SM-G9's (#107) real graph retriever (ADR 0003 A.6). **Retiring a fact whose source
+group changed** is SM-L3's (#124)
 ``egpt.memory.consolidation.extract.FactExtractionPipeline`` -- opt-in via ``fact_pipeline``, same
 shape as ``entity_pipeline``/``relation_pipeline``; ``_distil``'s deterministic dedup below remains
 the zero-config default and still cannot retire what it subsumes (its own docstring).
@@ -42,7 +45,8 @@ from egpt.memory.consolidation.extract import STRATEGY_ID as FACT_PIPELINE_STRAT
 from egpt.memory.consolidation.provenance import provenance_report
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
-from egpt.memory.retrieval.orchestrator import aorchestrate, orchestrate
+from egpt.memory.retrieval.fuse import DEFAULT_RRF_K, deterministic_rank_key, rrf_fuse
+from egpt.memory.retrieval.orchestrator import RetrievalLegs, aorchestrate, orchestrate
 from egpt.memory.schemas.semantic import fact_record
 from egpt.memory.semantic.profile import SemanticProfileStore
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
@@ -281,11 +285,15 @@ def _valid_at(record: MemoryRecord, at: int) -> bool:
 def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
     """One ranked list from two legs: dedup by id, sum scores, rank deterministically.
 
-    A score sum, not a fusion strategy. Weighted and RRF, their knobs and their diagnostics belong
-    to SM-H2 (#132), which owns the measurement that would justify picking one.
+    A score sum, and the provider's default: ADR 0003 A.6 holds the 3-leg (+graph) fusion choice
+    open, gated on SM-G9's (#107) real graph retriever and SM-H2/H3's own measurement, so nothing
+    here may switch the default without one. RRF is the alternative a caller opts into via
+    ``config.fusion`` -- see
+    :func:`egpt.memory.retrieval.fuse.rrf_fuse` and :meth:`CoLocatedMemoryProvider._merged`.
 
-    Ties break on content, then tier, then id -- never on arrival order, which is driven by UUID
-    record ids and made identical corpora rank differently across processes.
+    Ties break the same way every fusion strategy in this package does -- see
+    :func:`~egpt.memory.retrieval.fuse.deterministic_rank_key` -- never on arrival order, which is
+    driven by UUID record ids and made identical corpora rank differently across processes.
 
     Bounds are **not** merged between the legs here. They used to be, but
     ``_reconcile_bounds`` runs straight after and overwrites every id the graph knows from the
@@ -305,7 +313,7 @@ def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
                 continue
             existing.score = (existing.score or 0.0) + (record.score or 0.0)
             existing.substrate = None  # no longer from one place
-    return sorted(merged.values(), key=lambda r: (-(r.score or 0.0), r.content, r.tier.value, r.id))
+    return sorted(merged.values(), key=deterministic_rank_key)
 
 
 class CoLocatedMemoryProvider(MemoryProvider):
@@ -878,7 +886,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             records=records,
             by_tier=by_tier,
             fusion=fusion_diagnostics(
-                method="score_sum",
+                method=self._fusion_method(),
                 vector_hits=len(vector_hits),
                 lexical_hits=len(lexical_hits),
                 graph_hits=len(graph_hits),
@@ -915,11 +923,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
             ),
         )
 
+    def _fusion_method(self) -> str:
+        """The provider's fusion strategy, read from ``config.fusion`` (SM-H2 #132).
+
+        ``score_sum`` is the default and stays the default: ADR 0003 A.6 holds the 3-leg
+        weighted-vs-RRF choice open, gated on SM-G9's (#107) real graph retriever and SM-H2/H3's
+        own measurement, so nothing here may switch it without one. ``"rrf"`` is the opt-in
+        alternative -- validated at ``MemoryProviderConfig`` construction (``_validate_fusion``
+        always returns a dict, never ``None``), so a value reaching this method is already known
+        good.
+        """
+        return self.config.fusion.get("method", "score_sum")
+
     def _merged(
         self,
         scope: Scope,
         query: MemoryQuery,
-        legs: Sequence[Sequence[MemoryRecord]],
+        legs: RetrievalLegs,
         *,
         method: str,
     ) -> List[MemoryRecord]:
@@ -927,9 +947,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         ``method`` is required rather than defaulted: both halves call this, and a default would
         make the async one report the sync verb -- which is the same "names the method it delegated
-        to" defect the entry guards exist to avoid, surfacing from the post-condition instead.
+        to" defect the entry guards exist to avoid, surfacing from the post-condition instead. (Not
+        to be confused with the *fusion* method -- :meth:`_fusion_method` -- which this reads to
+        decide how to merge.)
+
+        RRF fuses all three legs, including lexical: it is rank-based, so it never needs the legs'
+        scores to share a scale, which is exactly the precondition ``_merge``'s score-sum cannot
+        meet for lexical (see ``_merge``'s own docstring). ``score_sum`` keeps the lexical leg out
+        of ranking -- ADR 0003 A.6's constraint -- and only RRF, the measured strategy this ticket
+        adds, may fold it in.
         """
-        merged = _merge(legs)
+        if self._fusion_method() == "rrf":
+            k = self.config.fusion.get("k", DEFAULT_RRF_K)
+            merged = rrf_fuse(legs.legs(), k=k)
+        else:
+            merged = _merge([legs.vector, legs.graph])
         assert_scope_isolation(scope, merged, method=method)
         self._assert_requested_tiers(query, merged)
         return merged
@@ -957,11 +989,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         legs = orchestrate(scope, query, vector=self.vector, graph=self.graph)
-        # The lexical leg does NOT enter `_merged`: `_merge`'s score-sum is a ranking strategy,
-        # and folding a leg no ratified strategy has decided how to weigh (ADR 0003 A.6, held
-        # open pending SM-H2) would decide it by construction, not by measurement. It surfaces
-        # only as a diagnostic count below, until SM-H2 says how it participates in ranking.
-        merged = self._merged(scope, query, [legs.vector, legs.graph], method=method)
+        # Whether the lexical leg enters ranking is `_merged`'s call, via `_fusion_method` (SM-H2
+        # #132): the default `score_sum` keeps it diagnostics-only (ADR 0003 A.6), `rrf` folds it
+        # in. See `_merged`'s docstring.
+        merged = self._merged(scope, query, legs, method=method)
         reconciled = self._reconcile_bounds(scope, merged)
         return self._slice(
             scope, query, merged, legs.vector, legs.graph, instant, reconciled, lexical_hits=legs.lexical
@@ -976,8 +1007,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         legs = await aorchestrate(scope, query, vector=self.vector, graph=self.graph)
-        # See `_read`'s comment: the lexical leg is diagnostics-only until SM-H2 picks a strategy.
-        merged = self._merged(scope, query, [legs.vector, legs.graph], method=method)
+        # See `_read`'s comment: `_merged`/`_fusion_method` decide whether lexical enters ranking.
+        merged = self._merged(scope, query, legs, method=method)
         reconciled = await self._areconcile_bounds(scope, merged)
         return self._slice(
             scope, query, merged, legs.vector, legs.graph, instant, reconciled, lexical_hits=legs.lexical
