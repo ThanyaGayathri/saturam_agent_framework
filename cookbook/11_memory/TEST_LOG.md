@@ -1106,3 +1106,25 @@ instance); no API key. Run with `.venvs/demo`.
 `feat/SM-L9` (#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took
 `36_`, then `feat/SM-S2` (#133) took `37_`, then `feat/SM-S4`/`feat/SM-C6`/`feat/SM-S3` took
 `38_`/`39_`/`40_` together, all while this branch was still catching up.**
+
+---
+
+### 42_rrf_fusion.py
+
+**Status:** PASS
+
+**Description:** Reciprocal Rank Fusion (SM-H2 #132): the same "cat dog" / `higher_overlap` vs
+`has_phrase` scenario `36_hybrid_retrieval_orchestration.py` uses, read three times against the
+same two in-memory records with `config.fusion` set to `{}` (default), `{"method": "rrf"}`, and
+`{"method": "rrf", "k": 1}`.
+
+**Result:** Ran end to end, no database, no model. `score_sum` (default) ranks `higher_overlap`
+first and reports `method="score_sum"`, matching `36_`'s own run. `rrf` (`k=60`) flips the order --
+`has_phrase` first -- and reports `method="rrf"`; `lexical_hits=1` in both runs, confirming the
+leg ran identically and only the fusion strategy's use of it differed. `k=1` reaches the fusion (the
+fused scores visibly change) without flipping this fixture's ranking again.
+
+**Requires:** Nothing; no database, no API key, no network.
+
+**Renumbered from `41_` to `42_`: `feat/SM-H4` took `41_ppr_multihop.py` while this branch was
+still catching up. Per this file's own convention, whoever merges second renumbers.**

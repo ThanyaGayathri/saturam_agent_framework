@@ -193,8 +193,9 @@ This section demonstrates how EGPT agents persist and use user memories across r
 
 - `36_hybrid_retrieval_orchestration.py`: Feed-forward retriever orchestration (SM-H1 #131) --
   `read` fans out through `egpt.memory.retrieval.orchestrate`/`aorchestrate` (vector+BM25, and the
-  graph leg), with the lexical leg present in `MemorySlice.fusion["lexical_hits"]` but not yet
-  affecting ranking (SM-H2 #132 owns fusing it in). No database, no model, no network.
+  graph leg), with the lexical leg present in `MemorySlice.fusion["lexical_hits"]` but not
+  affecting the default `score_sum` ranking. `41_rrf_fusion.py` shows the opt-in strategy (SM-H2
+  #132) that does fold it in. No database, no model, no network.
 
 - `37_procedural_memory.py`: Procedural memory (SM-S2) -- `ProceduralReflectionPipeline` is
   importance-gated like `ReflectionPipeline`, but stateless across calls: PROCEDURAL takes no part
@@ -261,6 +262,16 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `feat/SM-L9` (#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125)
   took `36_`, then `feat/SM-S2` (#133) took `37_`, then `feat/SM-S4`/`feat/SM-C6`/`feat/SM-S3`
   took `38_`/`39_`/`40_` together, all while this branch was still catching up.**
+
+- `42_rrf_fusion.py`: Reciprocal Rank Fusion (SM-H2 #132) -- the opt-in alternative to
+  `36_`'s `score_sum` default: `config.fusion={"method": "rrf", "k": ...}` fuses all three legs,
+  including lexical, by rank rather than score, so it never needs the legs to share a scale. It
+  does not become the default -- ADR 0003 A.6 holds the 3-leg weighted-vs-RRF choice open, gated
+  on SM-G9's (#107) real graph retriever and SM-H2/H3's own measurement. Same "cat dog" scenario
+  `36_` uses, shown ranking differently under `score_sum` vs `rrf`, plus `k`'s effect on the fused
+  score. No database, no model, no network.
+  **Renumbered from `41_` to `42_`: `feat/SM-H4` took `41_ppr_multihop.py` while this branch was
+  still catching up. Per this file's own convention, whoever merges second renumbers.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

@@ -1306,6 +1306,70 @@ async def test_the_async_read_agrees_with_the_sync_one_on_the_hybrid_leg():
     assert [r.id for r in slice_.records] == ["e2", "e1"]
 
 
+# ---------------------------------------------------------------------------
+# RRF fusion (SM-H2 #132) -- opt-in via config.fusion, off by default
+# ---------------------------------------------------------------------------
+
+
+def test_rrf_is_opt_in_the_default_stays_score_sum():
+    p, _, _ = provider()  # no fusion= kwarg
+    p.write(ACME, [event("alpha beta")])
+
+    assert p.read(ACME, MemoryQuery(text="alpha")).fusion["method"] == "score_sum"
+
+
+def test_selecting_rrf_reports_it_in_the_fusion_diagnostics():
+    p, _, _ = provider(fusion={"method": "rrf"})
+    p.write(ACME, [event("alpha beta")])
+
+    assert p.read(ACME, MemoryQuery(text="alpha")).fusion["method"] == "rrf"
+
+
+def test_rrf_folds_the_lexical_leg_in_unlike_the_score_sum_default():
+    """The flip side of `test_the_lexical_leg_does_not_affect_ranking_ahead_of_sm_h2`: that test
+    pins the *default*'s refusal to rank on the lexical leg; this pins that `rrf` -- the strategy
+    SM-H2 adds specifically to make that safe -- does fold it in. `e1` ("cat dog zzz yyy xxx") is
+    the only record containing the literal query substring "cat dog", so it is lexical rank 1;
+    under RRF that rank-1 credit, stacked on `e1`'s vector/graph ranks, overtakes `e2` ("dog extra
+    cat"), which the score-sum default (see the test above it in this file) ranks first instead.
+    """
+    vector, graph = FakeHybridVector(), FakeGraph()
+    config = MemoryProviderConfig(provider="co_located", fusion={"method": "rrf"})
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config)
+    p.write(ACME, [event("dog extra cat", id="e2"), event("cat dog zzz yyy xxx", id="e1")])
+
+    slice_ = p.read(ACME, MemoryQuery(text="cat dog"))
+
+    assert slice_.fusion["lexical_hits"] == 1
+    assert [r.id for r in slice_.records] == ["e1", "e2"]
+
+
+async def test_rrf_wiring_agrees_between_read_and_aread():
+    vector, graph = FakeHybridVector(), FakeGraph()
+    config = MemoryProviderConfig(provider="co_located", fusion={"method": "rrf"})
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config)
+    p.write(ACME, [event("dog extra cat", id="e2"), event("cat dog zzz yyy xxx", id="e1")])
+
+    sync_slice = p.read(ACME, MemoryQuery(text="cat dog"))
+    async_slice = await p.aread(ACME, MemoryQuery(text="cat dog"))
+
+    assert async_slice.fusion["method"] == sync_slice.fusion["method"] == "rrf"
+    assert [r.id for r in async_slice.records] == [r.id for r in sync_slice.records] == ["e1", "e2"]
+
+
+def test_a_custom_k_reaches_the_fusion_and_changes_the_score_but_not_the_default_ordering():
+    p_default, _, _ = provider(fusion={"method": "rrf"})
+    p_default.write(ACME, [event("alpha beta")])
+    default_score = p_default.read(ACME, MemoryQuery(text="alpha")).records[0].score
+
+    p_small_k, _, _ = provider(fusion={"method": "rrf", "k": 1})
+    p_small_k.write(ACME, [event("alpha beta")])
+    small_k_score = p_small_k.read(ACME, MemoryQuery(text="alpha")).records[0].score
+
+    assert small_k_score != pytest.approx(default_score)
+    assert small_k_score > default_score  # a smaller k weighs every rank more heavily
+
+
 def test_reading_the_working_tier_is_empty_while_writing_it_is_refused():
     """One rule across adapters: reads report absence, writes refuse it.
 
