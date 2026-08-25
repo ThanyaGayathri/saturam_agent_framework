@@ -1131,7 +1131,64 @@ still catching up. Per this file's own convention, whoever merges second renumbe
 
 ---
 
-### 43_token_bounded_memory_slice.py
+### 43_mode_a_end_to_end.py
+
+**Status:** PASS
+
+**Description:** Mode A -- co-located memory (SM-X1 #137) -- pgvector and Neo4j wired into one
+`CoLocatedMemoryProvider` by config alone (`mode=ProviderMode.LOCAL`), then driven through the full
+episodic -> semantic pass: write two identical episodes, `consolidate` (deterministic dedup, no
+extraction pipeline wired), read the resulting fact back fused across both substrates.
+
+**Result:** Run against real Postgres+pgvector (`./cookbook/scripts/run_pgvector.sh`) and real
+Neo4j (`./cookbook/scripts/run_neo4j.sh`), with the real Mode A default embedder
+(`bge-base-en-v1.5`, downloaded on first run, same as `13_`): `substrates()` reports both wired;
+2 episodic rows written; `consolidate` reports `episodic_scanned=2`, `duplicates_merged=1`,
+`semantic_written=1`; the fused read returns exactly the one distilled fact, present in both the
+vector and graph legs (`fusion["vector_hits"] == fusion["graph_hits"] == 1`). Re-run twice with no
+code change: identical output both times (stable ids upsert the same rows rather than
+accumulating a fresh set).
+
+**Requires:** `./cookbook/scripts/run_pgvector.sh`, `./cookbook/scripts/run_neo4j.sh`; no API key.
+Run with `.venvs/demo`.
+
+**Renumbered from `42_` to `43_`: `feat/SM-H2` took `42_rrf_fusion.py` while this branch was still
+catching up. Per this file's own convention, whoever merges second renumbers.**
+
+---
+
+### 44_time_aware_ranking.py
+
+**Status:** PASS
+
+**Description:** Time-aware blended ranking (SM-H5 #135): `rank()` over a plain in-memory
+`MemoryRecord` list -- an explicit time-window pre-filter, then SM-E7's composite score (`26_`)
+blended into every episodic record's fused score. Five sections: a three-episode fixture ranked by
+composite score, the temporal filter run once with no window and once with a window that drops an
+out-of-range episode, a nonzero recency weight shown to change nothing (the composite's recency
+*signal* is pinned to `0.0`), and the refusal an episodic record with no `importance` in metadata
+gets.
+
+**Result:** Ran end to end, no database, no model, no network. Fixture ranked `shipped_v2` (1.75)
+> `status_ping` (0.80) > `small_talk` (0.25), matching the issue's own Testing Note ("a recent +
+important + relevant episode ranks correctly"). The unscoped query kept both dated episodes; the
+windowed query kept only `today`. `recency=0.0` and `recency=5.0` both scored `1.00` on the same
+record -- confirms the recency signal, not just the weight, is what is pinned. The malformed
+record raised `MemoryOperationError` naming `field_name="importance_metadata"` -- distinct from
+`composite_episodic_score`'s own `field_name="importance"` for a present-but-out-of-range value
+(PR #146 review round 1), and from `field_name="importance_metadata_type"` for a present-but-
+non-numeric value, and `field_name="score"` for a non-finite fused score (PR #146 review round
+2 -- `_clamp_unit` now refuses `NaN`/`+-inf` rather than silently mapping `NaN`/`+inf` to `1.0`,
+the maximum relevance, under plain `min`/`max`).
+
+**Requires:** Nothing; no database, no API key, no network.
+
+**Renumbered from `43_` to `44_`: `feat/SM-X1` took `43_mode_a_end_to_end.py` while this branch
+was still catching up. Per this file's own convention, whoever merges second renumbers.**
+
+---
+
+### 45_token_bounded_memory_slice.py
 
 **Status:** PASS
 
@@ -1150,7 +1207,7 @@ that the working half is never truncated even when the whole budget is spent on 
 **Round-4 review fix (PR #147):** the file originally imported its cross-cookbook dependency as
 `import_module("cookbook.11_memory.39_working_memory")`, which needs the repo root on `sys.path`
 -- present when a caller already has `cookbook` importable, but *not* provided by running the
-script directly (`.venvs/demo/bin/python cookbook/11_memory/43_....py`, the documented
+script directly (`.venvs/demo/bin/python cookbook/11_memory/45_....py`, the documented
 invocation), which only prepends the script's own directory. Reproduced live as
 `ModuleNotFoundError: No module named 'cookbook'`. Fixed to match `gemini_3/21_agent_os.py`'s own
 precedent: `sys.path.insert(0, str(Path(__file__).parent))` + bare-module-name
@@ -1159,7 +1216,7 @@ shared the additive-sum bug the round-3 fix closed in `bound_by_tokens` itself (
 above) -- it was silently excluding the intended top-ranked record from the "bounded" demo output.
 Re-verified via the exact documented invocation from a clean `PYTHONPATH` matching a real
 single-checkout deployment (`PYTHONPATH=libs/agno .venvs/demo/bin/python
-cookbook/11_memory/43_....py`, exit 0, correct output). Note: run bare (no `PYTHONPATH`) from
+cookbook/11_memory/45_....py`, exit 0, correct output). Note: run bare (no `PYTHONPATH`) from
 *this development worktree specifically*, the script still raises `TypeError:
 MemoryProvider.assemble_context() got an unexpected keyword argument 'max_tokens'` -- not a code
 defect, but this worktree's editable `.venvs/demo` install pointing at the main checkout's
@@ -1169,3 +1226,7 @@ editable install points at the main checkout" caveat for worktrees). A single-ch
 
 **Requires:** Nothing; no database, no API key, no network. Runs correctly whether or not
 `tiktoken` is installed (`count_text_tokens` falls back to a character-based estimate).
+
+**Renumbered from `43_` to `45_`: `feat/SM-X1` took `43_mode_a_end_to_end.py` and `feat/SM-H5`
+took `44_time_aware_ranking.py` while this branch was still catching up. Per this file's own
+convention, whoever merges second renumbers.**

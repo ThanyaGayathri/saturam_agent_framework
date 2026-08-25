@@ -38,7 +38,7 @@ from egpt.utils.tokens import count_text_tokens
 # Numbered filenames need importlib since Python can't import modules starting with digits
 # (same pattern as `gemini_3/21_agent_os.py`). `sys.path.insert` -- not a dotted
 # `cookbook.11_memory...` import -- because running this file directly (the documented
-# invocation, `.venvs/demo/bin/python cookbook/11_memory/43_....py`) puts only the script's own
+# invocation, `.venvs/demo/bin/python cookbook/11_memory/45_....py`) puts only the script's own
 # directory on `sys.path`, not the repo root `cookbook` is a package under; the dotted form
 # raised `ModuleNotFoundError: No module named 'cookbook'` under that exact invocation.
 sys.path.insert(0, str(Path(__file__).parent))
