@@ -24,15 +24,20 @@ file always builds the one config, the way `09_memory_provider_seam.py` does. Mo
 real-backend walkthrough is SM-X2's (#138) -- there is no external adapter to show yet.
 """
 
+import os
+
 from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, MemoryQuery, Scope
 from egpt.providers.model_provider import ProviderMode
 
-# A scope namespaced to this file, not shared with `09_`/`10_`/`13_`'s `acme`/`globex`: this is the
-# only cookbook driving pgvector and Neo4j together, and a shared tenant name would pick up rows
-# `test_mode_a.py`'s integration suite left on the same Neo4j instance -- Community has no
-# database-per-tenant, so cross-file isolation is by scope name, not by engine.
+# A scope namespaced to this file, not shared with `09_`/`10_`/`13_`'s `acme`/`globex`, so this
+# cookbook's own rows are never mistaken for another file's during a manual read of the database.
+# It is **not** isolation from `test_mode_a.py`'s integration suite: that suite's fixtures run an
+# unscoped `MATCH (n) DETACH DELETE n` on Neo4j Community (no database-per-tenant), which wipes
+# every tenant's graph data regardless of name. Running that suite after this cookbook will wipe
+# this demo's Neo4j rows -- acceptable because every write here is idempotent (stable ids upsert
+# rather than accumulate), so re-running this file recreates them.
 SCOPE = Scope(tenant_id="mode-a-demo", user_id="ada")
 
 config = MemoryProviderConfig(
@@ -40,16 +45,18 @@ config = MemoryProviderConfig(
     mode=ProviderMode.LOCAL,  # Mode A: co-located, in-VPC, air-gapped embedder.
     vector={
         "backend": "pgvector",
-        "db_url": "postgresql+psycopg://ai:ai@localhost:5532/ai",
+        "db_url": os.getenv(
+            "EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"
+        ),
         "table": "mode_a_demo_vectors",
         # No embedder is named: `mode` selects the Mode A default (bge-base-en-v1.5 @768), the
         # same reasoning `13_` states in full.
     },
     graph={
         "backend": "neo4j",
-        "uri": "bolt://localhost:7691",
-        "username": "neo4j",
-        "password": "smg1testpassword",
+        "uri": os.getenv("NEO4J_URI", "bolt://localhost:7691"),
+        "username": os.getenv("NEO4J_USERNAME", "neo4j"),
+        "password": os.getenv("NEO4J_PASSWORD", "smg1testpassword"),
     },
 )
 

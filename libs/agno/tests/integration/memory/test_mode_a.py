@@ -27,6 +27,7 @@ actually agreeing on what got consolidated.
 
 import asyncio
 import os
+from hashlib import blake2b
 
 import pytest
 
@@ -46,7 +47,7 @@ from egpt.memory.adapters.co_located import CoLocatedMemoryProvider  # noqa: E40
 from egpt.memory.tiers import MemoryTier  # noqa: E402
 from egpt.memory.types import MemoryEvent, MemoryQuery, Scope, Substrate  # noqa: E402
 from egpt.providers.model_provider import ProviderMode  # noqa: E402
-from tests.unit.memory.test_provider_swap import consumer_workload  # noqa: E402
+from tests.unit.memory.test_provider_swap import aconsumer_workload, consumer_workload  # noqa: E402
 
 PG_TABLE = "test_mode_a_vectors"
 ACME = Scope(tenant_id="acme", user_id="ada")
@@ -67,9 +68,13 @@ class OfflineTokenEmbedder:
     offline_capable = True
 
     def get_embedding(self, text_):
+        # `blake2b`, not the builtin `hash()`: the latter is salted per process
+        # (`PYTHONHASHSEED`), so a claim of "deterministic" would be false across runs even
+        # though every comparison here happens within one interpreter process. Matches
+        # `test_vector_substrate.py`'s `TokenEmbedder`.
         vector = [0.0] * self.dimensions
         for token in text_.lower().split():
-            vector[hash(token) % self.dimensions] += 1.0
+            vector[int.from_bytes(blake2b(token.encode(), digest_size=4).digest(), "big") % self.dimensions] += 1.0
         return vector
 
     async def async_get_embedding(self, text_):
@@ -112,8 +117,9 @@ def _mode_a_config(**graph_overrides) -> MemoryProviderConfig:
 
 @pytest.fixture
 def provider():
-    """A Mode A provider over freshly-cleared real backends. Teardown drops the vector table and
-    clears the graph, so one test's rows cannot leak into the next."""
+    """A Mode A provider over real backends, cleared at setup (before ``yield``, not at teardown)
+    so one test's leftover rows cannot leak into the next -- the same drop-before-yield split
+    ``test_vector_substrate.py``'s ``_fresh()`` uses."""
     built = build_memory_provider(_mode_a_config())
     assert isinstance(built, CoLocatedMemoryProvider)  # the factory this key resolves to, sanity-checked once
     with built.vector._engine.begin() as connection:
@@ -159,6 +165,18 @@ def test_config_only_swap_reaches_a_real_co_located_provider(provider):
     assert result["consolidated"] == ACME.tenant_id
 
 
+async def test_the_async_config_only_swap_reaches_a_real_co_located_provider(async_provider):
+    """The async half of the same structural proof: ``aconsumer_workload``, unmodified, driving a
+    provider built from real pgvector + real Neo4j. ``test_write_consolidate_read_...`` above
+    already covers async write/consolidate/read directly, but leaving this half out let the sync
+    test's own docstring claim ("the exact structural proof... unmodified") stand only half true --
+    ``test_provider_swap.py`` runs both halves, so this file should too."""
+    result = await aconsumer_workload(async_provider, GLOBEX)
+
+    assert result["accepted"] == 1
+    assert "the customer" in result["context"]
+
+
 def test_write_consolidate_read_round_trips_through_both_engines(provider):
     """The episodic -> semantic path SM-C1 could only fake: write raw episodes, consolidate them
     into facts, and read the result back -- with both a real HNSW search and a real Cypher query
@@ -193,7 +211,7 @@ def test_write_consolidate_read_round_trips_through_both_engines(provider):
         count = session.run(
             "MATCH (f:Fact {tenant_id: $tenant_id}) RETURN count(f) AS n", tenant_id=ACME.tenant_id
         ).single()["n"]
-    assert count >= 1, "the fact never reached neo4j"
+    assert count == 1, f"expected exactly one distilled fact on the graph leg, got {count}"
 
 
 async def test_async_write_consolidate_read_round_trips_through_both_engines(async_provider):
@@ -228,7 +246,7 @@ async def test_async_write_consolidate_read_round_trips_through_both_engines(asy
             "MATCH (f:Fact {tenant_id: $tenant_id}) RETURN count(f) AS n", tenant_id=GLOBEX.tenant_id
         )
         count = (await result.single())["n"]
-    assert count >= 1, "the fact never reached neo4j"
+    assert count == 1, f"expected exactly one distilled fact on the graph leg, got {count}"
 
 
 def test_tenant_isolation_holds_on_real_engines(provider):
