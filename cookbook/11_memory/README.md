@@ -272,8 +272,16 @@ This section demonstrates how EGPT agents persist and use user memories across r
   score. No database, no model, no network.
   **Renumbered from `41_` to `42_`: `feat/SM-H4` took `41_ppr_multihop.py` while this branch was
   still catching up. Per this file's own convention, whoever merges second renumbers.**
+- `43_mode_a_end_to_end.py`: Mode A -- co-located memory, end to end (SM-X1) -- pgvector and Neo4j
+  wired into one provider by config alone (`mode=ProviderMode.LOCAL`), driven through a full
+  write -> consolidate -> read pass rather than one substrate at a time the way `10_`/`13_` do.
+  Consolidation is the deterministic default; real extraction is `17_`/`19_`'s. Needs
+  `./cookbook/scripts/run_pgvector.sh` and `./cookbook/scripts/run_neo4j.sh`; no API key --
+  `mode` selects the offline Mode A embedder, downloaded on first run same as `13_`.
+  **Renumbered from `42_` to `43_`: `feat/SM-H2` took `42_rrf_fusion.py` while this branch was
+  still catching up. Per this file's own convention, whoever merges second renumbers.**
 
-- `43_time_aware_ranking.py`: Time-aware blended ranking (SM-H5 #135) -- the pure function that
+- `44_time_aware_ranking.py`: Time-aware blended ranking (SM-H5 #135) -- the pure function that
   sits after fusion (`14_`/`42_`) and rerank (SM-H3 #133, not yet built) and before `MemorySlice`
   assembly (SM-H6 #136): an explicit time-window pre-filter (only for a query that sets one --
   ADR 0003 B.1's "optional pre-filter", not an implicit narrowing), then `26_`'s composite score
@@ -284,9 +292,8 @@ This section demonstrates how EGPT agents persist and use user memories across r
   additive recency rescore outright), and the refusal an episodic record with no `importance` in
   metadata gets. Contiguity blending (SM-E8 #115) is out of this ticket's dependency list and not
   shown. No database, no model, no network.
-  **Numbered `43_`, not `42_`: `42_rrf_fusion.py` (SM-H2) was already on `main` when this branch
-  was created off it. Per this file's own convention, checked against `origin/main` at merge
-  time, not at branch time.**
+  **Renumbered from `43_` to `44_`: `feat/SM-X1` took `43_mode_a_end_to_end.py` while this branch
+  was still catching up. Per this file's own convention, whoever merges second renumbers.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
