@@ -521,8 +521,15 @@ class GraphSubstrate(Protocol):
 
         Current belief is a transaction-time filter and is always applied, to every row a walk
         passes *through* as well as the ones it returns -- a superseded edge cannot extend a path.
-        Valid-time filtering (``query.as_of``) is not applied here -- it belongs to the merged read
-        path (finding F2), for the same reason as :meth:`VectorSubstrate.search`.
+        Valid-time filtering (``query.as_of``) is not applied here for the BFS leg -- it belongs to
+        the merged read path (finding F2), for the same reason as :meth:`VectorSubstrate.search`.
+        **The one sanctioned exception is the optional PPR leg below**, which does apply
+        ``query.as_of`` inside its own Cypher when the backend supports it (round-3 review, Major --
+        an earlier version of this docstring stated the rule as unconditional, with the exception
+        disclosed only in a unit test's docstring, not here): a GDS projection is a static snapshot
+        that must be built from *some* topology, so PPR cannot defer this the way a row-level filter
+        can. See :class:`~egpt.integrations.memory.graph.neo4j.cypher.ppr_rank_statement`'s
+        docstring for why that constraint forces the asymmetry.
 
         Tier resolution matches ``MemoryQuery.resolved_tiers`` exactly (finding F3), and ``score``
         obeys the same similarity contract as :meth:`VectorSubstrate.search` -- a similarity in
@@ -539,6 +546,22 @@ class GraphSubstrate(Protocol):
         An untripled fact -- no subject/predicate/object -- has no entity to anchor the multi-hop
         leg from, so it is reachable only through the direct-content leg here, and independently
         through :meth:`VectorSubstrate.search` over the semantic-fact tier.
+
+        **A backend may add a sixth, optional leg: Personalized PageRank (SM-H4 #134), off by
+        default, behind a per-tenant flag.** Where BFS ranks by hop distance from an anchor, PPR
+        ranks by stationary probability over a graph projection -- a *ranked* single-step
+        multi-hop, seeded from the same LLM-free anchor selection the BFS leg uses. Two distinct
+        temporal predicates compose in that projection, not one: **current belief**
+        (``expired_at IS NULL``, transaction-time, applied unconditionally, the same as every other
+        leg on this port) and, separately, **the leg's point-in-time predicate** -- ``query.as_of``
+        when the caller asked for one, or the overlap form every other leg already uses
+        (``query.window()``) otherwise. Naming both "current-belief" would conflate a transaction-
+        time filter every leg shares with a valid-time one only this leg applies inside Cypher
+        (round-3 review, Major; see the paragraph above). It is not part of this Protocol's required
+        surface (no other backend implements it), and a caller cannot ask for it per call -- like
+        the hop bound, it is a construction-time capability the backend either has enabled or does
+        not. See :class:`~egpt.integrations.memory.graph.neo4j.neo4j.Neo4jGraphSubstrate` for the
+        shipped implementation.
         """
         ...
 
