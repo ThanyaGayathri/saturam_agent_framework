@@ -281,6 +281,20 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `42_` to `43_`: `feat/SM-H2` took `42_rrf_fusion.py` while this branch was
   still catching up. Per this file's own convention, whoever merges second renumbers.**
 
+- `44_time_aware_ranking.py`: Time-aware blended ranking (SM-H5 #135) -- the pure function that
+  sits after fusion (`14_`/`42_`) and rerank (SM-H3 #133, not yet built) and before `MemorySlice`
+  assembly (SM-H6 #136): an explicit time-window pre-filter (only for a query that sets one --
+  ADR 0003 B.1's "optional pre-filter", not an implicit narrowing), then `26_`'s composite score
+  blended into every episodic record's fused score. Shows a recent+important+relevant episode
+  outranking a low-signal one (the issue's own Testing Note), the window filter dropping an
+  out-of-range episode before ranking runs, a nonzero recency weight changing nothing (the
+  composite's recency *signal* is pinned to `0.0` regardless -- ADR 0003 B.1 rules out a per-query
+  additive recency rescore outright), and the refusal an episodic record with no `importance` in
+  metadata gets. Contiguity blending (SM-E8 #115) is out of this ticket's dependency list and not
+  shown. No database, no model, no network.
+  **Renumbered from `43_` to `44_`: `feat/SM-X1` took `43_mode_a_end_to_end.py` while this branch
+  was still catching up. Per this file's own convention, whoever merges second renumbers.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
