@@ -27,9 +27,18 @@ from CI's default run (``-m "not integration and not system"``), so neither sati
 "runs in CI" criterion. This file does, at the layer that composes both substrates through one
 seam, which the per-substrate suites cannot exercise.
 
-**What this deliberately does not build:** a live-backend rerun of the same sweep is SM-X2's
-(#138), which owns proving config-only swap (and by extension this suite) against a real Mode B
-backend; no such backend exists yet.
+**What this deliberately does not build:**
+
+* A live-backend rerun of the same sweep is SM-X2's (#138), which owns proving config-only swap
+  (and by extension this suite) against a real Mode B backend; no such backend exists yet.
+* The ``HybridSearchSubstrate`` leg (``search_candidates``/``asearch_candidates``, backed by
+  ``FakeHybridVector`` in ``_fakes.py`` and read by ``pgvector.py`` and the retrieval
+  orchestrator) is outside this file's config matrix entirely -- wiring a ``hybrid`` wiring in
+  would mean adding an entry to ``ALL_CONFIGS``/``WRITABLE_CONFIGS`` in ``test_provider_swap.py``,
+  which every other file in this directory shares, rather than extending an existing attack
+  helper here. No ticket currently owns adversarial-tenant coverage for that leg specifically --
+  SM-V3 (#97) built it and SM-H1 (#131) built the orchestrator that reads it, but neither covers
+  this property -- so it needs a new ticket rather than folding silently into this one's diff.
 """
 
 from typing import Any, Awaitable, Callable, List
@@ -162,9 +171,23 @@ def tenant_a_state(provider: MemoryProvider) -> str:
         parts.append(repr(mine))
     graph = getattr(provider, "graph", None)
     if graph is not None:
-        mine_rows = sorted(record.id for rows in graph.rows.values() for record in rows if record.scope == ACME)
+        # `(record.id, record.content)`, not just the id -- mirroring the vector leg above. An id-
+        # only snapshot cannot see a mutant that corrupts a row's content in place while preserving
+        # its id, scope, and the row count.
+        mine_rows = sorted(
+            (record.id, record.content) for rows in graph.rows.values() for record in rows if record.scope == ACME
+        )
         parts.append(repr(mine_rows))
         parts.append(repr(sorted((k, v) for k, v in graph.entities.items() if k[0] == ACME.key())))
+        # `graph.facts` is a second, separately-tracked list `upsert_facts` populates (see
+        # `test_tenant_scoping.py::durable_state`, which captures it for the identical reason: a
+        # count-preserving swap of one fact for another compares equal on `graph.rows` alone).
+        # Filtered to `record.scope == ACME`, unlike that file's version -- there every write lands
+        # under the same scope it asserts on, but here `attempt_every_graph_op_as`'s own
+        # `upsert_facts` hijack attempt legitimately appends a `GLOBEX`-scoped entry to this same
+        # list, and an unfiltered capture would make every run of the sweep compare unequal on its
+        # own attack traffic, not on anything done to tenant A.
+        parts.append(repr(sorted(fact.record.id for fact in graph.facts if fact.record.scope == ACME)))
     manager = getattr(provider, "manager", None)
     if manager is not None:
         # The seed adapter is pinned single-tenant at construction (SM-C3/SM-C4), so every row it
@@ -178,6 +201,29 @@ def tenant_a_state(provider: MemoryProvider) -> str:
     # the snapshot captured nothing real, not that nothing changed.
     assert SEMANTIC_CONTENT in state, f"tenant A's own seeded content is missing from its own snapshot: {state!r}"
     return state
+
+
+def _call_counts(provider: MemoryProvider) -> Any:
+    """``len(vector.calls)``/``len(graph.calls)`` at this instant, whichever substrates exist.
+
+    Not a count of calls the *attack* made -- ``seed_tenant_a`` has already added some -- but a
+    baseline to compare against after the sweep, so a subsequent no-growth reading distinguishes
+    "the attack reached the double and every attempt refused" from "the attack never reached the
+    double at all" (a renamed or typo'd method silently no-oping inside the blanket
+    ``except Exception: pass`` every attack helper uses).
+    """
+    vector = getattr(provider, "vector", None)
+    graph = getattr(provider, "graph", None)
+    return (len(vector.calls) if vector is not None else None, len(graph.calls) if graph is not None else None)
+
+
+def _assert_the_attack_reached_the_doubles(provider: MemoryProvider, before: Any) -> None:
+    vector = getattr(provider, "vector", None)
+    graph = getattr(provider, "graph", None)
+    if vector is not None:
+        assert len(vector.calls) > before[0], "no vector call was recorded -- the attack never reached the double"
+    if graph is not None:
+        assert len(graph.calls) > before[1], "no graph call was recorded -- the attack never reached the double"
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +480,24 @@ def test_tenant_b_gets_a_genuinely_empty_read_not_an_error_masking_a_leak(name):
         assert SECRET_ID != record.id
 
 
+@pytest.mark.parametrize("name", MULTI_TENANT_CONFIGS)
+def test_tenant_b_consolidating_does_not_report_tenant_as_content(name):
+    """``consolidate()`` is attempted inside the swallowed sweep helper but its return value is
+    never inspected there. B has written nothing of its own at this point, so a correct
+    ``ConsolidationReport`` for ``GLOBEX`` scans and writes nothing and its ``details`` carries no
+    trace of A's content -- lower priority than the read/write verbs above since
+    ``test_tenant_scoping.py`` already covers this verb's entry guard thoroughly, but worth
+    covering the report's own content for completeness."""
+    provider = build(name)
+    seed_tenant_a(provider)
+
+    report = provider.consolidate(GLOBEX)
+
+    assert report.episodic_scanned == 0
+    assert report.semantic_written == 0
+    assert SECRET_CONTENT not in str(report.details)
+
+
 @pytest.mark.parametrize("name", GRAPH_CONFIGS)
 def test_tenant_b_cannot_traverse_or_recall_tenant_as_graph(name):
     provider = graph_provider(name)
@@ -447,6 +511,46 @@ def test_tenant_b_cannot_traverse_or_recall_tenant_as_graph(name):
     assert hits == []
     assert recalled == []
     assert recalled_facts == []
+
+
+@pytest.mark.parametrize("name", GRAPH_CONFIGS)
+async def test_tenant_b_cannot_atraverse_or_arecall_tenant_as_graph(name):
+    """The async twin: reached only through the swallowed `attempt_every_graph_op_as_async` sweep
+    helper otherwise, which is not the same as a direct, unswallowed assertion on the async guard
+    -- the file's own docstring names a real prior sync/async divergence as the reason this
+    duplication matters."""
+    provider = graph_provider(name)
+    seed_tenant_a(provider)
+    graph = graph_of(provider)
+
+    hits = await graph.atraverse(GLOBEX, MemoryQuery(text=SECRET_CONTENT, limit=10))
+    recalled = await graph.arecall_episodes(GLOBEX, entities=[SECRET_ENTITY], limit=10)
+    recalled_facts = await graph.arecall_facts(GLOBEX, entities=[FACT_SUBJECT], limit=10)
+
+    assert hits == []
+    assert recalled == []
+    assert recalled_facts == []
+
+
+@pytest.mark.parametrize("name", GRAPH_CONFIGS)
+def test_tenant_b_cannot_read_tenant_as_bounds(name):
+    """`bounds_for_ids` is attempted inside the swallowed sweep helper but its return value is
+    never inspected there -- an empty dict and a leaked one are both "no exception", so that alone
+    cannot prove this verb is scoped. Asserted directly here instead."""
+    provider = graph_provider(name)
+    seed_tenant_a(provider)
+    graph = graph_of(provider)
+
+    assert graph.bounds_for_ids(GLOBEX, [SECRET_ID, SECRET_FACT_ID]) == {}
+
+
+@pytest.mark.parametrize("name", GRAPH_CONFIGS)
+async def test_tenant_b_cannot_aread_tenant_as_bounds(name):
+    provider = graph_provider(name)
+    seed_tenant_a(provider)
+    graph = graph_of(provider)
+
+    assert await graph.abounds_for_ids(GLOBEX, [SECRET_ID, SECRET_FACT_ID]) == {}
 
 
 def test_tenant_b_cannot_search_or_scan_tenant_as_vector_rows():
@@ -563,11 +667,13 @@ def test_the_full_adversarial_sweep_leaves_tenant_a_byte_for_byte_intact(name):
     provider = build(name)
     seed_tenant_a(provider)
     before = tenant_a_state(provider)
+    calls_before = _call_counts(provider)
 
     attempt_every_seam_op_as(provider, GLOBEX)
     attempt_every_vector_op_as(provider, GLOBEX)
     attempt_every_graph_op_as(provider, GLOBEX)
 
+    _assert_the_attack_reached_the_doubles(provider, calls_before)
     assert tenant_a_state(provider) == before
 
 
@@ -580,11 +686,36 @@ async def test_the_full_adversarial_sweep_leaves_tenant_a_byte_for_byte_intact_o
     provider = build(name)
     seed_tenant_a(provider)
     before = tenant_a_state(provider)
+    calls_before = _call_counts(provider)
 
     await attempt_every_seam_op_as_async(provider, GLOBEX)
     await attempt_every_vector_op_as_async(provider, GLOBEX)
     await attempt_every_graph_op_as_async(provider, GLOBEX)
 
+    _assert_the_attack_reached_the_doubles(provider, calls_before)
+    assert tenant_a_state(provider) == before
+
+
+def test_the_full_adversarial_sweep_leaves_tenant_a_byte_for_byte_intact_for_graph_only():
+    """``graph_only`` on its own, not folded into ``MULTI_TENANT_CONFIGS`` above: that tuple is
+    ``WRITABLE_CONFIGS`` minus ``seed``, and ``graph_only`` is excluded from ``WRITABLE_CONFIGS``
+    for a documented, unrelated reason (``consolidate`` needs a vector leg to enumerate episodes,
+    per ``test_provider_swap.py``) that has nothing to do with whether its graph leg can be
+    attacked -- the same distinction ``graph_provider``/``GRAPH_CONFIGS`` already draw for the
+    per-verb tests. Without this, the file's single strongest assertion never ran against a
+    pure-graph wiring at all."""
+    provider = graph_provider("graph_only")
+    seed_tenant_a(provider)
+    before = tenant_a_state(provider)
+    calls_before = _call_counts(provider)
+
+    # The seam-level consolidate attempt inside `attempt_every_seam_op_as` raises for `graph_only`
+    # (no vector leg to enumerate episodes from) and is swallowed like any other failed attempt --
+    # that is the expected, harmless shape here, not a gap this test needs to route around.
+    attempt_every_seam_op_as(provider, GLOBEX)
+    attempt_every_graph_op_as(provider, GLOBEX)
+
+    _assert_the_attack_reached_the_doubles(provider, calls_before)
     assert tenant_a_state(provider) == before
 
 
