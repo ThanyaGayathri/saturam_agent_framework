@@ -24,7 +24,19 @@ from egpt.memory.types import MemoryRecord, MemorySlice, render_context_lines
 from egpt.memory.working import WorkingMemory
 from egpt.utils.tokens import count_text_tokens
 
-__all__ = ["assemble_bounded_context", "bound_by_tokens", "require_token_budget"]
+__all__ = ["MAX_RECORDS_PER_CUT", "assemble_bounded_context", "bound_by_tokens", "require_token_budget"]
+
+#: A hard ceiling on how many records one `bound_by_tokens` cut will ever examine, independent of
+#: `max_tokens` or how many records `memory_slice` carries. The cut loop re-tokenizes the *entire*
+#: accumulated joined prefix on every iteration (O(n) tokenizer calls over strings of growing
+#: length, round-4 review PR #147) so that each step prices the real join rather than an additive
+#: approximation -- deliberate (see `bound_by_tokens`'s own docstring), but unbounded against
+#: `MemoryQuery.limit`'s own `MAX_LIMIT` (10_000, `types.py`) it is quadratic with no ceiling: a
+#: caller pairing a generous `limit` with many small records gets silently slow behaviour. No
+#: realistic prompt injects anywhere near this many individual memory records regardless of token
+#: budget, so this is a backstop against a pathological (huge limit, huge max_tokens, tiny
+#: records) combination, not a bound ordinary use should ever reach.
+MAX_RECORDS_PER_CUT = 500
 
 
 def require_token_budget(max_tokens: int) -> None:
@@ -71,21 +83,36 @@ def bound_by_tokens(
     ``MemorySlice.as_context``'s own join exactly, with no mandatory content ahead of the ranked
     records -- and a ``preamble`` that alone exceeds ``max_tokens`` still returns ``records=[]``
     rather than raising, the same "real, distinguishable empty answer" ``max_tokens=0`` already
-    documents below.
+    documents below. **Spliced in verbatim, not through** :func:`~egpt.memory.types.render_context_lines`
+    -- pass only already-rendered/escaped text (``working.as_context()`` is; unrendered,
+    caller-supplied text is not) or the line-forgery protection every other line here gets is lost
+    for this one.
+
+    At most :data:`MAX_RECORDS_PER_CUT` records are ever examined, regardless of how many
+    ``memory_slice`` carries or how large ``max_tokens`` is -- see that constant's own comment for
+    why (round-4 review, PR #147: the O(n) tokenizer calls per cut are otherwise unbounded against
+    ``MemoryQuery.limit``'s 10,000 ceiling).
 
     ``fusion`` on the returned slice carries the same dict as ``memory_slice.fusion`` plus
     ``token_budget``/``tokens_used``/``dropped_by_tokens``, the same "extra keys are free" floor
     :func:`~egpt.memory.types.fusion_diagnostics` documents -- so a caller reading fusion
     diagnostics can tell a token cut happened without a second return value. ``tokens_used``
-    includes ``preamble``'s own cost when one is given, since it is now part of what was
-    actually spent to produce the final render.
+    includes ``preamble``'s own cost when one is given, since it is now part of what was actually
+    spent to produce the final render -- and can therefore **exceed** ``token_budget`` when
+    ``preamble`` alone already does (the same case ``max_tokens=0``-style handling above admits);
+    do not assume ``tokens_used <= token_budget`` as an invariant. ``dropped_by_tokens`` counts
+    every record that did not make it in, but when ``preamble`` alone overflows, *zero* records
+    were individually evaluated (the loop's very first candidate already exceeds ``max_tokens``) --
+    the count is still accurate, it is just not a claim that each one was checked and rejected on
+    its own merits, the same caveat that already applies to every record after the first overflow
+    in the ordinary (no-preamble-overflow) case.
     """
     require_token_budget(max_tokens)
 
     kept: List[MemoryRecord] = []
     lines: List[str] = [preamble] if preamble else []
     used = count_text_tokens(preamble, model_id) if preamble else 0
-    for record in memory_slice.records:
+    for record in memory_slice.records[:MAX_RECORDS_PER_CUT]:
         candidate_lines = lines + render_context_lines(record.tier.value, record.content)
         cost = count_text_tokens("\n".join(candidate_lines), model_id)
         if cost > max_tokens:
@@ -101,11 +128,12 @@ def bound_by_tokens(
     fusion = dict(memory_slice.fusion)
     fusion["token_budget"] = max_tokens
     fusion["tokens_used"] = used
-    # Only the *first* overflowing record was actually rendered/tokenized and rejected; every
-    # record ranked after it is transitively excluded by the prefix cut without being evaluated
-    # individually. Still an accurate count of what did not make it in -- just not a claim that
-    # each one was independently checked and found too large on its own.
+    # Only the *first* overflowing record was actually rendered/tokenized and rejected (or, if
+    # `preamble` alone already overflows, none were) -- every record after it is transitively
+    # excluded by the prefix cut without being evaluated individually. Still an accurate count of
+    # what did not make it in -- just not a claim that each one was independently checked.
     fusion["dropped_by_tokens"] = len(memory_slice.records) - len(kept)
+    fusion["record_cap_hit"] = len(memory_slice.records) > MAX_RECORDS_PER_CUT
 
     return replace(memory_slice, records=kept, by_tier=by_tier, fusion=fusion)
 
@@ -122,10 +150,20 @@ def assemble_bounded_context(
     ``working.as_context()`` passed as ``preamble`` -- pricing the real working+persistent join
     exactly (round-3 review, PR #147) rather than subtracting the working half's standalone cost
     from ``max_tokens`` and pricing the persistent half against what's left, which leaves the one
-    join separator between them unpriced. A working buffer whose rendered cost already meets or
-    exceeds ``max_tokens`` leaves nothing for the persistent half -- a real, distinguishable
-    answer (:func:`bound_by_tokens` accepts a ``preamble`` that alone exceeds the budget) rather
-    than a silent overflow past the caller's budget.
+    join separator between them unpriced.
+
+    **``max_tokens`` bounds the persistent half; it is not an upper bound on the returned
+    string.** A working buffer whose rendered cost already meets or exceeds ``max_tokens`` leaves
+    nothing for the persistent half (``bound_by_tokens`` returns ``records=[]``, a real,
+    distinguishable answer -- see its own docstring), but the string this function then returns is
+    ``working.as_context()`` **unmodified**, whose own cost can exceed ``max_tokens`` with no
+    caller-visible signal in the returned ``str`` (round-4 review, PR #147: the diagnostics that
+    would reveal it live on the internal, now-discarded ``MemorySlice`` ``bound_by_tokens``
+    produced, not on this function's return value). The working half is a **floor this function
+    guarantees is never cut short**, not a ceiling ``max_tokens`` enforces on it -- a caller that
+    needs to know whether the working half alone already exceeded budget must call
+    :func:`bound_by_tokens` directly (or measure ``working.as_context()`` itself) rather than
+    relying on this function's return value to reveal it.
     """
     require_token_budget(max_tokens)
     working_text = working.as_context()

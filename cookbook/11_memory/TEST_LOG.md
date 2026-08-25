@@ -1147,5 +1147,25 @@ ranking `36_`/`42_` already produce -- a prefix cut, not a re-rank. Bounded-to-z
 working buffer (goal) alone and drops every persistent record, confirmed by an in-file assertion
 that the working half is never truncated even when the whole budget is spent on it.
 
+**Round-4 review fix (PR #147):** the file originally imported its cross-cookbook dependency as
+`import_module("cookbook.11_memory.39_working_memory")`, which needs the repo root on `sys.path`
+-- present when a caller already has `cookbook` importable, but *not* provided by running the
+script directly (`.venvs/demo/bin/python cookbook/11_memory/43_....py`, the documented
+invocation), which only prepends the script's own directory. Reproduced live as
+`ModuleNotFoundError: No module named 'cookbook'`. Fixed to match `gemini_3/21_agent_os.py`'s own
+precedent: `sys.path.insert(0, str(Path(__file__).parent))` + bare-module-name
+`import_module("39_working_memory")`. Also fixed the cookbook's own token-budget arithmetic, which
+shared the additive-sum bug the round-3 fix closed in `bound_by_tokens` itself (see round-3 entry
+above) -- it was silently excluding the intended top-ranked record from the "bounded" demo output.
+Re-verified via the exact documented invocation from a clean `PYTHONPATH` matching a real
+single-checkout deployment (`PYTHONPATH=libs/agno .venvs/demo/bin/python
+cookbook/11_memory/43_....py`, exit 0, correct output). Note: run bare (no `PYTHONPATH`) from
+*this development worktree specifically*, the script still raises `TypeError:
+MemoryProvider.assemble_context() got an unexpected keyword argument 'max_tokens'` -- not a code
+defect, but this worktree's editable `.venvs/demo` install pointing at the main checkout's
+`libs/agno`, which does not yet have this PR's `provider.py` changes (per `CLAUDE.md`'s own "the
+editable install points at the main checkout" caveat for worktrees). A single-checkout deployment
+(a fresh clone, CI, or this worktree once merged) does not have that mismatch.
+
 **Requires:** Nothing; no database, no API key, no network. Runs correctly whether or not
 `tiktoken` is installed (`count_text_tokens` falls back to a character-based estimate).

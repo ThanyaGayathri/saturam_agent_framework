@@ -13,7 +13,7 @@ from typing import List
 import pytest
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
-from egpt.memory.retrieval.slice import assemble_bounded_context, bound_by_tokens
+from egpt.memory.retrieval.slice import MAX_RECORDS_PER_CUT, assemble_bounded_context, bound_by_tokens
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, MemoryQuery, MemoryRecord, MemorySlice, Scope, render_context_lines
 from egpt.memory.working import WorkingMemory
@@ -162,6 +162,40 @@ def test_bound_by_tokens_does_not_mutate_the_input_slice():
     assert len(original.records) == 2
 
 
+def test_bound_by_tokens_a_single_record_over_budget_is_dropped_not_truncated():
+    """One record, alone, that does not fit -- the smallest instance of the general "does not
+    fit" case, distinct from the two-record `test_..._stops_at_the_first_overflow...` above."""
+    a = record("a", "content that costs more than one token")
+    budget = rendered_tokens(a) - 1
+
+    bounded = bound_by_tokens(slice_of([a]), max_tokens=budget)
+
+    assert bounded.records == []
+    assert bounded.fusion["dropped_by_tokens"] == 1
+
+
+def test_bound_by_tokens_caps_the_number_of_records_examined():
+    """Round-4 review, PR #147: the cut loop re-tokenizes the whole accumulated prefix on every
+    iteration, so an unbounded record count under a generous budget is a real, if pathological,
+    quadratic-cost path. `MAX_RECORDS_PER_CUT` backstops it -- verified here by giving the cut a
+    budget large enough to admit every one of `MAX_RECORDS_PER_CUT + 5` single-token records, and
+    confirming it still stops at the cap rather than examining the extra five."""
+    many = [record(f"r{i}", "x") for i in range(MAX_RECORDS_PER_CUT + 5)]
+    huge_budget = joined_cost(many[:MAX_RECORDS_PER_CUT]) + 1000  # generously more than enough
+
+    bounded = bound_by_tokens(slice_of(many), max_tokens=huge_budget)
+
+    assert len(bounded.records) == MAX_RECORDS_PER_CUT
+    assert [r.id for r in bounded.records] == [r.id for r in many[:MAX_RECORDS_PER_CUT]]
+    assert bounded.fusion["record_cap_hit"] is True
+
+
+def test_bound_by_tokens_record_cap_not_hit_when_under_the_cap():
+    bounded = bound_by_tokens(slice_of([record("a", "x")]), max_tokens=100)
+
+    assert bounded.fusion["record_cap_hit"] is False
+
+
 # ---------------------------------------------------------------------------
 # assemble_bounded_context
 # ---------------------------------------------------------------------------
@@ -229,6 +263,42 @@ def test_assemble_bounded_context_rejects_a_bad_budget():
         assemble_bounded_context(buffer(), slice_of([]), max_tokens=-1)
 
 
+def test_assemble_bounded_context_returns_the_working_half_over_budget_with_no_signal():
+    """Round-4 review, PR #147: documents the *true* contract, not the originally-claimed one.
+    ``max_tokens`` bounds the persistent half; it is not a ceiling on the returned string. When
+    the working half alone already costs more than ``max_tokens``, this function still returns
+    ``working.as_context()`` in full -- genuinely over budget, with no exception, no truncation,
+    and nothing in the plain `str` return value revealing the overage (the diagnostic that would,
+    `fusion["tokens_used"] > fusion["token_budget"]`, lives on the internal `MemorySlice`
+    `bound_by_tokens` produced and discards before this function returns)."""
+    wm = buffer()
+    wm.set_goals(["a goal long enough that the working half alone exceeds a tiny budget"])
+    working_only = wm.as_context()
+    tiny_budget = count_text_tokens(working_only, "gpt-4o") - 1  # working alone already over this
+    persistent = slice_of([record("a", "a persistent fact")])
+
+    rendered = assemble_bounded_context(wm, persistent, max_tokens=tiny_budget)
+
+    assert rendered == working_only  # returned whole, not truncated to fit
+    assert count_text_tokens(rendered, "gpt-4o") > tiny_budget  # genuinely over the caller's budget
+    assert "a persistent fact" not in rendered  # persistent half still correctly gets nothing
+
+
+def test_assemble_bounded_context_empty_working_memory_reaches_the_falsy_preamble_branch():
+    """An empty `WorkingMemory` renders `""` -- the one case where `bound_by_tokens`'s `preamble`
+    argument is falsy, taking the same no-preamble path a bare `bound_by_tokens(persistent, ...)`
+    call would. Distinct from every other test in this file, which sets at least a goal or note."""
+    wm = buffer()
+    assert wm.as_context() == ""
+    persistent = slice_of([record("a", "a persistent fact")])
+    budget = joined_cost(persistent.records)  # no preamble contribution
+
+    rendered = assemble_bounded_context(wm, persistent, max_tokens=budget)
+
+    assert rendered == persistent.as_context()
+    assert "a persistent fact" in rendered
+
+
 # ---------------------------------------------------------------------------
 # MemoryProvider.assemble_context(max_tokens=...) -- the public wiring
 # ---------------------------------------------------------------------------
@@ -240,6 +310,20 @@ def test_provider_assemble_context_max_tokens_none_keeps_the_pre_sm_h6_unbounded
     wm = buffer()
 
     rendered = provider.assemble_context(ACME, wm, MemoryQuery(text="a stored episode"))
+
+    assert "a stored episode" in rendered
+
+
+@pytest.mark.asyncio
+async def test_provider_aassemble_context_max_tokens_none_keeps_the_pre_sm_h6_unbounded_default():
+    """Async counterpart of `test_provider_assemble_context_max_tokens_none_...` above -- this
+    repo's "both sync and async" convention extends to test coverage, not just the implementation
+    (round-4 review, PR #147)."""
+    provider = CoLocatedMemoryProvider(vector=FakeVector())
+    await provider.awrite(ACME, [MemoryEvent(content="a stored episode", scope=ACME)])
+    wm = buffer()
+
+    rendered = await provider.aassemble_context(ACME, wm, MemoryQuery(text="a stored episode"))
 
     assert "a stored episode" in rendered
 

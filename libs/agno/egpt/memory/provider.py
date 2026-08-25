@@ -290,15 +290,27 @@ class MemoryProvider(ABC):
         whatever remains. ``model_id`` selects the tokenizer :func:`~egpt.utils.tokens.count_text_tokens`
         uses to price both halves; it is an estimator, not a claim about which model actually
         serves this scope.
+
+        **``max_tokens`` bounds the persistent half; it is not an upper bound on the returned
+        string** (round-4 review, PR #147). ``working``'s own rendered cost is never counted
+        against the caller as an overage the caller can see here -- a working buffer that has
+        grown large enough to exceed ``max_tokens`` on its own still returns in full, over budget,
+        with no signal in the returned ``str``. See
+        :func:`~egpt.memory.retrieval.slice.assemble_bounded_context`'s own docstring for the full
+        caveat and how to detect that case directly.
         """
         if max_tokens is not None:
             # Deferred import: breaks the provider <-> retrieval <-> working import cycle
             # (`retrieval/__init__.py`'s own docstring covers the same trade-off for
             # `orchestrate`). Imported only on this branch so the pre-existing `max_tokens=None`
             # default path pays nothing for a feature it isn't using (round-3 review, PR #147).
-            # Still validated before `self.read` so a bad budget is refused without spending a
-            # real, possibly network-bound, persistent-tier read on a call that was always going
-            # to raise.
+            #
+            # Validated here too, even though `bound_by_tokens` (reached via
+            # `assemble_bounded_context` below) validates it again -- intentional
+            # defense-in-depth, not the only check: this one runs *before* `self.read`, so a bad
+            # budget is refused without spending a real, possibly network-bound, persistent-tier
+            # read on a call that was always going to raise; the one inside `bound_by_tokens`
+            # covers every other caller reaching it directly.
             from egpt.memory.retrieval.slice import require_token_budget
 
             require_token_budget(max_tokens)

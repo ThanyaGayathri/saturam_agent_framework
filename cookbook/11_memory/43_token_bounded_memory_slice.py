@@ -21,8 +21,9 @@ required -- `count_text_tokens` falls back to a `len(text) // 4` estimate
 when it is absent, so the token counts below are approximate but stable.
 """
 
-# The same toy vector substrate `39_working_memory.py` uses.
+import sys
 from importlib import import_module
+from pathlib import Path
 
 from egpt.memory import (
     MemoryEvent,
@@ -34,8 +35,14 @@ from egpt.memory import (
 )
 from egpt.utils.tokens import count_text_tokens
 
-_working_memory_demo = import_module("cookbook.11_memory.39_working_memory")
-InMemoryVector = _working_memory_demo.InMemoryVector
+# Numbered filenames need importlib since Python can't import modules starting with digits
+# (same pattern as `gemini_3/21_agent_os.py`). `sys.path.insert` -- not a dotted
+# `cookbook.11_memory...` import -- because running this file directly (the documented
+# invocation, `.venvs/demo/bin/python cookbook/11_memory/43_....py`) puts only the script's own
+# directory on `sys.path`, not the repo root `cookbook` is a package under; the dotted form
+# raised `ModuleNotFoundError: No module named 'cookbook'` under that exact invocation.
+sys.path.insert(0, str(Path(__file__).parent))
+InMemoryVector = import_module("39_working_memory").InMemoryVector
 
 
 if __name__ == "__main__":
