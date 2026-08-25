@@ -642,6 +642,12 @@ class TestNoNetwork:
         agent = Agent(name="NoNetAgent", model=stub_model, instructions="Be helpful")
         agent.run("Hi")
 
+        # Verify spans were actually collected (guards against test passing
+        # with tracing removed entirely).
+        exporter = otel_setup[0]
+        spans = exporter.get_finished_spans()
+        assert spans, "No spans emitted — tracing may not be wired correctly"
+
         # If we got here without ConnectionError, no external network was hit.
         external = [
             addr for addr in connections

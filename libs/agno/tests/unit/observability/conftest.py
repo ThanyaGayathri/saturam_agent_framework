@@ -53,6 +53,9 @@ import egpt.run  # noqa: E402
 import egpt.run.agent  # noqa: E402
 import egpt.run.team  # noqa: E402
 import egpt.run.messages  # noqa: E402
+import egpt.workflow  # noqa: E402
+import egpt.workflow.workflow  # noqa: E402
+import egpt.workflow.step  # noqa: E402
 
 _AGNO_ALIASES: list[str] = []
 
