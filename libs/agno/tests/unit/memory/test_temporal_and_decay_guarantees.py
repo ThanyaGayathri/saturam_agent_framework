@@ -118,8 +118,15 @@ def test_point_in_time_reconstructs_every_link_of_a_three_step_belief_chain():
     # Two contradictions along the chain: Beta supersedes Acme, Gamma supersedes Beta.
     assert report.contradictions_resolved == 1  # this pass's own consolidate() call only sees the last one
 
+    assert _current_employer(p, as_of=100) == "Ada works_at Acme Corp"  # the chain's own opening bound
     assert _current_employer(p, as_of=150) == "Ada works_at Acme Corp"
+    # Exact handoff instants: `ValidWindow` is `[t_valid, t_invalid)`, so the retiring fact's
+    # closed upper bound and the successor's open lower bound share one instant -- the successor,
+    # not the ancestor, owns it. Novel to this multi-link chain: no existing test covers a
+    # two-record handoff, only a single fact disappearing (`test_point_in_time_is_two_sided`).
+    assert _current_employer(p, as_of=200) == "Ada works_at Beta Inc"
     assert _current_employer(p, as_of=250) == "Ada works_at Beta Inc"
+    assert _current_employer(p, as_of=300) == "Ada works_at Gamma LLC"
     assert _current_employer(p, as_of=350) == "Ada works_at Gamma LLC"
     assert _current_employer(p, as_of=None) == "Ada works_at Gamma LLC"  # current belief, no as_of
 
@@ -174,6 +181,14 @@ def test_every_superseded_state_in_the_chain_remains_queryable_and_untouched():
 # ---------------------------------------------------------------------------
 # Row vs edge boundary (ADR 0003 section B.6): episodic lifecycle and semantic-fact
 # invalidation are independent write authorities -- neither may blur into the other.
+#
+# Only this direction (graph -> episode) is tested below. The converse -- SM-E9 archival
+# (`forget()`) never touching a graph edge -- is enforced by construction, not by a test:
+# `forget()` takes no `GraphSubstrate` reference at all, and `forget.py`'s own module docstring
+# notes no scheduled pass wires episode archival into a path that could reach the graph yet. A
+# test asserting the converse today would pass for a reason unrelated to any regression the code
+# could actually introduce (Python simply cannot call a method on an object a function was never
+# given), so it is named here rather than written.
 # ---------------------------------------------------------------------------
 
 
@@ -255,7 +270,11 @@ def test_reinforcing_a_prune_eligible_episode_makes_it_ineligible_again():
 def test_reinforcement_does_not_rescue_an_episode_that_is_already_archived():
     """SM-E9's own rule (``forget.is_prune_eligible``): an archived episode is never eligible
     again, regardless of its decay score -- reinforcing it after the fact must not resurrect it
-    into eligibility either way, since archival and decay-scoring are different axes."""
+    into eligibility either way, since archival and decay-scoring are different axes.
+
+    Protects ``reinforce()`` preserving ``expired_at`` specifically -- it never calls ``forget()``,
+    so it does not exercise ``is_prune_eligible``'s own archived-episode guard (already covered by
+    ``test_episodic_forget.py::test_is_prune_eligible_never_reselects_an_already_archived_episode``)."""
     day = 24 * 3600
     archived = _stale_episode(last_accessed_at=0, importance=0.0, expired_at=int(day))
     now = int(25 * day)
