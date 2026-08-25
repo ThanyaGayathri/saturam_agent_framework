@@ -104,11 +104,10 @@ def setup_tracing(
         trace_api.set_tracer_provider(tracer_provider)
 
         # Instrument EGPT with OpenInference (the instrumentor package retains its
-        # upstream `agno` name -- it is a third-party distribution, not our brand).
+        # upstream name -- it is a third-party distribution, not our brand).
         # skip_dep_check=True is required because the instrumentor hardcodes
-        # `agno >= 2.5.0` in its dependency check, but this fork's distribution is
-        # named `egpt`.  Without this flag, instrument() silently returns without
-        # wrapping anything.
+        # a dependency check against the upstream package name (not "egpt").
+        # Without this flag, instrument() silently returns without wrapping anything.
         instrumentor = AgnoInstrumentor()
         instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
 

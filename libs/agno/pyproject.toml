@@ -65,7 +65,6 @@ dev = [
   "xlwt",
   "types-greenlet",
   "opentelemetry-sdk",
-  "openinference-instrumentation-agno",
   "sqlalchemy",
   "aiosqlite",
   "greenlet",

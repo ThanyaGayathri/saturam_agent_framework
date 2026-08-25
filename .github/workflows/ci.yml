@@ -207,7 +207,26 @@ jobs:
             --cov=egpt \
             --cov-report=json:coverage-egpt.json \
             --cov-report=term \
+            --ignore=./libs/agno/tests/unit/observability \
             ./libs/agno/tests/unit
+
+      - name: Run observability tests (isolated)
+        if: matrix.package == 'egpt' && matrix.python-version == '3.12'
+        working-directory: .
+        env:
+          EGPT_TELEMETRY: false
+        run: |
+          set -e
+          source .venv/bin/activate
+          # Install the instrumentor in isolation for observability tests only.
+          # These tests are run separately to avoid the instrumentor's global
+          # monkey-patching from affecting other tests in the suite.
+          uv pip install openinference-instrumentation-agno
+          python -m pytest \
+            --timeout=60 --timeout-method=thread \
+            -o log_cli=false \
+            -p no:cacheprovider \
+            ./libs/agno/tests/unit/observability
 
       - name: Publish unit coverage summary
         if: matrix.package == 'egpt' && matrix.python-version == '3.12'
