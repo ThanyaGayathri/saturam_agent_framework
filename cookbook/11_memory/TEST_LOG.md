@@ -1185,3 +1185,48 @@ the maximum relevance, under plain `min`/`max`).
 
 **Renumbered from `43_` to `44_`: `feat/SM-X1` took `43_mode_a_end_to_end.py` while this branch
 was still catching up. Per this file's own convention, whoever merges second renumbers.**
+
+---
+
+### 45_token_bounded_memory_slice.py
+
+**Status:** PASS
+
+**Description:** Token-bounded `MemorySlice` assembly + context injection (SM-H6 #136):
+`provider.assemble_context(..., max_tokens=...)` against the same toy vector substrate
+`39_working_memory.py` uses, read three times -- unbounded (the pre-SM-H6 default,
+`max_tokens=None`), bounded to fit the working buffer plus exactly one ranked record, and bounded
+to `0`.
+
+**Result:** Ran end to end, no database, no model. Unbounded appends all three ranked records
+after the working buffer. Bounded-to-one-record keeps only the top-ranked episode, matching the
+ranking `36_`/`42_` already produce -- a prefix cut, not a re-rank. Bounded-to-zero renders the
+working buffer (goal) alone and drops every persistent record, confirmed by an in-file assertion
+that the working half is never truncated even when the whole budget is spent on it.
+
+**Round-4 review fix (PR #147):** the file originally imported its cross-cookbook dependency as
+`import_module("cookbook.11_memory.39_working_memory")`, which needs the repo root on `sys.path`
+-- present when a caller already has `cookbook` importable, but *not* provided by running the
+script directly (`.venvs/demo/bin/python cookbook/11_memory/45_....py`, the documented
+invocation), which only prepends the script's own directory. Reproduced live as
+`ModuleNotFoundError: No module named 'cookbook'`. Fixed to match `gemini_3/21_agent_os.py`'s own
+precedent: `sys.path.insert(0, str(Path(__file__).parent))` + bare-module-name
+`import_module("39_working_memory")`. Also fixed the cookbook's own token-budget arithmetic, which
+shared the additive-sum bug the round-3 fix closed in `bound_by_tokens` itself (see round-3 entry
+above) -- it was silently excluding the intended top-ranked record from the "bounded" demo output.
+Re-verified via the exact documented invocation from a clean `PYTHONPATH` matching a real
+single-checkout deployment (`PYTHONPATH=libs/agno .venvs/demo/bin/python
+cookbook/11_memory/45_....py`, exit 0, correct output). Note: run bare (no `PYTHONPATH`) from
+*this development worktree specifically*, the script still raises `TypeError:
+MemoryProvider.assemble_context() got an unexpected keyword argument 'max_tokens'` -- not a code
+defect, but this worktree's editable `.venvs/demo` install pointing at the main checkout's
+`libs/agno`, which does not yet have this PR's `provider.py` changes (per `CLAUDE.md`'s own "the
+editable install points at the main checkout" caveat for worktrees). A single-checkout deployment
+(a fresh clone, CI, or this worktree once merged) does not have that mismatch.
+
+**Requires:** Nothing; no database, no API key, no network. Runs correctly whether or not
+`tiktoken` is installed (`count_text_tokens` falls back to a character-based estimate).
+
+**Renumbered from `43_` to `45_`: `feat/SM-X1` took `43_mode_a_end_to_end.py` and `feat/SM-H5`
+took `44_time_aware_ranking.py` while this branch was still catching up. Per this file's own
+convention, whoever merges second renumbers.**
