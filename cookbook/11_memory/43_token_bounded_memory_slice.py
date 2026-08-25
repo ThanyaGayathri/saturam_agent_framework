@@ -76,9 +76,14 @@ if __name__ == "__main__":
     print(f"  ~{count_text_tokens(unbounded)} tokens")
 
     print("\nToken-bounded -- just enough budget for the working half plus one record:")
+    # Priced against the actual joined render (`goal_line + "\n" + record_line`), not
+    # `count_text_tokens(working_only) + count_text_tokens(record_line)` summed separately -- the
+    # join between the two costs its own token, which an additive sum silently omits (round-3
+    # review, PR #147). `assemble_context`'s own `max_tokens` prices this exactly internally;
+    # this demo mirrors that by measuring the real joined string rather than adding two pieces.
     working_only = working.as_context()
-    one_record_budget = count_text_tokens(working_only) + count_text_tokens(
-        "[episodic] pricing starts at $10 per seat"
+    one_record_budget = count_text_tokens(
+        "\n".join([working_only, "[episodic] pricing starts at $10 per seat"])
     )
     bounded = provider.assemble_context(
         scope, working, query, max_tokens=one_record_budget

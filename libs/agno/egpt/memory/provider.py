@@ -291,17 +291,22 @@ class MemoryProvider(ABC):
         uses to price both halves; it is an estimator, not a claim about which model actually
         serves this scope.
         """
-        # Deferred imports: break the provider <-> retrieval <-> working import cycle
-        # (`retrieval/__init__.py`'s own docstring covers the same trade-off for `orchestrate`).
-        # Validated before `self.read` so a bad budget is refused without spending a real,
-        # possibly network-bound, persistent-tier read on a call that was always going to raise.
-        from egpt.memory.retrieval.slice import assemble_bounded_context, require_token_budget
-
         if max_tokens is not None:
+            # Deferred import: breaks the provider <-> retrieval <-> working import cycle
+            # (`retrieval/__init__.py`'s own docstring covers the same trade-off for
+            # `orchestrate`). Imported only on this branch so the pre-existing `max_tokens=None`
+            # default path pays nothing for a feature it isn't using (round-3 review, PR #147).
+            # Still validated before `self.read` so a bad budget is refused without spending a
+            # real, possibly network-bound, persistent-tier read on a call that was always going
+            # to raise.
+            from egpt.memory.retrieval.slice import require_token_budget
+
             require_token_budget(max_tokens)
         persistent = self.read(scope, query if query is not None else MemoryQuery(text=""))
         if max_tokens is None:
             return working.as_context(persistent)
+        from egpt.memory.retrieval.slice import assemble_bounded_context
+
         return assemble_bounded_context(working, persistent, max_tokens=max_tokens, model_id=model_id)
 
     async def aassemble_context(
@@ -314,11 +319,13 @@ class MemoryProvider(ABC):
         model_id: str = "gpt-4o",
     ) -> str:
         """Async variant of :meth:`assemble_context`."""
-        from egpt.memory.retrieval.slice import assemble_bounded_context, require_token_budget
-
         if max_tokens is not None:
+            from egpt.memory.retrieval.slice import require_token_budget
+
             require_token_budget(max_tokens)
         persistent = await self.aread(scope, query if query is not None else MemoryQuery(text=""))
         if max_tokens is None:
             return working.as_context(persistent)
+        from egpt.memory.retrieval.slice import assemble_bounded_context
+
         return assemble_bounded_context(working, persistent, max_tokens=max_tokens, model_id=model_id)

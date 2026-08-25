@@ -35,9 +35,25 @@ def slice_of(records: List[MemoryRecord], **fusion) -> MemorySlice:
 
 
 def rendered_tokens(record: MemoryRecord, model_id: str = "gpt-4o") -> int:
-    """The exact cost `bound_by_tokens` prices a record at -- derived, not hardcoded, so these
-    tests hold under whichever tokenizer (`tiktoken` installed or not) actually runs."""
+    """A record's *independent* rendered cost -- deliberately the naive, pre-fix oracle
+    (`sum(rendered_tokens(r) for r in records)` is what round-3 review flagged as wrong once more
+    than one record joins). Still correct as a budget for a *single* record, since there is no
+    join boundary to misprice with only one piece -- used by tests that want exactly one record to
+    fit and no more."""
     return count_text_tokens("\n".join(render_context_lines(record.tier.value, record.content)), model_id)
+
+
+def joined_cost(records: List[MemoryRecord], model_id: str = "gpt-4o", preamble: str = "") -> int:
+    """The real cost of rendering `records` (in ranked order) as one joined string, optionally
+    preceded by `preamble` -- computed independently of `bound_by_tokens`'s own algorithm, via
+    `MemorySlice.as_context` (already-trusted rendering) tokenized whole, so these tests cannot
+    share whatever bug the implementation might reintroduce. The one true budget oracle for any
+    test that needs more than one record to fit -- `rendered_tokens` summed across records is
+    exactly the additive-sum bug PR #147 round-3 review found."""
+    text = slice_of(records).as_context()
+    if preamble:
+        text = "\n".join(part for part in (preamble, text) if part)
+    return count_text_tokens(text, model_id)
 
 
 def buffer(**kwargs) -> WorkingMemory:
@@ -53,7 +69,7 @@ def buffer(**kwargs) -> WorkingMemory:
 def test_bound_by_tokens_keeps_the_ranked_prefix_that_fits():
     a, b, c = record("a", "first ranked"), record("b", "second ranked"), record("c", "third ranked")
     original = slice_of([a, b, c])
-    budget = rendered_tokens(a) + rendered_tokens(b)
+    budget = joined_cost([a, b])
 
     bounded = bound_by_tokens(original, max_tokens=budget)
 
@@ -61,6 +77,26 @@ def test_bound_by_tokens_keeps_the_ranked_prefix_that_fits():
     assert bounded.fusion["dropped_by_tokens"] == 1
     assert bounded.fusion["tokens_used"] == budget
     assert bounded.fusion["token_budget"] == budget
+
+
+def test_bound_by_tokens_prices_the_real_joined_string_not_a_sum_of_independent_costs():
+    """PR #147 round-3 review: two blocks tokenized independently and then joined by ``"\\n"``
+    can cost strictly more once actually joined -- neither tokenizer (real BPE, or this repo's
+    char-count fallback when `tiktoken` is absent) is additive across a boundary neither half's
+    independent tokenization ever saw. Asserted behaviourally against `joined_cost` -- an oracle
+    built from `MemorySlice.as_context` + one whole-string tokenize call, independent of
+    `bound_by_tokens`'s own loop -- rather than by asserting a hardcoded token count, so this
+    holds under either tokenizer."""
+    a, b = record("a", "first ranked"), record("b", "second ranked")
+    naive_sum = rendered_tokens(a) + rendered_tokens(b)
+    real_joined = joined_cost([a, b])
+    assert real_joined >= naive_sum  # joining a second block never gets cheaper than the parts
+
+    bounded = bound_by_tokens(slice_of([a, b]), max_tokens=naive_sum)
+
+    # Whatever was actually kept must fit its own real joined cost -- never merely "assumed to
+    # fit" because independent per-record costs happened to sum to no more than the budget.
+    assert joined_cost(bounded.records) <= naive_sum
 
 
 def test_bound_by_tokens_stops_at_the_first_overflow_rather_than_skipping_ahead():
@@ -149,12 +185,43 @@ def test_assemble_bounded_context_gives_the_persistent_half_whatever_budget_rema
     wm.note("a note")
     persistent = slice_of([record("a", "a persistent fact")])
     working_only = wm.as_context()
-    full_budget = count_text_tokens(working_only, "gpt-4o") + rendered_tokens(persistent.records[0])
+    # `joined_cost`, not `count_text_tokens(working_only) + rendered_tokens(...)`: the working/
+    # persistent join costs its own token (PR #147 round-3 review), so a budget built from the
+    # additive sum can be one token short of what the real render needs to fit both halves.
+    full_budget = joined_cost(persistent.records, preamble=working_only)
 
     rendered = assemble_bounded_context(wm, persistent, max_tokens=full_budget)
 
     assert "a persistent fact" in rendered
     assert rendered == wm.as_context(persistent)
+
+
+def test_assemble_bounded_context_prices_the_working_persistent_join_separator():
+    """PR #147 round-3 review: the join between the working half and the persistent half costs a
+    token neither half's standalone count includes. This picks content where the naive
+    ``spent + persistent_cost`` arithmetic (the pre-fix implementation) under-counts the real
+    joined cost by exactly that separator's token -- found by brute-force search over short goal/
+    content lengths against this environment's own tokenizer, rather than a value hardcoded
+    against one specific tokenizer. At ``max_tokens=naive_budget``, the record must not be
+    admitted if doing so would make the *real* rendered string cost more than the caller asked
+    for -- the pre-fix arithmetic admits it anyway (`remaining` computed from the standalone
+    working cost leaves exactly the record's own standalone cost, which fits it by that same
+    flawed measure), silently handing back a string over budget."""
+    wm = buffer()
+    for goal_len, content_len in [(1, 4), (1, 8), (1, 12), (2, 3), (2, 4)]:
+        wm.set_goals(["g" * goal_len])
+        persistent = slice_of([record("a", "c" * content_len)])
+        working_only = wm.as_context()
+        naive_budget = count_text_tokens(working_only, "gpt-4o") + rendered_tokens(persistent.records[0])
+        real_budget = joined_cost(persistent.records, preamble=working_only)
+        if real_budget > naive_budget:
+            break
+    else:
+        raise AssertionError("no (goal_len, content_len) pair produced a join-boundary gap to test against")
+
+    rendered = assemble_bounded_context(wm, persistent, max_tokens=naive_budget)
+
+    assert count_text_tokens(rendered, "gpt-4o") <= naive_budget
 
 
 def test_assemble_bounded_context_rejects_a_bad_budget():
