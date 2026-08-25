@@ -10,6 +10,7 @@ from dataclasses import replace
 
 import pytest
 
+from egpt.integrations.knowledge.reranker.base import Reranker
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import (
     MemoryProviderConfig,
@@ -1368,6 +1369,140 @@ def test_a_custom_k_reaches_the_fusion_and_changes_the_score_but_not_the_default
 
     assert small_k_score != pytest.approx(default_score)
     assert small_k_score > default_score  # a smaller k weighs every rank more heavily
+
+
+# ---------------------------------------------------------------------------
+# Rerank stage (SM-H3 #133) -- opt-in via config.rerank, off by default
+# ---------------------------------------------------------------------------
+
+
+class _FakeReverseReranker(Reranker):
+    """A deterministic double, declared offline-capable so it passes Mode A construction without
+    needing to live at one of `RERANK_OFFLINE_CAPABLE`'s module paths -- see
+    `test_provider_seam.py` for the module-path arm itself."""
+
+    offline_capable: bool = True
+
+    def rerank(self, query, documents):
+        out = list(reversed(documents))
+        for index, doc in enumerate(out):
+            doc.reranking_score = float(len(out) - index)
+        return out
+
+
+class _FakeSlowReranker(Reranker):
+    offline_capable: bool = True
+    delay_s: float = 1.0
+
+    def rerank(self, query, documents):
+        import time
+
+        time.sleep(self.delay_s)
+        return documents
+
+
+class _FakeTopNReranker(Reranker):
+    """A well-behaved reranker narrowing to `top_n`, the idiomatic pattern every shipped `egpt`
+    reranker adapter supports (`aws_bedrock.py`'s own docstring recommends setting it)."""
+
+    offline_capable: bool = True
+    top_n: int = 1
+
+    def rerank(self, query, documents):
+        return documents[: self.top_n]
+
+
+def test_rerank_is_opt_in_the_default_leaves_fusion_order_untouched():
+    p, _, _ = provider()  # no rerank= kwarg
+    p.write(ACME, [event("alpha beta")])
+
+    slice_ = p.read(ACME, MemoryQuery(text="alpha"))
+
+    assert "rerank_applied" not in slice_.fusion
+
+
+def test_enabling_rerank_reorders_the_fused_records_and_reports_it():
+    p, _, _ = provider(rerank={"enabled": True, "reranker": _FakeReverseReranker()})
+    p.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+
+    slice_ = p.read(ACME, MemoryQuery(text="alpha"))
+
+    assert slice_.fusion["rerank_applied"] is True
+    assert slice_.fusion["rerank_budget_exceeded"] is False
+    # `_FakeReverseReranker` reverses whatever fused order it was handed -- the actual ids depend
+    # on the (irrelevant here) fusion order, so what this pins is that reversal is visible at all.
+    fused_only = provider()[0]
+    fused_only.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+    fused_order = [r.id for r in fused_only.read(ACME, MemoryQuery(text="alpha")).records]
+    assert [r.id for r in slice_.records] == list(reversed(fused_order))
+
+
+async def test_rerank_wiring_agrees_between_read_and_aread():
+    p, _, _ = provider(rerank={"enabled": True, "reranker": _FakeReverseReranker()})
+    p.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+
+    sync_slice = p.read(ACME, MemoryQuery(text="alpha"))
+    async_slice = await p.aread(ACME, MemoryQuery(text="alpha"))
+
+    assert async_slice.fusion["rerank_applied"] == sync_slice.fusion["rerank_applied"] is True
+    assert [r.id for r in async_slice.records] == [r.id for r in sync_slice.records]
+
+
+def test_a_rerank_budget_overrun_falls_back_to_fused_order_and_reports_it():
+    p, _, _ = provider(rerank={"enabled": True, "reranker": _FakeSlowReranker(delay_s=1.0), "budget_ms": 50})
+    p.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+
+    fused_only = provider()[0]
+    fused_only.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+    fused_order = [r.id for r in fused_only.read(ACME, MemoryQuery(text="alpha")).records]
+
+    slice_ = p.read(ACME, MemoryQuery(text="alpha"))
+
+    assert slice_.fusion["rerank_applied"] is False
+    assert slice_.fusion["rerank_budget_exceeded"] is True
+    assert [r.id for r in slice_.records] == fused_order
+
+
+def test_rerank_toggle_is_per_config_not_global():
+    """The acceptance criterion is "toggleable per tenant" -- `MemoryProviderConfig` is the unit
+    SM-C5 (#93) will resolve per tenant to (its own module docstring), so two configs built from
+    the same fused input diverging on `rerank_applied` is the wiring proof for that."""
+    on, _, _ = provider(rerank={"enabled": True, "reranker": _FakeReverseReranker()})
+    off, _, _ = provider()
+    on.write(ACME, [event("alpha beta")])
+    off.write(ACME, [event("alpha beta")])
+
+    assert on.read(ACME, MemoryQuery(text="alpha")).fusion["rerank_applied"] is True
+    assert "rerank_applied" not in off.read(ACME, MemoryQuery(text="alpha")).fusion
+
+
+def test_rerank_narrowing_via_top_n_does_not_change_what_the_fused_diagnostic_means():
+    """Round-4 review finding: `fused` has always meant "how many records the fusion stage
+    produced" (pre-dating SM-H3) -- `_merged`/`_merge` set that meaning before rerank existed.
+    Once a reranker narrows the pool via its own `top_n`, `fused` must keep reporting the true
+    pre-rerank fusion count, not silently drift to "how many survived reranking"."""
+    p, _, _ = provider(rerank={"enabled": True, "reranker": _FakeTopNReranker(top_n=1)})
+    p.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+
+    fused_only = provider()[0]
+    fused_only.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+    true_fused_count = fused_only.read(ACME, MemoryQuery(text="alpha")).fusion["fused"]
+
+    slice_ = p.read(ACME, MemoryQuery(text="alpha"))
+
+    assert len(slice_.records) == 1  # top_n=1 narrowed the returned page
+    assert slice_.fusion["fused"] == true_fused_count == 2  # but `fused` still counts pre-rerank
+    assert slice_.fusion["returned"] == 1  # `returned`, unlike `fused`, does track the final page
+
+
+async def test_rerank_narrowing_preserves_the_fused_diagnostic_on_the_async_path_too():
+    p, _, _ = provider(rerank={"enabled": True, "reranker": _FakeTopNReranker(top_n=1)})
+    p.write(ACME, [event("alpha beta", id="e1"), event("alpha beta gamma", id="e2")])
+
+    slice_ = await p.aread(ACME, MemoryQuery(text="alpha"))
+
+    assert len(slice_.records) == 1
+    assert slice_.fusion["fused"] == 2
 
 
 def test_reading_the_working_tier_is_empty_while_writing_it_is_refused():

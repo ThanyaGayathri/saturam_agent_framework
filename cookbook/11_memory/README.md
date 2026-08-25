@@ -282,7 +282,7 @@ This section demonstrates how EGPT agents persist and use user memories across r
   still catching up. Per this file's own convention, whoever merges second renumbers.**
 
 - `44_time_aware_ranking.py`: Time-aware blended ranking (SM-H5 #135) -- the pure function that
-  sits after fusion (`14_`/`42_`) and rerank (SM-H3 #133, not yet built) and before `MemorySlice`
+  sits after fusion (`14_`/`42_`) and rerank (SM-H3 #133, `46_`) and before `MemorySlice`
   assembly (SM-H6 #136): an explicit time-window pre-filter (only for a query that sets one --
   ADR 0003 B.1's "optional pre-filter", not an implicit narrowing), then `26_`'s composite score
   blended into every episodic record's fused score. Shows a recent+important+relevant episode
@@ -304,6 +304,22 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `43_` to `45_`: `feat/SM-X1` took `43_mode_a_end_to_end.py` and `feat/SM-H5`
   took `44_time_aware_ranking.py` while this branch was still catching up. Per this file's own
   convention, whoever merges second renumbers.**
+
+- `46_rerank.py`: Optional cross-encoder rerank stage after fusion (SM-H3 #133) -- off by default
+  (`config.rerank` defaults to `{"enabled": False}`, same closed-dict shape as `config.fusion`):
+  SM-R8 DECISION.md S1.2 measured CPU cross-encoder rerank at ~2.0-2.5s/query, ~100x its own
+  ~300ms budget. Enabling it means naming a `Reranker` from
+  `egpt.integrations.knowledge.reranker.*` -- `SentenceTransformerReranker`/`InfinityReranker`
+  for Mode A (self-hosted/served, offline-capable), `CohereReranker`/`AwsBedrockReranker` for Mode
+  B only (rejected at construction under `mode=LOCAL`, mirroring ADR 0003 A.3c's embedder
+  air-gap check). Three runs: off (fused order stands), on with a fast reranker (reorders,
+  `rerank_applied=True`), on with a reranker slower than its budget (falls back to the fused
+  order, `rerank_budget_exceeded=True` -- enforced by abandoning the call past the budget, not by
+  timing it). No database, no model, no network.
+  **Renumbered from `43_` to `46_`: `feat/SM-X1`/`feat/SM-H5`/`feat/SM-H6` took
+  `43_mode_a_end_to_end.py`/`44_time_aware_ranking.py`/`45_token_bounded_memory_slice.py` while
+  this branch was still catching up. Per this file's own convention, whoever merges second
+  renumbers.**
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

@@ -170,6 +170,7 @@ class SeedMemoryProvider(MemoryProvider):
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         self._store_slots: Dict[str, FrozenSet[str]] = _checked_slots(self.config.options.get("store_slots"))
         self._reject_undeclarable_slots()
+        self._reject_unsupported_rerank()
         self._warn_about_unanswerable_stores()
         #: Each bound store's write-side slot set, resolved once. The store set is fixed at
         #: construction and `inspect.signature` is not free, so deriving it per write put signature
@@ -312,6 +313,26 @@ class SeedMemoryProvider(MemoryProvider):
                         "takes by name.",
                         field_name="options.store_slots",
                     )
+
+    def _reject_unsupported_rerank(self) -> None:
+        """Refuse to build with ``config.rerank`` enabled -- this provider has no fused candidate
+        list to rerank (round-3 review finding, PR #148).
+
+        ``read``/``aread`` interleave each tier's own store results (``_interleave``); there is no
+        ``CoLocatedMemoryProvider``-style fused, cross-substrate ranking for a cross-encoder to
+        reorder, and this provider never reads ``config.rerank`` at all. Left unchecked, a tenant
+        that enables rerank on a ``provider="seed"`` config gets no error and no effect -- silently
+        failing the "toggleable per tenant" acceptance criterion SM-H3 (#133) actually promises.
+        Refusing at construction, the same way :meth:`_reject_undeclarable_slots` does for a
+        mismatched ``store_slots``, turns that silent no-op into an error naming the field.
+        """
+        if self.config.rerank.get("enabled", False):
+            raise MemoryProviderConfigError(
+                "config.rerank['enabled']=True has no effect on provider='seed': this provider has "
+                "no fused candidate list to rerank, and does not consume config.rerank. Rerank is "
+                "wired for provider='co_located' only (SM-H3 #133).",
+                field_name="rerank.enabled",
+            )
 
     def _require_single_tenant_acknowledgement(self) -> None:
         """Refuse to build unless the deployment states it is single-tenant.

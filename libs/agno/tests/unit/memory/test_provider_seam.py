@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Sequence
 
 import pytest
 
+from egpt.integrations.knowledge.reranker.base import Reranker
 from egpt.memory import config as config_module
 from egpt.memory.config import (
     FUSION_METHODS,
@@ -21,6 +22,8 @@ from egpt.memory.config import (
 )
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.fuse import DEFAULT_RRF_K
+from egpt.memory.retrieval.rerank import DEFAULT_BUDGET_MS as DEFAULT_RERANK_BUDGET_MS
+from egpt.memory.retrieval.rerank import DEFAULT_CANDIDATES as DEFAULT_RERANK_CANDIDATES
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     ConsolidationReport,
@@ -240,6 +243,148 @@ def test_a_non_dict_fusion_is_rejected(bad_fusion):
     with pytest.raises(MemoryProviderConfigError, match="must be a dict") as exc:
         MemoryProviderConfig(provider="p", fusion=bad_fusion)
     assert exc.value.field_name == "fusion"
+
+
+# ---------------------------------------------------------------------------
+# config.rerank (SM-H3 #133) -- opt-in cross-encoder rerank, off by default
+# ---------------------------------------------------------------------------
+
+
+class _FakeSelfHostedReranker(Reranker):
+    """Stands in for `SentenceTransformerReranker`/`InfinityReranker` without importing either --
+    the module-path check reads `type(reranker).__module__`'s last segment, so the double must
+    actually live at that path, not merely claim to."""
+
+
+_FakeSelfHostedReranker.__module__ = "egpt.integrations.knowledge.reranker.sentence_transformer"
+
+
+class _FakeNetworkReranker(Reranker):
+    """Stands in for `CohereReranker`/`AwsBedrockReranker` -- a module path A.3c's rerank
+    analogue does not allow-list for Mode A."""
+
+
+_FakeNetworkReranker.__module__ = "egpt.integrations.knowledge.reranker.cohere"
+
+
+def test_the_default_rerank_is_disabled_per_sm_r8_decision_md():
+    """SM-R8 DECISION.md S1.2: CPU cross-encoder rerank measured ~100x its own ~300ms budget --
+    the zero-config case must not turn it on."""
+    config = MemoryProviderConfig(provider="p")
+
+    assert config.rerank == {"enabled": False}
+
+
+@pytest.mark.parametrize("bad_rerank", [None, [], "on", 5])
+def test_a_non_dict_rerank_is_rejected(bad_rerank):
+    with pytest.raises(MemoryProviderConfigError, match="must be a dict") as exc:
+        MemoryProviderConfig(provider="p", rerank=bad_rerank)
+    assert exc.value.field_name == "rerank"
+
+
+def test_an_unknown_rerank_key_is_rejected_rather_than_absorbed():
+    with pytest.raises(MemoryProviderConfigError, match="unknown key") as exc:
+        MemoryProviderConfig(provider="p", rerank={"model": "bge-reranker-v2-m3"})
+    assert exc.value.field_name == "rerank"
+
+
+def test_a_non_bool_enabled_is_rejected():
+    with pytest.raises(MemoryProviderConfigError, match="must be a bool") as exc:
+        MemoryProviderConfig(provider="p", rerank={"enabled": "yes"})
+    assert exc.value.field_name == "rerank.enabled"
+
+
+def test_reranker_candidates_or_budget_set_while_disabled_is_rejected_as_inert():
+    """Mirrors `test_an_explicit_k_under_score_sum_is_rejected_rather_than_silently_inert`: a knob
+    that does nothing while `enabled` is `False` (or omitted, its default) is refused rather than
+    silently stored."""
+    with pytest.raises(MemoryProviderConfigError, match="only meaningful when enabled=True") as exc:
+        MemoryProviderConfig(provider="p", rerank={"candidates": 10})
+    assert exc.value.field_name == "rerank"
+
+    with pytest.raises(MemoryProviderConfigError, match="only meaningful when enabled=True"):
+        MemoryProviderConfig(provider="p", rerank={"enabled": False, "budget_ms": 100})
+
+
+def test_enabling_rerank_without_a_reranker_is_rejected():
+    with pytest.raises(MemoryProviderConfigError, match="must be a Reranker instance") as exc:
+        MemoryProviderConfig(provider="p", rerank={"enabled": True})
+    assert exc.value.field_name == "rerank.reranker"
+
+
+def test_enabling_rerank_with_something_that_is_not_a_reranker_is_rejected():
+    with pytest.raises(MemoryProviderConfigError, match="must be a Reranker instance") as exc:
+        MemoryProviderConfig(provider="p", rerank={"enabled": True, "reranker": object()})
+    assert exc.value.field_name == "rerank.reranker"
+
+
+def test_a_self_hosted_reranker_is_accepted_under_mode_a():
+    config = MemoryProviderConfig(
+        provider="p", mode=ProviderMode.LOCAL, rerank={"enabled": True, "reranker": _FakeSelfHostedReranker()}
+    )
+
+    assert config.rerank["enabled"] is True
+    assert isinstance(config.rerank["reranker"], _FakeSelfHostedReranker)
+
+
+def test_a_network_reranker_is_rejected_under_mode_a_air_gapped():
+    """The rerank analogue of A.3c's `HuggingfaceCustomEmbedder` trap (`embedding.py`,
+    `_reject_online_for_local`): a Mode-B-only reranker selected under `mode=LOCAL` would break
+    the air gap silently on the very first rerank call if this were not caught at construction."""
+    with pytest.raises(MemoryProviderConfigError, match="not one of the offline-capable rerankers") as exc:
+        MemoryProviderConfig(
+            provider="p", mode=ProviderMode.LOCAL, rerank={"enabled": True, "reranker": _FakeNetworkReranker()}
+        )
+    assert exc.value.field_name == "rerank.reranker"
+
+
+def test_a_network_reranker_is_accepted_under_mode_b_frontier():
+    config = MemoryProviderConfig(
+        provider="p", mode=ProviderMode.FRONTIER, rerank={"enabled": True, "reranker": _FakeNetworkReranker()}
+    )
+
+    assert config.rerank["enabled"] is True
+
+
+def test_a_reranker_declaring_offline_capable_is_accepted_under_mode_a_regardless_of_module():
+    """The second escape hatch `_reject_online_reranker_for_local` offers, mirroring the
+    embedder's own -- a real in-tree deployment double that cannot live at one of the allow-listed
+    module paths but is genuinely offline."""
+
+    class _CustomOfflineReranker(Reranker):
+        offline_capable: bool = True
+
+    config = MemoryProviderConfig(
+        provider="p", mode=ProviderMode.LOCAL, rerank={"enabled": True, "reranker": _CustomOfflineReranker()}
+    )
+
+    assert config.rerank["enabled"] is True
+
+
+def test_rerank_candidates_and_budget_default_and_validate():
+    config = MemoryProviderConfig(provider="p", rerank={"enabled": True, "reranker": _FakeSelfHostedReranker()})
+
+    assert config.rerank["candidates"] == DEFAULT_RERANK_CANDIDATES == 50
+    assert config.rerank["budget_ms"] == DEFAULT_RERANK_BUDGET_MS == 300.0
+
+
+@pytest.mark.parametrize("bad_candidates", [0, -1, 1.5, "50", True])
+def test_a_non_positive_or_non_integer_candidates_is_rejected(bad_candidates):
+    with pytest.raises(MemoryProviderConfigError, match="positive integer") as exc:
+        MemoryProviderConfig(
+            provider="p",
+            rerank={"enabled": True, "reranker": _FakeSelfHostedReranker(), "candidates": bad_candidates},
+        )
+    assert exc.value.field_name == "rerank.candidates"
+
+
+@pytest.mark.parametrize("bad_budget", [0, -1, "300", True])
+def test_a_non_positive_or_non_numeric_budget_is_rejected(bad_budget):
+    with pytest.raises(MemoryProviderConfigError, match="positive number") as exc:
+        MemoryProviderConfig(
+            provider="p", rerank={"enabled": True, "reranker": _FakeSelfHostedReranker(), "budget_ms": bad_budget}
+        )
+    assert exc.value.field_name == "rerank.budget_ms"
 
 
 def test_backend_settings_stay_opaque():

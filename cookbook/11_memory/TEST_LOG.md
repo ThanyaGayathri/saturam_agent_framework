@@ -1230,3 +1230,31 @@ editable install points at the main checkout" caveat for worktrees). A single-ch
 **Renumbered from `43_` to `45_`: `feat/SM-X1` took `43_mode_a_end_to_end.py` and `feat/SM-H5`
 took `44_time_aware_ranking.py` while this branch was still catching up. Per this file's own
 convention, whoever merges second renumbers.**
+
+---
+
+### 46_rerank.py
+
+**Status:** PASS
+
+**Description:** Optional cross-encoder rerank stage after fusion (SM-H3 #133): three reads
+against the same two in-memory vector records with `config.rerank` set to `{}` (default, off),
+`{"enabled": True, "reranker": PhraseFlipReranker()}` (a fast deterministic double), and
+`{"enabled": True, "reranker": SlowReranker(delay_s=1.0), "budget_ms": 50}` (a reranker slower
+than its own budget).
+
+**Result:** Ran end to end, no database, no model. Off: fused (word-overlap) order stands,
+`overlap_only` first, no `rerank_*` keys in `fusion` (the extras `fusion_diagnostics` folds in are
+absent when the stage never ran). On with the fast reranker: order flips to `has_phrase` first
+(the phrase-containment signal the reranker scores on, which word-overlap cannot see) and reports
+`rerank_applied=True`, `rerank_budget_exceeded=False`. On with the slow reranker and a 50ms
+budget: falls back to the fused order and reports `rerank_budget_exceeded=True`; wall time
+(~55-60ms) tracks the budget, not the reranker's 1s delay, confirming the call was abandoned
+rather than merely timed.
+
+**Requires:** Nothing; no database, no API key, no network.
+
+**Renumbered from `43_` to `46_`: `feat/SM-X1`/`feat/SM-H5`/`feat/SM-H6` took
+`43_mode_a_end_to_end.py`/`44_time_aware_ranking.py`/`45_token_bounded_memory_slice.py` while
+this branch was still catching up. Per this file's own convention, whoever merges second
+renumbers.**
