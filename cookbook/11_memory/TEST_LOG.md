@@ -1078,7 +1078,38 @@ renumbers.
 
 ---
 
-### 41_rrf_fusion.py
+### 41_ppr_multihop.py
+
+**Status:** PASS
+
+**Description:** Optional Personalized PageRank multi-hop retrieval (SM-H4 #134), off by default
+(`multihop_ppr_enabled`). Writes a four-hop entity chain (Ada -> NorthStar -> Berlin -> Germany ->
+EU) directly via `upsert_entities`/`upsert_facts`, then: (1) confirms plain BFS traversal
+(`max_traverse_hops=2` default) cannot reach the fourth hop; (2) confirms the same query, with the
+PPR leg enabled, does reach it; (3) invalidates the first edge and confirms PPR excludes it once
+`as_of` passes its `t_invalid` bound, and includes it before that bound -- the bi-temporal
+composition acceptance criterion.
+
+**Result:** Run against a real GDS-plugin Neo4j (`./cookbook/scripts/run_neo4j_gds.sh`, GDS
+2.13.11 Community): BFS alone reaches `{ada-works-at-northstar, northstar-located-in-berlin}`;
+with PPR enabled the same query reaches all four edges including
+`germany-member-of-eu`; the bi-temporal check reports `True` before the invalidation bound and
+`False` after. No API key needed -- entities and fact edges are written directly, the same way
+`28_` does. Re-verified after round-1, round-2, and round-3 review fixes (empty-anchor guard,
+score ceiling, window overlap semantics, unique-per-call GDS catalog name, project-inside-try
+cleanup, seeds-into-rank TOCTOU fix): unchanged output.
+
+**Requires:** `./cookbook/scripts/run_neo4j_gds.sh` (a GDS-plugin Neo4j, not `28_`'s plain
+instance); no API key. Run with `.venvs/demo`.
+
+**Renumbered from `34_` to `35_` to `36_` to `37_` to `38_` to `41_` across five merges:
+`feat/SM-L9` (#123) took `34_`, then `feat/SM-L8` (#127) took `35_`, then `feat/SM-H1` (#125) took
+`36_`, then `feat/SM-S2` (#133) took `37_`, then `feat/SM-S4`/`feat/SM-C6`/`feat/SM-S3` took
+`38_`/`39_`/`40_` together, all while this branch was still catching up.**
+
+---
+
+### 42_rrf_fusion.py
 
 **Status:** PASS
 
@@ -1094,3 +1125,6 @@ leg ran identically and only the fusion strategy's use of it differed. `k=1` rea
 fused scores visibly change) without flipping this fixture's ranking again.
 
 **Requires:** Nothing; no database, no API key, no network.
+
+**Renumbered from `41_` to `42_`: `feat/SM-H4` took `41_ppr_multihop.py` while this branch was
+still catching up. Per this file's own convention, whoever merges second renumbers.**
