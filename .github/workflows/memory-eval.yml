@@ -48,11 +48,19 @@ jobs:
       # test_suite_adapter.py and test_suite_run.py hit their `find_spec("egpt")` guard and
       # return having asserted nothing -- exit 0, job green, AC1 unproven. That is the failure
       # mode aicoe-tracker#75's suite shipped with, and this workflow exists to avoid it.
-      # `--no-deps` keeps the offline promise: no SDK, no network at test time.
+      #
+      # Core deps plus the `openai` extra, and nothing else. Two things were tried and are wrong:
+      # `--no-deps` installs a package that cannot be imported (`egpt.run.base` imports pydantic
+      # at module scope), and core-only still fails because building a `Case` constructs an
+      # `Agent` with `OpenAIResponses`, whose module raises at import when the SDK is absent.
+      #
+      # The offline promise still holds: the SDK is *imported*, never *called*. Both suite-wiring
+      # tests mock `egpt.eval.suite.run_cases`, so no request is ever issued and no key is read --
+      # which the `full` job, the one that does spend tokens, is separately gated for.
       - name: Install egpt (needed by the suite-wiring tests)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --no-deps -e libs/agno
+          python -m pip install -e "libs/agno[openai]"
       - name: Unit tests (metrics + runner + suite adapter/wiring)
         working-directory: benchmarks/memory_eval
         run: |
