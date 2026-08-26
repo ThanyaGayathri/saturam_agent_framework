@@ -168,6 +168,16 @@ class AccuracyEval:
     # Result of the evaluation
     result: Optional[AccuracyResult] = None
 
+    # The model that actually served the last iteration's run() /arun() call -- distinct from
+    # `agent.model`/`team.model`, which stays the configured model for the object's lifetime.
+    # `None` until a run happens (run_with_output()/arun_with_output() never set these, since no
+    # run occurs on that path). Read by `EvalSchema.from_accuracy_eval()` so the API response
+    # names the same model as the DB record `run()`/`arun()` write from the same `run_response`
+    # (aicoe-tracker#183) -- without this, the two disagreed for an escalated run, since
+    # `from_accuracy_eval()` had no way to see anything but the static configuration.
+    served_model_id: Optional[str] = None
+    served_model_provider: Optional[str] = None
+
     # Model for the evaluator agent
     model: Optional[Model] = None
     # Agent used to evaluate the answer
@@ -390,13 +400,16 @@ Remember: You must only compare the agent_output to the expected_output. The exp
             eval_input = self.get_eval_input()
             eval_expected_output = self.get_eval_expected_output()
 
+            # Hoisted above the loop so a `num_iterations=0` run reads `None` below rather than
+            # raising `UnboundLocalError` -- the `if run_response is not None` guards below were
+            # already written expecting that possibility.
+            run_response: Optional[Any] = None
             for i in range(self.num_iterations):
                 status = Status(f"Running evaluation {i + 1}...", spinner="dots", speed=1.0, refresh_per_second=10)
                 live_log.update(status)
 
                 agent_session_id = f"eval_{self.eval_id}_{i + 1}"
 
-                run_response: Optional[Any] = None
                 if self.agent is not None:
                     run_response = self.agent.run(input=eval_input, session_id=agent_session_id, stream=False)
                     output = run_response.content
@@ -455,19 +468,31 @@ Remember: You must only compare the agent_output to the expected_output. The exp
         if self.print_summary or print_summary:
             self.result.print_summary(console)
 
-        # Log results to the EGPT DB if requested
+        # Log results to the EGPT DB if requested. `run_response.model`/`model_provider` are
+        # the model that actually served the last iteration's run -- an escalated run must not
+        # be attributed to `self.agent.model`/`self.team.model`, which stays the configured
+        # model for the object's lifetime (aicoe-tracker#183).
         if self.agent is not None:
             agent_id = self.agent.id
             team_id = None
-            model_id = self.agent.model.id if self.agent.model is not None else None
-            model_provider = self.agent.model.provider if self.agent.model is not None else None
+            model_id = run_response.model if run_response is not None and run_response.model else None
+            model_provider = (
+                run_response.model_provider if run_response is not None and run_response.model_provider else None
+            )
             evaluated_component_name = self.agent.name
         elif self.team is not None:
             agent_id = None
             team_id = self.team.id
-            model_id = self.team.model.id if self.team.model is not None else None
-            model_provider = self.team.model.provider if self.team.model is not None else None
+            model_id = run_response.model if run_response is not None and run_response.model else None
+            model_provider = (
+                run_response.model_provider if run_response is not None and run_response.model_provider else None
+            )
             evaluated_component_name = self.team.name
+
+        # So `EvalSchema.from_accuracy_eval()` can name the served model instead of re-deriving
+        # from `self.agent.model`/`self.team.model` and disagreeing with the DB record above.
+        self.served_model_id = model_id
+        self.served_model_provider = model_provider
 
         if self.db:
             log_eval_input = {
@@ -499,7 +524,7 @@ Remember: You must only compare the agent_output to the expected_output. The exp
                 eval_run=EvalRunCreate(
                     run_id=self.eval_id,
                     eval_type=EvalType.ACCURACY,
-                    data=self._get_telemetry_data(),
+                    data=self._get_telemetry_data(model_id=model_id, model_provider=model_provider),
                 ),
             )
 
@@ -536,13 +561,16 @@ Remember: You must only compare the agent_output to the expected_output. The exp
             eval_input = self.get_eval_input()
             eval_expected_output = self.get_eval_expected_output()
 
+            # Hoisted above the loop so a `num_iterations=0` run reads `None` below rather than
+            # raising `UnboundLocalError` -- the `if run_response is not None` guards below were
+            # already written expecting that possibility.
+            run_response: Optional[Any] = None
             for i in range(self.num_iterations):
                 status = Status(f"Running evaluation {i + 1}...", spinner="dots", speed=1.0, refresh_per_second=10)
                 live_log.update(status)
 
                 agent_session_id = f"eval_{self.eval_id}_{i + 1}"
 
-                run_response: Optional[Any] = None
                 if self.agent is not None:
                     run_response = await self.agent.arun(input=eval_input, session_id=agent_session_id, stream=False)  # type: ignore[misc]
                     output = run_response.content
@@ -601,18 +629,29 @@ Remember: You must only compare the agent_output to the expected_output. The exp
         if self.print_summary or print_summary:
             self.result.print_summary(console)
 
+        # `run_response.model`/`model_provider` are the model that actually served the last
+        # iteration's run -- see the sync `run()`'s identical fix above (aicoe-tracker#183).
         if self.agent is not None:
             agent_id = self.agent.id
             team_id = None
-            model_id = self.agent.model.id if self.agent.model is not None else None
-            model_provider = self.agent.model.provider if self.agent.model is not None else None
+            model_id = run_response.model if run_response is not None and run_response.model else None
+            model_provider = (
+                run_response.model_provider if run_response is not None and run_response.model_provider else None
+            )
             evaluated_component_name = self.agent.name
         elif self.team is not None:
             agent_id = None
             team_id = self.team.id
-            model_id = self.team.model.id if self.team.model is not None else None
-            model_provider = self.team.model.provider if self.team.model is not None else None
+            model_id = run_response.model if run_response is not None and run_response.model else None
+            model_provider = (
+                run_response.model_provider if run_response is not None and run_response.model_provider else None
+            )
             evaluated_component_name = self.team.name
+
+        # So `EvalSchema.from_accuracy_eval()` can name the served model instead of re-deriving
+        # from `self.agent.model`/`self.team.model` and disagreeing with the DB record below.
+        self.served_model_id = model_id
+        self.served_model_provider = model_provider
 
         # Log results to the EGPT DB if requested
         if self.db:
@@ -642,7 +681,11 @@ Remember: You must only compare the agent_output to the expected_output. The exp
             from egpt.api.evals import EvalRunCreate, async_create_eval_run_telemetry
 
             await async_create_eval_run_telemetry(
-                eval_run=EvalRunCreate(run_id=self.eval_id, eval_type=EvalType.ACCURACY),
+                eval_run=EvalRunCreate(
+                    run_id=self.eval_id,
+                    eval_type=EvalType.ACCURACY,
+                    data=self._get_telemetry_data(model_id=model_id, model_provider=model_provider),
+                ),
             )
 
         logger.debug(f"*********** Evaluation {self.eval_id} Finished ***********")
@@ -873,12 +916,35 @@ Remember: You must only compare the agent_output to the expected_output. The exp
         logger.debug(f"*********** Evaluation End: {run_id} ***********")
         return self.result
 
-    def _get_telemetry_data(self) -> Dict[str, Any]:
-        """Get the telemetry data for the evaluation"""
+    def _get_telemetry_data(
+        self, model_id: Optional[str] = None, model_provider: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get the telemetry data for the evaluation.
+
+        `model_id`/`model_provider`, when given, are the model that actually served a run
+        (`run_response.model`/`model_provider`) -- pass these whenever a run happened, so
+        telemetry doesn't silently disagree with the DB record written from the same
+        `run_response` a few lines above (aicoe-tracker#183). Falling back to
+        `self.agent.model`/`self.team.model` is only correct on a no-run path
+        (`run_with_output()`/`arun_with_output()`), and must check both components -- the old
+        fallback read only `self.agent.model`, so a team eval's telemetry got `model_id=None`
+        unconditionally.
+
+        The two fall back independently, not only when both are `None` together -- a run can
+        stamp `run_response.model` while leaving `run_response.model_provider` unset, and
+        requiring both `None` before falling back skipped the provider fallback entirely in that
+        case, silently recording `model_provider=None` even though the configured model's
+        provider was known.
+        """
+        configured = self.agent.model if self.agent else (self.team.model if self.team else None)
+        if model_id is None:
+            model_id = configured.id if configured else None
+        if model_provider is None:
+            model_provider = configured.provider if configured else None
         return {
             "agent_id": self.agent.id if self.agent else None,
             "team_id": self.team.id if self.team else None,
-            "model_id": self.agent.model.id if self.agent and self.agent.model else None,
-            "model_provider": self.agent.model.provider if self.agent and self.agent.model else None,
+            "model_id": model_id,
+            "model_provider": model_provider,
             "num_iterations": self.num_iterations,
         }

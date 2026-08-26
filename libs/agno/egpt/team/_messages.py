@@ -26,7 +26,7 @@ from egpt.media import Audio, File, Image, Video
 from egpt.models.base import Model
 from egpt.models.message import Message, MessageReferences
 from egpt.models.response import ModelResponse
-from egpt.run import RunContext
+from egpt.run import RunContext, run_model
 from egpt.run.messages import RunMessages
 from egpt.run.team import (
     TeamRunOutput,
@@ -301,7 +301,8 @@ def _build_trailing_sections(
         for _ti in team._tool_instructions:
             content += f"{_ti}\n"
 
-    system_message_from_model = team.model.get_system_message_for_model(tools)  # type: ignore[union-attr]
+    _served_model = run_model(team, run_context)
+    system_message_from_model = _served_model.get_system_message_for_model(tools)  # type: ignore[union-attr]
     if system_message_from_model is not None:
         content += system_message_from_model
 
@@ -326,7 +327,7 @@ def _build_trailing_sections(
         and team.parser_model is None
         and team.model
         and not (
-            (team.model.supports_native_structured_outputs or team.model.supports_json_schema_outputs)
+            (_served_model.supports_native_structured_outputs or _served_model.supports_json_schema_outputs)
             and not team.use_json_mode
         )
     ):
@@ -394,7 +395,7 @@ def get_system_message(
 
     # 1. Build and return the default system message for the Team.
     # 1.1 Build the list of instructions for the system message
-    team.model = cast(Model, team.model)
+    _served_model = cast(Model, run_model(team, run_context))
     instructions: List[str] = []
     if team.instructions is not None:
         _instructions = team.instructions
@@ -413,7 +414,7 @@ def get_system_message(
             instructions.extend(_instructions)
 
     # 1.2 Add instructions from the Model
-    _model_instructions = team.model.get_instructions_for_model(tools)
+    _model_instructions = _served_model.get_instructions_for_model(tools)
     if _model_instructions is not None:
         instructions.extend(_model_instructions)
 
@@ -625,7 +626,7 @@ async def aget_system_message(
 
     # 1. Build and return the default system message for the Team.
     # 1.1 Build the list of instructions for the system message
-    team.model = cast(Model, team.model)
+    _served_model = cast(Model, run_model(team, run_context))
     instructions: List[str] = []
     if team.instructions is not None:
         _instructions = team.instructions
@@ -644,7 +645,7 @@ async def aget_system_message(
             instructions.extend(_instructions)
 
     # 1.2 Add instructions from the Model
-    _model_instructions = team.model.get_instructions_for_model(tools)
+    _model_instructions = _served_model.get_instructions_for_model(tools)
     if _model_instructions is not None:
         instructions.extend(_model_instructions)
 

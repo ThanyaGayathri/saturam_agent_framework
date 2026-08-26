@@ -23,7 +23,7 @@ from egpt.filters import FilterExpr
 from egpt.media import Audio, File, Image, Video
 from egpt.models.message import Message, MessageReferences
 from egpt.models.response import ModelResponse
-from egpt.run import RunContext
+from egpt.run import RunContext, run_model
 from egpt.run.agent import RunOutput
 from egpt.run.messages import RunMessages
 from egpt.session import AgentSession
@@ -174,7 +174,7 @@ def get_system_message(
             instructions.extend(_instructions)
 
     # 3.1.1 Add instructions from the Model
-    _model_instructions = agent.model.get_instructions_for_model(tools)
+    _model_instructions = run_model(agent, run_context).get_instructions_for_model(tools)
     if _model_instructions is not None:
         instructions.extend(_model_instructions)
 
@@ -418,7 +418,8 @@ def get_system_message(
                 system_message_content += knowledge_context + "\n"
 
     # 3.3.14 Add the system message from the Model
-    system_message_from_model = agent.model.get_system_message_for_model(tools)
+    _served_model = run_model(agent, run_context)
+    system_message_from_model = _served_model.get_system_message_for_model(tools)
     if system_message_from_model is not None:
         system_message_content += system_message_from_model
 
@@ -428,7 +429,7 @@ def get_system_message(
         output_schema is not None
         and agent.parser_model is None
         and not (
-            (agent.model.supports_native_structured_outputs or agent.model.supports_json_schema_outputs)
+            (_served_model.supports_native_structured_outputs or _served_model.supports_json_schema_outputs)
             and (not agent.use_json_mode or agent.structured_outputs is True)
         )
     ):
@@ -522,7 +523,7 @@ async def aget_system_message(
             instructions.extend(_instructions)
 
     # 3.1.1 Add instructions from the Model
-    _model_instructions = agent.model.get_instructions_for_model(tools)
+    _model_instructions = run_model(agent, run_context).get_instructions_for_model(tools)
     if _model_instructions is not None:
         instructions.extend(_model_instructions)
 
@@ -777,7 +778,8 @@ async def aget_system_message(
                 system_message_content += knowledge_context + "\n"
 
     # 3.3.14 Add the system message from the Model
-    system_message_from_model = agent.model.get_system_message_for_model(tools)
+    _served_model = run_model(agent, run_context)
+    system_message_from_model = _served_model.get_system_message_for_model(tools)
     if system_message_from_model is not None:
         system_message_content += system_message_from_model
 
@@ -787,7 +789,7 @@ async def aget_system_message(
         output_schema is not None
         and agent.parser_model is None
         and not (
-            (agent.model.supports_native_structured_outputs or agent.model.supports_json_schema_outputs)
+            (_served_model.supports_native_structured_outputs or _served_model.supports_json_schema_outputs)
             and (not agent.use_json_mode or agent.structured_outputs is True)
         )
     ):

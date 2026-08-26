@@ -80,7 +80,7 @@ if TYPE_CHECKING:
 def get_response_format(
     team: "Team", model: Optional[Model] = None, run_context: Optional[RunContext] = None
 ) -> Optional[Union[Dict, Type[BaseModel]]]:
-    model = cast(Model, model or team.model)
+    model = cast(Model, model or run_model(team, run_context))
     # Get output_schema from run_context
     output_schema = run_context.output_schema if run_context else None
 
@@ -742,7 +742,7 @@ def reason(
     if reasoning_model is None and team.model is not None:
         from copy import deepcopy
 
-        reasoning_model = deepcopy(team.model)
+        reasoning_model = deepcopy(run_model(team, run_context))
 
     # Create reasoning manager with config
     manager = ReasoningManager(
@@ -787,7 +787,7 @@ async def areason(
     if reasoning_model is None and team.model is not None:
         from copy import deepcopy
 
-        reasoning_model = deepcopy(team.model)
+        reasoning_model = deepcopy(run_model(team, run_context))
 
     # Create reasoning manager with config
     manager = ReasoningManager(
@@ -1775,6 +1775,7 @@ def _convert_response_to_structured_format(
 def generate_team_followups(
     team: Team,
     run_response: TeamRunOutput,
+    run_context: Optional[RunContext],
 ) -> None:
     """Generate followups after the main response (sync, non-streaming)."""
     from egpt.agent._response import _build_followup_messages, _get_followups_response_format, _parse_followups_response
@@ -1783,7 +1784,7 @@ def generate_team_followups(
     if not team.followups or run_response.content is None:
         return
 
-    model = team.followup_model or team.model
+    model = team.followup_model or run_model(team, run_context)
     if model is None:
         return
 
@@ -1809,6 +1810,7 @@ def generate_team_followups(
 async def agenerate_team_followups(
     team: Team,
     run_response: TeamRunOutput,
+    run_context: Optional[RunContext],
 ) -> None:
     """Generate followups after the main response (async, non-streaming)."""
     from egpt.agent._response import _build_followup_messages, _get_followups_response_format, _parse_followups_response
@@ -1817,7 +1819,7 @@ async def agenerate_team_followups(
     if not team.followups or run_response.content is None:
         return
 
-    model = team.followup_model or team.model
+    model = team.followup_model or run_model(team, run_context)
     if model is None:
         return
 
@@ -1843,6 +1845,7 @@ async def agenerate_team_followups(
 def generate_team_followups_stream(
     team: Team,
     run_response: TeamRunOutput,
+    run_context: Optional[RunContext],
     stream_events: bool = True,
 ) -> Iterator[TeamRunOutputEvent]:
     """Generate followups after the main response (sync, streaming)."""
@@ -1852,7 +1855,7 @@ def generate_team_followups_stream(
     if not team.followups or run_response.content is None:
         return
 
-    model = team.followup_model or team.model
+    model = team.followup_model or run_model(team, run_context)
     if model is None:
         return
 
@@ -1894,6 +1897,7 @@ def generate_team_followups_stream(
 async def agenerate_team_followups_stream(
     team: Team,
     run_response: TeamRunOutput,
+    run_context: Optional[RunContext],
     stream_events: bool = True,
 ) -> AsyncIterator[TeamRunOutputEvent]:
     """Generate followups after the main response (async, streaming)."""
@@ -1903,7 +1907,7 @@ async def agenerate_team_followups_stream(
     if not team.followups or run_response.content is None:
         return
 
-    model = team.followup_model or team.model
+    model = team.followup_model or run_model(team, run_context)
     if model is None:
         return
 

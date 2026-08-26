@@ -1062,7 +1062,7 @@ def _run(
                 convert_response_to_structured_format(agent, run_response, run_context=run_context)
 
                 # 9b. Generate follow-up suggestions if enabled
-                generate_followups(agent, run_response=run_response)
+                generate_followups(agent, run_response=run_response, run_context=run_context)
 
                 # 10. Execute post-hooks after output is generated but before response is returned
                 if agent.post_hooks is not None:
@@ -1528,6 +1528,7 @@ def _run_stream(
                     agent,  # type: ignore
                     run_response=run_response,
                     stream_events=stream_events,
+                    run_context=run_context,
                 ):
                     if not isinstance(event, _CANCEL_BYPASS_EVENT_TYPES):
                         raise_if_cancelled(run_response.run_id)  # type: ignore
@@ -2264,7 +2265,7 @@ async def _arun(
                 convert_response_to_structured_format(agent, run_response, run_context=run_context)
 
                 # 11b. Generate follow-up suggestions if enabled
-                await agenerate_followups(agent, run_response=run_response)
+                await agenerate_followups(agent, run_response=run_response, run_context=run_context)
 
                 # 12. Store media in run output for the caller
                 store_media_util(run_response, model_response)
@@ -2978,6 +2979,7 @@ async def _arun_stream(
                     agent,
                     run_response=run_response,
                     stream_events=stream_events,
+                    run_context=run_context,
                 ):
                     if not isinstance(event, _CANCEL_BYPASS_EVENT_TYPES):
                         await araise_if_cancelled(run_response.run_id)  # type: ignore
@@ -4262,7 +4264,7 @@ def _continue_run(
                 convert_response_to_structured_format(agent, run_response, run_context=run_context)
 
                 # 4b. Generate follow-up suggestions if enabled
-                generate_followups(agent, run_response=run_response)
+                generate_followups(agent, run_response=run_response, run_context=run_context)
 
                 # 5. Store media in run output for the caller
                 store_media_util(run_response, model_response)
@@ -4485,6 +4487,7 @@ def _continue_run_stream(
                     agent,  # type: ignore
                     run_response=run_response,
                     stream_events=stream_events,
+                    run_context=run_context,
                 ):
                     if not isinstance(event, _CANCEL_BYPASS_EVENT_TYPES):
                         raise_if_cancelled(run_response.run_id)  # type: ignore
@@ -5398,7 +5401,7 @@ async def _acontinue_run(
                 convert_response_to_structured_format(agent, run_response, run_context=run_context)
 
                 # 10b. Generate follow-up suggestions if enabled
-                await agenerate_followups(agent, run_response=run_response)
+                await agenerate_followups(agent, run_response=run_response, run_context=run_context)
 
                 # 11. Store media in run output for the caller
                 store_media_util(run_response, model_response)
@@ -5943,6 +5946,7 @@ async def _acontinue_run_stream(
                     agent,
                     run_response=run_response,
                     stream_events=stream_events,
+                    run_context=run_context,
                 ):
                     if not isinstance(event, _CANCEL_BYPASS_EVENT_TYPES):
                         await araise_if_cancelled(run_response.run_id)  # type: ignore

@@ -512,7 +512,7 @@ def _run_tasks(
         # Generate followups if enabled
         from egpt.team._response import generate_team_followups
 
-        generate_team_followups(team, run_response=run_response)
+        generate_team_followups(team, run_response=run_response, run_context=run_context)
 
         # Set the run status to completed
         run_response.status = RunStatus.completed
@@ -998,7 +998,9 @@ def _run_tasks_stream(
         # Generate followups if enabled
         from egpt.team._response import generate_team_followups_stream
 
-        yield from generate_team_followups_stream(team, run_response=run_response, stream_events=stream_events)
+        yield from generate_team_followups_stream(
+            team, run_response=run_response, stream_events=stream_events, run_context=run_context
+        )
 
         # Set the run status to completed
         run_response.status = RunStatus.completed
@@ -1372,7 +1374,7 @@ def _run(
                 # Generate followups if enabled
                 from egpt.team._response import generate_team_followups
 
-                generate_team_followups(team, run_response=run_response)
+                generate_team_followups(team, run_response=run_response, run_context=run_context)
 
                 # Set the run status to completed
                 run_response.status = RunStatus.completed
@@ -1835,7 +1837,9 @@ def _run_stream(
                 # Generate followups if enabled
                 from egpt.team._response import generate_team_followups_stream
 
-                yield from generate_team_followups_stream(team, run_response=run_response, stream_events=stream_events)
+                yield from generate_team_followups_stream(
+                    team, run_response=run_response, stream_events=stream_events, run_context=run_context
+                )
 
                 # Set the run status to completed
                 run_response.status = RunStatus.completed
@@ -2443,7 +2447,7 @@ async def _arun_tasks(
         # Generate followups if enabled
         from egpt.team._response import agenerate_team_followups
 
-        await agenerate_team_followups(team, run_response=run_response)
+        await agenerate_team_followups(team, run_response=run_response, run_context=run_context)
 
         # Set the run status to completed
         run_response.status = RunStatus.completed
@@ -2968,7 +2972,7 @@ async def _arun_tasks_stream(
         from egpt.team._response import agenerate_team_followups_stream
 
         async for event in agenerate_team_followups_stream(
-            team, run_response=run_response, stream_events=stream_events
+            team, run_response=run_response, stream_events=stream_events, run_context=run_context
         ):
             yield event
 
@@ -3400,7 +3404,7 @@ async def _arun(
                 # Generate followups if enabled
                 from egpt.team._response import agenerate_team_followups
 
-                await agenerate_team_followups(team, run_response=run_response)
+                await agenerate_team_followups(team, run_response=run_response, run_context=run_context)
 
                 run_response.status = RunStatus.completed
 
@@ -4127,7 +4131,7 @@ async def _arun_stream(
                 from egpt.team._response import agenerate_team_followups_stream
 
                 async for event in agenerate_team_followups_stream(
-                    team, run_response=run_response, stream_events=stream_events
+                    team, run_response=run_response, stream_events=stream_events, run_context=run_context
                 ):
                     yield event
 

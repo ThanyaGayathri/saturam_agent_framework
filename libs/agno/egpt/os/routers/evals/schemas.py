@@ -88,12 +88,21 @@ class EvalSchema(BaseModel):
 
     @classmethod
     def from_accuracy_eval(cls, accuracy_eval: AccuracyEval, result: AccuracyResult) -> "EvalSchema":
-        model_provider = (
-            accuracy_eval.agent.model.provider
-            if accuracy_eval.agent and accuracy_eval.agent.model
-            else accuracy_eval.team.model.provider
-            if accuracy_eval.team and accuracy_eval.team.model
-            else None
+        # `served_model_id`/`served_model_provider` are the model that actually served run()/
+        # arun() (aicoe-tracker#183) -- reading accuracy_eval.agent.model/team.model directly
+        # here, unconditionally, made the API response disagree with the DB record for the same
+        # eval on an escalated run: the DB write already used the served model, this schema still
+        # named the configured one. Falls back to the configured model when unset, which is the
+        # correct (and only) answer on the run_with_output()/arun_with_output() path, where no
+        # run happens and served_model_id/served_model_provider are never set.
+        configured = (
+            accuracy_eval.agent.model
+            if accuracy_eval.agent
+            else (accuracy_eval.team.model if accuracy_eval.team else None)
+        )
+        model_id = accuracy_eval.served_model_id or (configured.id if configured is not None else None)
+        model_provider = accuracy_eval.served_model_provider or (
+            configured.provider if configured is not None else None
         )
         return cls(
             id=accuracy_eval.eval_id,
@@ -101,7 +110,7 @@ class EvalSchema(BaseModel):
             agent_id=accuracy_eval.agent.id if accuracy_eval.agent else None,
             team_id=accuracy_eval.team.id if accuracy_eval.team else None,
             workflow_id=None,
-            model_id=accuracy_eval.agent.model.id if accuracy_eval.agent else accuracy_eval.team.model.id,  # type: ignore
+            model_id=model_id,
             model_provider=model_provider,
             eval_type=EvalType.ACCURACY,
             eval_data=asdict(result),

@@ -881,7 +881,7 @@ def get_response_format(
     # Get output_schema from run_context
     output_schema = run_context.output_schema if run_context else None
 
-    model = cast(Model, model or agent.model)
+    model = cast(Model, model or run_model(agent, run_context))
     if output_schema is None:
         return None
     else:
@@ -1842,12 +1842,13 @@ def _accumulate_followups_metrics(model_response: ModelResponse, model: Model, r
 def generate_followups(
     agent: Agent,
     run_response: RunOutput,
+    run_context: Optional[RunContext],
 ) -> None:
     """Generate followups after the main response (sync, non-streaming)."""
     if not agent.followups or run_response.content is None:
         return
 
-    model = agent.followup_model or agent.model
+    model = agent.followup_model or run_model(agent, run_context)
     if model is None:
         return
 
@@ -1873,12 +1874,13 @@ def generate_followups(
 async def agenerate_followups(
     agent: Agent,
     run_response: RunOutput,
+    run_context: Optional[RunContext],
 ) -> None:
     """Generate followups after the main response (async, non-streaming)."""
     if not agent.followups or run_response.content is None:
         return
 
-    model = agent.followup_model or agent.model
+    model = agent.followup_model or run_model(agent, run_context)
     if model is None:
         return
 
@@ -1904,13 +1906,14 @@ async def agenerate_followups(
 def generate_followups_stream(
     agent: Agent,
     run_response: RunOutput,
+    run_context: Optional[RunContext],
     stream_events: bool = True,
 ) -> Iterator[RunOutputEvent]:
     """Generate followups after the main response (sync, streaming)."""
     if not agent.followups or run_response.content is None:
         return
 
-    model = agent.followup_model or agent.model
+    model = agent.followup_model or run_model(agent, run_context)
     if model is None:
         return
 
@@ -1952,13 +1955,14 @@ def generate_followups_stream(
 async def agenerate_followups_stream(
     agent: Agent,
     run_response: RunOutput,
+    run_context: Optional[RunContext],
     stream_events: bool = True,
 ) -> AsyncIterator[RunOutputEvent]:
     """Generate followups after the main response (async, streaming)."""
     if not agent.followups or run_response.content is None:
         return
 
-    model = agent.followup_model or agent.model
+    model = agent.followup_model or run_model(agent, run_context)
     if model is None:
         return
 
