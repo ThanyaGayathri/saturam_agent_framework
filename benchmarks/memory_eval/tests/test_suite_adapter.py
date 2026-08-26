@@ -45,7 +45,7 @@ def _skip(reason: str) -> None:
 
 def test_build_memory_cases_against_real_suite() -> None:
     if not _HAS_EGPT:
-        _skip("egpt not installed (offline CI) — suite adapter covered in the venv job")
+        _skip("egpt not installed — the smoke job installs it; run ./scripts/dev_setup.sh locally")
         return
     from adapters.egpt_suite import build_memory_cases
     from harness.baselines import get_provider

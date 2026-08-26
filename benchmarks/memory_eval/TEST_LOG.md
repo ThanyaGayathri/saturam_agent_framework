@@ -174,8 +174,10 @@ passed on origin/main. The lint/type results above are the direct self-check on 
 
 Scope for this pass, agreed up front: close the mechanical gaps in AC1/AC3 against the existing
 committed fixtures — no real corpus fetch, no live LLM call, no graph/PPR track (that track,
-`PLAN.md §2.6`/§6` and `findings/03`, is unscoped green-field work with an ownership question
-against SM-G1/SM-H4 and is left for a follow-up). AC2's consolidation-quality split (footprint
+`PLAN.md §2.6`/§6 and `findings/03`, is not green-field: `libs/agno/egpt/memory/graph/` exists
+and `integrations/memory/graph/neo4j/neo4j.py` already ships a flag-gated
+`multihop_ppr_enabled` PPR path. It's left for a follow-up because ownership against SM-G1/SM-H4
+is unresolved, not because the code doesn't exist). AC2's consolidation-quality split (footprint
 wired, `composite_quality` deferred to SM-R7 labels) was already correct and is unchanged.
 
 | # | Gap (from the pre-X7 STATUS CAVEAT) | Closed by |

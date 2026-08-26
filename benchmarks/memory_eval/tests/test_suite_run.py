@@ -90,7 +90,7 @@ def _fake_suite_for(bench, correct_ids) -> _FakeSuiteResult:
 
 def test_run_memory_suite_merges_qa_and_retrieval_metrics() -> None:
     if not _HAS_EGPT:
-        _skip("egpt not installed (offline CI) — suite wiring covered in the venv job")
+        _skip("egpt not installed — the smoke job installs it; run ./scripts/dev_setup.sh locally")
         return
     from adapters.egpt_suite import run_memory_suite
     from harness.baselines import get_provider
@@ -129,11 +129,18 @@ def test_run_memory_suite_merges_qa_and_retrieval_metrics() -> None:
     # forwards an empty or default provider state.
     assert result.metrics["memory_footprint"] == {"items": 7, "tokens": 52}
 
-    # Known, deliberate coverage boundary: `turn_index` (threaded through the merge into the
-    # bi-temporal leak checks at harness/metrics.py:197) is NOT pinned here, because no committed
-    # fixture carries temporal fields -- all four report `temporal: null`, so emptying it changes
-    # nothing observable and an assertion would be theatre. Closing it needs a temporal-bearing
-    # fixture, which is a bigger change than a review fix; tracked rather than faked.
+    # `turn_index` (threaded through the merge into the bi-temporal leak checks at
+    # harness/metrics.py:197) IS observable on this fixture: both lme_dog and lme_job carry a
+    # real `as_of` timestamp (`knowledge_update` is a bi-temporal category), so an empty
+    # turn_index makes every retrieved id a no-op lookup, `leak_measured` stays 0, and this reads
+    # None instead of 0.0. Verified as a live mutation, reverted: emptying turn_index at both
+    # call sites flips this assertion red while every other assertion above stays green.
+    assert result.metrics["bitemporal"]["as_of_leak_rate"] == 0.0
+
+    # query_ms comes from build_memory_cases's own perf_counter() timing, not run_cases; a merge
+    # that drops it (e.g. always 0.0) leaves the key present but zeroed, which the assertions
+    # above don't touch. Verified as a live mutation, reverted.
+    assert result.metrics["latency_ms"]["query"]["mean"] > 0.0
 
 
 def test_a_degraded_case_is_reported_not_silently_scored_as_wrong() -> None:
@@ -208,6 +215,37 @@ def test_arun_memory_suite_matches_the_sync_path() -> None:
 
     assert result.metrics["n_probes"] == len(bench.probes)
     assert 0.0 < result.metrics["qa_accuracy"]["value"] < 1.0
+
+
+def test_arun_memory_suite_uses_the_async_build_path() -> None:
+    """A mutation making ``arun_memory_suite`` call the sync ``build_memory_cases`` instead
+    of ``abuild_memory_cases`` would not change any metric value here (the fake provider's
+    sync and async read/write return identical data), so it must be caught structurally."""
+    if not _HAS_EGPT:
+        _skip("egpt not installed (offline CI)")
+        return
+    import adapters.egpt_suite as egpt_suite
+    from harness.baselines import get_provider
+    from harness.datasets import get_loader
+    from harness.provider import RunConfig
+
+    bench = get_loader("longmemeval").fixture()
+    provider = get_provider("recency_decay")
+    correct = {p.probe_id for p in bench.probes}
+
+    async def _fake_arun_cases(cases, **kwargs):
+        return _fake_suite_for(bench, correct)
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("arun_memory_suite must call abuild_memory_cases, not build_memory_cases")
+
+    with (
+        patch("egpt.eval.suite.arun_cases", side_effect=_fake_arun_cases),
+        patch.object(egpt_suite, "build_memory_cases", side_effect=_fail_if_called),
+    ):
+        result = asyncio.run(egpt_suite.arun_memory_suite(bench, provider, RunConfig(k=3)))
+
+    assert result.metrics["n_probes"] == len(bench.probes)
 
 
 def _run_all() -> None:
