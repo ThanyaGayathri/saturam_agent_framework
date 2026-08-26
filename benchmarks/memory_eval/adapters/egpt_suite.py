@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
@@ -256,10 +257,22 @@ def _probe_records(
     """
     probes_by_id = {probe.probe_id: probe for probe in benchmark.probes}
     records: List[ProbeRecord] = []
+    degraded: List[str] = []
     for result in suite.results:
         probe = probes_by_id.get(result.name)
         if probe is None:
             continue
+        # An errored, timed-out or skipped case has `passed=False`, so it scores as a *wrong
+        # answer* rather than a missing one -- a judge outage then publishes as a legitimate 0%
+        # and trips the gate's `min_qa_accuracy` as a false regression, with retrieval still
+        # reporting 1.0 beside it to make the wrong story convincing (QC review of #152).
+        #
+        # The scoring itself is left alone: whether to exclude these from the denominator or fail
+        # the run outright is a benchmark-semantics decision, not a review fix. What changes is
+        # that the count is now reported, so "the memory system regressed" and "the judge was
+        # down" are distinguishable in the output instead of looking identical.
+        if getattr(result, "error", None) or getattr(result, "timed_out", False) or getattr(result, "skipped", False):
+            degraded.append(result.name)
         records.append(
             ProbeRecord(
                 probe=probe,
@@ -274,6 +287,15 @@ def _probe_records(
                 query_ms=query_ms.get(result.name, 0.0),
                 answer_ms=result.duration_seconds * 1000.0,
             )
+        )
+    if degraded:
+        # stderr, not egpt's logger: this module is importable on the stdlib-only offline
+        # path, where egpt may not be installed at all.
+        print(
+            f"WARNING: {len(degraded)} of {len(suite.results)} eval cases errored, timed out or "
+            f"were skipped and are scored as incorrect: {sorted(degraded)}. Treat the "
+            f"qa_accuracy below as a floor, not a measurement.",
+            file=sys.stderr,
         )
     return records
 

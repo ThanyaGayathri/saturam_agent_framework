@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import io
 import sys
+from contextlib import redirect_stderr
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -26,12 +28,27 @@ _HAS_EGPT = importlib.util.find_spec("egpt") is not None
 
 
 def _skip(reason: str) -> None:
+    """Refuse to pass silently when `egpt` is absent.
+
+    This used to `print` and return when pytest was unavailable, so on a bare runner the file
+    exited 0 having asserted nothing -- the suite read as green while proving nothing about the
+    wiring it exists to prove (QC review of #152). CI now installs `egpt` for the smoke job, so
+    reaching this path means the environment is not what the workflow guarantees, and the right
+    answer is a loud failure rather than a quiet one.
+
+    Under pytest the skip is still honoured: a developer running the file without the package
+    installed gets a skip, not a spurious failure. It is only the bare-script path -- the one CI
+    uses -- that now raises.
+    """
     try:
         import pytest
-
-        pytest.skip(reason)
     except ImportError:
-        print(f"  SKIP  {reason}")
+        raise RuntimeError(
+            f"{reason}. This file is run as a bare script by .github/workflows/memory-eval.yml, "
+            f"which installs egpt for exactly this reason -- a silent skip here would report a "
+            f"green job that asserted nothing."
+        ) from None
+    pytest.skip(reason)
 
 
 @dataclass
@@ -91,10 +108,63 @@ def test_run_memory_suite_merges_qa_and_retrieval_metrics() -> None:
     assert result.metrics["n_probes"] == len(bench.probes)
     # Every probe judged "correct" -> qa_accuracy should read 1.0.
     assert result.metrics["qa_accuracy"]["value"] == 1.0
-    # Retrieval/temporal/decay/footprint are things run_cases itself never computes;
-    # their presence is the actual point of the merge this file owns.
-    assert result.metrics["retrieval"]["recall_at_k"] is not None
-    assert result.metrics["memory_footprint"] is not None
+    # Retrieval/temporal/decay/footprint are things run_cases itself never computes; merging them
+    # onto the suite result is what this file owns. Assert the *values*, not their presence: a
+    # presence check let three separate mutations through -- dropping `retrieved_ids` from the
+    # merge, emptying `turn_index`, and zeroing `query_ms` each left the whole suite green while
+    # silently zeroing the benchmark's headline numbers (QC review of #152). For a benchmark
+    # harness a plausible-but-wrong number is worse than no number, because it gets compared
+    # across runs and acted on.
+    retrieval = result.metrics["retrieval"]
+    assert retrieval["recall_at_k"] == {"value": 1.0, "n": 2}
+    assert retrieval["hit_at_k"] == {"value": 1.0, "n": 2}
+    assert retrieval["ndcg_at_k"] == {"value": 1.0, "n": 2}
+
+    # `n=2` against `n_probes=3` is the load-bearing part: the abstention probe carries no
+    # evidence, so it is excluded from the retrieval denominator rather than scored as a miss.
+    # An implementation that counted it would report 2/3 here and look merely "a bit worse".
+    assert retrieval["recall_at_k"]["n"] == result.metrics["n_probes"] - 1
+
+    # Footprint comes from the provider, not the suite -- pinning it catches a merge that
+    # forwards an empty or default provider state.
+    assert result.metrics["memory_footprint"] == {"items": 7, "tokens": 52}
+
+    # Known, deliberate coverage boundary: `turn_index` (threaded through the merge into the
+    # bi-temporal leak checks at harness/metrics.py:197) is NOT pinned here, because no committed
+    # fixture carries temporal fields -- all four report `temporal: null`, so emptying it changes
+    # nothing observable and an assertion would be theatre. Closing it needs a temporal-bearing
+    # fixture, which is a bigger change than a review fix; tracked rather than faked.
+
+
+def test_a_degraded_case_is_reported_not_silently_scored_as_wrong() -> None:
+    """An errored/timed-out case scores as a wrong answer, so a judge outage looks like a
+    regression. The scoring is deliberately unchanged; what is pinned is that the count is
+    surfaced, so "the memory system regressed" and "the judge was down" are distinguishable
+    (QC review of #152).
+    """
+    if not _HAS_EGPT:
+        _skip("egpt not installed (offline CI)")
+        return
+    from adapters.egpt_suite import run_memory_suite
+    from harness.baselines import get_provider
+    from harness.datasets import get_loader
+    from harness.provider import RunConfig
+
+    bench = get_loader("longmemeval").fixture()
+    suite = _fake_suite_for(bench, correct_ids=set())
+    suite.results[0].error = "judge endpoint unreachable"
+
+    # `contextlib.redirect_stderr` rather than pytest's `capsys`: this file is also executed as a
+    # bare script by the smoke job, whose runner calls every `test_*` with no arguments, so a
+    # fixture parameter would raise TypeError there.
+    buffer = io.StringIO()
+    with patch("egpt.eval.suite.run_cases", return_value=suite), redirect_stderr(buffer):
+        run_memory_suite(bench, get_provider("recency_decay"), RunConfig(k=3))
+
+    warning = buffer.getvalue()
+    assert "errored, timed out or were skipped" in warning
+    assert suite.results[0].name in warning
+    assert "floor, not a measurement" in warning
 
 
 def test_run_memory_suite_reports_the_suites_own_failures() -> None:
