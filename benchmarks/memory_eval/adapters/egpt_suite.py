@@ -170,6 +170,12 @@ def build_memory_cases(
     config = config or RunConfig()
     for session in sorted(benchmark.sessions, key=lambda s: s.start_ts):
         provider.write(events_of(session, config.tenant))
+    if config.consolidate:
+        # Same place the offline path runs it (`harness/runner.py`): after the whole corpus is
+        # ingested and before the first query, so every probe reads a consolidated store. Dropping
+        # it here made `RunConfig(consolidate=True)` silently mean different things on the two
+        # entry points (QC review of #152).
+        provider.consolidate()
 
     agent = _answer_agent()
     # Pin the JUDGE model on every Case. Without this, run_cases builds the judge as
@@ -204,6 +210,10 @@ async def abuild_memory_cases(
     config = config or RunConfig()
     for session in sorted(benchmark.sessions, key=lambda s: s.start_ts):
         await provider.awrite(events_of(session, config.tenant))
+    if config.consolidate:
+        # Async twin of the sync path's consolidate step; `harness/runner.py`'s `arun_benchmark`
+        # awaits `aconsolidate()` at the same point.
+        await provider.aconsolidate()
 
     agent = _answer_agent()
     judge_model = _build_model()
@@ -285,6 +295,17 @@ def _probe_records(
                     judge_name=judge_name,
                 ),
                 query_ms=query_ms.get(result.name, 0.0),
+                # NOT comparable to `harness/runner.py`'s `answer_ms`, despite the shared field
+                # and the shared `latency_ms.answer` key it aggregates into. `run_benchmark` times
+                # the answerer call alone; `CaseResult.duration_seconds` is the seed's own clock
+                # over the whole case -- `setup`, the agent answer, the LLM judge, the reliability
+                # check and `teardown`. On a live judge the judge call dominates, so this number
+                # is roughly "case wall time", not "time to answer" (QC review of #152).
+                #
+                # Left as-is rather than renamed: `answer_ms` is a field on the shared
+                # `ProbeRecord` (`harness/metrics.py`) that `run_benchmark` also writes, so a
+                # rename here either forks the schema or changes the offline runner's output too.
+                # Reported difference beats a silent one; see README "Latency semantics".
                 answer_ms=result.duration_seconds * 1000.0,
             )
         )

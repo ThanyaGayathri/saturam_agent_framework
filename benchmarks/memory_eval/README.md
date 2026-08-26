@@ -77,6 +77,29 @@ result = run_memory_suite(get_loader("longmemeval").fixture(), get_provider("rec
 print(result.suite.status, result.metrics["qa_accuracy"])
 ```
 
+**Reachability — this path is a library API, not a wired-up run mode.** Nothing in the repo calls
+`run_memory_suite`/`arun_memory_suite` outside the tests above: `run.py` (both `--mode fixture` and
+`--mode full`) drives the older `harness.runner.run_benchmark` path, and both CI jobs go through
+`run.py`. So no CI job and no CLI invocation executes `run_cases` against a real, unmocked
+benchmark today — the snippet above is currently the only way to exercise it. SM-X7's AC1 is
+closed as *"the seed's suite is wired and unit-tested against mocks"*, not as *"the benchmark runs
+through the suite in CI"*. Adding a `run.py` mode (or flag) that routes to `run_memory_suite`, and
+a CI job that exercises it on the offline fixture, is deliberately **not** in this PR and belongs
+to its own ticket.
+
+**Latency semantics — `latency_ms.answer` means different things on the two paths.** Both write to
+`ProbeRecord.answer_ms` and both aggregate into `latency_ms.answer`, but:
+
+| path | what `answer` measures |
+| --- | --- |
+| `harness.runner.run_benchmark` | the answerer call alone (`answerer.answer(...)`) |
+| `adapters.egpt_suite.run_memory_suite` | the seed's whole-case clock — `setup`, agent answer, **LLM judge**, reliability check, `teardown` |
+
+On a live judge the judge call dominates, so this path's number is closer to case wall time than
+to time-to-answer. **Do not compare `latency_ms.answer` across the two paths.** The field is not
+renamed because `answer_ms` lives on the shared `ProbeRecord` that `run_benchmark` also writes;
+renaming it for one path would fork the schema or change the offline runner's output.
+
 ### Full runs (real corpora + real LLM judge) — gated
 
 Needs the dev venv (`./scripts/dev_setup.sh`), network to download, and gpt-5.4/5.5 credentials in

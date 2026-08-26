@@ -31,8 +31,12 @@ by scoring two baseline providers offline (`results/`). SM-X7 lifts this onto `e
 > static-traced only** — `adapters/egpt_suite.run_memory_suite`/`arun_memory_suite` actually call
 > them and merge the retrieval/temporal/decay/footprint metrics onto the QA verdicts they return
 > (`tests/test_suite_run.py`, mocking `run_cases` itself since exercising it for real needs a live
-> LLM). **What is still open:** a *live* run of that path (real answer agent + real LLM judge) has
-> not been executed, and SM-R7's labeled `composite_quality` still needs SM-R7's targets. **Before
+> LLM). **What is still open:** that wiring is reachable only as a **library API** — nothing in the
+> repo calls it. `run.py` (both modes) and both CI jobs drive the older `harness.runner.run_benchmark`
+> path, so no CI job and no CLI invocation executes `run_cases` against an unmocked benchmark. A
+> *live* run of the path (real answer agent + real LLM judge) has therefore not been executed, and
+> routing a `run.py` mode through `run_memory_suite` plus a CI job to exercise it is its own ticket,
+> not part of SM-X7. SM-R7's labeled `composite_quality` still needs SM-R7's targets. **Before
 > any decision leans on real-corpus numbers, run `run_memory_suite` against the real corpora with
 > the LLM judge + SM-R7 labels** — see README.md "Via the seed's `eval/suite.py`".
 

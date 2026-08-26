@@ -185,6 +185,23 @@ wired, `composite_quality` deferred to SM-R7 labels) was already correct and is 
 | 1 | `build_memory_cases` only *built* `Case`s; nothing called `run_cases`/`arun_cases`, and the retrieval/temporal/decay merge onto the `SuiteResult` existed only as prose in the docstring. | `adapters/egpt_suite.run_memory_suite` / `arun_memory_suite`: call the seed's `run_cases`/`arun_cases`, then join `SuiteResult.results` (keyed by `CaseResult.name` == `Probe.probe_id`) with the retrieved-id map and query latency into `ProbeRecord`s, and run them through the existing `harness.metrics.aggregate` unchanged. `build_memory_cases`/`abuild_memory_cases` now also return per-probe query latency (third tuple element — `test_suite_adapter.py` updated for the new shape). |
 | 2 | `ci/memory-eval.yml` was a template inert under `benchmarks/memory_eval/`; nothing in `.github/workflows/` referenced it. | Installed `.github/workflows/memory-eval.yml` (adapted from the template — same two-tier shape, PR-triggered smoke tier now gated on this repo's `run-ci` label per `ci.yml`'s cost-control convention, which the original template predates). The template file is kept as an archived draft with an updated header pointing at the real one. |
 
+### QC review round 3 — dispositions
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | `full` job never installed `uv`, so `dev_setup.sh` hard-exited | **Fixed** — `astral-sh/setup-uv@v6` added before it, matching `ci.yml`; `python-version` corrected to `3.12` to match the venv `dev_setup.sh` actually builds |
+| 2 | `full` job's `if: != 'pull_request'` also fired on `push` to `main` | **Fixed** — enumerates `schedule`/`workflow_dispatch`, matching the stated intent |
+| 3 | `run_memory_suite` reachable only as a library API; AC1 read as fully closed | **Documented, not wired** — the boundary is now stated in PLAN.md and README; routing a `run.py` mode through it plus a CI job is its own ticket |
+| 4 | `RunConfig.consolidate` silently dropped | **Fixed** — honoured on both build paths at the same point `harness/runner.py` uses; pinned by `test_run_config_consolidate_is_honoured_on_both_build_paths` |
+| 5 | Fixtures never diverged probe order, so positional-merge regressions were invisible | **Fixed** — `_fake_suite_for(..., order=)` plus `test_results_are_joined_by_probe_id_not_by_position`, asserted through `qa_accuracy_by_category` (overall accuracy cannot see a permutation) |
+| 6 | `answer_ms` spans the whole case vs the offline runner's answerer-only span | **Documented, not renamed** — `answer_ms` is a shared `ProbeRecord` field `run_benchmark` also writes, so renaming forks the schema; the divergence is stated at the call site and in README "Latency semantics" |
+| 7 | `afootprint()`/`footprint()` swap was invisible | **Fixed** — `test_arun_memory_suite_uses_the_async_footprint` |
+| 8 | "24 passed (+3 new)" did not reconcile | **Fixed** — the count above is now measured, not recalled |
+
+Residual carried out of this PR: **#3's wiring half** — a `run.py` mode (or flag) that routes to
+`run_memory_suite`, and a CI job exercising it on the offline fixture. Needs a new ticket; not a
+review fix.
+
 **Deliberately not done, and why:** a physical move of this tree into `tests/memory/eval/`
 (PLAN.md §5's stated home) — that path does not exist in this repo's actual layout and moving
 ~30 files into `libs/agno/tests/` would break the harness's deliberate stdlib-only/egpt-free core
@@ -201,7 +218,7 @@ existing real-API construction test plus these mocked-merge tests together cover
 proven without spending anything.
 
 **Verification (dev venv, `libs/agno` on `PYTHONPATH`):**
-- `pytest tests/` (whole folder): **24 passed** (was 21; +3 new).
+- `pytest tests/` (whole folder): **29 passed** (was 21; +8 new).
 - `run.py --mode fixture --benchmark all --provider all`: unchanged from the pre-X7 numbers above
   (no harness/metrics code touched) — confirms the merge additions didn't perturb the offline path.
 - `ruff check --select E,F,W,I --line-length 120 --target-version py39 .` → All checks passed.
