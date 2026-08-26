@@ -84,7 +84,7 @@ opentelemetry = ["opentelemetry-sdk", "opentelemetry-exporter-otlp"]
 weave = ["weave"]
 openlit = ["openlit", "egpt[opentelemetry]"]
 arize = ["arize-phoenix", "egpt[opentelemetry]", "opentelemetry-exporter-otlp-proto-grpc", "opentelemetry-distro"]
-langfuse = ["langfuse"]
+langfuse = ["langfuse", "egpt[opentelemetry]", "openinference-instrumentation-agno"]
 
 # Dependencies for Models
 anthropic = ["anthropic"]
