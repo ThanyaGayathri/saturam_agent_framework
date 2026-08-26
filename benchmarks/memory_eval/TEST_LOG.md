@@ -167,3 +167,48 @@ passed on origin/main. The lint/type results above are the direct self-check on 
 - Full LLM-judge path (`LLMJudge`, `--judge llm`) is wired against the real seed API but not executed
   here (offline, no credentials). Exercise it in the dev venv once gpt-5.4 creds are in `.env`.
 - Custom temporal/decay set is single-authored (data-quality caveat, `findings/01`).
+
+---
+
+## SM-X7 (#143) — closing AC1 (suite wiring) and AC3 (CI integration)
+
+Scope for this pass, agreed up front: close the mechanical gaps in AC1/AC3 against the existing
+committed fixtures — no real corpus fetch, no live LLM call, no graph/PPR track (that track,
+`PLAN.md §2.6`/§6` and `findings/03`, is unscoped green-field work with an ownership question
+against SM-G1/SM-H4 and is left for a follow-up). AC2's consolidation-quality split (footprint
+wired, `composite_quality` deferred to SM-R7 labels) was already correct and is unchanged.
+
+| # | Gap (from the pre-X7 STATUS CAVEAT) | Closed by |
+|---|---|---|
+| 1 | `build_memory_cases` only *built* `Case`s; nothing called `run_cases`/`arun_cases`, and the retrieval/temporal/decay merge onto the `SuiteResult` existed only as prose in the docstring. | `adapters/egpt_suite.run_memory_suite` / `arun_memory_suite`: call the seed's `run_cases`/`arun_cases`, then join `SuiteResult.results` (keyed by `CaseResult.name` == `Probe.probe_id`) with the retrieved-id map and query latency into `ProbeRecord`s, and run them through the existing `harness.metrics.aggregate` unchanged. `build_memory_cases`/`abuild_memory_cases` now also return per-probe query latency (third tuple element — `test_suite_adapter.py` updated for the new shape). |
+| 2 | `ci/memory-eval.yml` was a template inert under `benchmarks/memory_eval/`; nothing in `.github/workflows/` referenced it. | Installed `.github/workflows/memory-eval.yml` (adapted from the template — same two-tier shape, PR-triggered smoke tier now gated on this repo's `run-ci` label per `ci.yml`'s cost-control convention, which the original template predates). The template file is kept as an archived draft with an updated header pointing at the real one. |
+
+**Deliberately not done, and why:** a physical move of this tree into `tests/memory/eval/`
+(PLAN.md §5's stated home) — that path does not exist in this repo's actual layout and moving
+~30 files into `libs/agno/tests/` would break the harness's deliberate stdlib-only/egpt-free core
+(`harness/` has zero egpt import today). See PLAN.md §5's recorded deviation for the full
+reasoning. AC1/AC3 are closed *in place* instead.
+
+**New tests:** `tests/test_suite_run.py` — `run_memory_suite`/`arun_memory_suite` against a
+*mocked* `run_cases`/`arun_cases` (patching `egpt.eval.suite.run_cases`/`arun_cases`): asserts the
+merge reads real QA-pass/fail correctly (both an all-pass and an all-fail fixture, so a
+join-on-the-wrong-key bug that always reports success cannot pass silently) and that
+retrieval/footprint metrics — the actual point of the merge — are populated. Exercising `run_cases`
+against a *real* LLM is out of scope for this pass (cost/scope decision); `test_suite_adapter.py`'s
+existing real-API construction test plus these mocked-merge tests together cover what can be
+proven without spending anything.
+
+**Verification (dev venv, `libs/agno` on `PYTHONPATH`):**
+- `pytest tests/` (whole folder): **24 passed** (was 21; +3 new).
+- `run.py --mode fixture --benchmark all --provider all`: unchanged from the pre-X7 numbers above
+  (no harness/metrics code touched) — confirms the merge additions didn't perturb the offline path.
+- `ruff check --select E,F,W,I --line-length 120 --target-version py39 .` → All checks passed.
+- `ruff format --check --line-length 120 .` → clean (28 files).
+- `mypy --explicit-package-bases --ignore-missing-imports --python-version 3.10 harness run.py
+  adapters` → 1 pre-existing error unrelated to this change (`LLMJudge.__init__`'s `scoring: str`
+  vs `AgentAsJudgeEval`'s `Literal` param — reproduced identically against `origin/main`, not
+  introduced here; left as-is per "don't fix unrelated pre-existing issues"). Note: this repo's
+  installed mypy no longer accepts `--python-version 3.9` (raises "not supported, must be 3.10 or
+  higher") — ran at 3.10 instead; not a regression in this change.
+- `.github/workflows/memory-eval.yml` YAML-validated (`yaml.safe_load`); not run in Actions as part
+  of this local verification (no CI runner available here).

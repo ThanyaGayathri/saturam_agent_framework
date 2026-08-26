@@ -38,11 +38,12 @@ def test_build_memory_cases_against_real_suite() -> None:
     from harness.provider import RunConfig
 
     bench = get_loader("longmemeval").fixture()
-    cases, retrieved = build_memory_cases(bench, get_provider("recency_decay"), RunConfig(k=3))
-    # One case per probe, names preserved, retrieval map populated, criteria carries gold.
+    cases, retrieved, query_ms = build_memory_cases(bench, get_provider("recency_decay"), RunConfig(k=3))
+    # One case per probe, names preserved, retrieval map + query latency populated, criteria carries gold.
     assert len(cases) == len(bench.probes)
     assert {c.name for c in cases} == {p.probe_id for p in bench.probes}
     assert all(p.probe_id in retrieved for p in bench.probes)
+    assert all(p.probe_id in query_ms for p in bench.probes)
     for c, p in zip(cases, bench.probes):
         assert p.answer in c.criteria  # gold answer flows into the judge criteria
         # judge_model pinned to OpenAIResponses (NOT the seed's OpenAIChat fallback).

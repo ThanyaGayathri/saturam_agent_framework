@@ -20,14 +20,21 @@ A **plan** whose claims are backed by a **runnable harness skeleton** (`harness/
 ingest→query→answer→score loop, computes every metric defined below, and gates on them — proven
 by scoring two baseline providers offline (`results/`). SM-X7 lifts this onto `eval/suite.py`.
 
-> ⚠️ **STATUS CAVEAT (the main one): this instrument is CONSTRUCTION-VALIDATED, NOT run end-to-end.**
-> Offline it uses a **stub lexical judge** (a proxy that tracks recall) and **lexical baselines**;
-> the seed **`run_cases` is NOT executed** here (needs egpt + an LLM — the wiring is static-traced,
-> not run), the **real LLM-judge** runs are budget-gated and unrun, and SM-R7's label-based
-> **`composite_quality` is NOT run** (only the labelless footprint). So the committed numbers prove
-> the harness *computes and discriminates*, **not** system quality — consolidation *quality* (the
-> hardest problem, PR #8) in particular cannot be judged from them. **SM-X7 MUST run this on real
-> corpora + the LLM judge + SM-R7 labels before any decision leans on its numbers.**
+> ⚠️ **STATUS CAVEAT (updated by SM-X7, #143): the offline instrument below is still
+> CONSTRUCTION-VALIDATED, NOT run end-to-end — that part of this caveat stands.** Offline it uses
+> a **stub lexical judge** (a proxy that tracks recall) and **lexical baselines**; SM-R7's
+> label-based **`composite_quality` is NOT run** (only the labelless footprint). So the committed
+> numbers below prove the harness *computes and discriminates*, **not** system quality —
+> consolidation *quality* (the hardest problem, PR #8) in particular cannot be judged from them.
+>
+> **What SM-X7 closed:** the seed **`run_cases`/`arun_cases` wiring described in §3 is no longer
+> static-traced only** — `adapters/egpt_suite.run_memory_suite`/`arun_memory_suite` actually call
+> them and merge the retrieval/temporal/decay/footprint metrics onto the QA verdicts they return
+> (`tests/test_suite_run.py`, mocking `run_cases` itself since exercising it for real needs a live
+> LLM). **What is still open:** a *live* run of that path (real answer agent + real LLM judge) has
+> not been executed, and SM-R7's labeled `composite_quality` still needs SM-R7's targets. **Before
+> any decision leans on real-corpus numbers, run `run_memory_suite` against the real corpora with
+> the LLM judge + SM-R7 labels** — see README.md "Via the seed's `eval/suite.py`".
 
 ---
 
@@ -43,8 +50,9 @@ by scoring two baseline providers offline (`results/`). SM-X7 lifts this onto `e
 - [x] **Bi-temporal + decay behavior covered by the plan** — §2.3 + §1 (custom set). Implemented:
       `Probe.as_of` / `decay_target_turn_id`, `metrics.aggregate` (`as_of_leak_rate`, decay
       suppression/outranked), `fixtures/custom_temporal.sample.json`.
-- [x] **CI reporting approach noted** — §4. Implemented: `harness/gate.py`, `ci/memory-eval.yml`,
-      `run.py` (writes `results/*.json` + `summary_*.md`).
+- [x] **CI reporting approach noted** — §4. Implemented: `harness/gate.py`, `run.py` (writes
+      `results/*.json` + `summary_*.md`), and — closed by SM-X7 — `.github/workflows/memory-eval.yml`
+      (`ci/memory-eval.yml` here is the archived draft it was installed from).
 
 ## Questions to answer (verbatim from #88)
 
@@ -212,9 +220,19 @@ Two-tier (`ci/memory-eval.yml` template + `harness/gate.py` + `run.py`):
 
 SM-X7 receives, concretely: the four dataset loaders + unified schema; `metrics.py` (exact defs +
 tests); the `MemoryProvider` contract + `build_memory_cases` recipe for `run_cases`; `gate.py` +
-the CI template. X7's home is `tests/memory/eval/` inside core; this folder is the portable source
-it lifts. The `Answerer`/`Judge`/`MemoryProvider` seams mean X7 swaps the stub judge/answerer for
-the LLM ones and the baselines for R7/R8 providers with no metric/runner changes.
+the CI template. The `Answerer`/`Judge`/`MemoryProvider` seams mean X7 swaps the stub judge/answerer
+for the LLM ones and the baselines for R7/R8 providers with no metric/runner changes.
+
+**Deviation from the "lifts into `tests/memory/eval/` inside core" line above (recorded, not
+silent):** `tests/memory/eval/` does not correspond to anything in this repo's actual layout — the
+repo has no top-level `tests/`; core tests live at `libs/agno/tests/`, and this epic's own
+convention for iterative memory deliverables is a sibling top-level `benchmarks/memory_*/` folder
+(`memory_consolidation`, `memory_multihop`, etc. — this folder among them). Moving this harness's
+~30 files into `libs/agno/tests/` would also break its deliberate "stdlib-only, egpt-free offline
+core" property (`harness/` has zero egpt import; only `adapters/` does), which is what lets
+`tests/test_metrics.py`/`test_runner.py` run without the dev venv at all. SM-X7 therefore closes
+the *behavioral* handoff (real `run_cases` wiring, §3; CI, §4) in place, rather than relocating the
+tree — a physical move stays open as a follow-up if `benchmarks/` is ever retired as a convention.
 
 ## 6. Out of scope (owned elsewhere)
 
