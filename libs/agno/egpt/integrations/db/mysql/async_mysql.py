@@ -451,13 +451,17 @@ class AsyncMySQLDb(AsyncBaseDb):
             await sess.execute(stmt)
 
     # -- Session methods --
-    async def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    async def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """
         Delete a session from the database.
 
         Args:
             session_id (str): ID of the session to delete
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             bool: True if the session was deleted, False otherwise.
@@ -465,6 +469,7 @@ class AsyncMySQLDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_session")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -474,6 +479,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.session_id == session_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
 
                 if result.rowcount == 0:  # type: ignore
@@ -488,17 +495,22 @@ class AsyncMySQLDb(AsyncBaseDb):
             log_error(f"Error deleting session: {str(e)}")
             return False
 
-    async def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete all given sessions from the database.
         Can handle multiple session types in the same run.
 
         Args:
             session_ids (List[str]): The IDs of the sessions to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_sessions")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -508,6 +520,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.session_id.in_(session_ids))
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
 
             log_debug(f"Successfully deleted {result.rowcount} sessions")  # type: ignore
@@ -521,6 +535,8 @@ class AsyncMySQLDb(AsyncBaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Read a session from the database.
@@ -530,6 +546,8 @@ class AsyncMySQLDb(AsyncBaseDb):
             session_type (Optional[SessionType]): Type of session to get. Defaults to None.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults
+                to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[Session, Dict[str, Any], None]:
@@ -539,6 +557,7 @@ class AsyncMySQLDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_session")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -549,6 +568,8 @@ class AsyncMySQLDb(AsyncBaseDb):
 
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(stmt)
                 row = result.fetchone()
                 if row is None:
@@ -578,6 +599,8 @@ class AsyncMySQLDb(AsyncBaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """
         Get all sessions in the given table. Can filter by user_id and entity_id.
@@ -593,6 +616,8 @@ class AsyncMySQLDb(AsyncBaseDb):
             sort_by (Optional[str]): The field to sort by. Defaults to None.
             sort_order (Optional[str]): The sort order. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the sessions. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[List[Session], Tuple[List[Dict], int]]:
@@ -602,6 +627,7 @@ class AsyncMySQLDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_sessions")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -613,6 +639,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if component_id is not None:
                     if session_type == SessionType.AGENT:
                         stmt = stmt.where(table.c.agent_id == component_id)
@@ -675,6 +703,8 @@ class AsyncMySQLDb(AsyncBaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Rename a session in the database.
@@ -685,6 +715,8 @@ class AsyncMySQLDb(AsyncBaseDb):
             session_name (str): The new name for the session.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the rename to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -694,6 +726,7 @@ class AsyncMySQLDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during renaming.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "rename_session")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -710,6 +743,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                     stmt = stmt.where(table.c.session_type == session_type.value)
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 await sess.execute(stmt)
 
                 # Fetch the updated row
@@ -718,6 +753,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                     select_stmt = select_stmt.where(table.c.session_type == session_type.value)
                 if user_id is not None:
                     select_stmt = select_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    select_stmt = select_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(select_stmt)
                 row = result.fetchone()
                 if not row:
@@ -736,7 +773,7 @@ class AsyncMySQLDb(AsyncBaseDb):
             return None
 
     async def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Insert or update a session in the database.
@@ -744,6 +781,9 @@ class AsyncMySQLDb(AsyncBaseDb):
         Args:
             session (Session): The session data to upsert.
             deserialize (Optional[bool]): Whether to deserialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -753,6 +793,7 @@ class AsyncMySQLDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_session")
         try:
             table = await self._get_table(table_type="sessions", create_table_if_not_found=True)
             if table is None:
@@ -762,14 +803,16 @@ class AsyncMySQLDb(AsyncBaseDb):
             if isinstance(session, AgentSession):
                 async with self.async_session_factory() as sess, sess.begin():
                     existing_result = await sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     )
                     existing_row = existing_result.fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     current_time = int(time.time())
@@ -778,6 +821,7 @@ class AsyncMySQLDb(AsyncBaseDb):
                         session_type=SessionType.AGENT.value,
                         agent_id=session_dict.get("agent_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         agent_data=session_dict.get("agent_data"),
                         session_data=session_dict.get("session_data"),
@@ -787,6 +831,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                         updated_at=session_dict.get("updated_at") or current_time,
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         agent_id=session_dict.get("agent_id"),
                         user_id=session_dict.get("user_id"),
                         agent_data=session_dict.get("agent_data"),
@@ -815,14 +861,16 @@ class AsyncMySQLDb(AsyncBaseDb):
             elif isinstance(session, TeamSession):
                 async with self.async_session_factory() as sess, sess.begin():
                     existing_result = await sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     )
                     existing_row = existing_result.fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     current_time = int(time.time())
@@ -831,6 +879,7 @@ class AsyncMySQLDb(AsyncBaseDb):
                         session_type=SessionType.TEAM.value,
                         team_id=session_dict.get("team_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         team_data=session_dict.get("team_data"),
                         session_data=session_dict.get("session_data"),
@@ -840,6 +889,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                         updated_at=session_dict.get("updated_at") or current_time,
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         team_id=session_dict.get("team_id"),
                         user_id=session_dict.get("user_id"),
                         team_data=session_dict.get("team_data"),
@@ -868,14 +919,16 @@ class AsyncMySQLDb(AsyncBaseDb):
             elif isinstance(session, WorkflowSession):
                 async with self.async_session_factory() as sess, sess.begin():
                     existing_result = await sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     )
                     existing_row = existing_result.fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     current_time = int(time.time())
@@ -884,6 +937,7 @@ class AsyncMySQLDb(AsyncBaseDb):
                         session_type=SessionType.WORKFLOW.value,
                         workflow_id=session_dict.get("workflow_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         workflow_data=session_dict.get("workflow_data"),
                         session_data=session_dict.get("session_data"),
@@ -893,6 +947,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                         updated_at=session_dict.get("updated_at") or current_time,
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         workflow_id=session_dict.get("workflow_id"),
                         user_id=session_dict.get("user_id"),
                         workflow_data=session_dict.get("workflow_data"),
@@ -926,7 +982,12 @@ class AsyncMySQLDb(AsyncBaseDb):
             return None
 
     async def upsert_sessions(
-        self, sessions: List[Session], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        sessions: List[Session],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk upsert multiple sessions for improved performance on large datasets.
@@ -935,6 +996,9 @@ class AsyncMySQLDb(AsyncBaseDb):
             sessions (List[Session]): List of sessions to upsert.
             deserialize (Optional[bool]): Whether to deserialize the sessions. Defaults to True.
             preserve_updated_at (bool): If True, preserve the updated_at from the session object.
+            tenant_id (Optional[str]): Tenant to stamp every session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             List[Union[Session, Dict[str, Any]]]: List of upserted sessions.
@@ -942,6 +1006,7 @@ class AsyncMySQLDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during bulk upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_sessions")
         if not sessions:
             return []
 
@@ -953,7 +1018,7 @@ class AsyncMySQLDb(AsyncBaseDb):
                     result
                     for session in sessions
                     if session is not None
-                    for result in [await self.upsert_session(session, deserialize=deserialize)]
+                    for result in [await self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)]
                     if result is not None
                 ]
 
@@ -987,6 +1052,7 @@ class AsyncMySQLDb(AsyncBaseDb):
                                 "session_type": SessionType.AGENT.value,
                                 "agent_id": session_dict.get("agent_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "agent_data": session_dict.get("agent_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -1000,6 +1066,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                     if agent_data:
                         stmt = mysql.insert(table)
                         stmt = stmt.on_duplicate_key_update(
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             agent_id=stmt.inserted.agent_id,
                             user_id=stmt.inserted.user_id,
                             agent_data=stmt.inserted.agent_data,
@@ -1040,6 +1108,7 @@ class AsyncMySQLDb(AsyncBaseDb):
                                 "session_type": SessionType.TEAM.value,
                                 "team_id": session_dict.get("team_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "team_data": session_dict.get("team_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -1053,6 +1122,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                     if team_data:
                         stmt = mysql.insert(table)
                         stmt = stmt.on_duplicate_key_update(
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             team_id=stmt.inserted.team_id,
                             user_id=stmt.inserted.user_id,
                             team_data=stmt.inserted.team_data,
@@ -1093,6 +1164,7 @@ class AsyncMySQLDb(AsyncBaseDb):
                                 "session_type": SessionType.WORKFLOW.value,
                                 "workflow_id": session_dict.get("workflow_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "workflow_data": session_dict.get("workflow_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -1106,6 +1178,8 @@ class AsyncMySQLDb(AsyncBaseDb):
                     if workflow_data:
                         stmt = mysql.insert(table)
                         stmt = stmt.on_duplicate_key_update(
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             workflow_id=stmt.inserted.workflow_id,
                             user_id=stmt.inserted.user_id,
                             workflow_data=stmt.inserted.workflow_data,
@@ -1142,7 +1216,7 @@ class AsyncMySQLDb(AsyncBaseDb):
                 result
                 for session in sessions
                 if session is not None
-                for result in [await self.upsert_session(session, deserialize=deserialize)]
+                for result in [await self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)]
                 if result is not None
             ]
 

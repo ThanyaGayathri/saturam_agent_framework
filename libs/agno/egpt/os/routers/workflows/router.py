@@ -400,7 +400,11 @@ async def handle_workflow_subscription(
                 except FactoryContextRequired:
                     workflow = None
                 if workflow and isinstance(workflow, Workflow):
-                    workflow_run = await workflow.aget_run_output(run_id, session_id, user_id=user_id)
+                    # Same tenant that just scoped the workflow hydration above (aicoe-tracker#197)
+                    # -- the run/session read this ADR left unscoped.
+                    workflow_run = await workflow.aget_run_output(
+                        run_id, session_id, user_id=user_id, tenant_id=hydration_tenant_id
+                    )
 
                     if workflow_run:
                         # Run exists in DB - send all events from DB
@@ -613,8 +617,11 @@ async def handle_workflow_continue_via_websocket(
             )
             return
 
-        # Load the paused run
-        existing_run = await workflow.aget_run_output(run_id=run_id, session_id=session_id, user_id=user_id)
+        # Load the paused run. Same tenant that just scoped the workflow hydration above
+        # (aicoe-tracker#197) -- the run/session read this ADR left unscoped.
+        existing_run = await workflow.aget_run_output(
+            run_id=run_id, session_id=session_id, user_id=user_id, tenant_id=hydration_tenant_id
+        )
         if existing_run is None:
             await websocket.send_text(json.dumps({"event": "error", "error": f"Run {run_id} not found"}))
             return

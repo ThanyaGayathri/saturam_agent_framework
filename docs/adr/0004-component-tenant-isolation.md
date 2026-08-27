@@ -202,6 +202,26 @@ before and after the fix, and tracked separately:
   (`Workflow.aget_run_output` → `aget_session` → `_aread_session`) take no `tenant_id` on either
   transport — [aicoe-tracker#197](https://github.com/Saturam-Inc/aicoe-tracker/issues/197).
 
+**Amended by [aicoe-tracker#197](https://github.com/Saturam-Inc/aicoe-tracker/issues/197) —
+closes the second gap above for the chain it names, with two departures from this ADR's own
+pattern that a direct copy would have gotten wrong.** `sessions` gained the identical `tenant_id`
+column and `resolve_tenant_scope` guard the four component tables have, but the fourteen
+component methods' required-keyword-only `tenant_id` is not repeated here: the session methods
+are called from roughly a hundred sites inside the agent/team/workflow run loop, not the narrow,
+single-PR-updatable surface components had, so `tenant_id` stays optional
+(`Agent.save`/`Team.save`/`Workflow.save`'s posture, not `get_component`'s). More importantly,
+enforcement is **not** wired to `require_tenant_id` — a new, separate `require_session_tenant_id`
+flag, off by default and not auto-enabled by `EgptOS`. Sharing the flag would have meant every
+deployment that turns on component tenancy also starts refusing every agent/team/workflow run's
+own (currently unscoped) session save, since the write side was not part of this fix. `Workflow`
+additionally carries `tenant_id` as a declared instance field, stamped at hydration, so its own
+session reads and writes agree on the tenant without threading a parameter through the run loop —
+`Agent`/`Team` get the same DB-layer capability and read-method signature but not yet the
+instance-level default, left as tracked follow-up given the size and blast radius of their
+constructors. See `docs/tenancy.md` section 8 for the full account, including the still-open gaps
+(the write path in general, `Agent`/`Team`'s instance-level default, and factory-produced
+workflows).
+
 **The non-HTTP entry points keep an unscoped default.** `Agent.save/delete`, `Team.save/delete`
 and `Workflow.save/delete` take `tenant_id` but default it to `None`. On a **non-strict** db that
 means an unscoped write can update a row owned by another tenant sharing the same
@@ -246,3 +266,8 @@ archaeology exercise.
 - `libs/agno/tests/unit/db/test_component_tenant_adversarial.py` — adversarial-tenant sweep
 - `libs/agno/tests/integration/os/tenancy_postgres/test_adversarial_tenant_isolation.py` — the same
   on real Postgres, plus every route with real JWTs
+- [tenancy.md](../tenancy.md) section 8 — the session/run enforcement aicoe-tracker#197 added, and
+  why it departs from this ADR's pattern (`egpt/db/session_scope.py`, `db/migrations/versions/v2_9_0.py`)
+- `libs/agno/tests/unit/db/test_session_tenant_fail_closed.py`,
+  `libs/agno/tests/unit/db/test_session_tenant_adversarial.py`,
+  `libs/agno/tests/unit/workflow/test_workflow_tenant_scoping.py` — the session/run equivalents

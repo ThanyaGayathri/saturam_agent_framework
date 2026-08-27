@@ -16,11 +16,11 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
-from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
 )
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.utils import (
     deserialize_session,
     deserialize_session_json_fields,
@@ -623,14 +623,22 @@ class AsyncSqliteDb(AsyncBaseDb):
             await sess.execute(stmt)
 
     # -- Session methods --
+    # Tenant scoping (aicoe-tracker#197): every session method takes an optional, keyword-only
+    # ``tenant_id``, defaulting to unscoped. See ``egpt/db/session_scope.py`` and ``AsyncBaseDb``
+    # (``egpt/db/base.py``) for why this differs from the fourteen component methods' required
+    # parameter, and for the ``require_session_tenant_id`` fail-closed contract.
 
-    async def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    async def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """
         Delete a session from the database.
 
         Args:
             session_id (str): ID of the session to delete
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             bool: True if the session was deleted, False otherwise.
@@ -638,6 +646,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_session")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -647,6 +656,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.session_id == session_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
                 if result.rowcount == 0:  # type: ignore
                     log_debug(f"No session found to delete with session_id: {session_id}")
@@ -659,17 +670,22 @@ class AsyncSqliteDb(AsyncBaseDb):
             log_error(f"Error deleting session: {str(e)}")
             return False
 
-    async def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete all given sessions from the database.
         Can handle multiple session types in the same run.
 
         Args:
             session_ids (List[str]): The IDs of the sessions to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_sessions")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -679,6 +695,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.session_id.in_(session_ids))
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
 
             log_debug(f"Successfully deleted {result.rowcount} sessions")  # type: ignore
@@ -692,6 +710,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Read a session from the database.
@@ -701,6 +721,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             session_type (SessionType): Type of session to get.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults
+                to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -710,6 +732,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_session")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -721,6 +744,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 result = await sess.execute(stmt)
                 row = result.fetchone()
@@ -750,6 +775,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """
         Get all sessions in the given table. Can filter by user_id and entity_id.
@@ -765,6 +792,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             sort_by (Optional[str]): The field to sort by. Defaults to None.
             sort_order (Optional[str]): The sort order. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the sessions. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             List[Session]:
@@ -774,6 +803,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_sessions")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -785,6 +815,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if component_id is not None:
                     if session_type == SessionType.AGENT:
                         stmt = stmt.where(table.c.agent_id == component_id)
@@ -845,6 +877,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Rename a session in the database.
@@ -855,6 +889,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             session_name (str): The new name for the session.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to deserialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the rename to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -864,9 +900,12 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during renaming.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "rename_session")
         try:
             # Get the current session as a deserialized object
-            session = await self.get_session(session_id, session_type, user_id=user_id, deserialize=True)
+            session = await self.get_session(
+                session_id, session_type, user_id=user_id, deserialize=True, tenant_id=tenant_id
+            )
             if session is None:
                 return None
 
@@ -877,14 +916,14 @@ class AsyncSqliteDb(AsyncBaseDb):
             session.session_data["session_name"] = session_name
 
             # Upsert the updated session back to the database
-            return await self.upsert_session(session, deserialize=deserialize)
+            return await self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)
 
         except Exception as e:
             log_error(f"Exception renaming session: {str(e)}")
             raise e
 
     async def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Insert or update a session in the database.
@@ -892,6 +931,9 @@ class AsyncSqliteDb(AsyncBaseDb):
         Args:
             session (Session): The session data to upsert.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             Optional[Session]:
@@ -901,6 +943,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during upserting.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_session")
         try:
             table = await self._get_table(table_type="sessions", create_table_if_not_found=True)
             if table is None:
@@ -915,6 +958,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                         session_type=SessionType.AGENT.value,
                         agent_id=serialized_session.get("agent_id"),
                         user_id=serialized_session.get("user_id"),
+                        tenant_id=tenant_id,
                         agent_data=serialized_session.get("agent_data"),
                         session_data=serialized_session.get("session_data"),
                         metadata=serialized_session.get("metadata"),
@@ -923,8 +967,17 @@ class AsyncSqliteDb(AsyncBaseDb):
                         created_at=serialized_session.get("created_at"),
                         updated_at=serialized_session.get("created_at"),
                     )
+                    conflict_where = (table.c.user_id == serialized_session.get("user_id")) | (
+                        table.c.user_id.is_(None)
+                    )
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             agent_id=serialized_session.get("agent_id"),
                             user_id=serialized_session.get("user_id"),
@@ -935,7 +988,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                             metadata=serialized_session.get("metadata"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == serialized_session.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     )
                     stmt = stmt.returning(*table.columns)  # type: ignore
                     result = await sess.execute(stmt)
@@ -953,6 +1006,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                         session_type=SessionType.TEAM.value,
                         team_id=serialized_session.get("team_id"),
                         user_id=serialized_session.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=serialized_session.get("runs"),
                         summary=serialized_session.get("summary"),
                         created_at=serialized_session.get("created_at"),
@@ -962,8 +1016,17 @@ class AsyncSqliteDb(AsyncBaseDb):
                         metadata=serialized_session.get("metadata"),
                     )
 
+                    conflict_where = (table.c.user_id == serialized_session.get("user_id")) | (
+                        table.c.user_id.is_(None)
+                    )
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             team_id=serialized_session.get("team_id"),
                             user_id=serialized_session.get("user_id"),
@@ -974,7 +1037,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                             metadata=serialized_session.get("metadata"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == serialized_session.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     )
                     stmt = stmt.returning(*table.columns)  # type: ignore
                     result = await sess.execute(stmt)
@@ -992,6 +1055,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                         session_type=SessionType.WORKFLOW.value,
                         workflow_id=serialized_session.get("workflow_id"),
                         user_id=serialized_session.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=serialized_session.get("runs"),
                         summary=serialized_session.get("summary"),
                         created_at=serialized_session.get("created_at") or int(time.time()),
@@ -1000,8 +1064,17 @@ class AsyncSqliteDb(AsyncBaseDb):
                         session_data=serialized_session.get("session_data"),
                         metadata=serialized_session.get("metadata"),
                     )
+                    conflict_where = (table.c.user_id == serialized_session.get("user_id")) | (
+                        table.c.user_id.is_(None)
+                    )
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             workflow_id=serialized_session.get("workflow_id"),
                             user_id=serialized_session.get("user_id"),
@@ -1012,7 +1085,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                             metadata=serialized_session.get("metadata"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == serialized_session.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     )
                     stmt = stmt.returning(*table.columns)  # type: ignore
                     result = await sess.execute(stmt)
@@ -1032,6 +1105,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         sessions: List[Session],
         deserialize: Optional[bool] = True,
         preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk upsert multiple sessions for improved performance on large datasets.
@@ -1040,6 +1115,9 @@ class AsyncSqliteDb(AsyncBaseDb):
             sessions (List[Session]): List of sessions to upsert.
             deserialize (Optional[bool]): Whether to deserialize the sessions. Defaults to True.
             preserve_updated_at (bool): If True, preserve the updated_at from the session object.
+            tenant_id (Optional[str]): Tenant to stamp every session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             List[Union[Session, Dict[str, Any]]]: List of upserted sessions.
@@ -1047,6 +1125,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during bulk upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_sessions")
         if not sessions:
             return []
 
@@ -1058,7 +1137,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                     result
                     for session in sessions
                     if session is not None
-                    for result in [await self.upsert_session(session, deserialize=deserialize)]
+                    for result in [await self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)]
                     if result is not None
                 ]
 
@@ -1091,6 +1170,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                                 "session_type": SessionType.AGENT.value,
                                 "agent_id": serialized_session.get("agent_id"),
                                 "user_id": serialized_session.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "agent_data": serialized_session.get("agent_data"),
                                 "session_data": serialized_session.get("session_data"),
                                 "metadata": serialized_session.get("metadata"),
@@ -1146,6 +1226,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                                 "session_type": SessionType.TEAM.value,
                                 "team_id": serialized_session.get("team_id"),
                                 "user_id": serialized_session.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": serialized_session.get("runs"),
                                 "summary": serialized_session.get("summary"),
                                 "created_at": serialized_session.get("created_at"),
@@ -1201,6 +1282,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                                 "session_type": SessionType.WORKFLOW.value,
                                 "workflow_id": serialized_session.get("workflow_id"),
                                 "user_id": serialized_session.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": serialized_session.get("runs"),
                                 "summary": serialized_session.get("summary"),
                                 "created_at": serialized_session.get("created_at"),

@@ -285,7 +285,11 @@ class SurrealDb(BaseDb):
         table = self._get_table("sessions")
         _ = self.client.delete(table)
 
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    # tenant_id (aicoe-tracker#197) accepted for signature parity with BaseDb; this backend
+    # does not implement tenant-scoped session filtering yet.
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         table = self._get_table(table_type="sessions")
         if table is None:
             return False
@@ -298,7 +302,9 @@ class SurrealDb(BaseDb):
         res = self.client.delete(RecordID(table, session_id))
         return bool(res)
 
-    def delete_sessions(self, session_ids: list[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: list[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         table = self._get_table(table_type="sessions")
         if table is None:
             return
@@ -317,6 +323,8 @@ class SurrealDb(BaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         r"""
         Read a session from the database.
@@ -372,6 +380,8 @@ class SurrealDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         r"""
         Get all sessions in the given table. Can filter by user_id and entity_id.
@@ -488,6 +498,8 @@ class SurrealDb(BaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Rename a session in the database.
@@ -530,7 +542,7 @@ class SurrealDb(BaseDb):
         return deserialize_session(session_type, desurrealized)
 
     def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Insert or update a session in the database.
@@ -574,7 +586,7 @@ class SurrealDb(BaseDb):
         return deserialize_session(session_type, desurrealized)
 
     def upsert_sessions(
-        self, sessions: List[Session], deserialize: Optional[bool] = True
+        self, sessions: List[Session], deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk insert or update multiple sessions.

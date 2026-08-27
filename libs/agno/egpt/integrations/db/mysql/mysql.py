@@ -432,13 +432,17 @@ class MySQLDb(BaseDb):
             sess.execute(stmt)
 
     # -- Session methods --
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """
         Delete a session from the database.
 
         Args:
             session_id (str): ID of the session to delete
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             bool: True if the session was deleted, False otherwise.
@@ -446,6 +450,7 @@ class MySQLDb(BaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -455,6 +460,8 @@ class MySQLDb(BaseDb):
                 delete_stmt = table.delete().where(table.c.session_id == session_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(delete_stmt)
                 if result.rowcount == 0:
                     log_debug(f"No session found to delete with session_id: {session_id} in table {table.name}")
@@ -467,17 +474,22 @@ class MySQLDb(BaseDb):
             log_error(f"Error deleting session: {str(e)}")
             return False
 
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete all given sessions from the database.
         Can handle multiple session types in the same run.
 
         Args:
             session_ids (List[str]): The IDs of the sessions to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_sessions")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -487,6 +499,8 @@ class MySQLDb(BaseDb):
                 delete_stmt = table.delete().where(table.c.session_id.in_(session_ids))
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(delete_stmt)
 
             log_debug(f"Successfully deleted {result.rowcount} sessions")
@@ -500,6 +514,8 @@ class MySQLDb(BaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Read a session from the database.
@@ -509,6 +525,8 @@ class MySQLDb(BaseDb):
             session_type (Optional[SessionType]): Type of session to get. Defaults to None.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults
+                to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[Session, Dict[str, Any], None]:
@@ -518,6 +536,7 @@ class MySQLDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -528,6 +547,8 @@ class MySQLDb(BaseDb):
 
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(stmt).fetchone()
                 if result is None:
                     return None
@@ -556,6 +577,8 @@ class MySQLDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """
         Get all sessions in the given table. Can filter by user_id and entity_id.
@@ -572,6 +595,8 @@ class MySQLDb(BaseDb):
             sort_by (Optional[str]): The field to sort by. Defaults to None.
             sort_order (Optional[str]): The sort order. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the sessions. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[List[Session], Tuple[List[Dict], int]]:
@@ -581,6 +606,7 @@ class MySQLDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_sessions")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -592,6 +618,8 @@ class MySQLDb(BaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if component_id is not None:
                     if session_type == SessionType.AGENT:
                         stmt = stmt.where(table.c.agent_id == component_id)
@@ -653,6 +681,8 @@ class MySQLDb(BaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Rename a session in the database.
@@ -663,6 +693,8 @@ class MySQLDb(BaseDb):
             session_name (str): The new name for the session.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the rename to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -672,6 +704,7 @@ class MySQLDb(BaseDb):
         Raises:
             Exception: If an error occurs during renaming.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "rename_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -688,6 +721,8 @@ class MySQLDb(BaseDb):
                     stmt = stmt.where(table.c.session_type == session_type.value)
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 sess.execute(stmt)
 
                 # Fetch the updated row
@@ -696,6 +731,8 @@ class MySQLDb(BaseDb):
                     select_stmt = select_stmt.where(table.c.session_type == session_type.value)
                 if user_id is not None:
                     select_stmt = select_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    select_stmt = select_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(select_stmt)
                 row = result.fetchone()
                 if not row:
@@ -712,7 +749,7 @@ class MySQLDb(BaseDb):
             return None
 
     def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Insert or update a session in the database.
@@ -720,6 +757,9 @@ class MySQLDb(BaseDb):
         Args:
             session (Session): The session data to upsert.
             deserialize (Optional[bool]): Whether to deserialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -729,6 +769,7 @@ class MySQLDb(BaseDb):
         Raises:
             Exception: If an error occurs during upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_session")
         try:
             table = self._get_table(table_type="sessions", create_table_if_not_found=True)
             if table is None:
@@ -739,13 +780,15 @@ class MySQLDb(BaseDb):
             if isinstance(session, AgentSession):
                 with self.Session() as sess, sess.begin():
                     existing_row = sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     ).fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     stmt = mysql.insert(table).values(
@@ -753,6 +796,7 @@ class MySQLDb(BaseDb):
                         session_type=SessionType.AGENT.value,
                         agent_id=session_dict.get("agent_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         agent_data=session_dict.get("agent_data"),
                         session_data=session_dict.get("session_data"),
@@ -762,6 +806,8 @@ class MySQLDb(BaseDb):
                         updated_at=session_dict.get("created_at"),
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         agent_id=session_dict.get("agent_id"),
                         user_id=session_dict.get("user_id"),
                         agent_data=session_dict.get("agent_data"),
@@ -787,13 +833,15 @@ class MySQLDb(BaseDb):
             elif isinstance(session, TeamSession):
                 with self.Session() as sess, sess.begin():
                     existing_row = sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     ).fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     stmt = mysql.insert(table).values(
@@ -801,6 +849,7 @@ class MySQLDb(BaseDb):
                         session_type=SessionType.TEAM.value,
                         team_id=session_dict.get("team_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         team_data=session_dict.get("team_data"),
                         session_data=session_dict.get("session_data"),
@@ -810,6 +859,8 @@ class MySQLDb(BaseDb):
                         updated_at=session_dict.get("created_at"),
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         team_id=session_dict.get("team_id"),
                         user_id=session_dict.get("user_id"),
                         team_data=session_dict.get("team_data"),
@@ -835,13 +886,15 @@ class MySQLDb(BaseDb):
             else:
                 with self.Session() as sess, sess.begin():
                     existing_row = sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     ).fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     stmt = mysql.insert(table).values(
@@ -849,6 +902,7 @@ class MySQLDb(BaseDb):
                         session_type=SessionType.WORKFLOW.value,
                         workflow_id=session_dict.get("workflow_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         workflow_data=session_dict.get("workflow_data"),
                         session_data=session_dict.get("session_data"),
@@ -858,6 +912,8 @@ class MySQLDb(BaseDb):
                         updated_at=session_dict.get("created_at"),
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         workflow_id=session_dict.get("workflow_id"),
                         user_id=session_dict.get("user_id"),
                         workflow_data=session_dict.get("workflow_data"),
@@ -885,7 +941,12 @@ class MySQLDb(BaseDb):
             return None
 
     def upsert_sessions(
-        self, sessions: List[Session], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        sessions: List[Session],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk upsert multiple sessions for improved performance on large datasets.
@@ -894,6 +955,9 @@ class MySQLDb(BaseDb):
             sessions (List[Session]): List of sessions to upsert.
             deserialize (Optional[bool]): Whether to deserialize the sessions. Defaults to True.
             preserve_updated_at (bool): If True, preserve the updated_at from the session object.
+            tenant_id (Optional[str]): Tenant to stamp every session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             List[Union[Session, Dict[str, Any]]]: List of upserted sessions.
@@ -901,6 +965,7 @@ class MySQLDb(BaseDb):
         Raises:
             Exception: If an error occurs during bulk upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_sessions")
         if not sessions:
             return []
 
@@ -912,7 +977,7 @@ class MySQLDb(BaseDb):
                     result
                     for session in sessions
                     if session is not None
-                    for result in [self.upsert_session(session, deserialize=deserialize)]
+                    for result in [self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)]
                     if result is not None
                 ]
 
@@ -946,6 +1011,7 @@ class MySQLDb(BaseDb):
                                 "session_type": SessionType.AGENT.value,
                                 "agent_id": session_dict.get("agent_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "agent_data": session_dict.get("agent_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -959,6 +1025,8 @@ class MySQLDb(BaseDb):
                     if agent_data:
                         stmt = mysql.insert(table)
                         stmt = stmt.on_duplicate_key_update(
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             agent_id=stmt.inserted.agent_id,
                             user_id=stmt.inserted.user_id,
                             agent_data=stmt.inserted.agent_data,
@@ -998,6 +1066,7 @@ class MySQLDb(BaseDb):
                                 "session_type": SessionType.TEAM.value,
                                 "team_id": session_dict.get("team_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "team_data": session_dict.get("team_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -1011,6 +1080,8 @@ class MySQLDb(BaseDb):
                     if team_data:
                         stmt = mysql.insert(table)
                         stmt = stmt.on_duplicate_key_update(
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             team_id=stmt.inserted.team_id,
                             user_id=stmt.inserted.user_id,
                             team_data=stmt.inserted.team_data,
@@ -1050,6 +1121,7 @@ class MySQLDb(BaseDb):
                                 "session_type": SessionType.WORKFLOW.value,
                                 "workflow_id": session_dict.get("workflow_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "workflow_data": session_dict.get("workflow_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -1063,6 +1135,8 @@ class MySQLDb(BaseDb):
                     if workflow_data:
                         stmt = mysql.insert(table)
                         stmt = stmt.on_duplicate_key_update(
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             workflow_id=stmt.inserted.workflow_id,
                             user_id=stmt.inserted.user_id,
                             workflow_data=stmt.inserted.workflow_data,
@@ -1098,7 +1172,7 @@ class MySQLDb(BaseDb):
                 result
                 for session in sessions
                 if session is not None
-                for result in [self.upsert_session(session, deserialize=deserialize)]
+                for result in [self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)]
                 if result is not None
             ]
 

@@ -410,6 +410,15 @@ class Workflow:
     session_id: Optional[str] = None
     # Default user_id to use for this workflow
     user_id: Optional[str] = None
+    # Tenant this workflow instance was hydrated for (aicoe-tracker#197). Stamped by
+    # ``Workflow.get_workflow_by_id``/``aget_workflow_by_id`` from the caller's resolved tenant,
+    # and used as the default scope for this instance's own session/run reads and writes
+    # (``aget_run_output``, ``aget_session``, ``read_or_create_session``, ``save_session``) when
+    # a call does not explicitly override it. A genuine dataclass field, not a plain attribute,
+    # so it survives ``deep_copy()`` (see ``egpt/agent/_utils.py::deep_copy``'s handling of
+    # ``model_provider`` for what goes wrong with a plain attribute here). ``None`` for
+    # code-defined (in-memory) workflows, which are deployment-owned rather than tenant rows.
+    tenant_id: Optional[str] = None
     # Default session state (stored in the database to persist across runs)
     session_state: Optional[Dict[str, Any]] = None
     # Set to True to overwrite the stored session_state with the session_state provided in the run
@@ -473,6 +482,7 @@ class Workflow:
         session_state: Optional[Dict[str, Any]] = None,
         overwrite_db_session_state: bool = False,
         user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
         debug_level: Literal[1, 2] = 1,
         debug_mode: Optional[bool] = False,
         stream: Optional[bool] = None,
@@ -500,6 +510,7 @@ class Workflow:
         self.session_state = session_state
         self.overwrite_db_session_state = overwrite_db_session_state
         self.user_id = user_id
+        self.tenant_id = tenant_id
         self.debug_mode = debug_mode
         self.debug_level = debug_level
         self.store_events = store_events
@@ -997,6 +1008,10 @@ class Workflow:
             description=config.get("description"),
             # --- User settings ---
             user_id=config.get("user_id"),
+            # The caller's tenant (aicoe-tracker#197), not the row's -- stamped onto the
+            # instance so this workflow's own session/run reads and writes default to it. See
+            # the ``tenant_id`` field docstring on the class.
+            tenant_id=tenant_id,
             # --- Session settings ---
             session_id=config.get("session_id"),
             session_state=config.get("session_state"),
@@ -1258,9 +1273,21 @@ class Workflow:
         return db_.delete_component(component_id=self.id, hard_delete=hard_delete, tenant_id=tenant_id)
 
     async def aget_run_output(
-        self, run_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None
+        self,
+        run_id: str,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[WorkflowRunOutput]:
-        """Get a RunOutput from the database."""
+        """Get a RunOutput from the database.
+
+        Args:
+            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
+                refused when the db was built with ``require_session_tenant_id``. Ignored when
+                ``self._workflow_session`` is already cached -- that cache was populated by
+                whatever tenant hydrated this workflow instance, so the DB read this parameter
+                would scope is not reached at all.
+        """
         if self._workflow_session is not None:
             run_response = self._workflow_session.get_run(run_id=run_id)
             if run_response is not None:
@@ -1269,7 +1296,7 @@ class Workflow:
                 log_warning(f"RunOutput {run_id} not found in AgentSession {self._workflow_session.session_id}")
                 return None
         else:
-            workflow_session = await self.aget_session(session_id=session_id, user_id=user_id)  # type: ignore
+            workflow_session = await self.aget_session(session_id=session_id, user_id=user_id, tenant_id=tenant_id)  # type: ignore
             if workflow_session is not None:
                 run_response = workflow_session.get_run(run_id=run_id)
                 if run_response is not None:
@@ -1279,9 +1306,19 @@ class Workflow:
         return None
 
     def get_run_output(
-        self, run_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None
+        self,
+        run_id: str,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[WorkflowRunOutput]:
-        """Get a RunOutput from the database."""
+        """Get a RunOutput from the database.
+
+        Args:
+            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
+                refused when the db was built with ``require_session_tenant_id``. Ignored when
+                ``self._workflow_session`` is already cached -- see :meth:`aget_run_output`.
+        """
         if self._workflow_session is not None:
             run_response = self._workflow_session.get_run(run_id=run_id)
             if run_response is not None:
@@ -1290,7 +1327,7 @@ class Workflow:
                 log_warning(f"RunOutput {run_id} not found in AgentSession {self._workflow_session.session_id}")
                 return None
         else:
-            workflow_session = self.get_session(session_id=session_id, user_id=user_id)
+            workflow_session = self.get_session(session_id=session_id, user_id=user_id, tenant_id=tenant_id)
             if workflow_session is not None:
                 run_response = workflow_session.get_run(run_id=run_id)
                 if run_response is not None:
@@ -1440,11 +1477,14 @@ class Workflow:
         self,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[WorkflowSession]:
         """Load an WorkflowSession from database.
 
         Args:
             session_id: The session_id to load from storage.
+            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
+                refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             WorkflowSession: The WorkflowSession loaded from the database or created if it does not exist.
@@ -1456,7 +1496,8 @@ class Workflow:
         # Try to load from database
         if self.db is not None:
             workflow_session = cast(
-                WorkflowSession, await self._aread_session(session_id=session_id_to_load, user_id=user_id)
+                WorkflowSession,
+                await self._aread_session(session_id=session_id_to_load, user_id=user_id, tenant_id=tenant_id),
             )
             return workflow_session
 
@@ -1467,11 +1508,14 @@ class Workflow:
         self,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[WorkflowSession]:
         """Load an WorkflowSession from database.
 
         Args:
             session_id: The session_id to load from storage.
+            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
+                refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             WorkflowSession: The WorkflowSession loaded from the database or created if it does not exist.
@@ -1486,7 +1530,10 @@ class Workflow:
 
         # Try to load from database
         if self.db is not None and session_id_to_load is not None:
-            workflow_session = cast(WorkflowSession, self._read_session(session_id=session_id_to_load, user_id=user_id))
+            workflow_session = cast(
+                WorkflowSession,
+                self._read_session(session_id=session_id_to_load, user_id=user_id, tenant_id=tenant_id),
+            )
             return workflow_session
 
         log_warning(f"WorkflowSession {session_id_to_load} not found in db")
@@ -1622,49 +1669,98 @@ class Workflow:
         return session.get_chat_history(last_n_runs=last_n_runs)
 
     # -*- Session Database Functions
-    async def _aread_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[WorkflowSession]:
-        """Get a Session from the database."""
+    async def _aread_session(
+        self, session_id: str, user_id: Optional[str] = None, tenant_id: Optional[str] = None
+    ) -> Optional[WorkflowSession]:
+        """Get a Session from the database.
+
+        Args:
+            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to
+                ``self.tenant_id`` (the tenant this instance was hydrated for, if any) rather
+                than unconditionally unscoped -- callers that resolve their own tenant may still
+                override it explicitly. Refused when the db was built with
+                ``require_session_tenant_id``, which, since a refusal is caught below and logged
+                as a warning, surfaces to the caller indistinguishably from "session not found"
+                rather than as a distinct error.
+        """
+        effective_tenant_id = tenant_id if tenant_id is not None else self.tenant_id
         try:
             if not self.db:
                 raise ValueError("Db not initialized")
             if self._has_async_db():
                 session = await self.db.get_session(
-                    session_id=session_id, session_type=SessionType.WORKFLOW, user_id=user_id
+                    session_id=session_id,
+                    session_type=SessionType.WORKFLOW,
+                    user_id=user_id,
+                    tenant_id=effective_tenant_id,
                 )  # type: ignore
             else:
-                session = self.db.get_session(session_id=session_id, session_type=SessionType.WORKFLOW, user_id=user_id)
+                session = self.db.get_session(
+                    session_id=session_id,
+                    session_type=SessionType.WORKFLOW,
+                    user_id=user_id,
+                    tenant_id=effective_tenant_id,
+                )
             return session if isinstance(session, (WorkflowSession, type(None))) else None
         except Exception as e:
             log_warning(f"Error getting session from db: {str(e)}")
             return None
 
-    def _read_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[WorkflowSession]:
-        """Get a Session from the database."""
+    def _read_session(
+        self, session_id: str, user_id: Optional[str] = None, tenant_id: Optional[str] = None
+    ) -> Optional[WorkflowSession]:
+        """Get a Session from the database.
+
+        Args:
+            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to
+                ``self.tenant_id`` -- see :meth:`_aread_session` for the full contract and how a
+                refusal surfaces to the caller.
+        """
+        effective_tenant_id = tenant_id if tenant_id is not None else self.tenant_id
         if self._has_async_db():
             raise ValueError("Cannot use sync _read_session() with an async database. Use _aread_session() instead.")
 
         try:
             if not self.db:
                 raise ValueError("Db not initialized")
-            session = self.db.get_session(session_id=session_id, session_type=SessionType.WORKFLOW, user_id=user_id)
+            session = self.db.get_session(
+                session_id=session_id, session_type=SessionType.WORKFLOW, user_id=user_id, tenant_id=effective_tenant_id
+            )
             return session if isinstance(session, (WorkflowSession, type(None))) else None
         except Exception as e:
             log_warning(f"Error getting session from db: {str(e)}")
             return None
 
-    async def _aupsert_session(self, session: WorkflowSession) -> Optional[WorkflowSession]:
-        """Upsert a Session into the database."""
+    async def _aupsert_session(
+        self, session: WorkflowSession, tenant_id: Optional[str] = None
+    ) -> Optional[WorkflowSession]:
+        """Upsert a Session into the database.
+
+        Args:
+            tenant_id: Tenant to stamp the session with (aicoe-tracker#197). Defaults to
+                ``self.tenant_id`` -- see :meth:`_aread_session` for why the write path shares
+                this instance-level default: a session this run creates must be stamped with the
+                same tenant a later scoped read of it will look for, or the row becomes
+                unreachable to its own owner.
+        """
+        effective_tenant_id = tenant_id if tenant_id is not None else self.tenant_id
         try:
             if not self.db:
                 raise ValueError("Db not initialized")
-            result = await self.db.upsert_session(session=session)  # type: ignore
+            result = await self.db.upsert_session(session=session, tenant_id=effective_tenant_id)  # type: ignore
             return result if isinstance(result, (WorkflowSession, type(None))) else None
         except Exception as e:
             log_warning(f"Error upserting session into db: {str(e)}")
             return None
 
-    def _upsert_session(self, session: WorkflowSession) -> Optional[WorkflowSession]:
-        """Upsert a Session into the database."""
+    def _upsert_session(self, session: WorkflowSession, tenant_id: Optional[str] = None) -> Optional[WorkflowSession]:
+        """Upsert a Session into the database.
+
+        Args:
+            tenant_id: Tenant to stamp the session with (aicoe-tracker#197). Defaults to
+                ``self.tenant_id`` -- see :meth:`_aupsert_session` for why.
+        """
+        effective_tenant_id = tenant_id if tenant_id is not None else self.tenant_id
         if self._has_async_db():
             raise ValueError(
                 "Cannot use sync _upsert_session() with an async database. Use _aupsert_session() instead."
@@ -1673,7 +1769,7 @@ class Workflow:
         try:
             if not self.db:
                 raise ValueError("Db not initialized")
-            result = self.db.upsert_session(session=session)
+            result = self.db.upsert_session(session=session, tenant_id=effective_tenant_id)
             return result if isinstance(result, (WorkflowSession, type(None))) else None
         except Exception as e:
             log_warning(f"Error upserting session into db: {str(e)}")
@@ -10819,12 +10915,20 @@ class Workflow:
 # Config keys that are not `Workflow` constructor parameters but are still legitimate.
 _WORKFLOW_EXTRA_CONFIG_KEYS = frozenset({SCHEMA_VERSION_KEY})
 
+# Constructor parameters that are deliberately NOT legitimate config keys. ``tenant_id``
+# (aicoe-tracker#197) is caller/request identity stamped onto the instance at hydration time
+# (`get_workflow_by_id`) -- `Workflow.from_dict` takes it as a function parameter, never reads
+# `config.get("tenant_id")`, and `Workflow.to_dict()` never writes it back out. Accepting it as a
+# config key would silently do nothing while implying a stored workflow definition can claim a
+# tenant for itself, which it must not be able to.
+_WORKFLOW_EXCLUDED_CONFIG_KEYS = frozenset({"tenant_id"})
+
 
 @lru_cache(maxsize=1)
 def _workflow_config_keys() -> FrozenSet[str]:
     """Every key a workflow config may carry, derived from the constructor rather than listed."""
     params = {name for name in inspect_signature(Workflow).parameters if name != "self"}
-    return frozenset(params | _WORKFLOW_EXTRA_CONFIG_KEYS)
+    return frozenset((params - _WORKFLOW_EXCLUDED_CONFIG_KEYS) | _WORKFLOW_EXTRA_CONFIG_KEYS)
 
 
 def component_spec(

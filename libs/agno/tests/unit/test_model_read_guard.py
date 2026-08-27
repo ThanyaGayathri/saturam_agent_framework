@@ -156,20 +156,20 @@ ALLOWED_MODEL_READS: Dict[Tuple[str, int, str], str] = {
     ("egpt/team/_telemetry.py", 20, "team.model"): "get_team_data's pre-resolution config snapshot",
     ("egpt/team/_telemetry.py", 21, "team.model"): "get_team_data's pre-resolution config snapshot",
     # -- serialization: to_dict()/config building, not response generation --
-    ("egpt/agent/_storage.py", 342, "agent.model"): "session-creation bootstrap message, static role string only",
-    ("egpt/agent/_storage.py", 407, "agent.model"): "session-creation bootstrap message, static role string only",
-    ("egpt/agent/_storage.py", 429, "agent.model"): "presence check before to_dict() serialization",
-    ("egpt/agent/_storage.py", 430, "agent.model"): "to_dict() serialization of the configured model",
-    ("egpt/agent/_storage.py", 446, "agent.model"): "presence check before config-dict serialization",
-    ("egpt/agent/_storage.py", 447, "agent.model"): "isinstance check before config-dict serialization",
-    ("egpt/agent/_storage.py", 448, "agent.model"): "config-dict serialization of the configured model",
-    ("egpt/agent/_storage.py", 450, "agent.model"): "config-dict serialization of the configured model",
-    ("egpt/agent/_storage.py", 557, "agent.model"): "presence check before parse_tools() call",
-    ("egpt/agent/_storage.py", 560, "agent.model"): "parse_tools() reads the configured model to introspect tools",
-    ("egpt/team/_storage.py", 282, "team.model"): "session-creation bootstrap message, static role string only",
-    ("egpt/team/_storage.py", 349, "team.model"): "session-creation bootstrap message, static role string only",
-    ("egpt/team/_storage.py", 422, "team.model"): "presence check before to_dict() serialization",
-    ("egpt/team/_storage.py", 423, "team.model"): "to_dict() serialization of the configured model",
+    ("egpt/agent/_storage.py", 387, "agent.model"): "session-creation bootstrap message, static role string only",
+    ("egpt/agent/_storage.py", 452, "agent.model"): "session-creation bootstrap message, static role string only",
+    ("egpt/agent/_storage.py", 474, "agent.model"): "presence check before to_dict() serialization",
+    ("egpt/agent/_storage.py", 475, "agent.model"): "to_dict() serialization of the configured model",
+    ("egpt/agent/_storage.py", 491, "agent.model"): "presence check before config-dict serialization",
+    ("egpt/agent/_storage.py", 492, "agent.model"): "isinstance check before config-dict serialization",
+    ("egpt/agent/_storage.py", 493, "agent.model"): "config-dict serialization of the configured model",
+    ("egpt/agent/_storage.py", 495, "agent.model"): "config-dict serialization of the configured model",
+    ("egpt/agent/_storage.py", 602, "agent.model"): "presence check before parse_tools() call",
+    ("egpt/agent/_storage.py", 605, "agent.model"): "parse_tools() reads the configured model to introspect tools",
+    ("egpt/team/_storage.py", 325, "team.model"): "session-creation bootstrap message, static role string only",
+    ("egpt/team/_storage.py", 392, "team.model"): "session-creation bootstrap message, static role string only",
+    ("egpt/team/_storage.py", 465, "team.model"): "presence check before to_dict() serialization",
+    ("egpt/team/_storage.py", 466, "team.model"): "to_dict() serialization of the configured model",
     # -- presence guards left in place deliberately (mirrors the pattern in already-fixed code,
     # -- e.g. agent/_response.py's reason()/areason(), which keep `agent.model is not None` as
     # -- the guard while reading `run_model(agent, run_context)` for the value) --
@@ -309,10 +309,10 @@ ALLOWED_MODEL_READS: Dict[Tuple[str, int, str], str] = {
     # -- known outstanding gap: generate_session_name() is a separate public entrypoint, not
     # -- reachable from .run()/.arun() -- adjacent to the run path rather than part of it, and a
     # -- live model call with no run_context in scope at all. Tracked alongside _tools.py.
-    ("egpt/agent/_session.py", 402, "agent.model"): "generate_session_name() is not reachable from .run()/.arun()",
-    ("egpt/agent/_session.py", 423, "agent.model"): "generate_session_name() is not reachable from .run()/.arun()",
-    ("egpt/team/_session.py", 262, "team.model"): "generate_session_name() is not reachable from .run()/.arun()",
-    ("egpt/team/_session.py", 284, "team.model"): "generate_session_name() is not reachable from .run()/.arun()",
+    ("egpt/agent/_session.py", 434, "agent.model"): "generate_session_name() is not reachable from .run()/.arun()",
+    ("egpt/agent/_session.py", 455, "agent.model"): "generate_session_name() is not reachable from .run()/.arun()",
+    ("egpt/team/_session.py", 280, "team.model"): "generate_session_name() is not reachable from .run()/.arun()",
+    ("egpt/team/_session.py", 302, "team.model"): "generate_session_name() is not reachable from .run()/.arun()",
     # -- the streaming-event *cast* lines. `agent.model = cast(Model, agent.model)` narrows the
     # -- type before the function body, which otherwise reads `served_model = run_model(...)` for
     # -- every event-payload attribution -- the cast line itself is the only remaining read here.

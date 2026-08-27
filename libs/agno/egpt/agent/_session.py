@@ -76,12 +76,16 @@ def get_session(
     agent: Agent,
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[AgentSession, TeamSession, WorkflowSession]]:
     """Load an AgentSession from database or cache.
 
     Args:
         agent: The Agent instance.
         session_id: The session_id to load from storage.
+        tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
+            refused when the db was built with ``require_session_tenant_id``. Ignored when a
+            cached session is used instead of a DB read.
 
     Returns:
         AgentSession: The AgentSession loaded from the database/cache or None if not found.
@@ -112,7 +116,11 @@ def get_session(
             loaded_session = cast(
                 AgentSession,
                 _storage.read_session(
-                    agent, session_id=session_id_to_load, session_type=SessionType.AGENT, user_id=user_id
+                    agent,
+                    session_id=session_id_to_load,
+                    session_type=SessionType.AGENT,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
                 ),  # type: ignore[arg-type]
             )
 
@@ -121,7 +129,11 @@ def get_session(
             loaded_session = cast(
                 TeamSession,
                 _storage.read_session(
-                    agent, session_id=session_id_to_load, session_type=SessionType.TEAM, user_id=user_id
+                    agent,
+                    session_id=session_id_to_load,
+                    session_type=SessionType.TEAM,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
                 ),  # type: ignore[arg-type]
             )
 
@@ -130,7 +142,11 @@ def get_session(
             loaded_session = cast(
                 WorkflowSession,
                 _storage.read_session(
-                    agent, session_id=session_id_to_load, session_type=SessionType.WORKFLOW, user_id=user_id
+                    agent,
+                    session_id=session_id_to_load,
+                    session_type=SessionType.WORKFLOW,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
                 ),  # type: ignore[arg-type]
             )
 
@@ -148,12 +164,16 @@ async def aget_session(
     agent: Agent,
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[AgentSession, TeamSession, WorkflowSession]]:
     """Load an AgentSession from database or cache.
 
     Args:
         agent: The Agent instance.
         session_id: The session_id to load from storage.
+        tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
+            refused when the db was built with ``require_session_tenant_id``. Ignored when a
+            cached session is used instead of a DB read.
 
     Returns:
         AgentSession: The AgentSession loaded from the database/cache or None if not found.
@@ -181,7 +201,11 @@ async def aget_session(
             loaded_session = cast(
                 AgentSession,
                 await _storage.aread_session(
-                    agent, session_id=session_id_to_load, session_type=SessionType.AGENT, user_id=user_id
+                    agent,
+                    session_id=session_id_to_load,
+                    session_type=SessionType.AGENT,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
                 ),  # type: ignore[arg-type]
             )
 
@@ -190,7 +214,11 @@ async def aget_session(
             loaded_session = cast(
                 TeamSession,
                 await _storage.aread_session(
-                    agent, session_id=session_id_to_load, session_type=SessionType.TEAM, user_id=user_id
+                    agent,
+                    session_id=session_id_to_load,
+                    session_type=SessionType.TEAM,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
                 ),  # type: ignore[arg-type]
             )
 
@@ -199,7 +227,11 @@ async def aget_session(
             loaded_session = cast(
                 WorkflowSession,
                 await _storage.aread_session(
-                    agent, session_id=session_id_to_load, session_type=SessionType.WORKFLOW, user_id=user_id
+                    agent,
+                    session_id=session_id_to_load,
+                    session_type=SessionType.WORKFLOW,
+                    user_id=user_id,
+                    tenant_id=tenant_id,
                 ),  # type: ignore[arg-type]
             )
 

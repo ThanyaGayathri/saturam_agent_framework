@@ -12,11 +12,11 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
-from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
 )
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.utils import (
     deserialize_session,
     deserialize_sessions,
@@ -636,13 +636,21 @@ class AsyncPostgresDb(AsyncBaseDb):
             await sess.execute(stmt)
 
     # -- Session methods --
-    async def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    # Tenant scoping (aicoe-tracker#197): every session method takes an optional, keyword-only
+    # ``tenant_id``, defaulting to unscoped. See ``egpt/db/session_scope.py`` and ``AsyncBaseDb``
+    # (``egpt/db/base.py``) for why this differs from the fourteen component methods' required
+    # parameter, and for the ``require_session_tenant_id`` fail-closed contract.
+    async def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """
         Delete a session from the database.
 
         Args:
             session_id (str): ID of the session to delete
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             bool: True if the session was deleted, False otherwise.
@@ -650,6 +658,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_session")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -659,6 +668,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.session_id == session_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
 
                 if result.rowcount == 0:  # type: ignore
@@ -673,17 +684,22 @@ class AsyncPostgresDb(AsyncBaseDb):
             log_error(f"Error deleting session: {str(e)}")
             return False
 
-    async def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete all given sessions from the database.
         Can handle multiple session types in the same run.
 
         Args:
             session_ids (List[str]): The IDs of the sessions to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_sessions")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -693,6 +709,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.session_id.in_(session_ids))
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
 
             log_debug(f"Successfully deleted {result.rowcount} sessions")  # type: ignore
@@ -706,6 +724,8 @@ class AsyncPostgresDb(AsyncBaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Read a session from the database.
@@ -715,6 +735,8 @@ class AsyncPostgresDb(AsyncBaseDb):
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             session_type (Optional[SessionType]): Type of session to read. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults
+                to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[Session, Dict[str, Any], None]:
@@ -724,6 +746,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_session")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -734,6 +757,8 @@ class AsyncPostgresDb(AsyncBaseDb):
 
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 result = await sess.execute(stmt)
                 row = result.fetchone()
@@ -764,6 +789,8 @@ class AsyncPostgresDb(AsyncBaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """
         Get all sessions in the given table. Can filter by user_id and entity_id.
@@ -779,6 +806,8 @@ class AsyncPostgresDb(AsyncBaseDb):
             sort_by (Optional[str]): The field to sort by. Defaults to None.
             sort_order (Optional[str]): The sort order. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the sessions. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[List[Session], Tuple[List[Dict], int]]:
@@ -788,6 +817,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_sessions")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -799,6 +829,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if component_id is not None:
                     if session_type == SessionType.AGENT:
                         stmt = stmt.where(table.c.agent_id == component_id)
@@ -858,6 +890,8 @@ class AsyncPostgresDb(AsyncBaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Rename a session in the database.
@@ -868,6 +902,8 @@ class AsyncPostgresDb(AsyncBaseDb):
             session_name (str): The new name for the session.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to deserialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the rename to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -877,6 +913,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during renaming.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "rename_session")
         try:
             table = await self._get_table(table_type="sessions")
             if table is None:
@@ -904,6 +941,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                     stmt = stmt.where(table.c.session_type == session_type.value)
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(stmt)
                 row = result.fetchone()
                 if not row:
@@ -922,7 +961,7 @@ class AsyncPostgresDb(AsyncBaseDb):
             return None
 
     async def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Insert or update a session in the database.
@@ -930,6 +969,9 @@ class AsyncPostgresDb(AsyncBaseDb):
         Args:
             session (Session): The session data to upsert.
             deserialize (Optional[bool]): Whether to deserialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -939,6 +981,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_session")
         try:
             table = await self._get_table(table_type="sessions", create_table_if_not_found=True)
             if table is None:
@@ -967,6 +1010,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                         session_type=SessionType.AGENT.value,
                         agent_id=session_dict.get("agent_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         agent_data=session_dict.get("agent_data"),
                         session_data=session_dict.get("session_data"),
@@ -975,8 +1019,15 @@ class AsyncPostgresDb(AsyncBaseDb):
                         created_at=session_dict.get("created_at"),
                         updated_at=session_dict.get("created_at"),
                     )
+                    conflict_where = (table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(  # type: ignore
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             agent_id=session_dict.get("agent_id"),
                             user_id=session_dict.get("user_id"),
@@ -987,7 +1038,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                             runs=session_dict.get("runs"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     ).returning(table)
                     result = await sess.execute(stmt)
                     row = result.fetchone()
@@ -1008,6 +1059,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                         session_type=SessionType.TEAM.value,
                         team_id=session_dict.get("team_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         team_data=session_dict.get("team_data"),
                         session_data=session_dict.get("session_data"),
@@ -1016,8 +1068,15 @@ class AsyncPostgresDb(AsyncBaseDb):
                         created_at=session_dict.get("created_at"),
                         updated_at=session_dict.get("created_at"),
                     )
+                    conflict_where = (table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(  # type: ignore
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             team_id=session_dict.get("team_id"),
                             user_id=session_dict.get("user_id"),
@@ -1028,7 +1087,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                             runs=session_dict.get("runs"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     ).returning(table)
                     result = await sess.execute(stmt)
                     row = result.fetchone()
@@ -1049,6 +1108,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                         session_type=SessionType.WORKFLOW.value,
                         workflow_id=session_dict.get("workflow_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         workflow_data=session_dict.get("workflow_data"),
                         session_data=session_dict.get("session_data"),
@@ -1057,8 +1117,15 @@ class AsyncPostgresDb(AsyncBaseDb):
                         created_at=session_dict.get("created_at"),
                         updated_at=session_dict.get("created_at"),
                     )
+                    conflict_where = (table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(  # type: ignore
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             workflow_id=session_dict.get("workflow_id"),
                             user_id=session_dict.get("user_id"),
@@ -1069,7 +1136,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                             runs=session_dict.get("runs"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     ).returning(table)
                     result = await sess.execute(stmt)
                     row = result.fetchone()

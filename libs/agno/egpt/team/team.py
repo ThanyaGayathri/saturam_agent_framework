@@ -1671,14 +1671,24 @@ class Team:
 
     # -*- Public convenience functions
     def get_run_output(
-        self, run_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None
+        self,
+        run_id: str,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[TeamRunOutput, RunOutput]]:
-        return _storage.get_run_output(self, run_id=run_id, session_id=session_id, user_id=user_id)
+        return _storage.get_run_output(self, run_id=run_id, session_id=session_id, user_id=user_id, tenant_id=tenant_id)
 
     async def aget_run_output(
-        self, run_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None
+        self,
+        run_id: str,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[TeamRunOutput, RunOutput]]:
-        return await _storage.aget_run_output(self, run_id=run_id, session_id=session_id, user_id=user_id)
+        return await _storage.aget_run_output(
+            self, run_id=run_id, session_id=session_id, user_id=user_id, tenant_id=tenant_id
+        )
 
     def get_last_run_output(self, session_id: Optional[str] = None) -> Optional[TeamRunOutput]:
         return _storage.get_last_run_output(self, session_id=session_id)
@@ -1690,15 +1700,17 @@ class Team:
         self,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[TeamSession]:
-        return _session.get_session(self, session_id=session_id, user_id=user_id)
+        return _session.get_session(self, session_id=session_id, user_id=user_id, tenant_id=tenant_id)
 
     async def aget_session(
         self,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[TeamSession]:
-        return await _session.aget_session(self, session_id=session_id, user_id=user_id)
+        return await _session.aget_session(self, session_id=session_id, user_id=user_id, tenant_id=tenant_id)
 
     def save_session(self, session: TeamSession) -> None:
         return _session.save_session(self, session=session)
