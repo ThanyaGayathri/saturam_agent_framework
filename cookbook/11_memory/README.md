@@ -321,6 +321,20 @@ This section demonstrates how EGPT agents persist and use user memories across r
   this branch was still catching up. Per this file's own convention, whoever merges second
   renumbers.**
 
+- `48_memory_cost_and_growth.py`: Meters embedding + extraction LLM call cost and per-tenant
+  store growth (SM-X8 #144) -- on the real production hooks, not synthetic calls into the
+  aggregator API: `MemoryEmbedder.embed_texts(scope=...)`, `LLMEntityExtractor.extract`, and
+  `CoLocatedMemoryProvider.write`/`consolidate`. Every entry lands on one shared
+  `MemoryMetricsAggregator` (`egpt.memory.embedding.get_default_aggregator()`) regardless of
+  which module recorded it -- embedding cost in `egpt.memory.embedding` (the type island),
+  extraction cost and store growth in `egpt.memory.metrics` (services layer). Two tenants show
+  `cost_by_tenant()`/`growth_by_tenant()` staying separate. A demo embedder and extraction model,
+  registered at runtime the same way `47_per_tenant_memory_config.py` registers its demo
+  provider, give `compute_cost` a synthetic price row to find (`PRICES` ships empty). No external
+  services, no network, no API key.
+  **May collide with `48_memory_tracing.py` from a concurrent SM-X4 branch: per this file's own
+  convention, whoever merges second renumbers.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

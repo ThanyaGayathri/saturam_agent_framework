@@ -1289,3 +1289,25 @@ what collided, and `build_memory_provider_for(resolver)` with no tenant raises `
 **Requires:** Nothing; no database, no API key, no network.
 
 ---
+
+### 48_memory_cost_and_growth.py
+
+**Status:** PASS
+
+**Description:** SM-X8's embedding + extraction cost and per-tenant store-growth metering, driven
+through the real production hooks rather than the aggregator API directly: `MemoryEmbedder.
+embed_texts(scope=...)` for embedding cost, `LLMEntityExtractor.extract(episode)` for extraction
+cost, and `CoLocatedMemoryProvider.write`/`consolidate` for store growth. A demo embedder and a
+runtime-registered demo extraction model, neither reaching the network, give `compute_cost` a
+synthetic price row to find (mirroring `test_pricing.py`'s pattern, since the shipped `PRICES`
+table is intentionally empty). Two tenants (`acme`, `globex`) exercise all three hooks.
+
+**Result:** Runs clean. Embedding calls for both tenants land 3 cost entries; entity extraction
+adds 2 more (5 total); write + consolidate across both tenants records 7 growth entries.
+`cost_by_tenant()` reports a nonzero cost for both `acme` and `globex` (both demo components are
+priced), `growth_by_tenant()` reports `acme=6`, `globex=4` semantic facts written, and 0 entries
+came back unpriced (`cost=None`) since every component in this run has a synthetic price row.
+
+**Requires:** Nothing; no database, no API key, no network.
+
+---

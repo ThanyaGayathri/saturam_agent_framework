@@ -44,6 +44,7 @@ from egpt.memory.consolidation import FACT_ID_NAMESPACE, merge_near_duplicate_fa
 from egpt.memory.consolidation.extract import STRATEGY_ID as FACT_PIPELINE_STRATEGY_ID
 from egpt.memory.consolidation.provenance import provenance_report
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
+from egpt.memory.metrics import get_default_aggregator, record_growth
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.fuse import DEFAULT_RRF_K, deterministic_rank_key, rrf_fuse
 from egpt.memory.retrieval.orchestrator import RetrievalLegs, aorchestrate, orchestrate
@@ -744,6 +745,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
             raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
         except Exception as exc:
             raise PartialWriteError(receipt) from exc
+        record_growth(
+            get_default_aggregator(),
+            scope,
+            "write",
+            tier=",".join(sorted({e.tier.value for e in stamped})),
+            accepted=receipt.accepted,
+        )
         return receipt
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
@@ -773,6 +781,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
             raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
         except Exception as exc:
             raise PartialWriteError(receipt) from exc
+        record_growth(
+            get_default_aggregator(),
+            scope,
+            "write",
+            tier=",".join(sorted({e.tier.value for e in stamped})),
+            accepted=receipt.accepted,
+        )
         return receipt
 
     @staticmethod
@@ -1846,7 +1861,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # is the caller-hands-the-termination-condition failure mode the interface docstring warns
         # about, reincarnated one layer down.
         self._advance_cursor(cursor_key, scanned)
-        return self._report(
+        report = self._report(
             scope,
             scanned,
             episodes,
@@ -1861,6 +1876,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
             supersede,
             profile,
         )
+        record_growth(get_default_aggregator(), scope, "consolidate", tier="episodic->semantic", accepted=len(facts))
+        return report
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1938,7 +1955,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             relations = await self._arelations(scope, episodes)
             profile = await self._aupdate_profile(scope, episodes)
         self._advance_cursor(cursor_key, scanned)
-        return self._report(
+        report = self._report(
             scope,
             scanned,
             episodes,
@@ -1953,6 +1970,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
             supersede,
             profile,
         )
+        record_growth(get_default_aggregator(), scope, "consolidate", tier="episodic->semantic", accepted=len(facts))
+        return report
 
 
 @register_provider("co_located")

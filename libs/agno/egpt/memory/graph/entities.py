@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence,
 from pydantic import BaseModel, Field
 
 from egpt.memory.graph.passes import select_current_episodes
+from egpt.memory.metrics import get_default_aggregator, meter_extraction_cost
 from egpt.memory.substrates import GraphSubstrate
 from egpt.memory.types import (
     EntityWrite,
@@ -172,12 +173,24 @@ class LLMEntityExtractor:
         )
 
     def extract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:
-        response = deepcopy(self.model).response(messages=self._messages(episode), response_format=ExtractedEntities)
+        model = deepcopy(self.model)
+        response = model.response(messages=self._messages(episode), response_format=ExtractedEntities)
+        meter_extraction_cost(
+            get_default_aggregator(),
+            scope=episode.scope,
+            model=model,
+            response_usage=getattr(response, "response_usage", None),
+        )
         return self._parse(response, episode.id)
 
     async def aextract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:
-        response = await deepcopy(self.model).aresponse(
-            messages=self._messages(episode), response_format=ExtractedEntities
+        model = deepcopy(self.model)
+        response = await model.aresponse(messages=self._messages(episode), response_format=ExtractedEntities)
+        meter_extraction_cost(
+            get_default_aggregator(),
+            scope=episode.scope,
+            model=model,
+            response_usage=getattr(response, "response_usage", None),
         )
         return self._parse(response, episode.id)
 
