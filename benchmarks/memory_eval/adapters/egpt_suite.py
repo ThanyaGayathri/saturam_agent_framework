@@ -1,6 +1,6 @@
-"""Bridge to the seed's ``egpt.eval.suite`` — the issue-#88 integration point.
+"""Bridge to the seed's ``egpt.eval.suite`` — the issue-#88 / SM-X7 (#143) integration point.
 
-Two bindings, both reusing seed machinery rather than forking it (skill §3/§4
+Three bindings, all reusing seed machinery rather than forking it (skill §3/§4
 "reuse first"):
 
 1. ``LLMJudge`` — wraps ``egpt.eval.agent_as_judge.AgentAsJudgeEval`` behind the
@@ -10,13 +10,19 @@ Two bindings, both reusing seed machinery rather than forking it (skill §3/§4
    env-driven and uses ``OpenAIResponses`` (house rule: Responses, not Chat; not
    the seed's ``OpenAIChat`` default), pointing at Azure/gpt-5.4/5.5 per ``.env``.
 
-2. ``build_memory_cases`` — turns a ``Benchmark`` + a ``MemoryProvider`` into seed
-   ``egpt.eval.suite.Case`` objects driven by ``run_cases``: retrieval happens at
-   case-build time (so the answer agent sees the recalled context), ``criteria``
-   carries the gold answer for the judge, and the returned id map lets the caller
-   merge recall@k / nDCG (which the seed suite does not compute) onto the
-   ``SuiteResult``. This is the concrete recipe SM-X7 (#143) lifts onto
-   ``eval/suite.py``.
+2. ``build_memory_cases`` / ``abuild_memory_cases`` — turn a ``Benchmark`` + a
+   ``MemoryProvider`` into seed ``egpt.eval.suite.Case`` objects: retrieval happens
+   at case-build time (so the answer agent sees the recalled context), ``criteria``
+   carries the gold answer for the judge, and the returned id map + per-probe query
+   latency let the caller merge recall@k / nDCG / temporal (which the seed suite
+   does not compute) onto the ``SuiteResult``.
+
+3. ``run_memory_suite`` / ``arun_memory_suite`` — SM-X7's closing piece: actually
+   drives the ``Case``s built above through the seed's ``run_cases``/``arun_cases``
+   and merges the QA verdicts they return with ``harness.metrics.aggregate`` (the
+   memory-specific metrics the suite does not compute), producing one
+   ``MemorySuiteResult``. PLAN.md §3 described this as a recipe; this is that
+   recipe, executable.
 
 Nothing here is imported unless an LLM/suite run is requested; the offline harness
 stays free of egpt.
@@ -26,11 +32,18 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Dict, List, Optional, Tuple
+import sys
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from harness.judge import JudgeResult
+from harness.metrics import ProbeRecord, aggregate
 from harness.provider import MemoryProvider, RunConfig, events_of
 from harness.schemas import Benchmark, Probe
+
+if TYPE_CHECKING:
+    from egpt.eval.suite import Case, SuiteResult
 
 _DEFAULT_JUDGE_MODEL = os.getenv("HARNESS_JUDGE_MODEL", "gpt-5.5")
 
@@ -50,7 +63,7 @@ def _build_model(model_id: Optional[str] = None):
     Mirrors the sibling memory_consolidation harness: keep the Responses API but
     point at Azure when configured. Kept tiny; full config lives in .env.
     """
-    from egpt.models.openai import OpenAIResponses
+    from egpt.integrations.models.openai import OpenAIResponses
 
     model_id = model_id or _DEFAULT_JUDGE_MODEL
     if os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("AZURE_OPENAI_API_KEY"):
@@ -120,23 +133,49 @@ def _compose_input(probe: Probe, context: str) -> str:
     return f"Memory context:\n{context}\n\nQuestion: {probe.question}"
 
 
+def _case_for_probe(probe: Probe, mems, agent, judge_model, mode, benchmark: Benchmark) -> "Case":
+    from egpt.eval.suite import Case
+
+    context = "\n".join(f"- {m.text}" for m in mems) or "(no relevant memories found)"
+    criteria = (
+        f"The answer must correctly answer the question. Reference answer: {probe.answer!r}. "
+        "Pass only if the answer is consistent with the reference."
+    )
+    return Case(
+        name=probe.probe_id,
+        input=_compose_input(probe, context),
+        agent=agent,
+        criteria=criteria,
+        judge_mode=mode,
+        judge_model=judge_model,
+        tags=(benchmark.name, probe.category),
+    )
+
+
 def build_memory_cases(
     benchmark: Benchmark,
     provider: MemoryProvider,
     config: Optional[RunConfig] = None,
     judge_mode: str = "numeric",
-) -> Tuple[List["object"], Dict[str, List[str]]]:
-    """Build seed ``Case`` objects for ``run_cases`` + the retrieved-id map.
+) -> Tuple[List["Case"], Dict[str, List[str]], Dict[str, float]]:
+    """Build seed ``Case`` objects for ``run_cases`` + the retrieved-id map + query latency.
 
     Ingests the corpus into ``provider`` once, then one Case per probe. Returns
-    ``(cases, retrieved_ids_by_probe)`` so the caller can compute recall@k / nDCG
-    (not native to the suite) after ``run_cases`` returns the QA verdicts.
+    ``(cases, retrieved_ids_by_probe, query_ms_by_probe)`` so the caller can compute
+    recall@k / nDCG / latency (not native to the suite) after ``run_cases`` returns
+    the QA verdicts. See ``run_memory_suite`` for the caller that does this.
     """
-    from egpt.eval.suite import Case, JudgeMode
+    from egpt.eval.suite import JudgeMode
 
     config = config or RunConfig()
     for session in sorted(benchmark.sessions, key=lambda s: s.start_ts):
         provider.write(events_of(session, config.tenant))
+    if config.consolidate:
+        # Same place the offline path runs it (`harness/runner.py`): after the whole corpus is
+        # ingested and before the first query, so every probe reads a consolidated store. Dropping
+        # it here made `RunConfig(consolidate=True)` silently mean different things on the two
+        # entry points (QC review of #152).
+        provider.consolidate()
 
     agent = _answer_agent()
     # Pin the JUDGE model on every Case. Without this, run_cases builds the judge as
@@ -145,27 +184,186 @@ def build_memory_cases(
     # (agent_as_judge.py get_evaluator_agent) — a house-rule violation (no OpenAIChat).
     # Setting it here makes the Case carry an OpenAIResponses judge regardless of caller.
     judge_model = _build_model()
-    cases: List[object] = []
+    cases: List["Case"] = []
     retrieved: Dict[str, List[str]] = {}
+    query_ms: Dict[str, float] = {}
     mode = JudgeMode.NUMERIC if judge_mode == "numeric" else JudgeMode.BINARY
 
     for probe in benchmark.probes:
+        t0 = time.perf_counter()
         mems = provider.read(probe.question, k=config.k, as_of=probe.as_of, types=config.types, tenant=config.tenant)
+        query_ms[probe.probe_id] = (time.perf_counter() - t0) * 1000.0
         retrieved[probe.probe_id] = [sid for m in mems for sid in m.source_ids]
-        context = "\n".join(f"- {m.text}" for m in mems) or "(no relevant memories found)"
-        criteria = (
-            f"The answer must correctly answer the question. Reference answer: {probe.answer!r}. "
-            "Pass only if the answer is consistent with the reference."
+        cases.append(_case_for_probe(probe, mems, agent, judge_model, mode, benchmark))
+    return cases, retrieved, query_ms
+
+
+async def abuild_memory_cases(
+    benchmark: Benchmark,
+    provider: MemoryProvider,
+    config: Optional[RunConfig] = None,
+    judge_mode: str = "numeric",
+) -> Tuple[List["Case"], Dict[str, List[str]], Dict[str, float]]:
+    """Async twin of :func:`build_memory_cases` (uses the provider's async methods)."""
+    from egpt.eval.suite import JudgeMode
+
+    config = config or RunConfig()
+    for session in sorted(benchmark.sessions, key=lambda s: s.start_ts):
+        await provider.awrite(events_of(session, config.tenant))
+    if config.consolidate:
+        # Async twin of the sync path's consolidate step; `harness/runner.py`'s `arun_benchmark`
+        # awaits `aconsolidate()` at the same point.
+        await provider.aconsolidate()
+
+    agent = _answer_agent()
+    judge_model = _build_model()
+    cases: List["Case"] = []
+    retrieved: Dict[str, List[str]] = {}
+    query_ms: Dict[str, float] = {}
+    mode = JudgeMode.NUMERIC if judge_mode == "numeric" else JudgeMode.BINARY
+
+    for probe in benchmark.probes:
+        t0 = time.perf_counter()
+        mems = await provider.aread(
+            probe.question, k=config.k, as_of=probe.as_of, types=config.types, tenant=config.tenant
         )
-        cases.append(
-            Case(
-                name=probe.probe_id,
-                input=_compose_input(probe, context),
-                agent=agent,
-                criteria=criteria,
-                judge_mode=mode,
-                judge_model=judge_model,
-                tags=(benchmark.name, probe.category),
+        query_ms[probe.probe_id] = (time.perf_counter() - t0) * 1000.0
+        retrieved[probe.probe_id] = [sid for m in mems for sid in m.source_ids]
+        cases.append(_case_for_probe(probe, mems, agent, judge_model, mode, benchmark))
+    return cases, retrieved, query_ms
+
+
+@dataclass
+class MemorySuiteResult:
+    """``run_cases``'s QA verdicts plus the memory-specific metrics it doesn't compute.
+
+    ``suite`` is the seed's own ``SuiteResult`` (its ``to_dict()`` stays the CI contract,
+    unmodified). ``metrics`` is ``harness.metrics.aggregate``'s report — recall@k, nDCG,
+    temporal/bi-temporal accuracy, decay, and the labelless memory footprint — computed by
+    joining ``suite.results`` (keyed by ``CaseResult.name`` == ``Probe.probe_id``) with the
+    retrieved-id map and query latency ``build_memory_cases`` returns.
+    """
+
+    suite: "SuiteResult"
+    metrics: dict
+
+
+def _judge_name(judge_model) -> str:
+    return f"llm:{getattr(judge_model, 'id', judge_model)}"
+
+
+def _probe_records(
+    benchmark: Benchmark,
+    suite: "SuiteResult",
+    retrieved: Dict[str, List[str]],
+    query_ms: Dict[str, float],
+    judge_name: str,
+) -> List[ProbeRecord]:
+    """Join a suite run back onto the probes it answered.
+
+    A ``CaseResult`` with no matching probe (a ``tag=``/``name=`` filtered run_cases call
+    selected cases outside this benchmark) is skipped rather than raising: ``aggregate`` scores
+    what actually ran, the same way the offline ``run_benchmark`` never sees skipped cases.
+    """
+    probes_by_id = {probe.probe_id: probe for probe in benchmark.probes}
+    records: List[ProbeRecord] = []
+    degraded: List[str] = []
+    for result in suite.results:
+        probe = probes_by_id.get(result.name)
+        if probe is None:
+            continue
+        # An errored, timed-out or skipped case has `passed=False`, so it scores as a *wrong
+        # answer* rather than a missing one -- a judge outage then publishes as a legitimate 0%
+        # and trips the gate's `min_qa_accuracy` as a false regression, with retrieval still
+        # reporting 1.0 beside it to make the wrong story convincing (QC review of #152).
+        #
+        # The scoring itself is left alone: whether to exclude these from the denominator or fail
+        # the run outright is a benchmark-semantics decision, not a review fix. What changes is
+        # that the count is now reported, so "the memory system regressed" and "the judge was
+        # down" are distinguishable in the output instead of looking identical.
+        if getattr(result, "error", None) or getattr(result, "timed_out", False) or getattr(result, "skipped", False):
+            degraded.append(result.name)
+        records.append(
+            ProbeRecord(
+                probe=probe,
+                retrieved_ids=retrieved.get(result.name, []),
+                answer=result.output or "",
+                verdict=JudgeResult(
+                    correct=result.passed,
+                    score=(float(result.judge_score) if result.judge_score is not None else None),
+                    rationale=result.judge_reason or "",
+                    judge_name=judge_name,
+                ),
+                query_ms=query_ms.get(result.name, 0.0),
+                # NOT comparable to `harness/runner.py`'s `answer_ms`, despite the shared field
+                # and the shared `latency_ms.answer` key it aggregates into. `run_benchmark` times
+                # the answerer call alone; `CaseResult.duration_seconds` is the seed's own clock
+                # over the whole case -- `setup`, the agent answer, the LLM judge, the reliability
+                # check and `teardown`. On a live judge the judge call dominates, so this number
+                # is roughly "case wall time", not "time to answer" (QC review of #152).
+                #
+                # Left as-is rather than renamed: `answer_ms` is a field on the shared
+                # `ProbeRecord` (`harness/metrics.py`) that `run_benchmark` also writes, so a
+                # rename here either forks the schema or changes the offline runner's output too.
+                # Reported difference beats a silent one; see README "Latency semantics".
+                answer_ms=result.duration_seconds * 1000.0,
             )
         )
-    return cases, retrieved
+    if degraded:
+        # stderr, not egpt's logger: this module is importable on the stdlib-only offline
+        # path, where egpt may not be installed at all.
+        print(
+            f"WARNING: {len(degraded)} of {len(suite.results)} eval cases errored, timed out or "
+            f"were skipped and are scored as incorrect: {sorted(degraded)}. Treat the "
+            f"qa_accuracy below as a floor, not a measurement.",
+            file=sys.stderr,
+        )
+    return records
+
+
+def run_memory_suite(
+    benchmark: Benchmark,
+    provider: MemoryProvider,
+    config: Optional[RunConfig] = None,
+    judge_mode: str = "numeric",
+) -> MemorySuiteResult:
+    """Drive ``benchmark`` through ``provider`` via the seed's ``run_cases`` (real LLM answer +
+    real LLM judge), merging recall/temporal/decay/footprint onto the QA verdicts it returns.
+
+    This is the executable form of the PLAN.md §3 recipe: ``build_memory_cases`` for the
+    ``Case``s, the seed's own ``run_cases`` to actually run them, ``harness.metrics.aggregate``
+    for what the suite does not compute.
+    """
+    from egpt.eval.suite import run_cases
+
+    config = config or RunConfig()
+    cases, retrieved, query_ms = build_memory_cases(benchmark, provider, config=config, judge_mode=judge_mode)
+    suite = run_cases(cases)
+    judge_name = _judge_name(cases[0].judge_model) if cases else _judge_name(_DEFAULT_JUDGE_MODEL)
+    turn_index = {turn.turn_id: turn for session in benchmark.sessions for turn in session.turns}
+    records = _probe_records(benchmark, suite, retrieved, query_ms, judge_name)
+    metrics = aggregate(
+        records, k=config.k, turn_index=turn_index, judge_name=judge_name, footprint=provider.footprint()
+    )
+    return MemorySuiteResult(suite=suite, metrics=metrics)
+
+
+async def arun_memory_suite(
+    benchmark: Benchmark,
+    provider: MemoryProvider,
+    config: Optional[RunConfig] = None,
+    judge_mode: str = "numeric",
+) -> MemorySuiteResult:
+    """Async twin of :func:`run_memory_suite` (uses ``arun_cases`` + the provider's async methods)."""
+    from egpt.eval.suite import arun_cases
+
+    config = config or RunConfig()
+    cases, retrieved, query_ms = await abuild_memory_cases(benchmark, provider, config=config, judge_mode=judge_mode)
+    suite = await arun_cases(cases)
+    judge_name = _judge_name(cases[0].judge_model) if cases else _judge_name(_DEFAULT_JUDGE_MODEL)
+    turn_index = {turn.turn_id: turn for session in benchmark.sessions for turn in session.turns}
+    records = _probe_records(benchmark, suite, retrieved, query_ms, judge_name)
+    metrics = aggregate(
+        records, k=config.k, turn_index=turn_index, judge_name=judge_name, footprint=await provider.afootprint()
+    )
+    return MemorySuiteResult(suite=suite, metrics=metrics)

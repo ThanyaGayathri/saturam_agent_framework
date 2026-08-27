@@ -1,10 +1,16 @@
-# TEMPLATE GitHub Actions workflow for the memory eval harness.
+# ARCHIVED TEMPLATE - the original SM-R13 (#88) plan draft for this workflow.
 #
-# This file is a TEMPLATE committed under the deliverable folder, NOT installed
-# into .github/workflows (that is core/CI territory owned elsewhere; SM-X7 wires
-# it in for real). It documents the two-tier CI approach the plan proposes.
+# SM-X7 (#143) wired the real version in as .github/workflows/memory-eval.yml
+# (also gated on this repo's `run-ci` PR label, per ci.yml's cost-control
+# convention). This copy is kept for history; edit the installed workflow, not
+# this file.
 #
-# Tier 1 - on-PR offline smoke (this file's `smoke` job): fast, deterministic,
+# It also predates two fixes the installed copy carries (QC review of #152): the `full` job needs
+# an `astral-sh/setup-uv@v6` step before `scripts/dev_setup.sh` (which hard-exits without `uv`),
+# and its `if:` must enumerate `schedule`/`workflow_dispatch` rather than negate `pull_request`,
+# or an ordinary merge fires a real-spend run. Do not copy this draft's `full` job as-is.
+#
+# Tier 1 - on-PR offline smoke (`smoke` job): fast, deterministic,
 #          ZERO LLM spend. Runs the stdlib-only fixtures through the reference
 #          provider and enforces harness/gate.py. Gates the merge.
 # Tier 2 - scheduled full run (`full` job, manual/cron): downloads the real
