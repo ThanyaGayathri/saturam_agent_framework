@@ -3318,14 +3318,33 @@ def arun_dispatch(  # type: ignore
     yield_run_output: Optional[bool] = None,
     debug_mode: Optional[bool] = None,
     background: bool = False,
+    tenant_id: Optional[str] = None,
     **kwargs: Any,
 ) -> Union[RunOutput, AsyncIterator[RunOutputEvent]]:
-    """Async Run the Agent and return the response."""
+    """Async Run the Agent and return the response.
+
+    tenant_id: The caller's tenant (aicoe-tracker#196), recorded on this run's event buffer
+        entry so a later WS reconnect / HTTP `/resume` can refuse a mismatched tenant instead
+        of replaying across tenants. Not used to scope hydration -- the caller resolves that
+        separately before this dispatcher runs.
+    """
 
     # Set the id for the run and register it immediately for cancellation tracking
     from egpt.agent._response import get_response_format
 
     run_id = run_id or str(uuid4())
+
+    # Record the caller's tenant for this run_id (aicoe-tracker#196) before dispatching to any
+    # execution branch below. arun_dispatch is a plain `def`, not `async def` -- it can only
+    # return a coroutine or async generator for the caller to await/iterate, never itself
+    # suspend -- so every line between here and whichever `return` executes is synchronous,
+    # and no event for run_id can reach the buffer until the caller starts consuming what's
+    # returned. Covers every branch uniformly: background+stream, background+non-stream, and
+    # the plain foreground run (whose buffered events are equally reachable via reconnect/resume
+    # once execution starts).
+    from egpt.os.managers import event_buffer
+
+    event_buffer.register_run_tenant(run_id, tenant_id)
 
     if (add_history_to_context or agent.add_history_to_context) and not agent.db and not agent.team_id:
         log_warning(

@@ -216,26 +216,42 @@ class EventsBuffer:
     and WorkflowRunOutputEvent (workflows).
     """
 
-    def __init__(self, max_events_per_run: int = 1000, cleanup_interval: int = 3600):
+    def __init__(
+        self, max_events_per_run: int = 1000, cleanup_interval: int = 3600, paused_cleanup_interval: int = 86400
+    ):
         """
         Initialize the event buffer.
 
         Args:
             max_events_per_run: Maximum number of events to store per run (prevents memory bloat)
-            cleanup_interval: How long (in seconds) to keep completed runs in buffer
+            cleanup_interval: How long (in seconds) to keep completed/error/cancelled runs, and
+                orphaned tenant registrations with no run_metadata, in the buffer
+            paused_cleanup_interval: How long (in seconds) to keep a *paused* run's buffer
+                entries. Separate from and longer than `cleanup_interval` by default: a paused
+                run is usually waiting on a human (HITL), which can legitimately take far
+                longer than the retention window for a finished run -- but it must still be
+                bounded, or a never-resumed pause pins its buffer/tenant entries forever
+                (aicoe-tracker#196 QC round 2, finding 4).
         """
         # Store all event types (WorkflowRunOutputEvent, RunOutputEvent, TeamRunOutputEvent)
         self.events: Dict[str, List[Union[WorkflowRunOutputEvent, RunOutputEvent, TeamRunOutputEvent]]] = {}
         self._next_index: Dict[str, int] = {}  # monotonic event index counter per run
         self.run_metadata: Dict[str, Dict[str, Any]] = {}  # {run_id: {status, last_updated, etc}}
-        # {run_id: tenant_id} for runs a WS handler registered at start/continue time
-        # (aicoe-tracker#196). A run_id present here as a key -- even mapped to None for an
-        # untenanted/exempt run -- is "known"; a run_id absent was never registered (e.g.
-        # started over HTTP) and reconnect must fail closed for it when tenancy is enabled.
-        # See EgptOS's workflow router `handle_workflow_subscription`.
+        # {run_id: tenant_id} for runs a start/continue handler registered via
+        # `register_run_tenant` (aicoe-tracker#196). A run_id present here as a key -- even
+        # mapped to None for an untenanted/exempt run -- is "known"; a run_id absent was never
+        # registered and reconnect/resume must fail closed for it when tenancy is enabled. See
+        # `handle_workflow_subscription` and the `/resume` SSE endpoints (workflows/agents/teams).
         self.run_tenants: Dict[str, Optional[str]] = {}
+        # {run_id: registration time} so cleanup_runs() can sweep a run_tenants entry whose
+        # run never produced a buffered event (so run_metadata was never created for it, e.g.
+        # the background task errored before its first add_event) -- otherwise it would never
+        # be discovered by the run_metadata-keyed sweep below and would leak for the process
+        # lifetime of this singleton (finding 4).
+        self._run_tenants_registered_at: Dict[str, float] = {}
         self.max_events_per_run = max_events_per_run
         self.cleanup_interval = cleanup_interval
+        self.paused_cleanup_interval = paused_cleanup_interval
 
     def add_event(self, run_id: str, event: Union[WorkflowRunOutputEvent, RunOutputEvent, TeamRunOutputEvent]) -> int:
         """Add event to buffer for a specific run and return the event index (handles workflow, agent, and team events)"""
@@ -338,43 +354,50 @@ class EventsBuffer:
         if run_id in self.run_metadata:
             del self.run_metadata[run_id]
         self.run_tenants.pop(run_id, None)
+        self._run_tenants_registered_at.pop(run_id, None)
         log_debug(f"Cleaned up event buffer for run {run_id}")
 
     def register_run_tenant(self, run_id: str, tenant_id: Optional[str]) -> None:
         """Record the tenant a run was hydrated under, for reconnect-time reconciliation
         (aicoe-tracker#196).
 
-        Called once by the WS workflow handlers (start-workflow, continue-workflow) right
-        after `tenant_for_ws_hydration` resolves the caller's tenant, before any event for
-        `run_id` can reach the buffer -- so a reconnect racing the run's start never finds a
-        buffered run with no recorded tenant. `tenant_id` is stored as-is, including None for
-        an untenanted caller against an in-memory/exempt workflow: reconnect compares against
-        exactly what start-time used, so the same exemption applies symmetrically without
-        re-deriving it.
+        Called once by every start/continue entry point (WS and HTTP, across workflows,
+        agents, and teams) right after the caller's tenant is resolved, before any event for
+        `run_id` can reach the buffer -- so a reconnect/resume racing the run's start never
+        finds a buffered run with no recorded tenant. `tenant_id` is stored as-is, including
+        None for an untenanted caller against an in-memory/exempt component: reconnect compares
+        against exactly what start-time used, so the same exemption applies symmetrically
+        without re-deriving it.
         """
         self.run_tenants[run_id] = tenant_id
+        self._run_tenants_registered_at[run_id] = time()
 
     def get_run_tenant(self, run_id: str) -> Tuple[bool, Optional[str]]:
         """(is_known, tenant_id) recorded for a run by `register_run_tenant`.
 
-        `is_known` is False when the run was never registered (started over HTTP, or before
-        this fix took effect) -- callers must fail closed on that when tenancy is enabled,
-        since there is nothing to compare the reconnecting caller's tenant against.
+        `is_known` is False when the run was never registered (started before this fix took
+        effect, or through a path this fix doesn't cover) -- callers must fail closed on that
+        when tenancy is enabled, since there is nothing to compare the reconnecting caller's
+        tenant against.
         """
         if run_id in self.run_tenants:
             return True, self.run_tenants[run_id]
         return False, None
 
     def cleanup_runs(self) -> None:
-        """Clean up runs that have been completed for longer than cleanup_interval"""
+        """Clean up runs that have been completed/cancelled/errored or paused for longer than
+        their retention window, plus any orphaned tenant registration (finding 4, QC round 2).
+        """
         current_time = time()
         runs_to_cleanup = []
 
         for run_id, metadata in self.run_metadata.items():
-            # Only cleanup completed runs
-            if metadata["status"] in [RunStatus.completed, RunStatus.error, RunStatus.cancelled]:
+            status = metadata["status"]
+            # Paused runs get a separate, longer retention -- see paused_cleanup_interval.
+            if status in (RunStatus.completed, RunStatus.error, RunStatus.cancelled, RunStatus.paused):
+                retention = self.paused_cleanup_interval if status == RunStatus.paused else self.cleanup_interval
                 completed_at = metadata.get("completed_at", metadata["last_updated"])
-                if current_time - completed_at > self.cleanup_interval:
+                if current_time - completed_at > retention:
                     runs_to_cleanup.append(run_id)
 
         for run_id in runs_to_cleanup:
@@ -382,6 +405,22 @@ class EventsBuffer:
 
         if runs_to_cleanup:
             log_debug(f"Cleaned up {len(runs_to_cleanup)} old run buffers")
+
+        # A run_tenants entry with no run_metadata never produced a buffered event (e.g. the
+        # background task errored before its first add_event) and is invisible to the sweep
+        # above, which only walks run_metadata -- sweep those independently once they've aged
+        # past cleanup_interval, or they leak for the process lifetime of this singleton.
+        orphaned_tenants = [
+            run_id
+            for run_id, registered_at in self._run_tenants_registered_at.items()
+            if run_id not in self.run_metadata and current_time - registered_at > self.cleanup_interval
+        ]
+        for run_id in orphaned_tenants:
+            self.run_tenants.pop(run_id, None)
+            self._run_tenants_registered_at.pop(run_id, None)
+
+        if orphaned_tenants:
+            log_debug(f"Cleaned up {len(orphaned_tenants)} orphaned run-tenant registrations with no buffered events")
 
     def get_run_status(self, run_id: str) -> Optional[RunStatus]:
         """Get the status of a run from metadata"""

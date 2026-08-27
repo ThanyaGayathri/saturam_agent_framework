@@ -194,20 +194,53 @@ which cover all three WS actions.
 **Remaining limits, recorded rather than claimed away.** One gap is pre-existing and tracked
 separately; a second, closely related one has since been fixed:
 
-- ~~A `reconnect` whose `run_id` is still in the `EventBuffer` replays without reaching the
-  hydration gate, because that gate sits on the DB arm and the buffer is keyed on `run_id`
-  alone~~ — fixed by [aicoe-tracker#196](https://github.com/Saturam-Inc/aicoe-tracker/issues/196).
-  `handle_workflow_via_websocket` (start-workflow) and `handle_workflow_continue_via_websocket`
-  (continue-workflow) now record the hydrated tenant on the buffered run via
-  `EventsBuffer.register_run_tenant`, and `handle_workflow_subscription`'s buffer arm refuses a
-  reconnect whose caller tenant doesn't match — or whose run was never registered (e.g. started
-  over HTTP, which does not go through the WS start/continue handlers) — the same way the DB arm
-  already did. See `libs/agno/tests/integration/os/test_workflow_runs.py`'s
-  `test_ws_reconnect_replay_is_scoped_to_the_tenant_that_started_it` and
-  `test_ws_reconnect_to_an_unregistered_buffered_run_is_refused_when_tenancy_enabled`.
-- The reconciliation covers component *config* hydration. Run and session reads
-  (`Workflow.aget_run_output` → `aget_session` → `_aread_session`) take no `tenant_id` on either
-  transport — [aicoe-tracker#197](https://github.com/Saturam-Inc/aicoe-tracker/issues/197).
+- ~~A `reconnect`/`resume` whose `run_id` is still in the `EventBuffer` replays without reaching
+  the hydration gate, because that gate sits on the DB/config-hydration arm and the buffer is
+  keyed on `run_id` alone~~ — fixed by
+  [aicoe-tracker#196](https://github.com/Saturam-Inc/aicoe-tracker/issues/196), in two rounds.
+  The initial fix covered only the WS `reconnect` action for workflows; QC review found the
+  identical shape untouched in the HTTP `/resume` SSE endpoint for all three component types —
+  hydrating a workflow/agent/team with tenant scoping proves the caller's tenant can see that
+  *component*, not that this specific buffered *run* belongs to their tenant, since an
+  in-memory/code-defined component's hydration is exempt for every tenant. The fix is now
+  complete for all three components on both transports:
+  - `EventsBuffer.register_run_tenant`/`get_run_tenant` (`egpt/os/managers.py`) record and look
+    up the tenant a run was hydrated under, swept by `cleanup_runs()` independently of whether
+    the run ever produced a buffered event (an orphaned registration would otherwise never be
+    discovered) and on a separate, longer retention for paused runs (which can legitimately
+    wait on a human far longer than a finished run's retention window).
+  - Every start/continue entry point registers it: `arun_dispatch` in `agent/_run.py` and
+    `team/_run.py` register unconditionally right after minting `run_id` — a single synchronous
+    choke point covering background+stream, background+non-stream, and foreground runs alike,
+    since none of it can execute before the caller starts consuming what's returned. Workflow's
+    equivalent points are `Workflow.arun`'s foreground path, `_arun_background`, and
+    `_arun_background_stream` (the WS background+stream path keeps the router-side
+    post-hoc-registration this PR originally shipped, since it already had a safe synchronous
+    handle). Continuing a run reuses `register_or_refuse_run_tenant` instead: it refuses the
+    continue action outright — rather than silently reassigning — when a *different* tenant is
+    already recorded for that `run_id`, since continuing another tenant's paused run is itself a
+    symptom of the run/session-hydration gap below.
+  - `buffered_run_tenant_check` (`egpt/os/utils.py`) is the one gate every reconnect/resume
+    buffer arm shares: `handle_workflow_subscription`'s WS `reconnect`, and
+    `_resume_stream_generator` in all three of `workflows/router.py`, `agents/router.py`,
+    `teams/router.py`. A run whose recorded tenant doesn't match the caller's, or that was never
+    registered (nothing to reconcile against), is refused the same way, masked as "not found".
+  - See `libs/agno/tests/integration/os/test_workflow_runs.py`'s
+    `test_ws_reconnect_replay_is_scoped_to_the_tenant_that_started_it` (WS) and
+    `libs/agno/tests/integration/os/test_run_resume_tenant_isolation.py` (HTTP `/resume` across
+    all three components, plus the tenancy-off no-op pinning test), and
+    `libs/agno/tests/unit/os/test_hydration_resolvers.py`'s `TestBufferedRunTenantCheck` /
+    `TestRegisterOrRefuseRunTenant` for the gate primitives themselves.
+- The reconciliation covers component *config* hydration and, as of the fix above, the
+  event-buffer arm of reconnect/resume. Run and session reads (`Workflow.aget_run_output` →
+  `aget_session` → `_aread_session`, and the agent/team equivalents) still take no `tenant_id`
+  on either transport — [aicoe-tracker#197](https://github.com/Saturam-Inc/aicoe-tracker/issues/197).
+  This is why `register_or_refuse_run_tenant` refuses a continue on a tenant mismatch rather
+  than fully solving it: a caller whose `run_id`/`session_id` guess is validated by
+  `verify_run_in_session`/`aget_run_output` alone (no tenant check) can still act on another
+  tenant's run today if the run was never touched by a WS/HTTP handler that registered a
+  tenant for it (e.g. a first-touch continue against a run created some other way) — closing
+  that fully needs #197.
 
 **The non-HTTP entry points keep an unscoped default.** `Agent.save/delete`, `Team.save/delete`
 and `Workflow.save/delete` take `tenant_id` but default it to `None`. On a **non-strict** db that

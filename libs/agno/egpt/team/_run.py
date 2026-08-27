@@ -4305,9 +4305,16 @@ def arun_dispatch(  # type: ignore
     yield_run_output: bool = False,
     output_schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
     background: bool = False,
+    tenant_id: Optional[str] = None,
     **kwargs: Any,
 ) -> Union[TeamRunOutput, AsyncIterator[Union[RunOutputEvent, TeamRunOutputEvent]]]:
-    """Run the Team asynchronously and return the response."""
+    """Run the Team asynchronously and return the response.
+
+    tenant_id: The caller's tenant (aicoe-tracker#196), recorded on this run's event buffer
+        entry so a later WS reconnect / HTTP `/resume` can refuse a mismatched tenant instead
+        of replaying across tenants. Not used to scope hydration -- the caller resolves that
+        separately before this dispatcher runs.
+    """
 
     # Set the id for the run and register it immediately for cancellation tracking
     from egpt.team._init import _initialize_session
@@ -4315,6 +4322,13 @@ def arun_dispatch(  # type: ignore
     from egpt.team._run_options import resolve_run_options
 
     run_id = run_id or str(uuid4())
+
+    # Record the caller's tenant for this run_id (aicoe-tracker#196) before dispatching to any
+    # execution branch below -- see agent/_run.py's arun_dispatch for why this ordering is safe
+    # and covers every branch (background+stream, background+non-stream, foreground) uniformly.
+    from egpt.os.managers import event_buffer
+
+    event_buffer.register_run_tenant(run_id, tenant_id)
 
     # Initialize Team
     team.initialize_team(debug_mode=debug_mode)

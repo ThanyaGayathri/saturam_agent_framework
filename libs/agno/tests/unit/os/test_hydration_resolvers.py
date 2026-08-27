@@ -16,7 +16,10 @@ from egpt.agent.agent import Agent
 from egpt.db.base import BaseDb
 from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
 from egpt.os.utils import (
+    buffered_run_tenant_check,
     get_agent_by_id_async,
+    normalize_tenant_claim,
+    register_or_refuse_run_tenant,
     resolve_agent,
     resolve_tenant_id,
     tenant_for_direct_read,
@@ -257,3 +260,95 @@ class TestTenantForWsHydration:
         with pytest.raises(HTTPException) as excinfo:
             tenant_for_ws_hydration(None, True, in_memory=False, db=_mock_db())
         assert excinfo.value.status_code == 403
+
+
+class TestNormalizeTenantClaim:
+    """aicoe-tracker#196 QC round 2, finding 5: a single shared normaliser instead of the
+    inline copy `tenant_for_ws_hydration` and the reconnect/resume gates each used to carry.
+    """
+
+    def test_none_stays_none(self):
+        assert normalize_tenant_claim(None) is None
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+    def test_blank_collapses_to_none(self, blank):
+        assert normalize_tenant_claim(blank) is None
+
+    def test_a_real_tenant_is_returned_unchanged(self):
+        assert normalize_tenant_claim("acme") == "acme"
+
+    def test_surrounding_whitespace_is_stripped(self):
+        assert normalize_tenant_claim("  acme  ") == "acme"
+
+
+class TestBufferedRunTenantCheck:
+    """aicoe-tracker#196 QC round 2, finding 1/5: the single gate every reconnect/resume buffer
+    arm (WS reconnect, and the workflows/agents/teams HTTP /resume endpoints) now shares.
+    """
+
+    def test_tenancy_off_always_passes(self):
+        assert buffered_run_tenant_check("run-1", None, tenancy_enabled=False) is True
+        assert buffered_run_tenant_check("run-1", "mallory-tenant", tenancy_enabled=False) is True
+
+    def test_unregistered_run_is_refused_when_tenancy_on(self, monkeypatch):
+        from egpt.os.managers import event_buffer
+
+        monkeypatch.setattr(event_buffer, "run_tenants", {})
+        assert buffered_run_tenant_check("run-unknown", "acme", tenancy_enabled=True) is False
+
+    def test_matching_tenant_passes(self, monkeypatch):
+        from egpt.os.managers import event_buffer
+
+        monkeypatch.setattr(event_buffer, "run_tenants", {"run-1": "acme"})
+        assert buffered_run_tenant_check("run-1", "acme", tenancy_enabled=True) is True
+
+    def test_mismatched_tenant_is_refused(self, monkeypatch):
+        from egpt.os.managers import event_buffer
+
+        monkeypatch.setattr(event_buffer, "run_tenants", {"run-1": "acme"})
+        assert buffered_run_tenant_check("run-1", "beta", tenancy_enabled=True) is False
+
+    def test_caller_tenant_is_normalised_before_comparing(self, monkeypatch):
+        from egpt.os.managers import event_buffer
+
+        monkeypatch.setattr(event_buffer, "run_tenants", {"run-1": "acme"})
+        assert buffered_run_tenant_check("run-1", "  acme  ", tenancy_enabled=True) is True
+
+
+class TestRegisterOrRefuseRunTenant:
+    """aicoe-tracker#196 QC round 2, finding 3: continue must not silently reassign a run's
+    recorded tenant to a mismatched caller.
+    """
+
+    def test_first_touch_registers_and_allows(self, monkeypatch):
+        from egpt.os.managers import event_buffer
+
+        monkeypatch.setattr(event_buffer, "run_tenants", {})
+        monkeypatch.setattr(event_buffer, "_run_tenants_registered_at", {})
+        assert register_or_refuse_run_tenant("run-1", "acme", tenancy_enabled=True) is True
+        assert event_buffer.run_tenants["run-1"] == "acme"
+
+    def test_matching_tenant_refreshes_and_allows(self, monkeypatch):
+        from egpt.os.managers import event_buffer
+
+        monkeypatch.setattr(event_buffer, "run_tenants", {"run-1": "acme"})
+        monkeypatch.setattr(event_buffer, "_run_tenants_registered_at", {})
+        assert register_or_refuse_run_tenant("run-1", "acme", tenancy_enabled=True) is True
+        assert event_buffer.run_tenants["run-1"] == "acme"
+
+    def test_mismatched_tenant_is_refused_and_not_overwritten(self, monkeypatch):
+        from egpt.os.managers import event_buffer
+
+        monkeypatch.setattr(event_buffer, "run_tenants", {"run-1": "acme"})
+        monkeypatch.setattr(event_buffer, "_run_tenants_registered_at", {})
+        assert register_or_refuse_run_tenant("run-1", "beta", tenancy_enabled=True) is False
+        # The original owner's record must survive the refused attempt untouched.
+        assert event_buffer.run_tenants["run-1"] == "acme"
+
+    def test_tenancy_off_always_registers_regardless_of_mismatch(self, monkeypatch):
+        from egpt.os.managers import event_buffer
+
+        monkeypatch.setattr(event_buffer, "run_tenants", {"run-1": "acme"})
+        monkeypatch.setattr(event_buffer, "_run_tenants_registered_at", {})
+        assert register_or_refuse_run_tenant("run-1", "beta", tenancy_enabled=False) is True
+        assert event_buffer.run_tenants["run-1"] == "beta"
