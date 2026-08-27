@@ -191,13 +191,20 @@ identically on both paths, on JWT and PAT-only deployments alike; see
 `libs/agno/tests/integration/os/test_workflow_runs.py`'s WS/HTTP tenant-reconciliation tests,
 which cover all three WS actions.
 
-**Remaining limits, recorded rather than claimed away.** Two gaps are pre-existing, identical
-before and after the fix, and tracked separately:
+**Remaining limits, recorded rather than claimed away.** One gap is pre-existing and tracked
+separately; a second, closely related one has since been fixed:
 
-- A `reconnect` whose `run_id` is still in the `EventBuffer` replays without reaching the
+- ~~A `reconnect` whose `run_id` is still in the `EventBuffer` replays without reaching the
   hydration gate, because that gate sits on the DB arm and the buffer is keyed on `run_id`
-  alone — [aicoe-tracker#196](https://github.com/Saturam-Inc/aicoe-tracker/issues/196).
-  `continue-workflow` and `start-workflow` are not affected; their gates run unconditionally.
+  alone~~ — fixed by [aicoe-tracker#196](https://github.com/Saturam-Inc/aicoe-tracker/issues/196).
+  `handle_workflow_via_websocket` (start-workflow) and `handle_workflow_continue_via_websocket`
+  (continue-workflow) now record the hydrated tenant on the buffered run via
+  `EventsBuffer.register_run_tenant`, and `handle_workflow_subscription`'s buffer arm refuses a
+  reconnect whose caller tenant doesn't match — or whose run was never registered (e.g. started
+  over HTTP, which does not go through the WS start/continue handlers) — the same way the DB arm
+  already did. See `libs/agno/tests/integration/os/test_workflow_runs.py`'s
+  `test_ws_reconnect_replay_is_scoped_to_the_tenant_that_started_it` and
+  `test_ws_reconnect_to_an_unregistered_buffered_run_is_refused_when_tenancy_enabled`.
 - The reconciliation covers component *config* hydration. Run and session reads
   (`Workflow.aget_run_output` → `aget_session` → `_aread_session`) take no `tenant_id` on either
   transport — [aicoe-tracker#197](https://github.com/Saturam-Inc/aicoe-tracker/issues/197).

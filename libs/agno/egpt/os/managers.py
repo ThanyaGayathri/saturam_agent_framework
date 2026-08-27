@@ -228,6 +228,12 @@ class EventsBuffer:
         self.events: Dict[str, List[Union[WorkflowRunOutputEvent, RunOutputEvent, TeamRunOutputEvent]]] = {}
         self._next_index: Dict[str, int] = {}  # monotonic event index counter per run
         self.run_metadata: Dict[str, Dict[str, Any]] = {}  # {run_id: {status, last_updated, etc}}
+        # {run_id: tenant_id} for runs a WS handler registered at start/continue time
+        # (aicoe-tracker#196). A run_id present here as a key -- even mapped to None for an
+        # untenanted/exempt run -- is "known"; a run_id absent was never registered (e.g.
+        # started over HTTP) and reconnect must fail closed for it when tenancy is enabled.
+        # See EgptOS's workflow router `handle_workflow_subscription`.
+        self.run_tenants: Dict[str, Optional[str]] = {}
         self.max_events_per_run = max_events_per_run
         self.cleanup_interval = cleanup_interval
 
@@ -331,7 +337,33 @@ class EventsBuffer:
         self._next_index.pop(run_id, None)
         if run_id in self.run_metadata:
             del self.run_metadata[run_id]
+        self.run_tenants.pop(run_id, None)
         log_debug(f"Cleaned up event buffer for run {run_id}")
+
+    def register_run_tenant(self, run_id: str, tenant_id: Optional[str]) -> None:
+        """Record the tenant a run was hydrated under, for reconnect-time reconciliation
+        (aicoe-tracker#196).
+
+        Called once by the WS workflow handlers (start-workflow, continue-workflow) right
+        after `tenant_for_ws_hydration` resolves the caller's tenant, before any event for
+        `run_id` can reach the buffer -- so a reconnect racing the run's start never finds a
+        buffered run with no recorded tenant. `tenant_id` is stored as-is, including None for
+        an untenanted caller against an in-memory/exempt workflow: reconnect compares against
+        exactly what start-time used, so the same exemption applies symmetrically without
+        re-deriving it.
+        """
+        self.run_tenants[run_id] = tenant_id
+
+    def get_run_tenant(self, run_id: str) -> Tuple[bool, Optional[str]]:
+        """(is_known, tenant_id) recorded for a run by `register_run_tenant`.
+
+        `is_known` is False when the run was never registered (started over HTTP, or before
+        this fix took effect) -- callers must fail closed on that when tenancy is enabled,
+        since there is nothing to compare the reconnecting caller's tenant against.
+        """
+        if run_id in self.run_tenants:
+            return True, self.run_tenants[run_id]
+        return False, None
 
     def cleanup_runs(self) -> None:
         """Clean up runs that have been completed for longer than cleanup_interval"""

@@ -224,7 +224,7 @@ async def handle_workflow_via_websocket(
                 session_id = str(uuid4())
 
         # Execute workflow in background with streaming via WebSocket
-        await workflow.arun(  # type: ignore
+        started_run = await workflow.arun(  # type: ignore
             input=user_message,
             session_id=session_id,
             user_id=user_id,
@@ -234,6 +234,17 @@ async def handle_workflow_via_websocket(
             websocket=websocket,
             enable_websocket=True,
         )
+
+        # Record the tenant this run started under (aicoe-tracker#196), so a later WS
+        # reconnect that finds it in the event buffer can reconcile against the same tenant
+        # instead of skipping the gate entirely. Registered synchronously right after arun
+        # returns -- background execution is a freshly created asyncio task that cannot run
+        # (and therefore cannot add the run's first event to the buffer) until this coroutine
+        # yields, so there is no window for a reconnect to observe the run as buffered but
+        # unregistered.
+        started_run_id = getattr(started_run, "run_id", None)
+        if started_run_id:
+            event_buffer.register_run_tenant(started_run_id, hydration_tenant_id)
 
         # NOTE: Don't register the original websocket in the manager
         # It's already handled by the WebSocketHandler passed to the workflow
@@ -369,6 +380,25 @@ async def handle_workflow_subscription(
 
         # Check if run exists in event buffer
         buffer_status = event_buffer.get_run_status(run_id)
+
+        if buffer_status is not None and ctx.tenancy_enabled:
+            # Fail-closed tenant gate for the buffer arm (aicoe-tracker#196): the DB arm below
+            # already reaches tenant_for_ws_hydration, but a run still in the EventBuffer used
+            # to skip it entirely -- the buffer is keyed on run_id alone, so any caller with
+            # workflows:run could replay another tenant's run by guessing its run_id. Compare
+            # against exactly what start-workflow/continue-workflow recorded via
+            # register_run_tenant, normalised the same way tenant_for_ws_hydration normalises
+            # ctx.tenant_id. A run the WS handlers never registered (e.g. started over HTTP) is
+            # unknown and refused the same as a mismatch -- there is nothing to reconcile
+            # against, and skipping the gate for "unknown" would reopen this hole for that case.
+            normalized_caller_tenant = (
+                ctx.tenant_id.strip() if isinstance(ctx.tenant_id, str) and ctx.tenant_id.strip() else None
+            )
+            is_known, recorded_tenant = event_buffer.get_run_tenant(run_id)
+            if not is_known or recorded_tenant != normalized_caller_tenant:
+                # Mask existence, consistent with the other reconnect refusals above.
+                await websocket.send_text(json.dumps({"event": "error", "error": f"Run {run_id} not found"}))
+                return
 
         if buffer_status is None:
             # Run not in buffer - check database
@@ -642,6 +672,12 @@ async def handle_workflow_continue_via_websocket(
                     json.dumps({"event": "error", "error": f"Invalid step_requirements: {str(e)}"})
                 )
                 return
+
+        # Record/refresh the tenant this run continues under (aicoe-tracker#196) before any
+        # continue event can reach the buffer, so a later reconnect reconciles against it. The
+        # run_id is already known here (unlike start-workflow, continue doesn't mint a new
+        # one), so this registers ahead of the call rather than off its return value.
+        event_buffer.register_run_tenant(run_id, hydration_tenant_id)
 
         # Continue workflow in background with WebSocket streaming.
         # Events are broadcast via WebSocketHandler through _handle_event calls,
