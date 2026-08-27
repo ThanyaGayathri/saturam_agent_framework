@@ -292,14 +292,15 @@ class Claude(Model):
         # Required betas for skills
         required_betas = ["code-execution-2025-08-25", "skills-2025-10-02"]
 
-        # Initialize or merge betas
+        # Rebind rather than append: `deep_copy` shares `model` by reference, so appending would
+        # write into a list every copy of the agent shares -- and into the caller's own list, if
+        # they passed one (aicoe-tracker#190). Rebinding is what a shallow copy isolates.
         if self.betas is None:
-            self.betas = required_betas
+            self.betas = list(required_betas)
         else:
-            # Add required betas if not present
-            for beta in required_betas:
-                if beta not in self.betas:
-                    self.betas.append(beta)
+            missing = [beta for beta in required_betas if beta not in self.betas]
+            if missing:
+                self.betas = [*self.betas, *missing]
 
     def _ensure_additional_properties_false(self, schema: Dict[str, Any]) -> None:
         """

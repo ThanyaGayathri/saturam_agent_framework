@@ -286,11 +286,19 @@ class Gemini(Model):
         """
         request_params = {}
         # User provides their own generation config
+        #
+        # Copy rather than alias: everything below writes into `config` in place, so a bare
+        # `config = self.generation_config` would make *building request params* rewrite the
+        # model's own attribute (aicoe-tracker#190). `deep_copy` shares `model` by reference and
+        # aicoe-tracker#172's pin carry-over is a shallow copy, so that dict is shared by every
+        # copy of an agent -- one request's param build would be visible to its siblings and to
+        # the original. `model_dump()` on the `GenerateContentConfig` branch already returns a
+        # fresh dict; the plain-dict branch is the one that needed copying.
         if self.generation_config is not None:
             if isinstance(self.generation_config, GenerateContentConfig):
                 config = self.generation_config.model_dump()
             else:
-                config = self.generation_config
+                config = dict(self.generation_config)
         else:
             config = {}
 

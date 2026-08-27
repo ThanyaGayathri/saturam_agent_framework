@@ -105,8 +105,20 @@ class OpenAIResponses(Model):
         return self.id.startswith("o3") or self.id.startswith("o4-mini") or self.id.startswith("gpt-5")
 
     def _set_reasoning_request_param(self, base_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Set the reasoning request parameter."""
-        base_params["reasoning"] = self.reasoning or {}
+        """Set the reasoning request parameter.
+
+        Copies ``self.reasoning`` rather than aliasing it: the two writes below are item
+        assignments, so an alias would make *building request params* mutate the model's own
+        attribute (aicoe-tracker#190). `deep_copy` shares `model` by reference on purpose, and
+        aicoe-tracker#172's pin carry-over is a shallow copy, so that dict is shared by every
+        copy of an agent -- one request's param build would be visible to its siblings and to
+        the original.
+
+        The empty case never bit, which is why a first attempt to reproduce it fails:
+        ``self.reasoning or {}`` already builds a fresh dict when the attribute is falsy, so the
+        aliasing only shows up when a caller passed a non-empty ``reasoning={...}``.
+        """
+        base_params["reasoning"] = dict(self.reasoning or {})
 
         if self.reasoning_effort is not None:
             base_params["reasoning"]["effort"] = self.reasoning_effort

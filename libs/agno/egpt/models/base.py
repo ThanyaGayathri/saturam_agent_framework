@@ -3397,14 +3397,21 @@ def carry_over_pin(pin: Any) -> Any:
     -- so the hazard this helper exists to close is isolated, and a deep copy would duplicate the
     clients and connection pools `deep_copy_field` deliberately shares by reference.
 
-    What it does **not** isolate is a provider that mutates a container in place. There is one in
-    tree: `openai/responses.py`'s `_set_reasoning_request_param` aliases `self.reasoning` into its
-    request params and writes `effort`/`summary` into it, so copies sharing that dict see each
-    other's writes (only when `reasoning` is non-empty -- `self.reasoning or {}` makes an empty
-    one falsy and builds a fresh dict). Harmless today, since `reasoning` carries no credential
-    and the sharing predates this helper. It stops being harmless the day a provider writes into
-    a container that does hold one (`default_headers["Authorization"]`, `client_params`), so a
-    new provider doing that needs a deeper copy here rather than a shallow one.
+    What it does **not** isolate is a provider that mutates a container in place. Three providers
+    did -- `openai/responses.py` aliased `self.reasoning` into its request params,
+    `anthropic/claude.py` appended to `self.betas`, and `google/gemini.py` aliased
+    `self.generation_config` into a local and wrote into it while building request params -- so
+    copies sharing those containers saw each other's writes. All three were fixed in
+    aicoe-tracker#190 by copying before writing, and
+    `tests/unit/models/test_request_params_do_not_mutate_the_model.py` now scans the whole
+    provider tree for the shape, so the class is closed rather than merely absent.
+
+    That guard is a structural check over source, not a proof: it matches item assignment,
+    augmented assignment, `del`, and mutating-method calls reached through `self.<attr>` or
+    through a local bound to one in the same function, and it does not model aliasing that
+    crosses a function boundary or is laundered through a call. A provider that writes into a
+    container holding a credential (`default_headers["Authorization"]`, `client_params`) in some
+    shape the scan cannot see would still need a deeper copy here rather than a shallow one.
 
     The copy also still satisfies `same_model` against the original -- class, id and the
     connection fields all survive it -- which matters because a pin that compared unequal would
