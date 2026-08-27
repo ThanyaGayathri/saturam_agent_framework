@@ -65,12 +65,12 @@ DEFAULT_DB_FILE = "./egpt.db"
 # pysqlite's own default (5s) is short enough that upsert_config's BEGIN IMMEDIATE
 # (aicoe-tracker#188) can outlast it under sustained contention, surfacing an uncaught
 # OperationalError("database is locked") -- a raw 500 -- instead of the caller simply waiting
-# its turn. Set on every connection so any writer blocked on SQLite's file lock waits up to
-# this long before that error is even possible.
+# its turn. This is engine-wide, not scoped to upsert_config: every query from any SqliteDb
+# on this engine now waits up to this long on a locked database instead of failing at 5s.
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 
 
-def _set_sqlite_busy_timeout(dbapi_connection, connection_record) -> None:
+def _set_sqlite_busy_timeout(dbapi_connection, connection_record, connection_proxy=None) -> None:
     dbapi_connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
 
 
@@ -206,8 +206,12 @@ class SqliteDb(BaseDb):
                 db_file = str(default_db_path)
                 log_debug(f"Created SQLite database: {default_db_path}")
 
-        if not event.contains(_engine, "connect", _set_sqlite_busy_timeout):
-            event.listens_for(_engine, "connect")(_set_sqlite_busy_timeout)
+        # "checkout" (not "connect") is required so this fires for a caller-supplied db_engine
+        # whose pool already holds connections opened before this listener was registered --
+        # "connect" only fires when a *new* DBAPI connection is created, which never happens
+        # again for an already-warmed pool's existing connections.
+        if not event.contains(_engine, "checkout", _set_sqlite_busy_timeout):
+            event.listens_for(_engine, "checkout")(_set_sqlite_busy_timeout)
 
         self.db_engine: Engine = _engine
         self.db_url: Optional[str] = db_url
@@ -4098,6 +4102,10 @@ class SqliteDb(BaseDb):
                 # components -- a coarser bound than Postgres's per-component advisory lock, but
                 # SQLite's single-writer file lock already limited real write throughput to one
                 # at a time.
+                #
+                # MUST remain the first statement in this transaction: a preceding SELECT does
+                # not error, it just silently reopens the race by letting pysqlite defer the
+                # write lock past the label check again.
                 sess.execute(text("BEGIN IMMEDIATE"))
 
                 # Verify component exists and is not deleted. tenant_id comes along so the audit

@@ -11,7 +11,10 @@ eventual write are atomic with respect to other writers on the same component.
 
 The race is between real connections, so the threads here are released through a barrier to
 maximize the collision window, following the barrier technique used for the version-assignment
-race in ``test_upsert_config_concurrency.py`` (aicoe-tracker#168).
+race in ``test_upsert_config_concurrency.py`` (aicoe-tracker#168). The barrier only synchronizes
+thread launch, not the label check itself several statements deep inside ``upsert_config``, so a
+single round misses the collision under a reverted fix about half the time -- the concurrent
+test runs multiple rounds with a fresh component per round to make detection reliable.
 """
 
 import uuid
@@ -25,46 +28,48 @@ NUM_THREADS = 8
 
 def test_concurrent_same_label_creates_exactly_one_winner(postgres_db_real):
     db = postgres_db_real
-    component_id = f"agent-{uuid.uuid4().hex[:8]}"
-    db.create_component_with_config(
-        component_id=component_id,
-        component_type=ComponentType.AGENT,
-        name=component_id,
-        config={"model": "gpt-5.5"},
-        tenant_id="t1",
-    )  # v1
-
-    barrier = Barrier(NUM_THREADS)
     label = "stable"
 
-    def worker(i):
-        barrier.wait()
-        try:
-            created = db.upsert_config(component_id, config={"model": f"thread-{i}"}, label=label, tenant_id="t1")
-            return ("ok", created["version"])
-        except ValueError as e:
-            return ("error", str(e))
+    for _ in range(10):
+        component_id = f"agent-{uuid.uuid4().hex[:8]}"
+        db.create_component_with_config(
+            component_id=component_id,
+            component_type=ComponentType.AGENT,
+            name=component_id,
+            config={"model": "gpt-5.5"},
+            tenant_id="t1",
+        )  # v1
 
-    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-        futures = [executor.submit(worker, i) for i in range(NUM_THREADS)]
-        results = [future.result() for future in futures]
+        barrier = Barrier(NUM_THREADS)
 
-    winners = [r for r in results if r[0] == "ok"]
-    losers = [r for r in results if r[0] == "error"]
+        def worker(i, component_id=component_id):
+            barrier.wait()
+            try:
+                created = db.upsert_config(component_id, config={"model": f"thread-{i}"}, label=label, tenant_id="t1")
+                return ("ok", created["version"])
+            except ValueError as e:
+                return ("error", str(e))
 
-    # Exactly one concurrent caller lands the label; the race must not let two through.
-    assert len(winners) == 1, f"expected exactly one winner, got {winners}"
-    assert len(losers) == NUM_THREADS - 1
+        with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+            futures = [executor.submit(worker, i) for i in range(NUM_THREADS)]
+            results = [future.result() for future in futures]
 
-    # Losers get the existing clean error, never a raw IntegrityError/constraint violation.
-    for _, message in losers:
-        assert message == f"Label '{label}' already exists for {component_id}"
+        winners = [r for r in results if r[0] == "ok"]
+        losers = [r for r in results if r[0] == "error"]
 
-    # The database itself has exactly one row with the label -- not just the caller-side count.
-    configs = db.list_configs(component_id, tenant_id="t1")
-    labeled = [c for c in configs if c["label"] == label]
-    assert len(labeled) == 1
-    assert labeled[0]["version"] == winners[0][1]
+        # Exactly one concurrent caller lands the label; the race must not let two through.
+        assert len(winners) == 1, f"expected exactly one winner, got {winners}"
+        assert len(losers) == NUM_THREADS - 1
+
+        # Losers get the existing clean error, never a raw IntegrityError/constraint violation.
+        for _, message in losers:
+            assert message == f"Label '{label}' already exists for {component_id}"
+
+        # The database itself has exactly one row with the label -- not just the caller-side count.
+        configs = db.list_configs(component_id, tenant_id="t1")
+        labeled = [c for c in configs if c["label"] == label]
+        assert len(labeled) == 1
+        assert labeled[0]["version"] == winners[0][1]
 
 
 def test_non_concurrent_label_conflict_still_raises(postgres_db_real):

@@ -4162,8 +4162,18 @@ class PostgresDb(BaseDb):
                 # blocks rather than fails, so a losing caller simply waits its turn instead of
                 # retrying. hashtext() collisions between distinct component_ids only cause
                 # extra, harmless serialization -- never a missed lock.
+                #
+                # The two-arg form takes this feature's locks out of Postgres's single global
+                # advisory-lock keyspace: a dedicated classid (itself a fixed hashtext, so it
+                # never needs to be kept in sync with anything) means no future feature that
+                # also picks single-arg pg_advisory_xact_lock can collide with a
+                # hashtext(component_id) value and serialize against it for no reason.
                 sess.execute(
-                    text("SELECT pg_advisory_xact_lock(hashtext(:component_id))"), {"component_id": component_id}
+                    text(
+                        "SELECT pg_advisory_xact_lock("
+                        "hashtext('egpt.component_configs.upsert_config'), hashtext(:component_id))"
+                    ),
+                    {"component_id": component_id},
                 )
 
                 # Verify component exists and is not deleted. tenant_id comes along so the audit
