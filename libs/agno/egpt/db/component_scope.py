@@ -75,6 +75,7 @@ __all__ = [
     "TENANT_COLUMN",
     "TENANT_SCOPED_COMPONENT_TABLES",
     "TENANT_SCOPE_REQUIRED_DETAIL",
+    "UNSCOPED_EXISTENCE_PROBES",
     "TenantScopeRequiredError",
     "require_tenant_id_from_env",
     "resolve_tenant_scope",
@@ -113,6 +114,18 @@ COMPONENT_DATA_ACCESS_METHODS: Tuple[str, ...] = (
     "get_dependents",
     "load_component_graph",
 )
+
+# The one deliberate exception to the guard: methods allowed to touch a tenant-scoped component
+# table with *no* tenant parameter at all. ``component_id`` is the global primary key while every
+# other read is a row-level tenant predicate, so a probe asking "is this id taken?" is only
+# truthful unscoped -- a scoped probe cannot see a foreign tenant's holder and mispredicts the
+# write (aicoe-tracker#176). The probe answers with a single bit and returns no row data, which
+# is what makes the exemption tolerable: it is an existence oracle, but a deliberate and
+# auditable one, and this tuple is the audit. The fail-closed AST scan
+# (``tests/unit/db/test_component_tenant_fail_closed.py``) exempts exactly these names and pins
+# that each has no ``tenant_id`` parameter -- an unscoped probe that later grew a tenant argument
+# would be a scoped probe wearing the exemption.
+UNSCOPED_EXISTENCE_PROBES: Tuple[str, ...] = ("component_id_is_taken",)
 
 TENANT_SCOPE_REQUIRED_DETAIL = (
     "This database requires every component operation to name a tenant, and this call passed "

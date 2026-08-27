@@ -56,6 +56,7 @@ Persistence:
 from __future__ import annotations
 
 import json
+import secrets
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from egpt.tools.function import Function
@@ -1717,28 +1718,52 @@ class StudioTools(Toolkit):
 
         Components use ``component_id`` as the primary key, so agents, teams,
         and workflows intentionally share one id namespace.
+
+        The disambiguator after a collision is *random*, not a dense ``-2``, ``-3`` walk.
+        The existence check underneath is deliberately unscoped (see ``_component_id_exists``),
+        and the id this method picks is returned to the caller in a successful response: a
+        dense walk would hand back a *count* of existing holders -- create "Acme Billing",
+        receive ``acme-billing-3``, learn that two other components (possibly another
+        tenant's) exist under that name. A random suffix reveals only that the base id was
+        taken, which is the single bit the collision itself already discloses. That keeps
+        this path inside the one-bit budget the unscoped probe is argued under
+        (docs/tenancy.md section 7).
+
+        Bounded at ``_MAX_ID_DISAMBIGUATION_ATTEMPTS``: a pathological or misbehaving probe
+        that never reports "free" would otherwise spin forever.
         """
         base = _slugify(name)
         candidate = base
-        suffix = 2
+        attempts = 0
         while self._component_id_exists(candidate, db):
-            candidate = f"{base}-{suffix}"
-            suffix += 1
+            attempts += 1
+            if attempts >= _MAX_ID_DISAMBIGUATION_ATTEMPTS:
+                raise ValueError(
+                    f"Could not find a unique component id for {name!r} after "
+                    f"{_MAX_ID_DISAMBIGUATION_ATTEMPTS} attempts"
+                )
+            candidate = f"{base}-{secrets.token_hex(3)}"
         return candidate
 
     def _component_id_exists(self, component_id: str, db: "BaseDb") -> bool:
-        """Whether this id is already taken, as far as this toolkit is allowed to see.
+        """Whether this id is already taken, anywhere.
 
-        The DB probe is scoped to ``self.tenant_id`` (EGPT-2.7), which makes the answer
-        deliberately incomplete: ``component_id`` is a *global* primary key, so another tenant
-        may hold an id this returns ``False`` for. The insert then fails on the primary key.
+        ``component_id`` is a *global* primary key, so the DB probe has to see every tenant's
+        rows to answer truthfully -- a probe scoped to ``self.tenant_id`` misses a foreign
+        holder, and the id this method vouched for then fails the insert on the primary key.
+        ``component_id_is_taken`` is the dedicated existence probe for exactly this question:
+        unscoped, permitted on a db built with ``require_tenant_id``, and answering with a
+        single bit rather than a row, which is what keeps it from being the cross-tenant
+        enumeration channel a full unscoped ``get_component`` would have been. With it,
+        ``_unique_component_id`` steps over a foreign-held *live* id instead of handing the
+        caller an ``IntegrityError``. See docs/tenancy.md section 7.
 
-        That trade is the right way round. An unscoped probe would answer correctly, but it is
-        also a cross-tenant existence oracle -- minting ids until one collides enumerates other
-        tenants' component names -- and it would be refused outright on a db built with
-        ``require_tenant_id``. A clear ``IntegrityError`` on a rare id collision is a better
-        failure than a working enumeration channel. Narrowing it properly means giving
-        ``component_id`` a per-tenant primary key, which is a schema change.
+        Live only: the probe does not count soft-deleted rows (matching ``get_component``'s
+        visibility), and ``upsert_component``'s existing-row lookup is tenant-scoped, so a
+        *soft-deleted foreign* holder is invisible to both -- the insert then still fails on
+        the primary key and surfaces as a raw ``IntegrityError`` in the create_* error JSON.
+        Degrading that write-time failure to a ``ComponentIdConflictError`` when the holder
+        is foreign is tracked as follow-up work under aicoe-tracker#176.
         """
         for component in [*self._iter_agents(), *self._iter_teams(), *self._iter_workflows()]:
             component_name = getattr(component, "name", None)
@@ -1748,7 +1773,7 @@ class StudioTools(Toolkit):
                 or (component_name is not None and _slugify(component_name) == component_id)
             ):
                 return True
-        return db.get_component(component_id, tenant_id=self.tenant_id) is not None
+        return db.component_id_is_taken(component_id)
 
     def _resolve_members(self, member_ids: List[str]) -> tuple[List[TeamMember], List[str]]:
         members: List[TeamMember] = []
@@ -1862,6 +1887,11 @@ class StudioTools(Toolkit):
 # ----------------------------------------------------------------------
 # Module-level helpers
 # ----------------------------------------------------------------------
+
+# Bounds `_unique_component_id`'s retry loop. 24 bits of randomness per attempt makes
+# exhausting this under real collision load astronomically unlikely; the cap exists to turn a
+# pathological or misbehaving probe into a clear error instead of an infinite loop.
+_MAX_ID_DISAMBIGUATION_ATTEMPTS = 10
 
 
 def _slugify(name: str) -> str:

@@ -2,7 +2,7 @@
 
 ``tests/unit/db/test_component_tenant_adversarial.py`` proves the same isolation on SQLite. This
 suite exists because that is not sufficient evidence for Postgres: the two backends carry
-independent implementations of all fourteen component methods, roughly ninety tenant predicates
+independent implementations of all fifteen component methods, roughly ninety tenant predicates
 each, and they differ in ways that matter here -- Postgres has a ``deleted_at`` column on
 ``component_configs`` that SQLite lacks, uses JSONB where SQLite uses JSON, and declares foreign
 keys on ``component_links`` that SQLite does not. A predicate could be correct on one and missing
@@ -13,7 +13,7 @@ Two levels, because they can fail independently:
 1. **Through HTTP with real JWTs.** A complete EgptOS, RBAC and tenancy both on, tenant B's real
    token against tenant A's component ids. Covers the whole stack, and additionally pins that a
    foreign component 404s rather than 403s -- a 403 would confirm the id exists.
-2. **Directly against ``PostgresDb``.** The same fourteen-method sweep as the unit suite, with
+2. **Directly against ``PostgresDb``.** The same fifteen-method sweep as the unit suite, with
    tenant A's rows verified intact by raw SQL afterwards. This is the layer the issue is about,
    and the HTTP tests cannot reach a method the router does not expose.
 
@@ -184,7 +184,7 @@ def _snapshot(db):
 
 
 def _sweep_every_method_as(db, tenant_id):
-    """Call all fourteen component methods against tenant A's ids as ``tenant_id``.
+    """Call all fifteen component methods against tenant A's ids as ``tenant_id``.
 
     Exceptions are swallowed on purpose: the attacker tries everything and does not care what
     comes back. The caller asserts on the state left behind.
@@ -210,6 +210,11 @@ def _sweep_every_method_as(db, tenant_id):
         lambda: db.set_current_version("agent-a", version=1, tenant_id=tenant_id),
         lambda: db.delete_config("agent-a", version=2, tenant_id=tenant_id),
         lambda: db.delete_component("agent-a", hard_delete=True, tenant_id=tenant_id),
+        # The fifteenth method: deliberately unscoped (aicoe-tracker#176), no tenant_id
+        # parameter at all. Included so the sweep exercises it too -- the assertion is that
+        # seeing tenant A's row changes nothing about tenant A's state, not that the call is
+        # refused.
+        lambda: db.component_id_is_taken("agent-a"),
     ]
     for attempt in attempts:
         try:

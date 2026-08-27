@@ -3427,6 +3427,30 @@ class SqliteDb(BaseDb):
             log_error(f"Error getting component: {str(e)}")
             raise
 
+    def component_id_is_taken(self, component_id: str) -> bool:
+        """Whether a live component row holds this id, in any tenant.
+
+        Deliberately unscoped, and deliberately answering with a single bit -- see
+        ``BaseDb.component_id_is_taken``. Declared in
+        ``egpt.db.component_scope.UNSCOPED_EXISTENCE_PROBES``, which is what exempts it from the
+        tenant-guard requirement the fail-closed tests hold every other component method to.
+        """
+        try:
+            table = self._get_table(table_type="components")
+            if table is None:
+                return False
+
+            with self.Session() as sess:
+                stmt = select(table.c.component_id).where(
+                    table.c.component_id == component_id,
+                    table.c.deleted_at.is_(None),
+                )
+                return sess.execute(stmt).first() is not None
+
+        except Exception as e:
+            log_error(f"Error probing component id: {str(e)}")
+            raise
+
     def upsert_component(
         self,
         component_id: str,
@@ -3818,11 +3842,23 @@ class SqliteDb(BaseDb):
                 # Check if component already exists. Deliberately NOT tenant-scoped:
                 # component_id is the primary key and therefore globally unique, so a
                 # tenant-scoped check would pass here and then fail on a raw PK violation.
+                #
+                # deleted_at is read here too, not just component_id: a competing create can
+                # land between the planner's pre-pass probe and this write (TOCTOU), and this
+                # is the only check that reads the same snapshot the write fails against. A
+                # live holder and a soft-deleted one are different failure modes for the
+                # caller -- see the two distinct messages below -- and only this in-transaction
+                # read can tell them apart; a post-hoc re-probe cannot, since the winner's row
+                # could itself be soft-deleted between the failed insert and the re-probe.
                 existing = sess.execute(
-                    select(components_table.c.component_id).where(components_table.c.component_id == component_id)
-                ).scalar_one_or_none()
+                    select(components_table.c.component_id, components_table.c.deleted_at).where(
+                        components_table.c.component_id == component_id
+                    )
+                ).first()
 
                 if existing is not None:
+                    if existing.deleted_at is not None:
+                        raise ValueError(f"Component {component_id} already exists as a soft-deleted component")
                     raise ValueError(f"Component {component_id} already exists")
 
                 # Check label uniqueness (scoped to the component, which is already unique)

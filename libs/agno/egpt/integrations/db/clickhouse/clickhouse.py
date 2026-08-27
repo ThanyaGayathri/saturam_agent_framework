@@ -808,6 +808,17 @@ class ClickhouseDb(BaseDb):
     ) -> Optional[Dict[str, Any]]:
         return None
 
+    def component_id_is_taken(self, component_id: str) -> bool:
+        """No ``tenant_id`` parameter, unlike its siblings above -- see ``BaseDb`` for why.
+
+        Same no-op contract as the rest of this section: no component is reachable here, so
+        the id is never taken. Without this override the probe falls through to ``BaseDb``'s
+        ``raise NotImplementedError``, turning a previously-working import or studio create
+        path into a hard failure on a backend whose component reads are otherwise all benign
+        no-ops.
+        """
+        return False
+
     def list_components(
         self,
         component_type: Optional[ComponentType] = None,

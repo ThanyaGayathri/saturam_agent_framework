@@ -189,8 +189,22 @@ class TestIdCollisionIsUniform:
         body = {"name": "Test Agent", "component_type": "agent"}
         assert call(build_client(mock_db), "POST", "/components", body, OWNER).status_code == 400
 
+    def test_a_soft_deleted_holder_gets_the_same_owner_blind_409(self, mock_db):
+        """A live and a soft-deleted holder are different failure modes for the db
+        (``create_component_with_config`` raises two distinct messages sharing this prefix --
+        see sqlite.py/postgres.py), but the same 409 for the caller here: whether the id's
+        holder is live or soft-deleted is a second bit a prober should not get for free.
+        """
+        mock_db.create_component_with_config = MagicMock(
+            side_effect=ValueError("Component agent-1 already exists as a soft-deleted component")
+        )
+        body = {"name": "Test Agent", "component_id": "agent-1", "component_type": "agent"}
+        response = call(build_client(mock_db), "POST", "/components", body, OWNER)
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Component agent-1 already exists"
+
     def test_a_label_collision_keeps_its_own_message(self, mock_db):
-        """The 409 arm matches the id message exactly, not by substring (PR #55 review).
+        """The 409 arm matches the id message by prefix, not the label message (PR #55 review).
 
         `create_component_with_config` raises a second ValueError containing "already exists"
         for a duplicate `label`. A substring test caught it too and replaced the detail with a

@@ -184,3 +184,67 @@ class TestImportNeverWritesIntoAnotherTenant:
 
         assert {r.action for r in results} == {"skipped"}
         assert component_db.list_components(tenant_id=TENANT_B) == ([], 0)
+
+
+class TestCollisionsAreTheSameOnAStrictDb:
+    """The acceptance criterion of aicoe-tracker#176, at the io layer.
+
+    ``require_tenant_id`` must not change what a cross-tenant id collision looks like. Under the
+    scoped fallback of #70 it did: the pre-pass could not see the foreign holder, so the import
+    ran into the write, whose "already exists" ValueError is reserved for soft-deleted holders --
+    a live collision surfaced as ``ComponentSoftDeletedError`` telling the operator to hard-delete
+    a component that was never deleted. The unscoped one-bit probe restores the same
+    ``ComponentIdConflictError`` the lax db raises, from the same pre-pass.
+    """
+
+    @pytest.fixture
+    def strict_db(self):
+        import os
+        import tempfile
+
+        from egpt.integrations.db.sqlite.sqlite import SqliteDb
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        db = SqliteDb(db_file=path, id="strict-db", require_tenant_id=True)
+        yield db
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    @pytest.fixture
+    def strict_registry(self, strict_db):
+        reg = Registry()
+        reg.add_db(strict_db)
+        return reg
+
+    @pytest.fixture(autouse=True)
+    def seeded(self, strict_db, templates, strict_registry):
+        seed_from_directory(strict_db, templates, tenant_id=TENANT_A, registry=strict_registry)
+
+    def test_seeding_into_a_second_tenant_raises_the_domain_error(self, strict_db, templates, strict_registry):
+        with pytest.raises(ComponentIdConflictError):
+            seed_from_directory(strict_db, templates, tenant_id=TENANT_B, registry=strict_registry)
+
+    def test_the_error_matches_the_lax_dbs(self, strict_db, component_db, templates, registry, strict_registry):
+        """One probe strategy means one failure mode, not two flavours of the same refusal."""
+        seed_from_directory(component_db, templates, tenant_id=TENANT_A, registry=registry)
+
+        with pytest.raises(ComponentIdConflictError) as on_strict:
+            seed_from_directory(strict_db, templates, tenant_id=TENANT_B, registry=strict_registry)
+        with pytest.raises(ComponentIdConflictError) as on_lax:
+            seed_from_directory(component_db, templates, tenant_id=TENANT_B, registry=registry)
+
+        assert str(on_strict.value) == str(on_lax.value)
+
+    def test_nothing_is_written_by_the_refusal(self, strict_db, templates, strict_registry):
+        with pytest.raises(ComponentIdConflictError):
+            seed_from_directory(strict_db, templates, tenant_id=TENANT_B, registry=strict_registry)
+
+        assert strict_db.list_components(tenant_id=TENANT_B) == ([], 0)
+
+    def test_reseeding_the_owning_tenant_is_still_a_no_op(self, strict_db, templates, strict_registry):
+        results = seed_from_directory(strict_db, templates, tenant_id=TENANT_A, registry=strict_registry)
+
+        assert {r.action for r in results} == {"unchanged"}

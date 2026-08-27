@@ -119,6 +119,24 @@ answers correctly but lets a caller enumerate other tenants' component names by 
 one collides. A clear `IntegrityError` on a rare collision is the better failure. Closing it fully
 requires a per-tenant primary key.
 
+**Amended by [aicoe-tracker#176](https://github.com/Saturam-Inc/aicoe-tracker/issues/176) / PR
+#138 — reverses the decision above.** The scoped probe turned out to *mispredict* the write
+instead of just missing an oracle: a scoped pre-pass could not see a foreign tenant's holder, so
+the same id collision surfaced as `ComponentIdConflictError` on a lax db but a raw primary-key
+error — or, on the import path, a misleading `ComponentSoftDeletedError` telling the operator to
+hard-delete a component that was never deleted — on a strict one (`require_tenant_id=True`). The
+fix goes the other way: `BaseDb.component_id_is_taken` is a dedicated, deliberately **unscoped**
+probe, declared in `egpt.db.component_scope.UNSCOPED_EXISTENCE_PROBES` as the one exemption from
+the fail-closed guard this ADR establishes, and pinned by
+`tests/unit/db/test_component_tenant_fail_closed.py` so it can never grow a `tenant_id`
+parameter. It answers with one bit (existence), never a row, which is what keeps the exemption
+tolerable — see `docs/tenancy.md` section 7 for the full trade. The studio toolkit's
+id-disambiguator was also changed from a dense `-2`, `-3` suffix walk to a random one, because a
+dense walk returned in a successful response would let the count of existing holders (a second
+bit) leak through the one-bit probe. The per-tenant primary key mentioned above remains the
+correct end state if that migration ever lands; this probe collapses into a scoped one at that
+point.
+
 **Async backends and ClickHouse gained the signature but not the behaviour.** The async component
 methods still raise `NotImplementedError` (maximally fail-closed: no data is reachable) and
 ClickHouse's component reads still return empty. Their signatures were updated so a future

@@ -3587,6 +3587,9 @@ class AsyncSqliteDb(AsyncBaseDb):
     ) -> Optional[Dict[str, Any]]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
+    def component_id_is_taken(self, component_id: str) -> bool:
+        raise NotImplementedError("Component methods not yet supported for async databases")
+
     def upsert_component(
         self,
         component_id: str,

@@ -186,6 +186,12 @@ class TestTracesOnlyContract:
         assert db.get_config(component_id="missing", tenant_id=None) is None
         assert db.get_component(component_id="missing", tenant_id=None) is None
 
+    def test_component_id_is_taken_returns_false(self, db: ClickhouseDb):
+        # No component is reachable on this backend, so no id is ever taken -- and this must
+        # not raise: BaseDb's default is `raise NotImplementedError`, which previously turned
+        # any import or studio create path through ClickHouse into a hard failure.
+        assert db.component_id_is_taken("missing") is False
+
     def test_get_eval_runs_returns_empty(self, db: ClickhouseDb):
         assert db.get_eval_runs() == []
         assert db.get_eval_runs(deserialize=False) == ([], 0)

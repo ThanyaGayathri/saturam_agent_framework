@@ -34,6 +34,7 @@ from egpt.db.base import BaseDb, ComponentType
 from egpt.db.component_scope import (
     COMPONENT_DATA_ACCESS_METHODS,
     TENANT_SCOPED_COMPONENT_TABLES,
+    UNSCOPED_EXISTENCE_PROBES,
     TenantScopeRequiredError,
     resolve_tenant_scope,
 )
@@ -184,6 +185,34 @@ def _touches_tenant_scoped_table(fn):
     return resolves_table and executes
 
 
+def _find_unguarded_methods(tree):
+    """Every method in ``tree`` that touches a tenant-scoped table without the guard.
+
+    Factored out of ``test_every_method_touching_a_tenant_scoped_table_is_guarded`` so a
+    synthetic AST tree (``test_a_name_sharing_the_probes_prefix_is_not_exempted`` below) can be
+    run through the exact exemption-and-guard logic CI enforces -- a check written a second time,
+    independently, could silently drift from what the real scan does.
+    """
+    unguarded = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for fn in node.body:
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            if fn.name in UNSCOPED_EXISTENCE_PROBES:
+                # The declared exception (aicoe-tracker#176): an existence probe that touches
+                # the components table with no tenant parameter at all, answering with a
+                # single bit. Exempt here by declaration only -- its own contract is pinned
+                # by ``TestUnscopedExistenceProbe`` below.
+                continue
+            if not _touches_tenant_scoped_table(fn):
+                continue
+            if not _has_tenant_guard(fn):
+                unguarded.append(f"{node.name}.{fn.name} (line {fn.lineno})")
+    return unguarded
+
+
 def _has_tenant_guard(fn):
     """Whether the guard is the method's first statement, after any docstring."""
     body = list(fn.body)
@@ -263,17 +292,7 @@ class TestTenantIdIsRequired:
         and it needs no list kept in sync -- a new method is covered the moment it is written.
         """
         tree = ast.parse((_REPO_LIBS / BACKEND_SOURCES[class_name]).read_text())
-        unguarded = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef):
-                continue
-            for fn in node.body:
-                if not isinstance(fn, ast.FunctionDef):
-                    continue
-                if not _touches_tenant_scoped_table(fn):
-                    continue
-                if not _has_tenant_guard(fn):
-                    unguarded.append(f"{node.name}.{fn.name} (line {fn.lineno})")
+        unguarded = _find_unguarded_methods(tree)
 
         assert not unguarded, (
             "these methods resolve a tenant-scoped component table but do not call "
@@ -301,6 +320,119 @@ class TestTenantIdIsRequired:
 
         missing = found - set(COMPONENT_DATA_ACCESS_METHODS)
         assert not missing, f"guarded public methods missing from COMPONENT_DATA_ACCESS_METHODS: {sorted(missing)}"
+
+
+# ============================================================================
+# 1b. THE ONE DECLARED EXCEPTION: THE UNSCOPED EXISTENCE PROBE
+# ============================================================================
+
+
+class TestUnscopedExistenceProbe:
+    """``component_id_is_taken`` is exempt from the guard, and stays inside its declaration.
+
+    ``component_id`` is the global primary key, so only an unscoped probe predicts what a write
+    will do -- a scoped one cannot see a foreign tenant's holder, which is how the same id
+    collision came to raise ``ComponentIdConflictError`` on a lax db and a raw primary-key error
+    on a strict one (aicoe-tracker#176). The probe closes that divergence by being allowed
+    everywhere, and these tests pin what keeps the exemption tolerable: it carries no tenant
+    parameter to drift on, and it answers with one bit rather than a row.
+    """
+
+    def test_the_exemption_list_is_exactly_the_probe(self):
+        """Growing this list is a deliberate act that has to happen in two places at once."""
+        assert UNSCOPED_EXISTENCE_PROBES == ("component_id_is_taken",)
+
+    def test_a_name_sharing_the_probes_prefix_is_not_exempted(self):
+        """The exemption check is exact-name membership (``in``), not a prefix match.
+
+        Only the tuple's *contents* were pinned before this (the test above, and the signature
+        test below) -- nothing proved the scan's ``fn.name in UNSCOPED_EXISTENCE_PROBES`` check
+        itself matches whole names rather than prefixes. Mutating it to
+        ``any(fn.name.startswith(p) for p in UNSCOPED_EXISTENCE_PROBES)`` leaves every other test
+        in this suite green today, because no real method happens to share
+        ``component_id_is_taken``'s prefix -- so a future ``component_id_is_taken_v2`` on a
+        tenant-scoped table, with no ``tenant_id`` parameter, would silently inherit the
+        exemption via prefix match, undetected.
+
+        A synthetic decoy closes that blind spot without waiting for a real method to trip it:
+        ``component_id_is_taken_evil`` touches a tenant-scoped table, is not itself in
+        ``UNSCOPED_EXISTENCE_PROBES``, and has no guard -- it must still be flagged.
+        """
+        source = (
+            "class DecoyDb:\n"
+            "    def component_id_is_taken_evil(self, component_id):\n"
+            '        self._get_table(table_type="components")\n'
+            '        self.execute("select 1")\n'
+            "        return True\n"
+        )
+        tree = ast.parse(source)
+
+        unguarded = _find_unguarded_methods(tree)
+
+        assert unguarded == ["DecoyDb.component_id_is_taken_evil (line 2)"]
+
+    @pytest.mark.parametrize("class_name", sorted(_backend_classes()))
+    @pytest.mark.parametrize("method_name", UNSCOPED_EXISTENCE_PROBES)
+    def test_the_probe_takes_no_tenant_parameter(self, class_name, method_name):
+        """No ``tenant_id`` argument exists, even optionally.
+
+        The signature is the audit trail. An unscoped probe that later grew a tenant parameter
+        would be a scoped probe wearing the exemption -- back to mispredicting the write."""
+        cls = _backend_classes()[class_name]
+        method = getattr(cls, method_name, None)
+        if method is None:
+            pytest.skip(f"{class_name} does not declare {method_name}")
+        assert "tenant_id" not in inspect.signature(method).parameters, (
+            f"{class_name}.{method_name} takes a tenant_id. The probe is exempt from the tenant "
+            f"guard precisely because it cannot be scoped; a tenant parameter forfeits that."
+        )
+
+    def test_the_probe_is_allowed_on_a_strict_db(self, strict_db):
+        """The whole point: require_tenant_id must not change the answer or refuse the call."""
+        strict_db.create_component_with_config(tenant_id=TENANT_A, **METHOD_CALLS["create_component_with_config"])
+
+        assert strict_db.component_id_is_taken("c1") is True
+        assert strict_db.component_id_is_taken("free-id") is False
+
+    def test_the_probe_sees_a_foreign_tenants_holder(self, sqlite_db):
+        """One bit crosses the tenant boundary; there is no scoped variant to miss it."""
+        sqlite_db.create_component_with_config(tenant_id=TENANT_A, **METHOD_CALLS["create_component_with_config"])
+
+        assert sqlite_db.component_id_is_taken("c1") is True
+
+    def test_a_soft_deleted_holder_is_not_counted(self, sqlite_db):
+        """Matches ``get_component``: a soft-deleted row is invisible to every read API, and
+        stays a write-time concern (``ComponentSoftDeletedError``)."""
+        sqlite_db.create_component_with_config(tenant_id=TENANT_A, **METHOD_CALLS["create_component_with_config"])
+        sqlite_db.delete_component("c1", tenant_id=TENANT_A)
+
+        assert sqlite_db.component_id_is_taken("c1") is False
+
+    @pytest.mark.parametrize("class_name", sorted(_backend_classes()))
+    def test_a_backend_with_component_reads_also_declares_the_probe(self, class_name):
+        """Catches the ClickHouse-shaped regression: a backend that overrides
+        ``get_component`` (so component reads are meant to work, or to be a deliberate
+        no-op) but not ``component_id_is_taken`` silently inherits ``BaseDb``'s
+        ``raise NotImplementedError`` -- turning a previously-working call into a hard
+        failure with no signal from this suite.
+
+        Checked with ``__dict__``, not ``getattr``: resolving the *inherited* method (as the
+        signature test above does, deliberately, since it wants to check every backend's
+        effective signature) would find ``BaseDb.component_id_is_taken`` and pass vacuously
+        for exactly the backend that needs to be caught.
+
+        A backend that overrides neither method (Mongo, MySQL, Redis, ...) never worked for
+        components at all, so it is not held to this -- there is no "component reads work but
+        the probe doesn't" regression to have.
+        """
+        cls = _backend_classes()[class_name]
+        if "get_component" not in cls.__dict__:
+            pytest.skip(f"{class_name} does not override get_component -- component reads were never wired up")
+        assert "component_id_is_taken" in cls.__dict__, (
+            f"{class_name} overrides get_component but not component_id_is_taken, so the probe "
+            f"falls through to BaseDb's raise NotImplementedError -- a working component read "
+            f"path becomes a hard failure."
+        )
 
 
 # ============================================================================
