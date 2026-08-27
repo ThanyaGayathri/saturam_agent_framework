@@ -690,3 +690,117 @@ class TestSetupTracingEntryPoint:
             f"setup_tracing() did not set a TracerProvider. Got: {type(provider)}. "
             "This means the instrumentor's dependency check likely failed silently."
         )
+
+        # Cleanup: reset global state so subsequent tests in this file are not polluted.
+        # shutdown the provider and uninstrument to undo the global monkey-patches.
+        try:
+            if isinstance(provider, TracerProvider):
+                provider.shutdown()
+        except Exception:
+            pass
+        try:
+            from openinference.instrumentation.agno import AgnoInstrumentor
+
+            AgnoInstrumentor().uninstrument()
+        except Exception:
+            pass
+        monkeypatch.setattr(trace_api, "_TRACER_PROVIDER", None)
+        monkeypatch.setattr(trace_api, "_TRACER_PROVIDER_SET_ONCE", trace_api._TRACER_PROVIDER_SET_ONCE.__class__())
+
+
+# ---------------------------------------------------------------------------
+# Test: EGPT-4.2 tenant_id on spans and traces
+# ---------------------------------------------------------------------------
+
+
+class TestTenantIdOnSpan:
+    """Verify that _set_tenant_on_span sets egpt.tenant_id and
+    create_trace_from_spans extracts it into Trace.tenant_id."""
+
+    def test_set_tenant_on_span_sets_attribute(self, otel_setup, stub_model):
+        """When RunContext.tenant_id is set, the AGENT span carries egpt.tenant_id."""
+        exporter, provider = otel_setup
+
+        from egpt.agent.agent import Agent
+        from egpt.run.base import RunContext
+
+        agent = Agent(name="TenantSpanAgent", model=stub_model, instructions="Be helpful")
+        ctx = RunContext(run_id="run-t1", session_id="sess-t1", tenant_id="tenant-xyz")
+        agent.run("Hi", run_context=ctx)
+
+        spans = exporter.get_finished_spans()
+        agent_spans = [s for s in spans if s.attributes.get("openinference.span.kind") == "AGENT"]
+        assert agent_spans, "No AGENT span found"
+
+        span = agent_spans[0]
+        assert span.attributes.get("egpt.tenant_id") == "tenant-xyz", (
+            f"Expected egpt.tenant_id='tenant-xyz', got {span.attributes.get('egpt.tenant_id')!r}. "
+            f"Available: {sorted(span.attributes.keys())}"
+        )
+
+    def test_set_tenant_on_span_absent_when_no_tenant(self, otel_setup, stub_model):
+        """When RunContext.tenant_id is None, no egpt.tenant_id attribute is set."""
+        exporter, provider = otel_setup
+
+        from egpt.agent.agent import Agent
+
+        agent = Agent(name="NoTenantAgent", model=stub_model, instructions="Be helpful")
+        agent.run("Hi")
+
+        spans = exporter.get_finished_spans()
+        agent_spans = [s for s in spans if s.attributes.get("openinference.span.kind") == "AGENT"]
+        assert agent_spans, "No AGENT span found"
+
+        span = agent_spans[0]
+        assert "egpt.tenant_id" not in span.attributes, (
+            f"egpt.tenant_id should not be set when tenant is None, "
+            f"but found: {span.attributes.get('egpt.tenant_id')!r}"
+        )
+
+    def test_create_trace_from_spans_extracts_tenant_id(self):
+        """create_trace_from_spans extracts egpt.tenant_id into Trace.tenant_id."""
+        from datetime import datetime, timezone
+
+        from egpt.tracing.schemas import Span, create_trace_from_spans
+
+        root_span = Span(
+            span_id="aaa",
+            trace_id="trace-1",
+            parent_span_id=None,
+            name="TestAgent.run",
+            span_kind="INTERNAL",
+            status_code="OK",
+            status_message=None,
+            start_time=datetime.now(timezone.utc),
+            end_time=datetime.now(timezone.utc),
+            duration_ms=100,
+            attributes={"egpt.tenant_id": "tenant-from-span", "agno.agent.id": "agent-1"},
+            created_at=datetime.now(timezone.utc),
+        )
+        trace = create_trace_from_spans([root_span])
+        assert trace is not None
+        assert trace.tenant_id == "tenant-from-span"
+
+    def test_create_trace_from_spans_tenant_none_when_absent(self):
+        """When no egpt.tenant_id attribute, Trace.tenant_id is None."""
+        from datetime import datetime, timezone
+
+        from egpt.tracing.schemas import Span, create_trace_from_spans
+
+        root_span = Span(
+            span_id="bbb",
+            trace_id="trace-2",
+            parent_span_id=None,
+            name="TestAgent.run",
+            span_kind="INTERNAL",
+            status_code="OK",
+            status_message=None,
+            start_time=datetime.now(timezone.utc),
+            end_time=datetime.now(timezone.utc),
+            duration_ms=50,
+            attributes={"agno.agent.id": "agent-2"},
+            created_at=datetime.now(timezone.utc),
+        )
+        trace = create_trace_from_spans([root_span])
+        assert trace is not None
+        assert trace.tenant_id is None

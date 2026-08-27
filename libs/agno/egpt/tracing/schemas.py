@@ -32,6 +32,7 @@ class Trace:
     workflow_id: Optional[str]
 
     created_at: datetime  # Python datetime object
+    tenant_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert Trace to dictionary for database storage (datetime -> ISO string)"""
@@ -79,6 +80,7 @@ class Trace:
             agent_id=data.get("agent_id"),
             team_id=data.get("team_id"),
             workflow_id=data.get("workflow_id"),
+            tenant_id=data.get("tenant_id"),
             created_at=created_at,
         )
 
@@ -256,6 +258,7 @@ def create_trace_from_spans(spans: List[Span]) -> Optional[Trace]:
         agent_id = attrs.get("agent_id") or attrs.get("agno.agent.id")
         team_id = attrs.get("team_id") or attrs.get("agno.team.id")
         workflow_id = attrs.get("workflow_id") or attrs.get("agno.workflow.id")
+        tenant_id = attrs.get("egpt.tenant_id")
     else:
         # Child-only batch: leave context fields blank so the upsert's COALESCE
         # preserves whatever the root-span batch wrote (or will write).
@@ -266,6 +269,7 @@ def create_trace_from_spans(spans: List[Span]) -> Optional[Trace]:
         agent_id = None
         team_id = None
         workflow_id = None
+        tenant_id = None
 
     return Trace(
         trace_id=trace_id,
@@ -282,5 +286,6 @@ def create_trace_from_spans(spans: List[Span]) -> Optional[Trace]:
         agent_id=agent_id,
         team_id=team_id,
         workflow_id=workflow_id,
+        tenant_id=tenant_id,
         created_at=datetime.now(timezone.utc),
     )

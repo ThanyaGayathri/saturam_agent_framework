@@ -129,6 +129,33 @@ _CANCEL_BYPASS_EVENT_TYPES = (
 )
 
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# EGPT-4.2: Enrich the active span with EGPT-specific attributes
+# ---------------------------------------------------------------------------
+
+
+def _set_tenant_on_span(run_context: RunContext) -> None:
+    """Set egpt.tenant_id on the current active span if a tenant is present.
+
+    Called from both _run and _arun. The instrumentor creates the AGENT span
+    before calling into the run function; this enriches it with EGPT-specific
+    context that the third-party instrumentor does not know about.
+    """
+    tenant_id = run_context.tenant_id
+    if not tenant_id:
+        return
+    try:
+        from opentelemetry import trace as _trace_api
+
+        current_span = _trace_api.get_current_span()
+        if current_span.is_recording():
+            current_span.set_attribute("egpt.tenant_id", tenant_id)
+    except Exception:
+        log_debug("Failed to set tenant_id on span (tracing may not be configured)")
+
+
 # Per-run model resolution (EGPT-3.5)
 # ---------------------------------------------------------------------------
 
@@ -838,6 +865,8 @@ def _run(
     agent_session: Optional[AgentSession] = None
 
     try:
+        _set_tenant_on_span(run_context)
+
         # Set up retry logic
         num_attempts = agent.retries + 1
         for attempt in range(num_attempts):
@@ -2106,6 +2135,7 @@ async def _arun(
     cultural_knowledge_task = None
     memory_writeback_task = None
     agent_session: Optional[AgentSession] = None
+    _set_tenant_on_span(run_context)
 
     # Set up retry logic
     num_attempts = agent.retries + 1

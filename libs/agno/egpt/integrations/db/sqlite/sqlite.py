@@ -777,7 +777,16 @@ class SqliteDb(BaseDb):
 
         # SQLite version of table validation (no schema)
         if not is_valid_table(db_engine=self.db_engine, table_name=table_name, table_type=table_type):
-            raise ValueError(f"Table {table_name} has an invalid schema")
+            # Auto-migrate table types that have no MigrationManager path (traces, spans,
+            # learnings, schedules, etc.). Table types registered in MigrationManager must
+            # raise on schema mismatch to enforce the proper upgrade path.
+            from egpt.db.migrations.manager import MigrationManager
+
+            has_migration_path = table_type in MigrationManager._TABLE_TYPE_TO_ATTR
+            if not has_migration_path and self._try_add_missing_columns(table_name, table_type):
+                log_info(f"Auto-migrated table {table_name}: added missing columns")
+            else:
+                raise ValueError(f"Table {table_name} has an invalid schema")
 
         try:
             table = Table(table_name, self.metadata, autoload_with=self.db_engine)
@@ -786,6 +795,70 @@ class SqliteDb(BaseDb):
         except Exception as e:
             log_error(f"Error loading existing table {table_name}: {str(e)}")
             raise e
+
+    def _try_add_missing_columns(self, table_name: str, table_type: str) -> bool:
+        """Attempt to add missing nullable columns to an existing table.
+
+        This handles additive schema changes (e.g. EGPT-4.2 adding tenant_id to traces)
+        without requiring a full migration. Only called for traces/spans table types
+        (gated in _get_or_create_table) which don't have a MigrationManager path.
+
+        Only adds columns that are nullable in the schema definition — non-nullable
+        columns require a proper migration. Handles race conditions where two
+        threads/processes attempt the same ALTER TABLE concurrently.
+
+        Returns True if all missing columns were added (or already exist), False otherwise.
+        """
+        try:
+            from sqlalchemy.inspection import inspect as sa_inspect
+
+            # Map SQLAlchemy types to SQLite DDL types
+            from sqlalchemy import BigInteger, Boolean, Float, Integer, JSON, String, Text
+
+            _TYPE_MAP = {
+                String: "TEXT",
+                Text: "TEXT",
+                Integer: "INTEGER",
+                BigInteger: "INTEGER",
+                Float: "REAL",
+                Boolean: "INTEGER",
+                JSON: "JSON",
+            }
+
+            expected_schema = get_table_schema_definition(table_type)
+            expected_columns = {col for col in expected_schema.keys() if not col.startswith("_")}
+
+            inspector = sa_inspect(self.db_engine)
+            existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
+            missing_columns = expected_columns - existing_columns
+
+            if not missing_columns:
+                return True
+
+            with self.Session() as sess, sess.begin():
+                for col_name in missing_columns:
+                    col_def = expected_schema[col_name]
+                    if not col_def.get("nullable", False):
+                        log_warning(f"Cannot auto-add non-nullable column {col_name} to {table_name}")
+                        return False
+                    # Derive DDL type from the schema definition
+                    sa_type = col_def.get("type", String)
+                    col_type = _TYPE_MAP.get(sa_type, "TEXT")
+                    try:
+                        sess.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"))
+                        log_debug(f"Added column {col_name} to {table_name}")
+                    except Exception as alter_err:
+                        # Handle race: another thread/process already added the column.
+                        # SQLite's ALTER TABLE ADD COLUMN has no IF NOT EXISTS.
+                        if "duplicate column" in str(alter_err).lower():
+                            log_debug(f"Column {col_name} already exists on {table_name} (concurrent add)")
+                        else:
+                            raise
+
+            return True
+        except Exception as e:
+            log_error(f"Failed to auto-migrate table {table_name}: {e}")
+            return False
 
     def get_latest_schema_version(self, table_name: str):
         """Get the latest version of the database schema."""
@@ -2698,6 +2771,7 @@ class SqliteDb(BaseDb):
                         "agent_id": func.coalesce(table.c.agent_id, insert_stmt.excluded.agent_id),
                         "team_id": func.coalesce(table.c.team_id, insert_stmt.excluded.team_id),
                         "workflow_id": func.coalesce(table.c.workflow_id, insert_stmt.excluded.workflow_id),
+                        "tenant_id": func.coalesce(table.c.tenant_id, insert_stmt.excluded.tenant_id),
                     },
                 )
                 sess.execute(upsert_stmt)
