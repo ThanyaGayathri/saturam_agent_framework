@@ -1289,3 +1289,31 @@ what collided, and `build_memory_provider_for(resolver)` with no tenant raises `
 **Requires:** Nothing; no database, no API key, no network.
 
 ---
+
+### 48_memory_tracing.py
+
+**Status:** PASS
+
+**Description:** SM-X4's manual OTel spans around `MemoryProvider.read`/`write`/`consolidate`.
+Calls `setup_tracing()` against a local SQLite trace store, then wires `DatabaseSpanExporter`
+directly as a fallback when the optional `openinference-instrumentation-agno` package is not
+installed (unrelated to memory tracing -- that instrumentor only ever wraps agent/model/tool
+calls). Builds a vector-only `CoLocatedMemoryProvider` over a trimmed in-memory stand-in (the
+same one `23_consolidation_worker.py`/`39_working_memory.py` use), runs a write -> read ->
+consolidate cycle, then reads every captured span back out of the SQLite trace store via
+`db.get_spans()` and prints `memory.write` / `memory.read` / `memory.consolidate` with their four
+attributes.
+
+**Result:** Runs clean. In this dev environment `setup_tracing()` logs that
+`openinference-instrumentation-agno` is not installed and leaves tracing inactive, so the script's
+fallback wiring activates and is exercised. `write` accepted 2 events, `read` returned 2 records,
+and `consolidate` turned 2 episodes into 2 facts. All three spans were captured with
+`egpt.memory.tenant_id=acme`, tier `episodic` / `all` / `episodic->semantic` respectively,
+`egpt.memory.store=vector`, and a non-negative `egpt.memory.latency_ms` on each. The closing
+assertion (`{"memory.write", "memory.read", "memory.consolidate"} <= {captured span names}`)
+passed.
+
+**Requires:** Nothing for the memory store (in-memory vector substrate); writes trace data to a
+local SQLite file (`tmp/memory_tracing.db`, gitignored). No API key, no network.
+
+---

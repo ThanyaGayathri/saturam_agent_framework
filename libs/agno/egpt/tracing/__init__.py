@@ -7,6 +7,7 @@ and provides a custom DatabaseSpanExporter to store traces in the EGPT database.
 """
 
 from egpt.tracing.exporter import DatabaseSpanExporter
+from egpt.tracing.memory import memory_span
 from egpt.tracing.setup import setup_tracing
 
-__all__ = ["DatabaseSpanExporter", "setup_tracing"]
+__all__ = ["DatabaseSpanExporter", "memory_span", "setup_tracing"]

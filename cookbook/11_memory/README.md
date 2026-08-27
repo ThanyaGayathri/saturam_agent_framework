@@ -321,6 +321,18 @@ This section demonstrates how EGPT agents persist and use user memories across r
   this branch was still catching up. Per this file's own convention, whoever merges second
   renumbers.**
 
+- `48_memory_tracing.py`: Manual OTel spans around `MemoryProvider.read`/`write`/`consolidate`
+  (SM-X4) -- the seam is outside `AgnoInstrumentor`'s reach (it wraps agent/model/tool calls, not
+  memory), so `egpt.tracing.memory.memory_span` opens `memory.read`/`memory.write`/
+  `memory.consolidate` spans directly, shared between each sync method and its async twin. Every
+  span carries `egpt.memory.tenant_id`, `egpt.memory.tier`, `egpt.memory.store` and
+  `egpt.memory.latency_ms`, and tracing failures never break the wrapped call (same
+  except-and-fall-through idiom as EGPT-4.2's `_set_tenant_on_span`). Calls `setup_tracing()`
+  against a local SQLite trace store, then falls back to wiring `DatabaseSpanExporter` directly
+  if the optional `openinference-instrumentation-agno` package is not installed (unrelated to
+  memory tracing itself). No external memory backend: a trimmed in-memory vector stand-in, the
+  same one `23_consolidation_worker.py`/`39_working_memory.py` use.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
