@@ -11,6 +11,7 @@ doing it here instead.
 """
 
 import asyncio
+import inspect
 
 import pytest
 
@@ -851,3 +852,74 @@ def test_entity_extraction_complete_is_true_when_the_pipeline_drained_its_own_ca
     details = consolidation_details(derived_by="x", entities={"complete": True})
 
     assert entity_extraction_complete(details) is True
+
+
+# ---------------------------------------------------------------------------
+# Boundary: an entity's embedding is indexed on the graph node, never copied
+# into the VectorSubstrate (SM-X9 #145)
+# ---------------------------------------------------------------------------
+
+
+def test_the_pipeline_has_no_vector_substrate_collaborator():
+    """Cheap structural second line of defence for the boundary the test below exercises.
+
+    Pinned on the constructor signature so a future dual-write is a deliberate edit to this list,
+    rather than a fourth optional argument the "one loop over all three" collaborator-check above
+    would let through. ``RelationExtractionPipeline`` gets no equivalent pin even though ADR 0003
+    section 1 states a *stronger* prohibition for semantic-relation (``-- Graph edge. Not
+    embedded.``): relations carry no embedding at all, so there is no embedded value for a
+    dual-write to copy, and the behavioural test below is what would catch one anyway.
+    """
+    sig = inspect.signature(EntityExtractionPipeline.__init__)
+    params = set(sig.parameters) - {"self"}
+    unknown = sorted(params - {"graph", "extractor", "embedder", "embedding_version", "max_episodes_per_pass"})
+
+    assert not unknown, (
+        f"EntityExtractionPipeline grew {unknown}. If any of these is a substrate, the "
+        "entity-embedding boundary is being re-decided; if it is a collaborator, add it to the "
+        "both-halves check in __init__ so the refusal test above covers it too."
+    )
+    # The annotation half is what catches a vector collaborator smuggled in under a name this
+    # list happens to allow -- an exact-set or `"vector" not in params` check would not see it.
+    # Substring match, not `"VectorSubstrate"` exactly, is deliberate: over-triggering (on e.g. a
+    # future `VectorClock`/`VectorDb` parameter) is the right bias for a boundary pin -- it forces
+    # a human look rather than silently passing a name that merely doesn't collide today.
+    vector_typed = sorted(name for name, p in sig.parameters.items() if "Vector" in str(p.annotation))
+    assert not vector_typed, (
+        f"{vector_typed} is annotated as a Vector type. The entity-embedding boundary is being "
+        "re-decided: entities are indexed on the graph node, not written to a VectorSubstrate."
+    )
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_extracted_entity_never_lands_in_the_vector_substrate(is_async):
+    """ADR 0003 section 1 marks semantic-entity as vector-backed as well as graph-backed, which
+    the code satisfies by embedding every entity and indexing it on the **graph** node
+    (``cypher.py:1535``, ``CREATE VECTOR INDEX ... FOR (n:Entity) ON (n.embedding)``, queried via
+    ``db.index.vector.queryNodes``) -- not by a second row in the ``VectorSubstrate``. The ADR's
+    vector mark is satisfied by that index, not contradicted by this boundary.
+
+    Driven through the provider because that is the only object holding both a ``vector`` and an
+    ``entity_pipeline``, and therefore the only place a dual-write could be introduced
+    (``co_located.py:_entities``/``_aentities``). The entity name is deliberately absent from the
+    episode text, so a semantic fact distilled from the same episode cannot be mistaken for it.
+    """
+    extractor = StubExtractor(default=[entity(name="Zephyr Holdings")])
+    memory, vector, graph = provider(extractor=extractor)
+    memory.write(ACME, [MemoryEvent(content="Acme ships things", scope=ACME)])
+
+    if is_async:
+        asyncio.run(memory.aconsolidate(ACME))
+    else:
+        memory.consolidate(ACME)
+
+    assert graph.entities, "non-vacuity: the entity did land on the graph"
+    rows = [r for bucket in vector.rows.values() for r in bucket.values()]
+    # Content-independent: `MemoryRecord` (types.py:448-461) has no dedicated `embedding` field,
+    # so any dual-write that puts a real, usable embedding into the vector substrate has to carry
+    # it in `metadata` -- whatever the row's `content` says (the display name, `entity_type`,
+    # `description`, or nothing at all). Checking `content` for the entity's name only catches the
+    # one shape that happens to repeat it there.
+    assert [r.id for r in rows if "embedding" in (r.metadata or {})] == [], (
+        "an entity's embedding reached the VectorSubstrate; entities are embedded onto the graph node only"
+    )
