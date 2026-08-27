@@ -1728,10 +1728,20 @@ class StudioTools(Toolkit):
         taken, which is the single bit the collision itself already discloses. That keeps
         this path inside the one-bit budget the unscoped probe is argued under
         (docs/tenancy.md section 7).
+
+        Bounded at ``_MAX_ID_DISAMBIGUATION_ATTEMPTS``: a pathological or misbehaving probe
+        that never reports "free" would otherwise spin forever.
         """
         base = _slugify(name)
         candidate = base
+        attempts = 0
         while self._component_id_exists(candidate, db):
+            attempts += 1
+            if attempts >= _MAX_ID_DISAMBIGUATION_ATTEMPTS:
+                raise ValueError(
+                    f"Could not find a unique component id for {name!r} after "
+                    f"{_MAX_ID_DISAMBIGUATION_ATTEMPTS} attempts"
+                )
             candidate = f"{base}-{secrets.token_hex(3)}"
         return candidate
 
@@ -1877,6 +1887,11 @@ class StudioTools(Toolkit):
 # ----------------------------------------------------------------------
 # Module-level helpers
 # ----------------------------------------------------------------------
+
+# Bounds `_unique_component_id`'s retry loop. 24 bits of randomness per attempt makes
+# exhausting this under real collision load astronomically unlikely; the cap exists to turn a
+# pathological or misbehaving probe into a clear error instead of an infinite loop.
+_MAX_ID_DISAMBIGUATION_ATTEMPTS = 10
 
 
 def _slugify(name: str) -> str:

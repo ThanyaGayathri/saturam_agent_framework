@@ -950,7 +950,11 @@ def attach_routes(
         except ConfigValidationError as e:
             return config_validation_response(e)
         except (ComponentIdConflictError, ComponentSoftDeletedError) as e:
-            raise HTTPException(status_code=409, detail=str(e))
+            # Owner-blind on purpose, matching `create_component`'s 409 above: the two
+            # exception types' `str()` differ (soft-deleted vs. live holder), and echoing
+            # that verbatim would hand a prober a second bit `create_component` deliberately
+            # keeps hidden. Both collapse to the same fixed literal here.
+            raise HTTPException(status_code=409, detail=f"Component {e.component_id} already exists")
         except ComponentIOError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except ValueError as e:

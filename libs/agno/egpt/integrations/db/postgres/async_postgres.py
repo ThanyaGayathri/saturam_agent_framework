@@ -12,11 +12,11 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
 )
-from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.utils import (
     deserialize_session,
     deserialize_sessions,

@@ -185,6 +185,34 @@ def _touches_tenant_scoped_table(fn):
     return resolves_table and executes
 
 
+def _find_unguarded_methods(tree):
+    """Every method in ``tree`` that touches a tenant-scoped table without the guard.
+
+    Factored out of ``test_every_method_touching_a_tenant_scoped_table_is_guarded`` so a
+    synthetic AST tree (``test_a_name_sharing_the_probes_prefix_is_not_exempted`` below) can be
+    run through the exact exemption-and-guard logic CI enforces -- a check written a second time,
+    independently, could silently drift from what the real scan does.
+    """
+    unguarded = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for fn in node.body:
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            if fn.name in UNSCOPED_EXISTENCE_PROBES:
+                # The declared exception (aicoe-tracker#176): an existence probe that touches
+                # the components table with no tenant parameter at all, answering with a
+                # single bit. Exempt here by declaration only -- its own contract is pinned
+                # by ``TestUnscopedExistenceProbe`` below.
+                continue
+            if not _touches_tenant_scoped_table(fn):
+                continue
+            if not _has_tenant_guard(fn):
+                unguarded.append(f"{node.name}.{fn.name} (line {fn.lineno})")
+    return unguarded
+
+
 def _has_tenant_guard(fn):
     """Whether the guard is the method's first statement, after any docstring."""
     body = list(fn.body)
@@ -264,23 +292,7 @@ class TestTenantIdIsRequired:
         and it needs no list kept in sync -- a new method is covered the moment it is written.
         """
         tree = ast.parse((_REPO_LIBS / BACKEND_SOURCES[class_name]).read_text())
-        unguarded = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef):
-                continue
-            for fn in node.body:
-                if not isinstance(fn, ast.FunctionDef):
-                    continue
-                if fn.name in UNSCOPED_EXISTENCE_PROBES:
-                    # The declared exception (aicoe-tracker#176): an existence probe that touches
-                    # the components table with no tenant parameter at all, answering with a
-                    # single bit. Exempt here by declaration only -- its own contract is pinned
-                    # by ``TestUnscopedExistenceProbe`` below.
-                    continue
-                if not _touches_tenant_scoped_table(fn):
-                    continue
-                if not _has_tenant_guard(fn):
-                    unguarded.append(f"{node.name}.{fn.name} (line {fn.lineno})")
+        unguarded = _find_unguarded_methods(tree)
 
         assert not unguarded, (
             "these methods resolve a tenant-scoped component table but do not call "
@@ -329,6 +341,35 @@ class TestUnscopedExistenceProbe:
     def test_the_exemption_list_is_exactly_the_probe(self):
         """Growing this list is a deliberate act that has to happen in two places at once."""
         assert UNSCOPED_EXISTENCE_PROBES == ("component_id_is_taken",)
+
+    def test_a_name_sharing_the_probes_prefix_is_not_exempted(self):
+        """The exemption check is exact-name membership (``in``), not a prefix match.
+
+        Only the tuple's *contents* were pinned before this (the test above, and the signature
+        test below) -- nothing proved the scan's ``fn.name in UNSCOPED_EXISTENCE_PROBES`` check
+        itself matches whole names rather than prefixes. Mutating it to
+        ``any(fn.name.startswith(p) for p in UNSCOPED_EXISTENCE_PROBES)`` leaves every other test
+        in this suite green today, because no real method happens to share
+        ``component_id_is_taken``'s prefix -- so a future ``component_id_is_taken_v2`` on a
+        tenant-scoped table, with no ``tenant_id`` parameter, would silently inherit the
+        exemption via prefix match, undetected.
+
+        A synthetic decoy closes that blind spot without waiting for a real method to trip it:
+        ``component_id_is_taken_evil`` touches a tenant-scoped table, is not itself in
+        ``UNSCOPED_EXISTENCE_PROBES``, and has no guard -- it must still be flagged.
+        """
+        source = (
+            "class DecoyDb:\n"
+            "    def component_id_is_taken_evil(self, component_id):\n"
+            '        self._get_table(table_type="components")\n'
+            '        self.execute("select 1")\n'
+            "        return True\n"
+        )
+        tree = ast.parse(source)
+
+        unguarded = _find_unguarded_methods(tree)
+
+        assert unguarded == ["DecoyDb.component_id_is_taken_evil (line 2)"]
 
     @pytest.mark.parametrize("class_name", sorted(_backend_classes()))
     @pytest.mark.parametrize("method_name", UNSCOPED_EXISTENCE_PROBES)

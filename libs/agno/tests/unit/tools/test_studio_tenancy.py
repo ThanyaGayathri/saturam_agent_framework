@@ -9,6 +9,9 @@ import copy
 import re
 from unittest.mock import MagicMock
 
+import pytest
+
+import egpt.tools.studio as studio_module
 from egpt.db.base import BaseDb
 from egpt.registry import Registry
 from egpt.tools.studio import StudioTools
@@ -117,6 +120,17 @@ class TestIdProbeSeesEveryTenant:
         candidate = studio._unique_component_id("Math Tutor", db)
         assert candidate not in {"math-tutor-2", "math-tutor-3"}
         assert re.fullmatch(r"math-tutor-[0-9a-f]{6}", candidate)
+
+    def test_the_retry_loop_gives_up_instead_of_spinning_forever(self):
+        """A probe that never reports "free" must not hang the caller (PR #138 QC review)."""
+        db = _mock_db(row=None)
+        db.component_id_is_taken = MagicMock(return_value=True)
+        studio = _studio(db, tenant_id="acme")
+
+        with pytest.raises(ValueError, match="after 10 attempts"):
+            studio._unique_component_id("Math Tutor", db)
+
+        assert db.component_id_is_taken.call_count == studio_module._MAX_ID_DISAMBIGUATION_ATTEMPTS
 
 
 class TestWritesCarryTheTenant:

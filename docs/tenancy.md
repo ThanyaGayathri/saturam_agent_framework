@@ -410,18 +410,15 @@ change with a migration rather than an enforcement change — tracked separately
   The one-bit and "reads identically" claims above hold only for a **live** holder. The probe
   does not count soft-deleted rows (matching `get_component`'s visibility), so a *soft-deleted
   foreign* holder is invisible to it — and to `upsert_component`'s tenant-scoped existing-row
-  lookup, which studio's insert relies on. Two asymmetries follow from that gap, both scoped
-  down to this one case. `tools/studio.py`'s `create_*` still ends in a raw `IntegrityError` for
-  a soft-deleted foreign holder (the probe only steps over a foreign-held *live* id). And the
-  two write routes disagree with each other: `POST /components` maps both a live and a
-  soft-deleted collision to the same owner-blind "already exists" 409, but the import route
-  still maps a soft-deleted collision to the distinct `ComponentSoftDeletedError` body ("Hard-
-  delete it...") — so a prober can learn a second bit (live vs. soft-deleted foreign) from the
-  import route specifically, using the direct-create route's own behaviour as the tell.
-  Aligning the import route's soft-deleted-holder body with the direct-create route's
-  owner-blind one, and degrading studio's write-time `IntegrityError` to
-  `ComponentIdConflictError` when the holder is foreign, are both tracked as follow-up work
-  under aicoe-tracker#176.
+  lookup, which studio's insert relies on. One asymmetry follows from that gap: `tools/studio.py`'s
+  `create_*` still ends in a raw `IntegrityError` for a soft-deleted foreign holder (the probe
+  only steps over a foreign-held *live* id). The two write routes no longer disagree on this,
+  though: both `POST /components` and the import route now map a live *or* soft-deleted
+  collision to the same fixed, owner-blind "already exists" body — the import route's handler
+  discards `ComponentSoftDeletedError`'s distinguishing detail rather than echoing it, so a
+  prober can no longer use it as a tell. Degrading studio's write-time `IntegrityError` to
+  `ComponentIdConflictError` when the holder is foreign remains tracked as follow-up work under
+  aicoe-tracker#176.
 - **Sessions, memories and runs are unscoped.** Hydration itself is scoped (section 5) and the
   agents/teams/workflows routers are tenant-gated, but the surrounding run/session data is not.
   Needs a `tenant_id` column and migration on those tables; follow-up work, not EGPT-2.7.

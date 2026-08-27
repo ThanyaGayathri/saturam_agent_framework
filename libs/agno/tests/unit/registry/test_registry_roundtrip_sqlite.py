@@ -913,6 +913,31 @@ class TestImportAndSeedUnderEnforcedTenancy:
         assert theirs.json() == mine.json()
         assert "soft-deleted" not in theirs.text
 
+    def test_a_foreign_soft_deleted_holder_gets_the_same_owner_blind_409(self, client):
+        """The soft-deleted counterpart to the live-collision case above.
+
+        A soft-deleted foreign holder is invisible to the collision pre-pass -- it doesn't count
+        soft-deleted rows -- so the import proceeds to the write, which raises
+        ``ComponentSoftDeletedError``, a message distinct from the live-collision one
+        (``ComponentIdConflictError``). The router must not echo that distinction into the 409
+        body, or a prober could tell a live foreign holder apart from a soft-deleted one using
+        only the import route -- the exact gap docs/tenancy.md section 7 used to disclose.
+        """
+        assert (
+            client.post("/components/import", json={"document": self.BUNDLE}, headers=auth(tenant=TENANT_A)).status_code
+            == 201
+        )
+        live = client.post("/components/import", json={"document": self.BUNDLE}, headers=auth(tenant=TENANT_B))
+        assert live.status_code == 409, live.text
+
+        assert client.delete("/components/imported-agent", headers=auth(tenant=TENANT_A)).status_code == 204
+
+        deleted = client.post("/components/import", json={"document": self.BUNDLE}, headers=auth(tenant=TENANT_B))
+
+        assert deleted.status_code == 409, deleted.text
+        assert deleted.json() == live.json()
+        assert "soft-deleted" not in deleted.text
+
     def test_seeding_from_a_directory_works_on_a_strict_db(self, db, client, registry, tmp_path):
         """The non-HTTP entry point into the same planner.
 
