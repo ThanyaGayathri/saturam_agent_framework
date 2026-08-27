@@ -1282,13 +1282,18 @@ class Workflow:
         """Get a RunOutput from the database.
 
         Args:
-            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
-                refused when the db was built with ``require_session_tenant_id``. Ignored when
-                ``self._workflow_session`` is already cached -- that cache was populated by
-                whatever tenant hydrated this workflow instance, so the DB read this parameter
-                would scope is not reached at all.
+            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to
+                ``self.tenant_id``. Compared against ``self._workflow_session`` (along with
+                ``session_id``) before a cached run is returned, so a cache populated for one
+                session/tenant cannot answer a call scoped to another -- a mismatch falls
+                through to a real DB read instead.
         """
-        if self._workflow_session is not None:
+        effective_tenant_id = self._resolve_tenant_id(tenant_id)
+        if (
+            self._workflow_session is not None
+            and (session_id is None or self._workflow_session.session_id == session_id)
+            and (effective_tenant_id is None or self._workflow_session.tenant_id == effective_tenant_id)
+        ):
             run_response = self._workflow_session.get_run(run_id=run_id)
             if run_response is not None:
                 return run_response
@@ -1315,11 +1320,16 @@ class Workflow:
         """Get a RunOutput from the database.
 
         Args:
-            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
-                refused when the db was built with ``require_session_tenant_id``. Ignored when
-                ``self._workflow_session`` is already cached -- see :meth:`aget_run_output`.
+            tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to
+                ``self.tenant_id``. Compared against ``self._workflow_session`` before returning
+                a cached run -- see :meth:`aget_run_output`.
         """
-        if self._workflow_session is not None:
+        effective_tenant_id = self._resolve_tenant_id(tenant_id)
+        if (
+            self._workflow_session is not None
+            and (session_id is None or self._workflow_session.session_id == session_id)
+            and (effective_tenant_id is None or self._workflow_session.tenant_id == effective_tenant_id)
+        ):
             run_response = self._workflow_session.get_run(run_id=run_id)
             if run_response is not None:
                 return run_response
@@ -1419,6 +1429,12 @@ class Workflow:
                 session_data=session_data,
                 metadata=self.metadata,
                 created_at=int(time()),
+                # Stamped at construction, not just on the eventual DB write (aicoe-tracker#197):
+                # otherwise a freshly created, not-yet-persisted session cached on this instance
+                # carries tenant_id=None even when self.tenant_id is set, and a scoped
+                # get_run_output/aget_run_output call against it would (correctly, but
+                # unnecessarily) fall through to a DB read that finds nothing yet.
+                tenant_id=self.tenant_id,
             )
 
         # Cache the session if relevant
@@ -1465,6 +1481,12 @@ class Workflow:
                 session_data=session_data,
                 metadata=self.metadata,
                 created_at=int(time()),
+                # Stamped at construction, not just on the eventual DB write (aicoe-tracker#197):
+                # otherwise a freshly created, not-yet-persisted session cached on this instance
+                # carries tenant_id=None even when self.tenant_id is set, and a scoped
+                # get_run_output/aget_run_output call against it would (correctly, but
+                # unnecessarily) fall through to a DB read that finds nothing yet.
+                tenant_id=self.tenant_id,
             )
 
         # Cache the session if relevant
@@ -1668,6 +1690,16 @@ class Workflow:
 
         return session.get_chat_history(last_n_runs=last_n_runs)
 
+    def _resolve_tenant_id(self, tenant_id: Optional[str]) -> Optional[str]:
+        """Resolve the effective tenant for one call: the caller's override, or ``self.tenant_id``.
+
+        Centralizes the one-line fallback (aicoe-tracker#197) used by every session read/write
+        and run-output accessor on this class, so ``Agent``/``Team``'s eventual equivalent has a
+        single, guaranteed-consistent rule to adopt rather than an independently reimplemented
+        (and possibly divergent) copy.
+        """
+        return tenant_id if tenant_id is not None else self.tenant_id
+
     # -*- Session Database Functions
     async def _aread_session(
         self, session_id: str, user_id: Optional[str] = None, tenant_id: Optional[str] = None
@@ -1683,7 +1715,7 @@ class Workflow:
                 as a warning, surfaces to the caller indistinguishably from "session not found"
                 rather than as a distinct error.
         """
-        effective_tenant_id = tenant_id if tenant_id is not None else self.tenant_id
+        effective_tenant_id = self._resolve_tenant_id(tenant_id)
         try:
             if not self.db:
                 raise ValueError("Db not initialized")
@@ -1716,7 +1748,7 @@ class Workflow:
                 ``self.tenant_id`` -- see :meth:`_aread_session` for the full contract and how a
                 refusal surfaces to the caller.
         """
-        effective_tenant_id = tenant_id if tenant_id is not None else self.tenant_id
+        effective_tenant_id = self._resolve_tenant_id(tenant_id)
         if self._has_async_db():
             raise ValueError("Cannot use sync _read_session() with an async database. Use _aread_session() instead.")
 
@@ -1743,7 +1775,7 @@ class Workflow:
                 same tenant a later scoped read of it will look for, or the row becomes
                 unreachable to its own owner.
         """
-        effective_tenant_id = tenant_id if tenant_id is not None else self.tenant_id
+        effective_tenant_id = self._resolve_tenant_id(tenant_id)
         try:
             if not self.db:
                 raise ValueError("Db not initialized")
@@ -1760,7 +1792,7 @@ class Workflow:
             tenant_id: Tenant to stamp the session with (aicoe-tracker#197). Defaults to
                 ``self.tenant_id`` -- see :meth:`_aupsert_session` for why.
         """
-        effective_tenant_id = tenant_id if tenant_id is not None else self.tenant_id
+        effective_tenant_id = self._resolve_tenant_id(tenant_id)
         if self._has_async_db():
             raise ValueError(
                 "Cannot use sync _upsert_session() with an async database. Use _aupsert_session() instead."

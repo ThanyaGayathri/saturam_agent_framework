@@ -12,6 +12,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import (
     deserialize_session,
     deserialize_session_json_fields,
@@ -57,6 +58,7 @@ class FirestoreDb(BaseDb):
         spans_collection: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a Firestore database.
@@ -73,6 +75,9 @@ class FirestoreDb(BaseDb):
             traces_collection (Optional[str]): Name of the collection to store traces.
             spans_collection (Optional[str]): Name of the collection to store spans.
             id (Optional[str]): ID of the database.
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
 
         Raises:
             ValueError: If neither project_id nor db_client is provided.
@@ -92,7 +97,9 @@ class FirestoreDb(BaseDb):
             culture_table=culture_collection,
             traces_table=traces_collection,
             spans_table=spans_collection,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("FirestoreDb", self.require_session_tenant_id)
 
         _client: Optional[Client] = db_client
         if _client is None and project_id is not None:

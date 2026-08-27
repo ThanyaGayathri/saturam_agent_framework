@@ -39,15 +39,18 @@ The reason is a real, checked-for regression, not caution for its own sake: ``Eg
 ``require_tenant_id`` on for *every registered db* the moment an operator configures
 ``AuthorizationConfig(tenant_id_claim=...)``. That is safe for components, because the write
 paths that stamp a component's ``tenant_id`` (the ``/components`` router, ``Agent.save`` and
-friends) were updated in the same PR that added the guard. It would not be safe for sessions:
-this PR wires ``tenant_id`` through the *read* chain the issue names
+friends) were updated in the same PR that added the guard. It would not be safe for sessions in
+general: this PR wires ``tenant_id`` through the *read* chain the issue names
 (``aget_run_output``/``aget_session``/``_aread_session`` and the WS/HTTP call sites that resolve
-a caller's tenant), but it deliberately does **not** thread ``tenant_id`` through session
-*writes* -- ``read_or_create_session``, ``save_session``/``asave_session``, and the ~100 call
-sites in the run loop that invoke them. That is future work, tracked separately, because doing it
-correctly means auditing every one of those call sites rather than a mechanical parameter
-addition. Until it ships, every session a run creates or updates is written with
-``tenant_id=NULL``, regardless of the caller's tenant.
+a caller's tenant), but for ``Agent``/``Team`` it deliberately does **not** thread ``tenant_id``
+through session *writes* -- ``read_or_create_session``, ``save_session``/``asave_session``, and
+the ~100 call sites in the run loop that invoke them. That is future work for those two, tracked
+separately, because doing it correctly means auditing every one of those call sites rather than a
+mechanical parameter addition. Until it ships, every session an ``Agent``/``Team`` run creates or
+updates is written with ``tenant_id=NULL``, regardless of the caller's tenant. ``Workflow`` is the
+one exception: it carries ``tenant_id`` as a declared instance field (stamped at hydration) and
+its own ``_upsert_session``/``_aupsert_session`` already default to and pass ``self.tenant_id`` on
+every write, closing its own read/write loop -- see ``docs/tenancy.md`` section 8.
 
 If session enforcement shared ``require_tenant_id``, turning on tenancy for components would
 also turn on ``TenantScopeRequiredError`` for session/run access -- and since nothing stamps a
@@ -97,10 +100,30 @@ __all__ = [
     "ASYNC_SESSION_DATA_ACCESS_METHODS",
     "REQUIRE_SESSION_TENANT_ID_ENV",
     "SESSION_DATA_ACCESS_METHODS",
+    "SESSION_TENANT_SCOPE_SUPPORTED_BACKENDS",
     "TENANT_COLUMN",
     "TENANT_SCOPED_SESSION_TABLES",
     "require_session_tenant_id_from_env",
+    "require_unsupported_session_tenant_scope",
 ]
+
+# Backends whose session methods actually call ``_require_session_tenant_scope`` and filter/stamp
+# by it (SQL backends plus ``InMemoryDb``). Every other concrete ``BaseDb``/``AsyncBaseDb``
+# backend accepts ``tenant_id`` for signature parity but cannot enforce it, so
+# ``require_unsupported_session_tenant_scope`` below refuses to construct one with
+# ``require_session_tenant_id=True`` rather than let the flag report protection it does not
+# provide. Kept here, next to ``SESSION_DATA_ACCESS_METHODS``, as the single list `docs/tenancy.md`
+# section 8's backend support matrix and any future backend addition should stay in sync with.
+SESSION_TENANT_SCOPE_SUPPORTED_BACKENDS: Tuple[str, ...] = (
+    "SqliteDb",
+    "AsyncSqliteDb",
+    "PostgresDb",
+    "AsyncPostgresDb",
+    "MySQLDb",
+    "AsyncMySQLDb",
+    "SingleStoreDb",
+    "InMemoryDb",
+)
 
 # Same column name and semantics as ``egpt.db.component_scope.TENANT_COLUMN``. Declared again
 # here (rather than imported) so this module reads standalone and mirrors the component module's
@@ -172,4 +195,31 @@ def require_session_tenant_id_from_env() -> bool:
         f"Use one of {sorted(_ENV_TRUE)} to require a tenant on every session/run operation, or "
         f"one of {sorted(v for v in _ENV_FALSE if v)} to allow unscoped access. Refusing to "
         f"start rather than silently leaving session tenant enforcement off."
+    )
+
+
+def require_unsupported_session_tenant_scope(backend_name: str, require_session_tenant_id: bool) -> None:
+    """Refuse to construct a session-tenant-unsupported backend with enforcement turned on.
+
+    ``BaseDb``/``AsyncBaseDb`` resolve ``require_session_tenant_id`` for *every* backend (aicoe-
+    tracker#197), including the NoSQL/file ones that accept the ``tenant_id`` keyword on their
+    session methods for signature parity but have no filter/stamp behind it -- so without this
+    check, the flag would report ``True`` on a backend that enforces nothing, which is worse than
+    no flag at all. Call this at the end of ``__init__`` on every backend not listed in
+    :data:`SESSION_TENANT_SCOPE_SUPPORTED_BACKENDS`.
+
+    Raises:
+        NotImplementedError: If ``require_session_tenant_id`` is ``True`` (set explicitly or via
+            ``EGPT_REQUIRE_SESSION_TENANT_ID``).
+    """
+    if not require_session_tenant_id:
+        return
+    supported = ", ".join(SESSION_TENANT_SCOPE_SUPPORTED_BACKENDS)
+    raise NotImplementedError(
+        f"{backend_name} does not implement tenant-scoped session/run enforcement "
+        "(aicoe-tracker#197): its session methods accept tenant_id for signature parity with "
+        "BaseDb, but nothing filters or stamps by it. require_session_tenant_id (or "
+        f"EGPT_REQUIRE_SESSION_TENANT_ID) is set on this construction, which this backend cannot "
+        f"honor. Session/run tenant scoping is currently implemented only on: {supported}. "
+        "See docs/tenancy.md section 8."
     )

@@ -52,8 +52,8 @@ def get_session(
         session_id: The session_id to load from storage.
         user_id: The user_id for tenant isolation.
         tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
-            refused when the db was built with ``require_session_tenant_id``. Ignored when a
-            cached session is used instead of a DB read.
+            refused when the db was built with ``require_session_tenant_id`` -- enforced before
+            the cache is checked, so a cache hit cannot return a different tenant's session.
 
     Returns:
         TeamSession: The TeamSession loaded from the database or created if it does not exist.
@@ -66,10 +66,18 @@ def get_session(
 
     session_id_to_load: str = session_id or team.session_id  # type: ignore[assignment]
 
+    # Resolve the tenant scope before the cache check (aicoe-tracker#197): the guard must run
+    # even on a cache hit, or an unscoped call under require_session_tenant_id would silently
+    # return a stale cached session instead of raising.
+    if team.db is not None:
+        tenant_id = team.db._require_session_tenant_scope(tenant_id, "get_session")
+
     # If there is a cached session, return it
     if team.cache_session and hasattr(team, "_cached_session") and team._cached_session is not None:
-        if team._cached_session.session_id == session_id_to_load and (
-            user_id is None or team._cached_session.user_id == user_id
+        if (
+            team._cached_session.session_id == session_id_to_load
+            and (user_id is None or team._cached_session.user_id == user_id)
+            and (tenant_id is None or team._cached_session.tenant_id == tenant_id)
         ):
             return team._cached_session
 
@@ -120,8 +128,8 @@ async def aget_session(
         session_id: The session_id to load from storage.
         user_id: The user_id for tenant isolation.
         tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
-            refused when the db was built with ``require_session_tenant_id``. Ignored when a
-            cached session is used instead of a DB read.
+            refused when the db was built with ``require_session_tenant_id`` -- enforced before
+            the cache is checked, so a cache hit cannot return a different tenant's session.
 
     Returns:
         TeamSession: The TeamSession loaded from the database or created if it does not exist.
@@ -134,10 +142,18 @@ async def aget_session(
 
     session_id_to_load: str = session_id or team.session_id  # type: ignore[assignment]
 
+    # Resolve the tenant scope before the cache check (aicoe-tracker#197): the guard must run
+    # even on a cache hit, or an unscoped call under require_session_tenant_id would silently
+    # return a stale cached session instead of raising.
+    if team.db is not None:
+        tenant_id = team.db._require_session_tenant_scope(tenant_id, "aget_session")
+
     # If there is a cached session, return it
     if team.cache_session and hasattr(team, "_cached_session") and team._cached_session is not None:
-        if team._cached_session.session_id == session_id_to_load and (
-            user_id is None or team._cached_session.user_id == user_id
+        if (
+            team._cached_session.session_id == session_id_to_load
+            and (user_id is None or team._cached_session.user_id == user_id)
+            and (tenant_id is None or team._cached_session.tenant_id == tenant_id)
         ):
             return team._cached_session
 

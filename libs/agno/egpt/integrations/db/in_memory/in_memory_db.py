@@ -26,14 +26,22 @@ if TYPE_CHECKING:
 
 
 class InMemoryDb(BaseDb):
-    def __init__(self, table_prefix: Optional[str] = None, id: Optional[str] = None):
+    def __init__(
+        self,
+        table_prefix: Optional[str] = None,
+        id: Optional[str] = None,
+        *,
+        require_session_tenant_id: bool = False,
+    ):
         """Interface for in-memory storage.
 
         Args:
             table_prefix (Optional[str]): Prefix for the (logical) default table names.
             id (Optional[str]): ID of the database.
+            require_session_tenant_id (bool): Refuse unscoped session/run access
+                (aicoe-tracker#197). Defaults to unscoped; see ``egpt/db/session_scope.py``.
         """
-        super().__init__(table_prefix=table_prefix, id=id)
+        super().__init__(table_prefix=table_prefix, id=id, require_session_tenant_id=require_session_tenant_id)
 
         # Initialize in-memory storage dictionaries
         self._sessions: List[Dict[str, Any]] = []
@@ -50,7 +58,11 @@ class InMemoryDb(BaseDb):
     def from_dict(cls, data: Dict[str, Any]) -> "InMemoryDb":
         # Override: InMemoryDb accepts no per-table name parameters, so the
         # inherited BaseDb.from_dict (which forwards them) would raise.
-        return cls(table_prefix=data.get("table_prefix"), id=data.get("id"))
+        return cls(
+            table_prefix=data.get("table_prefix"),
+            id=data.get("id"),
+            require_session_tenant_id=bool(data.get("require_session_tenant_id", False)),
+        )
 
     def table_exists(self, table_name: str) -> bool:
         """In-memory implementation, always returns True."""
@@ -79,7 +91,6 @@ class InMemoryDb(BaseDb):
         self._schema_versions[table_name] = version
 
     # -- Session methods --
-    # tenant_id (aicoe-tracker#197) accepted for signature parity with BaseDb; this backend does not implement tenant-scoped session filtering yet.
     def delete_session(
         self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
     ) -> bool:
@@ -88,6 +99,8 @@ class InMemoryDb(BaseDb):
         Args:
             session_id (str): The ID of the session to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             bool: True if the session was deleted, False otherwise.
@@ -95,12 +108,17 @@ class InMemoryDb(BaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_session")
         try:
             original_count = len(self._sessions)
             self._sessions = [
                 s
                 for s in self._sessions
-                if not (s.get("session_id") == session_id and (user_id is None or s.get("user_id") == user_id))
+                if not (
+                    s.get("session_id") == session_id
+                    and (user_id is None or s.get("user_id") == user_id)
+                    and (tenant_id is None or s.get("tenant_id") == tenant_id)
+                )
             ]
 
             if len(self._sessions) < original_count:
@@ -122,15 +140,22 @@ class InMemoryDb(BaseDb):
         Args:
             session_ids (List[str]): The IDs of the sessions to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_sessions")
         try:
             self._sessions = [
                 s
                 for s in self._sessions
-                if not (s.get("session_id") in session_ids and (user_id is None or s.get("user_id") == user_id))
+                if not (
+                    s.get("session_id") in session_ids
+                    and (user_id is None or s.get("user_id") == user_id)
+                    and (tenant_id is None or s.get("tenant_id") == tenant_id)
+                )
             ]
             log_debug(f"Successfully deleted sessions with ids: {session_ids}")
 
@@ -163,10 +188,13 @@ class InMemoryDb(BaseDb):
         Raises:
             Exception: If an error occurs while reading the session.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_session")
         try:
             for session_data in self._sessions:
                 if session_data.get("session_id") == session_id:
                     if user_id is not None and session_data.get("user_id") != user_id:
+                        continue
+                    if tenant_id is not None and session_data.get("tenant_id") != tenant_id:
                         continue
 
                     session_data_copy = deepcopy(session_data)
@@ -224,11 +252,14 @@ class InMemoryDb(BaseDb):
         Raises:
             Exception: If an error occurs while reading the sessions.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_sessions")
         try:
             # Apply filters
             filtered_sessions = []
             for session_data in self._sessions:
                 if user_id is not None and session_data.get("user_id") != user_id:
+                    continue
+                if tenant_id is not None and session_data.get("tenant_id") != tenant_id:
                     continue
                 if component_id is not None:
                     if session_type == SessionType.AGENT and session_data.get("agent_id") != component_id:
@@ -290,6 +321,7 @@ class InMemoryDb(BaseDb):
         *,
         tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
+        tenant_id = self._require_session_tenant_scope(tenant_id, "rename_session")
         try:
             for i, session in enumerate(self._sessions):
                 if session.get("session_id") != session_id:
@@ -297,6 +329,8 @@ class InMemoryDb(BaseDb):
                 if session_type is not None and session.get("session_type") != session_type.value:
                     continue
                 if user_id is not None and session.get("user_id") != user_id:
+                    continue
+                if tenant_id is not None and session.get("tenant_id") != tenant_id:
                     continue
                 # Update session name in session_data
                 if "session_data" not in session or session["session_data"] is None:
@@ -322,8 +356,10 @@ class InMemoryDb(BaseDb):
     def upsert_session(
         self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_session")
         try:
             session_dict = session.to_dict()
+            session_dict["tenant_id"] = tenant_id
 
             # Add session_type based on session instance type
             if isinstance(session, AgentSession):
@@ -342,6 +378,12 @@ class InMemoryDb(BaseDb):
                     existing_uid = existing_session.get("user_id")
                     if existing_uid is not None and existing_uid != session_dict.get("user_id"):
                         return None
+                    existing_tenant_id = existing_session.get("tenant_id")
+                    if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
+                        return None
+                    # tenant_id is deliberately excluded from what changes: an upsert never moves
+                    # an existing row between tenants, only the insert branch stamps it.
+                    session_dict["tenant_id"] = existing_tenant_id
                     session_dict["updated_at"] = int(time.time())
                     self._sessions[i] = deepcopy(session_dict)
                     session_updated = True
@@ -398,6 +440,7 @@ class InMemoryDb(BaseDb):
         Raises:
             Exception: If an error occurs during bulk upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_sessions")
         if not sessions:
             return []
 
@@ -407,7 +450,7 @@ class InMemoryDb(BaseDb):
             results = []
             for session in sessions:
                 if session is not None:
-                    result = self.upsert_session(session, deserialize=deserialize)
+                    result = self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)
                     if result is not None:
                         results.append(result)
             return results

@@ -11,6 +11,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.integrations.db.redis.utils import (
     apply_filters,
@@ -55,6 +56,7 @@ class RedisDb(BaseDb):
         traces_table: Optional[str] = None,
         spans_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a Redis database.
@@ -80,6 +82,9 @@ class RedisDb(BaseDb):
             culture_table (Optional[str]): Name of the table to store cultural knowledge
             traces_table (Optional[str]): Name of the table to store traces
             spans_table (Optional[str]): Name of the table to store spans
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
 
         Raises:
             ValueError: If neither redis_client nor db_url is provided.
@@ -100,7 +105,9 @@ class RedisDb(BaseDb):
             culture_table=culture_table,
             traces_table=traces_table,
             spans_table=spans_table,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("RedisDb", self.require_session_tenant_id)
 
         self.db_prefix = db_prefix
         self.expire = expire

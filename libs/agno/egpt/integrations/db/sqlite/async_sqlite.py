@@ -81,6 +81,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         service_accounts_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Async interface for interacting with a SQLite database.
@@ -108,6 +109,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             schedules_table (Optional[str]): Name of the table to store cron schedules.
             schedule_runs_table (Optional[str]): Name of the table to store schedule run history.
             id (Optional[str]): ID of the database.
+            require_session_tenant_id (bool): Refuse unscoped session/run access (aicoe-tracker#197).
+                Defaults to unscoped; see ``egpt/db/session_scope.py``.
 
         Raises:
             ValueError: If none of the tables are provided.
@@ -151,6 +154,7 @@ class AsyncSqliteDb(AsyncBaseDb):
             approvals_table=approvals_table,
             auth_tokens_table=auth_tokens_table,
             service_accounts_table=service_accounts_table,
+            require_session_tenant_id=require_session_tenant_id,
         )
 
         _engine: Optional[AsyncEngine] = db_engine
@@ -196,6 +200,7 @@ class AsyncSqliteDb(AsyncBaseDb):
             db_url=self.db_url,
             db_engine=self.db_engine,
             id=self.id,
+            require_session_tenant_id=self.require_session_tenant_id,
             **overrides,
         )
 
@@ -1183,8 +1188,15 @@ class AsyncSqliteDb(AsyncBaseDb):
 
                     if agent_data:
                         stmt = sqlite.insert(table)
+                        bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                        if tenant_id is not None:
+                            bulk_conflict_where = bulk_conflict_where & (
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         stmt = stmt.on_conflict_do_update(
                             index_elements=["session_id"],
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             set_=dict(
                                 agent_id=stmt.excluded.agent_id,
                                 user_id=stmt.excluded.user_id,
@@ -1195,12 +1207,19 @@ class AsyncSqliteDb(AsyncBaseDb):
                                 summary=stmt.excluded.summary,
                                 updated_at=stmt.excluded.updated_at,
                             ),
+                            where=bulk_conflict_where,
                         )
                         await sess.execute(stmt, agent_data)
 
-                        # Fetch the results for agent sessions
+                        # Fetch the results for agent sessions, scoped to this call's tenant so
+                        # a row rejected by bulk_conflict_where above (owned by another tenant)
+                        # is not read back and returned to the caller (aicoe-tracker#197).
                         agent_ids = [session.session_id for session in agent_sessions]
                         select_stmt = select(table).where(table.c.session_id.in_(agent_ids))
+                        if tenant_id is not None:
+                            select_stmt = select_stmt.where(
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         result = (await sess.execute(select_stmt)).fetchall()
 
                         for row in result:
@@ -1239,8 +1258,15 @@ class AsyncSqliteDb(AsyncBaseDb):
 
                     if team_data:
                         stmt = sqlite.insert(table)
+                        bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                        if tenant_id is not None:
+                            bulk_conflict_where = bulk_conflict_where & (
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         stmt = stmt.on_conflict_do_update(
                             index_elements=["session_id"],
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             set_=dict(
                                 team_id=stmt.excluded.team_id,
                                 user_id=stmt.excluded.user_id,
@@ -1251,12 +1277,19 @@ class AsyncSqliteDb(AsyncBaseDb):
                                 summary=stmt.excluded.summary,
                                 updated_at=stmt.excluded.updated_at,
                             ),
+                            where=bulk_conflict_where,
                         )
                         await sess.execute(stmt, team_data)
 
-                        # Fetch the results for team sessions
+                        # Fetch the results for team sessions, scoped to this call's tenant so a
+                        # row rejected by bulk_conflict_where above (owned by another tenant) is
+                        # not read back and returned to the caller (aicoe-tracker#197).
                         team_ids = [session.session_id for session in team_sessions]
                         select_stmt = select(table).where(table.c.session_id.in_(team_ids))
+                        if tenant_id is not None:
+                            select_stmt = select_stmt.where(
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         result = (await sess.execute(select_stmt)).fetchall()
 
                         for row in result:
@@ -1295,8 +1328,15 @@ class AsyncSqliteDb(AsyncBaseDb):
 
                     if workflow_data:
                         stmt = sqlite.insert(table)
+                        bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                        if tenant_id is not None:
+                            bulk_conflict_where = bulk_conflict_where & (
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         stmt = stmt.on_conflict_do_update(
                             index_elements=["session_id"],
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             set_=dict(
                                 workflow_id=stmt.excluded.workflow_id,
                                 user_id=stmt.excluded.user_id,
@@ -1307,12 +1347,19 @@ class AsyncSqliteDb(AsyncBaseDb):
                                 summary=stmt.excluded.summary,
                                 updated_at=stmt.excluded.updated_at,
                             ),
+                            where=bulk_conflict_where,
                         )
                         await sess.execute(stmt, workflow_data)
 
-                        # Fetch the results for workflow sessions
+                        # Fetch the results for workflow sessions, scoped to this call's tenant
+                        # so a row rejected by bulk_conflict_where above (owned by another
+                        # tenant) is not read back and returned to the caller (aicoe-tracker#197).
                         workflow_ids = [session.session_id for session in workflow_sessions]
                         select_stmt = select(table).where(table.c.session_id.in_(workflow_ids))
+                        if tenant_id is not None:
+                            select_stmt = select_stmt.where(
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         result = (await sess.execute(select_stmt)).fetchall()
 
                         for row in result:
@@ -1334,7 +1381,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                 result
                 for session in sessions
                 if session is not None
-                for result in [await self.upsert_session(session, deserialize=deserialize)]
+                for result in [await self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)]
                 if result is not None
             ]
 

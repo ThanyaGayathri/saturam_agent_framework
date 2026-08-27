@@ -12,6 +12,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.integrations.db.gcs_json.utils import (
     apply_sorting,
@@ -48,6 +49,7 @@ class GcsJsonDb(BaseDb):
         credentials: Optional[Any] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with JSON files stored in Google Cloud Storage as database.
@@ -67,6 +69,9 @@ class GcsJsonDb(BaseDb):
             location (Optional[str]): GCS bucket location. If None, uses default location.
             credentials (Optional[Any]): GCP credentials. If None, uses default credentials.
             id (Optional[str]): ID of the database.
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
         """
         if id is None:
             prefix_suffix = prefix or "agno/"
@@ -84,7 +89,9 @@ class GcsJsonDb(BaseDb):
             culture_table=culture_table,
             traces_table=traces_table,
             spans_table=spans_table,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("GcsJsonDb", self.require_session_tenant_id)
 
         self.bucket_name = bucket_name
         self.prefix = prefix or "agno/"

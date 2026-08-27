@@ -1064,36 +1064,66 @@ class AsyncMySQLDb(AsyncBaseDb):
                         )
 
                     if agent_data:
-                        stmt = mysql.insert(table)
-                        stmt = stmt.on_duplicate_key_update(
-                            # tenant_id is deliberately excluded: an upsert never moves an
-                            # existing row between tenants, only the insert branch stamps it.
-                            agent_id=stmt.inserted.agent_id,
-                            user_id=stmt.inserted.user_id,
-                            agent_data=stmt.inserted.agent_data,
-                            session_data=stmt.inserted.session_data,
-                            summary=stmt.inserted.summary,
-                            metadata=stmt.inserted.metadata,
-                            runs=stmt.inserted.runs,
-                            updated_at=stmt.inserted.updated_at,
-                        )
-                        await sess.execute(stmt, agent_data)
-
-                        # Fetch the results for agent sessions
-                        agent_ids = [session.session_id for session in agent_sessions]
-                        select_stmt = select(table).where(table.c.session_id.in_(agent_ids))
-                        result = await sess.execute(select_stmt)
-                        fetched_rows = result.fetchall()
-
-                        for row in fetched_rows:
-                            session_dict = dict(row._mapping)
-                            if deserialize:
-                                deserialized_agent_session = AgentSession.from_dict(session_dict)
-                                if deserialized_agent_session is None:
+                        # MySQL's ON DUPLICATE KEY UPDATE has no WHERE clause, so ownership can't
+                        # be gated in the statement itself (unlike Postgres/SQLite's
+                        # bulk_conflict_where). Pre-check existing rows and only bulk-write the
+                        # ones this call owns, mirroring the singular upsert_session's pre-check
+                        # (aicoe-tracker#197).
+                        agent_ids = [record["session_id"] for record in agent_data]
+                        existing_rows = (
+                            await sess.execute(
+                                select(table.c.session_id, table.c.user_id, table.c.tenant_id)
+                                .where(table.c.session_id.in_(agent_ids))
+                                .with_for_update()
+                            )
+                        ).fetchall()
+                        existing_by_id = {row.session_id: (row.user_id, row.tenant_id) for row in existing_rows}
+                        allowed_agent_data = []
+                        for record in agent_data:
+                            existing = existing_by_id.get(record["session_id"])
+                            if existing is not None:
+                                existing_uid, existing_tenant_id = existing
+                                if existing_uid is not None and existing_uid != record.get("user_id"):
                                     continue
-                                results.append(deserialized_agent_session)
-                            else:
-                                results.append(session_dict)
+                                if (
+                                    tenant_id is not None
+                                    and existing_tenant_id is not None
+                                    and existing_tenant_id != tenant_id
+                                ):
+                                    continue
+                            allowed_agent_data.append(record)
+
+                        if allowed_agent_data:
+                            stmt = mysql.insert(table)
+                            stmt = stmt.on_duplicate_key_update(
+                                # tenant_id is deliberately excluded: an upsert never moves an
+                                # existing row between tenants, only the insert branch stamps it.
+                                agent_id=stmt.inserted.agent_id,
+                                user_id=stmt.inserted.user_id,
+                                agent_data=stmt.inserted.agent_data,
+                                session_data=stmt.inserted.session_data,
+                                summary=stmt.inserted.summary,
+                                metadata=stmt.inserted.metadata,
+                                runs=stmt.inserted.runs,
+                                updated_at=stmt.inserted.updated_at,
+                            )
+                            await sess.execute(stmt, allowed_agent_data)
+
+                            # Fetch the results for the agent sessions this call actually wrote
+                            allowed_ids = [record["session_id"] for record in allowed_agent_data]
+                            select_stmt = select(table).where(table.c.session_id.in_(allowed_ids))
+                            result = await sess.execute(select_stmt)
+                            fetched_rows = result.fetchall()
+
+                            for row in fetched_rows:
+                                session_dict = dict(row._mapping)
+                                if deserialize:
+                                    deserialized_agent_session = AgentSession.from_dict(session_dict)
+                                    if deserialized_agent_session is None:
+                                        continue
+                                    results.append(deserialized_agent_session)
+                                else:
+                                    results.append(session_dict)
 
                 # Bulk upsert team sessions
                 if team_sessions:
@@ -1120,36 +1150,66 @@ class AsyncMySQLDb(AsyncBaseDb):
                         )
 
                     if team_data:
-                        stmt = mysql.insert(table)
-                        stmt = stmt.on_duplicate_key_update(
-                            # tenant_id is deliberately excluded: an upsert never moves an
-                            # existing row between tenants, only the insert branch stamps it.
-                            team_id=stmt.inserted.team_id,
-                            user_id=stmt.inserted.user_id,
-                            team_data=stmt.inserted.team_data,
-                            session_data=stmt.inserted.session_data,
-                            summary=stmt.inserted.summary,
-                            metadata=stmt.inserted.metadata,
-                            runs=stmt.inserted.runs,
-                            updated_at=stmt.inserted.updated_at,
-                        )
-                        await sess.execute(stmt, team_data)
-
-                        # Fetch the results for team sessions
-                        team_ids = [session.session_id for session in team_sessions]
-                        select_stmt = select(table).where(table.c.session_id.in_(team_ids))
-                        result = await sess.execute(select_stmt)
-                        fetched_rows = result.fetchall()
-
-                        for row in fetched_rows:
-                            session_dict = dict(row._mapping)
-                            if deserialize:
-                                deserialized_team_session = TeamSession.from_dict(session_dict)
-                                if deserialized_team_session is None:
+                        # MySQL's ON DUPLICATE KEY UPDATE has no WHERE clause, so ownership can't
+                        # be gated in the statement itself (unlike Postgres/SQLite's
+                        # bulk_conflict_where). Pre-check existing rows and only bulk-write the
+                        # ones this call owns, mirroring the singular upsert_session's pre-check
+                        # (aicoe-tracker#197).
+                        team_ids = [record["session_id"] for record in team_data]
+                        existing_rows = (
+                            await sess.execute(
+                                select(table.c.session_id, table.c.user_id, table.c.tenant_id)
+                                .where(table.c.session_id.in_(team_ids))
+                                .with_for_update()
+                            )
+                        ).fetchall()
+                        existing_by_id = {row.session_id: (row.user_id, row.tenant_id) for row in existing_rows}
+                        allowed_team_data = []
+                        for record in team_data:
+                            existing = existing_by_id.get(record["session_id"])
+                            if existing is not None:
+                                existing_uid, existing_tenant_id = existing
+                                if existing_uid is not None and existing_uid != record.get("user_id"):
                                     continue
-                                results.append(deserialized_team_session)
-                            else:
-                                results.append(session_dict)
+                                if (
+                                    tenant_id is not None
+                                    and existing_tenant_id is not None
+                                    and existing_tenant_id != tenant_id
+                                ):
+                                    continue
+                            allowed_team_data.append(record)
+
+                        if allowed_team_data:
+                            stmt = mysql.insert(table)
+                            stmt = stmt.on_duplicate_key_update(
+                                # tenant_id is deliberately excluded: an upsert never moves an
+                                # existing row between tenants, only the insert branch stamps it.
+                                team_id=stmt.inserted.team_id,
+                                user_id=stmt.inserted.user_id,
+                                team_data=stmt.inserted.team_data,
+                                session_data=stmt.inserted.session_data,
+                                summary=stmt.inserted.summary,
+                                metadata=stmt.inserted.metadata,
+                                runs=stmt.inserted.runs,
+                                updated_at=stmt.inserted.updated_at,
+                            )
+                            await sess.execute(stmt, allowed_team_data)
+
+                            # Fetch the results for the team sessions this call actually wrote
+                            allowed_ids = [record["session_id"] for record in allowed_team_data]
+                            select_stmt = select(table).where(table.c.session_id.in_(allowed_ids))
+                            result = await sess.execute(select_stmt)
+                            fetched_rows = result.fetchall()
+
+                            for row in fetched_rows:
+                                session_dict = dict(row._mapping)
+                                if deserialize:
+                                    deserialized_team_session = TeamSession.from_dict(session_dict)
+                                    if deserialized_team_session is None:
+                                        continue
+                                    results.append(deserialized_team_session)
+                                else:
+                                    results.append(session_dict)
 
                 # Bulk upsert workflow sessions
                 if workflow_sessions:
@@ -1176,36 +1236,66 @@ class AsyncMySQLDb(AsyncBaseDb):
                         )
 
                     if workflow_data:
-                        stmt = mysql.insert(table)
-                        stmt = stmt.on_duplicate_key_update(
-                            # tenant_id is deliberately excluded: an upsert never moves an
-                            # existing row between tenants, only the insert branch stamps it.
-                            workflow_id=stmt.inserted.workflow_id,
-                            user_id=stmt.inserted.user_id,
-                            workflow_data=stmt.inserted.workflow_data,
-                            session_data=stmt.inserted.session_data,
-                            summary=stmt.inserted.summary,
-                            metadata=stmt.inserted.metadata,
-                            runs=stmt.inserted.runs,
-                            updated_at=stmt.inserted.updated_at,
-                        )
-                        await sess.execute(stmt, workflow_data)
-
-                        # Fetch the results for workflow sessions
-                        workflow_ids = [session.session_id for session in workflow_sessions]
-                        select_stmt = select(table).where(table.c.session_id.in_(workflow_ids))
-                        result = await sess.execute(select_stmt)
-                        fetched_rows = result.fetchall()
-
-                        for row in fetched_rows:
-                            session_dict = dict(row._mapping)
-                            if deserialize:
-                                deserialized_workflow_session = WorkflowSession.from_dict(session_dict)
-                                if deserialized_workflow_session is None:
+                        # MySQL's ON DUPLICATE KEY UPDATE has no WHERE clause, so ownership can't
+                        # be gated in the statement itself (unlike Postgres/SQLite's
+                        # bulk_conflict_where). Pre-check existing rows and only bulk-write the
+                        # ones this call owns, mirroring the singular upsert_session's pre-check
+                        # (aicoe-tracker#197).
+                        workflow_ids = [record["session_id"] for record in workflow_data]
+                        existing_rows = (
+                            await sess.execute(
+                                select(table.c.session_id, table.c.user_id, table.c.tenant_id)
+                                .where(table.c.session_id.in_(workflow_ids))
+                                .with_for_update()
+                            )
+                        ).fetchall()
+                        existing_by_id = {row.session_id: (row.user_id, row.tenant_id) for row in existing_rows}
+                        allowed_workflow_data = []
+                        for record in workflow_data:
+                            existing = existing_by_id.get(record["session_id"])
+                            if existing is not None:
+                                existing_uid, existing_tenant_id = existing
+                                if existing_uid is not None and existing_uid != record.get("user_id"):
                                     continue
-                                results.append(deserialized_workflow_session)
-                            else:
-                                results.append(session_dict)
+                                if (
+                                    tenant_id is not None
+                                    and existing_tenant_id is not None
+                                    and existing_tenant_id != tenant_id
+                                ):
+                                    continue
+                            allowed_workflow_data.append(record)
+
+                        if allowed_workflow_data:
+                            stmt = mysql.insert(table)
+                            stmt = stmt.on_duplicate_key_update(
+                                # tenant_id is deliberately excluded: an upsert never moves an
+                                # existing row between tenants, only the insert branch stamps it.
+                                workflow_id=stmt.inserted.workflow_id,
+                                user_id=stmt.inserted.user_id,
+                                workflow_data=stmt.inserted.workflow_data,
+                                session_data=stmt.inserted.session_data,
+                                summary=stmt.inserted.summary,
+                                metadata=stmt.inserted.metadata,
+                                runs=stmt.inserted.runs,
+                                updated_at=stmt.inserted.updated_at,
+                            )
+                            await sess.execute(stmt, allowed_workflow_data)
+
+                            # Fetch the results for the workflow sessions this call actually wrote
+                            allowed_ids = [record["session_id"] for record in allowed_workflow_data]
+                            select_stmt = select(table).where(table.c.session_id.in_(allowed_ids))
+                            result = await sess.execute(select_stmt)
+                            fetched_rows = result.fetchall()
+
+                            for row in fetched_rows:
+                                session_dict = dict(row._mapping)
+                                if deserialize:
+                                    deserialized_workflow_session = WorkflowSession.from_dict(session_dict)
+                                    if deserialized_workflow_session is None:
+                                        continue
+                                    results.append(deserialized_workflow_session)
+                                else:
+                                    results.append(session_dict)
 
             return results
 

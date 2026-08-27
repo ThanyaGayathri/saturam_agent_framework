@@ -459,8 +459,10 @@ path is aicoe-tracker#175. Sessions and runs are covered below (section 8) as of
 ## 8. Row-level enforcement for sessions and runs (aicoe-tracker#197)
 
 Section 6 covers the four component tables. This section covers the `sessions` table, which
-gained the identical `tenant_id` column and enforcement primitive, with two deliberate departures
-from the component pattern that this section exists to explain.
+gained the identical `tenant_id` column and enforcement primitive **on the backends listed in the
+support matrix below** — not universally; see that subsection before enabling
+`require_session_tenant_id` on a non-SQL backend — with two deliberate departures from the
+component pattern that this section exists to explain.
 
 There is no separate "runs" table to scope. A `RunOutput`/`TeamRunOutput`/`WorkflowRunOutput`
 lives inside the `runs` JSON column of the session row it belongs to (`AgentSession.upsert_run`
@@ -547,6 +549,44 @@ introduced or worsened by this change; flagged here because it shares the same i
 mechanism and would need the identical fix (the factory pipeline stamping `.tenant_id` from
 `ctx.tenant_id` in `_post_resolve`).
 
+**Enabling `require_session_tenant_id` today silently disables session persistence for `Agent`
+and `Team` runs, rather than raising.** `Agent.save_session`/`Team.save_session` call
+`upsert_session` with no `tenant_id` (see above), so under the flag `_require_session_tenant_scope`
+raises `TenantScopeRequiredError` on every save — but the storage helpers that call it
+(`agent/_storage.py::upsert_session`/`aupsert_session`, and the `team` equivalents) catch that
+exception, log a warning, and return `None`. The run itself completes normally and reports success;
+nothing surfaces to the caller, and the session record, chat history and resumption state for
+that run are simply never written. This is a direct, expected consequence of `Agent`/`Team` not
+yet having the instance-level `tenant_id` default `Workflow` has (previous point) — it is not a bug
+in the flag, but an operator turning it on today should know the actual behavior is "goes quiet",
+not "raises," until that follow-up lands.
+
+### Backend support matrix
+
+`require_session_tenant_id` is read by every `BaseDb`/`AsyncBaseDb` backend (it is a constructor
+argument on the abstract base), but only some backends have a `_require_session_tenant_scope` call
+wired into their session methods that actually filters or stamps by it. The rest construct-time
+refuse `require_session_tenant_id=True` instead (`egpt.db.session_scope.
+require_unsupported_session_tenant_scope`) — the flag can never silently report protection it
+does not provide.
+
+| Backend | Session tenant enforcement |
+|---|---|
+| `SqliteDb` / `AsyncSqliteDb` | Enforced (singular + bulk upsert both tenant-guarded) |
+| `PostgresDb` / `AsyncPostgresDb` | Enforced (singular + bulk upsert both tenant-guarded) |
+| `MySQLDb` / `AsyncMySQLDb` | Enforced (bulk upsert pre-checks ownership per-row; `ON DUPLICATE KEY UPDATE` has no `WHERE`, so it can't be gated in the statement itself the way SQL/Postgres are) |
+| `SingleStoreDb` | Enforced, same pre-check approach as MySQL |
+| `InMemoryDb` | Enforced |
+| `JsonDb`, `GcsJsonDb`, `DynamoDb`, `FirestoreDb`, `MongoDb`, `AsyncMongoDb`, `RedisDb`, `SurrealDb` | **Not implemented.** Constructing one with `require_session_tenant_id=True` (explicitly or via `EGPT_REQUIRE_SESSION_TENANT_ID`) raises `NotImplementedError` at `__init__`. |
+| `ClickHouseDb` | N/A — trace-only backend, session methods are unimplemented by design |
+
+The **HTTP session router** (`os/routers/sessions/session.py`) has zero tenant awareness across
+its seven `db.get_session`/`db.upsert_session`/… call sites — it does not pass `tenant_id` at all.
+That is outside this PR's stated scope (the ticket names the workflow read chain:
+`Workflow.aget_run_output` → `aget_session` → `_aread_session`), but it bounds how much of the
+product this section's enforcement actually covers today, and belongs on the follow-up ticket
+rather than being inferred as done.
+
 ### Where the tenant is threaded on the read side
 
 `Workflow.aget_run_output`/`get_run_output`, `aget_session`/`get_session`, and
@@ -565,7 +605,12 @@ already compute a tenant for the component-hydration call that precedes every on
 
 `db/migrations/versions/v2_9_0.py` adds a nullable, indexed `tenant_id` column to `sessions` —
 same contract as the component tables and `memories`: unbackfilled, and a row written before this
-column existed reads as unscoped. Session read predicates use strict equality
+column existed reads as unscoped. The index is built with a plain `CREATE INDEX` inside the
+migration's transaction, same convention as `v2_7_0.py`/`v2_8_0.py` — on Postgres this holds a lock
+for the build's duration and blocks writes to `sessions` while it runs. `sessions` is the hot-path
+table this PR's own description calls out (~100 write call sites in the run loop), so schedule this
+migration's rollout on a large existing table accordingly, same caveat as the two prior migrations.
+Session read predicates use strict equality
 (`WHERE tenant_id = :tenant`, not `tenant_id IS NULL OR tenant_id = :tenant`), matching the
 component pattern: under `require_session_tenant_id`, a NULL-tenant row is invisible to a
 tenant-scoped read, the same "unscoped is the widest tenancy" reasoning section 6 gives for

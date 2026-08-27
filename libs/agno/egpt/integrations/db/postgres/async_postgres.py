@@ -77,6 +77,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         service_accounts_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         create_schema: bool = True,
+        require_session_tenant_id: bool = False,
     ):
         """
         Async interface for interacting with a PostgreSQL database.
@@ -114,6 +115,8 @@ class AsyncPostgresDb(AsyncBaseDb):
             schedule_runs_table (Optional[str]): Name of the table to store schedule run history.
             create_schema (bool): Whether to automatically create the database schema if it doesn't exist.
                 Set to False if schema is managed externally (e.g., via migrations). Defaults to True.
+            require_session_tenant_id (bool): Refuse unscoped session/run access (aicoe-tracker#197).
+                Defaults to unscoped; see ``egpt/db/session_scope.py``.
 
         Raises:
             ValueError: If neither db_url nor db_engine is provided.
@@ -162,6 +165,7 @@ class AsyncPostgresDb(AsyncBaseDb):
             approvals_table=approvals_table,
             auth_tokens_table=auth_tokens_table,
             service_accounts_table=service_accounts_table,
+            require_session_tenant_id=require_session_tenant_id,
         )
 
         self.db_schema: str = db_schema if db_schema is not None else "ai"
@@ -194,6 +198,7 @@ class AsyncPostgresDb(AsyncBaseDb):
             db_schema=self.db_schema,
             create_schema=self.create_schema,
             id=self.id,
+            require_session_tenant_id=self.require_session_tenant_id,
             **overrides,
         )
 

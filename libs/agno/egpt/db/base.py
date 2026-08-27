@@ -753,7 +753,9 @@ class BaseDb(ABC):
         class docstring and ``egpt/db/session_scope.py`` for why session and component
         enforcement are deliberately independent flags.
         """
-        return resolve_tenant_scope(tenant_id, require=self.require_session_tenant_id, method=method)
+        return resolve_tenant_scope(
+            tenant_id, require=self.require_session_tenant_id, method=method, flag_name="require_session_tenant_id"
+        )
 
     # --- Components (Optional) ---
     # These methods are optional. Override in subclasses to enable component persistence.
@@ -1731,7 +1733,9 @@ class AsyncBaseDb(ABC):
         same reason: each backend's call sites read as one line and none of them reaches for
         ``self.require_session_tenant_id`` directly.
         """
-        return resolve_tenant_scope(tenant_id, require=self.require_session_tenant_id, method=method)
+        return resolve_tenant_scope(
+            tenant_id, require=self.require_session_tenant_id, method=method, flag_name="require_session_tenant_id"
+        )
 
     async def _create_all_tables(self) -> None:
         """Create all tables for this database. Override in subclasses."""

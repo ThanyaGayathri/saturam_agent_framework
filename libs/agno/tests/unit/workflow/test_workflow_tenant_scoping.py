@@ -103,7 +103,7 @@ class TestReadWriteConsistency:
         from egpt.run.workflow import WorkflowRunOutput
 
         wf = Workflow(id="w1", db=db, tenant_id=TENANT_A)
-        session = WorkflowSession(session_id="s1", workflow_id="w1", user_id="u1")
+        session = WorkflowSession(session_id="s1", workflow_id="w1", user_id="u1", tenant_id=TENANT_A)
         session.upsert_run(WorkflowRunOutput(run_id="r1", workflow_id="w1", session_id="s1"))
         wf.save_session(session)
 
@@ -111,6 +111,64 @@ class TestReadWriteConsistency:
 
         wf_b = Workflow(id="w1", db=db, tenant_id=TENANT_B)
         assert wf_b.get_run_output(run_id="r1", session_id="s1") is None
+
+
+class TestGetRunOutputCacheDoesNotBypassScoping:
+    """The cache-bypass bug: ``get_run_output``/``aget_run_output`` used to return whatever run
+    matched ``run_id`` inside ``self._workflow_session`` whenever that attribute was already
+    populated, without ever comparing ``session_id`` or ``tenant_id`` against the caller's
+    arguments -- so a cache populated for one session/tenant could answer a call scoped to
+    another. A mismatch must fall through to a real (correctly scoped) DB read instead."""
+
+    def test_cached_session_from_another_tenant_is_not_returned_for_a_scoped_call(self, db):
+        from egpt.run.workflow import WorkflowRunOutput
+
+        wf = Workflow(id="w1", db=db, tenant_id=TENANT_A)
+        # tenant_id=TENANT_A matches what read_or_create_session now stamps onto a freshly
+        # created session (see workflow.py), so this reflects a realistic cached state.
+        session = WorkflowSession(session_id="s1", workflow_id="w1", user_id="u1", tenant_id=TENANT_A)
+        session.upsert_run(WorkflowRunOutput(run_id="r1", workflow_id="w1", session_id="s1"))
+        # Simulate a cached session already attached to this instance (e.g. from an earlier
+        # read_or_create_session()) -- exactly the state the cache-bypass bug exploited.
+        wf._workflow_session = session
+
+        assert wf.get_run_output(run_id="r1", session_id="s1", tenant_id=TENANT_B) is None
+
+    def test_cached_session_for_a_different_session_id_is_not_returned(self, db):
+        from egpt.run.workflow import WorkflowRunOutput
+
+        wf = Workflow(id="w1", db=db, tenant_id=TENANT_A)
+        # tenant_id=TENANT_A matches what read_or_create_session now stamps onto a freshly
+        # created session (see workflow.py), so this reflects a realistic cached state.
+        session = WorkflowSession(session_id="s1", workflow_id="w1", user_id="u1", tenant_id=TENANT_A)
+        session.upsert_run(WorkflowRunOutput(run_id="r1", workflow_id="w1", session_id="s1"))
+        wf._workflow_session = session
+
+        assert wf.get_run_output(run_id="r1", session_id="s2") is None
+
+    def test_matching_cache_is_still_used(self, db):
+        from egpt.run.workflow import WorkflowRunOutput
+
+        wf = Workflow(id="w1", db=db, tenant_id=TENANT_A)
+        # tenant_id=TENANT_A matches what read_or_create_session now stamps onto a freshly
+        # created session (see workflow.py), so this reflects a realistic cached state.
+        session = WorkflowSession(session_id="s1", workflow_id="w1", user_id="u1", tenant_id=TENANT_A)
+        session.upsert_run(WorkflowRunOutput(run_id="r1", workflow_id="w1", session_id="s1"))
+        wf._workflow_session = session
+
+        assert wf.get_run_output(run_id="r1", session_id="s1", tenant_id=TENANT_A) is not None
+
+    async def test_async_cached_session_from_another_tenant_is_not_returned(self, db):
+        from egpt.run.workflow import WorkflowRunOutput
+
+        wf = Workflow(id="w1", db=db, tenant_id=TENANT_A)
+        # tenant_id=TENANT_A matches what read_or_create_session now stamps onto a freshly
+        # created session (see workflow.py), so this reflects a realistic cached state.
+        session = WorkflowSession(session_id="s1", workflow_id="w1", user_id="u1", tenant_id=TENANT_A)
+        session.upsert_run(WorkflowRunOutput(run_id="r1", workflow_id="w1", session_id="s1"))
+        wf._workflow_session = session
+
+        assert await wf.aget_run_output(run_id="r1", session_id="s1", tenant_id=TENANT_B) is None
 
 
 class TestHydrationStampsTenantId:

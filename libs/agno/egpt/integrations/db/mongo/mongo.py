@@ -18,6 +18,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import deserialize_session, deserialize_session_json_fields, deserialize_sessions
 from egpt.integrations.db.mongo.utils import (
     apply_pagination,
@@ -66,6 +67,7 @@ class MongoDb(BaseDb):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         server_selection_timeout_ms: Optional[int] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a MongoDB database.
@@ -90,6 +92,9 @@ class MongoDb(BaseDb):
                 from db_url waits for a reachable server before giving up. Ignored when db_client is
                 supplied. Defaults to PyMongo's own default (30s); lower it when a fast failure is
                 preferable to a long block against an unreachable host.
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
 
         Raises:
             ValueError: If neither db_url nor db_client is provided.
@@ -114,7 +119,9 @@ class MongoDb(BaseDb):
             schedules_table=schedules_collection,
             schedule_runs_table=schedule_runs_collection,
             learnings_table=learnings_collection,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("MongoDb", self.require_session_tenant_id)
 
         _client: Optional[MongoClient] = db_client
         if _client is None and db_url is not None:

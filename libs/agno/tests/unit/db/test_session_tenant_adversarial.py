@@ -128,6 +128,53 @@ class TestTenantBCannotMutate:
         assert a_after["tenant_id"] == TENANT_A
 
 
+class TestBulkUpsertDoesNotLeakOrOverwriteAcrossTenants:
+    """Covers the bulk-upsert tenant guard added for aicoe-tracker#197: before this fix,
+    ``SqliteDb.upsert_sessions`` had no ownership predicate on its conflict clause at all, so a
+    tenant-B bulk call against a tenant-A-owned session_id both overwrote the row and read it
+    back -- unlike the singular ``upsert_session``, which already refused the identical call."""
+
+    def test_bulk_upsert_refuses_a_foreign_tenants_row(self, seeded):
+        a_before = seeded.get_session("session-a", tenant_id=TENANT_A, deserialize=False)
+
+        bulk_result = seeded.upsert_sessions(
+            [
+                AgentSession(
+                    session_id="session-a",
+                    agent_id="agent-1",
+                    user_id="mallory",
+                    created_at=1,
+                    session_data={"session_name": "Bulk-hijacked by globex"},
+                )
+            ],
+            tenant_id=TENANT_B,
+        )
+        assert bulk_result == []
+
+        a_after = seeded.get_session("session-a", tenant_id=TENANT_A, deserialize=False)
+        assert a_after == a_before
+        assert a_after["session_data"]["session_name"] == "Tenant A's session"
+        assert a_after["tenant_id"] == TENANT_A
+
+    def test_bulk_upsert_still_writes_the_callers_own_rows(self, strict_db):
+        result = strict_db.upsert_sessions(
+            [
+                AgentSession(
+                    session_id="session-b",
+                    agent_id="agent-1",
+                    user_id="user-2",
+                    created_at=1,
+                    session_data={"session_name": "Tenant B's own session"},
+                )
+            ],
+            tenant_id=TENANT_B,
+        )
+        assert len(result) == 1
+        assert result[0].session_id == "session-b"
+        assert strict_db.get_session("session-b", tenant_id=TENANT_B) is not None
+        assert strict_db.get_session("session-b", tenant_id=TENANT_A) is None
+
+
 class TestUnscopedAccessIsRefusedNotSilentlyWidened:
     """A caller on a strict session db cannot fall back to an unscoped read to route around
     the tenant check -- confirms the guard applies to a *known* session_id too, not just to

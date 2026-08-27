@@ -10,6 +10,7 @@ from egpt.db.schemas import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.integrations.db.postgres.utils import (
     get_dates_to_calculate_metrics_for,
@@ -70,6 +71,7 @@ class SurrealDb(BaseDb):
         spans_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a SurrealDB database.
@@ -89,6 +91,9 @@ class SurrealDb(BaseDb):
             traces_table: The name of the traces table.
             spans_table: The name of the spans table.
             id: The ID of the database.
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
         """
         if id is None:
             base_seed = db_url
@@ -106,7 +111,9 @@ class SurrealDb(BaseDb):
             culture_table=culture_table,
             traces_table=traces_table,
             spans_table=spans_table,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("SurrealDb", self.require_session_tenant_id)
         self._client = client
         self._db_url = db_url
         self._db_creds = db_creds

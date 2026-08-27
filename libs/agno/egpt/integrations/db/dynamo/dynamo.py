@@ -12,6 +12,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.integrations.db.dynamo.schemas import get_table_schema_definition
 from egpt.integrations.db.dynamo.utils import (
@@ -67,6 +68,7 @@ class DynamoDb(BaseDb):
         spans_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a DynamoDB database.
@@ -85,6 +87,9 @@ class DynamoDb(BaseDb):
             traces_table: The name of the traces table.
             spans_table: The name of the spans table.
             id: ID of the database.
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
 
         Raises:
             ValueError: If no db_client is given and AWS_REGION is set neither as an
@@ -117,7 +122,9 @@ class DynamoDb(BaseDb):
             knowledge_table=knowledge_table,
             traces_table=traces_table,
             spans_table=spans_table,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("DynamoDb", self.require_session_tenant_id)
 
         if db_client is not None:
             self.client = db_client
