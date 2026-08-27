@@ -11,11 +11,15 @@ from typing import (
 
 if TYPE_CHECKING:
     from egpt.metrics import RunMetrics
+    from egpt.run.base import RunContext
+    from egpt.run.team import TeamRunOutput
     from egpt.team.team import Team
 
 from typing import List
 
 from egpt.db.base import UserMemory
+from egpt.memory.types import MemoryQuery, Scope
+from egpt.memory.working import WorkingMemory
 from egpt.run.messages import RunMessages
 from egpt.session import TeamSession
 from egpt.utils.log import log_debug, log_warning
@@ -319,3 +323,173 @@ async def _astart_learning_task(
         )
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Memory provider (SM-X3): feed-forward read + write-back capture through the
+# memory seam (egpt.memory.provider.MemoryProvider). Additive and independent
+# of the Memory section above -- separate field (team.memory_provider),
+# separate code path from team.memory_manager.
+# ---------------------------------------------------------------------------
+
+
+def _memory_scope(
+    team: "Team",
+    run_context: "RunContext",
+    user_id: Optional[str],
+    *,
+    for_read: bool = False,
+) -> Optional[Scope]:
+    """Build the Scope for this call, or None if the hooks should no-op.
+
+    Gated on both team.memory_provider and run_context.tenant_id -- a run with no tenant
+    configured is skipped rather than falling back to a sentinel tenant (SM-X3).
+
+    Read and write scopes differ for the reasons spelled out on the agent twin
+    (``agent/_managers.py:_memory_scope``): scope narrowing is conjunctive across every set slot,
+    so ``session_id`` on a read makes cross-session recall impossible, and ``team_id`` is
+    ``generate_id_from_name(team.name)`` -- uuid4-derived per construction when the team has
+    neither ``id`` nor ``name``. Both stay on the write as provenance.
+    """
+    if team.memory_provider is None or run_context.tenant_id is None:
+        return None
+    try:
+        return Scope(
+            tenant_id=run_context.tenant_id,
+            team_id=None if for_read else team.id,
+            user_id=user_id,
+            session_id=None if for_read else run_context.session_id,
+        )
+    except (ValueError, TypeError) as e:
+        # See the agent twin: blank/whitespace slots are caller input and must degrade to
+        # no-memory rather than failing the run.
+        log_warning(f"Skipping memory hooks, invalid scope: {str(e)}")
+        return None
+
+
+def _get_memory_context(
+    team: "Team",
+    run_context: "RunContext",
+    run_messages: RunMessages,
+    user_id: Optional[str] = None,
+) -> Optional[str]:
+    """Feed-forward read hook: assemble persistent-tier memory context, or None if gated off.
+
+    Synchronous and inline, not fire-and-forget: the result must be injected into
+    run_messages.messages before the model call, so there is nothing to hand a background
+    future the way the write-back hook does.
+    """
+    scope = _memory_scope(team, run_context, user_id, for_read=True)
+    if scope is None:
+        return None
+
+    query_text = run_messages.user_message.get_content_string() if run_messages.user_message is not None else ""
+    query = MemoryQuery(text=query_text)
+    working = WorkingMemory(scope=scope)
+    log_debug("Reading memory context for feed-forward injection.")
+    try:
+        return team.memory_provider.assemble_context(scope, working, query)  # type: ignore[union-attr]
+    except Exception as e:
+        log_warning(f"Error reading memory context: {str(e)}")
+        return None
+
+
+async def _aget_memory_context(
+    team: "Team",
+    run_context: "RunContext",
+    run_messages: RunMessages,
+    user_id: Optional[str] = None,
+) -> Optional[str]:
+    """Async variant of _get_memory_context."""
+    scope = _memory_scope(team, run_context, user_id, for_read=True)
+    if scope is None:
+        return None
+
+    query_text = run_messages.user_message.get_content_string() if run_messages.user_message is not None else ""
+    query = MemoryQuery(text=query_text)
+    working = WorkingMemory(scope=scope)
+    log_debug("Reading memory context for feed-forward injection.")
+    try:
+        return await team.memory_provider.aassemble_context(scope, working, query)  # type: ignore[union-attr]
+    except Exception as e:
+        log_warning(f"Error reading memory context: {str(e)}")
+        return None
+
+
+def _start_memory_writeback_future(
+    team: "Team",
+    run_context: "RunContext",
+    run_response: "TeamRunOutput",
+    user_id: Optional[str] = None,
+    existing_future: Optional[Future] = None,
+) -> Optional[Future]:
+    """Cancel any existing write-back future and start a new one if conditions are met.
+
+    Off the model-call path, not the request path: the future is joined by
+    wait_for_open_threads/await_for_thread_tasks_stream before the run returns. Mirrors
+    _start_memory_future's dispatch shape. The dispatch primitives themselves
+    (events_from_run, start_writeback_future) already handle empty-events and error
+    logging -- this function only gates and builds the Scope/events.
+    """
+    if existing_future is not None and not existing_future.done():
+        existing_future.cancel()
+
+    scope = _memory_scope(team, run_context, user_id)
+    if scope is None:
+        return None
+
+    from egpt.memory.writeback import events_from_run, run_is_paused, start_writeback_future, turn_messages
+
+    if run_is_paused(run_response.tools):
+        # HITL pause: the result and the answer land on the continue-run leg, which dispatches
+        # its own write-back. Writing here would persist the question without them.
+        return None
+
+    events = events_from_run(
+        scope,
+        messages=turn_messages(run_response.messages),
+        tool_executions=run_response.tools or (),
+    )
+    if not events:
+        return None
+
+    log_debug("Starting memory write-back in background thread.")
+    return start_writeback_future(team.memory_provider, scope, events, executor=team.background_executor)  # type: ignore[arg-type]
+
+
+async def _astart_memory_writeback_task(
+    team: "Team",
+    run_context: "RunContext",
+    run_response: "TeamRunOutput",
+    user_id: Optional[str] = None,
+    existing_task: Optional[asyncio.Task] = None,
+) -> Optional[asyncio.Task]:
+    """Async variant of _start_memory_writeback_future."""
+    if existing_task is not None and not existing_task.done():
+        existing_task.cancel()
+        try:
+            await existing_task
+        except asyncio.CancelledError:
+            pass
+
+    scope = _memory_scope(team, run_context, user_id)
+    if scope is None:
+        return None
+
+    from egpt.memory.writeback import astart_writeback_task, events_from_run, run_is_paused, turn_messages
+
+    if run_is_paused(run_response.tools):
+        # HITL pause: the result and the answer land on the continue-run leg, which dispatches
+        # its own write-back. Writing here would persist the question without them.
+        return None
+
+    events = events_from_run(
+        scope,
+        messages=turn_messages(run_response.messages),
+        tool_executions=run_response.tools or (),
+    )
+    if not events:
+        return None
+
+    log_debug("Starting memory write-back in background task.")
+    return astart_writeback_task(team.memory_provider, scope, events)  # type: ignore[arg-type]

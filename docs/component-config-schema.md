@@ -226,8 +226,8 @@ The two numbers differ, so it is worth being exact about which is which:
 
 | Component | Constructor parameters | Config keys accepted |
 |---|---|---|
-| `agent` | 115 | 119 |
-| `team` | 120 | 122 |
+| `agent` | 116 | 120 |
+| `team` | 121 | 123 |
 | `workflow` | 27 | 28 |
 
 Those counts are pinned by test, not maintained by hand — if they no longer match the live

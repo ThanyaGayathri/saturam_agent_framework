@@ -256,6 +256,7 @@ def _deep_copy_field(team: Team, field_name: str, field_value: Any) -> Any:
         "reasoning_model",
         "knowledge",
         "memory_manager",
+        "memory_provider",
         "parser_model",
         "output_model",
         "session_summary_manager",

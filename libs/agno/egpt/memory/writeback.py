@@ -223,6 +223,41 @@ def event_from_tool_execution(
     )
 
 
+def run_is_paused(tool_executions: Optional[Sequence[ToolExecution]]) -> bool:
+    """Whether this turn stopped at a HITL gate rather than finishing.
+
+    A paused turn holds the user's question and the tool call awaiting approval, but not the
+    result or the answer -- those arrive on the continue-run leg. Writing at the pause would
+    persist a half turn ("recorded the question, discarded the answer"), so write-back is
+    deferred to whichever leg actually completes the exchange.
+    """
+    return any(getattr(t, "is_paused", False) for t in (tool_executions or ()))
+
+
+#: Roles excluded from write-back. ``system``/``developer`` are the agent's own prompt and the
+#: feed-forward block -- neither is something that *happened* this turn. ``tool`` results arrive
+#: again as ``RunOutput.tools``, and that ``ToolExecution`` is the richer record: it alone carries
+#: ``tool_name``, ``tool_call_id`` and ``tool_call_error``.
+WRITEBACK_EXCLUDED_ROLES: Tuple[str, ...] = ("system", "developer", "tool")
+
+
+def turn_messages(messages: Optional[Sequence[Message]]) -> List[Message]:
+    """The messages one turn actually produced, ready for :func:`events_from_run`.
+
+    A run's ``messages`` list is the whole model input, not the turn: the system prompt, every
+    replayed history message when ``add_history_to_context`` is on, the feed-forward memory block,
+    and a ``role="tool"`` copy of each result. Write-back mints a fresh id per event
+    (``co_located._prepare`` stamps ``event.id or str(uuid4())``), so nothing collapses the
+    replays -- persisting the raw list grows episodic storage O(turns x num_history_runs) and
+    re-stamps replayed history with the current wall clock, which inverts time-aware ranking.
+
+    ``from_history`` is the load-bearing half of the filter and the reliable one: it survives a
+    session round-trip because ``Message.to_dict()`` includes it, which ``add_to_agent_memory``
+    does not.
+    """
+    return [m for m in (messages or ()) if not m.from_history and m.role not in WRITEBACK_EXCLUDED_ROLES]
+
+
 def events_from_run(
     scope: Scope,
     *,

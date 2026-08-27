@@ -1588,6 +1588,20 @@ class TestHeavyResourcesUnit:
 
         assert copy.memory_manager is mm
 
+    def test_memory_provider_is_shared(self):
+        """Memory provider (SM-X3) should be shared, same as memory_manager -- a heavy
+        resource holding connections/pools, not something a per-request copy should duplicate.
+        """
+
+        class MockMemoryProvider:
+            pass
+
+        provider = MockMemoryProvider()
+        agent = Agent(name="test", id="test-id", memory_provider=provider)
+        copy = agent.deep_copy()
+
+        assert copy.memory_provider is provider
+
     def test_model_wrapper_is_per_copy_but_its_client_is_shared(self):
         """The expensive part of a model -- its client and pool -- is still shared.
 

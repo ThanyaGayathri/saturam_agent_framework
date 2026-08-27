@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
+from concurrent.futures import Future
 from time import time as unix_time
 from typing import (
     TYPE_CHECKING,
@@ -268,7 +269,12 @@ def _run_tasks(
     """
     from egpt.team._hooks import _execute_post_hooks, _execute_pre_hooks
     from egpt.team._init import _disconnect_connectable_tools
-    from egpt.team._managers import _start_learning_future, _start_memory_future
+    from egpt.team._managers import (
+        _get_memory_context,
+        _start_learning_future,
+        _start_memory_future,
+        _start_memory_writeback_future,
+    )
     from egpt.team._messages import _get_run_messages
     from egpt.team._response import (
         _convert_response_to_structured_format,
@@ -282,6 +288,7 @@ def _run_tasks(
     log_debug(f"Team Task Run Start: {run_response.run_id}", center=True)
     memory_future = None
     learning_future = None
+    memory_writeback_future = None
 
     # Bind run_messages early so the cancellation handler can read it
     # if cancel fires before the message list is built.
@@ -367,6 +374,14 @@ def _run_tasks(
         )
         if len(run_messages.messages) == 0:
             log_error("No messages to be sent to the model.")
+
+        # 3b. Read memory context (SM-X3) and inject it before the task loop starts. Appended
+        # to run_messages.messages, never .extra_messages -- that list feeds the legacy
+        # memory_manager extraction path below, and injecting the read hook's own output there
+        # would feed it back into that extraction on every subsequent turn.
+        memory_context = _get_memory_context(team, run_context, run_messages, user_id=user_id)
+        if memory_context:
+            run_messages.messages.append(Message(role="system", content=memory_context, add_to_agent_memory=False))
 
         # 4. Start memory and learning creation in background
         memory_future = _start_memory_future(
@@ -493,9 +508,27 @@ def _run_tasks(
 
         raise_if_cancelled(run_response.run_id)  # type: ignore
 
+        # Start memory write-back (SM-X3) in background thread. Off the model-call path
+        # but joined before the run returns (not fire-and-forget); dispatched here since the
+        # task loop has finished and run_response.messages/.tools are settled.
+        memory_writeback_future = _start_memory_writeback_future(
+            team,
+            run_context,
+            run_response,
+            user_id=user_id,
+            existing_future=memory_writeback_future,
+        )
+
         # Wait for background memory and learning creation
-        wait_for_open_threads(memory_future=memory_future, learning_future=learning_future)  # type: ignore
-        merge_background_metrics(run_response.metrics, collect_background_metrics(memory_future, learning_future))
+        wait_for_open_threads(
+            memory_future=memory_future,  # type: ignore
+            learning_future=learning_future,  # type: ignore
+            memory_writeback_future=memory_writeback_future,  # type: ignore
+        )
+        merge_background_metrics(
+            run_response.metrics,
+            collect_background_metrics(memory_future, learning_future, memory_writeback_future),
+        )
 
         raise_if_cancelled(run_response.run_id)  # type: ignore
 
@@ -572,7 +605,7 @@ def _run_tasks(
 
     finally:
         # Cancel background futures on error
-        for future in (memory_future, learning_future):
+        for future in (memory_future, learning_future, memory_writeback_future):
             if future is not None and not future.done():
                 future.cancel()
                 try:
@@ -609,7 +642,12 @@ def _run_tasks_stream(
     """
     from egpt.team._hooks import _execute_post_hooks, _execute_pre_hooks
     from egpt.team._init import _disconnect_connectable_tools
-    from egpt.team._managers import _start_learning_future, _start_memory_future
+    from egpt.team._managers import (
+        _get_memory_context,
+        _start_learning_future,
+        _start_memory_future,
+        _start_memory_writeback_future,
+    )
     from egpt.team._messages import _get_run_messages
     from egpt.team._response import (
         _convert_response_to_structured_format,
@@ -629,6 +667,7 @@ def _run_tasks_stream(
     log_debug(f"Team Task Run (Stream) Start: {run_response.run_id}", center=True)
     memory_future = None
     learning_future = None
+    memory_writeback_future = None
 
     # Bind run_messages early so the cancellation handler can read it
     # if cancel fires before the message list is built.
@@ -716,6 +755,14 @@ def _run_tasks_stream(
         )
         if len(run_messages.messages) == 0:
             log_error("No messages to be sent to the model.")
+
+        # 3b. Read memory context (SM-X3) and inject it before the task loop starts. Appended
+        # to run_messages.messages, never .extra_messages -- that list feeds the legacy
+        # memory_manager extraction path below, and injecting the read hook's own output there
+        # would feed it back into that extraction on every subsequent turn.
+        memory_context = _get_memory_context(team, run_context, run_messages, user_id=user_id)
+        if memory_context:
+            run_messages.messages.append(Message(role="system", content=memory_context, add_to_agent_memory=False))
 
         # 4. Start memory creation in background
         memory_future = _start_memory_future(
@@ -947,6 +994,17 @@ def _run_tasks_stream(
 
         raise_if_cancelled(run_response.run_id)  # type: ignore
 
+        # Start memory write-back (SM-X3) in background thread. Off the model-call path
+        # but joined before the run returns (not fire-and-forget); dispatched here since the
+        # task loop has finished and run_response.messages/.tools are settled.
+        memory_writeback_future = _start_memory_writeback_future(
+            team,
+            run_context,
+            run_response,
+            user_id=user_id,
+            existing_future=memory_writeback_future,
+        )
+
         # Wait for background memory creation
         yield from wait_for_thread_tasks_stream(
             run_response=run_response,
@@ -956,6 +1014,7 @@ def _run_tasks_stream(
             events_to_skip=team.events_to_skip,  # type: ignore
             store_events=team.store_events,
             get_memories_callback=lambda: team.get_user_memories(user_id=user_id),
+            memory_writeback_future=memory_writeback_future,  # type: ignore
         )
 
         raise_if_cancelled(run_response.run_id)  # type: ignore
@@ -1082,7 +1141,7 @@ def _run_tasks_stream(
 
     finally:
         # Cancel background futures on error
-        for future in (memory_future, learning_future):
+        for future in (memory_future, learning_future, memory_writeback_future):
             if future is not None and not future.done():
                 future.cancel()
                 try:
@@ -1113,10 +1172,12 @@ def _run(
     1. Execute pre-hooks
     2. Determine tools for model
     3. Prepare run messages
+    3b. Read memory context and inject it into run messages (SM-X3)
     4. Start memory creation in background thread
     5. Reason about the task if reasoning is enabled
     6. Get a response from the model
     7. Update TeamRunOutput with the model response
+    7b. Start memory write-back in background thread (SM-X3)
     8. Store media if enabled
     9. Convert response to structured format
     10. Execute post-hooks
@@ -1126,7 +1187,12 @@ def _run(
     """
     from egpt.team._hooks import _execute_post_hooks, _execute_pre_hooks
     from egpt.team._init import _disconnect_connectable_tools
-    from egpt.team._managers import _start_learning_future, _start_memory_future
+    from egpt.team._managers import (
+        _get_memory_context,
+        _start_learning_future,
+        _start_memory_future,
+        _start_memory_writeback_future,
+    )
     from egpt.team._messages import _get_run_messages
     from egpt.team._response import (
         _convert_response_to_structured_format,
@@ -1161,6 +1227,7 @@ def _run(
 
     memory_future = None
     learning_future = None
+    memory_writeback_future = None
     try:
         # Set up retry logic
         num_attempts = team.retries + 1
@@ -1260,6 +1327,17 @@ def _run(
                 if len(run_messages.messages) == 0:
                     log_error("No messages to be sent to the model.")
 
+                # 3b. Read memory context (SM-X3) and inject it before the model call.
+                # Appended to run_messages.messages, never .extra_messages -- that list
+                # feeds the legacy memory_manager extraction path below, and injecting the
+                # read hook's own output there would feed it back into that extraction on
+                # every subsequent turn.
+                memory_context = _get_memory_context(team, run_context, run_messages, user_id=user_id)
+                if memory_context:
+                    run_messages.messages.append(
+                        Message(role="system", content=memory_context, add_to_agent_memory=False)
+                    )
+
                 # 4. Start memory creation in background thread
                 memory_future = _start_memory_future(
                     team,
@@ -1320,7 +1398,19 @@ def _run(
                     run_context=run_context,
                 )
 
-                # 7b. Check if delegation propagated member HITL requirements
+                # 7b. Start memory write-back (SM-X3) in background thread. Off the model-call path
+                # but joined before the run returns (not fire-and-forget),
+                # dispatched here since run_response.messages/.tools are only populated once
+                # _update_run_response returns.
+                memory_writeback_future = _start_memory_writeback_future(
+                    team,
+                    run_context,
+                    run_response,
+                    user_id=user_id,
+                    existing_future=memory_writeback_future,
+                )
+
+                # 7c. Check if delegation propagated member HITL requirements
                 if run_response.requirements and any(not req.is_resolved() for req in run_response.requirements):
                     from egpt.team import _hooks
 
@@ -1351,9 +1441,14 @@ def _run(
                 raise_if_cancelled(run_response.run_id)  # type: ignore
 
                 # 11. Wait for background memory creation
-                wait_for_open_threads(memory_future=memory_future, learning_future=learning_future)  # type: ignore
+                wait_for_open_threads(
+                    memory_future=memory_future,  # type: ignore
+                    learning_future=learning_future,  # type: ignore
+                    memory_writeback_future=memory_writeback_future,  # type: ignore
+                )
                 merge_background_metrics(
-                    run_response.metrics, collect_background_metrics(memory_future, learning_future)
+                    run_response.metrics,
+                    collect_background_metrics(memory_future, learning_future, memory_writeback_future),
                 )
 
                 raise_if_cancelled(run_response.run_id)  # type: ignore
@@ -1460,7 +1555,7 @@ def _run(
                 return run_response
     finally:
         # Cancel background futures on error (wait_for_open_threads handles waiting on success)
-        for future in (memory_future, learning_future):
+        for future in (memory_future, learning_future, memory_writeback_future):
             if future is not None and not future.done():
                 future.cancel()
                 try:
@@ -1496,9 +1591,11 @@ def _run_stream(
     1. Execute pre-hooks
     2. Determine tools for model
     3. Prepare run messages
+    3b. Read memory context and inject it into run messages (SM-X3)
     4. Start memory creation in background thread
     5. Reason about the task if reasoning is enabled
     6. Get a response from the model
+    6b. Start memory write-back in background thread (SM-X3)
     7. Parse response with parser model if provided
     8. Wait for background memory creation
     9. Create session summary
@@ -1506,7 +1603,12 @@ def _run_stream(
     """
     from egpt.team._hooks import _execute_post_hooks, _execute_pre_hooks
     from egpt.team._init import _disconnect_connectable_tools
-    from egpt.team._managers import _start_learning_future, _start_memory_future
+    from egpt.team._managers import (
+        _get_memory_context,
+        _start_learning_future,
+        _start_memory_future,
+        _start_memory_writeback_future,
+    )
     from egpt.team._messages import _get_run_messages
     from egpt.team._response import (
         _handle_model_response_stream,
@@ -1544,6 +1646,7 @@ def _run_stream(
 
     memory_future = None
     learning_future = None
+    memory_writeback_future = None
     try:
         # Set up retry logic
         num_attempts = team.retries + 1
@@ -1644,6 +1747,16 @@ def _run_stream(
                 if len(run_messages.messages) == 0:
                     log_error("No messages to be sent to the model.")
 
+                # 3b. Read memory context (SM-X3) and inject it before the model call. Appended
+                # to run_messages.messages, never .extra_messages -- that list feeds the legacy
+                # memory_manager extraction path below, and injecting the read hook's own output
+                # there would feed it back into that extraction on every subsequent turn.
+                memory_context = _get_memory_context(team, run_context, run_messages, user_id=user_id)
+                if memory_context:
+                    run_messages.messages.append(
+                        Message(role="system", content=memory_context, add_to_agent_memory=False)
+                    )
+
                 # 4. Start memory creation in background thread
                 memory_future = _start_memory_future(
                     team,
@@ -1736,7 +1849,19 @@ def _run_stream(
                 # Check for cancellation after model processing
                 raise_if_cancelled(run_response.run_id)  # type: ignore
 
-                # 6b. Check if delegation propagated member HITL requirements
+                # 6b. Start memory write-back (SM-X3) in background thread. Off the model-call path
+                # but joined before the run returns (not fire-and-forget),
+                # dispatched here since run_response.messages/.tools are fully populated only
+                # once model processing above has finished.
+                memory_writeback_future = _start_memory_writeback_future(
+                    team,
+                    run_context,
+                    run_response,
+                    user_id=user_id,
+                    existing_future=memory_writeback_future,
+                )
+
+                # 6c. Check if delegation propagated member HITL requirements
                 if run_response.requirements and any(not req.is_resolved() for req in run_response.requirements):
                     from egpt.team import _hooks
 
@@ -1789,9 +1914,11 @@ def _run_stream(
                     events_to_skip=team.events_to_skip,  # type: ignore
                     store_events=team.store_events,
                     get_memories_callback=lambda: team.get_user_memories(user_id=user_id),
+                    memory_writeback_future=memory_writeback_future,  # type: ignore
                 )
                 merge_background_metrics(
-                    run_response.metrics, collect_background_metrics(memory_future, learning_future)
+                    run_response.metrics,
+                    collect_background_metrics(memory_future, learning_future, memory_writeback_future),
                 )
 
                 raise_if_cancelled(run_response.run_id)  # type: ignore
@@ -1945,7 +2072,7 @@ def _run_stream(
                 yield run_error
     finally:
         # Cancel background futures on error (wait_for_thread_tasks_stream handles waiting on success)
-        for future in (memory_future, learning_future):
+        for future in (memory_future, learning_future, memory_writeback_future):
             if future is not None and not future.done():
                 future.cancel()
                 try:
@@ -2187,7 +2314,12 @@ async def _arun_tasks(
     """
     from egpt.team._hooks import _aexecute_post_hooks, _aexecute_pre_hooks
     from egpt.team._init import _disconnect_connectable_tools, _disconnect_mcp_tools
-    from egpt.team._managers import _astart_learning_task, _astart_memory_task
+    from egpt.team._managers import (
+        _aget_memory_context,
+        _astart_learning_task,
+        _astart_memory_task,
+        _astart_memory_writeback_task,
+    )
     from egpt.team._messages import _aget_run_messages
     from egpt.team._response import (
         _convert_response_to_structured_format,
@@ -2201,6 +2333,7 @@ async def _arun_tasks(
     log_debug(f"Team Task Run Start: {run_response.run_id}", center=True)
     memory_task = None
     learning_task = None
+    memory_writeback_task = None
     team_session: Optional[TeamSession] = None
 
     # Bind run_messages early so the cancellation handler can read it
@@ -2302,6 +2435,14 @@ async def _arun_tasks(
             tools=_tools,
             **kwargs,
         )
+
+        # 3b. Read memory context (SM-X3) and inject it before the task loop starts. Appended
+        # to run_messages.messages, never .extra_messages -- that list feeds the legacy
+        # memory_manager extraction path below, and injecting the read hook's own output there
+        # would feed it back into that extraction on every subsequent turn.
+        memory_context = await _aget_memory_context(team, run_context, run_messages, user_id=user_id)
+        if memory_context:
+            run_messages.messages.append(Message(role="system", content=memory_context, add_to_agent_memory=False))
 
         # 4. Start memory and learning creation in background
         memory_task = await _astart_memory_task(
@@ -2426,9 +2567,27 @@ async def _arun_tasks(
 
         await araise_if_cancelled(run_response.run_id)  # type: ignore
 
+        # Start memory write-back (SM-X3) as a background task. Off the model-call path but
+        # joined before the run returns (not fire-and-forget); dispatched
+        # here since the task loop has finished and run_response.messages/.tools are settled.
+        memory_writeback_task = await _astart_memory_writeback_task(
+            team,
+            run_context,
+            run_response,
+            user_id=user_id,
+            existing_task=memory_writeback_task,
+        )
+
         # Wait for background memory and learning creation
-        await await_for_open_threads(memory_task=memory_task, learning_task=learning_task)  # type: ignore
-        merge_background_metrics(run_response.metrics, collect_background_metrics(memory_task, learning_task))
+        await await_for_open_threads(
+            memory_task=memory_task,
+            learning_task=learning_task,
+            memory_writeback_task=memory_writeback_task,
+        )  # type: ignore
+        merge_background_metrics(
+            run_response.metrics,
+            collect_background_metrics(memory_task, learning_task, memory_writeback_task),
+        )
 
         await araise_if_cancelled(run_response.run_id)  # type: ignore
 
@@ -2528,7 +2687,7 @@ async def _arun_tasks(
         _disconnect_connectable_tools(team)
         await _disconnect_mcp_tools(team)
         # Cancel background tasks on error
-        for task in (memory_task, learning_task):
+        for task in (memory_task, learning_task, memory_writeback_task):
             if task is not None and not task.done():
                 task.cancel()
                 try:
@@ -2564,7 +2723,12 @@ async def _arun_tasks_stream(
     """
     from egpt.team._hooks import _aexecute_post_hooks, _aexecute_pre_hooks
     from egpt.team._init import _disconnect_connectable_tools, _disconnect_mcp_tools
-    from egpt.team._managers import _astart_learning_task, _astart_memory_task
+    from egpt.team._managers import (
+        _aget_memory_context,
+        _astart_learning_task,
+        _astart_memory_task,
+        _astart_memory_writeback_task,
+    )
     from egpt.team._messages import _aget_run_messages
     from egpt.team._response import (
         _ahandle_model_response_stream,
@@ -2584,6 +2748,7 @@ async def _arun_tasks_stream(
     log_debug(f"Team Task Run (Async Stream) Start: {run_response.run_id}", center=True)
     memory_task = None
     learning_task = None
+    memory_writeback_task = None
     team_session: Optional[TeamSession] = None
 
     # Bind run_messages early so the cancellation handler can read it
@@ -2686,6 +2851,14 @@ async def _arun_tasks_stream(
             tools=_tools,
             **kwargs,
         )
+
+        # 3b. Read memory context (SM-X3) and inject it before the task loop starts. Appended
+        # to run_messages.messages, never .extra_messages -- that list feeds the legacy
+        # memory_manager extraction path below, and injecting the read hook's own output there
+        # would feed it back into that extraction on every subsequent turn.
+        memory_context = await _aget_memory_context(team, run_context, run_messages, user_id=user_id)
+        if memory_context:
+            run_messages.messages.append(Message(role="system", content=memory_context, add_to_agent_memory=False))
 
         # 4. Start memory creation in background
         memory_task = await _astart_memory_task(
@@ -2919,6 +3092,17 @@ async def _arun_tasks_stream(
 
         await araise_if_cancelled(run_response.run_id)  # type: ignore
 
+        # Start memory write-back (SM-X3) as a background task. Off the model-call path but
+        # joined before the run returns (not fire-and-forget); dispatched
+        # here since the task loop has finished and run_response.messages/.tools are settled.
+        memory_writeback_task = await _astart_memory_writeback_task(
+            team,
+            run_context,
+            run_response,
+            user_id=user_id,
+            existing_task=memory_writeback_task,
+        )
+
         # Wait for background memory creation
         async for event in await_for_thread_tasks_stream(
             run_response=run_response,
@@ -2928,6 +3112,7 @@ async def _arun_tasks_stream(
             events_to_skip=team.events_to_skip,  # type: ignore
             store_events=team.store_events,
             get_memories_callback=lambda: team.aget_user_memories(user_id=user_id),
+            memory_writeback_task=memory_writeback_task,
         ):
             yield event
 
@@ -3092,6 +3277,12 @@ async def _arun_tasks_stream(
                 await learning_task
             except asyncio.CancelledError:
                 pass
+        if memory_writeback_task is not None and not memory_writeback_task.done():
+            memory_writeback_task.cancel()
+            try:
+                await memory_writeback_task
+            except asyncio.CancelledError:
+                pass
 
         await acleanup_run(run_response.run_id)  # type: ignore
 
@@ -3119,10 +3310,12 @@ async def _arun(
     1. Execute pre-hooks
     2. Determine tools for model
     3. Prepare run messages
+    3b. Read memory context and inject it into run messages (SM-X3)
     4. Start memory creation in background task
     5. Reason about the task if reasoning is enabled
     6. Get a response from the Model
     7. Update TeamRunOutput with the model response
+    7b. Start memory write-back in background task (SM-X3)
     8. Store media if enabled
     9. Convert response to structured format
     10. Execute post-hooks
@@ -3132,7 +3325,12 @@ async def _arun(
     """
     from egpt.team._hooks import _aexecute_post_hooks, _aexecute_pre_hooks
     from egpt.team._init import _disconnect_connectable_tools, _disconnect_mcp_tools
-    from egpt.team._managers import _astart_learning_task, _astart_memory_task
+    from egpt.team._managers import (
+        _aget_memory_context,
+        _astart_learning_task,
+        _astart_memory_task,
+        _astart_memory_writeback_task,
+    )
     from egpt.team._messages import _aget_run_messages
     from egpt.team._response import (
         _convert_response_to_structured_format,
@@ -3166,6 +3364,7 @@ async def _arun(
     log_debug(f"Team Run Start: {run_response.run_id}", center=True)
     memory_task = None
     learning_task = None
+    memory_writeback_task = None
 
     try:
         # Register run for cancellation tracking
@@ -3285,6 +3484,17 @@ async def _arun(
                     **kwargs,
                 )
 
+                # 3b. Read memory context (SM-X3) and inject it before the model call.
+                # Appended to run_messages.messages, never .extra_messages -- that list
+                # feeds the legacy memory_manager extraction path below, and injecting the
+                # read hook's own output there would feed it back into that extraction on
+                # every subsequent turn.
+                memory_context = await _aget_memory_context(team, run_context, run_messages, user_id=user_id)
+                if memory_context:
+                    run_messages.messages.append(
+                        Message(role="system", content=memory_context, add_to_agent_memory=False)
+                    )
+
                 # 4. Start memory creation in background task
                 memory_task = await _astart_memory_task(
                     team,
@@ -3352,7 +3562,19 @@ async def _arun(
                     run_context=run_context,
                 )
 
-                # 7b. Check if delegation propagated member HITL requirements
+                # 7b. Start memory write-back (SM-X3) as a background task. Off the model-call path
+                # but joined before the run returns (not fire-and-forget),
+                # dispatched here since run_response.messages/.tools are only populated once
+                # _update_run_response returns.
+                memory_writeback_task = await _astart_memory_writeback_task(
+                    team,
+                    run_context,
+                    run_response,
+                    user_id=user_id,
+                    existing_task=memory_writeback_task,
+                )
+
+                # 7c. Check if delegation propagated member HITL requirements
                 if run_response.requirements and any(not req.is_resolved() for req in run_response.requirements):
                     from egpt.team import _hooks
 
@@ -3384,8 +3606,15 @@ async def _arun(
                 await araise_if_cancelled(run_response.run_id)  # type: ignore
 
                 # 11. Wait for background memory creation
-                await await_for_open_threads(memory_task=memory_task, learning_task=learning_task)
-                merge_background_metrics(run_response.metrics, collect_background_metrics(memory_task, learning_task))
+                await await_for_open_threads(
+                    memory_task=memory_task,
+                    learning_task=learning_task,
+                    memory_writeback_task=memory_writeback_task,
+                )
+                merge_background_metrics(
+                    run_response.metrics,
+                    collect_background_metrics(memory_task, learning_task, memory_writeback_task),
+                )
 
                 await araise_if_cancelled(run_response.run_id)  # type: ignore
                 # 12. Create session summary
@@ -3515,6 +3744,12 @@ async def _arun(
             learning_task.cancel()
             try:
                 await learning_task
+            except asyncio.CancelledError:
+                pass
+        if memory_writeback_task is not None and not memory_writeback_task.done():
+            memory_writeback_task.cancel()
+            try:
+                await memory_writeback_task
             except asyncio.CancelledError:
                 pass
 
@@ -3768,9 +4003,11 @@ async def _arun_stream(
     1. Execute pre-hooks
     2. Determine tools for model
     3. Prepare run messages
+    3b. Read memory context and inject it into run messages (SM-X3)
     4. Start memory creation in background task
     5. Reason about the task if reasoning is enabled
     6. Get a response from the model
+    6b. Start memory write-back in background task (SM-X3)
     7. Parse response with parser model if provided
     8. Wait for background memory creation
     9. Create session summary
@@ -3778,7 +4015,12 @@ async def _arun_stream(
     """
     from egpt.team._hooks import _aexecute_post_hooks, _aexecute_pre_hooks
     from egpt.team._init import _disconnect_connectable_tools, _disconnect_mcp_tools
-    from egpt.team._managers import _astart_learning_task, _astart_memory_task
+    from egpt.team._managers import (
+        _aget_memory_context,
+        _astart_learning_task,
+        _astart_memory_task,
+        _astart_memory_writeback_task,
+    )
     from egpt.team._messages import _aget_run_messages
     from egpt.team._response import (
         _ahandle_model_response_stream,
@@ -3817,6 +4059,7 @@ async def _arun_stream(
 
     memory_task = None
     learning_task = None
+    memory_writeback_task = None
 
     try:
         # Register run for cancellation tracking
@@ -3934,6 +4177,17 @@ async def _arun_stream(
                     **kwargs,
                 )
 
+                # 3b. Read memory context (SM-X3) and inject it before the model call.
+                # Appended to run_messages.messages, never .extra_messages -- that list
+                # feeds the legacy memory_manager extraction path below, and injecting the
+                # read hook's own output there would feed it back into that extraction on
+                # every subsequent turn.
+                memory_context = await _aget_memory_context(team, run_context, run_messages, user_id=user_id)
+                if memory_context:
+                    run_messages.messages.append(
+                        Message(role="system", content=memory_context, add_to_agent_memory=False)
+                    )
+
                 # 4. Start memory creation in background task
                 memory_task = await _astart_memory_task(
                     team,
@@ -4026,7 +4280,19 @@ async def _arun_stream(
                 # Check for cancellation after model processing
                 await araise_if_cancelled(run_response.run_id)  # type: ignore
 
-                # 6b. Check if delegation propagated member HITL requirements
+                # 6b. Start memory write-back (SM-X3) as a background task. Off the model-call path
+                # but joined before the run returns (not fire-and-forget),
+                # dispatched here since run_response.messages/.tools are fully populated only
+                # once model processing above has finished.
+                memory_writeback_task = await _astart_memory_writeback_task(
+                    team,
+                    run_context,
+                    run_response,
+                    user_id=user_id,
+                    existing_task=memory_writeback_task,
+                )
+
+                # 6c. Check if delegation propagated member HITL requirements
                 if run_response.requirements and any(not req.is_resolved() for req in run_response.requirements):
                     from egpt.team import _hooks
 
@@ -4083,9 +4349,13 @@ async def _arun_stream(
                     events_to_skip=team.events_to_skip,  # type: ignore
                     store_events=team.store_events,
                     get_memories_callback=lambda: team.aget_user_memories(user_id=user_id),
+                    memory_writeback_task=memory_writeback_task,
                 ):
                     yield event
-                merge_background_metrics(run_response.metrics, collect_background_metrics(memory_task, learning_task))
+                merge_background_metrics(
+                    run_response.metrics,
+                    collect_background_metrics(memory_task, learning_task, memory_writeback_task),
+                )
 
                 await araise_if_cancelled(run_response.run_id)  # type: ignore
 
@@ -4273,6 +4543,12 @@ async def _arun_stream(
             learning_task.cancel()
             try:
                 await learning_task
+            except asyncio.CancelledError:
+                pass
+        if memory_writeback_task is not None and not memory_writeback_task.done():
+            memory_writeback_task.cancel()
+            try:
+                await memory_writeback_task
             except asyncio.CancelledError:
                 pass
 
@@ -6567,6 +6843,16 @@ def continue_run_dispatch(
     variant table. Auto-fork-on-COMPLETED is enforced: continuing a
     COMPLETED team run produces a new ``run_id`` with the member rows
     cloned (per ADR — forked teams own their member rows).
+
+    Engages memory_provider (SM-X3): a continued/HITL-resumed run re-assembles the feed-forward
+    read and dispatches write-back on the leg that completes the exchange. Re-assembled rather
+    than inherited because the injected block carries add_to_agent_memory=False and so is absent
+    from run_response.messages; write-back is gated on run_is_paused so the paused leg persists
+    nothing and the resumed leg persists the whole turn exactly once. The legacy
+    memory_manager/learning futures remain absent here, unchanged.
+
+    Note that a caller who does not thread `run_context` gets a RunContext built here without a
+    tenant_id, and the memory hooks then no-op by design.
     """
     from egpt.team._init import _has_async_db, _initialize_session
     from egpt.team._response import get_response_format
@@ -7362,6 +7648,7 @@ def _continue_run(
     """
     from egpt.team._hooks import _execute_post_hooks
     from egpt.team._init import _disconnect_connectable_tools
+    from egpt.team._managers import _get_memory_context, _start_memory_writeback_future
     from egpt.team._response import (
         _convert_response_to_structured_format,
         _update_run_response,
@@ -7382,6 +7669,14 @@ def _continue_run(
     )
 
     _run_model = run_model(team, run_context)
+
+    # Feed-forward memory (SM-X3). Re-assembled here rather than inherited: the injected block is
+    # add_to_agent_memory=False, so a resumed turn would otherwise reach the model with none.
+    memory_context = _get_memory_context(team, run_context, run_messages, user_id=user_id)
+    if memory_context:
+        run_messages.messages.append(Message(role="system", content=memory_context, add_to_agent_memory=False))
+
+    memory_writeback_future: Optional[Future] = None
 
     try:
         num_attempts = team.retries + 1
@@ -7431,6 +7726,16 @@ def _continue_run(
                         team, run_response=run_response, session=session, run_context=run_context
                     )
 
+                # Start memory write-back (SM-X3), below the pause check so the leg that completes
+                # the exchange is the one that persists it.
+                memory_writeback_future = _start_memory_writeback_future(
+                    team,
+                    run_context,
+                    run_response,
+                    user_id=user_id,
+                    existing_future=memory_writeback_future,
+                )
+
                 # Convert to structured format
                 _convert_response_to_structured_format(team, run_response=run_response, run_context=run_context)
 
@@ -7464,6 +7769,7 @@ def _continue_run(
 
                 # Complete
                 run_response.status = RunStatus.completed
+                wait_for_open_threads(memory_writeback_future=memory_writeback_future)  # type: ignore
                 _cleanup_and_store(team, run_response=run_response, session=session)
 
                 log_team_telemetry(
@@ -7556,6 +7862,7 @@ def _continue_run_stream(
     """Continue a paused team run (sync, streaming)."""
     from egpt.team._hooks import _execute_post_hooks
     from egpt.team._init import _disconnect_connectable_tools
+    from egpt.team._managers import _get_memory_context, _start_memory_writeback_future
     from egpt.team._response import (
         _handle_model_response_stream,
         generate_response_with_output_model_stream,
@@ -7565,6 +7872,8 @@ def _continue_run_stream(
     from egpt.utils.events import create_team_run_continued_event
 
     register_run(run_response.run_id)  # type: ignore
+
+    memory_writeback_future: Optional[Future] = None
 
     try:
         num_attempts = team.retries + 1
@@ -7589,6 +7898,14 @@ def _continue_run_stream(
                     tools=tools,
                     stream_events=stream_events,
                 )
+
+                # Feed-forward memory (SM-X3). See _continue_run: the injected block is
+                # add_to_agent_memory=False, so a resumed turn must re-assemble it.
+                memory_context = _get_memory_context(team, run_context, run_messages, user_id=user_id)
+                if memory_context:
+                    run_messages.messages.append(
+                        Message(role="system", content=memory_context, add_to_agent_memory=False)
+                    )
 
                 # Stream model response
                 if team.output_model is None:
@@ -7653,6 +7970,16 @@ def _continue_run_stream(
                     if yield_run_output:
                         yield run_response
                     return
+
+                # Start memory write-back (SM-X3), below the pause check so the leg that completes
+                # the exchange is the one that persists it.
+                memory_writeback_future = _start_memory_writeback_future(
+                    team,
+                    run_context,
+                    run_response,
+                    user_id=user_id,
+                    existing_future=memory_writeback_future,
+                )
 
                 # Parse response with parser model
                 yield from parse_response_with_parser_model_stream(
@@ -7723,6 +8050,7 @@ def _continue_run_stream(
                 )
 
                 run_response.status = RunStatus.completed
+                wait_for_open_threads(memory_writeback_future=memory_writeback_future)  # type: ignore
                 _cleanup_and_store(team, run_response=run_response, session=session)
 
                 if stream_events:
@@ -8016,6 +8344,16 @@ def acontinue_run_dispatch(  # type: ignore
     Snapshot dispatch parameters (``regenerate``, ``fork``, ``continue_from``,
     ``replace_original``, ``additional_instructions``, ``input``) flow
     through to the inner functions which apply them after loading the run.
+
+    Engages memory_provider (SM-X3): a continued/HITL-resumed run re-assembles the feed-forward
+    read and dispatches write-back on the leg that completes the exchange. Re-assembled rather
+    than inherited because the injected block carries add_to_agent_memory=False and so is absent
+    from run_response.messages; write-back is gated on run_is_paused so the paused leg persists
+    nothing and the resumed leg persists the whole turn exactly once. The legacy
+    memory_manager/learning futures remain absent here, unchanged.
+
+    Note that a caller who does not thread `run_context` gets a RunContext built here without a
+    tenant_id, and the memory hooks then no-op by design.
     """
     from egpt.team._init import _initialize_session
     from egpt.team._response import get_response_format
@@ -8182,6 +8520,7 @@ async def _acontinue_run(
     """Continue a paused team run (async, non-streaming)."""
     from egpt.team._hooks import _aexecute_post_hooks
     from egpt.team._init import _disconnect_connectable_tools, _disconnect_mcp_tools
+    from egpt.team._managers import _aget_memory_context, _astart_memory_writeback_task
     from egpt.team._telemetry import alog_team_telemetry
     from egpt.team._tools import _aget_learning_tools, _check_and_refresh_mcp_tools, _determine_tools_for_model
 
@@ -8331,6 +8670,16 @@ async def _acontinue_run(
                     events_to_skip=team.events_to_skip,
                     store_events=team.store_events,
                 )
+
+                # Feed-forward memory (SM-X3). Before the branch so every leg that reaches a
+                # model call sees it: the injected block is add_to_agent_memory=False, so a
+                # resumed turn must re-assemble it rather than inherit it.
+                if run_messages is not None:
+                    memory_context = await _aget_memory_context(team, run_context, run_messages, user_id=user_id)
+                    if memory_context:
+                        run_messages.messages.append(
+                            Message(role="system", content=memory_context, add_to_agent_memory=False)
+                        )
 
                 has_member = _has_member_requirements(run_response.requirements or [])
                 has_team_level = _has_team_level_requirements(run_response.requirements or [])
@@ -8539,6 +8888,18 @@ async def _acontinue_run(
                         log_warning(f"Error in session summary creation: {str(e)}")
 
                 run_response.status = RunStatus.completed
+
+                # Memory write-back (SM-X3). Dispatched at the completion point: every paused
+                # branch above returns before here, so this is the leg that completed the
+                # exchange, and it is reached exactly once per continued run.
+                memory_writeback_task = await _astart_memory_writeback_task(
+                    team,
+                    run_context,
+                    run_response,
+                    user_id=user_id,
+                )
+                await await_for_open_threads(memory_writeback_task=memory_writeback_task)  # type: ignore
+
                 await _acleanup_and_store(team, run_response=run_response, session=team_session)
                 await alog_team_telemetry(
                     team, session_id=team_session.session_id, run_id=run_response.run_id, run_context=run_context
@@ -8654,6 +9015,7 @@ async def _acontinue_run_stream(
     """Continue a paused team run (async, streaming)."""
     from egpt.team._hooks import _aexecute_post_hooks
     from egpt.team._init import _disconnect_connectable_tools, _disconnect_mcp_tools
+    from egpt.team._managers import _aget_memory_context, _astart_memory_writeback_task
     from egpt.team._response import (
         _ahandle_model_response_stream,
         agenerate_response_with_output_model_stream,
@@ -8799,6 +9161,16 @@ async def _acontinue_run_stream(
                     _did_snapshot_dispatch = True
 
                 await aregister_run(run_response.run_id)  # type: ignore
+
+                # Feed-forward memory (SM-X3). Before the branch so every leg that reaches a
+                # model call sees it: the injected block is add_to_agent_memory=False, so a
+                # resumed turn must re-assemble it rather than inherit it.
+                if run_messages is not None:
+                    memory_context = await _aget_memory_context(team, run_context, run_messages, user_id=user_id)
+                    if memory_context:
+                        run_messages.messages.append(
+                            Message(role="system", content=memory_context, add_to_agent_memory=False)
+                        )
 
                 has_member = _has_member_requirements(run_response.requirements or [])
                 has_team_level = _has_team_level_requirements(run_response.requirements or [])
@@ -9202,6 +9574,17 @@ async def _acontinue_run_stream(
                 )
 
                 run_response.status = RunStatus.completed
+
+                # Memory write-back (SM-X3) at the completion point: every paused branch above
+                # returns before here, so this leg completed the exchange and is reached once.
+                memory_writeback_task = await _astart_memory_writeback_task(
+                    team,
+                    run_context,
+                    run_response,
+                    user_id=user_id,
+                )
+                await await_for_open_threads(memory_writeback_task=memory_writeback_task)  # type: ignore
+
                 await _acleanup_and_store(team, run_response=run_response, session=team_session)
 
                 if stream_events:

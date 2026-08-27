@@ -34,7 +34,7 @@ from egpt.filters import FilterExpr
 from egpt.guardrails import BaseGuardrail
 from egpt.knowledge.protocol import KnowledgeProtocol
 from egpt.learn.machine import LearningMachine
-from egpt.memory import MemoryManager
+from egpt.memory import MemoryManager, MemoryProvider
 from egpt.models.base import Model
 from egpt.models.fallback import FallbackConfig
 from egpt.models.message import Message
@@ -150,6 +150,7 @@ def __init__(
     enable_user_memories: Optional[bool] = None,  # Soon to be deprecated. Use update_memory_on_run
     add_memories_to_context: Optional[bool] = None,
     memory_manager: Optional[MemoryManager] = None,
+    memory_provider: Optional[MemoryProvider] = None,
     enable_session_summaries: bool = False,
     session_summary_manager: Optional[SessionSummaryManager] = None,
     add_session_summary_to_context: Optional[bool] = None,
@@ -340,6 +341,7 @@ def __init__(
 
     team.add_memories_to_context = add_memories_to_context
     team.memory_manager = memory_manager
+    team.memory_provider = memory_provider
     team.enable_session_summaries = enable_session_summaries
     team.session_summary_manager = session_summary_manager
     team.add_session_summary_to_context = add_session_summary_to_context

@@ -13,9 +13,13 @@ from typing import (
 if TYPE_CHECKING:
     from egpt.agent.agent import Agent
     from egpt.metrics import RunMetrics
+    from egpt.run.agent import RunOutput
+    from egpt.run.base import RunContext
 
 from egpt.db.base import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
+from egpt.memory.types import MemoryQuery, Scope
+from egpt.memory.working import WorkingMemory
 from egpt.models.message import Message
 from egpt.run.messages import RunMessages
 from egpt.session import AgentSession
@@ -526,3 +530,188 @@ def start_learning_future(
         )
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Memory provider (SM-X3): feed-forward read + write-back capture through the
+# memory seam (egpt.memory.provider.MemoryProvider). Additive and independent
+# of the Memory section above -- separate field (agent.memory_provider),
+# separate code path from agent.memory_manager.
+# ---------------------------------------------------------------------------
+
+
+def _memory_scope(
+    agent: Agent,
+    run_context: RunContext,
+    user_id: Optional[str],
+    *,
+    for_read: bool = False,
+) -> Optional[Scope]:
+    """Build the Scope for this call, or None if the hooks should no-op.
+
+    Gated on both agent.memory_provider and run_context.tenant_id -- a run with no tenant
+    configured is skipped rather than falling back to a sentinel tenant (SM-X3).
+
+    Read and write scopes deliberately differ. Scope narrowing is conjunctive across every set
+    slot -- both substrate predicate builders iterate ``SCOPE_SLOTS`` and emit an equality for
+    each non-``None`` one (``integrations/memory/vector/pgvector/sql.py``,
+    ``integrations/memory/graph/neo4j/cypher.py``) -- so a slot pinned on the read is a slot the
+    read cannot see past:
+
+    * ``session_id`` is kept on the **write** (session provenance belongs on the stored row,
+      and ``episode_from_event`` reads it from this scope) and dropped from the **read**, or
+      nothing written in one session is visible from the next and the persistent tiers cannot
+      do the one thing they exist for.
+    * ``agent_id`` is dropped from the read for the same reason plus a sharper one: it is
+      ``generate_id_from_name(agent.name)``, which for an agent with neither ``id`` nor ``name``
+      is a **uuid4-derived value minted per construction**. Pinning the read to it means a new
+      partition per process, so every read comes back empty with no error. Writes still carry it
+      as provenance.
+
+    The result is a read keyed on tenant + user -- the identity namespace ``Scope``'s own
+    docstring says survives sessions, and the shape every ``cookbook/11_memory/`` recall
+    example uses.
+    """
+    if agent.memory_provider is None or run_context.tenant_id is None:
+        return None
+    try:
+        return Scope(
+            tenant_id=run_context.tenant_id,
+            agent_id=None if for_read else agent.id,
+            user_id=user_id,
+            session_id=None if for_read else run_context.session_id,
+        )
+    except (ValueError, TypeError) as e:
+        # `Scope.__post_init__` rejects blank/whitespace-only slots, and `RunContext.tenant_id`
+        # and `user_id` are caller input on a public SDK surface. Every other failure in these
+        # hooks degrades to no-memory; a stray "" must not be the one shape that fails the run.
+        log_warning(f"Skipping memory hooks, invalid scope: {str(e)}")
+        return None
+
+
+def get_memory_context(
+    agent: Agent,
+    run_context: RunContext,
+    run_messages: RunMessages,
+    user_id: Optional[str] = None,
+) -> Optional[str]:
+    """Feed-forward read hook: assemble persistent-tier memory context, or None if gated off.
+
+    Synchronous and inline, not fire-and-forget: the result must be injected into
+    run_messages.messages before the model call, so there is nothing to hand a background
+    future the way the write-back hook does.
+    """
+    scope = _memory_scope(agent, run_context, user_id, for_read=True)
+    if scope is None:
+        return None
+
+    query_text = run_messages.user_message.get_content_string() if run_messages.user_message is not None else ""
+    query = MemoryQuery(text=query_text)
+    working = WorkingMemory(scope=scope)
+    log_debug("Reading memory context for feed-forward injection.")
+    try:
+        return agent.memory_provider.assemble_context(scope, working, query)  # type: ignore[union-attr]
+    except Exception as e:
+        log_warning(f"Error reading memory context: {str(e)}")
+        return None
+
+
+async def aget_memory_context(
+    agent: Agent,
+    run_context: RunContext,
+    run_messages: RunMessages,
+    user_id: Optional[str] = None,
+) -> Optional[str]:
+    """Async variant of get_memory_context."""
+    scope = _memory_scope(agent, run_context, user_id, for_read=True)
+    if scope is None:
+        return None
+
+    query_text = run_messages.user_message.get_content_string() if run_messages.user_message is not None else ""
+    query = MemoryQuery(text=query_text)
+    working = WorkingMemory(scope=scope)
+    log_debug("Reading memory context for feed-forward injection.")
+    try:
+        return await agent.memory_provider.aassemble_context(scope, working, query)  # type: ignore[union-attr]
+    except Exception as e:
+        log_warning(f"Error reading memory context: {str(e)}")
+        return None
+
+
+def start_memory_writeback_future(
+    agent: Agent,
+    run_context: RunContext,
+    run_response: RunOutput,
+    user_id: Optional[str] = None,
+    existing_future: Optional[Future] = None,
+) -> Optional[Future]:
+    """Cancel any existing write-back future and start a new one if conditions are met.
+
+    Off the model-call path, not the request path: the future is joined by
+    wait_for_open_threads/await_for_thread_tasks_stream before the run returns. Mirrors
+    start_memory_future's dispatch shape. The dispatch primitives themselves
+    (events_from_run, start_writeback_future) already handle empty-events and error
+    logging -- this function only gates and builds the Scope/events.
+    """
+    if existing_future is not None and not existing_future.done():
+        existing_future.cancel()
+
+    scope = _memory_scope(agent, run_context, user_id)
+    if scope is None:
+        return None
+
+    from egpt.memory.writeback import events_from_run, run_is_paused, start_writeback_future, turn_messages
+
+    if run_is_paused(run_response.tools):
+        # HITL pause: the result and the answer land on the continue-run leg, which dispatches
+        # its own write-back. Writing here would persist the question without them.
+        return None
+
+    events = events_from_run(
+        scope,
+        messages=turn_messages(run_response.messages),
+        tool_executions=run_response.tools or (),
+    )
+    if not events:
+        return None
+
+    log_debug("Starting memory write-back in background thread.")
+    return start_writeback_future(agent.memory_provider, scope, events, executor=agent.background_executor)  # type: ignore[arg-type]
+
+
+async def astart_memory_writeback_task(
+    agent: Agent,
+    run_context: RunContext,
+    run_response: RunOutput,
+    user_id: Optional[str] = None,
+    existing_task: Optional[Task] = None,
+) -> Optional[Task]:
+    """Async variant of start_memory_writeback_future."""
+    if existing_task is not None and not existing_task.done():
+        existing_task.cancel()
+        try:
+            await existing_task
+        except CancelledError:
+            pass
+
+    scope = _memory_scope(agent, run_context, user_id)
+    if scope is None:
+        return None
+
+    from egpt.memory.writeback import astart_writeback_task, events_from_run, run_is_paused, turn_messages
+
+    if run_is_paused(run_response.tools):
+        # HITL pause: the result and the answer land on the continue-run leg, which dispatches
+        # its own write-back. Writing here would persist the question without them.
+        return None
+
+    events = events_from_run(
+        scope,
+        messages=turn_messages(run_response.messages),
+        tool_executions=run_response.tools or (),
+    )
+    if not events:
+        return None
+
+    log_debug("Starting memory write-back in background task.")
+    return astart_writeback_task(agent.memory_provider, scope, events)  # type: ignore[arg-type]

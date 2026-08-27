@@ -30,7 +30,7 @@ from egpt.guardrails import BaseGuardrail
 from egpt.knowledge.protocol import KnowledgeProtocol
 from egpt.learn.machine import LearningMachine
 from egpt.media import Audio, File, Image, Video
-from egpt.memory import MemoryManager
+from egpt.memory import MemoryManager, MemoryProvider
 from egpt.metrics import SessionMetrics
 from egpt.models.base import Model
 from egpt.models.fallback import FallbackConfig
@@ -207,6 +207,9 @@ class Team:
 
     # Memory manager to use for this agent
     memory_manager: Optional[MemoryManager] = None
+    # Memory provider for the feed-forward/write-back memory seam (SM-X3). Additive and
+    # independent of memory_manager above -- separate field, separate code path.
+    memory_provider: Optional[MemoryProvider] = None
 
     # --- User provided dependencies ---
     # User provided dependencies
@@ -529,6 +532,7 @@ class Team:
         enable_user_memories: Optional[bool] = None,  # Soon to be deprecated. Use update_memory_on_run
         add_memories_to_context: Optional[bool] = None,
         memory_manager: Optional[MemoryManager] = None,
+        memory_provider: Optional[MemoryProvider] = None,
         enable_session_summaries: bool = False,
         session_summary_manager: Optional[SessionSummaryManager] = None,
         add_session_summary_to_context: Optional[bool] = None,
@@ -652,6 +656,7 @@ class Team:
             enable_user_memories=enable_user_memories,
             add_memories_to_context=add_memories_to_context,
             memory_manager=memory_manager,
+            memory_provider=memory_provider,
             enable_session_summaries=enable_session_summaries,
             session_summary_manager=session_summary_manager,
             add_session_summary_to_context=add_session_summary_to_context,

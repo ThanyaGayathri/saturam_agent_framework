@@ -42,7 +42,7 @@ from egpt.guardrails import BaseGuardrail
 from egpt.knowledge.protocol import KnowledgeProtocol
 from egpt.learn.machine import LearningMachine
 from egpt.media import Audio, File, Image, Video
-from egpt.memory import MemoryManager
+from egpt.memory import MemoryManager, MemoryProvider
 from egpt.metrics import SessionMetrics
 from egpt.models.base import Model
 from egpt.models.fallback import FallbackConfig
@@ -117,6 +117,9 @@ class Agent:
     # --- Agent Memory ---
     # Memory manager to use for this agent
     memory_manager: Optional[MemoryManager] = None
+    # Memory provider for the feed-forward/write-back memory seam (SM-X3). Additive and
+    # independent of memory_manager above -- separate field, separate code path.
+    memory_provider: Optional[MemoryProvider] = None
     # Enable the agent to manage memories of the user
     enable_agentic_memory: bool = False
     # If True, the agent creates/updates user memories at the end of runs
@@ -408,6 +411,7 @@ class Agent:
         db: Optional[Union[BaseDb, AsyncBaseDb]] = None,
         checkpoint: Optional[Literal["runs", "tool-batch", "tools"]] = None,
         memory_manager: Optional[MemoryManager] = None,
+        memory_provider: Optional[MemoryProvider] = None,
         enable_agentic_memory: bool = False,
         update_memory_on_run: bool = False,
         enable_user_memories: Optional[bool] = None,  # Soon to be deprecated. Use update_memory_on_run
@@ -551,6 +555,7 @@ class Agent:
         self.checkpoint = checkpoint
 
         self.memory_manager = memory_manager
+        self.memory_provider = memory_provider
         self.enable_agentic_memory = enable_agentic_memory
 
         if enable_user_memories is not None:

@@ -51,6 +51,7 @@ async def await_for_open_threads(
     memory_task: Optional[Task] = None,
     cultural_knowledge_task: Optional[Task] = None,
     learning_task: Optional[Task] = None,
+    memory_writeback_task: Optional[Task] = None,
 ) -> None:
     if memory_task is not None:
         try:
@@ -70,11 +71,18 @@ async def await_for_open_threads(
         except Exception as e:
             log_warning(f"Error in learning extraction: {str(e)}")
 
+    if memory_writeback_task is not None:
+        try:
+            await memory_writeback_task
+        except Exception as e:
+            log_warning(f"Error in memory write-back: {str(e)}")
+
 
 def wait_for_open_threads(
     memory_future: Optional[Future] = None,
     cultural_knowledge_future: Optional[Future] = None,
     learning_future: Optional[Future] = None,
+    memory_writeback_future: Optional[Future] = None,
 ) -> None:
     if memory_future is not None:
         try:
@@ -95,6 +103,12 @@ def wait_for_open_threads(
         except Exception as e:
             log_warning(f"Error in learning extraction: {str(e)}")
 
+    if memory_writeback_future is not None:
+        try:
+            memory_writeback_future.result()
+        except Exception as e:
+            log_warning(f"Error in memory write-back: {str(e)}")
+
 
 async def await_for_thread_tasks_stream(
     run_response: Union[RunOutput, TeamRunOutput],
@@ -105,6 +119,7 @@ async def await_for_thread_tasks_stream(
     events_to_skip: Optional[List[RunEvent]] = None,
     store_events: bool = False,
     get_memories_callback: Optional[Callable[[], Union[Optional[List[Any]], Awaitable[Optional[List[Any]]]]]] = None,
+    memory_writeback_task: Optional[Task] = None,
 ) -> AsyncIterator[RunOutputEvent]:
     if memory_task is not None:
         if stream_events:
@@ -167,6 +182,12 @@ async def await_for_thread_tasks_stream(
         except Exception as e:
             log_warning(f"Error in learning extraction: {str(e)}")
 
+    if memory_writeback_task is not None:
+        try:
+            await memory_writeback_task
+        except Exception as e:
+            log_warning(f"Error in memory write-back: {str(e)}")
+
 
 def wait_for_thread_tasks_stream(
     run_response: Union[TeamRunOutput, RunOutput],
@@ -177,6 +198,7 @@ def wait_for_thread_tasks_stream(
     events_to_skip: Optional[List[RunEvent]] = None,
     store_events: bool = False,
     get_memories_callback: Optional[Callable[[], Optional[List[Any]]]] = None,
+    memory_writeback_future: Optional[Future] = None,
 ) -> Iterator[Union[RunOutputEvent, TeamRunOutputEvent]]:
     if memory_future is not None:
         if stream_events:
@@ -236,6 +258,12 @@ def wait_for_thread_tasks_stream(
         except Exception as e:
             log_warning(f"Error in learning extraction: {str(e)}")
 
+    if memory_writeback_future is not None:
+        try:
+            memory_writeback_future.result()
+        except Exception as e:
+            log_warning(f"Error in memory write-back: {str(e)}")
+
 
 def collect_background_metrics(*futures_or_tasks: Any) -> List["RunMetrics"]:
     """Collect RunMetrics returned by completed background futures/tasks.
@@ -244,6 +272,11 @@ def collect_background_metrics(*futures_or_tasks: Any) -> List["RunMetrics"]:
     streaming variants) to gather the isolated metrics collectors produced by
     background memory, culture, and learning tasks.  Each argument can be a
     ``concurrent.futures.Future``, ``asyncio.Task``, or ``None``.
+
+    A memory write-back future/task (SM-X3) can also be passed here safely: its result is a
+    ``WriteReceipt``, not a ``RunMetrics``, so the isinstance check below skips it -- there is
+    nothing to merge from write-back, this just lets one call site collect every background
+    future without the caller needing to filter write-back out first.
     """
     collected: List[RunMetrics] = []
     for f in futures_or_tasks:
