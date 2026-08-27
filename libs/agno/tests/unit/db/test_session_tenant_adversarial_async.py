@@ -15,9 +15,11 @@ import tempfile
 import pytest
 from sqlalchemy import text
 
-from egpt.db.component_scope import TenantScopeRequiredError
-from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
-from egpt.session.agent import AgentSession
+pytest.importorskip("aiosqlite", reason="AsyncSqliteDb resolves the dialect in __init__")
+
+from egpt.db.component_scope import TenantScopeRequiredError  # noqa: E402
+from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb  # noqa: E402
+from egpt.session.agent import AgentSession  # noqa: E402
 
 TENANT_A = "acme"
 TENANT_B = "globex"

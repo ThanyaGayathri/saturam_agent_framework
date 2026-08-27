@@ -309,10 +309,10 @@ ALLOWED_MODEL_READS: Dict[Tuple[str, int, str], str] = {
     # -- known outstanding gap: generate_session_name() is a separate public entrypoint, not
     # -- reachable from .run()/.arun() -- adjacent to the run path rather than part of it, and a
     # -- live model call with no run_context in scope at all. Tracked alongside _tools.py.
-    ("egpt/agent/_session.py", 434, "agent.model"): "generate_session_name() is not reachable from .run()/.arun()",
-    ("egpt/agent/_session.py", 455, "agent.model"): "generate_session_name() is not reachable from .run()/.arun()",
-    ("egpt/team/_session.py", 280, "team.model"): "generate_session_name() is not reachable from .run()/.arun()",
-    ("egpt/team/_session.py", 302, "team.model"): "generate_session_name() is not reachable from .run()/.arun()",
+    ("egpt/agent/_session.py", 450, "agent.model"): "generate_session_name() is not reachable from .run()/.arun()",
+    ("egpt/agent/_session.py", 471, "agent.model"): "generate_session_name() is not reachable from .run()/.arun()",
+    ("egpt/team/_session.py", 296, "team.model"): "generate_session_name() is not reachable from .run()/.arun()",
+    ("egpt/team/_session.py", 318, "team.model"): "generate_session_name() is not reachable from .run()/.arun()",
     # -- the streaming-event *cast* lines. `agent.model = cast(Model, agent.model)` narrows the
     # -- type before the function body, which otherwise reads `served_model = run_model(...)` for
     # -- every event-payload attribution -- the cast line itself is the only remaining read here.
