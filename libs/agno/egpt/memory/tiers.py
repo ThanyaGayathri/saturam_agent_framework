@@ -9,7 +9,15 @@ episodic and semantic each live in both, so the axes cannot be collapsed.
 divergence this ticket closes.
 
 Decay, TTL and retention are deliberately absent (SM-R5 #80, SM-E9 #116), as is which tiers a
-*tenant* gets (SM-C5 #93): no backend stores a tier yet, so either would be config read by nobody.
+*tenant* gets: no backend stores a tier yet, so either would be config read by nobody.
+
+The per-tenant deferral no longer belongs to SM-C5 (#93). That ticket shipped
+``MemoryConfigResolver`` (``memory/config.py``) and resolves *backends and mode* per tenant, but
+deliberately no tier field -- the justification above still holds verbatim, and
+``CoLocatedMemoryProvider.tiers()`` derives enablement from the substrates actually wired rather
+than from config. Whoever adds the first tier-storing backend owns deciding whether a per-tenant
+tier set is then worth having; until then this note has no owner by design, which is the honest
+state rather than a pointer at a closed ticket.
 """
 
 from dataclasses import dataclass

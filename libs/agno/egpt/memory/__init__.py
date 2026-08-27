@@ -2,9 +2,12 @@
 # `build_memory_provider` can resolve "co_located" without the caller knowing the module exists.
 from egpt.memory.adapters import CoLocatedMemoryProvider, SeedMemoryProvider
 from egpt.memory.config import (
+    MemoryConfigResolver,
+    MemoryPolicyKey,
     MemoryProviderConfig,
     MemoryProviderConfigError,
     build_memory_provider,
+    build_memory_provider_for,
     register_provider,
     registered_providers,
 )
@@ -247,10 +250,13 @@ __all__ = [
     "normalize_entity_name",
     "MemoryProvider",
     "PartialWriteError",
+    "MemoryConfigResolver",
+    "MemoryPolicyKey",
     "MemoryProviderConfig",
     "MemoryProviderConfigError",
     "SeedMemoryProvider",
     "build_memory_provider",
+    "build_memory_provider_for",
     "register_provider",
     "registered_providers",
     # The episode representation (SM-E1)

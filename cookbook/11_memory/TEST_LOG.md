@@ -1258,3 +1258,34 @@ rather than merely timed.
 `43_mode_a_end_to_end.py`/`44_time_aware_ranking.py`/`45_token_bounded_memory_slice.py` while
 this branch was still catching up. Per this file's own convention, whoever merges second
 renumbers.**
+
+---
+
+### 47_per_tenant_memory_config.py
+
+**Status:** PASS
+
+**Description:** SM-C5's per-tenant resolution seam (#93). Builds one `MemoryConfigResolver` over
+four tenants with genuinely different deployments -- an air-gapped Mode A customer with a graph
+backend, a hosted Mode B vector-only customer, an enterprise tenant with one agent pinned to its
+own store beside a tenant-wide policy, and a `default` for everyone else -- then shows the
+decisions the seam makes: which config answers for whom, the candidate probes in
+most-specific-first order, the per-tenant graph toggle read off the built provider's
+`substrates()`, the tenant-wildcard-beats-agent-wildcard precedence, and identity padding
+resolving to the same policy rather than a second tenant. Closes with the five refusals
+(duplicate spelling, `(None, None)` shadowing `default`, blank policy key, non-string identity,
+unmatched identity) and the required-`tenant_id` build path.
+
+**Result:** Runs clean. `enterprise/research-agent` resolves to the exact-pair policy while
+`enterprise/some-other-agent` falls to the tenant-wide one; the probe list marks the exact pair
+`<-- wins` and the tenant-wide key `(also defined, but never reached)`, which is the point of
+most-specific-first. `airgapped-bank` reports `vector + graph` and `hosted-startup` reports
+`vector-only` through `provider.substrates()`, not through the dict the example passed in.
+`lookup('airgapped-bank ')` returns the same Mode A policy rather than the Mode B default. All
+five misconfigurations raise `MemoryProviderConfigError` with a `field_name` and a message naming
+what collided, and `build_memory_provider_for(resolver)` with no tenant raises `TypeError` while
+`resolver.lookup()` still answers for diagnostics.
+
+**Requires:** Nothing; no database, no API key, no network.
+
+---

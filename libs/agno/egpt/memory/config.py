@@ -27,8 +27,9 @@ constructor registry" refers to.
 """
 
 import inspect
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from dataclasses import dataclass, field, replace
+from types import MappingProxyType
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.provider import MemoryProvider
@@ -39,10 +40,13 @@ from egpt.providers.model_provider import ProviderMode
 __all__ = [
     "FUSION_METHODS",
     "RERANK_OFFLINE_CAPABLE",
+    "MemoryConfigResolver",
+    "MemoryPolicyKey",
     "MemoryProviderConfig",
     "MemoryProviderConfigError",
     "ProviderFactory",
     "build_memory_provider",
+    "build_memory_provider_for",
     "register_provider",
     "registered_providers",
 ]
@@ -442,3 +446,305 @@ def _reset_registry_for_tests() -> None:
     must not leak it into the next one, and duplicate registration is an error by design.
     """
     _REGISTRY.clear()
+
+
+#: ``(tenant_id, agent_id)``. ``None`` in a slot is a wildcard, so ``("acme", None)`` answers every
+#: agent of that tenant. Two slots rather than the model seam's three: ``role`` distinguishes
+#: *which model* a step should use, a question memory does not ask -- a tenant's memory is the same
+#: store whichever role reads it.
+#:
+#: Adding a third slot is **not** a one-line edit, despite ``_KEY_SLOTS`` looking like the single
+#: source of arity: ``_normalize_key`` reads it for the length check and the padding, but
+#: :meth:`MemoryConfigResolver.candidate_keys` spells its four probes out literally, so a widened
+#: ``_KEY_SLOTS`` alone would leave the extra slot unqueried. Widen both together, or the
+#: duplicate-key guard is the only thing standing between the change and silently collapsed keys.
+#: ``Scope.key()`` (``memory/types.py``) makes the opposite, genuinely additive promise, and is
+#: built that way because it has one slot list and no second literal.
+MemoryPolicyKey = Tuple[Optional[str], Optional[str]]
+
+_KEY_SLOTS = ("tenant_id", "agent_id")
+
+
+@dataclass(frozen=True)
+class MemoryConfigResolver:
+    """Which :class:`MemoryProviderConfig` a given tenant gets (SM-C5, #93).
+
+    **Selection, not isolation.** This chooses which config answers for an identity; it does not
+    partition data. Two tenants that both fall through to ``default`` share one physical store, and
+    ``lookup`` hands them the same config object. Isolation remains entirely ``Scope``'s job at
+    read/write time -- nothing here is a tenancy boundary.
+
+    The per-tenant layer the module docstring promises, deliberately shaped like
+    ``egpt.providers.config.ProviderConfig``: same wildcard key, same most-specific-first
+    ordering, same ``default`` fallback. One resolution vocabulary for models and memory means an
+    operator who can read one config can read the other, and a reviewer checking "which tenant got
+    what" uses one mental model rather than two.
+
+    **Where the parity stops.** The shape matches; the surface does not, in one respect. There is
+    no ``from_dict`` here, so a policy map can only be built from hand-written Python -- a tuple
+    key cannot come from JSON or YAML, which is exactly why the model seam grew one. Doing it well
+    needs a record-list schema, unknown-field rejection and all-``None``-record rejection, so it is
+    deliberately left to its own ticket rather than half-shipped here. Until then, a typo in a
+    deployment's policy document is not a case this class can reject, because it never sees one.
+    The other two model-seam protections -- ``(None, None)`` rejection and a read-only mapping --
+    *are* present.
+
+    What SM-C5 does **not** need to add, because it is already here: the graph tier toggles by
+    omitting ``config.graph`` (``CoLocatedMemoryProvider`` treats an absent graph as vector-only
+    throughout), and Mode A/B is ``config.mode``. Per-tenant selection was the missing piece --
+    *which* config answers for a tenant -- not the knobs themselves.
+
+    :meth:`lookup` is pure and cheap: at most four dict lookups, no I/O and no import, so it is
+    safe on a per-request path. :func:`build_memory_provider_for` is **not** -- it runs the full
+    construction path down to ``discovery.construct``, which opens engines and drivers. Resolve per
+    request if you like; construct once and reuse, as CLAUDE.md's "never create agents in loops"
+    says for the same reason.
+    """
+
+    policies: Mapping[MemoryPolicyKey, MemoryProviderConfig] = field(default_factory=dict)
+    default: Optional[MemoryProviderConfig] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.policies, Mapping):
+            # Checked before dict(): a list or string "policies" in a hand-written config would
+            # otherwise surface as a bare builtin ValueError ("dictionary update sequence element
+            # #0 ...") with no field name -- invisible to every `except MemoryProviderConfigError`
+            # handler, which is the whole of AC4's promise. `ModelPolicy.__post_init__` guards the
+            # analogous case for the same reason.
+            raise MemoryProviderConfigError(
+                f"policies must be a mapping of policy key -> MemoryProviderConfig, "
+                f"got {type(self.policies).__name__}.",
+                field_name="policies",
+            )
+
+        normalized: Dict[MemoryPolicyKey, MemoryProviderConfig] = {}
+        first_spelling: Dict[MemoryPolicyKey, Any] = {}
+        for raw_key, policy in dict(self.policies).items():
+            key = self._normalize_key(raw_key)
+            if not isinstance(policy, MemoryProviderConfig):
+                raise MemoryProviderConfigError(
+                    f"Policy for key {raw_key!r} must be a MemoryProviderConfig, got {type(policy).__name__}.",
+                    field_name="policies",
+                )
+            if key in normalized:
+                # Two spellings of one key (``"acme"`` and ``("acme", None)``) would otherwise let
+                # whichever iterated last win silently -- the losing config is inert and nothing
+                # says so. Name both spellings: in a 200-entry policy map the normalized key alone
+                # does not tell an operator which two lines to go and look at.
+                raise MemoryProviderConfigError(
+                    f"Duplicate policy key {key!r}: {first_spelling[key]!r} and {raw_key!r} both "
+                    f"normalize to the same ({', '.join(_KEY_SLOTS)}) pair.",
+                    field_name="policies",
+                )
+            normalized[key] = policy
+            first_spelling[key] = raw_key
+        object.__setattr__(self, "policies", MappingProxyType(normalized))
+
+        if self.default is not None and not isinstance(self.default, MemoryProviderConfig):
+            raise MemoryProviderConfigError(
+                f"default must be a MemoryProviderConfig or None, got {type(self.default).__name__}.",
+                field_name="default",
+            )
+        if self.default is not None and (None, None) in normalized:
+            # `lookup` consults every candidate key before `default`, and (None, None) is a
+            # candidate for every identity -- so this pair means `default` can never win, and
+            # editing it silently changes nothing. Two defaults, one live, no error is exactly the
+            # misconfiguration shape this module rejects everywhere else. Rejecting it in
+            # `__post_init__` also closes the `with_policy` door, since `replace()` re-validates.
+            raise MemoryProviderConfigError(
+                "A policy keyed (None, None) matches every identity and shadows 'default' "
+                "entirely. Keep one: either the identity-less policy or 'default'.",
+                field_name="policies",
+            )
+        if not normalized and self.default is None:
+            # An empty resolver answers ``None`` for everything, which surfaces later as a
+            # confusing "no config" at the build site rather than here at the definition.
+            raise MemoryProviderConfigError(
+                "MemoryConfigResolver needs at least one policy or a default; an empty resolver "
+                "can never answer a lookup.",
+                field_name="policies",
+            )
+
+    @staticmethod
+    def _normalize_part(part: Any, *, context: str, field_name: str) -> Optional[str]:
+        """One identity slot, stripped and checked. ``None`` stays ``None`` -- it is the wildcard.
+
+        Both sides of the seam run through here. A policy map keyed ``"acme"`` and a request
+        carrying ``"acme "`` must land on the same key, or an air-gapped tenant silently falls
+        through to whatever ``default`` is -- the misroute is invisible because ``modes()`` reports
+        what the resolver *can* produce, not what a given identity *got*.
+
+        This package already ruled this way for the same hazard: ``Scope`` strips every slot and
+        rejects blanks (``memory/types.py``), and ``require_scope``'s docstring names the failure
+        verbatim -- a stray ``"acme "`` *"becomes a distinct tenant to any equality predicate."*
+        The model seam's laxity is not a precedent to follow here.
+        """
+        if part is None:
+            return None
+        if not isinstance(part, str):
+            raise MemoryProviderConfigError(
+                f"{context} has a non-string part {part!r} ({type(part).__name__}); "
+                f"identity slots are strings or None.",
+                field_name=field_name,
+            )
+        stripped = part.strip()
+        if not stripped:
+            raise MemoryProviderConfigError(
+                f"{context} has a blank part {part!r}. A blank identity slot is not a wildcard -- "
+                f"use None for that -- and it cannot identify a tenant either.",
+                field_name=field_name,
+            )
+        return stripped
+
+    @classmethod
+    def _normalize_key(cls, raw_key: Any) -> MemoryPolicyKey:
+        """Pad a bare tenant string or 1-tuple out to the full 2-slot key, stripped and checked."""
+        if isinstance(raw_key, str) or raw_key is None:
+            parts: Tuple[Any, ...] = (raw_key,)
+        elif isinstance(raw_key, tuple):
+            parts = raw_key
+        else:
+            raise MemoryProviderConfigError(
+                f"Policy key must be a string or a tuple of up to 2 strings, got {type(raw_key).__name__}.",
+                field_name="policies",
+            )
+        if len(parts) > len(_KEY_SLOTS):
+            raise MemoryProviderConfigError(
+                f"Policy key {raw_key!r} has {len(parts)} parts; expected at most "
+                f"{len(_KEY_SLOTS)} ({', '.join(_KEY_SLOTS)}).",
+                field_name="policies",
+            )
+        padded = tuple(parts) + (None,) * (len(_KEY_SLOTS) - len(parts))
+        cleaned = tuple(
+            cls._normalize_part(part, context=f"Policy key {raw_key!r}", field_name="policies") for part in padded
+        )
+        return (cleaned[0], cleaned[1])
+
+    @classmethod
+    def _normalize_identity(cls, tenant_id: Any, agent_id: Any) -> MemoryPolicyKey:
+        """The query side of :meth:`_normalize_key` -- same stripping, same rejections.
+
+        Validating only the policy side would leave the misroute reachable from the half that takes
+        untrusted input: tenant ids arrive from headers and JWTs, and nothing upstream forces them
+        through ``Scope``. An ``int`` tenant id -- a common shape straight out of a database --
+        previously resolved to ``default`` with no signal at all.
+        """
+        return (
+            cls._normalize_part(tenant_id, context=f"tenant_id={tenant_id!r}", field_name="tenant_id"),
+            cls._normalize_part(agent_id, context=f"agent_id={agent_id!r}", field_name="agent_id"),
+        )
+
+    def candidate_keys(
+        self, tenant_id: Optional[str] = None, agent_id: Optional[str] = None
+    ) -> Tuple[MemoryPolicyKey, ...]:
+        """Every key that could serve this identity, most specific first.
+
+        Public rather than private for the same reason its model-seam twin is: the question "why
+        did this tenant get the vector-only config?" is answered by showing this list beside
+        ``policies``.
+
+        The identity is normalized here, so the probes shown are the ones actually tried -- a
+        diagnostic that echoed the caller's un-stripped spelling would hide the very mismatch an
+        operator runs it to find.
+
+        Raises:
+            MemoryProviderConfigError: a slot is neither a string nor ``None``, or is blank.
+        """
+        tenant, agent = self._normalize_identity(tenant_id, agent_id)
+        return (
+            (tenant, agent),
+            (tenant, None),
+            (None, agent),
+            (None, None),
+        )
+
+    def lookup(self, tenant_id: Optional[str] = None, agent_id: Optional[str] = None) -> Optional[MemoryProviderConfig]:
+        """The most specific config for this identity, or ``default``, or ``None``.
+
+        Returns the **stored** config instance, not a copy: every identity resolving to the same
+        policy gets the same object, so mutating a resolved config mutates it for all of them.
+        That is a documented consequence of ``MemoryProviderConfig`` being a plain (unfrozen)
+        dataclass, pinned by a test rather than left to be discovered. Nothing in ``egpt`` mutates
+        a config post-construction; treat one as read-only and use :meth:`with_policy` to vary a
+        policy.
+
+        Raises:
+            MemoryProviderConfigError: a slot is neither a string nor ``None``, or is blank.
+        """
+        for key in self.candidate_keys(tenant_id, agent_id):
+            policy = self.policies.get(key)
+            if policy is not None:
+                return policy
+        return self.default
+
+    def with_policy(self, key: Any, config: MemoryProviderConfig) -> "MemoryConfigResolver":
+        """A copy with one policy added or replaced. Pure construction -- nothing to await."""
+        updated = dict(self.policies)
+        updated[self._normalize_key(key)] = config
+        return replace(self, policies=updated)
+
+    def modes(self) -> Tuple[ProviderMode, ...]:
+        """Every mode this resolver can produce, sorted and de-duplicated.
+
+        A deployment that believes it is air-gapped can assert this is ``(LOCAL,)`` -- one call
+        rather than walking every policy, which is the check ADR 0003 A.3c actually wants.
+        """
+        configs = list(self.policies.values())
+        if self.default is not None:
+            configs.append(self.default)
+        return tuple(sorted({c.mode for c in configs}, key=lambda m: m.value))
+
+
+def build_memory_provider_for(
+    resolver: MemoryConfigResolver,
+    tenant_id: str,
+    agent_id: Optional[str] = None,
+) -> MemoryProvider:
+    """Resolve this identity's config and build its provider (SM-C5, #93).
+
+    The per-tenant entry point. :func:`build_memory_provider` stays the single construction site --
+    this only chooses *which* config reaches it, so every invariant that function enforces still
+    applies, and a caller cannot bypass it by resolving separately.
+
+    ``tenant_id`` is **required**, unlike on :meth:`MemoryConfigResolver.lookup`, which stays
+    permissive so an operator can ask diagnostic questions about wildcard policies. ``memory/
+    types.py`` states the rule this follows: *"a seam where the unscoped call is the easiest one to
+    write is a seam that leaks."* ``build_memory_provider_for(resolver)`` used to be both legal and
+    the shortest thing to type, and it resolved cleanly to whatever ``default`` was.
+
+    **Construction is not per-request cheap.** Resolution is four dict lookups; this runs the whole
+    way down to ``discovery.construct``, which opens engines and drivers for backends like
+    ``pgvector`` and ``neo4j``. Build once per identity and reuse the provider -- calling this per
+    request is the defect class CLAUDE.md names in "never create agents in loops".
+
+    Raises:
+        MemoryProviderConfigError: ``tenant_id`` is ``None``, blank, or not a string; no policy and
+            no default matched this identity; or the resolved config fails to build.
+    """
+    # `None` is rejected here rather than left to `_normalize_part`, whose `None` branch is a
+    # *wildcard* -- correct for a policy key (`("acme", None)` = every agent of acme), wrong for
+    # this query entry point, where an absent tenant means "no tenant identified". Without this,
+    # an explicit `tenant_id=None` resolved cleanly to `default` while the semantically identical
+    # `""` was refused, so the laxer spelling was the one that silently worked.
+    #
+    # The precedent is `require_scope` in `memory/types.py`, which refuses an unscoped data-access
+    # call at the seam "so the refusal names the method the caller used" -- and the failure this
+    # prevents is not hypothetical: `agent/_run.py` records that an unthreaded `tenant_id=None`
+    # silently defeated per-tenant resolution in `ProviderConfig`, the sibling seam this class is
+    # modelled on, until someone traced it.
+    if tenant_id is None:
+        raise MemoryProviderConfigError(
+            "build_memory_provider_for requires a tenant_id; got None. Resolution is per-tenant, "
+            "so an unidentified caller must not be handed another identity's provider -- pass the "
+            "caller's tenant, or use MemoryConfigResolver.lookup directly for a diagnostic query.",
+            field_name="tenant_id",
+        )
+
+    config = resolver.lookup(tenant_id, agent_id)
+    if config is None:
+        raise MemoryProviderConfigError(
+            f"No memory config for (tenant_id={tenant_id!r}, agent_id={agent_id!r}) and no default. "
+            f"Tried, most specific first: {list(resolver.candidate_keys(tenant_id, agent_id))}.",
+            field_name="policies",
+        )
+    return build_memory_provider(config)
