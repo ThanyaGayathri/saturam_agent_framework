@@ -2158,6 +2158,19 @@ def tenant_for_direct_read(
     return _tenant_for_hydration(request, None, in_memory=in_memory, db=db)
 
 
+def normalize_tenant_claim(tenant_id: Optional[str]) -> Optional[str]:
+    """Normalise a caller-supplied tenant value the way every tenant gate compares it.
+
+    `""`/whitespace-only is not a tenant, so it collapses to `None` -- otherwise
+    `"" is not None` would let an effectively-untenanted caller pass a fail-closed gate.
+    Shared by `tenant_for_ws_hydration` and every reconnect/resume buffer-arm gate that
+    compares a caller's tenant against `EventsBuffer.get_run_tenant` (aicoe-tracker#196 QC
+    round 2): those gates used to re-derive this inline, which is the same "two call sites
+    independently reasoning about tenant scope" shape that produced the original bug.
+    """
+    return tenant_id.strip() if isinstance(tenant_id, str) and tenant_id.strip() else None
+
+
 def tenant_for_ws_hydration(
     tenant_id: Optional[str],
     tenancy_enabled_override: bool,
@@ -2200,7 +2213,7 @@ def tenant_for_ws_hydration(
     list (including a matched factory, which never reaches the DB through this call) is
     code-defined, not a tenant row.
     """
-    normalised_tenant = tenant_id.strip() if isinstance(tenant_id, str) and tenant_id.strip() else None
+    normalised_tenant = normalize_tenant_claim(tenant_id)
     return _tenant_for_hydration(
         None,
         normalised_tenant,
@@ -2208,6 +2221,60 @@ def tenant_for_ws_hydration(
         db=db,
         tenancy_enabled_override=tenancy_enabled_override,
     )
+
+
+def buffered_run_tenant_check(run_id: str, caller_tenant_id: Optional[str], *, tenancy_enabled: bool) -> bool:
+    """True if `caller_tenant_id` may replay/resume `run_id`'s buffered events (aicoe-tracker#196).
+
+    Shared by every reconnect/resume buffer-arm gate (WS `reconnect` for workflows, and the
+    HTTP `/resume` SSE endpoints for workflows/agents/teams) so they compare against
+    `EventsBuffer.get_run_tenant` the same way instead of re-deriving the comparison inline
+    (QC round 2, finding 5 -- the same "two call sites independently reasoning about tenant
+    scope" shape that produced the original bug).
+
+    Always True when `tenancy_enabled` is False (today's unscoped behavior; the gate is
+    inactive). Otherwise False both on a mismatch *and* when the run was never registered
+    (`is_known=False`, e.g. started over HTTP before this fix, or through a path this fix
+    doesn't cover) -- there's nothing to reconcile against, and treating "unknown" as "allowed"
+    would reopen the hole this closes.
+    """
+    if not tenancy_enabled:
+        return True
+    from egpt.os.managers import event_buffer
+
+    normalized_caller = normalize_tenant_claim(caller_tenant_id)
+    is_known, recorded_tenant = event_buffer.get_run_tenant(run_id)
+    return is_known and recorded_tenant == normalized_caller
+
+
+def register_or_refuse_run_tenant(run_id: str, tenant_id: Optional[str], *, tenancy_enabled: bool) -> bool:
+    """Register `run_id`'s tenant for later reconnect/resume reconciliation, refusing rather
+    than silently overwriting when a *different* tenant is already recorded for it
+    (aicoe-tracker#196 QC round 2, finding 3).
+
+    Use this instead of calling `EventsBuffer.register_run_tenant` directly for a *continue*
+    action, which -- unlike start -- can target a `run_id` that already has a tenant recorded
+    from when it started. Continuing another tenant's paused run is a symptom of the separately
+    tracked aicoe-tracker#197 (run/session hydration takes no `tenant_id`), which this doesn't
+    fully close; but a handler that already has a recorded tenant to compare against must not
+    make that gap worse by silently handing the continuing caller ongoing reconnect/resume
+    rights to the original owner's run -- and locking the original owner out, masked as "not
+    found" by the very gate this gives them.
+
+    Returns True if the caller may proceed (first-touch registration, a matching tenant, or
+    tenancy disabled) and registers/refreshes the record. Returns False -- registering nothing
+    -- when a different tenant is already recorded and tenancy is enabled; the caller must
+    refuse the continue action itself.
+    """
+    from egpt.os.managers import event_buffer
+
+    normalized = normalize_tenant_claim(tenant_id)
+    if tenancy_enabled:
+        is_known, recorded_tenant = event_buffer.get_run_tenant(run_id)
+        if is_known and recorded_tenant != normalized:
+            return False
+    event_buffer.register_run_tenant(run_id, normalized)
+    return True
 
 
 async def resolve_agent(

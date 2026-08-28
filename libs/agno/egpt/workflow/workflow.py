@@ -4192,11 +4192,18 @@ class Workflow:
         metadata: Optional[Dict[str, Any]] = None,
         add_dependencies_to_context: Optional[bool] = None,
         add_session_state_to_context: Optional[bool] = None,
+        tenant_id: Optional[str] = None,
         **kwargs: Any,
     ) -> WorkflowRunOutput:
         """Execute workflow in background using asyncio.create_task()"""
 
         run_id = str(uuid4())
+
+        # Record the caller's tenant for this run_id (aicoe-tracker#196), before the detached
+        # task below is created -- see _arun_background_stream for why this ordering is safe.
+        from egpt.os.managers import event_buffer
+
+        event_buffer.register_run_tenant(run_id, tenant_id)
 
         self.initialize_workflow()
 
@@ -4517,6 +4524,7 @@ class Workflow:
         stream_events: bool = False,
         dependencies: Optional[Dict[str, Any]] = None,
         background_tasks: Optional[Any] = None,
+        tenant_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
         """Background streaming workflow run that survives client disconnections.
@@ -4529,9 +4537,16 @@ class Workflow:
         The detached task keeps running even if the client disconnects.
         The caller (router) just yields the SSE strings to the client.
         """
+        from egpt.os.managers import event_buffer
         from egpt.run.workflow import WorkflowRunOutput as WfRunOutput
 
         run_id = run_id or str(uuid4())
+
+        # Record the caller's tenant for this run_id (aicoe-tracker#196), before the detached
+        # task below is created -- nothing can add an event to run_id's buffer entry until
+        # that task is scheduled, so this is unconditionally ahead of the first buffered event
+        # regardless of what this generator awaits between here and task creation.
+        event_buffer.register_run_tenant(run_id, tenant_id)
 
         if not self.db:
             raise ValueError("Background execution requires a database to be configured on the workflow")
@@ -9685,6 +9700,7 @@ class Workflow:
         metadata: Optional[Dict[str, Any]] = None,
         add_dependencies_to_context: Optional[bool] = None,
         add_session_state_to_context: Optional[bool] = None,
+        tenant_id: Optional[str] = None,
     ) -> WorkflowRunOutput: ...
 
     @overload
@@ -9710,6 +9726,7 @@ class Workflow:
         metadata: Optional[Dict[str, Any]] = None,
         add_dependencies_to_context: Optional[bool] = None,
         add_session_state_to_context: Optional[bool] = None,
+        tenant_id: Optional[str] = None,
     ) -> AsyncIterator[WorkflowRunOutputEvent]: ...
 
     def arun(  # type: ignore
@@ -9734,6 +9751,7 @@ class Workflow:
         metadata: Optional[Dict[str, Any]] = None,
         add_dependencies_to_context: Optional[bool] = None,
         add_session_state_to_context: Optional[bool] = None,
+        tenant_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Union[WorkflowRunOutput, AsyncIterator[WorkflowRunOutputEvent]]:
         """Execute the workflow with optional streaming.
@@ -9741,6 +9759,14 @@ class Workflow:
         Args:
             enable_websocket: When True and background+stream are also True, uses WebSocket
                 transport instead of the default SSE transport. Requires ``websocket`` param.
+            tenant_id: The caller's tenant (aicoe-tracker#196), recorded on the run's event
+                buffer entry so a later WS reconnect / HTTP `/resume` can refuse a mismatched
+                tenant instead of replaying across tenants. Not used to scope hydration -- see
+                `tenant_for_ws_hydration`/`tenant_for_direct_read` for that, resolved by the
+                caller before this method runs. The WS start-workflow/continue-workflow
+                handlers register this via `event_buffer.register_run_tenant` directly instead
+                of passing it here, since they already have the run's `WorkflowRunOutput`
+                (or -- for continue -- the `run_id`) synchronously in hand.
         """
 
         if input is None and self.input_schema is not None:
@@ -9799,6 +9825,7 @@ class Workflow:
                     stream_events=stream_events,
                     dependencies=dependencies,
                     background_tasks=background_tasks,
+                    tenant_id=tenant_id,
                     **kwargs,
                 )
             else:
@@ -9817,6 +9844,7 @@ class Workflow:
                     metadata=metadata,
                     add_dependencies_to_context=add_dependencies_to_context,
                     add_session_state_to_context=add_session_state_to_context,
+                    tenant_id=tenant_id,
                     **kwargs,
                 )
 
@@ -9824,6 +9852,17 @@ class Workflow:
 
         # Set the id for the run and register it immediately for cancellation tracking
         run_id = run_id or str(uuid4())
+
+        # Record the caller's tenant for this run_id (aicoe-tracker#196) before any event can
+        # reach the buffer -- this foreground path isn't detached like the background branches
+        # above, but its buffered events are equally reachable via WS reconnect / HTTP /resume
+        # once execution starts, so it needs the same registration. `arun()` is a plain `def`
+        # (not `async def`), so everything from here to the first `await` inside whatever this
+        # returns/dispatches to runs synchronously -- there is no window for a concurrent
+        # reconnect to observe this run_id as buffered but unregistered.
+        from egpt.os.managers import event_buffer
+
+        event_buffer.register_run_tenant(run_id, tenant_id)
 
         self.initialize_workflow()
         session_id, user_id = self._initialize_session(session_id=session_id, user_id=user_id)
