@@ -700,6 +700,29 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
         return stamped, records
 
+    def _store_label(self) -> str:
+        """``egpt.memory.store`` value shared by all six ``memory_span`` call sites below."""
+        return ",".join(sorted(k.value for k, v in self.substrates().items() if v))
+
+    @staticmethod
+    def _write_tier_label(events: Sequence[MemoryEvent]) -> str:
+        """``egpt.memory.tier`` value for ``write``/``awrite``."""
+        return ",".join(sorted({e.tier.value for e in events}))
+
+    @staticmethod
+    def _read_tier_label(query: MemoryQuery) -> str:
+        """``egpt.memory.tier`` value for ``read``/``aread``."""
+        if query.tiers is None:
+            return "all"
+        return ",".join(sorted(t.value for t in query.tiers))
+
+    @staticmethod
+    def _consolidate_tier_label(tiers: Optional[Sequence[MemoryTier]]) -> str:
+        """``egpt.memory.tier`` value for ``consolidate``/``aconsolidate``."""
+        if tiers is None:
+            return f"{CONSOLIDATION_SOURCE.value}->{CONSOLIDATION_TARGET.value}"
+        return ",".join(sorted(t.value for t in tiers))
+
     @staticmethod
     def _receipt(stamped: Sequence[MemoryEvent]) -> WriteReceipt:
         tiers: List[MemoryTier] = []
@@ -717,8 +740,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         with memory_span(
             "write",
             tenant_id=scope.tenant_id,
-            tier=",".join(sorted({e.tier.value for e in events})),
-            store=",".join(sorted(k.value for k, v in self.substrates().items() if v)),
+            tier=self._write_tier_label(events),
+            store=self._store_label(),
         ):
             stamped, records = self._prepare(scope, events)
             vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
@@ -758,8 +781,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         with memory_span(
             "write",
             tenant_id=scope.tenant_id,
-            tier=",".join(sorted({e.tier.value for e in events})),
-            store=",".join(sorted(k.value for k, v in self.substrates().items() if v)),
+            tier=self._write_tier_label(events),
+            store=self._store_label(),
         ):
             stamped, records = self._prepare(scope, events)
             vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
@@ -1042,8 +1065,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         with memory_span(
             "read",
             tenant_id=scope.tenant_id,
-            tier=",".join(sorted(t.value for t in query.tiers)) if query.tiers is not None else "all",
-            store=",".join(sorted(k.value for k, v in self.substrates().items() if v)),
+            tier=self._read_tier_label(query),
+            store=self._store_label(),
         ):
             return self._read(scope, query, method="read")
 
@@ -1095,8 +1118,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         with memory_span(
             "read",
             tenant_id=scope.tenant_id,
-            tier=",".join(sorted(t.value for t in query.tiers)) if query.tiers is not None else "all",
-            store=",".join(sorted(k.value for k, v in self.substrates().items() if v)),
+            tier=self._read_tier_label(query),
+            store=self._store_label(),
         ):
             return await self._aread(scope, query, method="aread")
 
@@ -1774,10 +1797,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         with memory_span(
             "consolidate",
             tenant_id=scope.tenant_id,
-            tier=",".join(sorted(t.value for t in tiers))
-            if tiers is not None
-            else f"{CONSOLIDATION_SOURCE.value}->{CONSOLIDATION_TARGET.value}",
-            store=",".join(sorted(k.value for k, v in self.substrates().items() if v)),
+            tier=self._consolidate_tier_label(tiers),
+            store=self._store_label(),
         ):
             vector = self._check_consolidatable(tiers)
             instant = now_epoch_s()
@@ -1908,10 +1929,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         with memory_span(
             "consolidate",
             tenant_id=scope.tenant_id,
-            tier=",".join(sorted(t.value for t in tiers))
-            if tiers is not None
-            else f"{CONSOLIDATION_SOURCE.value}->{CONSOLIDATION_TARGET.value}",
-            store=",".join(sorted(k.value for k, v in self.substrates().items() if v)),
+            tier=self._consolidate_tier_label(tiers),
+            store=self._store_label(),
         ):
             vector = self._check_consolidatable(tiers)
             instant = now_epoch_s()

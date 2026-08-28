@@ -78,9 +78,12 @@ def spans_named(exporter: InMemorySpanExporter, name: str):
 
 
 def assert_common_attributes(attrs) -> None:
-    """Same four attributes `test_memory_tracing.py` asserts, minus `store`: the seed has no
+    """Same attributes `test_memory_tracing.py` asserts, minus `store`: the seed has no
     substrates (see `substrates()`), so `memory_span` is passed `store=None` and omits it."""
     assert attrs["egpt.memory.tenant_id"] == "acme"
+    # See test_memory_tracing.py's assert_common_attributes -- create_trace_from_spans reads this
+    # bare key off the trace's root span, with no `.memory.` fallback.
+    assert attrs["egpt.tenant_id"] == "acme"
     assert isinstance(attrs["egpt.memory.tier"], str) and attrs["egpt.memory.tier"]
     assert "egpt.memory.store" not in attrs
     assert isinstance(attrs["egpt.memory.latency_ms"], float)

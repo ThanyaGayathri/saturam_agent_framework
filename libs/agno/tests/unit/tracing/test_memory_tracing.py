@@ -24,6 +24,7 @@ from opentelemetry.trace import StatusCode  # noqa: E402
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider  # noqa: E402
 from egpt.memory.config import MemoryProviderConfig  # noqa: E402
 from egpt.memory.types import MemoryEvent, MemoryQuery, PartialWriteError, Scope  # noqa: E402
+from egpt.tracing.schemas import Span, create_trace_from_spans  # noqa: E402
 from tests.unit.memory._fakes import FakeGraph, FakeVector  # noqa: E402
 
 ACME = Scope(tenant_id="acme", user_id="u1")
@@ -85,8 +86,12 @@ def spans_named(exporter: InMemorySpanExporter, name: str):
 
 
 def assert_common_attributes(attrs) -> None:
-    """The four attributes every memory span must carry, per SM-X4's acceptance criteria."""
+    """The five attributes every memory span must carry, per SM-X4's acceptance criteria."""
     assert attrs["egpt.memory.tenant_id"] == "acme"
+    # The bare `egpt.tenant_id` (no `.memory.` infix) is also set -- `create_trace_from_spans`
+    # (`tracing/schemas.py`) resolves `Trace.tenant_id` by reading this exact key off the trace's
+    # root span, with no `.memory.` fallback. See `test_standalone_memory_span_resolves_a_tenant_id`.
+    assert attrs["egpt.tenant_id"] == "acme"
     assert isinstance(attrs["egpt.memory.tier"], str) and attrs["egpt.memory.tier"]
     assert isinstance(attrs["egpt.memory.store"], str) and attrs["egpt.memory.store"]
     assert isinstance(attrs["egpt.memory.latency_ms"], float)
@@ -285,3 +290,65 @@ def test_a_raised_exception_from_the_wrapped_call_still_propagates_and_closes_th
     assert len(spans) == 1
     assert spans[0].status.status_code == StatusCode.ERROR
     assert any(event.name == "exception" for event in spans[0].events)
+
+
+# ---------------------------------------------------------------------------
+# Regression: a standalone memory span (no enclosing agent run) must still
+# resolve a tenant_id once it goes through create_trace_from_spans.
+# ---------------------------------------------------------------------------
+
+
+def test_standalone_memory_span_resolves_a_tenant_id(span_exporter):
+    """A memory call with no enclosing AGENT span -- e.g. a background consolidation worker, or
+    this PR's own cookbook -- makes the `memory.*` span itself the trace's root span.
+    `create_trace_from_spans` reads `Trace.tenant_id` off the root span's `egpt.tenant_id`
+    attribute only, with no `egpt.memory.tenant_id` fallback -- so `memory_span` must set the bare
+    key too, or every such trace resolves to `tenant_id=None` and gets fail-closed hidden by every
+    tenant-scoped trace API caller."""
+    provider = build_provider()
+    events = [MemoryEvent(content="the customer prefers email over phone", scope=ACME)]
+
+    provider.write(ACME, events)
+
+    otel_spans = span_exporter.get_finished_spans()
+    assert len(otel_spans) == 1
+    assert otel_spans[0].parent is None  # confirms this span really is the trace's root
+
+    converted = [Span.from_otel_span(s) for s in otel_spans]
+    trace = create_trace_from_spans(converted)
+
+    assert trace is not None
+    assert trace.tenant_id == "acme"
+
+
+# ---------------------------------------------------------------------------
+# Regression: a legal-but-empty tier/store must be recorded as a meaningful
+# value, not silently dropped as if tracing had failed.
+# ---------------------------------------------------------------------------
+
+
+def test_write_with_no_events_records_an_explicit_empty_tier(span_exporter):
+    """`write(scope, [])` is legal (`_prepare` has no emptiness guard). The derived tier label is
+    `""`, which must still be recorded -- as `"none"`, not omitted -- so it stays distinguishable
+    from a span that failed to record attributes at all."""
+    provider = build_provider()
+
+    provider.write(ACME, [])
+
+    spans = spans_named(span_exporter, "memory.write")
+    assert len(spans) == 1
+    assert spans[0].attributes["egpt.memory.tier"] == "none"
+
+
+def test_read_with_empty_tiers_records_an_explicit_empty_tier(span_exporter):
+    """`MemoryQuery(tiers=[])` is a legal "search no tiers" state, distinct from `tiers=None`
+    (which means "all"). It must not collapse to the same `""` a tracing failure would produce."""
+    provider = build_provider()
+    provider.write(ACME, [MemoryEvent(content="the customer prefers email over phone", scope=ACME)])
+    span_exporter.clear()
+
+    provider.read(ACME, MemoryQuery(text="customer email", limit=5, tiers=[]))
+
+    spans = spans_named(span_exporter, "memory.read")
+    assert len(spans) == 1
+    assert spans[0].attributes["egpt.memory.tier"] == "none"

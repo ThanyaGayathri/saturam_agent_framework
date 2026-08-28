@@ -46,7 +46,15 @@ def memory_span(
     which half ran to find the span.
 
     Sets ``egpt.memory.tenant_id``, ``egpt.memory.tier`` (when given), ``egpt.memory.store`` (when
-    given), and -- once the wrapped call returns or raises -- ``egpt.memory.latency_ms``.
+    given), and -- once the wrapped call returns or raises -- ``egpt.memory.latency_ms``. Also sets
+    the bare ``egpt.tenant_id`` ``agent/_run.py``'s ``_set_tenant_on_span`` uses: when this span is
+    a child of an AGENT span, that AGENT span is already the trace root and already carries it, so
+    this is redundant but harmless. When there is no enclosing run -- a standalone memory call, e.g.
+    a background consolidation worker -- this span *is* the root, and
+    ``tracing/schemas.py``'s ``create_trace_from_spans`` resolves ``Trace.tenant_id`` by reading
+    ``egpt.tenant_id`` off the root span only, with no ``.memory.`` fallback. Without setting it
+    here too, a standalone memory call's trace would resolve to ``tenant_id=None`` and get
+    fail-closed hidden by every tenant-scoped trace API caller.
 
     Every OTel call here is wrapped in a bare ``except Exception`` that logs and falls through, the
     same idiom ``agent/_run.py``'s ``_set_tenant_on_span`` uses: tracing must never be why a memory
@@ -71,8 +79,8 @@ def memory_span(
 
         tracer = trace_api.get_tracer(__name__)
         span_cm = tracer.start_as_current_span(f"memory.{operation}")
-        start = time.perf_counter()
         span = span_cm.__enter__()
+        start = time.perf_counter()
     except Exception:
         log_debug("Failed to start memory span (tracing may not be configured)")
         yield
@@ -81,10 +89,11 @@ def memory_span(
     try:
         if span.is_recording():
             span.set_attribute("egpt.memory.tenant_id", tenant_id)
-            if tier:
-                span.set_attribute("egpt.memory.tier", tier)
-            if store:
-                span.set_attribute("egpt.memory.store", store)
+            span.set_attribute("egpt.tenant_id", tenant_id)
+            if tier is not None:
+                span.set_attribute("egpt.memory.tier", tier or "none")
+            if store is not None:
+                span.set_attribute("egpt.memory.store", store or "none")
     except Exception:
         log_debug("Failed to set memory span attributes")
 
