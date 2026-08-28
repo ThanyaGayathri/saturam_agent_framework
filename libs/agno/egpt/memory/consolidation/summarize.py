@@ -94,7 +94,7 @@ from uuid import NAMESPACE_OID, uuid5
 
 from egpt.db.schemas import UserMemory
 from egpt.memory.consolidation.triggers import LatencyTrigger, ThresholdSource
-from egpt.memory.metrics import get_default_aggregator, meter_extraction_cost
+from egpt.memory.metrics import meter_response_extraction_cost
 from egpt.memory.strategies.summarize import SummarizeStrategy
 from egpt.memory.tiers import CONSOLIDATION_TARGET
 from egpt.memory.types import FactWrite, MemoryOperationError, MemoryRecord, Scope, require_scope
@@ -359,12 +359,7 @@ class LLMSessionSummarizer:
         except Exception as exc:
             raise MemoryOperationError(f"Session summarization failed: {exc}", field_name=None) from exc
         # Any episode's scope -- a consolidation pass is always single-scope, so all of them agree.
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=episodes[0].scope,
-            model=self._model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(episodes[0].scope, self._model, response)
         return self._extract(response)
 
     async def asummarize(
@@ -384,12 +379,7 @@ class LLMSessionSummarizer:
             raise
         except Exception as exc:
             raise MemoryOperationError(f"Session summarization failed: {exc}", field_name=None) from exc
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=episodes[0].scope,
-            model=self._model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(episodes[0].scope, self._model, response)
         return self._extract(response)
 
 

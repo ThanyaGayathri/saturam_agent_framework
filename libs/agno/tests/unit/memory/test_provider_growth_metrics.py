@@ -16,7 +16,7 @@ import pytest
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
 from egpt.memory.metrics import get_default_aggregator, reset_default_aggregator
-from egpt.memory.tiers import CONSOLIDATION_TARGET
+from egpt.memory.tiers import CONSOLIDATION_TARGET, MemoryTier
 from egpt.memory.types import (
     FactWrite,
     MemoryEvent,
@@ -36,6 +36,27 @@ def clean_default_aggregator():
     reset_default_aggregator()
     yield
     reset_default_aggregator()
+
+
+@pytest.fixture
+def graph_only_semantic():
+    """Re-route the semantic (consolidation target) tier to the graph alone, for one test.
+
+    Same fixture as ``test_provider_co_located.py``'s, duplicated rather than imported (no shared
+    conftest.py exists here yet): patches the live ``TIER_POLICY`` row so ``_fact_targets`` reads
+    ``to_vector=False`` -- the configuration ``_fact_targets``'s own docstring names as the one
+    where consolidate's per-group growth tracking currently under-counts.
+    """
+    from dataclasses import replace as replace_row
+
+    from egpt.memory import tiers as tiers_module
+
+    original = tiers_module.TIER_POLICY[MemoryTier.SEMANTIC]
+    tiers_module.TIER_POLICY[MemoryTier.SEMANTIC] = replace_row(original, substrates=frozenset({"graph"}))
+    try:
+        yield
+    finally:
+        tiers_module.TIER_POLICY[MemoryTier.SEMANTIC] = original
 
 
 def provider():
@@ -405,3 +426,69 @@ class TestGrowthEntryCarriesEventIdsForDedup:
         entries = [e for e in get_default_aggregator().growth if e.operation == "consolidate"]
         assert len(entries) == 1
         assert len(entries[0].event_ids) == report.semantic_written == 1
+
+
+class PartiallyCommittingGraph(FakeGraph):
+    """A double whose ``upsert_facts`` commits the first fact for real, then raises -- modeling
+    the non-atomicity ``_graph_fact_batch``'s own docstring documents for the real backend:
+    ``upsert_facts`` "is explicitly not required to be atomic, so a batch that raises may have
+    committed part of itself"."""
+
+    def upsert_facts(self, scope, facts):
+        self.calls.append("upsert_facts")
+        self.fact_batch_sizes.append(len(facts))
+        self._upsert_fact(scope, facts[0])  # the real partial commit
+        raise MemoryOperationError("backend crashed mid-batch", field_name="tier")
+
+    async def aupsert_facts(self, scope, facts):
+        self.calls.append("aupsert_facts")
+        self.upsert_facts(scope, facts)
+
+
+class TestConsolidateGrowthUndercountsAGraphOnlyPartialCommit:
+    """Documents a currently-accepted gap (PR #159 review, ``co_located.py:1727``): when the
+    consolidation target tier is graph-only (``to_vector`` False -- unreachable today, since
+    ``SEMANTIC`` routes to both, but real and tested for ``write`` via ``graph_only_semantic`` in
+    ``test_provider_co_located.py``), ``group_committed`` is only set *after* a write call returns
+    without raising. A group whose single ``upsert_facts`` call commits part of its batch and then
+    raises -- exactly what ``_graph_fact_batch``'s docstring says can happen -- never reaches that
+    line, so its real partial commit is recorded as zero growth.
+
+    This is the safe direction (under-count, never fabricate growth that didn't happen -- the
+    opposite failure the ``write``/``awrite`` phantom-growth bug had), and fixing it for real needs
+    the graph substrate to report how much of a failed batch committed, which no ``GraphSubstrate``
+    implementation in this tree does today. This test pins that current, documented behavior so a
+    future change here is deliberate, not a silent regression either way.
+    """
+
+    def test_a_groups_own_partial_commit_is_not_recorded_as_growth(self, graph_only_semantic):
+        graph = PartiallyCommittingGraph()
+        config = MemoryProviderConfig(provider="co_located")
+        p = CoLocatedMemoryProvider(vector=FakeVector(), graph=graph, config=config)
+        facts = [_fact(ACME, "f1"), _fact(ACME, "f2")]
+        p._distil_facts = lambda scope, episodes: (facts, 0, 0, "test", "test")
+
+        with pytest.raises(PartialWriteError):
+            p.consolidate(ACME)
+
+        assert len(graph.facts) == 1, "the first fact genuinely committed before the raise"
+        assert get_default_aggregator().growth == [], (
+            "the group's real partial commit is not reflected in growth -- the documented gap"
+        )
+
+    async def test_the_async_half_has_the_same_gap(self, graph_only_semantic):
+        graph = PartiallyCommittingGraph()
+        config = MemoryProviderConfig(provider="co_located")
+        p = CoLocatedMemoryProvider(vector=FakeVector(), graph=graph, config=config)
+        facts = [_fact(ACME, "f1"), _fact(ACME, "f2")]
+        p._adistil_facts = lambda scope, episodes: _resolved((facts, 0, 0, "test", "test"))
+
+        with pytest.raises(PartialWriteError):
+            await p.aconsolidate(ACME)
+
+        assert len(graph.facts) == 1
+        assert get_default_aggregator().growth == []
+
+
+async def _resolved(value):
+    return value

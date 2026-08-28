@@ -43,7 +43,7 @@ from pydantic import BaseModel, Field
 
 from egpt.memory.consolidation.triggers import SizeTrigger, ThresholdSource, validated_threshold
 from egpt.memory.graph.passes import select_current_episodes
-from egpt.memory.metrics import get_default_aggregator, meter_extraction_cost
+from egpt.memory.metrics import meter_response_extraction_cost
 from egpt.memory.tiers import CONSOLIDATION_TARGET
 from egpt.memory.types import FactWrite, MemoryOperationError, MemoryRecord, Scope, require_scope
 from egpt.utils.dttm import now_epoch_s
@@ -309,12 +309,7 @@ class LLMInsightSynthesizer:
         except Exception as exc:
             raise MemoryOperationError(f"Reflection synthesis failed: {exc}", field_name=None) from exc
         # Any episode's scope -- a consolidation pass is always single-scope, so all of them agree.
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=episodes[0].scope,
-            model=self._model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(episodes[0].scope, self._model, response)
         return self._extract(response)
 
     async def asynthesize(self, episodes: Sequence[MemoryRecord]) -> Optional[SynthesizedInsight]:
@@ -333,12 +328,7 @@ class LLMInsightSynthesizer:
             raise
         except Exception as exc:
             raise MemoryOperationError(f"Reflection synthesis failed: {exc}", field_name=None) from exc
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=episodes[0].scope,
-            model=self._model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(episodes[0].scope, self._model, response)
         return self._extract(response)
 
 

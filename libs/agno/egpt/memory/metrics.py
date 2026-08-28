@@ -60,6 +60,7 @@ __all__ = [
     "embedder_provider_key",
     "meter_embedding_cost",
     "meter_extraction_cost",
+    "meter_response_extraction_cost",
     "record_growth",
 ]
 
@@ -151,6 +152,23 @@ def meter_extraction_cost(
         )
     except Exception as exc:
         log_debug(f"Memory extraction cost metering skipped: {exc}")
+
+
+def meter_response_extraction_cost(scope: Scope, model: Any, response: Any) -> None:
+    """``meter_extraction_cost`` against the shared default aggregator, for a
+    ``model.response(...)``/``.aresponse(...)`` result -- the one shape every extraction/
+    reflection/summarization call site in this package shares. Introduced so those call sites
+    (entity/relation/fact extraction, merge decisions, reflection, session summarization) don't
+    each repeat the same three-line ``get_default_aggregator()`` + ``getattr(response,
+    "response_usage", None)`` boilerplate, which is what let round 2 of the SM-X8 review miss
+    four of them in the first place -- one line to audit here instead of one per call site.
+    """
+    meter_extraction_cost(
+        get_default_aggregator(),
+        scope=scope,
+        model=model,
+        response_usage=getattr(response, "response_usage", None),
+    )
 
 
 def record_growth(

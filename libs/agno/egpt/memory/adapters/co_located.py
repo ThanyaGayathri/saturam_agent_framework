@@ -775,6 +775,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
             receipt = self._receipt(stamped)
             vector_committed = False
+            graph_committed = False
             try:
                 if self.vector is not None and vector_records:
                     self.vector.upsert(scope, vector_records)
@@ -790,10 +791,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
                     def attempt(write: Any, batch: Sequence[Any]) -> None:
                         """One try/except, shared by both verbs. Written twice, they drift."""
+                        nonlocal graph_committed
                         if not batch:
                             return
                         try:
                             write(scope, batch)
+                            graph_committed = True
                         except Exception as exc:
                             failures.append(exc)
 
@@ -801,10 +804,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     attempt(self.graph.upsert_facts, facts)
                     self._raise_write_failure(failures, receipt)
             except PartialWriteError:
-                # Per `_raise_write_failure`'s own docstring, this is only raised once the vector
-                # leg has already committed the full batch -- growth genuinely happened, so it
-                # must be recorded even though the call itself is about to fail.
-                self._record_write_growth(scope, stamped)
+                # `_raise_write_failure`'s own docstring assumes the vector leg has already
+                # committed the full batch by the time this raises -- true whenever a provider
+                # has a vector substrate, since every graph-routed tier also routes to vector
+                # (`TIER_POLICY`). It is *not* true for a graph-only provider (`vector=None` is a
+                # valid config, `__init__` only requires one substrate) -- there, this branch can
+                # be reached with `vector_committed` and `graph_committed` both `False` (every
+                # attempted graph verb failed), and growth must not be recorded for that.
+                if vector_committed or graph_committed:
+                    self._record_write_growth(scope, stamped)
                 raise
             except MemoryOperationError:
                 raise  # the vector leg itself refused before anything committed -- nothing grew
@@ -838,6 +846,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
             receipt = self._receipt(stamped)
             vector_committed = False
+            graph_committed = False
             try:
                 if self.vector is not None and vector_records:
                     await self.vector.aupsert(scope, vector_records)
@@ -856,9 +865,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         writes.append(self.graph.aupsert_episodes(scope, episodes))
                     if facts:
                         writes.append(self.graph.aupsert_facts(scope, facts))
-                    await self._gather_writes(writes, receipt)
+                    if writes:
+                        graph_committed, failures = await self._gather_writes(writes)
+                        self._raise_write_failure(failures, receipt)
             except PartialWriteError:
-                self._record_write_growth(scope, stamped)
+                # See the sync half's comment: `_raise_write_failure`'s "vector already
+                # committed" assumption does not hold for a graph-only provider, so this must
+                # reflect what `graph_committed`/`vector_committed` actually saw, not assume.
+                if vector_committed or graph_committed:
+                    self._record_write_growth(scope, stamped)
                 raise
             except MemoryOperationError:
                 raise
@@ -894,12 +909,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
         refusal = next((f for f in failures if isinstance(f, MemoryOperationError)), None)
         raise PartialWriteError(receipt) from (refusal or failures[0])
 
-    async def _gather_writes(self, coroutines: Sequence[Awaitable[Any]], receipt: WriteReceipt) -> None:
-        """Run write coroutines concurrently, **settle them all**, then propagate.
+    async def _gather_writes(self, coroutines: Sequence[Awaitable[Any]]) -> Tuple[bool, List[BaseException]]:
+        """Run write coroutines concurrently, **settle them all**, and report what happened.
 
         Bounded by a semaphore as well: `batch` is capped only by `max_episodes_per_pass` and
         `events` is caller-supplied, so an unbounded fan-out is thousands of simultaneous round
         trips against a real engine -- which exhausts a connection pool rather than going fast.
+
+        Returns ``(committed_any, failures)`` rather than raising itself: a caller needs to know
+        whether *anything* committed (to decide whether a growth entry is honest) even on the
+        branch where it goes on to raise via `_raise_write_failure` -- which is why that call is
+        left to the caller, after it has looked at `committed_any`.
         """
         semaphore = asyncio.Semaphore(self.max_concurrent_writes)
 
@@ -909,7 +929,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         # Settled, so which failure surfaces is a decision rather than a race.
         results = await asyncio.gather(*(bounded(c) for c in coroutines), return_exceptions=True)
-        self._raise_write_failure([r for r in results if isinstance(r, BaseException)], receipt)
+        failures = [r for r in results if isinstance(r, BaseException)]
+        committed_any = len(failures) < len(results)
+        return committed_any, failures
 
     @staticmethod
     def _graph_batches(
@@ -1729,8 +1751,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         ``write`` filters by routing and ``_graph_batches`` drops a tier that does not reach the
         graph; consolidate did neither, so it wrote wherever a substrate happened to be wired.
-        Latent while SEMANTIC routes to both -- and silent the moment SM-C2 (#90), which owns that
-        table, changes a row.
+
+        **Growth-tracking caveat, latent while SEMANTIC routes to both vector and graph.**
+        consolidate()/aconsolidate()'s per-group growth tracking (``group_committed``, set only
+        after a write call returns without raising) counts on the atomic vector leg landing before
+        a non-atomic ``upsert_facts``/``aupsert_facts`` call (see ``_graph_fact_batch``'s own
+        docstring: that call "is explicitly not required to be atomic") can partially commit and
+        then raise. A graph-only target tier (``to_vector`` False here, a real and tested
+        configuration -- see ``test_consolidation_honours_tier_routing_like_the_write_path_does``)
+        already exercises the happy path fine; what stays uncovered is a group whose graph leg
+        *partially* commits before raising with no vector leg to have already banked that growth --
+        that group under-counts (records zero, not the row(s) that actually landed) rather than
+        over-counting, which is the safe direction but still a real gap. Fixing it for real needs
+        the graph substrate to report how much of a failed batch committed, which no
+        ``GraphSubstrate`` implementation in this tree does today -- tracked as SM-X8 follow-up
+        rather than guarded here, since refusing this configuration outright would break the
+        graph-only tier routing above, which is intentional and already relied upon.
         """
         routed = substrates_for_tier(CONSOLIDATION_TARGET) if facts else frozenset()
         return "vector" in routed, "graph" in routed
@@ -2058,7 +2094,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
                                 committed_any = True
                                 group_committed = True
                             if to_graph and self.graph is not None:
-                                await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)
+                                _, failures = await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)])
+                                self._raise_write_failure(failures, receipt)
                                 committed_any = True
                                 group_committed = True
                         finally:

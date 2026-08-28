@@ -23,7 +23,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence,
 from pydantic import BaseModel, Field
 
 from egpt.memory.graph.passes import select_current_episodes
-from egpt.memory.metrics import get_default_aggregator, meter_extraction_cost
+from egpt.memory.metrics import (
+    get_default_aggregator,
+    meter_embedding_cost,
+    meter_response_extraction_cost,
+)
 from egpt.memory.substrates import GraphSubstrate
 from egpt.memory.types import (
     EntityWrite,
@@ -175,23 +179,13 @@ class LLMEntityExtractor:
     def extract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:
         model = deepcopy(self.model)
         response = model.response(messages=self._messages(episode), response_format=ExtractedEntities)
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=episode.scope,
-            model=model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(episode.scope, model, response)
         return self._parse(response, episode.id)
 
     async def aextract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:
         model = deepcopy(self.model)
         response = await model.aresponse(messages=self._messages(episode), response_format=ExtractedEntities)
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=episode.scope,
-            model=model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(episode.scope, model, response)
         return self._parse(response, episode.id)
 
 
@@ -380,6 +374,47 @@ class EntityExtractionPipeline:
             return self.embedding_version
         return f"{getattr(self.embedder, 'id', type(self.embedder).__name__)}/d{dim}"
 
+    def _metered_embedding(self, entity: EntityWrite, call_arg: str) -> Any:
+        """One candidate's vector, metered against its own scope (SM-X8, aicoe-tracker#144).
+
+        ``run``/``arun`` call ``self.embedder`` directly rather than through
+        ``MemoryEmbedder.embed_texts``, so this mirrors ``MemoryEmbedder._metered_embed_one``'s
+        ``hasattr`` guard and fallback here: an embedder without ``get_embedding_and_usage`` (or
+        one that raises ``NotImplementedError``) falls back to the plain, unmetered call rather
+        than breaking extraction.
+        """
+        if hasattr(self.embedder, "get_embedding_and_usage"):
+            try:
+                vector, usage = self.embedder.get_embedding_and_usage(call_arg)
+                meter_embedding_cost(
+                    get_default_aggregator(),
+                    tenant_id=entity.scope.tenant_id,
+                    agent_id=entity.scope.agent_id,
+                    embedder=self.embedder,
+                    usage=usage,
+                )
+                return vector
+            except NotImplementedError:
+                pass
+        return self.embedder.get_embedding(call_arg)
+
+    async def _ametered_embedding(self, entity: EntityWrite, call_arg: str) -> Any:
+        """Async twin of :meth:`_metered_embedding`."""
+        if hasattr(self.embedder, "async_get_embedding_and_usage"):
+            try:
+                vector, usage = await self.embedder.async_get_embedding_and_usage(call_arg)
+                meter_embedding_cost(
+                    get_default_aggregator(),
+                    tenant_id=entity.scope.tenant_id,
+                    agent_id=entity.scope.agent_id,
+                    embedder=self.embedder,
+                    usage=usage,
+                )
+                return vector
+            except NotImplementedError:
+                pass
+        return await self.embedder.async_get_embedding(call_arg)
+
     @staticmethod
     def _batches(entities: Sequence[EntityWrite]) -> List[Tuple[Scope, List[EntityWrite]]]:
         """Group by the entity's own scope, which is the scope it must be written under."""
@@ -420,7 +455,7 @@ class EntityExtractionPipeline:
         embedded: List[EntityWrite] = []
         dim: Optional[int] = None
         for entity in self._merged(candidates):
-            ready = self._embedded(entity, self.embedder.get_embedding(embedding_text(entity)), dim)
+            ready = self._embedded(entity, self._metered_embedding(entity, embedding_text(entity)), dim)
             if ready.embedding is None:
                 raise MemoryOperationError(
                     f"_embedded returned {ready.name!r} with no embedding; with_embedding "
@@ -448,7 +483,7 @@ class EntityExtractionPipeline:
         embedded: List[EntityWrite] = []
         dim: Optional[int] = None
         for entity in self._merged(candidates):
-            ready = self._embedded(entity, await self.embedder.async_get_embedding(embedding_text(entity)), dim)
+            ready = self._embedded(entity, await self._ametered_embedding(entity, embedding_text(entity)), dim)
             if ready.embedding is None:
                 raise MemoryOperationError(
                     f"_embedded returned {ready.name!r} with no embedding; with_embedding "

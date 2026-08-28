@@ -43,7 +43,7 @@ from uuid import NAMESPACE_OID, uuid5
 from pydantic import BaseModel, Field
 
 from egpt.memory.graph.passes import select_current_episodes
-from egpt.memory.metrics import get_default_aggregator, meter_extraction_cost
+from egpt.memory.metrics import meter_response_extraction_cost
 from egpt.memory.substrates import VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -246,23 +246,13 @@ class LLMFactExtractor:
         response = model.response(messages=self._messages(episodes), response_format=ExtractedFacts)
         # Any episode's scope -- a consolidation pass is always single-scope, so all of them agree
         # (same convention `LLMSessionSummarizer.summarize` uses).
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=episodes[0].scope,
-            model=model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(episodes[0].scope, model, response)
         return self._parse(response)
 
     async def aextract(self, episodes: Sequence[MemoryRecord]) -> Sequence[FactCandidate]:
         model = deepcopy(self.model)
         response = await model.aresponse(messages=self._messages(episodes), response_format=ExtractedFacts)
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=episodes[0].scope,
-            model=model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(episodes[0].scope, model, response)
         return self._parse(response)
 
 
@@ -318,12 +308,7 @@ class LLMMergeDecider:
         response = model.response(messages=self._messages(statement, neighbors), response_format=MergeDecision)
         # Any neighbor's scope -- like `LLMFactExtractor.extract`, a consolidation pass is always
         # single-scope, so all of them agree.
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=neighbors[0].scope,
-            model=model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(neighbors[0].scope, model, response)
         return self._parse(response)
 
     async def adecide(self, statement: str, neighbors: Sequence[MemoryRecord]) -> MergeDecision:
@@ -331,12 +316,7 @@ class LLMMergeDecider:
             return MergeDecision(op="ADD", target_index=None, statement=statement)
         model = deepcopy(self.model)
         response = await model.aresponse(messages=self._messages(statement, neighbors), response_format=MergeDecision)
-        meter_extraction_cost(
-            get_default_aggregator(),
-            scope=neighbors[0].scope,
-            model=model,
-            response_usage=getattr(response, "response_usage", None),
-        )
+        meter_response_extraction_cost(neighbors[0].scope, model, response)
         return self._parse(response)
 
 
