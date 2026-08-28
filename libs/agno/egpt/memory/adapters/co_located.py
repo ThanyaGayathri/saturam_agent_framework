@@ -760,16 +760,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         require_scope(scope, method="write")
-        if not events:
-            # Guards a degenerate `MemoryGrowthEntry(tier="", accepted=0)` -- an empty batch has
-            # nothing to grow the store by, so it shouldn't record that it did.
-            return self._receipt([])
         with memory_span(
             "write",
             tenant_id=scope.tenant_id,
             tier=self._write_tier_label(events),
             store=self._store_label(),
         ):
+            if not events:
+                # Guards a degenerate `MemoryGrowthEntry(tier="", accepted=0)` -- an empty batch
+                # has nothing to grow the store by, so it shouldn't record that it did. The span
+                # above still opens: an empty write is a legal call this seam must still trace.
+                return self._receipt([])
             stamped, records = self._prepare(scope, events)
             vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
             receipt = self._receipt(stamped)
@@ -824,14 +825,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         require_scope(scope, method="awrite")
-        if not events:
-            return self._receipt([])
         with memory_span(
             "write",
             tenant_id=scope.tenant_id,
             tier=self._write_tier_label(events),
             store=self._store_label(),
         ):
+            if not events:
+                # See the sync half's comment: the span still opens for an empty write.
+                return self._receipt([])
             stamped, records = self._prepare(scope, events)
             vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
             receipt = self._receipt(stamped)
