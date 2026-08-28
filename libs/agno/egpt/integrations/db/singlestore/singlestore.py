@@ -501,13 +501,17 @@ class SingleStoreDb(BaseDb):
             sess.execute(stmt)
 
     # -- Session methods --
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """
         Delete a session from the database.
 
         Args:
             session_id (str): ID of the session to delete
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             bool: True if the session was deleted, False otherwise.
@@ -515,6 +519,7 @@ class SingleStoreDb(BaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -524,6 +529,8 @@ class SingleStoreDb(BaseDb):
                 delete_stmt = table.delete().where(table.c.session_id == session_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(delete_stmt)
                 if result.rowcount == 0:
                     log_debug(f"No session found to delete with session_id: {session_id} in table {table.name}")
@@ -536,17 +543,22 @@ class SingleStoreDb(BaseDb):
             log_error(f"Error deleting session: {str(e)}")
             raise e
 
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete all given sessions from the database.
         Can handle multiple session types in the same run.
 
         Args:
             session_ids (List[str]): The IDs of the sessions to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_sessions")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -556,6 +568,8 @@ class SingleStoreDb(BaseDb):
                 delete_stmt = table.delete().where(table.c.session_id.in_(session_ids))
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(delete_stmt)
 
             log_debug(f"Successfully deleted {result.rowcount} sessions")
@@ -570,6 +584,8 @@ class SingleStoreDb(BaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Read a session from the database.
@@ -579,6 +595,8 @@ class SingleStoreDb(BaseDb):
             session_type (Optional[SessionType]): Type of session to get. If None, the type is inferred.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults
+                to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[Session, Dict[str, Any], None]:
@@ -588,6 +606,7 @@ class SingleStoreDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -598,6 +617,8 @@ class SingleStoreDb(BaseDb):
 
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(stmt).fetchone()
                 if result is None:
                     return None
@@ -626,6 +647,8 @@ class SingleStoreDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """
         Get all sessions in the given table. Can filter by user_id and entity_id.
@@ -643,6 +666,8 @@ class SingleStoreDb(BaseDb):
             sort_order (Optional[str]): The sort order. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the sessions. Defaults to True.
             create_table_if_not_found (Optional[bool]): Whether to create the table if it doesn't exist.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[List[Session], Tuple[List[Dict], int]]:
@@ -652,6 +677,7 @@ class SingleStoreDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_sessions")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -663,6 +689,8 @@ class SingleStoreDb(BaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if component_id is not None:
                     if session_type == SessionType.AGENT:
                         stmt = stmt.where(table.c.agent_id == component_id)
@@ -724,6 +752,8 @@ class SingleStoreDb(BaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Rename a session in the database.
@@ -734,6 +764,8 @@ class SingleStoreDb(BaseDb):
             session_name (str): The new name for the session.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the rename to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -743,6 +775,7 @@ class SingleStoreDb(BaseDb):
         Raises:
             Exception: If an error occurs during renaming.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "rename_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -758,6 +791,8 @@ class SingleStoreDb(BaseDb):
                     stmt = stmt.where(table.c.session_type == session_type.value)
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(stmt)
                 if result.rowcount == 0:
                     return None
@@ -768,6 +803,8 @@ class SingleStoreDb(BaseDb):
                     select_stmt = select_stmt.where(table.c.session_type == session_type.value)
                 if user_id is not None:
                     select_stmt = select_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    select_stmt = select_stmt.where(table.c.tenant_id == tenant_id)
                 row = sess.execute(select_stmt).fetchone()
                 if not row:
                     return None
@@ -785,13 +822,18 @@ class SingleStoreDb(BaseDb):
             log_error(f"Error renaming session: {str(e)}")
             raise e
 
-    def upsert_session(self, session: Session, deserialize: Optional[bool] = True) -> Optional[Session]:
+    def upsert_session(
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
+    ) -> Optional[Session]:
         """
         Insert or update a session in the database.
 
         Args:
             session (Session): The session data to upsert.
             deserialize (Optional[bool]): Whether to deserialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -801,6 +843,7 @@ class SingleStoreDb(BaseDb):
         Raises:
             Exception: If an error occurs during upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_session")
         try:
             table = self._get_table(table_type="sessions", create_table_if_not_found=True)
             if table is None:
@@ -811,13 +854,15 @@ class SingleStoreDb(BaseDb):
             if isinstance(session, AgentSession):
                 with self.Session() as sess, sess.begin():
                     existing_row = sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     ).fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     stmt = mysql.insert(table).values(
@@ -825,6 +870,7 @@ class SingleStoreDb(BaseDb):
                         session_type=SessionType.AGENT.value,
                         agent_id=session_dict.get("agent_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         agent_data=session_dict.get("agent_data"),
                         session_data=session_dict.get("session_data"),
@@ -834,6 +880,8 @@ class SingleStoreDb(BaseDb):
                         updated_at=session_dict.get("created_at"),
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         agent_id=stmt.inserted.agent_id,
                         user_id=stmt.inserted.user_id,
                         agent_data=stmt.inserted.agent_data,
@@ -862,13 +910,15 @@ class SingleStoreDb(BaseDb):
             elif isinstance(session, TeamSession):
                 with self.Session() as sess, sess.begin():
                     existing_row = sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     ).fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     stmt = mysql.insert(table).values(
@@ -876,6 +926,7 @@ class SingleStoreDb(BaseDb):
                         session_type=SessionType.TEAM.value,
                         team_id=session_dict.get("team_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         team_data=session_dict.get("team_data"),
                         session_data=session_dict.get("session_data"),
@@ -885,6 +936,8 @@ class SingleStoreDb(BaseDb):
                         updated_at=session_dict.get("created_at"),
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         team_id=stmt.inserted.team_id,
                         user_id=stmt.inserted.user_id,
                         team_data=stmt.inserted.team_data,
@@ -913,13 +966,15 @@ class SingleStoreDb(BaseDb):
             else:
                 with self.Session() as sess, sess.begin():
                     existing_row = sess.execute(
-                        select(table.c.user_id)
+                        select(table.c.user_id, table.c.tenant_id)
                         .where(table.c.session_id == session_dict.get("session_id"))
                         .with_for_update()
                     ).fetchone()
                     if existing_row is not None:
-                        existing_uid = existing_row[0]
+                        existing_uid, existing_tenant_id = existing_row[0], existing_row[1]
                         if existing_uid is not None and existing_uid != session_dict.get("user_id"):
+                            return None
+                        if tenant_id is not None and existing_tenant_id is not None and existing_tenant_id != tenant_id:
                             return None
 
                     stmt = mysql.insert(table).values(
@@ -927,6 +982,7 @@ class SingleStoreDb(BaseDb):
                         session_type=SessionType.WORKFLOW.value,
                         workflow_id=session_dict.get("workflow_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         workflow_data=session_dict.get("workflow_data"),
                         session_data=session_dict.get("session_data"),
@@ -936,6 +992,8 @@ class SingleStoreDb(BaseDb):
                         updated_at=session_dict.get("created_at"),
                     )
                     stmt = stmt.on_duplicate_key_update(
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         workflow_id=stmt.inserted.workflow_id,
                         user_id=stmt.inserted.user_id,
                         workflow_data=stmt.inserted.workflow_data,
@@ -966,7 +1024,12 @@ class SingleStoreDb(BaseDb):
             raise e
 
     def upsert_sessions(
-        self, sessions: List[Session], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        sessions: List[Session],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk upsert multiple sessions for improved performance on large datasets.
@@ -974,6 +1037,10 @@ class SingleStoreDb(BaseDb):
         Args:
             sessions (List[Session]): List of sessions to upsert.
             deserialize (Optional[bool]): Whether to deserialize the sessions. Defaults to True.
+            preserve_updated_at (bool): If True, preserve the updated_at from the session object.
+            tenant_id (Optional[str]): Tenant to stamp every session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             List[Union[Session, Dict[str, Any]]]: List of upserted sessions.
@@ -981,6 +1048,7 @@ class SingleStoreDb(BaseDb):
         Raises:
             Exception: If an error occurs during bulk upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_sessions")
         if not sessions:
             return []
 
@@ -1018,6 +1086,7 @@ class SingleStoreDb(BaseDb):
                                 "session_type": SessionType.AGENT.value,
                                 "agent_id": session_dict.get("agent_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "agent_data": session_dict.get("agent_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -1029,32 +1098,62 @@ class SingleStoreDb(BaseDb):
                         )
 
                     if agent_data:
-                        stmt = mysql.insert(table)
-                        stmt = stmt.on_duplicate_key_update(
-                            agent_id=stmt.inserted.agent_id,
-                            user_id=stmt.inserted.user_id,
-                            agent_data=stmt.inserted.agent_data,
-                            session_data=stmt.inserted.session_data,
-                            summary=stmt.inserted.summary,
-                            metadata=stmt.inserted.metadata,
-                            runs=stmt.inserted.runs,
-                            updated_at=stmt.inserted.updated_at,
-                        )
-                        sess.execute(stmt, agent_data)
-
-                        # Fetch the results for agent sessions
-                        agent_ids = [session.session_id for session in agent_sessions]
-                        select_stmt = select(table).where(table.c.session_id.in_(agent_ids))
-                        result = sess.execute(select_stmt).fetchall()
-
-                        for row in result:
-                            if deserialize:
-                                deserialized_session = AgentSession.from_dict(session_dict)
-                                if deserialized_session is None:
+                        # MySQL/SingleStore's ON DUPLICATE KEY UPDATE has no WHERE clause, so
+                        # ownership can't be gated in the statement itself (unlike Postgres/
+                        # SQLite's bulk_conflict_where). Pre-check existing rows and only
+                        # bulk-write the ones this call owns, mirroring the singular
+                        # upsert_session's pre-check (aicoe-tracker#197).
+                        agent_ids = [record["session_id"] for record in agent_data]
+                        existing_rows = sess.execute(
+                            select(table.c.session_id, table.c.user_id, table.c.tenant_id)
+                            .where(table.c.session_id.in_(agent_ids))
+                            .with_for_update()
+                        ).fetchall()
+                        existing_by_id = {row.session_id: (row.user_id, row.tenant_id) for row in existing_rows}
+                        allowed_agent_data = []
+                        for record in agent_data:
+                            existing = existing_by_id.get(record["session_id"])
+                            if existing is not None:
+                                existing_uid, existing_tenant_id = existing
+                                if existing_uid is not None and existing_uid != record.get("user_id"):
                                     continue
-                                results.append(deserialized_session)
-                            else:
-                                results.append(dict(row._mapping))
+                                if (
+                                    tenant_id is not None
+                                    and existing_tenant_id is not None
+                                    and existing_tenant_id != tenant_id
+                                ):
+                                    continue
+                            allowed_agent_data.append(record)
+
+                        if allowed_agent_data:
+                            stmt = mysql.insert(table)
+                            stmt = stmt.on_duplicate_key_update(
+                                # tenant_id is deliberately excluded: an upsert never moves an
+                                # existing row between tenants, only the insert branch stamps it.
+                                agent_id=stmt.inserted.agent_id,
+                                user_id=stmt.inserted.user_id,
+                                agent_data=stmt.inserted.agent_data,
+                                session_data=stmt.inserted.session_data,
+                                summary=stmt.inserted.summary,
+                                metadata=stmt.inserted.metadata,
+                                runs=stmt.inserted.runs,
+                                updated_at=stmt.inserted.updated_at,
+                            )
+                            sess.execute(stmt, allowed_agent_data)
+
+                            # Fetch the results for the agent sessions this call actually wrote
+                            allowed_ids = [record["session_id"] for record in allowed_agent_data]
+                            select_stmt = select(table).where(table.c.session_id.in_(allowed_ids))
+                            result = sess.execute(select_stmt).fetchall()
+
+                            for row in result:
+                                if deserialize:
+                                    deserialized_session = AgentSession.from_dict(dict(row._mapping))
+                                    if deserialized_session is None:
+                                        continue
+                                    results.append(deserialized_session)
+                                else:
+                                    results.append(dict(row._mapping))
 
                 # Bulk upsert team sessions
                 if team_sessions:
@@ -1069,6 +1168,7 @@ class SingleStoreDb(BaseDb):
                                 "session_type": SessionType.TEAM.value,
                                 "team_id": session_dict.get("team_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "team_data": session_dict.get("team_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -1080,32 +1180,62 @@ class SingleStoreDb(BaseDb):
                         )
 
                     if team_data:
-                        stmt = mysql.insert(table)
-                        stmt = stmt.on_duplicate_key_update(
-                            team_id=stmt.inserted.team_id,
-                            user_id=stmt.inserted.user_id,
-                            team_data=stmt.inserted.team_data,
-                            session_data=stmt.inserted.session_data,
-                            summary=stmt.inserted.summary,
-                            metadata=stmt.inserted.metadata,
-                            runs=stmt.inserted.runs,
-                            updated_at=stmt.inserted.updated_at,
-                        )
-                        sess.execute(stmt, team_data)
-
-                        # Fetch the results for team sessions
-                        team_ids = [session.session_id for session in team_sessions]
-                        select_stmt = select(table).where(table.c.session_id.in_(team_ids))
-                        result = sess.execute(select_stmt).fetchall()
-
-                        for row in result:
-                            if deserialize:
-                                deserialized_team_session = TeamSession.from_dict(session_dict)
-                                if deserialized_team_session is None:
+                        # MySQL/SingleStore's ON DUPLICATE KEY UPDATE has no WHERE clause, so
+                        # ownership can't be gated in the statement itself (unlike Postgres/
+                        # SQLite's bulk_conflict_where). Pre-check existing rows and only
+                        # bulk-write the ones this call owns, mirroring the singular
+                        # upsert_session's pre-check (aicoe-tracker#197).
+                        team_ids = [record["session_id"] for record in team_data]
+                        existing_rows = sess.execute(
+                            select(table.c.session_id, table.c.user_id, table.c.tenant_id)
+                            .where(table.c.session_id.in_(team_ids))
+                            .with_for_update()
+                        ).fetchall()
+                        existing_by_id = {row.session_id: (row.user_id, row.tenant_id) for row in existing_rows}
+                        allowed_team_data = []
+                        for record in team_data:
+                            existing = existing_by_id.get(record["session_id"])
+                            if existing is not None:
+                                existing_uid, existing_tenant_id = existing
+                                if existing_uid is not None and existing_uid != record.get("user_id"):
                                     continue
-                                results.append(deserialized_team_session)
-                            else:
-                                results.append(dict(row._mapping))
+                                if (
+                                    tenant_id is not None
+                                    and existing_tenant_id is not None
+                                    and existing_tenant_id != tenant_id
+                                ):
+                                    continue
+                            allowed_team_data.append(record)
+
+                        if allowed_team_data:
+                            stmt = mysql.insert(table)
+                            stmt = stmt.on_duplicate_key_update(
+                                # tenant_id is deliberately excluded: an upsert never moves an
+                                # existing row between tenants, only the insert branch stamps it.
+                                team_id=stmt.inserted.team_id,
+                                user_id=stmt.inserted.user_id,
+                                team_data=stmt.inserted.team_data,
+                                session_data=stmt.inserted.session_data,
+                                summary=stmt.inserted.summary,
+                                metadata=stmt.inserted.metadata,
+                                runs=stmt.inserted.runs,
+                                updated_at=stmt.inserted.updated_at,
+                            )
+                            sess.execute(stmt, allowed_team_data)
+
+                            # Fetch the results for the team sessions this call actually wrote
+                            allowed_ids = [record["session_id"] for record in allowed_team_data]
+                            select_stmt = select(table).where(table.c.session_id.in_(allowed_ids))
+                            result = sess.execute(select_stmt).fetchall()
+
+                            for row in result:
+                                if deserialize:
+                                    deserialized_team_session = TeamSession.from_dict(dict(row._mapping))
+                                    if deserialized_team_session is None:
+                                        continue
+                                    results.append(deserialized_team_session)
+                                else:
+                                    results.append(dict(row._mapping))
 
                 # Bulk upsert workflow sessions
                 if workflow_sessions:
@@ -1120,6 +1250,7 @@ class SingleStoreDb(BaseDb):
                                 "session_type": SessionType.WORKFLOW.value,
                                 "workflow_id": session_dict.get("workflow_id"),
                                 "user_id": session_dict.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": session_dict.get("runs"),
                                 "workflow_data": session_dict.get("workflow_data"),
                                 "session_data": session_dict.get("session_data"),
@@ -1131,32 +1262,62 @@ class SingleStoreDb(BaseDb):
                         )
 
                     if workflow_data:
-                        stmt = mysql.insert(table)
-                        stmt = stmt.on_duplicate_key_update(
-                            workflow_id=stmt.inserted.workflow_id,
-                            user_id=stmt.inserted.user_id,
-                            workflow_data=stmt.inserted.workflow_data,
-                            session_data=stmt.inserted.session_data,
-                            summary=stmt.inserted.summary,
-                            metadata=stmt.inserted.metadata,
-                            runs=stmt.inserted.runs,
-                            updated_at=stmt.inserted.updated_at,
-                        )
-                        sess.execute(stmt, workflow_data)
-
-                        # Fetch the results for workflow sessions
-                        workflow_ids = [session.session_id for session in workflow_sessions]
-                        select_stmt = select(table).where(table.c.session_id.in_(workflow_ids))
-                        result = sess.execute(select_stmt).fetchall()
-
-                        for row in result:
-                            if deserialize:
-                                deserialized_workflow_session = WorkflowSession.from_dict(session_dict)
-                                if deserialized_workflow_session is None:
+                        # MySQL/SingleStore's ON DUPLICATE KEY UPDATE has no WHERE clause, so
+                        # ownership can't be gated in the statement itself (unlike Postgres/
+                        # SQLite's bulk_conflict_where). Pre-check existing rows and only
+                        # bulk-write the ones this call owns, mirroring the singular
+                        # upsert_session's pre-check (aicoe-tracker#197).
+                        workflow_ids = [record["session_id"] for record in workflow_data]
+                        existing_rows = sess.execute(
+                            select(table.c.session_id, table.c.user_id, table.c.tenant_id)
+                            .where(table.c.session_id.in_(workflow_ids))
+                            .with_for_update()
+                        ).fetchall()
+                        existing_by_id = {row.session_id: (row.user_id, row.tenant_id) for row in existing_rows}
+                        allowed_workflow_data = []
+                        for record in workflow_data:
+                            existing = existing_by_id.get(record["session_id"])
+                            if existing is not None:
+                                existing_uid, existing_tenant_id = existing
+                                if existing_uid is not None and existing_uid != record.get("user_id"):
                                     continue
-                                results.append(deserialized_workflow_session)
-                            else:
-                                results.append(dict(row._mapping))
+                                if (
+                                    tenant_id is not None
+                                    and existing_tenant_id is not None
+                                    and existing_tenant_id != tenant_id
+                                ):
+                                    continue
+                            allowed_workflow_data.append(record)
+
+                        if allowed_workflow_data:
+                            stmt = mysql.insert(table)
+                            stmt = stmt.on_duplicate_key_update(
+                                # tenant_id is deliberately excluded: an upsert never moves an
+                                # existing row between tenants, only the insert branch stamps it.
+                                workflow_id=stmt.inserted.workflow_id,
+                                user_id=stmt.inserted.user_id,
+                                workflow_data=stmt.inserted.workflow_data,
+                                session_data=stmt.inserted.session_data,
+                                summary=stmt.inserted.summary,
+                                metadata=stmt.inserted.metadata,
+                                runs=stmt.inserted.runs,
+                                updated_at=stmt.inserted.updated_at,
+                            )
+                            sess.execute(stmt, allowed_workflow_data)
+
+                            # Fetch the results for the workflow sessions this call actually wrote
+                            allowed_ids = [record["session_id"] for record in allowed_workflow_data]
+                            select_stmt = select(table).where(table.c.session_id.in_(allowed_ids))
+                            result = sess.execute(select_stmt).fetchall()
+
+                            for row in result:
+                                if deserialize:
+                                    deserialized_workflow_session = WorkflowSession.from_dict(dict(row._mapping))
+                                    if deserialized_workflow_session is None:
+                                        continue
+                                    results.append(deserialized_workflow_session)
+                                else:
+                                    results.append(dict(row._mapping))
 
             return results
 

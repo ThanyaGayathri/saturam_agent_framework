@@ -17,6 +17,12 @@ SESSION_TABLE_SCHEMA = {
     "team_id": {"type": String, "nullable": True},
     "workflow_id": {"type": String, "nullable": True},
     "user_id": {"type": String, "nullable": True},
+    # The tenant this session belongs to (aicoe-tracker#197). Nullable and un-backfilled, same
+    # contract as the component tables' tenant_id (EGPT-2.7): a row written before multi-tenancy,
+    # or by a single-tenant deployment, carries NULL and reads as unscoped. See
+    # egpt/db/session_scope.py for why the session accessors keep tenant_id optional rather than
+    # mirroring the component methods' required keyword-only parameter.
+    "tenant_id": {"type": String, "nullable": True, "index": True},
     "session_data": {"type": JSONB, "nullable": True},
     "agent_data": {"type": JSONB, "nullable": True},
     "team_data": {"type": JSONB, "nullable": True},
@@ -135,6 +141,7 @@ TRACE_TABLE_SCHEMA = {
     "agent_id": {"type": String, "nullable": True, "index": True},
     "team_id": {"type": String, "nullable": True, "index": True},
     "workflow_id": {"type": String, "nullable": True, "index": True},
+    "tenant_id": {"type": String, "nullable": True, "index": True},
     "created_at": {"type": String, "nullable": False, "index": True},  # ISO 8601 datetime string
 }
 

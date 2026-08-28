@@ -625,6 +625,7 @@ class ClickhouseDb(BaseDb):
             "AS duration_ms, "
             "max(s.run_id) AS run_id, max(s.session_id) AS session_id, max(s.user_id) AS user_id, "
             "max(s.agent_id) AS agent_id, max(s.team_id) AS team_id, max(s.workflow_id) AS workflow_id, "
+            "max(s.tenant_id) AS tenant_id, "
             "min(s.created_at) AS created_at "
             f"FROM ({inner}) AS s GROUP BY s.trace_id"
         )
@@ -666,10 +667,16 @@ class ClickhouseDb(BaseDb):
     #   storage attempts are loud rather than silently dropped.
 
     # --- Sessions ---
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    # tenant_id (aicoe-tracker#197) accepted for signature parity with BaseDb; unused since
+    # these methods are already unconditionally unavailable on this trace-only backend.
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         raise NotImplementedError(_TRACES_ONLY_ERROR)
 
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError(_TRACES_ONLY_ERROR)
 
     def get_session(self, *args, **kwargs):  # type: ignore[override]

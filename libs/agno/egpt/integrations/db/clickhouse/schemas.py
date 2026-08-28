@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS {db}.{table} (
     agent_id        Nullable(String),
     team_id         Nullable(String),
     workflow_id     Nullable(String),
+    tenant_id       Nullable(String),
     created_at      DateTime64(6, 'UTC')
 )
 ENGINE = MergeTree
@@ -86,6 +87,7 @@ TRACE_COLUMNS = (
     "agent_id",
     "team_id",
     "workflow_id",
+    "tenant_id",
     "created_at",
 )
 

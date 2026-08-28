@@ -1290,7 +1290,35 @@ what collided, and `build_memory_provider_for(resolver)` with no tenant raises `
 
 ---
 
-### 48_memory_cost_and_growth.py
+### 48_memory_tracing.py
+
+**Status:** PASS
+
+**Description:** SM-X4's manual OTel spans around `MemoryProvider.read`/`write`/`consolidate`.
+Calls `setup_tracing()` against a local SQLite trace store, then wires `DatabaseSpanExporter`
+directly as a fallback when the optional `openinference-instrumentation-agno` package is not
+installed (unrelated to memory tracing -- that instrumentor only ever wraps agent/model/tool
+calls). Builds a vector-only `CoLocatedMemoryProvider` over a trimmed in-memory stand-in (the
+same one `23_consolidation_worker.py`/`39_working_memory.py` use), runs a write -> read ->
+consolidate cycle, then reads every captured span back out of the SQLite trace store via
+`db.get_spans()` and prints `memory.write` / `memory.read` / `memory.consolidate` with their four
+attributes.
+
+**Result:** Runs clean. In this dev environment `setup_tracing()` logs that
+`openinference-instrumentation-agno` is not installed and leaves tracing inactive, so the script's
+fallback wiring activates and is exercised. `write` accepted 2 events, `read` returned 2 records,
+and `consolidate` turned 2 episodes into 2 facts. All three spans were captured with
+`egpt.memory.tenant_id=acme`, tier `episodic` / `all` / `episodic->semantic` respectively,
+`egpt.memory.store=vector`, and a non-negative `egpt.memory.latency_ms` on each. The closing
+assertion (`{"memory.write", "memory.read", "memory.consolidate"} <= {captured span names}`)
+passed.
+
+**Requires:** Nothing for the memory store (in-memory vector substrate); writes trace data to a
+local SQLite file (`tmp/memory_tracing.db`, gitignored). No API key, no network.
+
+---
+
+### 49_memory_cost_and_growth.py
 
 **Status:** PASS
 
@@ -1301,6 +1329,8 @@ cost, and `CoLocatedMemoryProvider.write`/`consolidate` for store growth. A demo
 runtime-registered demo extraction model, neither reaching the network, give `compute_cost` a
 synthetic price row to find (mirroring `test_pricing.py`'s pattern, since the shipped `PRICES`
 table is intentionally empty). Two tenants (`acme`, `globex`) exercise all three hooks.
+**Renumbered from `48_` to `49_` on merge with main: `feat/SM-X4` took `48_memory_tracing.py`
+while this branch was still catching up.**
 
 **Result:** Runs clean. Embedding calls for both tenants land 3 cost entries; entity extraction
 adds 2 more (5 total); write + consolidate across both tenants records 7 growth entries.
@@ -1326,5 +1356,12 @@ collapsed downstream, `LLMFactExtractor`/`LLMMergeDecider` now metered alongside
 extractors, and the `MagicMock(spec=Model)` provider-key edge case. Output unchanged: 3 embedding
 entries, cost entries reach 5 after entity extraction, 7 growth entries, `acme`/`globex` both
 `cost=$0.000066`, `growth_by_tenant()` `acme=6`/`globex=4`, 0 unpriced.
+
+**Re-verified again (PR #159 round-3 review follow-up + merge with main):** re-run after fixing
+the third review round's findings (`vector_committed` tracking in `write`/`awrite`'s generic
+exception branch, the `max_entries<=0` guard, and the `embedder_provider_key` docstring) and after
+merging `main`'s `48_memory_tracing.py` (SM-X4), which required renumbering this script from `48_`
+to `49_`. Output unchanged: 3 embedding entries, 5 cost entries, 7 growth entries, `acme`/`globex`
+both `cost=$0.000066`, `growth_by_tenant()` `acme=6`/`globex=4`, 0 unpriced.
 
 ---

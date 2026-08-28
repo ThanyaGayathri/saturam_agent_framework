@@ -622,6 +622,7 @@ def get_run_output_util(
     run_id: str,
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[
     Union[
         RunOutput,
@@ -635,12 +636,15 @@ def get_run_output_util(
         run_id (str): The run_id to load from storage.
         session_id (Optional[str]): The session_id to load from storage.
         user_id (Optional[str]): The user_id to scope the session lookup.
+        tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults to
+            unscoped; refused when the db was built with ``require_session_tenant_id``. Ignored
+            when ``entity.cached_session`` is used instead of a DB read.
     """
     if session_id is not None:
         if _has_async_db(entity):
             raise ValueError("Async database not supported for sync functions")
 
-        session = entity.get_session(session_id=session_id, user_id=user_id)
+        session = entity.get_session(session_id=session_id, user_id=user_id, tenant_id=tenant_id)
         if session is not None:
             run_response = session.get_run(run_id=run_id)
             if run_response is not None:
@@ -662,6 +666,7 @@ async def aget_run_output_util(
     run_id: str,
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[RunOutput, TeamRunOutput]]:
     """
     Get a RunOutput from the database.
@@ -670,9 +675,12 @@ async def aget_run_output_util(
         run_id (str): The run_id to load from storage.
         session_id (Optional[str]): The session_id to load from storage.
         user_id (Optional[str]): The user_id to scope the session lookup.
+        tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults to
+            unscoped; refused when the db was built with ``require_session_tenant_id``. Ignored
+            when ``entity.cached_session`` is used instead of a DB read.
     """
     if session_id is not None:
-        session = await entity.aget_session(session_id=session_id, user_id=user_id)
+        session = await entity.aget_session(session_id=session_id, user_id=user_id, tenant_id=tenant_id)
         if session is not None:
             run_response = session.get_run(run_id=run_id)
             if run_response is not None:

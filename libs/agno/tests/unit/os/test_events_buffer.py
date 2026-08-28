@@ -2,6 +2,7 @@
 
 from egpt.os.managers import EventsBuffer
 from egpt.run.agent import RunContentEvent
+from egpt.run.base import RunStatus
 
 
 def _make_event(content: str) -> RunContentEvent:
@@ -155,3 +156,110 @@ class TestMultipleRuns:
         assert len(events_b) == 2
         assert events_b[0][0] == 6
         assert events_b[0][1].content == "b6"
+
+
+class TestRunTenantRegistration:
+    """register_run_tenant / get_run_tenant (aicoe-tracker#196)."""
+
+    def test_unregistered_run_is_unknown(self):
+        buf = EventsBuffer()
+        assert buf.get_run_tenant("never-registered") == (False, None)
+
+    def test_registered_run_is_known_even_with_no_tenant(self):
+        """A run_id present as a key -- even mapped to None -- is 'known': the None means an
+        untenanted/exempt caller registered it, not that nothing was ever recorded.
+        """
+        buf = EventsBuffer()
+        buf.register_run_tenant("r1", None)
+        assert buf.get_run_tenant("r1") == (True, None)
+
+    def test_registered_run_returns_its_tenant(self):
+        buf = EventsBuffer()
+        buf.register_run_tenant("r1", "acme")
+        assert buf.get_run_tenant("r1") == (True, "acme")
+
+    def test_cleanup_run_removes_the_tenant_registration(self):
+        buf = EventsBuffer()
+        buf.register_run_tenant("r1", "acme")
+        buf.cleanup_run("r1")
+        assert buf.get_run_tenant("r1") == (False, None)
+        assert "r1" not in buf._run_tenants_registered_at
+
+
+class TestCleanupSweepsOrphanedAndPausedTenants:
+    """aicoe-tracker#196 QC round 2, finding 4: run_tenants entries that cleanup_runs()'s
+    run_metadata-keyed sweep alone would never discover.
+    """
+
+    def test_orphaned_registration_with_no_buffered_event_is_swept_after_cleanup_interval(self, monkeypatch):
+        """A run registered at start time whose background task errored before its first
+        add_event has no run_metadata entry -- cleanup_runs() must still find and remove it
+        once it's aged past cleanup_interval, or it leaks for the process lifetime.
+        """
+        buf = EventsBuffer(cleanup_interval=100)
+        fake_time = [1000.0]
+        monkeypatch.setattr("egpt.os.managers.time", lambda: fake_time[0])
+
+        buf.register_run_tenant("orphan", "acme")
+        assert "orphan" not in buf.run_metadata  # no event was ever added for it
+
+        fake_time[0] += 50  # still within cleanup_interval
+        buf.cleanup_runs()
+        assert buf.get_run_tenant("orphan") == (True, "acme")
+
+        fake_time[0] += 100  # now past cleanup_interval since registration
+        buf.cleanup_runs()
+        assert buf.get_run_tenant("orphan") == (False, None)
+
+    def test_orphaned_registration_with_a_live_run_is_not_swept(self, monkeypatch):
+        """A run that DID produce an event (so run_metadata exists and is still running) must
+        not be treated as orphaned just because it's aged -- only the run_metadata-less case is
+        an orphan.
+        """
+        buf = EventsBuffer(cleanup_interval=100)
+        fake_time = [1000.0]
+        monkeypatch.setattr("egpt.os.managers.time", lambda: fake_time[0])
+
+        buf.register_run_tenant("live", "acme")
+        buf.add_event("live", _make_event("hello"))
+
+        fake_time[0] += 200  # well past cleanup_interval
+        buf.cleanup_runs()
+        assert buf.get_run_tenant("live") == (True, "acme")
+
+    def test_a_paused_run_is_swept_after_paused_cleanup_interval(self, monkeypatch):
+        """cleanup_runs() previously only swept completed/error/cancelled -- a paused run
+        that's never resumed pinned its events/metadata/tenant entries indefinitely.
+        """
+        buf = EventsBuffer(cleanup_interval=100, paused_cleanup_interval=1000)
+        fake_time = [1000.0]
+        monkeypatch.setattr("egpt.os.managers.time", lambda: fake_time[0])
+
+        buf.register_run_tenant("paused-run", "acme")
+        buf.add_event("paused-run", _make_event("hello"))
+        buf.set_run_completed("paused-run", RunStatus.paused)
+
+        fake_time[0] += 500  # past cleanup_interval (100) but not paused_cleanup_interval (1000)
+        buf.cleanup_runs()
+        assert buf.get_run_tenant("paused-run") == (True, "acme")
+        assert "paused-run" in buf.run_metadata
+
+        fake_time[0] += 600  # now past paused_cleanup_interval since it paused
+        buf.cleanup_runs()
+        assert buf.get_run_tenant("paused-run") == (False, None)
+        assert "paused-run" not in buf.run_metadata
+
+    def test_a_completed_run_still_uses_the_shorter_cleanup_interval(self, monkeypatch):
+        """The separate, longer paused retention must not accidentally widen the retention for
+        ordinary completed/error/cancelled runs.
+        """
+        buf = EventsBuffer(cleanup_interval=100, paused_cleanup_interval=100000)
+        fake_time = [1000.0]
+        monkeypatch.setattr("egpt.os.managers.time", lambda: fake_time[0])
+
+        buf.add_event("done", _make_event("hello"))
+        buf.set_run_completed("done", RunStatus.completed)
+
+        fake_time[0] += 200  # past cleanup_interval
+        buf.cleanup_runs()
+        assert "done" not in buf.run_metadata

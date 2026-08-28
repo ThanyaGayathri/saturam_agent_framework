@@ -14,6 +14,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.integrations.db.json.utils import (
     apply_sorting,
@@ -42,6 +43,7 @@ class JsonDb(BaseDb):
         spans_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with JSON files as database.
@@ -57,6 +59,9 @@ class JsonDb(BaseDb):
             traces_table (Optional[str]): Name of the JSON file to store run traces.
             spans_table (Optional[str]): Name of the JSON file to store span events.
             id (Optional[str]): ID of the database.
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
         """
         if id is None:
             # Keep the pre-rename seed: the deterministic id must stay stable
@@ -76,7 +81,9 @@ class JsonDb(BaseDb):
             knowledge_table=knowledge_table,
             traces_table=traces_table,
             spans_table=spans_table,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("JsonDb", self.require_session_tenant_id)
 
         # Create the directory where the JSON files will be stored, if it doesn't exist.
         # A pre-rename data directory is adopted if present, so existing
@@ -220,7 +227,12 @@ class JsonDb(BaseDb):
 
     # -- Session methods --
 
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    # tenant_id (aicoe-tracker#197) accepted for signature parity with BaseDb; this backend
+    # does not implement tenant-scoped session filtering yet.
+
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """Delete a session from the JSON file.
 
         Args:
@@ -255,7 +267,9 @@ class JsonDb(BaseDb):
             log_error(f"Error deleting session: {str(e)}")
             raise e
 
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete multiple sessions from the JSON file.
 
         Args:
@@ -285,6 +299,8 @@ class JsonDb(BaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[AgentSession, TeamSession, WorkflowSession, Dict[str, Any]]]:
         """Read a session from the JSON file.
 
@@ -334,6 +350,8 @@ class JsonDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """Get all sessions from the JSON file with filtering and pagination.
 
@@ -424,6 +442,8 @@ class JsonDb(BaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """Rename a session in the JSON file."""
         try:
@@ -458,7 +478,7 @@ class JsonDb(BaseDb):
             raise e
 
     def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """Insert or update a session in the JSON file."""
         try:
@@ -506,7 +526,12 @@ class JsonDb(BaseDb):
             raise e
 
     def upsert_sessions(
-        self, sessions: List[Session], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        sessions: List[Session],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk upsert multiple sessions for improved performance on large datasets.

@@ -104,6 +104,7 @@ class PostgresDb(BaseDb):
         id: Optional[str] = None,
         create_schema: bool = True,
         require_tenant_id: bool = False,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a PostgreSQL database.
@@ -143,6 +144,10 @@ class PostgresDb(BaseDb):
                 makes the NULL-tenant rows written before multi-tenancy unreachable. ``EgptOS``
                 sets it automatically when ``AuthorizationConfig(tenant_id_claim=...)`` is
                 configured, and ``EGPT_REQUIRE_TENANT_ID`` sets it for dbs built outside EgptOS.
+            require_session_tenant_id (bool): The session/run counterpart of
+                ``require_tenant_id`` (aicoe-tracker#197) -- a deliberately separate flag, not
+                auto-enabled by ``EgptOS``. See ``egpt/db/session_scope.py`` for why.
+                ``EGPT_REQUIRE_SESSION_TENANT_ID`` sets it for dbs built outside EgptOS.
 
         Raises:
             ValueError: If neither db_url nor db_engine is provided.
@@ -172,6 +177,7 @@ class PostgresDb(BaseDb):
             id=id,
             table_prefix=table_prefix,
             require_tenant_id=require_tenant_id,
+            require_session_tenant_id=require_session_tenant_id,
             session_table=session_table,
             memory_table=memory_table,
             metrics_table=metrics_table,
@@ -223,6 +229,7 @@ class PostgresDb(BaseDb):
         (EGPT-2.7): ``EgptOS`` enables it by mutating the registered instance, and
         ``egpt.db.utils.resolve_db_from_config`` clones on the component rehydration path, so a
         clone that dropped it would remove the guard exactly where components get written.
+        ``require_session_tenant_id`` (aicoe-tracker#197) is carried over for the same reason.
         """
         return PostgresDb(
             db_url=self.db_url,
@@ -231,6 +238,7 @@ class PostgresDb(BaseDb):
             create_schema=self.create_schema,
             id=self.id,
             require_tenant_id=self.require_tenant_id,
+            require_session_tenant_id=self.require_session_tenant_id,
             **overrides,
         )
 
@@ -261,6 +269,7 @@ class PostgresDb(BaseDb):
             service_accounts_table=data.get("service_accounts_table"),
             id=data.get("id"),
             require_tenant_id=bool(data.get("require_tenant_id", False)),
+            require_session_tenant_id=bool(data.get("require_session_tenant_id", False)),
         )
 
     def close(self) -> None:
@@ -799,13 +808,17 @@ class PostgresDb(BaseDb):
             sess.execute(stmt)
 
     # -- Session methods --
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """
         Delete a session from the database.
 
         Args:
             session_id (str): ID of the session to delete
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             bool: True if the session was deleted, False otherwise.
@@ -813,6 +826,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -822,6 +836,8 @@ class PostgresDb(BaseDb):
                 delete_stmt = table.delete().where(table.c.session_id == session_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(delete_stmt)
 
                 if result.rowcount == 0:
@@ -836,17 +852,22 @@ class PostgresDb(BaseDb):
             log_error(f"Error deleting session: {str(e)}")
             raise e
 
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete all given sessions from the database.
         Can handle multiple session types in the same run.
 
         Args:
             session_ids (List[str]): The IDs of the sessions to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_sessions")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -856,6 +877,8 @@ class PostgresDb(BaseDb):
                 delete_stmt = table.delete().where(table.c.session_id.in_(session_ids))
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(delete_stmt)
 
             log_debug(f"Successfully deleted {result.rowcount} sessions")
@@ -870,6 +893,8 @@ class PostgresDb(BaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Read a session from the database.
@@ -879,6 +904,8 @@ class PostgresDb(BaseDb):
             session_type (SessionType): Type of session to get.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults
+                to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[Session, Dict[str, Any], None]:
@@ -888,6 +915,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -898,6 +926,8 @@ class PostgresDb(BaseDb):
 
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 result = sess.execute(stmt).fetchone()
                 if result is None:
@@ -927,6 +957,8 @@ class PostgresDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """
         Get all sessions in the given table. Can filter by user_id and component_id.
@@ -943,6 +975,8 @@ class PostgresDb(BaseDb):
             sort_by (Optional[str]): The field to sort by. Defaults to None.
             sort_order (Optional[str]): The sort order. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the sessions. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Union[List[Session], Tuple[List[Dict], int]]:
@@ -952,6 +986,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_sessions")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -963,6 +998,8 @@ class PostgresDb(BaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if component_id is not None:
                     if session_type == SessionType.AGENT:
                         stmt = stmt.where(table.c.agent_id == component_id)
@@ -1021,6 +1058,8 @@ class PostgresDb(BaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Rename a session in the database.
@@ -1031,6 +1070,8 @@ class PostgresDb(BaseDb):
             session_name (str): The new name for the session.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the rename to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -1040,6 +1081,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during renaming.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "rename_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -1067,6 +1109,8 @@ class PostgresDb(BaseDb):
                     stmt = stmt.where(table.c.session_type == session_type.value)
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(stmt)
                 row = result.fetchone()
                 if not row:
@@ -1085,7 +1129,7 @@ class PostgresDb(BaseDb):
             raise e
 
     def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Insert or update a session in the database.
@@ -1093,6 +1137,9 @@ class PostgresDb(BaseDb):
         Args:
             session (Session): The session data to upsert.
             deserialize (Optional[bool]): Whether to deserialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -1102,6 +1149,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_session")
         try:
             table = self._get_table(table_type="sessions", create_table_if_not_found=True)
             if table is None:
@@ -1131,6 +1179,7 @@ class PostgresDb(BaseDb):
                         session_type=SessionType.AGENT.value,
                         agent_id=session_dict.get("agent_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         agent_data=session_dict.get("agent_data"),
                         session_data=session_dict.get("session_data"),
@@ -1139,8 +1188,15 @@ class PostgresDb(BaseDb):
                         created_at=session_dict.get("created_at"),
                         updated_at=session_dict.get("created_at"),
                     )
+                    conflict_where = (table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(  # type: ignore
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             agent_id=session_dict.get("agent_id"),
                             user_id=session_dict.get("user_id"),
@@ -1151,7 +1207,7 @@ class PostgresDb(BaseDb):
                             runs=session_dict.get("runs"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     ).returning(table)
                     result = sess.execute(stmt)
                     row = result.fetchone()
@@ -1170,6 +1226,7 @@ class PostgresDb(BaseDb):
                         session_type=SessionType.TEAM.value,
                         team_id=session_dict.get("team_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         team_data=session_dict.get("team_data"),
                         session_data=session_dict.get("session_data"),
@@ -1178,8 +1235,15 @@ class PostgresDb(BaseDb):
                         created_at=session_dict.get("created_at"),
                         updated_at=session_dict.get("created_at"),
                     )
+                    conflict_where = (table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(  # type: ignore
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             team_id=session_dict.get("team_id"),
                             user_id=session_dict.get("user_id"),
@@ -1190,7 +1254,7 @@ class PostgresDb(BaseDb):
                             runs=session_dict.get("runs"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     ).returning(table)
                     result = sess.execute(stmt)
                     row = result.fetchone()
@@ -1209,6 +1273,7 @@ class PostgresDb(BaseDb):
                         session_type=SessionType.WORKFLOW.value,
                         workflow_id=session_dict.get("workflow_id"),
                         user_id=session_dict.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=session_dict.get("runs"),
                         workflow_data=session_dict.get("workflow_data"),
                         session_data=session_dict.get("session_data"),
@@ -1217,8 +1282,15 @@ class PostgresDb(BaseDb):
                         created_at=session_dict.get("created_at"),
                         updated_at=session_dict.get("created_at"),
                     )
+                    conflict_where = (table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(  # type: ignore
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             workflow_id=session_dict.get("workflow_id"),
                             user_id=session_dict.get("user_id"),
@@ -1229,7 +1301,7 @@ class PostgresDb(BaseDb):
                             runs=session_dict.get("runs"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == session_dict.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     ).returning(table)
                     result = sess.execute(stmt)
                     row = result.fetchone()
@@ -1249,7 +1321,12 @@ class PostgresDb(BaseDb):
             raise e
 
     def upsert_sessions(
-        self, sessions: List[Session], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        sessions: List[Session],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk insert or update multiple sessions.
@@ -1258,6 +1335,9 @@ class PostgresDb(BaseDb):
             sessions (List[Session]): The list of session data to upsert.
             deserialize (Optional[bool]): Whether to deserialize the sessions. Defaults to True.
             preserve_updated_at (bool): If True, preserve the updated_at from the session object.
+            tenant_id (Optional[str]): Tenant to stamp every session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             List[Union[Session, Dict[str, Any]]]: List of upserted sessions
@@ -1265,6 +1345,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during bulk upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_sessions")
         try:
             if not sessions:
                 return []
@@ -1305,6 +1386,7 @@ class PostgresDb(BaseDb):
                             "session_type": SessionType.AGENT.value,
                             "agent_id": session_dict.get("agent_id"),
                             "user_id": session_dict.get("user_id"),
+                            "tenant_id": tenant_id,
                             "agent_data": session_dict.get("agent_data"),
                             "session_data": session_dict.get("session_data"),
                             "summary": session_dict.get("summary"),
@@ -1319,13 +1401,20 @@ class PostgresDb(BaseDb):
                     stmt: Any = postgresql.insert(table)
                     update_columns = {
                         col.name: stmt.excluded[col.name]
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         for col in table.columns
-                        if col.name not in ["id", "session_id", "created_at"]
+                        if col.name not in ["id", "session_id", "created_at", "tenant_id"]
                     }
+                    bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        bulk_conflict_where = bulk_conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
                         set_=update_columns,
-                        where=(table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None)),
+                        where=bulk_conflict_where,
                     ).returning(table)
 
                     result = sess.execute(stmt, session_records)
@@ -1364,6 +1453,7 @@ class PostgresDb(BaseDb):
                             "session_type": SessionType.TEAM.value,
                             "team_id": session_dict.get("team_id"),
                             "user_id": session_dict.get("user_id"),
+                            "tenant_id": tenant_id,
                             "team_data": session_dict.get("team_data"),
                             "session_data": session_dict.get("session_data"),
                             "summary": session_dict.get("summary"),
@@ -1378,13 +1468,20 @@ class PostgresDb(BaseDb):
                     stmt = postgresql.insert(table)
                     update_columns = {
                         col.name: stmt.excluded[col.name]
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         for col in table.columns
-                        if col.name not in ["id", "session_id", "created_at"]
+                        if col.name not in ["id", "session_id", "created_at", "tenant_id"]
                     }
+                    bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        bulk_conflict_where = bulk_conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
                         set_=update_columns,
-                        where=(table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None)),
+                        where=bulk_conflict_where,
                     ).returning(table)
 
                     result = sess.execute(stmt, session_records)
@@ -1423,6 +1520,7 @@ class PostgresDb(BaseDb):
                             "session_type": SessionType.WORKFLOW.value,
                             "workflow_id": session_dict.get("workflow_id"),
                             "user_id": session_dict.get("user_id"),
+                            "tenant_id": tenant_id,
                             "workflow_data": session_dict.get("workflow_data"),
                             "session_data": session_dict.get("session_data"),
                             "summary": session_dict.get("summary"),
@@ -1437,13 +1535,20 @@ class PostgresDb(BaseDb):
                     stmt = postgresql.insert(table)
                     update_columns = {
                         col.name: stmt.excluded[col.name]
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         for col in table.columns
-                        if col.name not in ["id", "session_id", "created_at"]
+                        if col.name not in ["id", "session_id", "created_at", "tenant_id"]
                     }
+                    bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                    if tenant_id is not None:
+                        bulk_conflict_where = bulk_conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
                         set_=update_columns,
-                        where=(table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None)),
+                        where=bulk_conflict_where,
                     ).returning(table)
 
                     result = sess.execute(stmt, session_records)
@@ -3049,6 +3154,7 @@ class PostgresDb(BaseDb):
                         "agent_id": func.coalesce(table.c.agent_id, insert_stmt.excluded.agent_id),
                         "team_id": func.coalesce(table.c.team_id, insert_stmt.excluded.team_id),
                         "workflow_id": func.coalesce(table.c.workflow_id, insert_stmt.excluded.workflow_id),
+                        "tenant_id": func.coalesce(table.c.tenant_id, insert_stmt.excluded.tenant_id),
                     },
                 )
                 sess.execute(upsert_stmt)

@@ -20,6 +20,8 @@ class MigrationManager:
         ("v2_6_0", packaging_version.parse("2.6.0")),
         ("v2_7_0", packaging_version.parse("2.7.0")),
         ("v2_8_0", packaging_version.parse("2.8.0")),
+        ("v2_9_0", packaging_version.parse("2.9.0")),
+        ("v2_10_0", packaging_version.parse("2.10.0")),
     ]
 
     # Mapping from table_type to the BaseDb attribute holding that table's resolved name.
@@ -40,6 +42,10 @@ class MigrationManager:
         # by the runner, so a migration targeting it would never run -- which is exactly the
         # state the component tables were in before EGPT-2.1 added theirs.
         "service_accounts": "service_accounts_table_name",
+        # Added by EGPT-4.3a for v2_10_0. Traces were unreachable by the migration
+        # runner — a migration targeting them would never run. This is what allowed EGPT-4.2's
+        # tenant_id column addition to ship without a Postgres migration.
+        "traces": "trace_table_name",
         **{table_type: memory_tier_table_attr(table_type) for table_type in MEMORY_TIER_TABLE_TYPES},
     }
 

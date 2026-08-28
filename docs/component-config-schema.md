@@ -228,7 +228,7 @@ The two numbers differ, so it is worth being exact about which is which:
 |---|---|---|
 | `agent` | 116 | 120 |
 | `team` | 121 | 123 |
-| `workflow` | 27 | 28 |
+| `workflow` | 28 | 28 |
 
 Those counts are pinned by test, not maintained by hand — if they no longer match the live
 signatures, the suite fails rather than the document quietly going stale.

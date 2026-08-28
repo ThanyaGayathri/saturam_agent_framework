@@ -1640,15 +1640,30 @@ class EgptOS:
         if not tenant_id_claim:
             return
         enabled = 0
+        session_scoping_missing = 0
         for db in self._unique_dbs():
             if isinstance(db, BaseDb) and not db.require_tenant_id:
                 db.require_tenant_id = True
                 enabled += 1
+            if isinstance(db, BaseDb) and not db.require_session_tenant_id:
+                session_scoping_missing += 1
         if enabled:
             log_info(
                 f"Tenant claim '{tenant_id_claim}' is configured, so unscoped component access is now "
                 f"refused on {enabled} database(s). Callers outside HTTP (Agent.save, the studio "
                 f"toolkit, scripts) must pass tenant_id; rows with a NULL tenant_id become unreachable."
+            )
+        if session_scoping_missing:
+            # Deliberately not coupled to require_tenant_id above (aicoe-tracker#197): sharing the
+            # flag would make every unscoped Agent/Team/Workflow session save start raising
+            # TenantScopeRequiredError, since the session write path is not tenant-safe everywhere
+            # yet -- see egpt/db/session_scope.py. So this stays a warning, not an auto-enable.
+            log_warning(
+                f"Tenant claim '{tenant_id_claim}' is configured, which enforces component tenancy, "
+                f"but session/run access on {session_scoping_missing} database(s) is NOT enforced -- "
+                "require_session_tenant_id stays off unless set explicitly (or via "
+                "EGPT_REQUIRE_SESSION_TENANT_ID). A caller who knows a session_id/run_id can still "
+                "read it across tenants. See docs/tenancy.md section 8 before enabling it."
             )
 
     def _initialize_sync_databases(self) -> None:

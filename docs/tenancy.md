@@ -1,13 +1,15 @@
-# Tenant scoping (EGPT-2.4, runtime hydration EGPT-2.5, row-level enforcement EGPT-2.7)
+# Tenant scoping (EGPT-2.4, runtime hydration EGPT-2.5, row-level enforcement EGPT-2.7, sessions/runs aicoe-tracker#197)
 
 Normative reference for how a request's tenant is resolved and what the component registry API
 does with it. Companion to [capability-policy.md](capability-policy.md), which covers *which
 capabilities* a tenant may reference; this document covers *which rows* a caller may reach.
 
-Scoping is enforced at two layers, and section 6 is the second one. Sections 1–5 cover the
+Scoping is enforced at two layers, and sections 6–8 are the second one. Sections 1–5 cover the
 request-level gates: how the tenant is resolved from the credential and what the `/components` API
 and runtime hydration do with it. Section 6 covers the data layer underneath, where every component
-query requires a tenant regardless of which caller reached it.
+query requires a tenant regardless of which caller reached it. Section 8 covers the identical
+enforcement for sessions and runs, with the departures from section 6's pattern that made a direct
+copy unsafe.
 
 ---
 
@@ -384,8 +386,9 @@ Three tests keep it that way:
 
 ### Not covered by this layer
 
-Sessions, memories and runs. Those tables have no `tenant_id` column, so scoping them is a schema
-change with a migration rather than an enforcement change — tracked separately from EGPT-2.7.
+Memories. The `memories` table gained a nullable, indexed `tenant_id` column (SM-C3 #91), but
+nothing filters on it yet — `MemoryManager` still partitions by `user_id` alone; the read/write
+path is aicoe-tracker#175. Sessions and runs are covered below (section 8) as of aicoe-tracker#197.
 
 ## 7. Known limits
 
@@ -419,9 +422,12 @@ change with a migration rather than an enforcement change — tracked separately
   prober can no longer use it as a tell. Degrading studio's write-time `IntegrityError` to
   `ComponentIdConflictError` when the holder is foreign remains tracked as follow-up work under
   aicoe-tracker#176.
-- **Sessions, memories and runs are unscoped.** Hydration itself is scoped (section 5) and the
-  agents/teams/workflows routers are tenant-gated, but the surrounding run/session data is not.
-  Needs a `tenant_id` column and migration on those tables; follow-up work, not EGPT-2.7.
+- **Memories are unscoped.** Hydration itself is scoped (section 5) and the agents/teams/workflows
+  routers are tenant-gated, but `MemoryManager` still partitions by `user_id` alone
+  (aicoe-tracker#175). Sessions and runs were the identical gap until aicoe-tracker#197 (section 8)
+  — that column and migration exist now, but see section 8 for exactly how much of the gap it
+  closes: the DB layer and `Workflow`'s own session read/write are complete; `Agent`/`Team` and the
+  session *write* path in general remain a documented follow-up.
 - **The non-HTTP writers default to unscoped.** `Agent.save/delete`, `Team.save/delete` and
   `Workflow.save/delete` take a `tenant_id` but default it to `None`. On a non-strict db an
   unscoped write can update a row owned by another tenant that shares the `component_id`, and the
@@ -449,3 +455,167 @@ change with a migration rather than an enforcement change — tracked separately
   component owned by another tenant is never written to. But `component_id` is the global
   primary key, so the same corpus cannot be seeded verbatim into two tenants — it needs
   `--id-prefix`. See [component-portability.md](component-portability.md) §3.
+
+## 8. Row-level enforcement for sessions and runs (aicoe-tracker#197)
+
+Section 6 covers the four component tables. This section covers the `sessions` table, which
+gained the identical `tenant_id` column and enforcement primitive **on the backends listed in the
+support matrix below** — not universally; see that subsection before enabling
+`require_session_tenant_id` on a non-SQL backend — with two deliberate departures from the
+component pattern that this section exists to explain.
+
+There is no separate "runs" table to scope. A `RunOutput`/`TeamRunOutput`/`WorkflowRunOutput`
+lives inside the `runs` JSON column of the session row it belongs to (`AgentSession.upsert_run`
+and siblings), so scoping the session read closes the run-read gap the ADR named:
+`Workflow.aget_run_output` → `aget_session` → `_aread_session` all bottom out in
+`BaseDb.get_session`.
+
+### `tenant_id` is optional, not required
+
+The fourteen component methods made `tenant_id` keyword-only with **no default**, so a forgotten
+argument is a `TypeError` at check time. The seven session methods (`get_session`, `get_sessions`,
+`upsert_session`, `upsert_sessions`, `rename_session`, `delete_session`, `delete_sessions`) instead
+default it to `None` (unscoped) — the same posture `Agent.save`/`Team.save`/`Workflow.save` already
+take for components (section 7, "The non-HTTP writers default to unscoped"). The component surface
+was narrow enough that every caller could be updated in the same PR; the session surface is not —
+`get_session`/`upsert_session` and friends are called from roughly a hundred sites deep inside the
+agent/team/workflow run loop (`agent/_run.py`, `team/_run.py`, `workflow.py`), and a required
+parameter there risks silently breaking a call site this change cannot enumerate.
+
+### `require_session_tenant_id` is a separate flag from `require_tenant_id`
+
+This is the more consequential departure, and skipping it is the mistake to avoid if this pattern
+is ever extended to another table. `EgptOS` turns `require_tenant_id` on for every registered db
+automatically, the moment an operator configures `AuthorizationConfig(tenant_id_claim=...)`. That
+is safe for components, because the write paths that stamp a component's tenant (the
+`/components` router, `Agent.save`) were updated in the same PR that added the guard.
+
+It would not be safe for sessions. As of this section, the *read* chain the ADR named is fully
+scoped (below), but session *writes* — `read_or_create_session`, `save_session`/`asave_session`,
+and the ~100 internal call sites that invoke them — are **not** threaded with a tenant in general
+(the one exception is `Workflow`, see below). If session enforcement shared `require_tenant_id`,
+turning on tenancy for components would also make every agent/team/workflow *run* start raising
+`TenantScopeRequiredError` the moment it tried to save its own session with the implicit
+`tenant_id=None` every untouched call site still passes — not just the read endpoints this issue
+is about.
+
+So `require_session_tenant_id` is its own flag (`BaseDb`/`AsyncBaseDb` constructor argument,
+`EGPT_REQUIRE_SESSION_TENANT_ID` env var), off by default, and **not** auto-enabled by `EgptOS`.
+An operator opts in only once they have verified their deployment's session writes are
+tenant-safe. Both flags reuse the same underlying primitive (`resolve_tenant_scope`) via separate
+guard methods, `BaseDb._require_tenant_scope` (component) and `BaseDb._require_session_tenant_scope`
+(session) — mirrored on `AsyncBaseDb`, which has no component methods at all and so only ever
+needed the session guard.
+
+### `Workflow` closes the read/write consistency gap for itself
+
+Scoping *reads* only is not enough by itself: if a scoped read filters `WHERE tenant_id = 'acme'`
+but the write that created the row left `tenant_id` `NULL` (the default, since writes are not
+threaded), the read finds nothing — a caller can no longer see the run it just started. That is a
+functional regression, not a fix.
+
+`Workflow` closes this without threading `tenant_id` through its ~100 internal session call sites.
+It carries `tenant_id` as a declared dataclass field (`self.tenant_id`, default `None`), stamped
+by `get_workflow_by_id`/`Workflow.from_dict` from the caller's resolved tenant at hydration. Both
+the read path (`_aread_session`/`_read_session`) and the write path
+(`_aupsert_session`/`_upsert_session`) fall back to `self.tenant_id` when a call does not
+explicitly override it — so a session this workflow instance creates and a later scoped read
+against the same instance agree on the tenant, with no per-call-site changes needed anywhere else
+in the run loop. A declared field rather than a plain attribute, specifically so it survives
+`deep_copy()` — `os/utils.py` deep-copies a workflow once per request for isolation, and
+`egpt/agent/_utils.py::deep_copy`'s handling of `model_provider` documents what a plain attribute
+loses there. Verified for every non-factory hydration path reaching `workflows/router.py`
+(`resolve_workflow`, the `os/utils.py` `get_workflow_by_id`/`_async` wrapper, and the module-level
+`get_workflows`): none of them re-copy or reconstruct the instance after hydration, so
+`.tenant_id` reaches every downstream `.aget_session`/`.aget_run_output`/`.arun`/`.acancel_run`/
+`.acontinue_run` call correctly, whether or not that call passes `tenant_id` explicitly.
+
+**`Agent` and `Team` do not have the equivalent instance-level default yet.** Their
+`aget_run_output`/`aget_session`/`get_run_output`/`get_session` gained the same optional
+`tenant_id` parameter as `Workflow`'s (so the DB-layer capability is there, and an explicit
+override always works), but nothing stamps a default onto the instance the way
+`get_workflow_by_id` does for `Workflow`, because `Agent.__init__`/`Team.__init__` are large,
+heavily-used, hand-written constructors and adding a field there carries materially more
+regression risk than the same change on `Workflow`. Wiring `Agent`/`Team` WS/HTTP routes to pass
+a real tenant into these reads without that instance-level default would hit the identical
+read/write mismatch `Workflow` avoids — a request with tenancy configured would find its own
+just-created session invisible. Tracked as follow-up work, not done in this PR.
+
+**Factory-produced workflows are a related, pre-existing gap `Workflow.tenant_id` does not close.**
+`BaseFactory._post_resolve`/`WorkflowFactory._post_resolve` never copy `RequestContext.tenant_id`
+onto the produced instance, so a factory-produced `Workflow`'s `.tenant_id` stays `None`
+regardless of the caller's identity — session/run reads for it fall back to unscoped. Not
+introduced or worsened by this change; flagged here because it shares the same instance-level
+mechanism and would need the identical fix (the factory pipeline stamping `.tenant_id` from
+`ctx.tenant_id` in `_post_resolve`).
+
+**Enabling `require_session_tenant_id` today silently disables session persistence for `Agent`
+and `Team` runs, rather than raising.** `Agent.save_session`/`Team.save_session` call
+`upsert_session` with no `tenant_id` (see above), so under the flag `_require_session_tenant_scope`
+raises `TenantScopeRequiredError` on every save — but the storage helpers that call it
+(`agent/_storage.py::upsert_session`/`aupsert_session`, and the `team` equivalents) catch that
+exception, log a warning, and return `None`. The run itself completes normally and reports success;
+nothing surfaces to the caller, and the session record, chat history and resumption state for
+that run are simply never written. This is a direct, expected consequence of `Agent`/`Team` not
+yet having the instance-level `tenant_id` default `Workflow` has (previous point) — it is not a bug
+in the flag, but an operator turning it on today should know the actual behavior is "goes quiet",
+not "raises," until that follow-up lands.
+
+### Backend support matrix
+
+`require_session_tenant_id` is read by every `BaseDb`/`AsyncBaseDb` backend (it is a constructor
+argument on the abstract base), but only some backends have a `_require_session_tenant_scope` call
+wired into their session methods that actually filters or stamps by it. The rest construct-time
+refuse `require_session_tenant_id=True` instead (`egpt.db.session_scope.
+require_unsupported_session_tenant_scope`) — the flag can never silently report protection it
+does not provide.
+
+| Backend | Session tenant enforcement |
+|---|---|
+| `SqliteDb` / `AsyncSqliteDb` | Enforced (singular + bulk upsert both tenant-guarded) |
+| `PostgresDb` / `AsyncPostgresDb` | Enforced (singular + bulk upsert both tenant-guarded) |
+| `MySQLDb` / `AsyncMySQLDb` | Enforced (bulk upsert pre-checks ownership per-row; `ON DUPLICATE KEY UPDATE` has no `WHERE`, so it can't be gated in the statement itself the way SQL/Postgres are) |
+| `SingleStoreDb` | Enforced, same pre-check approach as MySQL |
+| `InMemoryDb` | Enforced |
+| `JsonDb`, `GcsJsonDb`, `DynamoDb`, `FirestoreDb`, `MongoDb`, `AsyncMongoDb`, `RedisDb`, `SurrealDb` | **Not implemented.** Constructing one with `require_session_tenant_id=True` (explicitly or via `EGPT_REQUIRE_SESSION_TENANT_ID`) raises `NotImplementedError` at `__init__`. |
+| `ClickHouseDb` | N/A — trace-only backend, session methods are unimplemented by design |
+
+The **HTTP session router** (`os/routers/sessions/session.py`) has zero tenant awareness across
+its seven `db.get_session`/`db.upsert_session`/… call sites — it does not pass `tenant_id` at all.
+That is outside this PR's stated scope (the ticket names the workflow read chain:
+`Workflow.aget_run_output` → `aget_session` → `_aread_session`), but it bounds how much of the
+product this section's enforcement actually covers today, and belongs on the follow-up ticket
+rather than being inferred as done.
+
+### Where the tenant is threaded on the read side
+
+`Workflow.aget_run_output`/`get_run_output`, `aget_session`/`get_session`, and
+`_aread_session`/`_read_session` all take the same optional `tenant_id`, forwarded to
+`BaseDb.get_session(..., tenant_id=...)`. The WS `reconnect` and `continue-workflow` handlers
+(`egpt/os/routers/workflows/router.py`) pass the same `hydration_tenant_id` used to scope the
+workflow's own hydration (`tenant_for_ws_hydration`) into the `aget_run_output` call that follows
+it — redundant with the `self.tenant_id` fallback above (both resolve to the same value) but kept
+explicit at those two call sites for auditability, since they are the exact chain named in the
+ADR's "remaining limits" note. Every other route (`get_workflow_run`, `list_workflow_runs`,
+`continue_workflow_run`, `resume_workflow_run_stream`, `cancel_workflow_run`) relies on the
+`self.tenant_id` fallback alone and needed no changes, because `resolve_workflow`/`get_workflow_by_id`
+already compute a tenant for the component-hydration call that precedes every one of them.
+
+### Migration and enforcement
+
+`db/migrations/versions/v2_9_0.py` adds a nullable, indexed `tenant_id` column to `sessions` —
+same contract as the component tables and `memories`: unbackfilled, and a row written before this
+column existed reads as unscoped. The index is built with a plain `CREATE INDEX` inside the
+migration's transaction, same convention as `v2_7_0.py`/`v2_8_0.py` — on Postgres this holds a lock
+for the build's duration and blocks writes to `sessions` while it runs. `sessions` is the hot-path
+table this PR's own description calls out (~100 write call sites in the run loop), so schedule this
+migration's rollout on a large existing table accordingly, same caveat as the two prior migrations.
+Session read predicates use strict equality
+(`WHERE tenant_id = :tenant`, not `tenant_id IS NULL OR tenant_id = :tenant`), matching the
+component pattern: under `require_session_tenant_id`, a NULL-tenant row is invisible to a
+tenant-scoped read, the same "unscoped is the widest tenancy" reasoning section 6 gives for
+components. Full test coverage: `tests/unit/db/test_session_tenant_fail_closed.py` (the guard is
+wired in, the two flags are independent, the optional-parameter behaviour), `tests/unit/db/
+test_session_tenant_adversarial.py` (tenant B cannot read, list, rename, delete, or overwrite
+tenant A's session), and `tests/unit/workflow/test_workflow_tenant_scoping.py` (the
+`self.tenant_id` read/write consistency and `deep_copy()` propagation).

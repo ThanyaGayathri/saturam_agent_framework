@@ -7,6 +7,7 @@ from fastapi.routing import APIRouter
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.os.auth import get_auth_token_from_request, get_authentication_dependency
 from egpt.os.middleware.user_scope import resolve_db_and_scope
+from egpt.os.tenancy import current_tenant_id, require_tenant_id
 from egpt.os.routers.traces.schemas import (
     TRACE_FILTER_SCHEMA,
     FilterSchemaResponse,
@@ -69,6 +70,73 @@ def _require_trace_owner(trace: Any, effective_user_id: Optional[str]) -> None:
         raise HTTPException(status_code=404, detail="Trace not found")
 
 
+# ---------------------------------------------------------------------------
+# EGPT-4.3: Per-tenant trace scoping
+# ---------------------------------------------------------------------------
+
+
+def _apply_tenant_scope_to_filter(filter_expr_dict: Optional[dict], tenant_id: Optional[str]) -> Optional[dict]:
+    """AND a ``tenant_id`` constraint into a filter for tenant-scoped callers.
+
+    Ensures a tenant can only see its own traces. When ``tenant_id`` is None
+    (no tenant configured / admin / pre-tenancy deployment), the filter is
+    returned unchanged.
+    """
+    if tenant_id is None:
+        return filter_expr_dict
+    tenant_clause = {"op": "EQ", "key": "tenant_id", "value": tenant_id}
+    if filter_expr_dict is None:
+        return tenant_clause
+    # Flatten into an existing top-level AND to avoid shrinking the client's
+    # usable filter nesting depth (MAX_FILTER_DEPTH) by one level.
+    if filter_expr_dict.get("op") == "AND" and "conditions" in filter_expr_dict:
+        return {"op": "AND", "conditions": [tenant_clause, *filter_expr_dict["conditions"]]}
+    return {"op": "AND", "conditions": [tenant_clause, filter_expr_dict]}
+
+
+def _tenant_filter_kwargs(tenant_id: Optional[str], db: Union[BaseDb, AsyncBaseDb, RemoteDb]) -> dict:
+    """Return a filter_expr kwarg dict for tenant scoping, or empty dict.
+
+    Only passes filter_expr when (a) tenant_id is set AND (b) the backend
+    actually accepts the kwarg. Backends without filter_expr support (mongo,
+    redis, firestore, etc.) get an empty dict to avoid TypeError.
+    """
+    if not tenant_id:
+        return {}
+    # Check if the backend's get_traces accepts filter_expr
+    import inspect
+
+    sig = inspect.signature(db.get_traces)
+    if "filter_expr" not in sig.parameters:
+        raise HTTPException(
+            status_code=501,
+            detail="This backend does not support tenant-scoped trace queries. "
+            "Use a backend with filter_expr support (SQLite, PostgreSQL) or disable tenancy.",
+        )
+    tenant_filter = _apply_tenant_scope_to_filter(None, tenant_id)
+    if tenant_filter is not None:
+        return {"filter_expr": tenant_filter}
+    return {}
+
+
+def _require_trace_tenant(trace: Any, tenant_id: Optional[str]) -> None:
+    """Enforce tenant isolation on single-trace lookups.
+
+    A scoped tenant caller must only see traces belonging to their tenant.
+    Cross-tenant trace_id access returns 404 (fail-closed). When ``tenant_id``
+    is None (no tenant configured / admin), no check is applied.
+    A trace with no tenant_id is treated as not-owned (fail-closed).
+    """
+    if tenant_id is None:
+        return
+    trace_tenant = getattr(trace, "tenant_id", None)
+    # Fail closed: a NULL-tenant trace is not readable by a scoped caller.
+    # The list-level filter already excludes NULL-tenant rows (strict EQ);
+    # the detail path must agree.
+    if trace_tenant != tenant_id:
+        raise HTTPException(status_code=404, detail="Trace not found")
+
+
 def get_traces_router(
     dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]],
     settings: EgptServingSettings = EgptServingSettings(),
@@ -76,7 +144,7 @@ def get_traces_router(
 ) -> APIRouter:
     """Create traces router with comprehensive OpenAPI documentation for trace endpoints."""
     router = APIRouter(
-        dependencies=[Depends(get_authentication_dependency(settings))],
+        dependencies=[Depends(get_authentication_dependency(settings)), Depends(require_tenant_id)],
         tags=["Traces"],
         responses={
             400: {"description": "Bad Request", "model": BadRequestResponse},
@@ -179,6 +247,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
         # scoped callers get the JWT sub; admins / unscoped callers keep the
         # query-param ``user_id`` they used before.
         db, effective_user_id = await resolve_db_and_scope(request, dbs, db_id, fallback_user_id=user_id)
+        tenant_id = current_tenant_id(request)
 
         if isinstance(db, RemoteDb):
             auth_token = get_auth_token_from_request(request)
@@ -195,6 +264,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
                 end_time=end_time,
                 limit=limit,
                 page=page,
+                filter_expr=_apply_tenant_scope_to_filter(None, tenant_id),
                 db_id=db_id,
                 headers=headers,
             )
@@ -218,6 +288,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
                     end_time=end_time_dt,
                     limit=limit,
                     page=page,
+                    **_tenant_filter_kwargs(tenant_id, db),
                 )
             else:
                 traces, total_count = db.get_traces(
@@ -232,6 +303,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
                     end_time=end_time_dt,
                     limit=limit,
                     page=page,
+                    **_tenant_filter_kwargs(tenant_id, db),
                 )
 
             end_time_ms = time_module.time() * 1000
@@ -399,6 +471,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
         # run/session APIs, SSE and logs, so a non-admin caller reaching this route
         # does NOT necessarily own the trace and must be checked.
         db, effective_user_id = await resolve_db_and_scope(request, dbs, db_id)
+        tenant_id = current_tenant_id(request)
 
         if isinstance(db, RemoteDb):
             auth_token = get_auth_token_from_request(request)
@@ -409,11 +482,13 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
             # user_id; for a single span we fetch the parent trace first (a span has no
             # user_id) and check it, mirroring the local branch below. Admin / unscoped callers
             # (effective_user_id is None) keep the single-call fast path.
-            if effective_user_id is not None:
-                parent_trace = await db.get_trace(trace_id=trace_id, run_id=run_id, db_id=db_id, headers=headers)
-                _require_trace_owner(parent_trace, effective_user_id)
-                if span_id is None:
-                    return parent_trace
+            # Always check tenant + ownership — independent axes.
+            parent_trace = await db.get_trace(trace_id=trace_id, run_id=run_id, db_id=db_id, headers=headers)
+            _require_trace_owner(parent_trace, effective_user_id)
+            _require_trace_tenant(parent_trace, tenant_id)
+
+            if span_id is None:
+                return parent_trace
             return await db.get_trace(
                 trace_id=trace_id,
                 span_id=span_id,
@@ -435,6 +510,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
                 if parent_trace is None:
                     raise HTTPException(status_code=404, detail="Trace not found")
                 _require_trace_owner(parent_trace, effective_user_id)
+                _require_trace_tenant(parent_trace, tenant_id)
 
                 if isinstance(db, AsyncBaseDb):
                     span = await db.get_span(span_id)
@@ -460,6 +536,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
             if trace is None:
                 raise HTTPException(status_code=404, detail="Trace not found")
             _require_trace_owner(trace, effective_user_id)
+            _require_trace_tenant(trace, tenant_id)
 
             # Get all spans for this trace
             if isinstance(db, AsyncBaseDb):
@@ -550,6 +627,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
         import time as time_module
 
         db, effective_user_id = await resolve_db_and_scope(request, dbs, db_id, fallback_user_id=user_id)
+        tenant_id = current_tenant_id(request)
 
         if isinstance(db, RemoteDb):
             auth_token = get_auth_token_from_request(request)
@@ -563,6 +641,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
                 end_time=end_time,
                 limit=limit,
                 page=page,
+                filter_expr=_apply_tenant_scope_to_filter(None, tenant_id),
                 db_id=db_id,
                 headers=headers,
             )
@@ -583,6 +662,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
                     end_time=end_time_dt,
                     limit=limit,
                     page=page,
+                    **_tenant_filter_kwargs(tenant_id, db),
                 )
             else:
                 stats_list, total_count = db.get_trace_stats(
@@ -594,6 +674,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
                     end_time=end_time_dt,
                     limit=limit,
                     page=page,
+                    **_tenant_filter_kwargs(tenant_id, db),
                 )
 
             end_time_ms = time_module.time() * 1000
@@ -687,12 +768,15 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
         import time as time_module
 
         db, effective_user_id = await resolve_db_and_scope(request, dbs, db_id)
+        tenant_id = current_tenant_id(request)
 
         if isinstance(db, RemoteDb):
             auth_token = get_auth_token_from_request(request)
             headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else None
+            scoped_filter = _apply_user_scope_to_filter(body.filter, effective_user_id)
+            scoped_filter = _apply_tenant_scope_to_filter(scoped_filter, tenant_id)
             return await db.search_traces(
-                filter_expr=body.filter,
+                filter_expr=scoped_filter,
                 group_by=body.group_by.value,
                 limit=body.limit,
                 page=body.page,
@@ -715,6 +799,8 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
             # filter so they can't query across other users' traces. Admins /
             # unscoped callers get the raw filter unchanged.
             filter_expr_dict = _apply_user_scope_to_filter(filter_expr_dict, effective_user_id)
+            # EGPT-4.3: tenant-scope the filter.
+            filter_expr_dict = _apply_tenant_scope_to_filter(filter_expr_dict, tenant_id)
 
             # Branch based on group_by mode
             if body.group_by == TraceSearchGroupBy.SESSION:

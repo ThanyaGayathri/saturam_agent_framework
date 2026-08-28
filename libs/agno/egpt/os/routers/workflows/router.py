@@ -46,12 +46,15 @@ from egpt.os.schema import (
     WorkflowSummaryResponse,
 )
 from egpt.os.settings import EgptServingSettings
+from egpt.os.tenancy import tenancy_enabled
 from egpt.os.utils import (
+    buffered_run_tenant_check,
     find_factory_by_id,
     format_sse_event,
     get_request_kwargs,
     get_workflow_by_id,
     get_workflow_by_id_async,
+    register_or_refuse_run_tenant,
     resolve_tenant_id,
     resolve_workflow,
     tenant_for_direct_read,
@@ -224,7 +227,7 @@ async def handle_workflow_via_websocket(
                 session_id = str(uuid4())
 
         # Execute workflow in background with streaming via WebSocket
-        await workflow.arun(  # type: ignore
+        started_run = await workflow.arun(  # type: ignore
             input=user_message,
             session_id=session_id,
             user_id=user_id,
@@ -234,6 +237,23 @@ async def handle_workflow_via_websocket(
             websocket=websocket,
             enable_websocket=True,
         )
+
+        # Record the tenant this run started under (aicoe-tracker#196), so a later WS
+        # reconnect that finds it in the event buffer can reconcile against the same tenant
+        # instead of skipping the gate entirely. Registered synchronously right after arun
+        # returns -- background execution is a freshly created asyncio task that cannot run
+        # (and therefore cannot add the run's first event to the buffer) until this coroutine
+        # yields, so there is no window for a reconnect to observe the run as buffered but
+        # unregistered.
+        started_run_id = getattr(started_run, "run_id", None)
+        if started_run_id:
+            event_buffer.register_run_tenant(started_run_id, hydration_tenant_id)
+        else:
+            log_warning(
+                f"start-workflow for '{workflow_id}' returned no run_id -- its tenant was not "
+                "registered, so a later WS reconnect to it will be refused as unknown once "
+                "tenancy is enabled."
+            )
 
         # NOTE: Don't register the original websocket in the manager
         # It's already handled by the WebSocketHandler passed to the workflow
@@ -370,6 +390,17 @@ async def handle_workflow_subscription(
         # Check if run exists in event buffer
         buffer_status = event_buffer.get_run_status(run_id)
 
+        if buffer_status is not None and not buffered_run_tenant_check(
+            run_id, ctx.tenant_id, tenancy_enabled=ctx.tenancy_enabled
+        ):
+            # Fail-closed tenant gate for the buffer arm (aicoe-tracker#196): the DB arm below
+            # already reaches tenant_for_ws_hydration, but a run still in the EventBuffer used
+            # to skip it entirely -- the buffer is keyed on run_id alone, so any caller with
+            # workflows:run could replay another tenant's run by guessing its run_id. Mask
+            # existence, consistent with the other reconnect refusals above.
+            await websocket.send_text(json.dumps({"event": "error", "error": f"Run {run_id} not found"}))
+            return
+
         if buffer_status is None:
             # Run not in buffer - check database
             if workflow_id and session_id:
@@ -400,7 +431,11 @@ async def handle_workflow_subscription(
                 except FactoryContextRequired:
                     workflow = None
                 if workflow and isinstance(workflow, Workflow):
-                    workflow_run = await workflow.aget_run_output(run_id, session_id, user_id=user_id)
+                    # Same tenant that just scoped the workflow hydration above (aicoe-tracker#197)
+                    # -- the run/session read this ADR left unscoped.
+                    workflow_run = await workflow.aget_run_output(
+                        run_id, session_id, user_id=user_id, tenant_id=hydration_tenant_id
+                    )
 
                     if workflow_run:
                         # Run exists in DB - send all events from DB
@@ -613,8 +648,11 @@ async def handle_workflow_continue_via_websocket(
             )
             return
 
-        # Load the paused run
-        existing_run = await workflow.aget_run_output(run_id=run_id, session_id=session_id, user_id=user_id)
+        # Load the paused run. Same tenant that just scoped the workflow hydration above
+        # (aicoe-tracker#197) -- the run/session read this ADR left unscoped.
+        existing_run = await workflow.aget_run_output(
+            run_id=run_id, session_id=session_id, user_id=user_id, tenant_id=hydration_tenant_id
+        )
         if existing_run is None:
             await websocket.send_text(json.dumps({"event": "error", "error": f"Run {run_id} not found"}))
             return
@@ -642,6 +680,25 @@ async def handle_workflow_continue_via_websocket(
                     json.dumps({"event": "error", "error": f"Invalid step_requirements: {str(e)}"})
                 )
                 return
+
+        # Record/refresh the tenant this run continues under (aicoe-tracker#196) before any
+        # continue event can reach the buffer, so a later reconnect reconciles against it. The
+        # run_id is already known here (unlike start-workflow, continue doesn't mint a new
+        # one), so this registers ahead of the call rather than off its return value.
+        #
+        # Unlike start, continue can target a run_id that already has a DIFFERENT tenant
+        # recorded (QC round 2, finding 3): a tenant-B caller continuing tenant-A's paused run
+        # -- possible today because aget_run_output/verify_run_in_session_via_db above have no
+        # tenant awareness (tracked separately as aicoe-tracker#197) -- must not be allowed to
+        # silently reassign the run's recorded tenant to themselves; that would both hand them
+        # ongoing reconnect rights to it and lock tenant A out (masked as "not found" by the
+        # very gate this fix adds). register_or_refuse_run_tenant refuses the whole continue
+        # action in that case instead of overwriting.
+        if not register_or_refuse_run_tenant(
+            run_id, hydration_tenant_id, tenancy_enabled=ws_auth.tenancy_enabled if ws_auth else False
+        ):
+            await websocket.send_text(json.dumps({"event": "error", "error": f"Run {run_id} not found"}))
+            return
 
         # Continue workflow in background with WebSocket streaming.
         # Events are broadcast via WebSocketHandler through _handle_event calls,
@@ -920,6 +977,8 @@ async def _resume_stream_generator(
     last_event_index: Optional[int],
     session_id: Optional[str],
     user_id: Optional[str] = None,
+    caller_tenant_id: Optional[str] = None,
+    tenancy_is_enabled: bool = False,
 ) -> AsyncGenerator:
     """SSE generator for the /resume endpoint.
 
@@ -927,10 +986,27 @@ async def _resume_stream_generator(
     1. Run still active (in buffer): replay missed events + subscribe for live events via Queue
     2. Run completed (in buffer): replay all events since last_event_index
     3. Not in buffer: fall back to database replay
+
+    `caller_tenant_id`/`tenancy_is_enabled` gate paths 1 and 2 (aicoe-tracker#196 QC round 2,
+    finding 1): the route handler hydrates `workflow` with tenant scoping before this
+    generator runs, but that only proves the caller's tenant can see the *workflow component* --
+    for an in-memory/code-defined workflow that hydration is exempt for every tenant, so it
+    never proves this specific *run* belongs to the caller's tenant. Path 3 doesn't need the
+    same gate: it re-derives the run from `aget_run_output`, which is scoped to `session_id` +
+    `user_id` (ownership, checked by the caller) rather than the tenant-blind `event_buffer`.
     """
     from egpt.os.managers import sse_subscriber_manager
+    from egpt.os.utils import buffered_run_tenant_check
 
     buffer_status = event_buffer.get_run_status(run_id)
+
+    if buffer_status is not None and not buffered_run_tenant_check(
+        run_id, caller_tenant_id, tenancy_enabled=tenancy_is_enabled
+    ):
+        # Mask existence, consistent with the WS reconnect gate this mirrors.
+        error = {"event": "error", "error": f"Run {run_id} not found"}
+        yield f"event: error\ndata: {json.dumps(error)}\n\n"
+        return
 
     if buffer_status is None:
         # PATH 3: Not in buffer -- fall back to database
@@ -1344,6 +1420,18 @@ def get_workflow_router(
         # Extract auth token for remote workflows
         auth_token = get_auth_token_from_request(request)
 
+        # The caller's tenant (aicoe-tracker#196), recorded on this run's event buffer entry so
+        # a later WS reconnect / HTTP /resume can refuse a mismatched tenant instead of
+        # replaying across tenants -- same value `resolve_workflow` above used to scope
+        # hydration, computed independently since resolve_workflow doesn't return it.
+        caller_tenant_id = tenant_for_direct_read(request, db=os.db, components=os.workflows, component_id=workflow_id)
+        # RemoteWorkflow.arun() has no tenant_id parameter -- registration is moot for it
+        # anyway, since resume_workflow_run_stream already refuses remote workflows outright.
+        # Only the two foreground branches below can reach a RemoteWorkflow (the background
+        # branches raise on isinstance(workflow, RemoteWorkflow) first), so this has to be
+        # conditional rather than a bare tenant_id=caller_tenant_id kwarg.
+        tenant_kwargs = {} if isinstance(workflow, RemoteWorkflow) else {"tenant_id": caller_tenant_id}
+
         # Background execution
         if background:
             if isinstance(workflow, RemoteWorkflow):
@@ -1363,6 +1451,7 @@ def get_workflow_router(
                         user_id=user_id,
                         background_tasks=background_tasks,
                         auth_token=auth_token,
+                        tenant_id=caller_tenant_id,
                         **kwargs,
                     ),
                     media_type="text/event-stream",
@@ -1382,6 +1471,7 @@ def get_workflow_router(
                 stream=False,
                 background=True,
                 background_tasks=background_tasks,
+                tenant_id=caller_tenant_id,
                 **kwargs,
             )
             return JSONResponse(
@@ -1404,23 +1494,36 @@ def get_workflow_router(
                         user_id=user_id,
                         background_tasks=background_tasks,
                         auth_token=auth_token,
+                        **tenant_kwargs,
                         **kwargs,
                     ),
                     media_type="text/event-stream",
                 )
             else:
-                # Pass auth_token for remote workflows
-                if auth_token and isinstance(workflow, RemoteWorkflow):
-                    kwargs["auth_token"] = auth_token
-
-                run_response = await workflow.arun(
-                    input=message,
-                    session_id=session_id,
-                    user_id=user_id,
-                    stream=False,
-                    background_tasks=background_tasks,
-                    **kwargs,
-                )
+                if isinstance(workflow, RemoteWorkflow):
+                    # Pass auth_token for remote workflows. No tenant_id: RemoteWorkflow.arun()
+                    # has no such parameter, and registration is moot for it anyway -- resume
+                    # already refuses remote workflows outright.
+                    if auth_token:
+                        kwargs["auth_token"] = auth_token
+                    run_response = await workflow.arun(
+                        input=message,
+                        session_id=session_id,
+                        user_id=user_id,
+                        stream=False,
+                        background_tasks=background_tasks,
+                        **kwargs,
+                    )
+                else:
+                    run_response = await workflow.arun(
+                        input=message,
+                        session_id=session_id,
+                        user_id=user_id,
+                        stream=False,
+                        background_tasks=background_tasks,
+                        tenant_id=caller_tenant_id,
+                        **kwargs,
+                    )
                 return run_response.to_dict()
 
         except InputCheckError as e:
@@ -1549,6 +1652,15 @@ def get_workflow_router(
         # Force JWT user_id for non-admin callers so a spoofed user_id cannot
         # attribute the continued run to another user.
         effective_user_id = scoped_user_id if scoped_user_id is not None else user_id
+
+        # Record/refresh the tenant this run continues under (aicoe-tracker#196), refusing
+        # instead of silently overwriting if a different tenant is already recorded for
+        # run_id -- see the WS continue-workflow handler for the full rationale (QC round 2,
+        # finding 3). Applied once here, ahead of both the streaming and non-streaming branches
+        # below, rather than duplicated inside workflow_continue_response_streamer.
+        caller_tenant_id = tenant_for_direct_read(request, db=os.db, components=os.workflows, component_id=workflow_id)
+        if not register_or_refuse_run_tenant(run_id, caller_tenant_id, tenancy_enabled=tenancy_enabled(request)):
+            raise HTTPException(status_code=404, detail="Run not found")
 
         if stream:
             return StreamingResponse(
@@ -1727,13 +1839,14 @@ def get_workflow_router(
                 detail="Stream resumption is not supported for factory workflows",
             )
 
+        caller_tenant_id = tenant_for_direct_read(request, db=os.db, components=os.workflows, component_id=workflow_id)
         workflow = get_workflow_by_id(
             workflow_id=workflow_id,
             workflows=os.workflows,
             db=os.db,
             registry=os.registry,
             create_fresh=True,
-            tenant_id=tenant_for_direct_read(request, db=os.db, components=os.workflows, component_id=workflow_id),
+            tenant_id=caller_tenant_id,
         )
         if workflow is None:
             raise HTTPException(status_code=404, detail="Workflow not found")
@@ -1752,7 +1865,15 @@ def get_workflow_router(
             )
 
         return StreamingResponse(
-            _resume_stream_generator(workflow, run_id, last_event_index, session_id, user_id=scoped_user_id),
+            _resume_stream_generator(
+                workflow,
+                run_id,
+                last_event_index,
+                session_id,
+                user_id=scoped_user_id,
+                caller_tenant_id=caller_tenant_id,
+                tenancy_is_enabled=tenancy_enabled(request),
+            ),
             media_type="text/event-stream",
         )
 

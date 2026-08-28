@@ -40,6 +40,7 @@ TRACE_COLUMNS: Set[str] = {
     "agent_id",
     "team_id",
     "workflow_id",
+    "tenant_id",
     "created_at",
 }
 

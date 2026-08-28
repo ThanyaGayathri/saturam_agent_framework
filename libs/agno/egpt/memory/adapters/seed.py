@@ -52,6 +52,7 @@ from egpt.memory.types import (
     write_details,
 )
 from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes
+from egpt.tracing.memory import memory_span
 
 if TYPE_CHECKING:
     from egpt.learn.machine import LearningMachine
@@ -146,6 +147,22 @@ class SeedMemoryProvider(MemoryProvider):
     A tier holds **several** stores, because three of the six are semantic and two procedural.
     Passing a ``LearningMachine`` binds its enabled stores by that mapping; ``stores`` overrides a
     tier outright, and accepts one store or a sequence.
+
+    Tracing note (SM-X4 #140 follow-up): ``read``/``aread``/``write``/``awrite``/``consolidate``
+    below are wrapped in ``egpt.tracing.memory.memory_span``; ``read_tier``/``aread_tier``/
+    ``write_tier``/``awrite_tier`` are not, and ``aconsolidate`` gets no separate wrap of its own.
+    Unlike ``co_located.py`` -- where the tier-level methods delegate *up* into the traced verb
+    methods, so only its read side is untraced -- this bridge's verb methods delegate *down* into
+    the tier-level ones (grouping a batch by tier first), the opposite direction. Wrapping the
+    tier-level methods here too would double-span a multi-tier ``write``/``read`` call, one span
+    per verb plus one per tier, so the choice is symmetric with ``co_located.py``'s rather than
+    wrapping everything: a call routed through ``read``/``write`` (the path ``assemble_context``
+    and the run loop actually use) is traced; a direct call to any of the four tier-level methods
+    is not. ``aconsolidate`` needs no wrap of its own either: it delegates to the already-traced
+    ``consolidate`` via ``asyncio.to_thread``, which copies the calling ``contextvars.Context``
+    into the worker thread and runs the target inside it -- the same mechanism OTel's "current
+    span" relies on -- so the span ``consolidate`` opens on the worker thread is still correctly
+    parented under whatever span was active on the caller's side.
     """
 
     provider_key = "seed"
@@ -812,29 +829,40 @@ class SeedMemoryProvider(MemoryProvider):
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         require_scope(scope, method="read")
-        self._guard_read(scope, query)
-        per_tier: List[List[MemoryRecord]] = []
-        failures: List[BaseException] = []
-        for tier in self._wanted_tiers(query):
-            try:
-                per_tier.append(self.read_tier(scope, tier, query))
-            except Exception as exc:  # noqa: PERF203 - per-tier isolation, matching `aread`
-                failures.append(exc)
-        self._raise_read_failure(failures)
-        return self._slice(scope, query, self._interleave(per_tier))
+        with memory_span(
+            "read",
+            tenant_id=scope.tenant_id,
+            tier=",".join(sorted(t.value for t in query.tiers)) if query.tiers is not None else "all",
+            store=None,  # the seed has no substrates (see `substrates()`); nothing to name
+        ):
+            self._guard_read(scope, query)
+            per_tier: List[List[MemoryRecord]] = []
+            failures: List[BaseException] = []
+            for tier in self._wanted_tiers(query):
+                try:
+                    per_tier.append(self.read_tier(scope, tier, query))
+                except Exception as exc:  # noqa: PERF203 - per-tier isolation, matching `aread`
+                    failures.append(exc)
+            self._raise_read_failure(failures)
+            return self._slice(scope, query, self._interleave(per_tier))
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         require_scope(scope, method="aread")
-        self._guard_read(scope, query)
-        # Gathered: the tiers are independent, and a manager without an async search still pays a
-        # thread hop per tier. Settled like the store-level fan-out inside `aread_tier`, and like
-        # the sync half above -- the asymmetry compounds if it is fixed at only one nesting level.
-        settled = await asyncio.gather(
-            *(self.aread_tier(scope, tier, query) for tier in self._wanted_tiers(query)), return_exceptions=True
-        )
-        self._raise_read_failure([r for r in settled if isinstance(r, BaseException)])
-        per_tier = [r for r in settled if not isinstance(r, BaseException)]
-        return self._slice(scope, query, self._interleave(per_tier))
+        with memory_span(
+            "read",
+            tenant_id=scope.tenant_id,
+            tier=",".join(sorted(t.value for t in query.tiers)) if query.tiers is not None else "all",
+            store=None,
+        ):
+            # Gathered: the tiers are independent, and a manager without an async search still pays
+            # a thread hop per tier. Settled like the store-level fan-out inside `aread_tier`, and
+            # like the sync half above -- the asymmetry compounds if fixed at only one nesting level.
+            settled = await asyncio.gather(
+                *(self.aread_tier(scope, tier, query) for tier in self._wanted_tiers(query)), return_exceptions=True
+            )
+            self._raise_read_failure([r for r in settled if isinstance(r, BaseException)])
+            per_tier = [r for r in settled if not isinstance(r, BaseException)]
+            return self._slice(scope, query, self._interleave(per_tier))
 
     # -- write ----------------------------------------------------------------
 
@@ -1137,26 +1165,38 @@ class SeedMemoryProvider(MemoryProvider):
         ``EPISODIC``, and the seed must refuse that rather than rewrite it as semantic.
         """
         require_scope(scope, method="write")
-        groups = self._validated_groups(scope, events)
-        receipts: List[WriteReceipt] = []
-        try:
-            for tier, group in groups:
-                receipts.append(self.write_tier(scope, tier, group))
-        except Exception as exc:
-            self._raise_fanout_failure(receipts, exc)
-        return self._merge_receipts(receipts)
+        with memory_span(
+            "write",
+            tenant_id=scope.tenant_id,
+            tier=",".join(sorted({e.tier.value for e in events})),
+            store=None,
+        ):
+            groups = self._validated_groups(scope, events)
+            receipts: List[WriteReceipt] = []
+            try:
+                for tier, group in groups:
+                    receipts.append(self.write_tier(scope, tier, group))
+            except Exception as exc:
+                self._raise_fanout_failure(receipts, exc)
+            return self._merge_receipts(receipts)
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """Async variant of :meth:`write`, with the same per-tier routing."""
         require_scope(scope, method="awrite")
-        groups = self._validated_groups(scope, events)
-        receipts: List[WriteReceipt] = []
-        try:
-            for tier, group in groups:
-                receipts.append(await self.awrite_tier(scope, tier, group))
-        except Exception as exc:
-            self._raise_fanout_failure(receipts, exc)
-        return self._merge_receipts(receipts)
+        with memory_span(
+            "write",
+            tenant_id=scope.tenant_id,
+            tier=",".join(sorted({e.tier.value for e in events})),
+            store=None,
+        ):
+            groups = self._validated_groups(scope, events)
+            receipts: List[WriteReceipt] = []
+            try:
+                for tier, group in groups:
+                    receipts.append(await self.awrite_tier(scope, tier, group))
+            except Exception as exc:
+                self._raise_fanout_failure(receipts, exc)
+            return self._merge_receipts(receipts)
 
     # -- consolidate ----------------------------------------------------------
 
@@ -1172,47 +1212,66 @@ class SeedMemoryProvider(MemoryProvider):
         episodic tier to read from and a graph to write to. It is SM-L1's (#122) onward.
         """
         require_scope(scope, method="consolidate")
-        self._guard_tenant(scope)
-        # `deduplicate` filters on user_id alone, exactly like `search_user_memories`, so a scope
-        # narrowed below it is accepted and silently ignored -- on a *write* path, which is worse
-        # than the read-side accept-and-ignore this guard was written for.
-        self._reject_unfilterable_scope(scope)
-        # Polarity is the *opposite* of the co-located adapter's: this provider accepts only
-        # `tiers=None`, because `[EPISODIC]` -- the one set co-located accepts -- is the single
-        # tier the seed refuses everywhere else.
-        if tiers is not None:
-            requested = sorted(tier.value for tier in tiers)
-            raise MemoryOperationError(
-                f"The seed provider runs only the curator's dedup lane -- it has no episodic tier "
-                f"to consolidate from -- but was asked to consolidate {requested}. Pass None. "
-                "The real loop is SM-L1's (#122).",
-                field_name="tiers",
+        with memory_span(
+            "consolidate",
+            tenant_id=scope.tenant_id,
+            # The seed accepts only `tiers=None` (below); an explicit `tiers` always raises, so
+            # `"semantic"` -- the curator's user-profile dedup lane, the only pass this method
+            # runs -- is what every valid call actually gets. Not co_located's
+            # `"episodic->semantic"`: the seed has no episodic tier or distillation to name.
+            tier=",".join(sorted(t.value for t in tiers)) if tiers is not None else "semantic",
+            store=None,
+        ):
+            self._guard_tenant(scope)
+            # `deduplicate` filters on user_id alone, exactly like `search_user_memories`, so a
+            # scope narrowed below it is accepted and silently ignored -- on a *write* path, which
+            # is worse than the read-side accept-and-ignore this guard was written for.
+            self._reject_unfilterable_scope(scope)
+            # Polarity is the *opposite* of the co-located adapter's: this provider accepts only
+            # `tiers=None`, because `[EPISODIC]` -- the one set co-located accepts -- is the single
+            # tier the seed refuses everywhere else.
+            if tiers is not None:
+                requested = sorted(tier.value for tier in tiers)
+                raise MemoryOperationError(
+                    f"The seed provider runs only the curator's dedup lane -- it has no episodic tier "
+                    f"to consolidate from -- but was asked to consolidate {requested}. Pass None. "
+                    "The real loop is SM-L1's (#122).",
+                    field_name="tiers",
+                )
+
+            can_curate = self.machine is not None and scope.user_id is not None
+            raw_merged = self.machine.curator.deduplicate(user_id=scope.user_id) if can_curate else 0  # type: ignore[union-attr, arg-type]
+            # Coerced: `_checked_machine` verifies `deduplicate` is callable, not what it returns,
+            # and `ConsolidationReport.duplicates_merged` is a typed int a scheduler reads.
+            merged = raw_merged if isinstance(raw_merged, int) and not isinstance(raw_merged, bool) else 0
+            return ConsolidationReport(
+                scope=scope,
+                episodic_scanned=0,  # no episodic store exists to scan
+                semantic_written=0,  # no distillation without extraction
+                duplicates_merged=merged,
+                contradictions_resolved=0,
+                details=consolidation_details(
+                    derived_by="seed.curator_dedup" if can_curate else None,
+                    complete=True,
+                    ran=can_curate,
+                    skipped_because=None
+                    if can_curate
+                    else ("no LearningMachine wired" if self.machine is None else "scope has no user_id"),
+                    note="seed has no episodic tier or graph; the consolidation loop is SM-L1+",
+                ),
             )
 
-        can_curate = self.machine is not None and scope.user_id is not None
-        raw_merged = self.machine.curator.deduplicate(user_id=scope.user_id) if can_curate else 0  # type: ignore[union-attr, arg-type]
-        # Coerced: `_checked_machine` verifies `deduplicate` is callable, not what it returns, and
-        # `ConsolidationReport.duplicates_merged` is a typed int a scheduler reads.
-        merged = raw_merged if isinstance(raw_merged, int) and not isinstance(raw_merged, bool) else 0
-        return ConsolidationReport(
-            scope=scope,
-            episodic_scanned=0,  # no episodic store exists to scan
-            semantic_written=0,  # no distillation without extraction
-            duplicates_merged=merged,
-            contradictions_resolved=0,
-            details=consolidation_details(
-                derived_by="seed.curator_dedup" if can_curate else None,
-                complete=True,
-                ran=can_curate,
-                skipped_because=None
-                if can_curate
-                else ("no LearningMachine wired" if self.machine is None else "scope has no user_id"),
-                note="seed has no episodic tier or graph; the consolidation loop is SM-L1+",
-            ),
-        )
-
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
-        """Async variant. ``Curator.deduplicate`` is sync-only, so this hops a thread."""
+        """Async variant. ``Curator.deduplicate`` is sync-only, so this hops a thread.
+
+        Not separately wrapped in ``memory_span`` (SM-X4 follow-up): it delegates to the already-
+        traced ``consolidate`` via ``asyncio.to_thread``, the same "spans come for free through
+        delegation" shape ``co_located.write_tier``/``awrite_tier`` use. ``asyncio.to_thread``
+        copies the calling ``contextvars.Context`` into the worker thread and runs the target
+        inside it, which is exactly how OTel's "current span" context propagates -- so the span
+        ``consolidate`` opens on the worker thread is still correctly parented under whatever span
+        was active on the caller's side.
+        """
         # Before the hop, so an unscoped call is refused on the caller's stack rather than
         # surfacing from a worker thread, and does not spend one to be refused.
         require_scope(scope, method="aconsolidate")
