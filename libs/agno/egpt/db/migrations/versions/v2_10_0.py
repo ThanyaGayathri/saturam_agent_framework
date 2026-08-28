@@ -42,9 +42,14 @@ _SQLITE_DROP_COLUMN_MIN_VERSION = (3, 35, 0)
 
 
 def _index_name(table_name: str) -> str:
-    """Derive the index name, mirroring the ``idx_{table_name}_{column}`` convention used by
-    the Postgres and SQLite table builders."""
-    return f"idx_{table_name}_tenant_id"
+    """Derive the index name using the same bounded-identifier logic as table creation.
+
+    Uses ``derive_index_name`` so that the migrated index name matches what a
+    freshly-created table would get, even for long custom table names.
+    """
+    from egpt.db.table_names import derive_index_name
+
+    return derive_index_name(table_name, ["tenant_id"])
 
 
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -63,8 +68,7 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
             return _migrate_postgres(db, table_name)
         elif db_type == "SqliteDb":
             return _migrate_sqlite(db, table_name)
-        elif db_type in ("MySQLDb", "SingleStoreDb"):
-            return _migrate_mysql(db, table_name)
+
         else:
             log_info(f"{db_type} does not require schema migrations")
         return False
@@ -89,8 +93,7 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
             return await _migrate_async_postgres(db, table_name)
         elif db_type == "AsyncSqliteDb":
             return await _migrate_async_sqlite(db, table_name)
-        elif db_type == "AsyncMySQLDb":
-            return await _migrate_async_mysql(db, table_name)
+
         else:
             log_info(f"{db_type} does not require schema migrations")
         return False
@@ -115,8 +118,7 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
             return _revert_postgres(db, table_name)
         elif db_type == "SqliteDb":
             return _revert_sqlite(db, table_name)
-        elif db_type in ("MySQLDb", "SingleStoreDb"):
-            return _revert_mysql(db, table_name)
+
         else:
             log_info(f"Revert not implemented for {db_type}")
         return False
@@ -141,8 +143,7 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
             return await _revert_async_postgres(db, table_name)
         elif db_type == "AsyncSqliteDb":
             return await _revert_async_sqlite(db, table_name)
-        elif db_type == "AsyncMySQLDb":
-            return await _revert_async_mysql(db, table_name)
+
         else:
             log_info(f"Revert not implemented for {db_type}")
         return False
@@ -371,93 +372,6 @@ _MYSQL_INDEX_EXISTS = text(
 )
 
 
-def _migrate_mysql(db: BaseDb, table_name: str) -> bool:
-    """Add the tenant_id column and index for MySQL/SingleStore."""
-    db_type = type(db).__name__
-    # The database name -- the same attribute MySQLDb/SingleStoreDb share with PostgresDb.
-    db_schema = db.db_schema  # type: ignore
-    quoted_table = quote_db_identifier(db_type, table_name)
-    index_name = _index_name(table_name)
-
-    with db.Session() as sess, sess.begin():  # type: ignore
-        table_exists = sess.execute(
-            _MYSQL_TABLE_EXISTS,
-            {"schema": db_schema, "table_name": table_name},
-        ).scalar()
-
-        if not table_exists:
-            log_info(f"Table {table_name} does not exist, skipping migration")
-            return False
-
-        applied = False
-
-        has_column = sess.execute(
-            _MYSQL_COLUMN_EXISTS,
-            {"schema": db_schema, "table": table_name, "column": "tenant_id"},
-        ).scalar()
-        if has_column is None:
-            log_info(f"-- Adding tenant_id column to {table_name}")
-            sess.execute(text(f"ALTER TABLE {quoted_table} ADD COLUMN tenant_id {_MYSQL_TENANT_ID_COLUMN_TYPE}"))
-            applied = True
-
-        has_index = sess.execute(
-            _MYSQL_INDEX_EXISTS,
-            {"schema": db_schema, "table": table_name, "index": index_name},
-        ).scalar()
-        if has_index is None:
-            log_info(f"-- Adding index {index_name} on {table_name}")
-            sess.execute(text(f"CREATE INDEX {quote_db_identifier(db_type, index_name)} ON {quoted_table} (tenant_id)"))
-            applied = True
-
-        return applied
-
-
-async def _migrate_async_mysql(db: AsyncBaseDb, table_name: str) -> bool:
-    """Add the tenant_id column and index for async MySQL."""
-    db_type = type(db).__name__
-    db_schema = db.db_schema  # type: ignore
-    quoted_table = quote_db_identifier(db_type, table_name)
-    index_name = _index_name(table_name)
-
-    async with db.async_session_factory() as sess, sess.begin():  # type: ignore
-        result = await sess.execute(
-            _MYSQL_TABLE_EXISTS,
-            {"schema": db_schema, "table_name": table_name},
-        )
-        if not result.scalar():
-            log_info(f"Table {table_name} does not exist, skipping migration")
-            return False
-
-        applied = False
-
-        result = await sess.execute(
-            _MYSQL_COLUMN_EXISTS,
-            {"schema": db_schema, "table": table_name, "column": "tenant_id"},
-        )
-        if result.scalar() is None:
-            log_info(f"-- Adding tenant_id column to {table_name}")
-            await sess.execute(text(f"ALTER TABLE {quoted_table} ADD COLUMN tenant_id {_MYSQL_TENANT_ID_COLUMN_TYPE}"))
-            applied = True
-
-        result = await sess.execute(
-            _MYSQL_INDEX_EXISTS,
-            {"schema": db_schema, "table": table_name, "index": index_name},
-        )
-        if result.scalar() is None:
-            log_info(f"-- Adding index {index_name} on {table_name}")
-            await sess.execute(
-                text(f"CREATE INDEX {quote_db_identifier(db_type, index_name)} ON {quoted_table} (tenant_id)")
-            )
-            applied = True
-
-        return applied
-
-
-# ---------------------------------------------------------------------------
-# Revert functions
-# ---------------------------------------------------------------------------
-
-
 def _revert_postgres(db: BaseDb, table_name: str) -> bool:
     """Revert: drop the index and the tenant_id column for PostgreSQL."""
     db_schema = db.db_schema or "public"  # type: ignore
@@ -635,84 +549,3 @@ async def _revert_async_sqlite(db: AsyncBaseDb, table_name: str) -> bool:
 # ---------------------------------------------------------------------------
 # MySQL / SingleStore revert
 # ---------------------------------------------------------------------------
-
-
-def _revert_mysql(db: BaseDb, table_name: str) -> bool:
-    """Revert: drop the index and the tenant_id column for MySQL/SingleStore."""
-    db_type = type(db).__name__
-    db_schema = db.db_schema  # type: ignore
-    quoted_table = quote_db_identifier(db_type, table_name)
-    index_name = _index_name(table_name)
-
-    with db.Session() as sess, sess.begin():  # type: ignore
-        table_exists = sess.execute(
-            _MYSQL_TABLE_EXISTS,
-            {"schema": db_schema, "table_name": table_name},
-        ).scalar()
-
-        if not table_exists:
-            log_info(f"Table {table_name} does not exist, skipping revert")
-            return False
-
-        applied = False
-
-        # MySQL's DROP INDEX requires the owning table and refuses to drop a column an index
-        # still references, same ordering constraint as SQLite.
-        has_index = sess.execute(
-            _MYSQL_INDEX_EXISTS,
-            {"schema": db_schema, "table": table_name, "index": index_name},
-        ).scalar()
-        if has_index is not None:
-            log_info(f"-- Dropping index {index_name} on {table_name}")
-            sess.execute(text(f"DROP INDEX {quote_db_identifier(db_type, index_name)} ON {quoted_table}"))
-            applied = True
-
-        has_column = sess.execute(
-            _MYSQL_COLUMN_EXISTS,
-            {"schema": db_schema, "table": table_name, "column": "tenant_id"},
-        ).scalar()
-        if has_column is not None:
-            log_info(f"-- Dropping tenant_id column from {table_name}")
-            sess.execute(text(f"ALTER TABLE {quoted_table} DROP COLUMN tenant_id"))
-            applied = True
-
-        return applied
-
-
-async def _revert_async_mysql(db: AsyncBaseDb, table_name: str) -> bool:
-    """Revert: drop the index and the tenant_id column for async MySQL."""
-    db_type = type(db).__name__
-    db_schema = db.db_schema  # type: ignore
-    quoted_table = quote_db_identifier(db_type, table_name)
-    index_name = _index_name(table_name)
-
-    async with db.async_session_factory() as sess, sess.begin():  # type: ignore
-        result = await sess.execute(
-            _MYSQL_TABLE_EXISTS,
-            {"schema": db_schema, "table_name": table_name},
-        )
-        if not result.scalar():
-            log_info(f"Table {table_name} does not exist, skipping revert")
-            return False
-
-        applied = False
-
-        result = await sess.execute(
-            _MYSQL_INDEX_EXISTS,
-            {"schema": db_schema, "table": table_name, "index": index_name},
-        )
-        if result.scalar() is not None:
-            log_info(f"-- Dropping index {index_name} on {table_name}")
-            await sess.execute(text(f"DROP INDEX {quote_db_identifier(db_type, index_name)} ON {quoted_table}"))
-            applied = True
-
-        result = await sess.execute(
-            _MYSQL_COLUMN_EXISTS,
-            {"schema": db_schema, "table": table_name, "column": "tenant_id"},
-        )
-        if result.scalar() is not None:
-            log_info(f"-- Dropping tenant_id column from {table_name}")
-            await sess.execute(text(f"ALTER TABLE {quoted_table} DROP COLUMN tenant_id"))
-            applied = True
-
-        return applied
