@@ -135,6 +135,7 @@ TRACE_TABLE_SCHEMA = {
     "agent_id": {"type": String, "nullable": True, "index": True},
     "team_id": {"type": String, "nullable": True, "index": True},
     "workflow_id": {"type": String, "nullable": True, "index": True},
+    "tenant_id": {"type": String, "nullable": True, "index": True},
     "created_at": {"type": String, "nullable": False, "index": True},  # ISO 8601 datetime string
 }
 

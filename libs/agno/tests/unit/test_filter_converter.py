@@ -42,6 +42,7 @@ def test_table(engine):
         Column("agent_id", String),
         Column("team_id", String),
         Column("workflow_id", String),
+        Column("tenant_id", String),
         Column("created_at", DateTime),
     )
     metadata.create_all(engine)
@@ -70,13 +71,14 @@ class TestTraceColumns:
             "agent_id",
             "team_id",
             "workflow_id",
+            "tenant_id",
             "created_at",
         }
         assert TRACE_COLUMNS == expected
 
     def test_trace_columns_count(self):
         """Test that TRACE_COLUMNS has the expected count."""
-        assert len(TRACE_COLUMNS) == 13
+        assert len(TRACE_COLUMNS) == 14
 
 
 class TestEQOperator:

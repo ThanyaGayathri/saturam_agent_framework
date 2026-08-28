@@ -2597,6 +2597,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                         "agent_id": func.coalesce(table.c.agent_id, insert_stmt.excluded.agent_id),
                         "team_id": func.coalesce(table.c.team_id, insert_stmt.excluded.team_id),
                         "workflow_id": func.coalesce(table.c.workflow_id, insert_stmt.excluded.workflow_id),
+                        "tenant_id": func.coalesce(table.c.tenant_id, insert_stmt.excluded.tenant_id),
                     },
                 )
                 await sess.execute(upsert_stmt)
