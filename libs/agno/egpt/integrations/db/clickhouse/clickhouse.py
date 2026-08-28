@@ -666,10 +666,16 @@ class ClickhouseDb(BaseDb):
     #   storage attempts are loud rather than silently dropped.
 
     # --- Sessions ---
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    # tenant_id (aicoe-tracker#197) accepted for signature parity with BaseDb; unused since
+    # these methods are already unconditionally unavailable on this trace-only backend.
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         raise NotImplementedError(_TRACES_ONLY_ERROR)
 
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError(_TRACES_ONLY_ERROR)
 
     def get_session(self, *args, **kwargs):  # type: ignore[override]

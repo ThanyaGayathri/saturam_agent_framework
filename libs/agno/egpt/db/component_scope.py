@@ -134,6 +134,23 @@ TENANT_SCOPE_REQUIRED_DETAIL = (
 )
 
 
+def _tenant_scope_required_detail(flag_name: str) -> str:
+    """Build the unscoped-access refusal detail naming ``flag_name`` rather than a fixed flag.
+
+    ``resolve_tenant_scope`` is shared between component and session enforcement
+    (aicoe-tracker#197), which are gated by two deliberately separate flags
+    (``require_tenant_id`` vs. ``require_session_tenant_id`` -- see ``egpt/db/session_scope.py``
+    for why). A refusal must name the flag the caller actually needs to change, or an operator
+    debugging a session-scope error is told to toggle the unrelated component flag.
+    """
+    what = "component" if flag_name == "require_tenant_id" else "session/run"
+    return (
+        f"This database requires every {what} operation to name a tenant, and this call passed "
+        f"tenant_id=None (unscoped). Pass the caller's tenant, or build the db without "
+        f"{flag_name} to allow unscoped access. See docs/tenancy.md."
+    )
+
+
 REQUIRE_TENANT_ID_ENV = "REQUIRE_TENANT_ID"
 
 # Spellings accepted for the environment switch, compared case-insensitively after stripping.
@@ -184,8 +201,10 @@ def require_tenant_id_from_env() -> bool:
     )
 
 
-def resolve_tenant_scope(tenant_id: Optional[str], *, require: bool, method: str) -> Optional[str]:
-    """Validate and normalize the tenant scope of one component call.
+def resolve_tenant_scope(
+    tenant_id: Optional[str], *, require: bool, method: str, flag_name: str = "require_tenant_id"
+) -> Optional[str]:
+    """Validate and normalize the tenant scope of one component or session call.
 
     Called as the first statement of every component method on every backend, *before* the
     method's own ``try``. Inside the ``try`` a refusal would be caught by the
@@ -198,8 +217,14 @@ def resolve_tenant_scope(tenant_id: Optional[str], *, require: bool, method: str
             how the NULL-tenant rows written before multi-tenancy are reached; it is refused when
             ``require`` is set. Omitting the argument entirely is a ``TypeError`` at the call
             site and never reaches here.
-        require: Whether this db refuses unscoped access (``BaseDb.require_tenant_id``).
+        require: Whether this db refuses unscoped access (``BaseDb.require_tenant_id``, or
+            ``BaseDb.require_session_tenant_id`` for a session call).
         method: The calling method's name, for the error message.
+        flag_name: The constructor argument/env var an operator would toggle to change this
+            refusal (aicoe-tracker#197). Defaults to ``"require_tenant_id"`` for component calls;
+            ``BaseDb._require_session_tenant_scope``/``AsyncBaseDb._require_session_tenant_scope``
+            pass ``"require_session_tenant_id"`` so a session-scope refusal names the flag that
+            actually controls it, not the unrelated component one.
 
     Returns:
         The tenant, **stripped of surrounding whitespace**, or ``None`` for an unscoped call.
@@ -221,7 +246,9 @@ def resolve_tenant_scope(tenant_id: Optional[str], *, require: bool, method: str
     """
     if tenant_id is None:
         if require:
-            raise TenantScopeRequiredError(f"{method}() was called unscoped. {TENANT_SCOPE_REQUIRED_DETAIL}")
+            raise TenantScopeRequiredError(
+                f"{method}() was called unscoped. {_tenant_scope_required_detail(flag_name)}"
+            )
         return None
     normalized = tenant_id.strip()
     if not normalized:

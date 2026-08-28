@@ -1188,9 +1188,15 @@ def get_workflow_by_id(
         for workflow in workflows:
             if workflow.id == workflow_id:
                 if isinstance(workflow, Workflow):
-                    if create_fresh:
-                        return workflow.deep_copy()
-                    return workflow
+                    # Stamp the caller's tenant onto the returned instance (aicoe-tracker#197),
+                    # matching the DB-hydration branch below -- otherwise a statically-registered
+                    # workflow never gets self.tenant_id set, and its session read/write fallback
+                    # never engages. Only when the caller named one, so an unscoped caller cannot
+                    # clobber a workflow's already-configured tenant.
+                    resolved = workflow.deep_copy() if create_fresh else workflow
+                    if tenant_id is not None:
+                        resolved.tenant_id = tenant_id
+                    return resolved
                 if isinstance(workflow, WorkflowFactory):
                     if ctx is None:
                         raise FactoryContextRequired(
@@ -1235,9 +1241,12 @@ async def get_workflow_by_id_async(
         for workflow in workflows:
             if workflow.id == workflow_id:
                 if isinstance(workflow, Workflow):
-                    if create_fresh:
-                        return workflow.deep_copy()
-                    return workflow
+                    # Stamp the caller's tenant onto the returned instance (aicoe-tracker#197) --
+                    # see the sync get_workflow_by_id for why.
+                    resolved = workflow.deep_copy() if create_fresh else workflow
+                    if tenant_id is not None:
+                        resolved.tenant_id = tenant_id
+                    return resolved
                 if isinstance(workflow, WorkflowFactory):
                     if ctx is None:
                         raise FactoryContextRequired(

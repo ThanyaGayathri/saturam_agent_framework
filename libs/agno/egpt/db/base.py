@@ -12,6 +12,7 @@ from egpt.db.schemas import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.session_scope import require_session_tenant_id_from_env
 from egpt.db.table_names import (
     DEFAULT_TABLE_PREFIX,
     LEGACY_TABLE_PREFIX,
@@ -53,6 +54,19 @@ class BaseDb(ABC):
     environment variable, so ``require_tenant_id=False`` on a deployment that set
     ``EGPT_REQUIRE_TENANT_ID`` leaves the db strict -- a caller's default argument must not be
     able to relax a deployment-wide security control. See ``egpt/db/component_scope.py``.
+
+    ``require_session_tenant_id`` is the same fail-closed contract for session/run access
+    (aicoe-tracker#197), and it is a **deliberately separate flag** from ``require_tenant_id``,
+    not a shared one. ``EgptOS`` does **not** turn it on automatically the way it does for
+    components: session upserts happen from ~100 call sites deep inside the agent/team/workflow
+    run loop (``agent/_run.py``, ``team/_run.py``, ``workflow.py``), none of which thread a
+    tenant through yet, so every session write in an existing deployment stamps
+    ``tenant_id=NULL``. Sharing ``require_tenant_id`` would mean the instant an operator turns on
+    tenancy for components, every agent/team/workflow *run* -- not just the read endpoints this
+    ticket is about -- starts raising ``TenantScopeRequiredError`` on its own session save.
+    ``require_session_tenant_id`` is therefore opt-in only (constructor argument or
+    ``EGPT_REQUIRE_SESSION_TENANT_ID``), for operators who have verified their deployment's
+    session writes are tenant-safe. See ``egpt/db/session_scope.py``.
     """
 
     # We assume the database to be up to date with the 2.0.0 release
@@ -82,6 +96,7 @@ class BaseDb(ABC):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         require_tenant_id: bool = False,
+        require_session_tenant_id: bool = False,
     ):
         self.id = id or str(uuid4())
         # Refuse unscoped component access (EGPT-2.7). Off by default so a single-tenant
@@ -95,6 +110,10 @@ class BaseDb(ABC):
         # direction that loses isolation. Pinned by
         # ``test_explicit_ctor_arg_does_not_downgrade_the_env``.
         self.require_tenant_id = require_tenant_id or require_tenant_id_from_env()
+        # Refuse unscoped session/run access (aicoe-tracker#197) -- a separate, deliberately
+        # not-auto-enabled flag; see the class docstring for why it cannot simply reuse
+        # ``require_tenant_id``. Same one-way OR contract as above.
+        self.require_session_tenant_id = require_session_tenant_id or require_session_tenant_id_from_env()
         self.table_prefix = validate_table_prefix(table_prefix)
         self.session_table_name = session_table or f"{self.table_prefix}sessions"
         self.culture_table_name = culture_table or f"{self.table_prefix}culture"
@@ -142,6 +161,8 @@ class BaseDb(ABC):
         # names are omitted: it keeps stored configs free of restated defaults.
         if self.require_tenant_id:
             data["require_tenant_id"] = True
+        if self.require_session_tenant_id:
+            data["require_session_tenant_id"] = True
         for param, suffix in TABLE_SUFFIXES.items():
             value = getattr(self, table_name_attr(param), None)
             if value is not None and value != f"{self.table_prefix}{suffix}":
@@ -176,6 +197,7 @@ class BaseDb(ABC):
             table_prefix=data.get("table_prefix"),
             id=data.get("id"),
             require_tenant_id=bool(data.get("require_tenant_id", False)),
+            require_session_tenant_id=bool(data.get("require_session_tenant_id", False)),
         )
 
     def clone_with_table_overrides(self, **overrides: Any) -> Optional["BaseDb"]:
@@ -256,12 +278,30 @@ class BaseDb(ABC):
         raise NotImplementedError
 
     # --- Sessions ---
+    # Tenant scoping (aicoe-tracker#197): every session method takes an optional, keyword-only
+    # ``tenant_id``, defaulting to ``None`` (unscoped) -- unlike the fourteen component methods,
+    # which require it. See ``egpt/db/session_scope.py`` for why: these methods sit in the hot
+    # path of every agent/team/workflow run, across far more call sites than components ever had,
+    # and are gated by their own ``require_session_tenant_id`` flag rather than the component
+    # methods' ``require_tenant_id`` -- also explained there.
+    #   - *Omitted* or *explicitly ``None``* -- unscoped: no tenant predicate is applied. This is
+    #     what single-tenant deployments and pre-existing call sites get, and it is the only way
+    #     to reach NULL-``tenant_id`` rows written before this column existed. A db built with
+    #     ``require_session_tenant_id=True`` refuses it with ``TenantScopeRequiredError`` -- the
+    #     omitted/explicit-``None`` distinction the component methods have collapses into one
+    #     failure mode here, because this parameter has a default rather than being required.
+    #   - *A value* -- restricts the statement to that tenant, and is stamped onto rows an upsert
+    #     creates. It is never changed by an update: a session does not move between tenants.
     @abstractmethod
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         raise NotImplementedError
 
     @abstractmethod
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -271,6 +311,8 @@ class BaseDb(ABC):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         raise NotImplementedError
 
@@ -288,6 +330,8 @@ class BaseDb(ABC):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         raise NotImplementedError
 
@@ -299,12 +343,14 @@ class BaseDb(ABC):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         raise NotImplementedError
 
     @abstractmethod
     def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         raise NotImplementedError
 
@@ -314,6 +360,8 @@ class BaseDb(ABC):
         sessions: List[Session],
         deserialize: Optional[bool] = True,
         preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """Bulk upsert multiple sessions for improved performance on large datasets."""
         raise NotImplementedError
@@ -689,8 +737,25 @@ class BaseDb(ABC):
         :func:`egpt.db.component_scope.resolve_tenant_scope` so each backend's fourteen call
         sites read as one line and none of them has to reach for ``self.require_tenant_id``
         itself -- a backend that read the flag directly could get the check subtly wrong.
+
+        Component-only: uses ``self.require_tenant_id``. Session methods use
+        :meth:`_require_session_tenant_scope` instead, backed by the separate
+        ``self.require_session_tenant_id`` flag -- see the class docstring for why the two must
+        not share one flag.
         """
         return resolve_tenant_scope(tenant_id, require=self.require_tenant_id, method=method)
+
+    def _require_session_tenant_scope(self, tenant_id: Optional[str], method: str) -> Optional[str]:
+        """Validate one session call's tenant scope against this db's session policy.
+
+        The session counterpart of :meth:`_require_tenant_scope` (aicoe-tracker#197), backed by
+        ``self.require_session_tenant_id`` rather than ``self.require_tenant_id`` -- see the
+        class docstring and ``egpt/db/session_scope.py`` for why session and component
+        enforcement are deliberately independent flags.
+        """
+        return resolve_tenant_scope(
+            tenant_id, require=self.require_session_tenant_id, method=method, flag_name="require_session_tenant_id"
+        )
 
     # --- Components (Optional) ---
     # These methods are optional. Override in subclasses to enable component persistence.
@@ -1582,7 +1647,16 @@ class BaseDb(ABC):
 
 
 class AsyncBaseDb(ABC):
-    """Base abstract class for all our async database implementations."""
+    """Base abstract class for all our async database implementations.
+
+    ``require_session_tenant_id`` gives async session reads the same fail-closed guarantee sync
+    ``BaseDb`` has for sessions (aicoe-tracker#197): a session method called with
+    ``tenant_id=None`` on a strict db raises ``TenantScopeRequiredError`` rather than applying no
+    tenant predicate. Off by default, OR'd with ``EGPT_REQUIRE_SESSION_TENANT_ID`` the same
+    one-directional way as sync ``BaseDb`` -- see that class's docstring for why this is a
+    separate flag from component tenant enforcement (``AsyncBaseDb`` has no component methods at
+    all, so there is no async ``require_tenant_id`` to share it with).
+    """
 
     def __init__(
         self,
@@ -1603,8 +1677,10 @@ class AsyncBaseDb(ABC):
         auth_tokens_table: Optional[str] = None,
         service_accounts_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         self.id = id or str(uuid4())
+        self.require_session_tenant_id = require_session_tenant_id or require_session_tenant_id_from_env()
         self.table_prefix = validate_table_prefix(table_prefix)
         self.session_table_name = session_table or f"{self.table_prefix}sessions"
         self.memory_table_name = memory_table or f"{self.table_prefix}memories"
@@ -1650,6 +1726,17 @@ class AsyncBaseDb(ABC):
         """
         return None
 
+    def _require_session_tenant_scope(self, tenant_id: Optional[str], method: str) -> Optional[str]:
+        """Validate one session call's tenant scope against this db's session policy.
+
+        The async counterpart of ``BaseDb._require_session_tenant_scope``, kept in step for the
+        same reason: each backend's call sites read as one line and none of them reaches for
+        ``self.require_session_tenant_id`` directly.
+        """
+        return resolve_tenant_scope(
+            tenant_id, require=self.require_session_tenant_id, method=method, flag_name="require_session_tenant_id"
+        )
+
     async def _create_all_tables(self) -> None:
         """Create all tables for this database. Override in subclasses."""
         pass
@@ -1687,12 +1774,19 @@ class AsyncBaseDb(ABC):
         raise NotImplementedError
 
     # --- Sessions ---
+    # Tenant scoping (aicoe-tracker#197): see the identical comment on ``BaseDb``'s session
+    # methods. ``tenant_id`` is optional and keyword-only here too; ``require_session_tenant_id`` (added
+    # to ``AsyncBaseDb`` below for the same reason) is what fails closed under tenancy.
     @abstractmethod
-    async def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    async def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         raise NotImplementedError
 
     @abstractmethod
-    async def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -1702,6 +1796,8 @@ class AsyncBaseDb(ABC):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         raise NotImplementedError
 
@@ -1719,6 +1815,8 @@ class AsyncBaseDb(ABC):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         raise NotImplementedError
 
@@ -1730,12 +1828,14 @@ class AsyncBaseDb(ABC):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         raise NotImplementedError
 
     @abstractmethod
     async def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         raise NotImplementedError
 

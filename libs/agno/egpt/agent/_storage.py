@@ -47,7 +47,11 @@ from egpt.utils.string import generate_id_from_name
 
 
 def get_run_output(
-    agent: Agent, run_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None
+    agent: Agent,
+    run_id: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[RunOutput]:
     """
     Get a RunOutput from the database.
@@ -57,27 +61,8 @@ def get_run_output(
         run_id (str): The run_id to load from storage.
         session_id (Optional[str]): The session_id to load from storage.
         user_id (Optional[str]): The user_id to scope the session lookup.
-    Returns:
-        Optional[RunOutput]: The RunOutput from the database or None if not found.
-    """
-    if not session_id and not agent.session_id:
-        raise Exception("No session_id provided")
-
-    session_id_to_load = session_id or agent.session_id
-    return cast(RunOutput, get_run_output_util(agent, run_id=run_id, session_id=session_id_to_load, user_id=user_id))
-
-
-async def aget_run_output(
-    agent: Agent, run_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None
-) -> Optional[RunOutput]:
-    """
-    Get a RunOutput from the database.
-
-    Args:
-        agent: The Agent instance.
-        run_id (str): The run_id to load from storage.
-        session_id (Optional[str]): The session_id to load from storage.
-        user_id (Optional[str]): The user_id to scope the session lookup.
+        tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults to
+            unscoped; refused when the db was built with ``require_session_tenant_id``.
     Returns:
         Optional[RunOutput]: The RunOutput from the database or None if not found.
     """
@@ -86,7 +71,40 @@ async def aget_run_output(
 
     session_id_to_load = session_id or agent.session_id
     return cast(
-        RunOutput, await aget_run_output_util(agent, run_id=run_id, session_id=session_id_to_load, user_id=user_id)
+        RunOutput,
+        get_run_output_util(agent, run_id=run_id, session_id=session_id_to_load, user_id=user_id, tenant_id=tenant_id),
+    )
+
+
+async def aget_run_output(
+    agent: Agent,
+    run_id: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> Optional[RunOutput]:
+    """
+    Get a RunOutput from the database.
+
+    Args:
+        agent: The Agent instance.
+        run_id (str): The run_id to load from storage.
+        session_id (Optional[str]): The session_id to load from storage.
+        user_id (Optional[str]): The user_id to scope the session lookup.
+        tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults to
+            unscoped; refused when the db was built with ``require_session_tenant_id``.
+    Returns:
+        Optional[RunOutput]: The RunOutput from the database or None if not found.
+    """
+    if not session_id and not agent.session_id:
+        raise Exception("No session_id provided")
+
+    session_id_to_load = session_id or agent.session_id
+    return cast(
+        RunOutput,
+        await aget_run_output_util(
+            agent, run_id=run_id, session_id=session_id_to_load, user_id=user_id, tenant_id=tenant_id
+        ),
     )
 
 
@@ -132,13 +150,26 @@ async def aget_last_run_output(agent: Agent, session_id: Optional[str] = None) -
 
 
 def read_session(
-    agent: Agent, session_id: str, session_type: SessionType = SessionType.AGENT, user_id: Optional[str] = None
+    agent: Agent,
+    session_id: str,
+    session_type: SessionType = SessionType.AGENT,
+    user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[AgentSession, TeamSession, WorkflowSession]]:
-    """Get a Session from the database."""
+    """Get a Session from the database.
+
+    Args:
+        tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
+            refused when the db was built with ``require_session_tenant_id`` -- which, since a
+            refusal is caught below and logged as a warning, surfaces to the caller
+            indistinguishably from "session not found" rather than as a distinct error.
+    """
     try:
         if not agent.db:
             raise ValueError("Db not initialized")
-        return agent.db.get_session(session_id=session_id, session_type=session_type, user_id=user_id)  # type: ignore
+        return agent.db.get_session(
+            session_id=session_id, session_type=session_type, user_id=user_id, tenant_id=tenant_id
+        )  # type: ignore
     except Exception as e:
         import traceback
 
@@ -148,18 +179,32 @@ def read_session(
 
 
 async def aread_session(
-    agent: Agent, session_id: str, session_type: SessionType = SessionType.AGENT, user_id: Optional[str] = None
+    agent: Agent,
+    session_id: str,
+    session_type: SessionType = SessionType.AGENT,
+    user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[AgentSession, TeamSession, WorkflowSession]]:
-    """Get a Session from the database."""
+    """Get a Session from the database.
+
+    Args:
+        tenant_id: Tenant to scope the read to (aicoe-tracker#197). Defaults to unscoped;
+            refused when the db was built with ``require_session_tenant_id`` -- see
+            :func:`read_session` for how that refusal surfaces to the caller.
+    """
     from egpt.agent import _init
 
     try:
         if not agent.db:
             raise ValueError("Db not initialized")
         if _init.has_async_db(agent):
-            return await agent.db.get_session(session_id=session_id, session_type=session_type, user_id=user_id)  # type: ignore
+            return await agent.db.get_session(
+                session_id=session_id, session_type=session_type, user_id=user_id, tenant_id=tenant_id
+            )  # type: ignore
         else:
-            return agent.db.get_session(session_id=session_id, session_type=session_type, user_id=user_id)  # type: ignore
+            return agent.db.get_session(
+                session_id=session_id, session_type=session_type, user_id=user_id, tenant_id=tenant_id
+            )  # type: ignore
     except Exception as e:
         import traceback
 
