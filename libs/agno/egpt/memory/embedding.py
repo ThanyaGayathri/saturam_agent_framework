@@ -96,6 +96,15 @@ class MemoryGrowthEntry:
 
     A per-call delta, not a queried absolute: no substrate in this tree exposes a ``count()``, so
     "store growth" is the sum of what each call reported it accepted.
+
+    ``event_ids`` are the ids the writes in this entry actually stamped (a ``write``'s
+    ``WriteReceipt.event_ids``, or a consolidate group's ``FactWrite.record.id``s). Deterministic
+    ``uuid5`` ids mean a retried batch upserts the same rows rather than adding new ones -- so two
+    entries whose ``event_ids`` overlap represent (at least in part) the *same* underlying growth,
+    most commonly a ``PartialWriteError`` entry followed by its successful retry. This field does
+    not prevent that double count (the two calls are independent, and the first's partial commit
+    is real and must stay visible) -- it lets a downstream consumer detect the overlap and collapse
+    it, rather than silently double-booking every retried batch.
     """
 
     tenant_id: str
@@ -103,6 +112,7 @@ class MemoryGrowthEntry:
     operation: str  # "write" | "consolidate"
     tier: str
     accepted: int = 0
+    event_ids: Tuple[str, ...] = ()
 
 
 @dataclass
@@ -129,9 +139,9 @@ class MemoryMetricsAggregator:
     """
 
     max_entries: int = 10_000
-    _costs: Deque[MemoryCostEntry] = field(default_factory=deque, repr=False, compare=False)
-    _growth: Deque[MemoryGrowthEntry] = field(default_factory=deque, repr=False, compare=False)
-    _lock: Lock = field(default_factory=Lock, repr=False, compare=False)
+    _costs: Deque[MemoryCostEntry] = field(default_factory=deque, repr=False, compare=False, init=False)
+    _growth: Deque[MemoryGrowthEntry] = field(default_factory=deque, repr=False, compare=False, init=False)
+    _lock: Lock = field(default_factory=Lock, repr=False, compare=False, init=False)
 
     def __post_init__(self) -> None:
         self._costs = deque(self._costs, maxlen=self.max_entries)
@@ -675,8 +685,13 @@ class MemoryEmbedder:
             call_arg = self._call_arg(chunk)
             if scope is not None and not self._accepts_batches():
                 vector, usage = self._metered_embed_one(call_arg)
-                result = self._as_vectors(vector, len(chunk))
+                # Recorded before `_as_vectors` validates the shape below: a real, likely-billed
+                # embedding call already happened by this point, and an embedder that swallows its
+                # own failure (returning `([], None)`) makes `_as_vectors` raise -- metering must
+                # not depend on the call having produced a usable vector, or a failed paid call
+                # leaves zero trace instead of the usual `cost=None` "unknown" entry.
                 self._record_usage(scope, usage)
+                result = self._as_vectors(vector, len(chunk))
             else:
                 result = self._as_vectors(self.embedder.get_embedding(call_arg), len(chunk))
             vectors.extend(self._checked(result))
@@ -695,8 +710,9 @@ class MemoryEmbedder:
             call_arg = self._call_arg(chunk)
             if scope is not None and not self._accepts_batches():
                 vector, usage = await self._ametered_embed_one(call_arg)
-                result = self._as_vectors(vector, len(chunk))
+                # See the sync half's comment: recorded before `_as_vectors` can raise.
                 self._record_usage(scope, usage)
+                result = self._as_vectors(vector, len(chunk))
             else:
                 result = self._as_vectors(await self.embedder.async_get_embedding(call_arg), len(chunk))
             vectors.extend(self._checked(result))

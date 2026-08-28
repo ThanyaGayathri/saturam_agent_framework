@@ -37,7 +37,7 @@ gives every call site in this package one shared instance to record onto in the 
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Tuple
 
 from egpt.memory.embedding import (
     MemoryCostEntry,
@@ -101,10 +101,24 @@ def meter_extraction_cost(
             # `.aresponse` (just called, by every caller of this function) already ran once via
             # `_apply_cost_to_metrics`. Falling back to a direct, unmemoized lookup keeps this
             # working against a plain test double that only has `.id`, not the full `Model` shape.
+            # `hasattr`, not `isinstance(model, Model)`: `unittest.mock.MagicMock(spec=Model)`
+            # deliberately makes `isinstance` checks against `Model` pass (it patches `__class__`
+            # for exactly that reason), so an `isinstance` guard would not have caught it either --
+            # it would still call the mock's auto-specced `_resolved_provider_key` and get an
+            # unconfigured `MagicMock` back. Validating the *result*'s type below is what actually
+            # guards against that, for any test double shape, not just this one.
             if hasattr(model, "_resolved_provider_key"):
                 provider_key = model._resolved_provider_key()
             else:
                 provider_key = BaseModelProvider._registry_key_for(model)
+            if provider_key is not None and not isinstance(provider_key, str):
+                # A double whose `_resolved_provider_key` isn't wired to return a real value (a
+                # bare `MagicMock(spec=Model)`, or any other test double built the same way)
+                # returns something here that is neither a real registry key nor `None`. Treated
+                # as unresolved rather than handed to `compute_cost`, which would either raise or
+                # silently never match -- the same "unknown, not a coerced value" stance the rest
+                # of this function takes for cost.
+                provider_key = None
         except Exception as exc:
             log_debug(f"Memory extraction cost: could not resolve a provider key for {model!r}: {exc}")
             provider_key = None
@@ -146,8 +160,13 @@ def record_growth(
     *,
     tier: str,
     accepted: int,
+    event_ids: Tuple[str, ...] = (),
 ) -> None:
     """Record one write/consolidate call's contribution to store size.
+
+    ``event_ids`` are the ids this call actually stamped -- see :class:`MemoryGrowthEntry` for why
+    a downstream consumer needs them (collapsing a retried, deterministically-re-ided batch that
+    would otherwise be double-counted).
 
     Never raises: a bad ``scope`` (missing ``tenant_id``) is the one case this cannot recover
     from gracefully, but every caller in this package already holds a validated ``Scope`` by the
@@ -157,9 +176,10 @@ def record_growth(
     aggregator.record_growth(
         MemoryGrowthEntry(
             tenant_id=scope.tenant_id,
-            agent_id=getattr(scope, "agent_id", None),
+            agent_id=scope.agent_id,
             operation=operation,
             tier=tier,
             accepted=accepted,
+            event_ids=event_ids,
         )
     )

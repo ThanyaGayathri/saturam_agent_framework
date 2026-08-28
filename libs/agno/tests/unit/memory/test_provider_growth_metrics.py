@@ -16,7 +16,15 @@ import pytest
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
 from egpt.memory.metrics import get_default_aggregator, reset_default_aggregator
-from egpt.memory.types import MemoryEvent, MemoryOperationError, PartialWriteError, Scope
+from egpt.memory.tiers import CONSOLIDATION_TARGET
+from egpt.memory.types import (
+    FactWrite,
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryRecord,
+    PartialWriteError,
+    Scope,
+)
 from tests.unit.memory._fakes import FakeGraph, FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="u1")
@@ -221,3 +229,131 @@ class TestConsolidateGrowth:
         totals = get_default_aggregator().growth_by_tenant()
         # 1 episodic write + 1 semantic fact from consolidation.
         assert totals["acme"] == 2
+
+
+def _fact(scope, suffix):
+    """A minimal, valid ``FactWrite`` for the multi-group tests below -- content/subject/etc.
+    don't matter, only that each carries its own ``scope`` and a unique id."""
+    record = MemoryRecord(
+        id=f"fact-{suffix}",
+        tier=CONSOLIDATION_TARGET,
+        content=f"fact {suffix}",
+        scope=scope,
+    )
+    return FactWrite(record=record, source_episode_ids=[f"episode-{suffix}"], derived_by="test")
+
+
+class ScopedFailingGraph(FakeGraph):
+    """Fails ``upsert_facts`` only when called for one specific scope -- lets a multi-group
+    ``_by_scope`` fan-out commit some groups for real before a later one raises, without depending
+    on call order the way a plain "fail on Nth call" double would."""
+
+    def __init__(self, fail_for_agent_id):
+        super().__init__()
+        self.fail_for_agent_id = fail_for_agent_id
+
+    def upsert_facts(self, scope, facts):
+        if scope.agent_id == self.fail_for_agent_id:
+            raise MemoryOperationError("backend unavailable for this scope", field_name="tier")
+        super().upsert_facts(scope, facts)
+
+
+class TestConsolidateGrowthAcrossMultipleFactScopeGroups:
+    """Critical finding, PR #159 round-2 review (``co_located.py:1835``): a multi-``fact_scope``
+    consolidate pass used to record growth for the full pass-wide ``facts`` count on a partial
+    failure, over-counting by exactly the groups the loop never even reached. Growth must reflect
+    only the group(s) actually attempted, attributed to each group's own scope -- including a
+    group's own partial commit (its vector leg landing before its graph leg raises), which the
+    round-1 fix already established matters and must not regress.
+    """
+
+    GROUP_A = Scope(tenant_id="acme", user_id="u1", agent_id="agent-a")
+    GROUP_B = Scope(tenant_id="acme", user_id="u1", agent_id="agent-b")
+    GROUP_C = Scope(tenant_id="acme", user_id="u1", agent_id="agent-c")
+
+    def _provider(self, fail_for_agent_id):
+        vector, graph = FakeVector(), ScopedFailingGraph(fail_for_agent_id)
+        config = MemoryProviderConfig(provider="co_located")
+        p = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config)
+        return p, vector, graph
+
+    def test_a_group_the_loop_never_reaches_is_excluded_but_the_failing_groups_own_partial_commit_counts(self):
+        """3 groups, sorted agent-a < agent-b < agent-c: A fully commits, B's vector leg lands and
+        then its graph leg raises (a real partial commit for B), and C is never attempted at all
+        because the raise stops the loop before it gets there. Growth must total A + B, never the
+        full pass-wide 5 facts (the old bug) and never just A's 2 (which would silently drop B's
+        genuine partial commit -- the exact regression the round-1 fix was for)."""
+        p, _, _ = self._provider(fail_for_agent_id="agent-b")
+        facts = [
+            _fact(self.GROUP_A, "a1"),
+            _fact(self.GROUP_A, "a2"),
+            _fact(self.GROUP_B, "b1"),
+            _fact(self.GROUP_C, "c1"),
+            _fact(self.GROUP_C, "c2"),
+        ]
+        p._distil_facts = lambda scope, episodes: (facts, 0, 0, "test", "test")
+
+        with pytest.raises(PartialWriteError):
+            p.consolidate(ACME)
+
+        entries = sorted(
+            (e for e in get_default_aggregator().growth if e.operation == "consolidate"),
+            key=lambda e: e.agent_id,
+        )
+        assert [(e.agent_id, e.accepted) for e in entries] == [("agent-a", 2), ("agent-b", 1)]
+        assert get_default_aggregator().growth_by_tenant()["acme"] == 3
+
+    def test_every_group_succeeding_records_growth_for_each(self):
+        p, _, _ = self._provider(fail_for_agent_id=None)
+        facts = [_fact(self.GROUP_A, "a1"), _fact(self.GROUP_B, "b1"), _fact(self.GROUP_B, "b2")]
+        p._distil_facts = lambda scope, episodes: (facts, 0, 0, "test", "test")
+
+        p.consolidate(ACME)
+
+        entries = sorted(
+            (e for e in get_default_aggregator().growth if e.operation == "consolidate"),
+            key=lambda e: e.agent_id,
+        )
+        assert [(e.agent_id, e.accepted) for e in entries] == [("agent-a", 1), ("agent-b", 2)]
+
+
+class TestGrowthEntryCarriesEventIdsForDedup:
+    """Critical finding, PR #159 round-2 review (``co_located.py:766``): a caller that retries
+    ``write`` after a ``PartialWriteError`` and succeeds gets growth recorded twice for a store
+    that (thanks to deterministic ids) only grew once. This doesn't stop at the double record --
+    it pins that a downstream consumer *can* detect it, via overlapping ``event_ids``.
+    """
+
+    class OnceFailingGraph(FakeGraph):
+        fail = True
+
+        def upsert_episodes(self, scope, events):
+            if self.fail:
+                raise MemoryOperationError("backend unavailable", field_name="tier")
+            super().upsert_episodes(scope, events)
+
+    def test_a_failed_then_retried_write_produces_two_entries_with_overlapping_event_ids(self):
+        vector, graph = FakeVector(), self.OnceFailingGraph()
+        config = MemoryProviderConfig(provider="co_located")
+        p = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config)
+        events = [event("the deploy failed on friday", id="ev-1")]
+
+        with pytest.raises(PartialWriteError):
+            p.write(ACME, events)
+        graph.fail = False
+        p.write(ACME, events)  # same deterministic id -- upserts the same row, doesn't add a new one
+
+        entries = [e for e in get_default_aggregator().growth if e.tenant_id == "acme"]
+        assert len(entries) == 2
+        assert set(entries[0].event_ids) & set(entries[1].event_ids)
+
+    def test_a_consolidate_growth_entry_carries_its_facts_event_ids(self):
+        p, _, _ = provider()
+        p.write(ACME, [event("the deploy failed on friday")])
+        reset_default_aggregator()
+
+        report = p.consolidate(ACME)
+
+        entries = [e for e in get_default_aggregator().growth if e.operation == "consolidate"]
+        assert len(entries) == 1
+        assert len(entries[0].event_ids) == report.semantic_written == 1

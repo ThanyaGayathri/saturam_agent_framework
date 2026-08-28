@@ -18,6 +18,7 @@ import asyncio
 import pytest
 
 from egpt.memory.embedding import MemoryEmbedder
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.metrics import get_default_aggregator, reset_default_aggregator
 from egpt.memory.types import Scope
 
@@ -100,6 +101,24 @@ class DuckTypedEmbedder:
     async def async_get_embedding(self, text):
         await asyncio.sleep(0)
         return self.get_embedding(text)
+
+
+class EmptyVectorRecorder(UsageRecorder):
+    """``get_embedding_and_usage`` returns a real usage payload but an empty vector -- the shape
+    ``OpenAIEmbedder`` produces when it swallows its own API failure and returns ``([], None)``.
+    ``_as_vectors`` refuses this with ``MemoryProviderConfigError`` (empty result), which must not
+    come at the cost of losing the usage this call already, genuinely, paid for (finding at
+    ``embedding.py:679``, PR #159 round-2 review)."""
+
+    id = "empty-vector-v1"
+
+    def get_embedding_and_usage(self, text):
+        self.usage_calls.append(text)
+        return [], {"prompt_tokens": len(text), "total_tokens": len(text)}
+
+    async def async_get_embedding_and_usage(self, text):
+        await asyncio.sleep(0)
+        return self.get_embedding_and_usage(text)
 
 
 class BatchRecorder:
@@ -318,3 +337,35 @@ class TestBatchingEmbedderIsNotMeteredHere:
 
         assert get_default_aggregator().costs == []
         assert embedder.usage_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Usage is recorded even when the embedder's vector fails shape validation (finding at
+# embedding.py:679, PR #159 round-2 review): a real, likely-billed API call must never end up
+# with zero metering trace just because it also returned an unusable vector.
+# ---------------------------------------------------------------------------
+
+
+class TestUsageRecordedBeforeVectorValidation:
+    def test_embed_texts_records_usage_even_though_the_empty_vector_then_raises(self):
+        embedder = EmptyVectorRecorder()
+        p = pipeline(embedder)
+
+        with pytest.raises(MemoryProviderConfigError):
+            p.embed_texts(["hello"], scope=SCOPE)
+
+        assert embedder.usage_calls == ["hello"]
+        entries = get_default_aggregator().costs
+        assert len(entries) == 1
+        assert entries[0].tenant_id == "acme"
+        assert entries[0].kind == "embedding"
+
+    async def test_aembed_texts_records_usage_even_though_the_empty_vector_then_raises(self):
+        embedder = EmptyVectorRecorder()
+        p = pipeline(embedder)
+
+        with pytest.raises(MemoryProviderConfigError):
+            await p.aembed_texts(["hello"], scope=SCOPE)
+
+        assert embedder.usage_calls == ["hello"]
+        assert len(get_default_aggregator().costs) == 1

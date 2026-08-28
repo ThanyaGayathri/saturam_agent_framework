@@ -1317,4 +1317,14 @@ unbounded/unlocked `MemoryMetricsAggregator`, missing pytest coverage on the 5
 unchanged: 3 embedding entries, 5 cost entries, 7 growth entries, `acme`/`globex` both
 `cost=$0.000066`, `growth_by_tenant()` `acme=6`/`globex=4`, 0 unpriced.
 
+**Re-verified again (PR #159 round-2 review follow-up):** re-run after fixing the second review
+round's findings -- usage recorded before vector-shape validation so a failed embed call is never
+silently unmetered, per-`fact_scope`-group growth recording in `consolidate`/`aconsolidate` (fixes
+an over-count on a multi-group partial failure without regressing the round-1 partial-commit
+fix), `event_ids` added to `MemoryGrowthEntry` so a retried batch's growth can be recognised and
+collapsed downstream, `LLMFactExtractor`/`LLMMergeDecider` now metered alongside the other four
+extractors, and the `MagicMock(spec=Model)` provider-key edge case. Output unchanged: 3 embedding
+entries, cost entries reach 5 after entity extraction, 7 growth entries, `acme`/`globex` both
+`cost=$0.000066`, `growth_by_tenant()` `acme=6`/`globex=4`, 0 unpriced.
+
 ---

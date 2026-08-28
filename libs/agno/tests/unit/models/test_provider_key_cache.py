@@ -11,10 +11,11 @@ the second lookup now reuses the first's cached answer instead of re-scanning.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 from unittest.mock import patch
 
-from egpt.models.base import Model
+from egpt.models.base import _UNRESOLVED_PROVIDER_KEY, Model
 from egpt.providers.model_provider import BaseModelProvider
 
 
@@ -122,3 +123,36 @@ def test_meter_extraction_cost_still_works_against_a_plain_double_without_the_ca
 
     assert len(agg.costs) == 1
     assert agg.costs[0].tenant_id == "acme"
+
+
+# ---------------------------------------------------------------------------
+# Deepcopy contract (Minor finding, PR #159 round-2 review, models/base.py:204): the cache field
+# is `field(default=..., init=False)` with no `default_factory`, so it is a class-level default,
+# not an instance attribute, until the first `_resolved_provider_key()` call. `Model.__deepcopy__`
+# only iterates `self.__dict__`, so an unresolved copy must start unresolved too (falling through
+# to the same class default) rather than accidentally inheriting some other instance's state, and
+# a resolved copy must carry its own already-resolved value across.
+# ---------------------------------------------------------------------------
+
+
+def test_deepcopy_of_an_unresolved_model_stays_unresolved():
+    model = _MinimalModel(id="x")
+    assert "_provider_key_cache" not in model.__dict__  # never resolved -- not in __dict__ yet
+
+    copy = deepcopy(model)
+
+    assert "_provider_key_cache" not in copy.__dict__
+    assert copy._provider_key_cache is _UNRESOLVED_PROVIDER_KEY
+
+
+def test_deepcopy_of_a_resolved_model_carries_the_resolved_value():
+    model = _MinimalModel(id="x")
+    resolved = model._resolved_provider_key()
+    assert "_provider_key_cache" in model.__dict__  # now a real instance attribute
+
+    copy = deepcopy(model)
+
+    assert copy._provider_key_cache == resolved
+    with patch.object(BaseModelProvider, "_registry_key_for", wraps=BaseModelProvider._registry_key_for) as spy:
+        assert copy._resolved_provider_key() == resolved
+    spy.assert_not_called()  # the copy reused the deep-copied cache, it did not re-resolve

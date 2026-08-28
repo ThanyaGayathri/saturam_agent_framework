@@ -43,6 +43,7 @@ from uuid import NAMESPACE_OID, uuid5
 from pydantic import BaseModel, Field
 
 from egpt.memory.graph.passes import select_current_episodes
+from egpt.memory.metrics import get_default_aggregator, meter_extraction_cost
 from egpt.memory.substrates import VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -241,12 +242,26 @@ class LLMFactExtractor:
         raise MemoryOperationError("The extraction model returned no content.", field_name="response")
 
     def extract(self, episodes: Sequence[MemoryRecord]) -> Sequence[FactCandidate]:
-        response = deepcopy(self.model).response(messages=self._messages(episodes), response_format=ExtractedFacts)
+        model = deepcopy(self.model)
+        response = model.response(messages=self._messages(episodes), response_format=ExtractedFacts)
+        # Any episode's scope -- a consolidation pass is always single-scope, so all of them agree
+        # (same convention `LLMSessionSummarizer.summarize` uses).
+        meter_extraction_cost(
+            get_default_aggregator(),
+            scope=episodes[0].scope,
+            model=model,
+            response_usage=getattr(response, "response_usage", None),
+        )
         return self._parse(response)
 
     async def aextract(self, episodes: Sequence[MemoryRecord]) -> Sequence[FactCandidate]:
-        response = await deepcopy(self.model).aresponse(
-            messages=self._messages(episodes), response_format=ExtractedFacts
+        model = deepcopy(self.model)
+        response = await model.aresponse(messages=self._messages(episodes), response_format=ExtractedFacts)
+        meter_extraction_cost(
+            get_default_aggregator(),
+            scope=episodes[0].scope,
+            model=model,
+            response_usage=getattr(response, "response_usage", None),
         )
         return self._parse(response)
 
@@ -299,16 +314,28 @@ class LLMMergeDecider:
     def decide(self, statement: str, neighbors: Sequence[MemoryRecord]) -> MergeDecision:
         if not neighbors:
             return MergeDecision(op="ADD", target_index=None, statement=statement)
-        response = deepcopy(self.model).response(
-            messages=self._messages(statement, neighbors), response_format=MergeDecision
+        model = deepcopy(self.model)
+        response = model.response(messages=self._messages(statement, neighbors), response_format=MergeDecision)
+        # Any neighbor's scope -- like `LLMFactExtractor.extract`, a consolidation pass is always
+        # single-scope, so all of them agree.
+        meter_extraction_cost(
+            get_default_aggregator(),
+            scope=neighbors[0].scope,
+            model=model,
+            response_usage=getattr(response, "response_usage", None),
         )
         return self._parse(response)
 
     async def adecide(self, statement: str, neighbors: Sequence[MemoryRecord]) -> MergeDecision:
         if not neighbors:
             return MergeDecision(op="ADD", target_index=None, statement=statement)
-        response = await deepcopy(self.model).aresponse(
-            messages=self._messages(statement, neighbors), response_format=MergeDecision
+        model = deepcopy(self.model)
+        response = await model.aresponse(messages=self._messages(statement, neighbors), response_format=MergeDecision)
+        meter_extraction_cost(
+            get_default_aggregator(),
+            scope=neighbors[0].scope,
+            model=model,
+            response_usage=getattr(response, "response_usage", None),
         )
         return self._parse(response)
 

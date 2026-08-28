@@ -201,6 +201,17 @@ class Model(ABC):
     # follow-up review, PR #159) -- see `_resolved_provider_key`. `init=False` so it never becomes
     # a constructor parameter, sidestepping the positional-order concern the comment above exists
     # for entirely.
+    #
+    # Deepcopy contract: `init=False` with a plain `default=` (no `default_factory`) means this is
+    # a class-level default, not something `__init__` assigns onto `self.__dict__` -- so an
+    # unresolved instance has no `_provider_key_cache` key in `__dict__` at all. That is exactly
+    # what makes `__deepcopy__` (below) correct by construction: it only copies `self.__dict__`,
+    # so an unresolved copy skips the field and starts unresolved too (falling through to this
+    # same class-level sentinel), while a resolved one has the key in `__dict__` and gets its
+    # already-resolved value deep-copied across. Do not turn this into a `default_factory` or an
+    # explicit `self._provider_key_cache = ...` assignment in `__post_init__` without re-checking
+    # this -- either would put the sentinel into every instance's `__dict__` at construction time,
+    # silently changing what an unresolved deepcopy carries over.
     _provider_key_cache: Any = field(default=_UNRESOLVED_PROVIDER_KEY, init=False, repr=False, compare=False)
 
     def __post_init__(self):

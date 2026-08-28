@@ -18,6 +18,14 @@ class SummarizeStrategy(MemoryOptimizationStrategy):
     This strategy summarizes all memories into one coherent narrative,
     achieving maximum compression by eliminating redundancy. All
     metadata (topics, user_id) is preserved in the summarized memory.
+
+    **Not metered by SM-X8 (aicoe-tracker#144).** ``optimize``/``aoptimize`` below make a real,
+    default-on LLM call (``model.response``), but this class operates on the legacy
+    ``UserMemory``-based memory subsystem, not the ``Scope``-based one SM-X8 instruments --
+    ``egpt.memory.metrics.meter_extraction_cost`` needs a ``Scope`` with a required ``tenant_id``,
+    and ``UserMemory.tenant_id`` here is optional and frequently ``None`` (see its own field
+    comment: this subsystem does not support multi-tenancy yet). Metering this call site is
+    tracked as follow-up scope, not silently dropped.
     """
 
     def _get_system_prompt(self) -> str:

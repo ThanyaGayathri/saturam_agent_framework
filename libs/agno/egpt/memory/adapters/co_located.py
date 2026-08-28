@@ -720,11 +720,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
             "write",
             tier=",".join(sorted({e.tier.value for e in stamped})),
             accepted=len(stamped),
+            event_ids=tuple(e.id for e in stamped if e.id is not None),
         )
 
     @staticmethod
     def _record_fact_growth(scope: Scope, facts: Sequence[FactWrite]) -> None:
-        record_growth(get_default_aggregator(), scope, "consolidate", tier="episodic->semantic", accepted=len(facts))
+        record_growth(
+            get_default_aggregator(),
+            scope,
+            "consolidate",
+            tier="episodic->semantic",
+            accepted=len(facts),
+            event_ids=tuple(f.record.id for f in facts if f.record.id is not None),
+        )
 
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         require_scope(scope, method="write")
@@ -1816,41 +1824,46 @@ class CoLocatedMemoryProvider(MemoryProvider):
             committed_any = False
             try:
                 for fact_scope, batch in self._by_scope(facts):
-                    if to_vector:
-                        # `fact_record`, not `f.record`: the vector row must carry the same
-                        # subject/predicate/object/confidence/derived_by a graph `recall_facts`
-                        # read already surfaces, or the same fact reads as two different shapes
-                        # depending which leg answered (SM-S1 #118).
-                        vector.upsert(fact_scope, [fact_record(f) for f in batch])
-                        committed_any = True
-                    if to_graph and self.graph is not None:
-                        self._graph_fact_batch(fact_scope, batch, receipt)
-                        committed_any = True
+                    group_committed = False
+                    try:
+                        if to_vector:
+                            # `fact_record`, not `f.record`: the vector row must carry the same
+                            # subject/predicate/object/confidence/derived_by a graph `recall_facts`
+                            # read already surfaces, or the same fact reads as two different shapes
+                            # depending which leg answered (SM-S1 #118).
+                            vector.upsert(fact_scope, [fact_record(f) for f in batch])
+                            committed_any = True
+                            group_committed = True
+                        if to_graph and self.graph is not None:
+                            self._graph_fact_batch(fact_scope, batch, receipt)
+                            committed_any = True
+                            group_committed = True
+                    finally:
+                        # `finally`, not "after the `if to_graph` block": a group's own graph leg
+                        # can raise right after its vector leg landed, and that group's own partial
+                        # commit is real growth exactly as much as a fully-landed group's is --
+                        # the single-group case below relies on this (its vector leg committing,
+                        # then its only group's graph leg raising, must still be counted, matching
+                        # the round-1 fix). Recorded per group, under that group's own `fact_scope`,
+                        # not once at the end under the pass-wide `scope` with the full `facts`
+                        # count -- a group after this one that the raise below stops the loop from
+                        # ever reaching gets no entry, since its `try` never ran.
+                        if group_committed:
+                            self._record_fact_growth(fact_scope, batch)
             except PartialWriteError:
-                # `committed_any` is the only reliable signal here -- the raise can come from
-                # `_graph_fact_batch` after an earlier `fact_scope` batch's vector leg already
-                # landed, so growth genuinely happened and must not go unrecorded just because the
-                # pass as a whole is about to fail.
-                if committed_any:
-                    self._record_fact_growth(scope, facts)
+                # Nothing left to record here: every group that committed anything already
+                # recorded its own growth above, inside the loop, before the raise.
                 raise
             except MemoryOperationError:
                 # A refusal on the *first* write, before anything landed, is just a refusal --
                 # matching `write`, where a vector refusal precedes any commit and propagates bare.
-                # Once something is committed it is a partial write like any other.
+                # Once something is committed it is a partial write like any other -- but, as
+                # above, already-committed groups already recorded their own growth.
                 if not committed_any:
                     raise
-                self._record_fact_growth(scope, facts)
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
-                if committed_any:
-                    self._record_fact_growth(scope, facts)
                 raise PartialWriteError(receipt) from exc
-            # The fact-write loop above completed without raising -- record growth here, once,
-            # rather than unconditionally at the end of the method: the entity/relation/profile
-            # writes below are not fact writes, and a failure in them must not double-record (or,
-            # if it happened first, skip recording) growth for facts that already landed.
-            self._record_fact_growth(scope, facts)
             # Extraction runs after the fact writes, not inside their `try`: it is not a fact write
             # and must not be counted as one in `committed_any`. But once facts landed, a failure
             # here is exactly as much a partial write as a failure in the loop above -- the caller
@@ -1948,28 +1961,34 @@ class CoLocatedMemoryProvider(MemoryProvider):
             committed_any = False
             try:
                 for fact_scope, batch in self._by_scope(facts):
-                    if to_vector:
+                    group_committed = False
+                    try:
                         # See the sync half's comment: `fact_record` keeps the vector leg's shape
                         # in step with what `recall_facts` already returns from the graph leg.
-                        await vector.aupsert(fact_scope, [fact_record(f) for f in batch])
-                        committed_any = True
-                    if to_graph and self.graph is not None:
-                        await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)
-                        committed_any = True
+                        if to_vector:
+                            await vector.aupsert(fact_scope, [fact_record(f) for f in batch])
+                            committed_any = True
+                            group_committed = True
+                        if to_graph and self.graph is not None:
+                            await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)
+                            committed_any = True
+                            group_committed = True
+                    finally:
+                        # See the sync half's comment: `finally` so a group's own partial commit
+                        # (vector landed, then its graph leg raised) is still counted, recorded
+                        # under its own `fact_scope` right when it lands.
+                        if group_committed:
+                            self._record_fact_growth(fact_scope, batch)
             except PartialWriteError:
-                if committed_any:
-                    self._record_fact_growth(scope, facts)
+                # Nothing left to record here: every group that committed already recorded its own
+                # growth above, inside the loop, before the raise.
                 raise
             except MemoryOperationError:
                 if not committed_any:
                     raise
-                self._record_fact_growth(scope, facts)
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
-                if committed_any:
-                    self._record_fact_growth(scope, facts)
                 raise PartialWriteError(receipt) from exc
-            self._record_fact_growth(scope, facts)
             try:
                 entities = await self._aentities(scope, episodes)
                 relations = await self._arelations(scope, episodes)

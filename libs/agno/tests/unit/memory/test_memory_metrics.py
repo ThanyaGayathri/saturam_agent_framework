@@ -353,6 +353,30 @@ class TestMeterExtractionCost:
 
         assert agg.costs[0].agent_id is None
 
+    def test_a_magicmock_spec_model_is_not_treated_as_a_resolvable_provider_key(self):
+        """Minor finding, PR #159 round-2 review (``metrics.py:104``): ``hasattr(model,
+        "_resolved_provider_key")`` is ``True`` for ``MagicMock(spec=Model)`` (the spec
+        auto-generates every attribute the real class has), and calling it returns an
+        unconfigured ``MagicMock`` rather than ``None``/``str``. ``isinstance(model, Model)``
+        would not have caught this either -- ``MagicMock(spec=Model)`` deliberately makes that
+        check pass too (verified directly: ``isinstance`` is ``True`` here). The actual fix
+        validates the *result* of ``_resolved_provider_key()``, coercing anything that isn't a
+        ``str``/``None`` to ``None`` rather than handing a garbage value to the pricing lookup."""
+        from unittest.mock import MagicMock
+
+        from egpt.models.base import Model
+
+        mock_model = MagicMock(spec=Model)
+        mock_model.id = "mocked-model"
+        assert isinstance(mock_model, Model)  # the exact trap a bare `isinstance` guard falls into
+        agg = MemoryMetricsAggregator()
+
+        meter_extraction_cost(agg, scope=ACME, model=mock_model, response_usage=None)
+
+        assert len(agg.costs) == 1
+        assert agg.costs[0].provider_key is None
+        assert agg.costs[0].cost is None
+
 
 # ---------------------------------------------------------------------------
 # record_growth
@@ -380,3 +404,15 @@ class TestRecordGrowth:
         assert entry.tier == "episodic"
         assert entry.accepted == 2
         assert entry.agent_id == "agent-1"
+
+    def test_event_ids_default_to_empty_and_pass_through_when_given(self):
+        """Critical finding, PR #159 round-2 review (``co_located.py:766``): ``event_ids`` lets a
+        downstream consumer detect a retried, deterministically-re-ided batch that would otherwise
+        double-count growth. Defaults to empty so every pre-existing caller is unaffected."""
+        agg = MemoryMetricsAggregator()
+
+        record_growth(agg, ACME, "write", tier="episodic", accepted=2)
+        record_growth(agg, ACME, "write", tier="episodic", accepted=1, event_ids=("ev-1", "ev-2"))
+
+        assert agg.growth[0].event_ids == ()
+        assert agg.growth[1].event_ids == ("ev-1", "ev-2")
