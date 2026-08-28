@@ -39,6 +39,7 @@ def trace_to_row(trace: "Trace") -> Tuple[Any, ...]:
         trace.agent_id,
         trace.team_id,
         trace.workflow_id,
+        trace.tenant_id,
         _to_aware_datetime(trace.created_at),
     )
 
@@ -87,6 +88,7 @@ def row_to_trace(row: Dict[str, Any], total_spans: int = 0, error_count: int = 0
         team_id=row.get("team_id"),
         workflow_id=row.get("workflow_id"),
         created_at=_to_aware_datetime(row["created_at"]),
+        tenant_id=row.get("tenant_id"),
     )
 
 

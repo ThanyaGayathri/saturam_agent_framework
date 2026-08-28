@@ -625,6 +625,7 @@ class ClickhouseDb(BaseDb):
             "AS duration_ms, "
             "max(s.run_id) AS run_id, max(s.session_id) AS session_id, max(s.user_id) AS user_id, "
             "max(s.agent_id) AS agent_id, max(s.team_id) AS team_id, max(s.workflow_id) AS workflow_id, "
+            "max(s.tenant_id) AS tenant_id, "
             "min(s.created_at) AS created_at "
             f"FROM ({inner}) AS s GROUP BY s.trace_id"
         )
