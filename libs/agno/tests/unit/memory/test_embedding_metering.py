@@ -79,6 +79,26 @@ class NoUsageRecorder(UsageRecorder):
         raise NotImplementedError
 
 
+class ApiFailingUsageRecorder(UsageRecorder):
+    """Declares ``_and_usage`` but it fails the way a real API call fails -- a bare exception with
+    **no** try/except of its own, matching ``CohereEmbedder``/``VoyageAIEmbedder``/
+    ``AzureOpenAIEmbedder``'s real ``get_embedding_and_usage`` (unlike their paired
+    ``get_embedding``, which does swallow a failure). The plain call still succeeds -- a transient
+    failure on the metered path only, exactly the shape a real timeout/auth-error/rate-limit takes
+    (review finding, PR #159)."""
+
+    id = "api-failing-usage-recorder-v1"
+
+    def get_embedding_and_usage(self, text):
+        self.usage_calls.append(text)
+        raise ConnectionError("simulated API failure")
+
+    async def async_get_embedding_and_usage(self, text):
+        await asyncio.sleep(0)
+        self.usage_calls.append(text)
+        raise ConnectionError("simulated API failure")
+
+
 class DuckTypedEmbedder:
     """A minimal duck-typed embedder -- ``get_embedding``/``async_get_embedding`` only, exactly
     like ``StubEmbedder`` in ``test_pgvector_memory_substrate.py``. It does not inherit from
@@ -264,6 +284,49 @@ class TestFallbackWhenUsageIsUnimplemented:
         assert len(vectors) == 1
         assert len(get_default_aggregator().costs) == 1
         assert get_default_aggregator().costs[0].cost is None
+
+
+# ---------------------------------------------------------------------------
+# A real API failure on the metered path (not just an unimplemented method) must degrade the same
+# way the non-metered call already does, not surface a raw SDK exception (major finding, PR #159
+# review -- see ApiFailingUsageRecorder).
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackWhenUsageCallRaisesAnApiFailure:
+    def test_embed_texts_does_not_raise_and_falls_back_to_the_plain_call(self):
+        embedder = ApiFailingUsageRecorder()
+        p = pipeline(embedder)
+
+        vectors = p.embed_texts(["hello"], scope=SCOPE)
+
+        assert len(vectors) == 1
+        assert vectors[0] == [5.0, 0.0, 0.0, 0.0]
+        assert embedder.usage_calls == ["hello"]  # the metered call was attempted
+        assert embedder.plain_calls == ["hello"]  # ...then the fallback ran
+        entries = get_default_aggregator().costs
+        assert len(entries) == 1
+        assert entries[0].cost is None
+
+    async def test_aembed_texts_does_not_raise_and_falls_back_to_the_plain_call(self):
+        embedder = ApiFailingUsageRecorder()
+        p = pipeline(embedder)
+
+        vectors = await p.aembed_texts(["hello"], scope=SCOPE)
+
+        assert len(vectors) == 1
+        assert embedder.usage_calls == ["hello"]
+        assert embedder.plain_calls == ["hello"]
+        entries = get_default_aggregator().costs
+        assert len(entries) == 1
+        assert entries[0].cost is None
+
+    def test_embed_query_does_not_raise(self):
+        p = pipeline(ApiFailingUsageRecorder())
+
+        vector = p.embed_query("hello", scope=SCOPE)
+
+        assert vector == [5.0, 0.0, 0.0, 0.0]
 
 
 # ---------------------------------------------------------------------------

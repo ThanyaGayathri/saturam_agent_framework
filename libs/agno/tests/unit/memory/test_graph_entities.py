@@ -94,6 +94,21 @@ class StubEmbedder:
         return self.get_embedding(text)
 
 
+class ApiFailingUsageEmbedder(StubEmbedder):
+    """Declares ``get_embedding_and_usage`` but it fails the way a real API call fails -- a bare
+    exception with no try/except of its own, matching real embedders' ``get_embedding_and_usage``
+    (unlike their paired ``get_embedding``, which does swallow a failure). ``run``/``arun`` must
+    still complete by falling back to the plain call, not surface the raw exception (major finding,
+    PR #159 review)."""
+
+    def get_embedding_and_usage(self, text):
+        raise ConnectionError("simulated API failure")
+
+    async def async_get_embedding_and_usage(self, text):
+        await asyncio.sleep(0)
+        raise ConnectionError("simulated API failure")
+
+
 def entity(name="Acme Corp", entity_type="company", **kwargs):
     return ExtractedEntity(name=name, entity_type=entity_type, **kwargs)
 
@@ -135,6 +150,23 @@ def test_an_entity_reaches_the_graph_as_a_node(is_async):
     assert (stored.name, stored.entity_type) == ("Acme Corp", "company")
     assert stored.derived_by == EXTRACTOR_ID
     assert graph.calls.count("aupsert_entities" if is_async else "upsert_entities") == 1
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_metered_embedding_api_failure_still_lands_the_entity(is_async):
+    """Major finding, PR #159 review: `_metered_embedding`/`_ametered_embedding` only caught
+    `NotImplementedError`, so a real API failure on the metered call (no try/except of its own,
+    unlike `get_embedding`) used to propagate raw instead of falling back -- crashing extraction
+    for an embedder failure the non-metered path would have absorbed."""
+    pipe, graph = pipeline(embedder=ApiFailingUsageEmbedder())
+    call = (
+        pipe.arun(ACME, [episode("Acme ships things")]) if is_async else pipe.run(ACME, [episode("Acme ships things")])
+    )
+    report = asyncio.run(call) if is_async else call
+
+    assert report.entities_written == 1
+    (stored,) = list(graph.entities.values())
+    assert stored.embedding is not None
 
 
 def test_provenance_names_the_interaction_the_entity_came_from():

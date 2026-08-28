@@ -654,12 +654,21 @@ class MemoryEmbedder:
         than the ``NotImplementedError`` an :class:`Embedder` subclass declining the method raises.
         Both cases fall back to a plain, unmetered ``get_embedding`` -- the method's presence (or
         lack of one) is not the caller's problem to crash on.
+
+        The fallback catches **any** exception, not only ``NotImplementedError``: several concrete
+        embedders' ``get_embedding_and_usage`` (``CohereEmbedder``, ``VoyageAIEmbedder``,
+        ``AzureOpenAIEmbedder``) has no try/except of its own around the API call, unlike their
+        paired ``get_embedding``, which does swallow a failure and returns ``[]``. Narrowing this
+        catch to ``NotImplementedError`` let a transient API failure on the *metered* path surface
+        as a raw, unhandled SDK exception instead of degrading the way every non-metered caller of
+        this embedder already does (review finding, PR #159) -- metering must degrade the same way
+        the call it rides along with already does, not add a new way for it to fail.
         """
         if hasattr(self.embedder, "get_embedding_and_usage"):
             try:
                 return self.embedder.get_embedding_and_usage(call_arg)
-            except NotImplementedError:
-                pass
+            except Exception as exc:
+                log_debug(f"Metered embedding call failed, falling back to unmetered get_embedding: {exc}")
         return self.embedder.get_embedding(call_arg), None
 
     async def _ametered_embed_one(self, call_arg: str) -> Tuple[Any, Optional[Dict[str, Any]]]:
@@ -667,8 +676,8 @@ class MemoryEmbedder:
         if hasattr(self.embedder, "async_get_embedding_and_usage"):
             try:
                 return await self.embedder.async_get_embedding_and_usage(call_arg)
-            except NotImplementedError:
-                pass
+            except Exception as exc:
+                log_debug(f"Metered embedding call failed, falling back to unmetered get_embedding: {exc}")
         return await self.embedder.async_get_embedding(call_arg), None
 
     def embed_texts(self, texts: Sequence[str], scope: Optional[Scope] = None) -> List[List[float]]:

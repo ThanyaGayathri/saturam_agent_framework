@@ -36,6 +36,7 @@ from egpt.memory.types import (
     Scope,
     require_scope,
 )
+from egpt.utils.log import log_debug
 
 if TYPE_CHECKING:
     from egpt.knowledge.embedder import Embedder
@@ -379,9 +380,17 @@ class EntityExtractionPipeline:
 
         ``run``/``arun`` call ``self.embedder`` directly rather than through
         ``MemoryEmbedder.embed_texts``, so this mirrors ``MemoryEmbedder._metered_embed_one``'s
-        ``hasattr`` guard and fallback here: an embedder without ``get_embedding_and_usage`` (or
-        one that raises ``NotImplementedError``) falls back to the plain, unmetered call rather
-        than breaking extraction.
+        ``hasattr`` guard and fallback here: an embedder without ``get_embedding_and_usage`` falls
+        back to the plain, unmetered call rather than breaking extraction.
+
+        The fallback catches **any** exception, not only ``NotImplementedError``: several concrete
+        embedders' ``get_embedding_and_usage`` has no try/except of its own around the API call,
+        unlike their paired ``get_embedding``, which does swallow a failure. Narrowing this catch
+        to ``NotImplementedError`` let a transient API failure on the *metered* path surface as a
+        raw, unhandled SDK exception during entity extraction instead of degrading the way the
+        non-metered call already does (review finding, PR #159). ``meter_embedding_cost`` itself
+        is best-effort and never raises (its own docstring), so widening this catch cannot mask a
+        metering-only failure as an embedding failure.
         """
         if hasattr(self.embedder, "get_embedding_and_usage"):
             try:
@@ -394,8 +403,8 @@ class EntityExtractionPipeline:
                     usage=usage,
                 )
                 return vector
-            except NotImplementedError:
-                pass
+            except Exception as exc:
+                log_debug(f"Metered embedding call failed, falling back to unmetered get_embedding: {exc}")
         return self.embedder.get_embedding(call_arg)
 
     async def _ametered_embedding(self, entity: EntityWrite, call_arg: str) -> Any:
@@ -411,8 +420,8 @@ class EntityExtractionPipeline:
                     usage=usage,
                 )
                 return vector
-            except NotImplementedError:
-                pass
+            except Exception as exc:
+                log_debug(f"Metered embedding call failed, falling back to unmetered get_embedding: {exc}")
         return await self.embedder.async_get_embedding(call_arg)
 
     @staticmethod

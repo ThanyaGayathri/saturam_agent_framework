@@ -250,6 +250,61 @@ class TestGenericFailureAfterVectorCommitStillRecordsGrowth:
         assert get_default_aggregator().growth == []
 
 
+class TestMixedVerbPartialWriteOnAGraphOnlyProviderCountsOnlyWhatCommitted:
+    """Major finding, PR #159 review: a graph-only provider's `write`/`awrite` collapsed both
+    graph verbs into one shared `graph_committed` flag, so a mixed `EPISODIC` + `SEMANTIC` batch
+    where one verb committed and the other failed still recorded growth for the *whole* batch --
+    including the half that never landed anywhere. `_committed_events` now tracks each verb
+    independently and only counts the events the committed verb(s) actually wrote.
+    """
+
+    class FailingFactsGraph(FakeGraph):
+        def upsert_facts(self, scope, facts):
+            # `aupsert_facts` delegates to this sync name (see `FakeGraph.aupsert_facts`), so
+            # overriding only this one covers both `write` and `awrite`.
+            self.calls.append("upsert_facts")
+            raise MemoryOperationError("backend unavailable", field_name="tier")
+
+    def _provider(self):
+        graph = self.FailingFactsGraph()
+        config = MemoryProviderConfig(provider="co_located")
+        return CoLocatedMemoryProvider(vector=None, graph=graph, config=config), graph
+
+    def test_write_only_counts_the_episode_that_committed_not_the_fact_that_failed(self):
+        p, graph = self._provider()
+
+        with pytest.raises(PartialWriteError):
+            p.write(
+                ACME,
+                [
+                    event("the deploy failed on friday"),
+                    event("acme uses postgres", tier=MemoryTier.SEMANTIC),
+                ],
+            )
+
+        assert "upsert_episodes" in graph.calls
+        assert "upsert_facts" in graph.calls  # attempted (and failed), not skipped
+        totals = get_default_aggregator().growth_by_tenant()
+        assert totals["acme"] == 1  # only the episode landed; the fact must not be counted
+
+    async def test_awrite_only_counts_the_episode_that_committed_not_the_fact_that_failed(self):
+        p, graph = self._provider()
+
+        with pytest.raises(PartialWriteError):
+            await p.awrite(
+                ACME,
+                [
+                    event("the deploy failed on friday"),
+                    event("acme uses postgres", tier=MemoryTier.SEMANTIC),
+                ],
+            )
+
+        assert "aupsert_episodes" in graph.calls
+        assert "aupsert_facts" in graph.calls
+        totals = get_default_aggregator().growth_by_tenant()
+        assert totals["acme"] == 1
+
+
 class TestConsolidateGrowth:
     def test_a_consolidate_pass_records_the_semantic_facts_written(self):
         p, _, graph = provider()
