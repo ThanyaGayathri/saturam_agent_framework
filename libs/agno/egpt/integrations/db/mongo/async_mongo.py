@@ -17,6 +17,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import deserialize_session, deserialize_session_json_fields, deserialize_sessions
 from egpt.integrations.db.mongo.utils import (
     apply_pagination,
@@ -160,6 +161,7 @@ class AsyncMongoDb(AsyncBaseDb):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         server_selection_timeout_ms: Optional[int] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Async interface for interacting with a MongoDB database.
@@ -190,6 +192,9 @@ class AsyncMongoDb(AsyncBaseDb):
                 from db_url waits for a reachable server before giving up. Ignored when db_client is
                 supplied. Defaults to PyMongo's own default (30s); lower it when a fast failure is
                 preferable to a long block against an unreachable host.
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
 
         Raises:
             ValueError: If neither db_url nor db_client is provided, or if db_client type is unsupported.
@@ -215,7 +220,9 @@ class AsyncMongoDb(AsyncBaseDb):
             learnings_table=learnings_collection,
             schedules_table=schedules_collection,
             schedule_runs_table=schedule_runs_collection,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("AsyncMongoDb", self.require_session_tenant_id)
 
         # Detect client type if provided
         if db_client is not None:
@@ -626,7 +633,12 @@ class AsyncMongoDb(AsyncBaseDb):
 
     # -- Session methods --
 
-    async def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    # tenant_id (aicoe-tracker#197) accepted for signature parity with BaseDb; this backend does not
+    # implement tenant-scoped session filtering yet.
+
+    async def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """Delete a session from the database.
 
         Args:
@@ -659,7 +671,9 @@ class AsyncMongoDb(AsyncBaseDb):
             log_error(f"Error deleting session: {str(e)}")
             raise e
 
-    async def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete multiple sessions from the database.
 
         Args:
@@ -687,6 +701,8 @@ class AsyncMongoDb(AsyncBaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """Read a session from the database.
 
@@ -740,6 +756,8 @@ class AsyncMongoDb(AsyncBaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """Get all sessions.
 
@@ -836,6 +854,8 @@ class AsyncMongoDb(AsyncBaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """Rename a session in the database.
 
@@ -894,7 +914,7 @@ class AsyncMongoDb(AsyncBaseDb):
             raise e
 
     async def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """Insert or update a session in the database.
 
@@ -1036,7 +1056,12 @@ class AsyncMongoDb(AsyncBaseDb):
             raise e
 
     async def upsert_sessions(
-        self, sessions: List[Session], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        sessions: List[Session],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk upsert multiple sessions for improved performance on large datasets.

@@ -20,6 +20,7 @@ class MigrationManager:
         ("v2_6_0", packaging_version.parse("2.6.0")),
         ("v2_7_0", packaging_version.parse("2.7.0")),
         ("v2_8_0", packaging_version.parse("2.8.0")),
+        ("v2_9_0", packaging_version.parse("2.9.0")),
         ("v2_10_0", packaging_version.parse("2.10.0")),
     ]
 

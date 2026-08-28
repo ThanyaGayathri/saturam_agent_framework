@@ -596,6 +596,103 @@ def test_ws_continue_workflow_with_no_tenant_claim_is_refused(db_workflow_tenanc
     assert error_frame["error"] == TENANCY_REQUIRED_DETAIL
 
 
+# =============================================================================
+# WS Reconnect Buffer-Arm Tenant Gate (aicoe-tracker#196)
+# =============================================================================
+
+
+def test_ws_reconnect_replay_is_scoped_to_the_tenant_that_started_it(db_workflow_tenancy_client):
+    """Regression for aicoe-tracker#196.
+
+    Before the fix, a run still in the EventBuffer replayed on reconnect without ever
+    reaching the tenant hydration gate -- the buffer is keyed on run_id alone, so any caller
+    with workflows:run could replay another tenant's buffered run by guessing its run_id.
+    Start a run as tenant 'acme', then attempt to reconnect to it as tenant 'beta': the
+    buffered replay must be refused, while the owning tenant can still reconnect.
+    """
+    from egpt.os.managers import event_buffer
+    from egpt.run.base import RunStatus
+
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    owner_token = _issue_tenant_token(secret, os_id, sub="alice", scopes=["workflows:run"], tenant_id="acme")
+    attacker_token = _issue_tenant_token(secret, os_id, sub="mallory", scopes=["workflows:run"], tenant_id="beta")
+
+    run_id = "buffered-run-196"
+
+    async def fake_arun(*_args, **kwargs):
+        # Simulate the workflow having already produced an event and landed in the
+        # EventBuffer before the caller's next message reaches the server, the way a real
+        # background run would.
+        event_buffer.run_metadata[run_id] = {"status": RunStatus.running, "created_at": 0, "last_updated": 0}
+
+        run_websocket = kwargs.get("websocket")
+        if run_websocket is not None:
+            await run_websocket.send_text(
+                json.dumps({"event": "WorkflowStarted", "workflow_id": "db-ws-workflow", "run_id": run_id})
+            )
+
+        class FakeRun:
+            pass
+
+        fake_run = FakeRun()
+        fake_run.run_id = run_id
+        return fake_run
+
+    try:
+        with patch.object(Workflow, "arun", new_callable=AsyncMock, side_effect=fake_arun):
+            with client.websocket_connect("/workflows/ws") as ws:
+                _authenticate_ws(ws, owner_token, expected_user_id="alice")
+                ws.send_text(json.dumps({"action": "start-workflow", "workflow_id": "db-ws-workflow", "message": "go"}))
+                _drain_until(ws, lambda f: "WorkflowStarted" in f)
+
+        assert event_buffer.get_run_tenant(run_id) == (True, "acme")
+
+        with client.websocket_connect("/workflows/ws") as ws:
+            _authenticate_ws(ws, attacker_token, expected_user_id="mallory")
+            ws.send_text(json.dumps({"action": "reconnect", "run_id": run_id}))
+            error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
+        assert error_frame["error"] == f"Run {run_id} not found"
+
+        with client.websocket_connect("/workflows/ws") as ws:
+            _authenticate_ws(ws, owner_token, expected_user_id="alice")
+            ws.send_text(json.dumps({"action": "reconnect", "run_id": run_id}))
+            frame = json.loads(_drain_until(ws, lambda f: '"event": "subscribed"' in f or '"event": "error"' in f))
+        assert frame["event"] == "subscribed", frame
+    finally:
+        event_buffer.cleanup_run(run_id)
+
+
+def test_ws_reconnect_to_an_unregistered_buffered_run_is_refused_when_tenancy_enabled(db_workflow_tenancy_client):
+    """A run in the EventBuffer that no WS handler ever registered a tenant for (e.g. started
+    over HTTP, which does not go through `register_run_tenant`) must fail closed on reconnect
+    when tenancy is enabled -- there is nothing to reconcile the caller's tenant against, and
+    treating "unknown" as "allowed" would reopen aicoe-tracker#196 for that case.
+    """
+    from egpt.os.managers import event_buffer
+    from egpt.run.base import RunStatus
+
+    client = db_workflow_tenancy_client["client"]
+    secret = db_workflow_tenancy_client["secret"]
+    os_id = db_workflow_tenancy_client["os_id"]
+
+    run_id = "buffered-run-196-unregistered"
+    event_buffer.run_metadata[run_id] = {"status": RunStatus.running, "created_at": 0, "last_updated": 0}
+
+    token = _issue_tenant_token(secret, os_id, sub="alice", scopes=["workflows:run"], tenant_id="acme")
+
+    try:
+        with client.websocket_connect("/workflows/ws") as ws:
+            _authenticate_ws(ws, token, expected_user_id="alice")
+            ws.send_text(json.dumps({"action": "reconnect", "run_id": run_id}))
+            error_frame = json.loads(_drain_until(ws, lambda f: '"event": "error"' in f))
+        assert error_frame["error"] == f"Run {run_id} not found"
+    finally:
+        event_buffer.cleanup_run(run_id)
+
+
 @pytest.mark.parametrize("bad_claim", [12345, {"a": 1}, "", "   "], ids=["int", "object", "empty", "blank"])
 def test_ws_rejects_a_malformed_tenant_claim_exactly_as_http_does(db_workflow_tenancy_client, bad_claim):
     """A claim that is present but not a non-empty string is rejected on both transports with

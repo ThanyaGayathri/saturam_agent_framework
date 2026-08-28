@@ -102,6 +102,7 @@ class SqliteDb(BaseDb):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         require_tenant_id: bool = False,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a SQLite database.
@@ -140,6 +141,10 @@ class SqliteDb(BaseDb):
                 makes the NULL-tenant rows written before multi-tenancy unreachable. ``EgptOS``
                 sets it automatically when ``AuthorizationConfig(tenant_id_claim=...)`` is
                 configured, and ``EGPT_REQUIRE_TENANT_ID`` sets it for dbs built outside EgptOS.
+            require_session_tenant_id (bool): The session/run counterpart of
+                ``require_tenant_id`` (aicoe-tracker#197) -- a deliberately separate flag, not
+                auto-enabled by ``EgptOS``. See ``egpt/db/session_scope.py`` for why.
+                ``EGPT_REQUIRE_SESSION_TENANT_ID`` sets it for dbs built outside EgptOS.
 
         Raises:
             ValueError: If none of the tables are provided.
@@ -169,6 +174,7 @@ class SqliteDb(BaseDb):
             id=id,
             table_prefix=table_prefix,
             require_tenant_id=require_tenant_id,
+            require_session_tenant_id=require_session_tenant_id,
             session_table=session_table,
             culture_table=culture_table,
             memory_table=memory_table,
@@ -244,6 +250,7 @@ class SqliteDb(BaseDb):
         while ``egpt.db.utils.resolve_db_from_config`` clones on the component rehydration path
         -- so a clone that dropped it would leave the guard missing at precisely the point
         components are written, for an operator who had correctly opted in.
+        ``require_session_tenant_id`` (aicoe-tracker#197) is carried over for the same reason.
         """
         return SqliteDb(
             db_file=self.db_file,
@@ -251,6 +258,7 @@ class SqliteDb(BaseDb):
             db_engine=self.db_engine,
             id=self.id,
             require_tenant_id=self.require_tenant_id,
+            require_session_tenant_id=self.require_session_tenant_id,
             **overrides,
         )
 
@@ -281,6 +289,7 @@ class SqliteDb(BaseDb):
             service_accounts_table=data.get("service_accounts_table"),
             id=data.get("id"),
             require_tenant_id=bool(data.get("require_tenant_id", False)),
+            require_session_tenant_id=bool(data.get("require_session_tenant_id", False)),
         )
 
     def close(self) -> None:
@@ -897,18 +906,27 @@ class SqliteDb(BaseDb):
             sess.execute(stmt)
 
     # -- Session methods --
+    # Tenant scoping (aicoe-tracker#197): every session method takes an optional, keyword-only
+    # ``tenant_id``, defaulting to unscoped. See ``egpt/db/session_scope.py`` for why this
+    # differs from the fourteen component methods' required parameter, and
+    # ``BaseDb`` (``egpt/db/base.py``) for the shared docstring.
 
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """
         Delete a session from the database.
 
         Args:
             session_id (str): ID of the session to delete
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -918,6 +936,8 @@ class SqliteDb(BaseDb):
                 delete_stmt = table.delete().where(table.c.session_id == session_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(delete_stmt)
                 if result.rowcount == 0:
                     log_debug(f"No session found to delete with session_id: {session_id}")
@@ -930,17 +950,22 @@ class SqliteDb(BaseDb):
             log_error(f"Error deleting session: {str(e)}")
             raise e
 
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete all given sessions from the database.
         Can handle multiple session types in the same run.
 
         Args:
             session_ids (List[str]): The IDs of the sessions to delete.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "delete_sessions")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -950,6 +975,8 @@ class SqliteDb(BaseDb):
                 delete_stmt = table.delete().where(table.c.session_id.in_(session_ids))
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = sess.execute(delete_stmt)
 
             log_debug(f"Successfully deleted {result.rowcount} sessions")
@@ -964,6 +991,8 @@ class SqliteDb(BaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Read a session from the database.
@@ -973,6 +1002,8 @@ class SqliteDb(BaseDb):
             session_type (SessionType): Type of session to get.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#197). Defaults
+                to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -982,6 +1013,7 @@ class SqliteDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_session")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -993,6 +1025,8 @@ class SqliteDb(BaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 result = sess.execute(stmt).fetchone()
                 if result is None:
@@ -1021,6 +1055,8 @@ class SqliteDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """
         Get all sessions in the given table. Can filter by user_id and entity_id.
@@ -1037,6 +1073,8 @@ class SqliteDb(BaseDb):
             sort_order (Optional[str]): The sort order. Defaults to None.
             deserialize (Optional[bool]): Whether to serialize the sessions. Defaults to True.
             create_table_if_not_found (Optional[bool]): Whether to create the table if it doesn't exist.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             List[Session]:
@@ -1046,6 +1084,7 @@ class SqliteDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "get_sessions")
         try:
             table = self._get_table(table_type="sessions")
             if table is None:
@@ -1057,6 +1096,8 @@ class SqliteDb(BaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if component_id is not None:
                     if session_type == SessionType.AGENT:
                         stmt = stmt.where(table.c.agent_id == component_id)
@@ -1115,6 +1156,8 @@ class SqliteDb(BaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Rename a session in the database.
@@ -1125,6 +1168,8 @@ class SqliteDb(BaseDb):
             session_name (str): The new name for the session.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
             deserialize (Optional[bool]): Whether to deserialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the rename to (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
 
         Returns:
             Optional[Union[Session, Dict[str, Any]]]:
@@ -1134,10 +1179,11 @@ class SqliteDb(BaseDb):
         Raises:
             Exception: If an error occurs during renaming.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "rename_session")
         try:
             # Get the current session as a deserialized object
             # Get the session record
-            session = self.get_session(session_id, session_type, user_id=user_id, deserialize=True)
+            session = self.get_session(session_id, session_type, user_id=user_id, deserialize=True, tenant_id=tenant_id)
             if session is None:
                 return None
 
@@ -1148,14 +1194,14 @@ class SqliteDb(BaseDb):
             session.session_data["session_name"] = session_name
 
             # Upsert the updated session back to the database
-            return self.upsert_session(session, deserialize=deserialize)
+            return self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)
 
         except Exception as e:
             log_error(f"Exception renaming session: {str(e)}")
             raise e
 
     def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """
         Insert or update a session in the database.
@@ -1163,6 +1209,9 @@ class SqliteDb(BaseDb):
         Args:
             session (Session): The session data to upsert.
             deserialize (Optional[bool]): Whether to serialize the session. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             Optional[Session]:
@@ -1172,6 +1221,7 @@ class SqliteDb(BaseDb):
         Raises:
             Exception: If an error occurs during upserting.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_session")
         try:
             table = self._get_table(table_type="sessions", create_table_if_not_found=True)
             if table is None:
@@ -1186,6 +1236,7 @@ class SqliteDb(BaseDb):
                         session_type=SessionType.AGENT.value,
                         agent_id=serialized_session.get("agent_id"),
                         user_id=serialized_session.get("user_id"),
+                        tenant_id=tenant_id,
                         agent_data=serialized_session.get("agent_data"),
                         session_data=serialized_session.get("session_data"),
                         metadata=serialized_session.get("metadata"),
@@ -1194,8 +1245,17 @@ class SqliteDb(BaseDb):
                         created_at=serialized_session.get("created_at"),
                         updated_at=serialized_session.get("created_at"),
                     )
+                    conflict_where = (table.c.user_id == serialized_session.get("user_id")) | (
+                        table.c.user_id.is_(None)
+                    )
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             agent_id=serialized_session.get("agent_id"),
                             user_id=serialized_session.get("user_id"),
@@ -1206,7 +1266,7 @@ class SqliteDb(BaseDb):
                             metadata=serialized_session.get("metadata"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == serialized_session.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     )
                     stmt = stmt.returning(*table.columns)  # type: ignore
                     result = sess.execute(stmt)
@@ -1224,6 +1284,7 @@ class SqliteDb(BaseDb):
                         session_type=SessionType.TEAM.value,
                         team_id=serialized_session.get("team_id"),
                         user_id=serialized_session.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=serialized_session.get("runs"),
                         summary=serialized_session.get("summary"),
                         created_at=serialized_session.get("created_at"),
@@ -1233,8 +1294,17 @@ class SqliteDb(BaseDb):
                         metadata=serialized_session.get("metadata"),
                     )
 
+                    conflict_where = (table.c.user_id == serialized_session.get("user_id")) | (
+                        table.c.user_id.is_(None)
+                    )
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             team_id=serialized_session.get("team_id"),
                             user_id=serialized_session.get("user_id"),
@@ -1245,7 +1315,7 @@ class SqliteDb(BaseDb):
                             metadata=serialized_session.get("metadata"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == serialized_session.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     )
                     stmt = stmt.returning(*table.columns)  # type: ignore
                     result = sess.execute(stmt)
@@ -1263,6 +1333,7 @@ class SqliteDb(BaseDb):
                         session_type=SessionType.WORKFLOW.value,
                         workflow_id=serialized_session.get("workflow_id"),
                         user_id=serialized_session.get("user_id"),
+                        tenant_id=tenant_id,
                         runs=serialized_session.get("runs"),
                         summary=serialized_session.get("summary"),
                         created_at=serialized_session.get("created_at") or int(time.time()),
@@ -1271,8 +1342,17 @@ class SqliteDb(BaseDb):
                         session_data=serialized_session.get("session_data"),
                         metadata=serialized_session.get("metadata"),
                     )
+                    conflict_where = (table.c.user_id == serialized_session.get("user_id")) | (
+                        table.c.user_id.is_(None)
+                    )
+                    if tenant_id is not None:
+                        conflict_where = conflict_where & (
+                            (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                        )
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
+                        # tenant_id is deliberately excluded: an upsert never moves an existing
+                        # row between tenants, only the insert branch stamps it.
                         set_=dict(
                             workflow_id=serialized_session.get("workflow_id"),
                             user_id=serialized_session.get("user_id"),
@@ -1283,7 +1363,7 @@ class SqliteDb(BaseDb):
                             metadata=serialized_session.get("metadata"),
                             updated_at=int(time.time()),
                         ),
-                        where=(table.c.user_id == serialized_session.get("user_id")) | (table.c.user_id.is_(None)),
+                        where=conflict_where,
                     )
                     stmt = stmt.returning(*table.columns)  # type: ignore
                     result = sess.execute(stmt)
@@ -1303,6 +1383,8 @@ class SqliteDb(BaseDb):
         sessions: List[Session],
         deserialize: Optional[bool] = True,
         preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk upsert multiple sessions for improved performance on large datasets.
@@ -1311,6 +1393,9 @@ class SqliteDb(BaseDb):
             sessions (List[Session]): List of sessions to upsert.
             deserialize (Optional[bool]): Whether to deserialize the sessions. Defaults to True.
             preserve_updated_at (bool): If True, preserve the updated_at from the session object.
+            tenant_id (Optional[str]): Tenant to stamp every session with (aicoe-tracker#197).
+                Defaults to unscoped; refused when the db was built with ``require_session_tenant_id``.
+                Only applied on insert -- an existing row's tenant is never changed by an upsert.
 
         Returns:
             List[Union[Session, Dict[str, Any]]]: List of upserted sessions.
@@ -1318,6 +1403,7 @@ class SqliteDb(BaseDb):
         Raises:
             Exception: If an error occurs during bulk upsert.
         """
+        tenant_id = self._require_session_tenant_scope(tenant_id, "upsert_sessions")
         if not sessions:
             return []
 
@@ -1329,7 +1415,7 @@ class SqliteDb(BaseDb):
                     result
                     for session in sessions
                     if session is not None
-                    for result in [self.upsert_session(session, deserialize=deserialize)]
+                    for result in [self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)]
                     if result is not None
                 ]
 
@@ -1362,6 +1448,7 @@ class SqliteDb(BaseDb):
                                 "session_type": SessionType.AGENT.value,
                                 "agent_id": serialized_session.get("agent_id"),
                                 "user_id": serialized_session.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "agent_data": serialized_session.get("agent_data"),
                                 "session_data": serialized_session.get("session_data"),
                                 "metadata": serialized_session.get("metadata"),
@@ -1374,8 +1461,15 @@ class SqliteDb(BaseDb):
 
                     if agent_data:
                         stmt = sqlite.insert(table)
+                        bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                        if tenant_id is not None:
+                            bulk_conflict_where = bulk_conflict_where & (
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         stmt = stmt.on_conflict_do_update(
                             index_elements=["session_id"],
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             set_=dict(
                                 agent_id=stmt.excluded.agent_id,
                                 user_id=stmt.excluded.user_id,
@@ -1386,12 +1480,19 @@ class SqliteDb(BaseDb):
                                 summary=stmt.excluded.summary,
                                 updated_at=stmt.excluded.updated_at,
                             ),
+                            where=bulk_conflict_where,
                         )
                         sess.execute(stmt, agent_data)
 
-                        # Fetch the results for agent sessions
+                        # Fetch the results for agent sessions, scoped to this call's tenant so
+                        # a row rejected by bulk_conflict_where above (owned by another tenant)
+                        # is not read back and returned to the caller (aicoe-tracker#197).
                         agent_ids = [session.session_id for session in agent_sessions]
                         select_stmt = select(table).where(table.c.session_id.in_(agent_ids))
+                        if tenant_id is not None:
+                            select_stmt = select_stmt.where(
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         result = sess.execute(select_stmt).fetchall()
 
                         for row in result:
@@ -1417,6 +1518,7 @@ class SqliteDb(BaseDb):
                                 "session_type": SessionType.TEAM.value,
                                 "team_id": serialized_session.get("team_id"),
                                 "user_id": serialized_session.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": serialized_session.get("runs"),
                                 "summary": serialized_session.get("summary"),
                                 "created_at": serialized_session.get("created_at"),
@@ -1429,8 +1531,15 @@ class SqliteDb(BaseDb):
 
                     if team_data:
                         stmt = sqlite.insert(table)
+                        bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                        if tenant_id is not None:
+                            bulk_conflict_where = bulk_conflict_where & (
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         stmt = stmt.on_conflict_do_update(
                             index_elements=["session_id"],
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             set_=dict(
                                 team_id=stmt.excluded.team_id,
                                 user_id=stmt.excluded.user_id,
@@ -1441,12 +1550,19 @@ class SqliteDb(BaseDb):
                                 summary=stmt.excluded.summary,
                                 updated_at=stmt.excluded.updated_at,
                             ),
+                            where=bulk_conflict_where,
                         )
                         sess.execute(stmt, team_data)
 
-                        # Fetch the results for team sessions
+                        # Fetch the results for team sessions, scoped to this call's tenant so a
+                        # row rejected by bulk_conflict_where above (owned by another tenant) is
+                        # not read back and returned to the caller (aicoe-tracker#197).
                         team_ids = [session.session_id for session in team_sessions]
                         select_stmt = select(table).where(table.c.session_id.in_(team_ids))
+                        if tenant_id is not None:
+                            select_stmt = select_stmt.where(
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         result = sess.execute(select_stmt).fetchall()
 
                         for row in result:
@@ -1472,6 +1588,7 @@ class SqliteDb(BaseDb):
                                 "session_type": SessionType.WORKFLOW.value,
                                 "workflow_id": serialized_session.get("workflow_id"),
                                 "user_id": serialized_session.get("user_id"),
+                                "tenant_id": tenant_id,
                                 "runs": serialized_session.get("runs"),
                                 "summary": serialized_session.get("summary"),
                                 "created_at": serialized_session.get("created_at"),
@@ -1484,8 +1601,15 @@ class SqliteDb(BaseDb):
 
                     if workflow_data:
                         stmt = sqlite.insert(table)
+                        bulk_conflict_where = (table.c.user_id == stmt.excluded.user_id) | (table.c.user_id.is_(None))
+                        if tenant_id is not None:
+                            bulk_conflict_where = bulk_conflict_where & (
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         stmt = stmt.on_conflict_do_update(
                             index_elements=["session_id"],
+                            # tenant_id is deliberately excluded: an upsert never moves an
+                            # existing row between tenants, only the insert branch stamps it.
                             set_=dict(
                                 workflow_id=stmt.excluded.workflow_id,
                                 user_id=stmt.excluded.user_id,
@@ -1496,12 +1620,19 @@ class SqliteDb(BaseDb):
                                 summary=stmt.excluded.summary,
                                 updated_at=stmt.excluded.updated_at,
                             ),
+                            where=bulk_conflict_where,
                         )
                         sess.execute(stmt, workflow_data)
 
-                        # Fetch the results for workflow sessions
+                        # Fetch the results for workflow sessions, scoped to this call's tenant
+                        # so a row rejected by bulk_conflict_where above (owned by another
+                        # tenant) is not read back and returned to the caller (aicoe-tracker#197).
                         workflow_ids = [session.session_id for session in workflow_sessions]
                         select_stmt = select(table).where(table.c.session_id.in_(workflow_ids))
+                        if tenant_id is not None:
+                            select_stmt = select_stmt.where(
+                                (table.c.tenant_id == tenant_id) | (table.c.tenant_id.is_(None))
+                            )
                         result = sess.execute(select_stmt).fetchall()
 
                         for row in result:
@@ -1523,7 +1654,7 @@ class SqliteDb(BaseDb):
                 result
                 for session in sessions
                 if session is not None
-                for result in [self.upsert_session(session, deserialize=deserialize)]
+                for result in [self.upsert_session(session, deserialize=deserialize, tenant_id=tenant_id)]
                 if result is not None
             ]
 

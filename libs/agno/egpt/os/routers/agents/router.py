@@ -49,7 +49,9 @@ from egpt.os.schema import (
     ValidationErrorResponse,
 )
 from egpt.os.settings import EgptServingSettings
+from egpt.os.tenancy import tenancy_enabled
 from egpt.os.utils import (
+    buffered_run_tenant_check,
     build_run_context_for_request,
     classify_upload_file,
     find_factory_by_id,
@@ -60,6 +62,7 @@ from egpt.os.utils import (
     process_document,
     process_image,
     process_video,
+    register_or_refuse_run_tenant,
     resolve_agent,
     tenant_for_direct_read,
 )
@@ -358,6 +361,8 @@ async def _resume_stream_generator(
     last_event_index: Optional[int],
     session_id: Optional[str],
     user_id: Optional[str] = None,
+    caller_tenant_id: Optional[str] = None,
+    tenancy_is_enabled: bool = False,
 ) -> AsyncGenerator:
     """SSE generator for the /resume endpoint.
 
@@ -365,8 +370,22 @@ async def _resume_stream_generator(
     1. Run still active (in buffer): replay missed events + subscribe for live events via Queue
     2. Run completed (in buffer): replay all events since last_event_index
     3. Not in buffer: fall back to database replay
+
+    `caller_tenant_id`/`tenancy_is_enabled` gate paths 1 and 2 (aicoe-tracker#196 QC round 2,
+    finding 1) -- see the workflow router's `_resume_stream_generator` for the full rationale:
+    hydrating `agent` with tenant scoping proves the caller can see the *agent component*, not
+    that this specific *run* belongs to their tenant, since an in-memory/code-defined agent's
+    hydration is exempt for every tenant.
     """
     buffer_status = event_buffer.get_run_status(run_id)
+
+    if buffer_status is not None and not buffered_run_tenant_check(
+        run_id, caller_tenant_id, tenancy_enabled=tenancy_is_enabled
+    ):
+        # Mask existence, consistent with the workflow reconnect gate this mirrors.
+        error = {"event": "error", "error": f"Run {run_id} not found"}
+        yield f"event: error\ndata: {json.dumps(error)}\n\n"
+        return
 
     if buffer_status is None:
         # PATH 3: Not in buffer -- fall back to database
@@ -723,6 +742,15 @@ def get_agent_router(
             user_id=user_id,
         )
 
+        # The caller's tenant (aicoe-tracker#196), recorded on this run's event buffer entry so
+        # a later WS reconnect / HTTP /resume can refuse a mismatched tenant instead of
+        # replaying across tenants. Deliberately NOT _run_ctx's tenant above: that one goes
+        # through resolve_tenant_id's user_id fallback for ModelPolicy purposes, which is not a
+        # safe default for a security-scoping comparison -- see tenant_for_ws_hydration's
+        # docstring for why. Same fail-closed value resolve_agent used to scope hydration,
+        # computed independently since resolve_agent doesn't return it.
+        caller_tenant_id = tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id)
+
         # Background execution
         if background:
             if isinstance(agent, RemoteAgent):
@@ -745,6 +773,7 @@ def get_agent_router(
                         background_tasks=background_tasks,
                         auth_token=auth_token,
                         run_context=_run_ctx,
+                        tenant_id=caller_tenant_id,
                         **kwargs,
                     ),
                     media_type="text/event-stream",
@@ -769,6 +798,7 @@ def get_agent_router(
                     files=input_files if input_files else None,
                     stream=False,
                     background=True,
+                    tenant_id=caller_tenant_id,
                     **kwargs,
                 ),
             )
@@ -794,6 +824,7 @@ def get_agent_router(
                     files=input_files if input_files else None,
                     background_tasks=background_tasks,
                     auth_token=auth_token,
+                    tenant_id=caller_tenant_id,
                     **kwargs,
                 ),
                 media_type="text/event-stream",
@@ -817,6 +848,7 @@ def get_agent_router(
                         files=input_files if input_files else None,
                         stream=False,
                         background_tasks=background_tasks,
+                        tenant_id=caller_tenant_id,
                         **kwargs,
                     ),
                 )
@@ -1126,6 +1158,14 @@ def get_agent_router(
                 status_code=400,
                 detail="Invalid continue_from. Use 'end', 'last_user', or a numeric message index.",
             )
+
+        # Record/refresh the tenant this run continues under (aicoe-tracker#196), refusing
+        # instead of silently overwriting if a different tenant is already recorded for run_id
+        # -- see the workflow continue-run fix (QC round 2, finding 3) for the full rationale.
+        # Applied once here, ahead of all three continue branches below.
+        caller_tenant_id = tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id)
+        if not register_or_refuse_run_tenant(run_id, caller_tenant_id, tenancy_enabled=tenancy_enabled(request)):
+            raise HTTPException(status_code=404, detail="Run not found")
 
         if stream and background:
             # background=True, stream=True: resumable SSE streaming
@@ -1749,13 +1789,14 @@ def get_agent_router(
                 detail="Stream resumption is not supported for factory agents",
             )
 
+        caller_tenant_id = tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id)
         agent = get_agent_by_id(
             agent_id=agent_id,
             agents=os.agents,
             db=os.db,
             registry=os.registry,
             create_fresh=True,
-            tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
+            tenant_id=caller_tenant_id,
         )
         if agent is None:
             raise HTTPException(status_code=404, detail="Agent not found")
@@ -1774,7 +1815,15 @@ def get_agent_router(
             )
 
         return StreamingResponse(
-            _resume_stream_generator(agent, run_id, last_event_index, session_id, user_id=scoped_user_id),  # type: ignore[arg-type]
+            _resume_stream_generator(
+                agent,  # type: ignore[arg-type]
+                run_id,
+                last_event_index,
+                session_id,
+                user_id=scoped_user_id,
+                caller_tenant_id=caller_tenant_id,
+                tenancy_is_enabled=tenancy_enabled(request),
+            ),
             media_type="text/event-stream",
         )
 

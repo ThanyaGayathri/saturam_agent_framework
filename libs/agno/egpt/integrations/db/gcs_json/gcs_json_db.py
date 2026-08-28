@@ -12,6 +12,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.session_scope import require_unsupported_session_tenant_scope
 from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.integrations.db.gcs_json.utils import (
     apply_sorting,
@@ -48,6 +49,7 @@ class GcsJsonDb(BaseDb):
         credentials: Optional[Any] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_session_tenant_id: bool = False,
     ):
         """
         Interface for interacting with JSON files stored in Google Cloud Storage as database.
@@ -67,6 +69,9 @@ class GcsJsonDb(BaseDb):
             location (Optional[str]): GCS bucket location. If None, uses default location.
             credentials (Optional[Any]): GCP credentials. If None, uses default credentials.
             id (Optional[str]): ID of the database.
+            require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
+                does not implement tenant-scoped session enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
         """
         if id is None:
             prefix_suffix = prefix or "agno/"
@@ -84,7 +89,9 @@ class GcsJsonDb(BaseDb):
             culture_table=culture_table,
             traces_table=traces_table,
             spans_table=spans_table,
+            require_session_tenant_id=require_session_tenant_id,
         )
+        require_unsupported_session_tenant_scope("GcsJsonDb", self.require_session_tenant_id)
 
         self.bucket_name = bucket_name
         self.prefix = prefix or "agno/"
@@ -202,7 +209,10 @@ class GcsJsonDb(BaseDb):
 
     # -- Session methods --
 
-    def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    # tenant_id (aicoe-tracker#197) accepted for signature parity with BaseDb; this backend does not implement tenant-scoped session filtering yet.
+    def delete_session(
+        self, session_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> bool:
         """Delete a session from the GCS JSON file.
 
         Args:
@@ -237,7 +247,9 @@ class GcsJsonDb(BaseDb):
             log_warning(f"Error deleting session: {str(e)}")
             raise e
 
-    def delete_sessions(self, session_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_sessions(
+        self, session_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete multiple sessions from the GCS JSON file.
 
         Args:
@@ -267,6 +279,8 @@ class GcsJsonDb(BaseDb):
         session_type: Optional[SessionType] = None,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[AgentSession, TeamSession, WorkflowSession, Dict[str, Any]]]:
         """Read a session from the GCS JSON file.
 
@@ -316,6 +330,8 @@ class GcsJsonDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[Session], Tuple[List[Dict[str, Any]], int]]:
         """Get all sessions from the GCS JSON file with filtering and pagination.
 
@@ -406,6 +422,8 @@ class GcsJsonDb(BaseDb):
         session_name: str,
         user_id: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """Rename a session in the GCS JSON file."""
         try:
@@ -437,7 +455,7 @@ class GcsJsonDb(BaseDb):
             raise e
 
     def upsert_session(
-        self, session: Session, deserialize: Optional[bool] = True
+        self, session: Session, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[Session, Dict[str, Any]]]:
         """Insert or update a session in the GCS JSON file."""
         try:
@@ -485,7 +503,12 @@ class GcsJsonDb(BaseDb):
             raise e
 
     def upsert_sessions(
-        self, sessions: List[Session], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        sessions: List[Session],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[Session, Dict[str, Any]]]:
         """
         Bulk upsert multiple sessions for improved performance on large datasets.
