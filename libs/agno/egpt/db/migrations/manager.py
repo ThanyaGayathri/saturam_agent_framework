@@ -42,7 +42,7 @@ class MigrationManager:
         # by the runner, so a migration targeting it would never run -- which is exactly the
         # state the component tables were in before EGPT-2.1 added theirs.
         "service_accounts": "service_accounts_table_name",
-        # Added by EGPT-4.3a for v2_10_0. Traces and spans were unreachable by the migration
+        # Added by EGPT-4.3a for v2_10_0. Traces were unreachable by the migration
         # runner — a migration targeting them would never run. This is what allowed EGPT-4.2's
         # tenant_id column addition to ship without a Postgres migration.
         "traces": "trace_table_name",
