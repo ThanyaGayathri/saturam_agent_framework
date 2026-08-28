@@ -1,4 +1,4 @@
-"""Migration v2.9.0: Add tenant_id to the traces table (EGPT-4.3a, aicoe-tracker#201)
+"""Migration v2.10.0: Add tenant_id to the traces table (EGPT-4.3a, aicoe-tracker#201)
 
 Changes:
 - Add a nullable ``tenant_id`` column to the traces table.
@@ -190,7 +190,7 @@ def _migrate_sqlite(db: BaseDb, table_name: str) -> bool:
 
 
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
-    """Run the v2.9.0 migration (add tenant_id to traces)."""
+    """Run the v2.10.0 migration (add tenant_id to traces)."""
     if table_type != TRACES_TABLE_TYPE:
         return False
     db_type = type(db).__name__
@@ -200,15 +200,15 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
         elif "Sqlite" in db_type and "Async" not in db_type:
             return _migrate_sqlite(db, table_name)
         else:
-            log_info(f"v2.9.0 migration not applicable for {db_type}")
+            log_info(f"v2.10.0 migration not applicable for {db_type}")
             return False
     except Exception as e:
-        log_error(f"v2.9.0 migration failed for {table_name}: {e}")
+        log_error(f"v2.10.0 migration failed for {table_name}: {e}")
         return False
 
 
 async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
-    """Run the v2.9.0 migration (add tenant_id to traces) for async backends."""
+    """Run the v2.10.0 migration (add tenant_id to traces) for async backends."""
     if table_type != TRACES_TABLE_TYPE:
         return False
     db_type = type(db).__name__
@@ -216,27 +216,27 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
         if "Postgres" in db_type:
             return await _migrate_async_postgres(db, table_name)
         else:
-            log_info(f"v2.9.0 async migration not applicable for {db_type}")
+            log_info(f"v2.10.0 async migration not applicable for {db_type}")
             return False
     except Exception as e:
-        log_error(f"v2.9.0 async migration failed for {table_name}: {e}")
+        log_error(f"v2.10.0 async migration failed for {table_name}: {e}")
         return False
 
 
 def down(db: BaseDb, table_type: str, table_name: str) -> bool:
-    """Revert the v2.9.0 migration (remove tenant_id from traces).
+    """Revert the v2.10.0 migration (remove tenant_id from traces).
 
     Note: SQLite < 3.35 does not support DROP COLUMN.
     """
     log_info(
-        f"v2.9.0 down migration: tenant_id removal from {table_name} not implemented (nullable column, safe to leave)"
+        f"v2.10.0 down migration: tenant_id removal from {table_name} not implemented (nullable column, safe to leave)"
     )
     return False
 
 
 async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
-    """Revert the v2.9.0 async migration."""
+    """Revert the v2.10.0 async migration."""
     log_info(
-        f"v2.9.0 async down migration: tenant_id removal from {table_name} not implemented (nullable column, safe to leave)"
+        f"v2.10.0 async down migration: tenant_id removal from {table_name} not implemented (nullable column, safe to leave)"
     )
     return False
