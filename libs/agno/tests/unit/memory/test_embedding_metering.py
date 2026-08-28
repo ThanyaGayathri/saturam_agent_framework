@@ -78,6 +78,30 @@ class NoUsageRecorder(UsageRecorder):
         raise NotImplementedError
 
 
+class DuckTypedEmbedder:
+    """A minimal duck-typed embedder -- ``get_embedding``/``async_get_embedding`` only, exactly
+    like ``StubEmbedder`` in ``test_pgvector_memory_substrate.py``. It does not inherit from
+    ``Embedder`` and has no ``get_embedding_and_usage``/``async_get_embedding_and_usage`` at all --
+    not even one that raises ``NotImplementedError``. Calling a missing method raises
+    ``AttributeError``, not ``NotImplementedError``, which is exactly the shape the pipeline must
+    guard against without crashing (finding #1, PR #159 review)."""
+
+    id = "duck-typed-v1"
+    dimensions = DIM
+    offline_capable = True
+
+    def __init__(self):
+        self.plain_calls = []
+
+    def get_embedding(self, text):
+        self.plain_calls.append(text)
+        return [float(len(text)), 0.0, 0.0, 0.0]
+
+    async def async_get_embedding(self, text):
+        await asyncio.sleep(0)
+        return self.get_embedding(text)
+
+
 class BatchRecorder:
     """A batching embedder (``AzureOpenAIEmbedder``/``SentenceTransformerEmbedder`` shape) --
     ``get_embedding_and_usage`` on this tree's real batching embedders is typed and implemented
@@ -221,6 +245,51 @@ class TestFallbackWhenUsageIsUnimplemented:
         assert len(vectors) == 1
         assert len(get_default_aggregator().costs) == 1
         assert get_default_aggregator().costs[0].cost is None
+
+
+# ---------------------------------------------------------------------------
+# An embedder lacking get_embedding_and_usage entirely degrades gracefully, not with an
+# AttributeError (regression pinned by finding #1, PR #159 review -- see DuckTypedEmbedder).
+# ---------------------------------------------------------------------------
+
+
+class TestEmbedderMissingUsageMethodEntirely:
+    def test_embed_texts_does_not_raise_and_falls_back_to_the_plain_call(self):
+        """Same observable shape as ``NoUsageRecorder`` (declared but ``NotImplementedError``) --
+        the fallback records an ``cost=None`` "unknown" entry rather than skipping metering
+        outright, since a call was genuinely attempted with a scope."""
+        embedder = DuckTypedEmbedder()
+        p = pipeline(embedder)
+
+        vectors = p.embed_texts(["hello"], scope=SCOPE)
+
+        assert len(vectors) == 1
+        assert vectors[0] == [5.0, 0.0, 0.0, 0.0]
+        assert embedder.plain_calls == ["hello"]
+        entries = get_default_aggregator().costs
+        assert len(entries) == 1
+        assert entries[0].cost is None
+        assert entries[0].input_tokens == 0
+
+    async def test_aembed_texts_does_not_raise_and_falls_back_to_the_plain_call(self):
+        embedder = DuckTypedEmbedder()
+        p = pipeline(embedder)
+
+        vectors = await p.aembed_texts(["hello"], scope=SCOPE)
+
+        assert len(vectors) == 1
+        assert embedder.plain_calls == ["hello"]
+        entries = get_default_aggregator().costs
+        assert len(entries) == 1
+        assert entries[0].cost is None
+
+    def test_embed_query_does_not_raise(self):
+        p = pipeline(DuckTypedEmbedder())
+
+        vector = p.embed_query("hello", scope=SCOPE)
+
+        assert vector == [5.0, 0.0, 0.0, 0.0]
+        assert len(get_default_aggregator().costs) == 1
 
 
 # ---------------------------------------------------------------------------

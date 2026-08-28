@@ -41,8 +41,10 @@ redefining them, so every call site -- embedding, extraction, and store-growth -
 aggregator instance regardless of which module recorded onto it.
 """
 
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from threading import Lock
+from typing import Any, Deque, Dict, List, Optional, Sequence, Tuple
 
 from egpt.knowledge.embedder import Embedder
 from egpt.memory.errors import MemoryProviderConfigError
@@ -111,16 +113,50 @@ class MemoryMetricsAggregator:
     the metrics pipeline's job (the "EGPT-4.5" ticket the issue mentions), not this class's -- as
     of this writing that pipeline has not landed anywhere in the tree, so there is nothing to plug
     into yet.
+
+    **Bounded and lock-guarded.** The default instance is genuinely fed from background threads in
+    production (``memory/writeback.py`` submits writes onto a real ``ThreadPoolExecutor``), so
+    every read and mutation below takes ``_lock``. Each list is capped at ``max_entries`` (oldest
+    entries evicted first) rather than growing without bound for the life of a long-running
+    process -- a metrics pipeline that wants everything, not just the last ``max_entries``, should
+    call :meth:`drain` often enough that eviction never triggers.
+
+    **Not tenant-isolated.** :attr:`costs` and :attr:`growth` are process-wide snapshots covering
+    every tenant with no access boundary -- only :meth:`cost_by_tenant`/:meth:`growth_by_tenant`
+    scope their output to one tenant. Nothing external reads the raw lists today, but an
+    admin/debug surface built directly on :func:`get_default_aggregator` must filter by
+    ``tenant_id`` itself; this class does not do it for you.
     """
 
-    costs: List[MemoryCostEntry] = field(default_factory=list)
-    growth: List[MemoryGrowthEntry] = field(default_factory=list)
+    max_entries: int = 10_000
+    _costs: Deque[MemoryCostEntry] = field(default_factory=deque, repr=False, compare=False)
+    _growth: Deque[MemoryGrowthEntry] = field(default_factory=deque, repr=False, compare=False)
+    _lock: Lock = field(default_factory=Lock, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        self._costs = deque(self._costs, maxlen=self.max_entries)
+        self._growth = deque(self._growth, maxlen=self.max_entries)
+
+    @property
+    def costs(self) -> List[MemoryCostEntry]:
+        """A point-in-time copy. Mutating the returned list does not affect the aggregator --
+        use :meth:`record_cost` to add an entry or :meth:`drain`/:meth:`clear` to remove any."""
+        with self._lock:
+            return list(self._costs)
+
+    @property
+    def growth(self) -> List[MemoryGrowthEntry]:
+        """A point-in-time copy -- see :attr:`costs`."""
+        with self._lock:
+            return list(self._growth)
 
     def record_cost(self, entry: MemoryCostEntry) -> None:
-        self.costs.append(entry)
+        with self._lock:
+            self._costs.append(entry)
 
     def record_growth(self, entry: MemoryGrowthEntry) -> None:
-        self.growth.append(entry)
+        with self._lock:
+            self._growth.append(entry)
 
     def cost_by_tenant(self) -> Dict[str, float]:
         """Total known cost per tenant. Entries with ``cost=None`` (unpriced) are skipped, not
@@ -137,6 +173,27 @@ class MemoryMetricsAggregator:
         for entry in self.growth:
             totals[entry.tenant_id] = totals.get(entry.tenant_id, 0) + entry.accepted
         return totals
+
+    def drain(self) -> Tuple[List[MemoryCostEntry], List[MemoryGrowthEntry]]:
+        """Atomically take everything accumulated so far and clear it.
+
+        The seam a future metrics pipeline (the "EGPT-4.5" ticket) calls instead of reading
+        :attr:`costs`/:attr:`growth` directly -- draining under the same lock that guards
+        recording means no entry a concurrent writer is mid-append on is ever lost or duplicated
+        across two drains.
+        """
+        with self._lock:
+            costs, growth = list(self._costs), list(self._growth)
+            self._costs.clear()
+            self._growth.clear()
+        return costs, growth
+
+    def clear(self) -> None:
+        """Test/reset helper -- see :func:`reset_default_aggregator`. Discards rather than
+        returning entries; use :meth:`drain` if they need to go somewhere first."""
+        with self._lock:
+            self._costs.clear()
+            self._growth.clear()
 
 
 #: One shared aggregator for every memory cost/growth call site in the package to record onto,
@@ -157,8 +214,7 @@ def reset_default_aggregator() -> None:
     across tests (and across unrelated tests elsewhere in the suite, since this is a single
     process-wide instance).
     """
-    _DEFAULT_AGGREGATOR.costs.clear()
-    _DEFAULT_AGGREGATOR.growth.clear()
+    _DEFAULT_AGGREGATOR.clear()
 
 
 def embedder_provider_key(embedder: Any) -> Optional[str]:
@@ -567,6 +623,33 @@ class MemoryEmbedder:
             usage=usage,
         )
 
+    def _metered_embed_one(self, call_arg: str) -> Tuple[Any, Optional[Dict[str, Any]]]:
+        """One chunk's vector plus usage, for a **non-batching** embedder only.
+
+        ``hasattr``-guarded rather than a bare call -- a duck-typed embedder implementing only
+        ``get_embedding``/``async_get_embedding`` (the shape this codebase's own test doubles use,
+        e.g. ``StubEmbedder`` in ``test_pgvector_memory_substrate.py``) has no
+        ``get_embedding_and_usage`` at all, and calling it anyway raises ``AttributeError`` rather
+        than the ``NotImplementedError`` an :class:`Embedder` subclass declining the method raises.
+        Both cases fall back to a plain, unmetered ``get_embedding`` -- the method's presence (or
+        lack of one) is not the caller's problem to crash on.
+        """
+        if hasattr(self.embedder, "get_embedding_and_usage"):
+            try:
+                return self.embedder.get_embedding_and_usage(call_arg)
+            except NotImplementedError:
+                pass
+        return self.embedder.get_embedding(call_arg), None
+
+    async def _ametered_embed_one(self, call_arg: str) -> Tuple[Any, Optional[Dict[str, Any]]]:
+        """Async twin of :meth:`_metered_embed_one` -- same ``hasattr`` guard, same fallback."""
+        if hasattr(self.embedder, "async_get_embedding_and_usage"):
+            try:
+                return await self.embedder.async_get_embedding_and_usage(call_arg)
+            except NotImplementedError:
+                pass
+        return await self.embedder.async_get_embedding(call_arg), None
+
     def embed_texts(self, texts: Sequence[str], scope: Optional[Scope] = None) -> List[List[float]]:
         """Embed a batch, in order, one vector per text.
 
@@ -591,12 +674,8 @@ class MemoryEmbedder:
         for chunk in self._chunks(texts):
             call_arg = self._call_arg(chunk)
             if scope is not None and not self._accepts_batches():
-                try:
-                    vector, usage = self.embedder.get_embedding_and_usage(call_arg)
-                    result = self._as_vectors(vector, len(chunk))
-                except NotImplementedError:
-                    result = self._as_vectors(self.embedder.get_embedding(call_arg), len(chunk))
-                    usage = None
+                vector, usage = self._metered_embed_one(call_arg)
+                result = self._as_vectors(vector, len(chunk))
                 self._record_usage(scope, usage)
             else:
                 result = self._as_vectors(self.embedder.get_embedding(call_arg), len(chunk))
@@ -615,12 +694,8 @@ class MemoryEmbedder:
         for chunk in self._chunks(texts):
             call_arg = self._call_arg(chunk)
             if scope is not None and not self._accepts_batches():
-                try:
-                    vector, usage = await self.embedder.async_get_embedding_and_usage(call_arg)
-                    result = self._as_vectors(vector, len(chunk))
-                except NotImplementedError:
-                    result = self._as_vectors(await self.embedder.async_get_embedding(call_arg), len(chunk))
-                    usage = None
+                vector, usage = await self._ametered_embed_one(call_arg)
+                result = self._as_vectors(vector, len(chunk))
                 self._record_usage(scope, usage)
             else:
                 result = self._as_vectors(await self.embedder.async_get_embedding(call_arg), len(chunk))

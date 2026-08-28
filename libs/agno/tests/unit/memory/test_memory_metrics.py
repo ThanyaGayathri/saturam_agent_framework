@@ -122,6 +122,71 @@ class TestDefaultAggregator:
 
 
 # ---------------------------------------------------------------------------
+# Bounding, draining, and thread-safety (review finding #3, PR #159) -- the default aggregator is
+# genuinely fed from background threads in production (memory/writeback.py's ThreadPoolExecutor).
+# ---------------------------------------------------------------------------
+
+
+class TestAggregatorBoundsAndConcurrency:
+    def test_recording_past_max_entries_evicts_the_oldest(self):
+        agg = MemoryMetricsAggregator(max_entries=3)
+        for i in range(5):
+            agg.record_cost(MemoryCostEntry("acme", None, "embedding", "openai", f"m{i}", cost=float(i)))
+
+        entries = agg.costs
+        assert len(entries) == 3
+        # The two oldest (m0, m1) were evicted -- only the most recent max_entries remain.
+        assert [e.model_id for e in entries] == ["m2", "m3", "m4"]
+
+    def test_growth_is_bounded_the_same_way(self):
+        agg = MemoryMetricsAggregator(max_entries=2)
+        for i in range(4):
+            agg.record_growth(MemoryGrowthEntry("acme", None, "write", "episodic", accepted=i))
+
+        assert len(agg.growth) == 2
+        assert [e.accepted for e in agg.growth] == [2, 3]
+
+    def test_drain_returns_everything_and_empties_the_aggregator(self):
+        agg = MemoryMetricsAggregator()
+        agg.record_cost(MemoryCostEntry("acme", None, "embedding", "openai", "m", cost=1.0))
+        agg.record_growth(MemoryGrowthEntry("acme", None, "write", "episodic", accepted=1))
+
+        costs, growth = agg.drain()
+
+        assert len(costs) == 1 and len(growth) == 1
+        assert agg.costs == []
+        assert agg.growth == []
+
+    def test_recording_after_a_drain_still_works(self):
+        agg = MemoryMetricsAggregator()
+        agg.record_cost(MemoryCostEntry("acme", None, "embedding", "openai", "m", cost=1.0))
+        agg.drain()
+
+        agg.record_cost(MemoryCostEntry("acme", None, "embedding", "openai", "m2", cost=2.0))
+
+        assert len(agg.costs) == 1
+        assert agg.costs[0].model_id == "m2"
+
+    def test_concurrent_record_cost_from_many_threads_loses_nothing(self):
+        """Matches the real shape: ``memory/writeback.py`` submits writes onto a real
+        ``ThreadPoolExecutor``, each eventually calling ``record_cost``/``record_growth`` on the
+        one shared default aggregator."""
+        import concurrent.futures
+
+        agg = MemoryMetricsAggregator(max_entries=1000)
+        threads, calls_per_thread = 8, 50
+
+        def record_many(n):
+            for i in range(calls_per_thread):
+                agg.record_cost(MemoryCostEntry("acme", None, "embedding", "openai", f"{n}-{i}", cost=1.0))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
+            list(pool.map(record_many, range(threads)))
+
+        assert len(agg.costs) == threads * calls_per_thread
+
+
+# ---------------------------------------------------------------------------
 # embedder_provider_key
 # ---------------------------------------------------------------------------
 

@@ -774,6 +774,68 @@ def test_llm_session_summarizer_treats_a_blank_summary_as_nothing_produced():
 
 
 # ---------------------------------------------------------------------------
+# Cost metering wiring (SM-X8, aicoe-tracker#144; coverage gap flagged on PR #159 review, finding
+# #4) -- `LLMSessionSummarizer.summarize`/`.asummarize` call `meter_extraction_cost` after every
+# model call. Only the standalone function is unit-tested elsewhere (test_memory_metrics.py); this
+# pins that the real call site actually wires scope/model/response_usage through.
+# ---------------------------------------------------------------------------
+
+
+def _model_with_summary_and_usage(text="A concise summary", input_tokens=100, output_tokens=20) -> MagicMock:
+    from egpt.metrics import MessageMetrics
+
+    model = MagicMock(spec=Model)
+    model.supports_native_structured_outputs = True
+    model.supports_json_schema_outputs = False
+    parsed = SessionSummaryResponse(summary=text, topics=None)
+    usage = MessageMetrics(input_tokens=input_tokens, output_tokens=output_tokens)
+    model.response = MagicMock(return_value=ModelResponse(content=parsed, parsed=parsed, response_usage=usage))
+
+    async def _aresponse(*args, **kwargs):
+        await asyncio.sleep(0)
+        return model.response(*args, **kwargs)
+
+    model.aresponse = _aresponse
+    return model
+
+
+@pytest.fixture(autouse=True)
+def _clean_default_aggregator_for_metering_tests():
+    from egpt.memory.metrics import reset_default_aggregator
+
+    reset_default_aggregator()
+    yield
+    reset_default_aggregator()
+
+
+def test_summarize_meters_the_extraction_cost():
+    synth = LLMSessionSummarizer(model=_model_with_summary_and_usage())
+
+    synth.summarize(None, [episode("a", "e1")])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
+    assert entries[0].input_tokens == 100
+
+
+async def test_asummarize_meters_the_extraction_cost():
+    synth = LLMSessionSummarizer(model=_model_with_summary_and_usage())
+
+    await synth.asummarize(None, [episode("a", "e1")])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
+
+
+# ---------------------------------------------------------------------------
 # Wiring -- CoLocatedMemoryProvider.consolidate folds a summary into the SEMANTIC write
 # ---------------------------------------------------------------------------
 

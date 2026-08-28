@@ -420,6 +420,65 @@ def test_a_real_title_and_insight_are_accepted():
 
 
 # ---------------------------------------------------------------------------
+# Cost metering wiring (SM-X8, aicoe-tracker#144; coverage gap flagged on PR #159 review, finding
+# #4) -- `LLMInsightSynthesizer.synthesize`/`.asynthesize` call `meter_extraction_cost` after every
+# model call. Only the standalone function is unit-tested elsewhere (test_memory_metrics.py); this
+# pins that the real call site actually wires scope/model/response_usage through.
+# ---------------------------------------------------------------------------
+
+
+def _model_with_insight_and_usage(input_tokens=100, output_tokens=20) -> MagicMock:
+    from unittest.mock import AsyncMock
+
+    from egpt.metrics import MessageMetrics
+
+    model = MagicMock(spec=Model)
+    model.supports_native_structured_outputs = True
+    model.supports_json_schema_outputs = False
+    parsed = SynthesizedInsight(has_insight=True, title="Title", insight="Body")
+    usage = MessageMetrics(input_tokens=input_tokens, output_tokens=output_tokens)
+    model.response = MagicMock(return_value=ModelResponse(content=parsed, parsed=parsed, response_usage=usage))
+    model.aresponse = AsyncMock(return_value=ModelResponse(content=parsed, parsed=parsed, response_usage=usage))
+    return model
+
+
+@pytest.fixture(autouse=True)
+def _clean_default_aggregator_for_metering_tests():
+    from egpt.memory.metrics import reset_default_aggregator
+
+    reset_default_aggregator()
+    yield
+    reset_default_aggregator()
+
+
+def test_synthesize_meters_the_extraction_cost():
+    synth = LLMInsightSynthesizer(model=_model_with_insight_and_usage())
+
+    synth.synthesize([episode("a", "e1")])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
+    assert entries[0].input_tokens == 100
+
+
+async def test_asynthesize_meters_the_extraction_cost():
+    synth = LLMInsightSynthesizer(model=_model_with_insight_and_usage())
+
+    await synth.asynthesize([episode("a", "e1")])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
+
+
+# ---------------------------------------------------------------------------
 # Idempotence -- a re-run over the same source set upserts, never duplicates
 # ---------------------------------------------------------------------------
 

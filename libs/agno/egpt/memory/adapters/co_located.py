@@ -712,8 +712,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
             tiers_written=tiers,
         )
 
+    @staticmethod
+    def _record_write_growth(scope: Scope, stamped: Sequence[MemoryEvent]) -> None:
+        record_growth(
+            get_default_aggregator(),
+            scope,
+            "write",
+            tier=",".join(sorted({e.tier.value for e in stamped})),
+            accepted=len(stamped),
+        )
+
+    @staticmethod
+    def _record_fact_growth(scope: Scope, facts: Sequence[FactWrite]) -> None:
+        record_growth(get_default_aggregator(), scope, "consolidate", tier="episodic->semantic", accepted=len(facts))
+
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         require_scope(scope, method="write")
+        if not events:
+            # Guards a degenerate `MemoryGrowthEntry(tier="", accepted=0)` -- an empty batch has
+            # nothing to grow the store by, so it shouldn't record that it did.
+            return self._receipt([])
         stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
         receipt = self._receipt(stamped)
@@ -741,21 +759,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 attempt(self.graph.upsert_episodes, episodes)
                 attempt(self.graph.upsert_facts, facts)
                 self._raise_write_failure(failures, receipt)
-        except (PartialWriteError, MemoryOperationError):
-            raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
+        except PartialWriteError:
+            # Per `_raise_write_failure`'s own docstring, this is only raised once the vector leg
+            # has already committed the full batch -- growth genuinely happened, so it must be
+            # recorded even though the call itself is about to fail.
+            self._record_write_growth(scope, stamped)
+            raise
+        except MemoryOperationError:
+            raise  # the vector leg itself refused before anything committed -- nothing grew
         except Exception as exc:
             raise PartialWriteError(receipt) from exc
-        record_growth(
-            get_default_aggregator(),
-            scope,
-            "write",
-            tier=",".join(sorted({e.tier.value for e in stamped})),
-            accepted=receipt.accepted,
-        )
+        self._record_write_growth(scope, stamped)
         return receipt
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         require_scope(scope, method="awrite")
+        if not events:
+            return self._receipt([])
         stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
         receipt = self._receipt(stamped)
@@ -777,17 +797,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 if facts:
                     writes.append(self.graph.aupsert_facts(scope, facts))
                 await self._gather_writes(writes, receipt)
-        except (PartialWriteError, MemoryOperationError):
-            raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
+        except PartialWriteError:
+            self._record_write_growth(scope, stamped)
+            raise
+        except MemoryOperationError:
+            raise
         except Exception as exc:
             raise PartialWriteError(receipt) from exc
-        record_growth(
-            get_default_aggregator(),
-            scope,
-            "write",
-            tier=",".join(sorted({e.tier.value for e in stamped})),
-            accepted=receipt.accepted,
-        )
+        self._record_write_growth(scope, stamped)
         return receipt
 
     @staticmethod
@@ -1810,6 +1827,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         self._graph_fact_batch(fact_scope, batch, receipt)
                         committed_any = True
             except PartialWriteError:
+                # `committed_any` is the only reliable signal here -- the raise can come from
+                # `_graph_fact_batch` after an earlier `fact_scope` batch's vector leg already
+                # landed, so growth genuinely happened and must not go unrecorded just because the
+                # pass as a whole is about to fail.
+                if committed_any:
+                    self._record_fact_growth(scope, facts)
                 raise
             except MemoryOperationError:
                 # A refusal on the *first* write, before anything landed, is just a refusal --
@@ -1817,9 +1840,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # Once something is committed it is a partial write like any other.
                 if not committed_any:
                     raise
+                self._record_fact_growth(scope, facts)
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
+                if committed_any:
+                    self._record_fact_growth(scope, facts)
                 raise PartialWriteError(receipt) from exc
+            # The fact-write loop above completed without raising -- record growth here, once,
+            # rather than unconditionally at the end of the method: the entity/relation/profile
+            # writes below are not fact writes, and a failure in them must not double-record (or,
+            # if it happened first, skip recording) growth for facts that already landed.
+            self._record_fact_growth(scope, facts)
             # Extraction runs after the fact writes, not inside their `try`: it is not a fact write
             # and must not be counted as one in `committed_any`. But once facts landed, a failure
             # here is exactly as much a partial write as a failure in the loop above -- the caller
@@ -1853,6 +1884,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # its own `SemanticProfileStore.write` failure here is a plain refusal too, uncounted
             # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
             # leg specifically.
+            #
+            # Recording a zero-accepted entry here (rather than skipping it) is what makes a scope
+            # that never consolidates anything distinguishable from one that was never asked.
+            self._record_fact_growth(scope, facts)
             entities = self._entities(scope, episodes)
             relations = self._relations(scope, episodes)
             profile = self._update_profile(scope, episodes)
@@ -1876,7 +1911,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
             supersede,
             profile,
         )
-        record_growth(get_default_aggregator(), scope, "consolidate", tier="episodic->semantic", accepted=len(facts))
         return report
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
@@ -1923,13 +1957,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)
                         committed_any = True
             except PartialWriteError:
+                if committed_any:
+                    self._record_fact_growth(scope, facts)
                 raise
             except MemoryOperationError:
                 if not committed_any:
                     raise
+                self._record_fact_growth(scope, facts)
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
+                if committed_any:
+                    self._record_fact_growth(scope, facts)
                 raise PartialWriteError(receipt) from exc
+            self._record_fact_growth(scope, facts)
             try:
                 entities = await self._aentities(scope, episodes)
                 relations = await self._arelations(scope, episodes)
@@ -1951,6 +1991,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # its own `SemanticProfileStore.awrite` failure here is a plain refusal too, uncounted
             # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
             # leg specifically.
+            #
+            # Recording a zero-accepted entry here (rather than skipping it) is what makes a scope
+            # that never consolidates anything distinguishable from one that was never asked.
+            self._record_fact_growth(scope, facts)
             entities = await self._aentities(scope, episodes)
             relations = await self._arelations(scope, episodes)
             profile = await self._aupdate_profile(scope, episodes)
@@ -1970,7 +2014,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
             supersede,
             profile,
         )
-        record_growth(get_default_aggregator(), scope, "consolidate", tier="episodic->semantic", accepted=len(facts))
         return report
 
 

@@ -1310,4 +1310,11 @@ came back unpriced (`cost=None`) since every component in this run has a synthet
 
 **Requires:** Nothing; no database, no API key, no network.
 
+**Re-verified (PR #159 review follow-up):** re-run after fixing the review's findings (uncaught
+`AttributeError` for a duck-typed embedder, `record_growth` skipped on `PartialWriteError`,
+unbounded/unlocked `MemoryMetricsAggregator`, missing pytest coverage on the 5
+`meter_extraction_cost` call sites, and the duplicated `_registry_key_for` lookup). Output
+unchanged: 3 embedding entries, 5 cost entries, 7 growth entries, `acme`/`globex` both
+`cost=$0.000066`, `growth_by_tenant()` `acme=6`/`globex=4`, 0 unpriced.
+
 ---

@@ -48,6 +48,7 @@ from egpt.memory.embedding import (
     meter_embedding_cost,
     reset_default_aggregator,
 )
+from egpt.memory.types import Scope
 from egpt.utils.log import log_debug
 
 __all__ = [
@@ -66,7 +67,7 @@ __all__ = [
 def meter_extraction_cost(
     aggregator: MemoryMetricsAggregator,
     *,
-    scope: Any,
+    scope: Scope,
     model: Any,
     response_usage: Any,
 ) -> None:
@@ -95,7 +96,15 @@ def meter_extraction_cost(
         reasoning_tokens = int(getattr(response_usage, "reasoning_tokens", 0) or 0)
 
         try:
-            provider_key = BaseModelProvider._registry_key_for(model)
+            # `model` is a real `Model` instance at every call site in this tree -- its
+            # `_resolved_provider_key` memoizes this same lookup, which `Model.response`/
+            # `.aresponse` (just called, by every caller of this function) already ran once via
+            # `_apply_cost_to_metrics`. Falling back to a direct, unmemoized lookup keeps this
+            # working against a plain test double that only has `.id`, not the full `Model` shape.
+            if hasattr(model, "_resolved_provider_key"):
+                provider_key = model._resolved_provider_key()
+            else:
+                provider_key = BaseModelProvider._registry_key_for(model)
         except Exception as exc:
             log_debug(f"Memory extraction cost: could not resolve a provider key for {model!r}: {exc}")
             provider_key = None
@@ -132,7 +141,7 @@ def meter_extraction_cost(
 
 def record_growth(
     aggregator: MemoryMetricsAggregator,
-    scope: Any,
+    scope: Scope,
     operation: str,
     *,
     tier: str,

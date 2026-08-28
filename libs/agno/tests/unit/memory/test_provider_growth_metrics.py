@@ -16,7 +16,7 @@ import pytest
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig
 from egpt.memory.metrics import get_default_aggregator, reset_default_aggregator
-from egpt.memory.types import MemoryEvent, Scope
+from egpt.memory.types import MemoryEvent, MemoryOperationError, PartialWriteError, Scope
 from tests.unit.memory._fakes import FakeGraph, FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="u1")
@@ -80,6 +80,97 @@ class TestWriteGrowth:
         assert len(entries) == 1
         assert entries[0].operation == "write"
         assert entries[0].accepted == 1
+
+    def test_write_with_no_events_records_no_growth_entry(self):
+        """A degenerate `MemoryGrowthEntry(tier="", accepted=0)` for an empty batch is noise, not
+        signal (nit, review finding #2) -- an empty write never reaches `record_growth` at all."""
+        p, _, _ = provider()
+
+        receipt = p.write(ACME, [])
+
+        assert receipt.accepted == 0
+        assert get_default_aggregator().growth == []
+
+    async def test_awrite_with_no_events_records_no_growth_entry(self):
+        p, _, _ = provider()
+
+        receipt = await p.awrite(ACME, [])
+
+        assert receipt.accepted == 0
+        assert get_default_aggregator().growth == []
+
+
+class TestPartialWriteStillRecordsGrowth:
+    """Review finding #2 (PR #159): `record_growth` used to sit after the try/except entirely, so
+    a `PartialWriteError` -- raised once the vector leg has already committed the full batch, per
+    `_raise_write_failure`'s own docstring -- recorded no growth at all. These pin that growth is
+    now captured on that failure path too, using the same `OnceFailingGraph` shape
+    `test_provider_co_located.py` already proves out for the cursor-on-failure tests.
+    """
+
+    class OnceFailingGraph(FakeGraph):
+        fail = True
+
+        def upsert_episodes(self, scope, events):
+            if self.fail:
+                raise MemoryOperationError("backend unavailable", field_name="tier")
+            super().upsert_episodes(scope, events)
+
+        def upsert_facts(self, scope, facts):
+            if self.fail:
+                raise MemoryOperationError("backend unavailable", field_name="tier")
+            super().upsert_facts(scope, facts)
+
+    def _provider(self):
+        vector, graph = FakeVector(), self.OnceFailingGraph()
+        config = MemoryProviderConfig(provider="co_located")
+        return CoLocatedMemoryProvider(vector=vector, graph=graph, config=config), vector, graph
+
+    def test_a_write_whose_graph_leg_fails_after_the_vector_leg_committed_still_records_growth(self):
+        p, vector, _ = self._provider()
+
+        with pytest.raises(PartialWriteError):
+            p.write(ACME, [event("the deploy failed on friday")])
+
+        assert "upsert" in vector.calls  # the vector leg genuinely committed before the graph leg raised
+        totals = get_default_aggregator().growth_by_tenant()
+        assert totals["acme"] == 1
+
+    async def test_an_awrite_whose_graph_leg_fails_still_records_growth(self):
+        p, vector, _ = self._provider()
+
+        with pytest.raises(PartialWriteError):
+            await p.awrite(ACME, [event("the deploy failed on friday")])
+
+        assert "upsert" in vector.calls
+        totals = get_default_aggregator().growth_by_tenant()
+        assert totals["acme"] == 1
+
+    def test_a_consolidate_pass_that_partially_fails_still_records_growth(self):
+        p, _, graph = self._provider()
+        graph.fail = False
+        p.write(ACME, [event("the deploy failed on friday")])
+        reset_default_aggregator()
+        graph.fail = True
+
+        with pytest.raises(PartialWriteError):
+            p.consolidate(ACME)
+
+        totals = get_default_aggregator().growth_by_tenant()
+        assert totals["acme"] == 1
+
+    async def test_an_aconsolidate_pass_that_partially_fails_still_records_growth(self):
+        p, _, graph = self._provider()
+        graph.fail = False
+        p.write(ACME, [event("the deploy failed on friday")])
+        reset_default_aggregator()
+        graph.fail = True
+
+        with pytest.raises(PartialWriteError):
+            await p.aconsolidate(ACME)
+
+        totals = get_default_aggregator().growth_by_tenant()
+        assert totals["acme"] == 1
 
 
 class TestConsolidateGrowth:

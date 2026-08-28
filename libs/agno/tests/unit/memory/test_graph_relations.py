@@ -1367,3 +1367,72 @@ def test_a_relation_extraction_failure_after_commit_is_a_partial_write(is_async)
 
     assert excinfo.value.receipt.accepted >= 1
     assert excinfo.value.receipt.event_ids
+
+
+# ---------------------------------------------------------------------------
+# Cost metering wiring (SM-X8, aicoe-tracker#144; coverage gap flagged on PR #159 review, finding
+# #4) -- `LLMRelationExtractor.extract`/`.aextract` call `meter_extraction_cost` after every model
+# call, mirroring `LLMEntityExtractor`'s wiring one-for-one.
+# ---------------------------------------------------------------------------
+
+
+class _MeteringAnswer:
+    def __init__(self, relations, input_tokens=100, output_tokens=20):
+        self.parsed = ExtractedRelations(relations=relations)
+        self.content = None
+        self.response_usage = _MeteringUsage(input_tokens, output_tokens)
+
+
+class _MeteringUsage:
+    def __init__(self, input_tokens=0, output_tokens=0, cache_read_tokens=0, reasoning_tokens=0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_read_tokens = cache_read_tokens
+        self.reasoning_tokens = reasoning_tokens
+
+
+class _MeteringFakeModel:
+    id = "fake-relation-extraction-model"
+
+    def response(self, messages, response_format=None):
+        return _MeteringAnswer([relation()])
+
+    async def aresponse(self, messages, response_format=None):
+        await asyncio.sleep(0)
+        return self.response(messages, response_format=response_format)
+
+
+@pytest.fixture(autouse=True)
+def _clean_default_aggregator_for_metering_tests():
+    from egpt.memory.metrics import reset_default_aggregator
+
+    reset_default_aggregator()
+    yield
+    reset_default_aggregator()
+
+
+def test_extract_meters_the_extraction_cost():
+    extractor = LLMRelationExtractor(model=_MeteringFakeModel())
+
+    extractor.extract(episode("Ada works at Acme Corp"))
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
+    assert entries[0].input_tokens == 100
+
+
+async def test_aextract_meters_the_extraction_cost():
+    extractor = LLMRelationExtractor(model=_MeteringFakeModel())
+
+    await extractor.aextract(episode("Ada works at Acme Corp"))
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
