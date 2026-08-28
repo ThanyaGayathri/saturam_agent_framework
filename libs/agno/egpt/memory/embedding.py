@@ -144,6 +144,11 @@ class MemoryMetricsAggregator:
     _lock: Lock = field(default_factory=Lock, repr=False, compare=False, init=False)
 
     def __post_init__(self) -> None:
+        if self.max_entries <= 0:
+            # `deque(maxlen=0)` silently discards every entry appended -- indistinguishable from
+            # "recording is working but nothing has happened yet" to anything reading `.costs`/
+            # `.growth` later, so refuse instead of shipping a no-op aggregator.
+            raise ValueError(f"max_entries must be positive, got {self.max_entries}")
         self._costs = deque(self._costs, maxlen=self.max_entries)
         self._growth = deque(self._growth, maxlen=self.max_entries)
 
@@ -235,6 +240,12 @@ def embedder_provider_key(embedder: Any) -> Optional[str]:
     ``egpt.integrations.knowledge.embedder.<key>`` (``openai.py`` -> key ``"openai"``,
     ``azure_openai.py`` -> key ``"azure_openai"``, and so on), so the last dotted segment of the
     class's module is the same registry key ``discovery.names("embedder")`` uses.
+
+    This is a module-path convention, not a registry lookup: an embedder that doesn't live at
+    that path (a thin wrapper, a re-export, a test double defined elsewhere) derives a key that
+    won't match any :data:`PRICES` row. That fails safe -- the caller ends up with a ``cost=None``
+    "unknown" entry rather than a wrong price -- but silently, with no signal that key derivation
+    (not a missing price row) was the actual cause.
     """
     module = type(embedder).__module__ or ""
     leaf = module.rsplit(".", 1)[-1]

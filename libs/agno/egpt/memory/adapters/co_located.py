@@ -743,9 +743,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
         receipt = self._receipt(stamped)
+        vector_committed = False
         try:
             if self.vector is not None and vector_records:
                 self.vector.upsert(scope, vector_records)
+                vector_committed = True
             if self.graph is not None:
                 # Both verbs are attempted, then failures are raised together -- the sync half of
                 # the settle-then-propagate rule `_gather_writes` applies. A refusal is collected
@@ -776,6 +778,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
         except MemoryOperationError:
             raise  # the vector leg itself refused before anything committed -- nothing grew
         except Exception as exc:
+            # Everything else lands here through one of two doors. `self.vector.upsert` raising
+            # takes this door too (its own docstring makes it all-or-nothing in one transaction,
+            # so any exception there means nothing committed -- `vector_committed` stays False).
+            # The other door is a bug in `_graph_batches`/`_raise_write_failure`'s plumbing itself
+            # (not a substrate failure -- those are caught by `attempt` and turned into
+            # `PartialWriteError` above) raised *after* the vector leg already committed, which
+            # `vector_committed` is set to catch.
+            if vector_committed:
+                self._record_write_growth(scope, stamped)
             raise PartialWriteError(receipt) from exc
         self._record_write_growth(scope, stamped)
         return receipt
@@ -787,9 +798,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
         receipt = self._receipt(stamped)
+        vector_committed = False
         try:
             if self.vector is not None and vector_records:
                 await self.vector.aupsert(scope, vector_records)
+                vector_committed = True
             if self.graph is not None:
                 # Parity with the sync half comes from *both* attempting every verb, not from
                 # `gather` itself: bare `gather` propagates the first exception without cancelling
@@ -811,6 +824,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         except MemoryOperationError:
             raise
         except Exception as exc:
+            # See the sync half's comment: `vector_committed` distinguishes "nothing committed"
+            # (the `aupsert` call itself raised -- atomic, per `_awrite`'s docstring) from "the
+            # vector leg committed and something else broke after it."
+            if vector_committed:
+                self._record_write_growth(scope, stamped)
             raise PartialWriteError(receipt) from exc
         self._record_write_growth(scope, stamped)
         return receipt

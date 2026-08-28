@@ -185,6 +185,17 @@ class TestAggregatorBoundsAndConcurrency:
 
         assert len(agg.costs) == threads * calls_per_thread
 
+    def test_max_entries_zero_is_rejected_rather_than_silently_discarding_everything(self):
+        """Minor finding, PR #159 review round 3 (``embedding.py:146``): ``deque(maxlen=0)``
+        would silently discard every entry appended, indistinguishable from "recording works but
+        nothing has happened yet" -- refuse construction instead."""
+        with pytest.raises(ValueError):
+            MemoryMetricsAggregator(max_entries=0)
+
+    def test_max_entries_negative_is_rejected_too(self):
+        with pytest.raises(ValueError):
+            MemoryMetricsAggregator(max_entries=-1)
+
 
 # ---------------------------------------------------------------------------
 # embedder_provider_key

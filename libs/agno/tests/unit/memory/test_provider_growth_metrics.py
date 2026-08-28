@@ -181,6 +181,54 @@ class TestPartialWriteStillRecordsGrowth:
         assert totals["acme"] == 1
 
 
+class TestGenericFailureAfterVectorCommitStillRecordsGrowth:
+    """Major finding, PR #159 review round 3 (``co_located.py:778``/``:813``): the generic
+    ``except Exception`` branch in ``write``/``awrite`` sits below the vector leg's own atomic
+    commit (``_write``/``_awrite`` are documented all-or-nothing, one transaction) with no way to
+    tell "nothing committed" (the vector call itself raised) apart from "the vector leg committed
+    and something else broke after it" (a bug in the graph-batching plumbing itself, not a
+    substrate refusal -- those are caught by ``attempt``/``_gather_writes`` and turned into
+    ``PartialWriteError`` already, covered by ``TestPartialWriteStillRecordsGrowth`` above). It
+    used to silently drop growth in the latter case. ``vector_committed`` now distinguishes them.
+    """
+
+    def test_a_write_whose_graph_batching_breaks_after_the_vector_leg_committed_still_records_growth(self):
+        p, vector, _ = provider()
+        p._graph_batches = lambda stamped, records: (_ for _ in ()).throw(RuntimeError("boom"))
+
+        with pytest.raises(PartialWriteError):
+            p.write(ACME, [event("the deploy failed on friday")])
+
+        assert "upsert" in vector.calls  # the vector leg genuinely committed before the bug fired
+        totals = get_default_aggregator().growth_by_tenant()
+        assert totals["acme"] == 1
+
+    async def test_an_awrite_whose_graph_batching_breaks_after_the_vector_leg_committed_still_records_growth(self):
+        p, vector, _ = provider()
+        p._graph_batches = lambda stamped, records: (_ for _ in ()).throw(RuntimeError("boom"))
+
+        with pytest.raises(PartialWriteError):
+            await p.awrite(ACME, [event("the deploy failed on friday")])
+
+        assert "upsert" in vector.calls
+        totals = get_default_aggregator().growth_by_tenant()
+        assert totals["acme"] == 1
+
+    def test_a_write_whose_vector_leg_itself_raises_records_no_growth(self):
+        """Contrast case: the vector call raising means nothing committed (atomic, per
+        ``_write``'s own docstring), so ``vector_committed`` stays ``False`` and no growth entry
+        appears -- this must keep holding, not just the committed-then-broke case above."""
+        vector, graph = FakeVector(), FakeGraph()
+        vector.upsert = lambda scope, records: (_ for _ in ()).throw(RuntimeError("boom"))
+        config = MemoryProviderConfig(provider="co_located")
+        p = CoLocatedMemoryProvider(vector=vector, graph=graph, config=config)
+
+        with pytest.raises(PartialWriteError):
+            p.write(ACME, [event("the deploy failed on friday")])
+
+        assert get_default_aggregator().growth == []
+
+
 class TestConsolidateGrowth:
     def test_a_consolidate_pass_records_the_semantic_facts_written(self):
         p, _, graph = provider()
