@@ -145,6 +145,9 @@ def configure_tracing(db: SqliteDb) -> None:
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
+    # Default SimpleSpanProcessor: a blocking DB write per span.end(), fine for a single-run
+    # script -- see egpt/tracing/memory.py's module docstring for why a latency-sensitive async
+    # path should pass batch_processing=True instead.
     setup_tracing(db=db)
 
     if isinstance(trace_api.get_tracer_provider(), TracerProvider):
@@ -203,7 +206,7 @@ if __name__ == "__main__":
     spans = [span for span in db.get_spans() if span.name.startswith("memory.")]
     for span in sorted(spans, key=lambda s: s.start_time):
         attrs = span.attributes or {}
-        print(f"{span.name}")
+        print(span.name)
         print(f"  egpt.memory.tenant_id: {attrs.get('egpt.memory.tenant_id')}")
         print(f"  egpt.memory.tier:      {attrs.get('egpt.memory.tier')}")
         print(f"  egpt.memory.store:     {attrs.get('egpt.memory.store')}")

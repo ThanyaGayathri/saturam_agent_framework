@@ -16,13 +16,14 @@ import pytest
 pytest.importorskip("opentelemetry.sdk", reason="tracing tests require opentelemetry-sdk")
 
 from opentelemetry import trace as trace_api  # noqa: E402
-from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
+from opentelemetry.sdk.trace import SpanProcessor, TracerProvider  # noqa: E402
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: E402
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter  # noqa: E402
+from opentelemetry.trace import StatusCode  # noqa: E402
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider  # noqa: E402
 from egpt.memory.config import MemoryProviderConfig  # noqa: E402
-from egpt.memory.types import MemoryEvent, MemoryQuery, Scope  # noqa: E402
+from egpt.memory.types import MemoryEvent, MemoryQuery, PartialWriteError, Scope  # noqa: E402
 from tests.unit.memory._fakes import FakeGraph, FakeVector  # noqa: E402
 
 ACME = Scope(tenant_id="acme", user_id="u1")
@@ -220,3 +221,67 @@ def test_memory_operations_still_work_when_tracing_is_not_configured():
     slice_ = provider.read(ACME, MemoryQuery(text="customer email", limit=5))
     assert slice_.scope == ACME
     assert len(slice_.records) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Regression: a raising tracer/processor, or a raising wrapped call, must
+# each fail independently -- neither may take the other down with it.
+# ---------------------------------------------------------------------------
+
+
+class _ExplodingOnStartProcessor(SpanProcessor):
+    """A SpanProcessor whose `on_start` raises -- the exact shape the span-lifecycle gap this
+    file regresses against was found in: `start_as_current_span(...)`'s `__enter__` is what calls
+    every registered processor's `on_start`, and `SynchronousMultiSpanProcessor.on_start` does not
+    itself guard a processor's exception, so a raising processor must not be allowed to break the
+    memory call `memory_span` wraps."""
+
+    def on_start(self, span, parent_context=None):
+        raise RuntimeError("on_start exploded")
+
+    def on_end(self, span):
+        pass
+
+    def shutdown(self):
+        pass
+
+    def force_flush(self, timeout_millis=30000):
+        return True
+
+
+def test_write_still_completes_when_a_span_processor_explodes_on_start(span_exporter):
+    """`memory_span`'s guarding `try/except` must cover entering the span, not just building the
+    context-manager object -- otherwise a raising processor propagates before the wrapped write
+    ever runs."""
+    trace_api.get_tracer_provider().add_span_processor(_ExplodingOnStartProcessor())
+    provider = build_provider()
+    events = [MemoryEvent(content="the customer prefers email over phone", scope=ACME)]
+
+    receipt = provider.write(ACME, events)
+
+    assert receipt.accepted == 1
+    # Span creation aborted entirely (the exploding processor ran before any span was minted), so
+    # nothing reached the exporter either -- this is the correct fallback, not a partial span.
+    assert spans_named(span_exporter, "memory.write") == []
+
+
+def test_a_raised_exception_from_the_wrapped_call_still_propagates_and_closes_the_span(span_exporter):
+    """The half `memory_span`'s fix must not break: a real failure from the memory call itself
+    must still reach the caller unmodified, and the span must still close, recorded as an error."""
+    provider = build_provider()
+    original = provider.graph.upsert_episodes
+
+    def explode(scope, events_):
+        raise RuntimeError("graph down")
+
+    provider.graph.upsert_episodes = explode  # type: ignore[method-assign]
+    try:
+        with pytest.raises(PartialWriteError):
+            provider.write(ACME, [MemoryEvent(content="episode one", scope=ACME)])
+    finally:
+        provider.graph.upsert_episodes = original  # type: ignore[method-assign]
+
+    spans = spans_named(span_exporter, "memory.write")
+    assert len(spans) == 1
+    assert spans[0].status.status_code == StatusCode.ERROR
+    assert any(event.name == "exception" for event in spans[0].events)

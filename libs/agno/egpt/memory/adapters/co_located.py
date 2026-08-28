@@ -1136,12 +1136,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
         The guard is repeated here rather than left to the ``read`` it delegates to, so the
         refusal names the verb the caller used. Every entry point carries its own for that reason;
         the second call is a type check on an object already in hand.
+
+        Not wrapped in ``memory_span`` (SM-X4 #140): it delegates to the private ``_read``, not the
+        traced ``read``, so a direct ``read_tier`` call produces no ``memory.read`` span. A v1
+        scope decision -- SM-X4's acceptance criteria named only read/write/consolidate -- that was
+        disclosed only in PR #158's description until now. ``write_tier``/``awrite_tier`` above
+        have no such gap: they delegate into the traced ``write``/``awrite``, so a direct call to
+        either still gets a span.
         """
         require_scope(scope, method="read_tier")
         return self._read(scope, replace(query, tiers=[tier]), method="read_tier").records
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
-        """Async variant of :meth:`read_tier`, with the same read-empty rule."""
+        """Async variant of :meth:`read_tier`, with the same read-empty rule and the same
+        undelegated-from-``memory_span`` gap documented there."""
         require_scope(scope, method="aread_tier")
         return (await self._aread(scope, replace(query, tiers=[tier]), method="aread_tier")).records
 
