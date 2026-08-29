@@ -23,6 +23,8 @@ from egpt.filters import FilterExpr
 from egpt.media import Audio, File, Image, Video
 from egpt.models.message import Message, MessageReferences
 from egpt.models.response import ModelResponse
+from egpt.prompts.managed import ManagedPrompt
+from egpt.prompts.manager import aresolve_managed_prompt, resolve_managed_prompt
 from egpt.run import RunContext, run_model
 from egpt.run.agent import RunOutput
 from egpt.run.messages import RunMessages
@@ -132,7 +134,15 @@ def get_system_message(
             return agent.system_message
 
         sys_message_content: str = ""
-        if isinstance(agent.system_message, str):
+        if isinstance(agent.system_message, ManagedPrompt):
+            resolved = resolve_managed_prompt(agent.system_message)
+            sys_message_content = resolved.text
+            # Note: when resolve_in_context is True (default), the resolved
+            # text will pass through format_message_with_state_variables below,
+            # which substitutes {key} patterns matching session_state/dependencies/
+            # metadata keys via string.Template.safe_substitute.  Prompt authors
+            # editing text in Langfuse should be aware of this second substitution.
+        elif isinstance(agent.system_message, str):
             sys_message_content = agent.system_message
         elif callable(agent.system_message):
             sys_message_content = execute_system_message(
@@ -163,7 +173,10 @@ def get_system_message(
     instructions: List[str] = []
     if agent.instructions is not None:
         _instructions = agent.instructions
-        if callable(agent.instructions):
+        if isinstance(agent.instructions, ManagedPrompt):
+            resolved = resolve_managed_prompt(agent.instructions)
+            _instructions = resolved.text
+        elif callable(agent.instructions):
             _instructions = execute_instructions(
                 agent=agent, instructions=agent.instructions, session_state=session_state, run_context=run_context
             )
@@ -480,7 +493,11 @@ async def aget_system_message(
             return agent.system_message
 
         sys_message_content: str = ""
-        if isinstance(agent.system_message, str):
+        if isinstance(agent.system_message, ManagedPrompt):
+            resolved = await aresolve_managed_prompt(agent.system_message)
+            sys_message_content = resolved.text
+            # Note: see sync path comment about resolve_in_context double-substitution.
+        elif isinstance(agent.system_message, str):
             sys_message_content = agent.system_message
         elif callable(agent.system_message):
             sys_message_content = await aexecute_system_message(
@@ -512,7 +529,10 @@ async def aget_system_message(
     instructions: List[str] = []
     if agent.instructions is not None:
         _instructions = agent.instructions
-        if callable(agent.instructions):
+        if isinstance(agent.instructions, ManagedPrompt):
+            resolved = await aresolve_managed_prompt(agent.instructions)
+            _instructions = resolved.text
+        elif callable(agent.instructions):
             _instructions = await aexecute_instructions(
                 agent=agent, instructions=agent.instructions, session_state=session_state, run_context=run_context
             )

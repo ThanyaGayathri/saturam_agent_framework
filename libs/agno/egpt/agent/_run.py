@@ -37,6 +37,7 @@ from egpt.agent._session import initialize_session, update_session_metrics
 from egpt.exceptions import (
     InputCheckError,
     OutputCheckError,
+    PromptResolutionError,
     ProviderDenial,
     RunCancelledException,
     RunNotContinuableError,
@@ -1234,7 +1235,7 @@ def _run(
                 # A provider's denial is deterministic: retrying re-hits the budget/rate store
                 # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
                 # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
-                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
+                if attempt < num_attempts - 1 and not isinstance(e, (ProviderDenial, PromptResolutionError)):
                     # Calculate delay with exponential backoff if enabled
                     if agent.exponential_backoff:
                         delay = agent.delay_between_retries * (2**attempt)
@@ -1841,7 +1842,7 @@ def _run_stream(
                 # A provider's denial is deterministic: retrying re-hits the budget/rate store
                 # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
                 # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
-                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
+                if attempt < num_attempts - 1 and not isinstance(e, (ProviderDenial, PromptResolutionError)):
                     # Calculate delay with exponential backoff if enabled
                     if agent.exponential_backoff:
                         delay = agent.delay_between_retries * (2**attempt)
@@ -2522,7 +2523,7 @@ async def _arun(
                 # A provider's denial is deterministic: retrying re-hits the budget/rate store
                 # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
                 # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
-                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
+                if attempt < num_attempts - 1 and not isinstance(e, (ProviderDenial, PromptResolutionError)):
                     # Calculate delay with exponential backoff if enabled
                     if agent.exponential_backoff:
                         delay = agent.delay_between_retries * (2**attempt)
@@ -3391,7 +3392,7 @@ async def _arun_stream(
                 # A provider's denial is deterministic: retrying re-hits the budget/rate store
                 # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
                 # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
-                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
+                if attempt < num_attempts - 1 and not isinstance(e, (ProviderDenial, PromptResolutionError)):
                     # Calculate delay with exponential backoff if enabled
                     if agent.exponential_backoff:
                         delay = agent.delay_between_retries * (2**attempt)
@@ -4580,7 +4581,7 @@ def _continue_run(
                 # A provider's denial is deterministic: retrying re-hits the budget/rate store
                 # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
                 # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
-                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
+                if attempt < num_attempts - 1 and not isinstance(e, (ProviderDenial, PromptResolutionError)):
                     # Calculate delay with exponential backoff if enabled
                     if agent.exponential_backoff:
                         delay = agent.delay_between_retries * (2**attempt)
@@ -4918,7 +4919,7 @@ def _continue_run_stream(
                 # A provider's denial is deterministic: retrying re-hits the budget/rate store
                 # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
                 # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
-                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
+                if attempt < num_attempts - 1 and not isinstance(e, (ProviderDenial, PromptResolutionError)):
                     # Calculate delay with exponential backoff if enabled
                     if agent.exponential_backoff:
                         delay = agent.delay_between_retries * (2**attempt)
@@ -5816,7 +5817,7 @@ async def _acontinue_run(
                 # A provider's denial is deterministic: retrying re-hits the budget/rate store
                 # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
                 # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
-                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
+                if attempt < num_attempts - 1 and not isinstance(e, (ProviderDenial, PromptResolutionError)):
                     # Calculate delay with exponential backoff if enabled
                     if agent.exponential_backoff:
                         delay = agent.delay_between_retries * (2**attempt)
@@ -6477,7 +6478,7 @@ async def _acontinue_run_stream(
                 # A provider's denial is deterministic: retrying re-hits the budget/rate store
                 # to rediscover the same answer, burning the backoff sleep for nothing. Terminal
                 # like InputCheckError/OutputCheckError above (aicoe-tracker#169 review).
-                if attempt < num_attempts - 1 and not isinstance(e, ProviderDenial):
+                if attempt < num_attempts - 1 and not isinstance(e, (ProviderDenial, PromptResolutionError)):
                     # Calculate delay with exponential backoff if enabled
                     if agent.exponential_backoff:
                         delay = agent.delay_between_retries * (2**attempt)

@@ -386,3 +386,13 @@ class RateLimitExceededError(ProviderDenial):
 
         self.type = "rate_limit_exceeded_error"
         self.error_id = "rate_limit_exceeded_error"
+
+
+class PromptResolutionError(AgnoError):
+    """A managed prompt could not be resolved and no fallback is available.
+
+    This is deterministic: the prompt has no ``fallback`` field and Langfuse
+    is unreachable/unconfigured.  Retrying will produce the same result, so
+    the run loop should treat it as terminal (same category as
+    ``ProviderDenial``).
+    """

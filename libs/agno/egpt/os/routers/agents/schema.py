@@ -243,10 +243,22 @@ class AgentResponse(BaseModel):
         instructions = agent.instructions if agent.instructions else None
         if instructions and callable(instructions):
             instructions = await aexecute_instructions(instructions=instructions, agent=agent)
+        # ManagedPrompt — show the prompt name rather than leaking internal config
+        if instructions is not None and hasattr(instructions, "name") and hasattr(instructions, "fallback"):
+            from egpt.prompts.managed import ManagedPrompt
+
+            if isinstance(instructions, ManagedPrompt):
+                instructions = f"[managed:{instructions.name}]"
 
         system_message = agent.system_message if agent.system_message else None
         if system_message and callable(system_message):
             system_message = await aexecute_system_message(system_message=system_message, agent=agent)
+        # ManagedPrompt — show the prompt name rather than leaking internal config
+        if system_message is not None and hasattr(system_message, "name") and hasattr(system_message, "fallback"):
+            from egpt.prompts.managed import ManagedPrompt
+
+            if isinstance(system_message, ManagedPrompt):
+                system_message = f"[managed:{system_message.name}]"
 
         system_message_info = {
             "system_message": str(system_message) if system_message else None,

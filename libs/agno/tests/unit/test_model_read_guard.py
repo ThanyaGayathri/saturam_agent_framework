@@ -175,8 +175,8 @@ ALLOWED_MODEL_READS: Dict[Tuple[str, int, str], str] = {
     # -- the guard while reading `run_model(agent, run_context)` for the value) --
     ("egpt/agent/_response.py", 268, "agent.model"): "presence guard; the value read is run_model(...)",
     ("egpt/agent/_response.py", 315, "agent.model"): "presence guard; the value read is run_model(...)",
-    ("egpt/agent/_messages.py", 158, "agent.model"): "presence guard before building the default system message",
-    ("egpt/agent/_messages.py", 507, "agent.model"): "presence guard before building the default system message",
+    ("egpt/agent/_messages.py", 168, "agent.model"): "presence guard before building the default system message",
+    ("egpt/agent/_messages.py", 524, "agent.model"): "presence guard before building the default system message",
     ("egpt/team/_response.py", 742, "team.model"): "presence guard; the value read is run_model(...)",
     ("egpt/team/_response.py", 787, "team.model"): "presence guard; the value read is run_model(...)",
     ("egpt/team/_messages.py", 328, "team.model"): "presence guard before the JSON-output-prompt branch",

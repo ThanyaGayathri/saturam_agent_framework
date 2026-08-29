@@ -657,8 +657,21 @@ def to_dict(agent: Agent) -> Dict[str, Any]:
     # --- System message settings ---
     # Skip system_message if it's a callable or Message object
     # TODO: Support Message objects
-    if agent.system_message is not None and isinstance(agent.system_message, str):
-        config["system_message"] = agent.system_message
+    if agent.system_message is not None:
+        if isinstance(agent.system_message, str):
+            config["system_message"] = agent.system_message
+        elif hasattr(agent.system_message, "name") and hasattr(agent.system_message, "fallback"):
+            # ManagedPrompt — serialize as a dict for round-trip fidelity
+            from egpt.prompts.managed import ManagedPrompt
+
+            if isinstance(agent.system_message, ManagedPrompt):
+                config["system_message"] = {
+                    "__managed_prompt__": True,
+                    "name": agent.system_message.name,
+                    "label": agent.system_message.label,
+                    "variables": dict(agent.system_message.variables),
+                    "fallback": agent.system_message.fallback,
+                }
     if agent.system_message_role != "system":
         config["system_message_role"] = agent.system_message_role
     if not agent.build_context:
@@ -667,12 +680,23 @@ def to_dict(agent: Agent) -> Dict[str, Any]:
     # --- Context building settings ---
     if agent.description is not None:
         config["description"] = agent.description
-    # Handle instructions (can be str, list, or callable)
+    # Handle instructions (can be str, list, callable, or ManagedPrompt)
     if agent.instructions is not None:
         if isinstance(agent.instructions, str):
             config["instructions"] = agent.instructions
         elif isinstance(agent.instructions, list):
             config["instructions"] = agent.instructions
+        elif hasattr(agent.instructions, "name") and hasattr(agent.instructions, "fallback"):
+            from egpt.prompts.managed import ManagedPrompt
+
+            if isinstance(agent.instructions, ManagedPrompt):
+                config["instructions"] = {
+                    "__managed_prompt__": True,
+                    "name": agent.instructions.name,
+                    "label": agent.instructions.label,
+                    "variables": dict(agent.instructions.variables),
+                    "fallback": agent.instructions.fallback,
+                }
         # Skip if callable
     if agent.expected_output is not None:
         config["expected_output"] = agent.expected_output
@@ -843,6 +867,20 @@ def component_spec(*, registry: Optional[Registry] = None) -> ComponentSpec:
         # the check, and refusing here would make those providers uncreatable (EGPT-164).
         hydrate=lambda config: from_dict(Agent, data=config, registry=registry, require_endpoint=False),
     )
+
+
+def _maybe_deserialize_managed_prompt(value: Any) -> Any:
+    """Reconstruct a ManagedPrompt from its serialized dict form, if applicable."""
+    if isinstance(value, dict) and value.get("__managed_prompt__"):
+        from egpt.prompts.managed import ManagedPrompt
+
+        return ManagedPrompt(
+            name=value["name"],
+            label=value.get("label"),
+            variables=value.get("variables", {}),
+            fallback=value.get("fallback"),
+        )
+    return value
 
 
 def from_dict(
@@ -1043,12 +1081,12 @@ def from_dict(
         store_tool_messages=config.get("store_tool_messages", True),
         store_history_messages=config.get("store_history_messages", False),
         # --- System message settings ---
-        system_message=config.get("system_message"),
+        system_message=_maybe_deserialize_managed_prompt(config.get("system_message")),
         system_message_role=config.get("system_message_role", "system"),
         build_context=config.get("build_context", True),
         # --- Context building settings ---
         description=config.get("description"),
-        instructions=config.get("instructions"),
+        instructions=_maybe_deserialize_managed_prompt(config.get("instructions")),
         expected_output=config.get("expected_output"),
         additional_context=config.get("additional_context"),
         markdown=config.get("markdown", False),

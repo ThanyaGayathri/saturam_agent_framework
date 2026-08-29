@@ -9,6 +9,7 @@ Environment variables (three-way resolution: EGPT_ > AGNO_ > vendor bare):
 - EGPT_LANGFUSE_HOST / LANGFUSE_HOST (vendor convention)
 - EGPT_LANGFUSE_ENABLED (EGPT-owned flag, no bare form)
 - EGPT_TRACING_DB_ENABLED (EGPT-owned flag, no bare form)
+- EGPT_PROMPT_CACHE_TTL (EGPT-owned, seconds, default 300)
 """
 
 from __future__ import annotations
@@ -68,6 +69,13 @@ class TracingSettings(BrandedSettings):
     tracing_db_enabled: bool = Field(
         default=True,
         description="Whether to export spans to the database (existing DatabaseSpanExporter)",
+    )
+
+    # -- Managed prompts (EGPT-4.4) -----------------------------------------
+
+    prompt_cache_ttl: int = Field(
+        default=300,
+        description=("TTL in seconds for the in-process managed-prompt cache. Set to 0 to disable caching entirely."),
     )
 
     @property

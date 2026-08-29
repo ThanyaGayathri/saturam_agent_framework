@@ -48,6 +48,7 @@ from egpt.models.base import Model
 from egpt.models.fallback import FallbackConfig
 from egpt.models.message import Message
 from egpt.models.response import ToolExecution
+from egpt.prompts.managed import ManagedPrompt
 from egpt.registry.registry import Registry
 from egpt.registry.schema import ComponentSpec
 from egpt.run import RunContext, RunStatus
@@ -232,8 +233,8 @@ class Agent:
     store_history_messages: bool = False
 
     # --- System message settings ---
-    # Provide the system message as a string or function
-    system_message: Optional[Union[str, Callable, Message]] = None
+    # Provide the system message as a string, function, Message, or ManagedPrompt reference
+    system_message: Optional[Union[str, Callable, Message, ManagedPrompt]] = None
     # Role for the system message
     system_message_role: str = "system"
     # Provide the introduction as the first message from the Agent
@@ -244,8 +245,8 @@ class Agent:
     # --- Settings for building the default system message ---
     # A description of the Agent that is added to the start of the system message.
     description: Optional[str] = None
-    # List of instructions for the agent.
-    instructions: Optional[Union[str, List[str], Callable]] = None
+    # List of instructions for the agent. Can also be a ManagedPrompt reference.
+    instructions: Optional[Union[str, List[str], Callable, ManagedPrompt]] = None
     # If True, wrap instructions in <instructions> tags. Default is False.
     use_instruction_tags: bool = False
     # Provide the expected output from the Agent.
@@ -453,12 +454,12 @@ class Agent:
         update_knowledge: bool = False,
         read_tool_call_history: bool = False,
         send_media_to_model: bool = True,
-        system_message: Optional[Union[str, Callable, Message]] = None,
+        system_message: Optional[Union[str, Callable, Message, ManagedPrompt]] = None,
         system_message_role: str = "system",
         introduction: Optional[str] = None,
         build_context: bool = True,
         description: Optional[str] = None,
-        instructions: Optional[Union[str, List[str], Callable]] = None,
+        instructions: Optional[Union[str, List[str], Callable, ManagedPrompt]] = None,
         use_instruction_tags: bool = False,
         expected_output: Optional[str] = None,
         additional_context: Optional[str] = None,
