@@ -23,6 +23,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence,
 from pydantic import BaseModel, Field
 
 from egpt.memory.graph.passes import select_current_episodes
+from egpt.memory.metrics import (
+    get_default_aggregator,
+    meter_embedding_cost,
+    meter_response_extraction_cost,
+)
 from egpt.memory.substrates import GraphSubstrate
 from egpt.memory.types import (
     EntityWrite,
@@ -31,6 +36,7 @@ from egpt.memory.types import (
     Scope,
     require_scope,
 )
+from egpt.utils.log import log_debug
 
 if TYPE_CHECKING:
     from egpt.knowledge.embedder import Embedder
@@ -172,13 +178,15 @@ class LLMEntityExtractor:
         )
 
     def extract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:
-        response = deepcopy(self.model).response(messages=self._messages(episode), response_format=ExtractedEntities)
+        model = deepcopy(self.model)
+        response = model.response(messages=self._messages(episode), response_format=ExtractedEntities)
+        meter_response_extraction_cost(episode.scope, model, response)
         return self._parse(response, episode.id)
 
     async def aextract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:
-        response = await deepcopy(self.model).aresponse(
-            messages=self._messages(episode), response_format=ExtractedEntities
-        )
+        model = deepcopy(self.model)
+        response = await model.aresponse(messages=self._messages(episode), response_format=ExtractedEntities)
+        meter_response_extraction_cost(episode.scope, model, response)
         return self._parse(response, episode.id)
 
 
@@ -367,6 +375,55 @@ class EntityExtractionPipeline:
             return self.embedding_version
         return f"{getattr(self.embedder, 'id', type(self.embedder).__name__)}/d{dim}"
 
+    def _metered_embedding(self, entity: EntityWrite, call_arg: str) -> Any:
+        """One candidate's vector, metered against its own scope (SM-X8, aicoe-tracker#144).
+
+        ``run``/``arun`` call ``self.embedder`` directly rather than through
+        ``MemoryEmbedder.embed_texts``, so this mirrors ``MemoryEmbedder._metered_embed_one``'s
+        ``hasattr`` guard and fallback here: an embedder without ``get_embedding_and_usage`` falls
+        back to the plain, unmetered call rather than breaking extraction.
+
+        The fallback catches **any** exception, not only ``NotImplementedError``: several concrete
+        embedders' ``get_embedding_and_usage`` has no try/except of its own around the API call,
+        unlike their paired ``get_embedding``, which does swallow a failure. Narrowing this catch
+        to ``NotImplementedError`` let a transient API failure on the *metered* path surface as a
+        raw, unhandled SDK exception during entity extraction instead of degrading the way the
+        non-metered call already does (review finding, PR #159). ``meter_embedding_cost`` itself
+        is best-effort and never raises (its own docstring), so widening this catch cannot mask a
+        metering-only failure as an embedding failure.
+        """
+        if hasattr(self.embedder, "get_embedding_and_usage"):
+            try:
+                vector, usage = self.embedder.get_embedding_and_usage(call_arg)
+                meter_embedding_cost(
+                    get_default_aggregator(),
+                    tenant_id=entity.scope.tenant_id,
+                    agent_id=entity.scope.agent_id,
+                    embedder=self.embedder,
+                    usage=usage,
+                )
+                return vector
+            except Exception as exc:
+                log_debug(f"Metered embedding call failed, falling back to unmetered get_embedding: {exc}")
+        return self.embedder.get_embedding(call_arg)
+
+    async def _ametered_embedding(self, entity: EntityWrite, call_arg: str) -> Any:
+        """Async twin of :meth:`_metered_embedding`."""
+        if hasattr(self.embedder, "async_get_embedding_and_usage"):
+            try:
+                vector, usage = await self.embedder.async_get_embedding_and_usage(call_arg)
+                meter_embedding_cost(
+                    get_default_aggregator(),
+                    tenant_id=entity.scope.tenant_id,
+                    agent_id=entity.scope.agent_id,
+                    embedder=self.embedder,
+                    usage=usage,
+                )
+                return vector
+            except Exception as exc:
+                log_debug(f"Metered embedding call failed, falling back to unmetered get_embedding: {exc}")
+        return await self.embedder.async_get_embedding(call_arg)
+
     @staticmethod
     def _batches(entities: Sequence[EntityWrite]) -> List[Tuple[Scope, List[EntityWrite]]]:
         """Group by the entity's own scope, which is the scope it must be written under."""
@@ -407,7 +464,7 @@ class EntityExtractionPipeline:
         embedded: List[EntityWrite] = []
         dim: Optional[int] = None
         for entity in self._merged(candidates):
-            ready = self._embedded(entity, self.embedder.get_embedding(embedding_text(entity)), dim)
+            ready = self._embedded(entity, self._metered_embedding(entity, embedding_text(entity)), dim)
             if ready.embedding is None:
                 raise MemoryOperationError(
                     f"_embedded returned {ready.name!r} with no embedding; with_embedding "
@@ -435,7 +492,7 @@ class EntityExtractionPipeline:
         embedded: List[EntityWrite] = []
         dim: Optional[int] = None
         for entity in self._merged(candidates):
-            ready = self._embedded(entity, await self.embedder.async_get_embedding(embedding_text(entity)), dim)
+            ready = self._embedded(entity, await self._ametered_embedding(entity, embedding_text(entity)), dim)
             if ready.embedding is None:
                 raise MemoryOperationError(
                     f"_embedded returned {ready.name!r} with no embedding; with_embedding "

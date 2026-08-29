@@ -23,22 +23,297 @@ Deliberately not here, each with an owner: the re-embedding migration D8 describ
 backfill, cutover) -- ``embedding_version`` is the tag that migration keys on, but running one is a
 schema operation with no ticket yet; the query-embed cache that ADR section A.4 names as a latency
 mitigation; hybrid BM25 (SM-V3 #97); rank fusion and its knobs (SM-H2 #132).
+
+**Embedding cost metering lives here too (SM-X8, aicoe-tracker#144), not in a services-layer
+``egpt.memory.metrics`` module.** The embedding API call this module makes is the thing being
+metered, and this module is on the type island (``tests/unit/memory/test_memory_layout.py``) --
+importable from an integrations-layer substrate backend (``pgvector.py`` calls
+``embed_texts``/``embed_query`` directly). An island module may import only core or other island
+modules, never a services-layer sibling, so the metering plumbing has to be self-contained here
+rather than reaching into a separate module the island guard would refuse. ``egpt.models.pricing``
+is core (its own layout guard, not part of the integrations-boundary contracts), so
+``compute_cost`` is safe to call from here; ``egpt.providers`` is not (forbidden for integrations),
+which is why extraction-cost metering -- entity/relation extraction, reflection, summarization --
+stays in ``egpt.memory.metrics`` instead: those call sites are plain services-layer modules, not
+on the island, so that module is free to import ``BaseModelProvider._registry_key_for``.
+``egpt.memory.metrics`` imports the aggregator and dataclasses defined below rather than
+redefining them, so every call site -- embedding, extraction, and store-growth -- shares one
+aggregator instance regardless of which module recorded onto it.
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from collections import deque
+from dataclasses import dataclass, field
+from threading import Lock
+from typing import Any, Deque, Dict, List, Optional, Sequence, Tuple
 
 from egpt.knowledge.embedder import Embedder
 from egpt.memory.errors import MemoryProviderConfigError
+from egpt.memory.types import Scope
 from egpt.metrics import ProviderMode
-from egpt.utils.log import log_warning
+from egpt.utils.log import log_debug, log_warning
 
 __all__ = [
     "MODE_DEFAULTS",
     "OFFLINE_CAPABLE",
     "MemoryEmbedder",
+    "MemoryCostEntry",
+    "MemoryGrowthEntry",
+    "MemoryMetricsAggregator",
+    "get_default_aggregator",
+    "reset_default_aggregator",
+    "embedder_provider_key",
+    "meter_embedding_cost",
     "resolve_memory_embedder",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Cost/growth metering (SM-X8, aicoe-tracker#144) -- see the module docstring for why this lives
+# on the island rather than in a separate services-layer module.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MemoryCostEntry:
+    """One priced (or unpriced) LLM/embedding call, attributed to a tenant/agent."""
+
+    tenant_id: str
+    agent_id: Optional[str]
+    kind: str  # "embedding" | "extraction"
+    provider_key: Optional[str]
+    model_id: Optional[str]
+    input_tokens: int = 0
+    output_tokens: int = 0
+    #: ``None`` means unpriced/unknown -- never coerced to ``0.0``. An unpriced model is a
+    #: reporting gap, and treating it as free would understate a tenant using one as cheaper than
+    #: a tenant that made no calls at all (matches ``egpt.models.pricing``'s own stance).
+    cost: Optional[float] = None
+
+
+@dataclass
+class MemoryGrowthEntry:
+    """One write/consolidate call's contribution to store size, attributed to a tenant/agent.
+
+    A per-call delta, not a queried absolute: no substrate in this tree exposes a ``count()``, so
+    "store growth" is the sum of what each call reported it accepted.
+
+    ``event_ids`` are the ids the writes in this entry actually stamped (a ``write``'s
+    ``WriteReceipt.event_ids``, or a consolidate group's ``FactWrite.record.id``s). Deterministic
+    ``uuid5`` ids mean a retried batch upserts the same rows rather than adding new ones -- so two
+    entries whose ``event_ids`` overlap represent (at least in part) the *same* underlying growth,
+    most commonly a ``PartialWriteError`` entry followed by its successful retry. This field does
+    not prevent that double count (the two calls are independent, and the first's partial commit
+    is real and must stay visible) -- it lets a downstream consumer detect the overlap and collapse
+    it, rather than silently double-booking every retried batch.
+    """
+
+    tenant_id: str
+    agent_id: Optional[str]
+    operation: str  # "write" | "consolidate"
+    tier: str
+    accepted: int = 0
+    event_ids: Tuple[str, ...] = ()
+
+
+@dataclass
+class MemoryMetricsAggregator:
+    """In-process rollup of memory cost and growth entries.
+
+    A data holder, not a sink: shipping entries to a database table, Prometheus, or a log line is
+    the metrics pipeline's job (the "EGPT-4.5" ticket the issue mentions), not this class's -- as
+    of this writing that pipeline has not landed anywhere in the tree, so there is nothing to plug
+    into yet.
+
+    **Bounded and lock-guarded.** The default instance is genuinely fed from background threads in
+    production (``memory/writeback.py`` submits writes onto a real ``ThreadPoolExecutor``), so
+    every read and mutation below takes ``_lock``. Each list is capped at ``max_entries`` (oldest
+    entries evicted first) rather than growing without bound for the life of a long-running
+    process -- a metrics pipeline that wants everything, not just the last ``max_entries``, should
+    call :meth:`drain` often enough that eviction never triggers.
+
+    **Not tenant-isolated.** :attr:`costs` and :attr:`growth` are process-wide snapshots covering
+    every tenant with no access boundary -- only :meth:`cost_by_tenant`/:meth:`growth_by_tenant`
+    scope their output to one tenant. Nothing external reads the raw lists today, but an
+    admin/debug surface built directly on :func:`get_default_aggregator` must filter by
+    ``tenant_id`` itself; this class does not do it for you.
+    """
+
+    max_entries: int = 10_000
+    _costs: Deque[MemoryCostEntry] = field(default_factory=deque, repr=False, compare=False, init=False)
+    _growth: Deque[MemoryGrowthEntry] = field(default_factory=deque, repr=False, compare=False, init=False)
+    _lock: Lock = field(default_factory=Lock, repr=False, compare=False, init=False)
+
+    def __post_init__(self) -> None:
+        if self.max_entries <= 0:
+            # `deque(maxlen=0)` silently discards every entry appended -- indistinguishable from
+            # "recording is working but nothing has happened yet" to anything reading `.costs`/
+            # `.growth` later, so refuse instead of shipping a no-op aggregator.
+            raise ValueError(f"max_entries must be positive, got {self.max_entries}")
+        self._costs = deque(self._costs, maxlen=self.max_entries)
+        self._growth = deque(self._growth, maxlen=self.max_entries)
+
+    @property
+    def costs(self) -> List[MemoryCostEntry]:
+        """A point-in-time copy. Mutating the returned list does not affect the aggregator --
+        use :meth:`record_cost` to add an entry or :meth:`drain`/:meth:`clear` to remove any."""
+        with self._lock:
+            return list(self._costs)
+
+    @property
+    def growth(self) -> List[MemoryGrowthEntry]:
+        """A point-in-time copy -- see :attr:`costs`."""
+        with self._lock:
+            return list(self._growth)
+
+    def record_cost(self, entry: MemoryCostEntry) -> None:
+        with self._lock:
+            self._costs.append(entry)
+
+    def record_growth(self, entry: MemoryGrowthEntry) -> None:
+        with self._lock:
+            self._growth.append(entry)
+
+    def cost_by_tenant(self) -> Dict[str, float]:
+        """Total known cost per tenant. Entries with ``cost=None`` (unpriced) are skipped, not
+        counted as zero -- see :class:`MemoryCostEntry`."""
+        totals: Dict[str, float] = {}
+        for entry in self.costs:
+            if entry.cost is None:
+                continue
+            totals[entry.tenant_id] = totals.get(entry.tenant_id, 0.0) + entry.cost
+        return totals
+
+    def growth_by_tenant(self) -> Dict[str, int]:
+        totals: Dict[str, int] = {}
+        for entry in self.growth:
+            totals[entry.tenant_id] = totals.get(entry.tenant_id, 0) + entry.accepted
+        return totals
+
+    def drain(self) -> Tuple[List[MemoryCostEntry], List[MemoryGrowthEntry]]:
+        """Atomically take everything accumulated so far and clear it.
+
+        The seam a future metrics pipeline (the "EGPT-4.5" ticket) calls instead of reading
+        :attr:`costs`/:attr:`growth` directly -- draining under the same lock that guards
+        recording means no entry a concurrent writer is mid-append on is ever lost or duplicated
+        across two drains.
+        """
+        with self._lock:
+            costs, growth = list(self._costs), list(self._growth)
+            self._costs.clear()
+            self._growth.clear()
+        return costs, growth
+
+    def clear(self) -> None:
+        """Test/reset helper -- see :func:`reset_default_aggregator`. Discards rather than
+        returning entries; use :meth:`drain` if they need to go somewhere first."""
+        with self._lock:
+            self._costs.clear()
+            self._growth.clear()
+
+
+#: One shared aggregator for every memory cost/growth call site in the package to record onto,
+#: until a real metrics pipeline exists to hand entries off to (see the class docstring). Not
+#: thread-local or request-scoped -- a future metrics pipeline is expected to drain and reset this
+#: periodically rather than read it as a point-in-time total.
+_DEFAULT_AGGREGATOR = MemoryMetricsAggregator()
+
+
+def get_default_aggregator() -> MemoryMetricsAggregator:
+    return _DEFAULT_AGGREGATOR
+
+
+def reset_default_aggregator() -> None:
+    """Test helper -- clears the module-level default aggregator's state.
+
+    Tests exercising the default aggregator must call this before and after, or entries leak
+    across tests (and across unrelated tests elsewhere in the suite, since this is a single
+    process-wide instance).
+    """
+    _DEFAULT_AGGREGATOR.clear()
+
+
+def embedder_provider_key(embedder: Any) -> Optional[str]:
+    """Derive a pricing-table provider key from a live embedder instance.
+
+    Mirrors the exact derivation :func:`_reject_online_for_local` already uses to recognise the
+    four in-tree offline-capable embedders: concrete embedders live at
+    ``egpt.integrations.knowledge.embedder.<key>`` (``openai.py`` -> key ``"openai"``,
+    ``azure_openai.py`` -> key ``"azure_openai"``, and so on), so the last dotted segment of the
+    class's module is the same registry key ``discovery.names("embedder")`` uses.
+
+    This is a module-path convention, not a registry lookup: an embedder that doesn't live at
+    that path (a thin wrapper, a re-export, a test double defined elsewhere) derives a key that
+    won't match any :data:`PRICES` row. That fails safe -- the caller ends up with a ``cost=None``
+    "unknown" entry rather than a wrong price -- but silently, with no signal that key derivation
+    (not a missing price row) was the actual cause.
+    """
+    module = type(embedder).__module__ or ""
+    leaf = module.rsplit(".", 1)[-1]
+    return leaf or None
+
+
+def meter_embedding_cost(
+    aggregator: MemoryMetricsAggregator,
+    *,
+    tenant_id: str,
+    agent_id: Optional[str],
+    embedder: Any,
+    model_id: Optional[str] = None,
+    usage: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Compute + record cost for one embedding API call.
+
+    ``usage`` is whatever an ``Embedder.get_embedding_and_usage``/``async_get_embedding_and_usage``
+    call returned as its usage half -- typically a ``model_dump()`` of an OpenAI-shaped usage
+    object (``prompt_tokens``/``total_tokens``; embeddings have no output/completion tokens).
+    Never raises: a missing/malformed ``usage`` dict, or an unpriced model, records a ``cost=None``
+    entry rather than breaking the embed call it is riding along with.
+    """
+    try:
+        from egpt.models.pricing import compute_cost
+
+        provider_key = embedder_provider_key(embedder)
+        resolved_model_id = model_id if model_id is not None else _model_id(embedder)
+
+        input_tokens = 0
+        cost: Optional[float] = None
+        if usage:
+            try:
+                input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+            except (TypeError, ValueError, AttributeError):
+                input_tokens = 0
+            try:
+                cost = compute_cost(
+                    provider_key=provider_key,
+                    model_id=resolved_model_id,
+                    input_tokens=input_tokens,
+                    # Embedding calls have no output tokens -- the endpoint returns a vector, not
+                    # generated text, and every vendor's usage payload for it omits the field.
+                    output_tokens=0,
+                    cache_read_tokens=0,
+                    reasoning_tokens=0,
+                )
+            except Exception as exc:
+                log_debug(f"Memory embedding cost computation unavailable for this call: {exc}")
+                cost = None
+
+        aggregator.record_cost(
+            MemoryCostEntry(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                kind="embedding",
+                provider_key=provider_key,
+                model_id=resolved_model_id,
+                input_tokens=input_tokens,
+                output_tokens=0,
+                cost=cost,
+            )
+        )
+    except Exception as exc:
+        # Metering is reporting, not serving -- it must never be able to fail an embed call that
+        # otherwise succeeded. Same principle as `Model._apply_cost_to_metrics`.
+        log_debug(f"Memory embedding cost metering skipped: {exc}")
+
 
 #: Registry keys whose embedder runs without reaching the network, and so may serve Mode A.
 #:
@@ -359,16 +634,91 @@ class MemoryEmbedder:
                 )
         return vectors
 
-    def embed_texts(self, texts: Sequence[str]) -> List[List[float]]:
-        """Embed a batch, in order, one vector per text."""
+    def _record_usage(self, scope: Scope, usage: Optional[Dict[str, Any]]) -> None:
+        meter_embedding_cost(
+            get_default_aggregator(),
+            tenant_id=scope.tenant_id,
+            agent_id=scope.agent_id,
+            embedder=self.embedder,
+            model_id=None,
+            usage=usage,
+        )
+
+    def _metered_embed_one(self, call_arg: str) -> Tuple[Any, Optional[Dict[str, Any]]]:
+        """One chunk's vector plus usage, for a **non-batching** embedder only.
+
+        ``hasattr``-guarded rather than a bare call -- a duck-typed embedder implementing only
+        ``get_embedding``/``async_get_embedding`` (the shape this codebase's own test doubles use,
+        e.g. ``StubEmbedder`` in ``test_pgvector_memory_substrate.py``) has no
+        ``get_embedding_and_usage`` at all, and calling it anyway raises ``AttributeError`` rather
+        than the ``NotImplementedError`` an :class:`Embedder` subclass declining the method raises.
+        Both cases fall back to a plain, unmetered ``get_embedding`` -- the method's presence (or
+        lack of one) is not the caller's problem to crash on.
+
+        The fallback catches **any** exception, not only ``NotImplementedError``: several concrete
+        embedders' ``get_embedding_and_usage`` (``CohereEmbedder``, ``VoyageAIEmbedder``,
+        ``AzureOpenAIEmbedder``) has no try/except of its own around the API call, unlike their
+        paired ``get_embedding``, which does swallow a failure and returns ``[]``. Narrowing this
+        catch to ``NotImplementedError`` let a transient API failure on the *metered* path surface
+        as a raw, unhandled SDK exception instead of degrading the way every non-metered caller of
+        this embedder already does (review finding, PR #159) -- metering must degrade the same way
+        the call it rides along with already does, not add a new way for it to fail.
+        """
+        if hasattr(self.embedder, "get_embedding_and_usage"):
+            try:
+                return self.embedder.get_embedding_and_usage(call_arg)
+            except Exception as exc:
+                log_debug(f"Metered embedding call failed, falling back to unmetered get_embedding: {exc}")
+        return self.embedder.get_embedding(call_arg), None
+
+    async def _ametered_embed_one(self, call_arg: str) -> Tuple[Any, Optional[Dict[str, Any]]]:
+        """Async twin of :meth:`_metered_embed_one` -- same ``hasattr`` guard, same fallback."""
+        if hasattr(self.embedder, "async_get_embedding_and_usage"):
+            try:
+                return await self.embedder.async_get_embedding_and_usage(call_arg)
+            except Exception as exc:
+                log_debug(f"Metered embedding call failed, falling back to unmetered get_embedding: {exc}")
+        return await self.embedder.async_get_embedding(call_arg), None
+
+    def embed_texts(self, texts: Sequence[str], scope: Optional[Scope] = None) -> List[List[float]]:
+        """Embed a batch, in order, one vector per text.
+
+        ``scope`` is optional and defaults to ``None`` so every existing caller is unaffected and
+        unmetered; passing it attributes this call's cost to that tenant/agent, best-effort.
+
+        Metering only takes the ``get_embedding_and_usage`` path for a **non-batching** embedder
+        (:meth:`_accepts_batches` false, so :meth:`_call_arg` is a bare string): that method is
+        typed and implemented for a single ``text: str`` everywhere in this tree (``OpenAIEmbedder``,
+        ``AzureOpenAIEmbedder``, ``SentenceTransformerEmbedder``) -- handing one a list, which a
+        batching embedder's call arg is, does not raise but silently mis-shapes the request (e.g.
+        ``AzureOpenAIEmbedder._response`` wraps its argument in ``[text]``, so a list argument
+        becomes a nested list of one and the request is sent wrong). So a batching embedder's calls
+        are not metered through this hook today -- a known gap for ``AzureOpenAIEmbedder`` (Mode
+        B's paid default) and ``SentenceTransformerEmbedder`` (Mode A's, though that one runs
+        in-process with no API cost to meter anyway) -- tracked as follow-up rather than risking a
+        corrupted embedding request to close it here. A caller that also implements
+        ``async_get_embeddings_batch_and_usage`` is unaffected by this gap on write-back, since
+        that path does not go through this wrapper at all.
+        """
         vectors: List[List[float]] = []
         for chunk in self._chunks(texts):
-            result = self._as_vectors(self.embedder.get_embedding(self._call_arg(chunk)), len(chunk))
+            call_arg = self._call_arg(chunk)
+            if scope is not None and not self._accepts_batches():
+                vector, usage = self._metered_embed_one(call_arg)
+                # Recorded before `_as_vectors` validates the shape below: a real, likely-billed
+                # embedding call already happened by this point, and an embedder that swallows its
+                # own failure (returning `([], None)`) makes `_as_vectors` raise -- metering must
+                # not depend on the call having produced a usable vector, or a failed paid call
+                # leaves zero trace instead of the usual `cost=None` "unknown" entry.
+                self._record_usage(scope, usage)
+                result = self._as_vectors(vector, len(chunk))
+            else:
+                result = self._as_vectors(self.embedder.get_embedding(call_arg), len(chunk))
             vectors.extend(self._checked(result))
         return vectors
 
-    async def aembed_texts(self, texts: Sequence[str]) -> List[List[float]]:
-        """Async variant of :meth:`embed_texts`, chunked identically.
+    async def aembed_texts(self, texts: Sequence[str], scope: Optional[Scope] = None) -> List[List[float]]:
+        """Async variant of :meth:`embed_texts`, chunked identically and metered identically.
 
         Chunks are awaited in sequence rather than gathered. Concurrency across chunks is a real
         speed-up for a network embedder and an over-subscription for a local model that already
@@ -377,17 +727,24 @@ class MemoryEmbedder:
         """
         vectors: List[List[float]] = []
         for chunk in self._chunks(texts):
-            result = self._as_vectors(await self.embedder.async_get_embedding(self._call_arg(chunk)), len(chunk))
+            call_arg = self._call_arg(chunk)
+            if scope is not None and not self._accepts_batches():
+                vector, usage = await self._ametered_embed_one(call_arg)
+                # See the sync half's comment: recorded before `_as_vectors` can raise.
+                self._record_usage(scope, usage)
+                result = self._as_vectors(vector, len(chunk))
+            else:
+                result = self._as_vectors(await self.embedder.async_get_embedding(call_arg), len(chunk))
             vectors.extend(self._checked(result))
         return vectors
 
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str, scope: Optional[Scope] = None) -> List[float]:
         """Embed a query with the **same** embedder the write path used (SM-R4 decision 2)."""
-        return self.embed_texts([text])[0]
+        return self.embed_texts([text], scope=scope)[0]
 
-    async def aembed_query(self, text: str) -> List[float]:
+    async def aembed_query(self, text: str, scope: Optional[Scope] = None) -> List[float]:
         """Async variant of :meth:`embed_query`."""
-        return (await self.aembed_texts([text]))[0]
+        return (await self.aembed_texts([text], scope=scope))[0]
 
 
 def resolve_memory_embedder(

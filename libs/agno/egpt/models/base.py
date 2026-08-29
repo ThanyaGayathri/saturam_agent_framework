@@ -127,6 +127,12 @@ def _handle_agent_exception(a_exc: AgentRunException, additional_input: Optional
             m.stop_after_tool_call = True
 
 
+#: Sentinel distinguishing "the registry key has never been resolved for this instance" from "it
+#: was resolved and the model is unregistered" (a real, meaningful ``None``) -- see
+#: ``Model._resolved_provider_key``.
+_UNRESOLVED_PROVIDER_KEY = object()
+
+
 @dataclass
 class Model(ABC):
     # ID of the model to use.
@@ -190,6 +196,23 @@ class Model(ABC):
     # shifts the positional __init__ order of every field after it, for Model and all 46
     # provider subclasses. Keep new fields here.
     is_openai_compatible_proxy: bool = False
+
+    # Memoized registry key for cost/metering lookups, scoped to this instance's lifetime (SM-X8
+    # follow-up review, PR #159) -- see `_resolved_provider_key`. `init=False` so it never becomes
+    # a constructor parameter, sidestepping the positional-order concern the comment above exists
+    # for entirely.
+    #
+    # Deepcopy contract: `init=False` with a plain `default=` (no `default_factory`) means this is
+    # a class-level default, not something `__init__` assigns onto `self.__dict__` -- so an
+    # unresolved instance has no `_provider_key_cache` key in `__dict__` at all. That is exactly
+    # what makes `__deepcopy__` (below) correct by construction: it only copies `self.__dict__`,
+    # so an unresolved copy skips the field and starts unresolved too (falling through to this
+    # same class-level sentinel), while a resolved one has the key in `__dict__` and gets its
+    # already-resolved value deep-copied across. Do not turn this into a `default_factory` or an
+    # explicit `self._provider_key_cache = ...` assignment in `__post_init__` without re-checking
+    # this -- either would put the sentinel into every instance's `__dict__` at construction time,
+    # silently changing what an unresolved deepcopy carries over.
+    _provider_key_cache: Any = field(default=_UNRESOLVED_PROVIDER_KEY, init=False, repr=False, compare=False)
 
     def __post_init__(self):
         if self.provider is None and self.name is not None:
@@ -1269,6 +1292,27 @@ class Model(ABC):
         except Exception as e:
             log_debug(f"Budget reconciliation unavailable: {e}")
 
+    def _resolved_provider_key(self) -> Optional[str]:
+        """``BaseModelProvider._registry_key_for(self)``, memoized for this instance.
+
+        That lookup is an O(N) scan over the model registry (``egpt.registry.discovery``), and two
+        call sites resolve it for the *same* instance on the *same* call: this method (via
+        ``_apply_cost_to_metrics``, on every ``.response()``/``.aresponse()``) and
+        ``egpt.memory.metrics.meter_extraction_cost`` (on the identical ``model`` object right
+        after, from the same extraction call site -- ``LLMEntityExtractor.extract`` and its four
+        siblings all call ``model.response(...)`` then meter that same ``model``). Caching here
+        means the second caller reuses the first's answer instead of re-scanning.
+
+        ``_UNRESOLVED_PROVIDER_KEY`` distinguishes "never resolved" from a resolved-but-unregistered
+        model, which is a real ``None`` this must still cache -- re-scanning every call for an
+        unregistered model would be the same waste this method exists to avoid.
+        """
+        if self._provider_key_cache is _UNRESOLVED_PROVIDER_KEY:
+            from egpt.providers.model_provider import BaseModelProvider
+
+            self._provider_key_cache = BaseModelProvider._registry_key_for(self)
+        return self._provider_key_cache
+
     def _apply_cost_to_metrics(self, metrics: Any) -> None:
         """Populate ``metrics.cost`` from token counts when the provider did not report one.
 
@@ -1287,10 +1331,9 @@ class Model(ABC):
             return
         try:
             from egpt.models.pricing import compute_cost
-            from egpt.providers.model_provider import BaseModelProvider
 
             metrics.cost = compute_cost(
-                provider_key=BaseModelProvider._registry_key_for(self),
+                provider_key=self._resolved_provider_key(),
                 model_id=getattr(self, "id", None),
                 input_tokens=getattr(metrics, "input_tokens", 0) or 0,
                 output_tokens=getattr(metrics, "output_tokens", 0) or 0,

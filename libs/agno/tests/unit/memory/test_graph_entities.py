@@ -94,6 +94,21 @@ class StubEmbedder:
         return self.get_embedding(text)
 
 
+class ApiFailingUsageEmbedder(StubEmbedder):
+    """Declares ``get_embedding_and_usage`` but it fails the way a real API call fails -- a bare
+    exception with no try/except of its own, matching real embedders' ``get_embedding_and_usage``
+    (unlike their paired ``get_embedding``, which does swallow a failure). ``run``/``arun`` must
+    still complete by falling back to the plain call, not surface the raw exception (major finding,
+    PR #159 review)."""
+
+    def get_embedding_and_usage(self, text):
+        raise ConnectionError("simulated API failure")
+
+    async def async_get_embedding_and_usage(self, text):
+        await asyncio.sleep(0)
+        raise ConnectionError("simulated API failure")
+
+
 def entity(name="Acme Corp", entity_type="company", **kwargs):
     return ExtractedEntity(name=name, entity_type=entity_type, **kwargs)
 
@@ -135,6 +150,23 @@ def test_an_entity_reaches_the_graph_as_a_node(is_async):
     assert (stored.name, stored.entity_type) == ("Acme Corp", "company")
     assert stored.derived_by == EXTRACTOR_ID
     assert graph.calls.count("aupsert_entities" if is_async else "upsert_entities") == 1
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_metered_embedding_api_failure_still_lands_the_entity(is_async):
+    """Major finding, PR #159 review: `_metered_embedding`/`_ametered_embedding` only caught
+    `NotImplementedError`, so a real API failure on the metered call (no try/except of its own,
+    unlike `get_embedding`) used to propagate raw instead of falling back -- crashing extraction
+    for an embedder failure the non-metered path would have absorbed."""
+    pipe, graph = pipeline(embedder=ApiFailingUsageEmbedder())
+    call = (
+        pipe.arun(ACME, [episode("Acme ships things")]) if is_async else pipe.run(ACME, [episode("Acme ships things")])
+    )
+    report = asyncio.run(call) if is_async else call
+
+    assert report.entities_written == 1
+    (stored,) = list(graph.entities.values())
+    assert stored.embedding is not None
 
 
 def test_provenance_names_the_interaction_the_entity_came_from():
@@ -923,3 +955,76 @@ def test_an_extracted_entity_never_lands_in_the_vector_substrate(is_async):
     assert [r.id for r in rows if "embedding" in (r.metadata or {})] == [], (
         "an entity's embedding reached the VectorSubstrate; entities are embedded onto the graph node only"
     )
+
+
+# ---------------------------------------------------------------------------
+# Cost metering wiring (SM-X8, aicoe-tracker#144; coverage gap flagged on PR #159 review, finding
+# #4) -- `LLMEntityExtractor.extract`/`.aextract` call `meter_extraction_cost` after every model
+# call. Only the standalone function is unit-tested elsewhere (test_memory_metrics.py); this pins
+# that the real call site actually wires scope/model/response_usage through.
+# ---------------------------------------------------------------------------
+
+
+class _MeteredAnswer:
+    def __init__(self, entities, input_tokens=100, output_tokens=20):
+        self.parsed = ExtractedEntities(entities=entities)
+        self.content = None
+        self.response_usage = _Usage(input_tokens, output_tokens)
+
+
+class _Usage:
+    def __init__(self, input_tokens=0, output_tokens=0, cache_read_tokens=0, reasoning_tokens=0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_read_tokens = cache_read_tokens
+        self.reasoning_tokens = reasoning_tokens
+
+
+class _FakeModel:
+    """A minimal double for a live ``Model`` -- unregistered, so cost resolves to ``cost=None``,
+    but the wiring (tenant_id, kind="extraction") is what these tests pin, not the price."""
+
+    id = "fake-extraction-model"
+
+    def response(self, messages, response_format=None):
+        return _MeteredAnswer([entity()])
+
+    async def aresponse(self, messages, response_format=None):
+        await asyncio.sleep(0)
+        return self.response(messages, response_format=response_format)
+
+
+@pytest.fixture(autouse=True)
+def _clean_default_aggregator_for_metering_tests():
+    from egpt.memory.metrics import reset_default_aggregator
+
+    reset_default_aggregator()
+    yield
+    reset_default_aggregator()
+
+
+def test_extract_meters_the_extraction_cost():
+    extractor = LLMEntityExtractor(model=_FakeModel())
+
+    extractor.extract(episode("Acme ships things"))
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
+    assert entries[0].input_tokens == 100
+
+
+async def test_aextract_meters_the_extraction_cost():
+    extractor = LLMEntityExtractor(model=_FakeModel())
+
+    await extractor.aextract(episode("Acme ships things"))
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id

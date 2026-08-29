@@ -290,6 +290,39 @@ class AwsBedrockEmbedder(Embedder):
 
         return json.dumps(request_body)
 
+    @staticmethod
+    def _usage_from_response(raw_response: Dict[str, Any], response_body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Token usage for one embedding call, or ``None`` when Bedrock reported none.
+
+        Cohere-on-Bedrock's parsed response body is ``{"embeddings", "id", "response_type",
+        "texts"}`` -- there is no top-level ``"usage"`` key, unlike a chat completion response, so
+        reading one always returned ``None`` (review finding, PR #159). Two places actually carry
+        it, checked in order:
+
+        1. ``response_body["meta"]["billed_units"]``, native Cohere's own usage shape (matching
+           ``CohereEmbedder.get_embedding_and_usage``'s ``response.meta.billed_units``) -- present
+           if this model version forwards Cohere's response body unmodified.
+        2. The ``x-amzn-bedrock-input-token-count`` HTTP response header Bedrock's ``InvokeModel``
+           sets for metered on-demand models, independent of what the body contains.
+
+        Normalized to ``{"input_tokens": N}`` either way, matching what
+        ``meter_embedding_cost``/``compute_cost`` already reads off every other embedder's usage.
+        """
+        billed_units = response_body.get("meta", {}).get("billed_units")
+        if isinstance(billed_units, dict):
+            input_tokens = billed_units.get("input_tokens")
+            if isinstance(input_tokens, (int, float)):
+                return {"input_tokens": int(input_tokens)}
+
+        headers = raw_response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
+        raw_count = headers.get("x-amzn-bedrock-input-token-count")
+        if raw_count is not None:
+            try:
+                return {"input_tokens": int(raw_count)}
+            except (TypeError, ValueError):
+                pass
+        return None
+
     def _extract_embeddings(self, response_body: Dict[str, Any]) -> List[float]:
         """
         Extract embeddings from the response body, handling both v3 and v4 formats.
@@ -332,7 +365,9 @@ class AwsBedrockEmbedder(Embedder):
             text (str): The text to embed.
 
         Returns:
-            Dict[str, Any]: The response from the API.
+            Dict[str, Any]: The response body from the API, augmented with a ``"usage"`` key when
+            Bedrock reports a token count for this call (see ``_usage_from_response``) -- the raw
+            body itself never carries one.
         """
         try:
             body = self._format_request_body(text)
@@ -343,6 +378,9 @@ class AwsBedrockEmbedder(Embedder):
                 accept="application/json",
             )
             response_body = json.loads(response["body"].read().decode("utf-8"))
+            usage = self._usage_from_response(response, response_body)
+            if usage is not None:
+                response_body["usage"] = usage
             return response_body
         except ClientError as e:
             log_error(f"Unexpected error calling Bedrock API: {str(e)}")
@@ -495,7 +533,7 @@ class AwsBedrockEmbedder(Embedder):
                 )
                 response_body = json.loads((await response["body"].read()).decode("utf-8"))
                 embedding = self._extract_embeddings(response_body)
-                usage = response_body.get("usage")
+                usage = self._usage_from_response(response, response_body)
                 return embedding, usage
         except ClientError as e:
             log_error(f"Unexpected error calling Bedrock API: {str(e)}")

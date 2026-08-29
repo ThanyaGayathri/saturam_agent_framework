@@ -333,6 +333,20 @@ This section demonstrates how EGPT agents persist and use user memories across r
   memory tracing itself). No external memory backend: a trimmed in-memory vector stand-in, the
   same one `23_consolidation_worker.py`/`39_working_memory.py` use.
 
+- `49_memory_cost_and_growth.py`: Meters embedding + extraction LLM call cost and per-tenant
+  store growth (SM-X8 #144) -- on the real production hooks, not synthetic calls into the
+  aggregator API: `MemoryEmbedder.embed_texts(scope=...)`, `LLMEntityExtractor.extract`, and
+  `CoLocatedMemoryProvider.write`/`consolidate`. Every entry lands on one shared
+  `MemoryMetricsAggregator` (`egpt.memory.embedding.get_default_aggregator()`) regardless of
+  which module recorded it -- embedding cost in `egpt.memory.embedding` (the type island),
+  extraction cost and store growth in `egpt.memory.metrics` (services layer). Two tenants show
+  `cost_by_tenant()`/`growth_by_tenant()` staying separate. A demo embedder and extraction model,
+  registered at runtime the same way `47_per_tenant_memory_config.py` registers its demo
+  provider, give `compute_cost` a synthetic price row to find (`PRICES` ships empty). No external
+  services, no network, no API key.
+  **Renumbered from `48_` to `49_`: `feat/SM-X4` took `48_memory_tracing.py` while this branch
+  was still catching up. Per this file's own convention, whoever merges second renumbers.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

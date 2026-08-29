@@ -76,6 +76,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from egpt.memory.graph.passes import select_current_episodes
 from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor, ValidTimeExtractor, ValidTimeSpan
+from egpt.memory.metrics import meter_response_extraction_cost
 from egpt.memory.substrates import GraphSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -249,13 +250,15 @@ class LLMRelationExtractor:
         )
 
     def extract(self, episode: MemoryRecord) -> Sequence[ExtractedRelation]:
-        response = deepcopy(self.model).response(messages=self._messages(episode), response_format=ExtractedRelations)
+        model = deepcopy(self.model)
+        response = model.response(messages=self._messages(episode), response_format=ExtractedRelations)
+        meter_response_extraction_cost(episode.scope, model, response)
         return self._parse(response, episode.id)
 
     async def aextract(self, episode: MemoryRecord) -> Sequence[ExtractedRelation]:
-        response = await deepcopy(self.model).aresponse(
-            messages=self._messages(episode), response_format=ExtractedRelations
-        )
+        model = deepcopy(self.model)
+        response = await model.aresponse(messages=self._messages(episode), response_format=ExtractedRelations)
+        meter_response_extraction_cost(episode.scope, model, response)
         return self._parse(response, episode.id)
 
 

@@ -17,8 +17,11 @@ import pytest
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.consolidation.extract import (
     STRATEGY_ID,
+    ExtractedFacts,
     FactCandidate,
     FactExtractionPipeline,
+    LLMFactExtractor,
+    LLMMergeDecider,
     MergeDecision,
 )
 from egpt.memory.errors import MemoryProviderConfigError
@@ -609,3 +612,128 @@ def test_top_k_bounds_the_neighbor_query():
     pipe.distil(ACME, [episode("shared token", episode_id="e1")])
 
     assert vector.search_limits[-1] == 3
+
+
+# ---------------------------------------------------------------------------
+# Cost metering wiring (SM-X8, aicoe-tracker#144; PR #159 round-2 review, co_located.py:1854) --
+# LLMFactExtractor.extract/.aextract and LLMMergeDecider.decide/.adecide call
+# meter_extraction_cost after every model call, mirroring LLMEntityExtractor's own wiring
+# (test_graph_entities.py's metering section).
+# ---------------------------------------------------------------------------
+
+
+class _Usage:
+    def __init__(self, input_tokens=0, output_tokens=0, cache_read_tokens=0, reasoning_tokens=0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_read_tokens = cache_read_tokens
+        self.reasoning_tokens = reasoning_tokens
+
+
+class _FactAnswer:
+    def __init__(self, facts, input_tokens=100, output_tokens=20):
+        self.parsed = ExtractedFacts(facts=facts)
+        self.content = None
+        self.response_usage = _Usage(input_tokens, output_tokens)
+
+
+class _MergeAnswer:
+    def __init__(self, decision, input_tokens=100, output_tokens=20):
+        self.parsed = decision
+        self.content = None
+        self.response_usage = _Usage(input_tokens, output_tokens)
+
+
+class _FakeExtractModel:
+    """A minimal double for a live ``Model`` -- unregistered, so cost resolves to ``cost=None``,
+    but the wiring (tenant_id, kind="extraction") is what these tests pin, not the price."""
+
+    id = "fake-fact-extraction-model"
+
+    def response(self, messages, response_format=None):
+        return _FactAnswer([FactCandidate(statement="shared token", source_indices=[0])])
+
+    async def aresponse(self, messages, response_format=None):
+        await asyncio.sleep(0)
+        return self.response(messages, response_format=response_format)
+
+
+class _FakeMergeModel:
+    id = "fake-merge-decision-model"
+
+    def response(self, messages, response_format=None):
+        return _MergeAnswer(MergeDecision(op="ADD", statement="shared token"))
+
+    async def aresponse(self, messages, response_format=None):
+        await asyncio.sleep(0)
+        return self.response(messages, response_format=response_format)
+
+
+@pytest.fixture(autouse=True)
+def _clean_default_aggregator_for_metering_tests():
+    from egpt.memory.metrics import reset_default_aggregator
+
+    reset_default_aggregator()
+    yield
+    reset_default_aggregator()
+
+
+def test_llm_fact_extractor_extract_meters_the_extraction_cost():
+    extractor = LLMFactExtractor(model=_FakeExtractModel())
+
+    extractor.extract([episode("shared token", episode_id="e1")])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
+    assert entries[0].input_tokens == 100
+
+
+async def test_llm_fact_extractor_aextract_meters_the_extraction_cost():
+    extractor = LLMFactExtractor(model=_FakeExtractModel())
+
+    await extractor.aextract([episode("shared token", episode_id="e1")])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    assert len(get_default_aggregator().costs) == 1
+
+
+def test_llm_merge_decider_decide_meters_the_extraction_cost():
+    decider = LLMMergeDecider(model=_FakeMergeModel())
+    neighbor = episode("an existing fact", episode_id="f1")
+
+    decider.decide("shared token", [neighbor])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    entries = get_default_aggregator().costs
+    assert len(entries) == 1
+    assert entries[0].kind == "extraction"
+    assert entries[0].tenant_id == ACME.tenant_id
+
+
+async def test_llm_merge_decider_adecide_meters_the_extraction_cost():
+    decider = LLMMergeDecider(model=_FakeMergeModel())
+    neighbor = episode("an existing fact", episode_id="f1")
+
+    await decider.adecide("shared token", [neighbor])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    assert len(get_default_aggregator().costs) == 1
+
+
+def test_llm_merge_decider_decide_with_no_neighbors_does_not_meter():
+    """No model call is made when there's nothing to compare against (the early return) --
+    nothing should be metered either."""
+    decider = LLMMergeDecider(model=_FakeMergeModel())
+
+    decider.decide("shared token", [])
+
+    from egpt.memory.metrics import get_default_aggregator
+
+    assert get_default_aggregator().costs == []

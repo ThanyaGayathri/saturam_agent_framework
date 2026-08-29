@@ -44,6 +44,7 @@ from egpt.memory.consolidation import FACT_ID_NAMESPACE, merge_near_duplicate_fa
 from egpt.memory.consolidation.extract import STRATEGY_ID as FACT_PIPELINE_STRATEGY_ID
 from egpt.memory.consolidation.provenance import provenance_report
 from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
+from egpt.memory.metrics import get_default_aggregator, record_growth
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.fuse import DEFAULT_RRF_K, deterministic_rank_key, rrf_fuse
 from egpt.memory.retrieval.orchestrator import RetrievalLegs, aorchestrate, orchestrate
@@ -735,6 +736,56 @@ class CoLocatedMemoryProvider(MemoryProvider):
             tiers_written=tiers,
         )
 
+    @staticmethod
+    def _record_write_growth(scope: Scope, stamped: Sequence[MemoryEvent]) -> None:
+        record_growth(
+            get_default_aggregator(),
+            scope,
+            "write",
+            tier=",".join(sorted({e.tier.value for e in stamped})),
+            accepted=len(stamped),
+            event_ids=tuple(e.id for e in stamped if e.id is not None),
+        )
+
+    @staticmethod
+    def _committed_events(
+        stamped: Sequence[MemoryEvent],
+        vector_records: Sequence[MemoryRecord],
+        vector_committed: bool,
+        episodes: Sequence[MemoryEvent],
+        episodes_committed: bool,
+        facts: Sequence[FactWrite],
+        facts_committed: bool,
+    ) -> List[MemoryEvent]:
+        """Which of `stamped` actually landed, given which verb(s) committed.
+
+        A graph-only provider (`vector=None`) can commit episodes while facts fail in the same
+        batch, or vice versa -- the two graph verbs are independent, so their successes cannot be
+        collapsed into one shared "graph_committed" flag without overcounting growth for whichever
+        verb failed. Union by id (not concatenation) because an `EPISODIC` event routes to both the
+        vector leg and the episode verb -- counting it twice would overcount growth in the other
+        direction.
+        """
+        committed_ids: Set[str] = set()
+        if vector_committed:
+            committed_ids.update(r.id for r in vector_records)
+        if episodes_committed:
+            committed_ids.update(e.id for e in episodes if e.id is not None)
+        if facts_committed:
+            committed_ids.update(f.record.id for f in facts if f.record.id is not None)
+        return [e for e in stamped if e.id in committed_ids]
+
+    @staticmethod
+    def _record_fact_growth(scope: Scope, facts: Sequence[FactWrite]) -> None:
+        record_growth(
+            get_default_aggregator(),
+            scope,
+            "consolidate",
+            tier="episodic->semantic",
+            accepted=len(facts),
+            event_ids=tuple(f.record.id for f in facts if f.record.id is not None),
+        )
+
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         require_scope(scope, method="write")
         with memory_span(
@@ -743,12 +794,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
             tier=self._write_tier_label(events),
             store=self._store_label(),
         ):
+            if not events:
+                # Guards a degenerate `MemoryGrowthEntry(tier="", accepted=0)` -- an empty batch
+                # has nothing to grow the store by, so it shouldn't record that it did. The span
+                # above still opens: an empty write is a legal call this seam must still trace.
+                return self._receipt([])
             stamped, records = self._prepare(scope, events)
             vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
             receipt = self._receipt(stamped)
+            vector_committed = False
+            episodes: List[MemoryEvent] = []
+            facts: List[FactWrite] = []
+            episodes_committed = False
+            facts_committed = False
             try:
                 if self.vector is not None and vector_records:
                     self.vector.upsert(scope, vector_records)
+                    vector_committed = True
                 if self.graph is not None:
                     # Both verbs are attempted, then failures are raised together -- the sync half of
                     # the settle-then-propagate rule `_gather_writes` applies. A refusal is collected
@@ -758,22 +820,54 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     episodes, facts = self._graph_batches(stamped, records)
                     failures: List[BaseException] = []
 
-                    def attempt(write: Any, batch: Sequence[Any]) -> None:
+                    def attempt(write: Any, batch: Sequence[Any]) -> bool:
                         """One try/except, shared by both verbs. Written twice, they drift."""
                         if not batch:
-                            return
+                            return False
                         try:
                             write(scope, batch)
+                            return True
                         except Exception as exc:
                             failures.append(exc)
+                            return False
 
-                    attempt(self.graph.upsert_episodes, episodes)
-                    attempt(self.graph.upsert_facts, facts)
+                    episodes_committed = attempt(self.graph.upsert_episodes, episodes)
+                    facts_committed = attempt(self.graph.upsert_facts, facts)
                     self._raise_write_failure(failures, receipt)
-            except (PartialWriteError, MemoryOperationError):
-                raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
+            except PartialWriteError:
+                # `_raise_write_failure`'s own docstring assumes the vector leg has already
+                # committed the full batch by the time this raises -- true whenever a provider
+                # has a vector substrate, since every graph-routed tier also routes to vector
+                # (`TIER_POLICY`). It is *not* true for a graph-only provider (`vector=None` is a
+                # valid config, `__init__` only requires one substrate) -- there, this branch can
+                # be reached with everything `False` (every attempted graph verb failed), and
+                # growth must not be recorded for that. `_committed_events` also protects a
+                # mixed-tier batch where one graph verb committed and the other didn't: only the
+                # events that verb actually wrote are counted, not the whole batch.
+                committed = self._committed_events(
+                    stamped, vector_records, vector_committed, episodes, episodes_committed, facts, facts_committed
+                )
+                if committed:
+                    self._record_write_growth(scope, committed)
+                raise
+            except MemoryOperationError:
+                raise  # the vector leg itself refused before anything committed -- nothing grew
             except Exception as exc:
+                # Everything else lands here through one of two doors. `self.vector.upsert`
+                # raising takes this door too (its own docstring makes it all-or-nothing in one
+                # transaction, so any exception there means nothing committed --
+                # `vector_committed` stays False). The other door is a bug in
+                # `_graph_batches`/`_raise_write_failure`'s plumbing itself (not a substrate
+                # failure -- those are caught by `attempt` and turned into `PartialWriteError`
+                # above) raised *after* one or both legs already committed, which
+                # `_committed_events` reflects.
+                committed = self._committed_events(
+                    stamped, vector_records, vector_committed, episodes, episodes_committed, facts, facts_committed
+                )
+                if committed:
+                    self._record_write_growth(scope, committed)
                 raise PartialWriteError(receipt) from exc
+            self._record_write_growth(scope, stamped)
             return receipt
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
@@ -784,12 +878,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
             tier=self._write_tier_label(events),
             store=self._store_label(),
         ):
+            if not events:
+                # See the sync half's comment: the span still opens for an empty write.
+                return self._receipt([])
             stamped, records = self._prepare(scope, events)
             vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
             receipt = self._receipt(stamped)
+            vector_committed = False
+            episodes: List[MemoryEvent] = []
+            facts: List[FactWrite] = []
+            episodes_committed = False
+            facts_committed = False
             try:
                 if self.vector is not None and vector_records:
                     await self.vector.aupsert(scope, vector_records)
+                    vector_committed = True
                 if self.graph is not None:
                     # Parity with the sync half comes from *both* attempting every verb, not from
                     # `gather` itself: bare `gather` propagates the first exception without cancelling
@@ -804,11 +907,41 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         writes.append(self.graph.aupsert_episodes(scope, episodes))
                     if facts:
                         writes.append(self.graph.aupsert_facts(scope, facts))
-                    await self._gather_writes(writes, receipt)
-            except (PartialWriteError, MemoryOperationError):
-                raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
+                    if writes:
+                        committed_flags, failures = await self._gather_writes(writes)
+                        # `committed_flags` lines up with `writes`, built above in episodes-then-facts
+                        # order -- unpack positionally rather than zipping against a parallel label
+                        # list, since exactly which slots exist depends on which batches were non-empty.
+                        i = 0
+                        if episodes:
+                            episodes_committed = committed_flags[i]
+                            i += 1
+                        if facts:
+                            facts_committed = committed_flags[i]
+                        self._raise_write_failure(failures, receipt)
+            except PartialWriteError:
+                # See the sync half's comment: `_raise_write_failure`'s "vector already
+                # committed" assumption does not hold for a graph-only provider, so this must
+                # reflect what actually committed, not assume -- and `_committed_events` also
+                # protects a mixed-tier batch where one graph verb committed and the other didn't.
+                committed = self._committed_events(
+                    stamped, vector_records, vector_committed, episodes, episodes_committed, facts, facts_committed
+                )
+                if committed:
+                    self._record_write_growth(scope, committed)
+                raise
+            except MemoryOperationError:
+                raise
             except Exception as exc:
+                # See the sync half's comment: `_committed_events` distinguishes "nothing
+                # committed" from "one or both legs committed and something else broke after."
+                committed = self._committed_events(
+                    stamped, vector_records, vector_committed, episodes, episodes_committed, facts, facts_committed
+                )
+                if committed:
+                    self._record_write_growth(scope, committed)
                 raise PartialWriteError(receipt) from exc
+            self._record_write_growth(scope, stamped)
             return receipt
 
     @staticmethod
@@ -833,12 +966,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
         refusal = next((f for f in failures if isinstance(f, MemoryOperationError)), None)
         raise PartialWriteError(receipt) from (refusal or failures[0])
 
-    async def _gather_writes(self, coroutines: Sequence[Awaitable[Any]], receipt: WriteReceipt) -> None:
-        """Run write coroutines concurrently, **settle them all**, then propagate.
+    async def _gather_writes(self, coroutines: Sequence[Awaitable[Any]]) -> Tuple[List[bool], List[BaseException]]:
+        """Run write coroutines concurrently, **settle them all**, and report what happened.
 
         Bounded by a semaphore as well: `batch` is capped only by `max_episodes_per_pass` and
         `events` is caller-supplied, so an unbounded fan-out is thousands of simultaneous round
         trips against a real engine -- which exhausts a connection pool rather than going fast.
+
+        Returns ``(committed, failures)`` rather than raising itself: a caller needs to know
+        *which* coroutine(s) committed (not just whether anything did) so growth reflects exactly
+        what landed when a caller fans out more than one independent verb -- e.g. `awrite`'s
+        episodes/facts pair, where one can succeed while the other fails in the same call.
+        `committed[i]` corresponds to `coroutines[i]`. That's also why this doesn't raise itself:
+        the branch that goes on to raise via `_raise_write_failure` still needs `committed` first.
         """
         semaphore = asyncio.Semaphore(self.max_concurrent_writes)
 
@@ -848,7 +988,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         # Settled, so which failure surfaces is a decision rather than a race.
         results = await asyncio.gather(*(bounded(c) for c in coroutines), return_exceptions=True)
-        self._raise_write_failure([r for r in results if isinstance(r, BaseException)], receipt)
+        committed = [not isinstance(r, BaseException) for r in results]
+        failures = [r for r in results if isinstance(r, BaseException)]
+        return committed, failures
 
     @staticmethod
     def _graph_batches(
@@ -1668,8 +1810,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         ``write`` filters by routing and ``_graph_batches`` drops a tier that does not reach the
         graph; consolidate did neither, so it wrote wherever a substrate happened to be wired.
-        Latent while SEMANTIC routes to both -- and silent the moment SM-C2 (#90), which owns that
-        table, changes a row.
+
+        **Growth-tracking caveat, latent while SEMANTIC routes to both vector and graph.**
+        consolidate()/aconsolidate()'s per-group growth tracking (``group_committed``, set only
+        after a write call returns without raising) counts on the atomic vector leg landing before
+        a non-atomic ``upsert_facts``/``aupsert_facts`` call (see ``_graph_fact_batch``'s own
+        docstring: that call "is explicitly not required to be atomic") can partially commit and
+        then raise. A graph-only target tier (``to_vector`` False here, a real and tested
+        configuration -- see ``test_consolidation_honours_tier_routing_like_the_write_path_does``)
+        already exercises the happy path fine; what stays uncovered is a group whose graph leg
+        *partially* commits before raising with no vector leg to have already banked that growth --
+        that group under-counts (records zero, not the row(s) that actually landed) rather than
+        over-counting, which is the safe direction but still a real gap. Fixing it for real needs
+        the graph substrate to report how much of a failed batch committed, which no
+        ``GraphSubstrate`` implementation in this tree does today -- tracked as SM-X8 follow-up
+        rather than guarded here, since refusing this configuration outright would break the
+        graph-only tier routing above, which is intentional and already relied upon.
         """
         routed = substrates_for_tier(CONSOLIDATION_TARGET) if facts else frozenset()
         return "vector" in routed, "graph" in routed
@@ -1846,22 +2002,41 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 committed_any = False
                 try:
                     for fact_scope, batch in self._by_scope(facts):
-                        if to_vector:
-                            # `fact_record`, not `f.record`: the vector row must carry the same
-                            # subject/predicate/object/confidence/derived_by a graph `recall_facts`
-                            # read already surfaces, or the same fact reads as two different shapes
-                            # depending which leg answered (SM-S1 #118).
-                            vector.upsert(fact_scope, [fact_record(f) for f in batch])
-                            committed_any = True
-                        if to_graph and self.graph is not None:
-                            self._graph_fact_batch(fact_scope, batch, receipt)
-                            committed_any = True
+                        group_committed = False
+                        try:
+                            if to_vector:
+                                # `fact_record`, not `f.record`: the vector row must carry the same
+                                # subject/predicate/object/confidence/derived_by a graph `recall_facts`
+                                # read already surfaces, or the same fact reads as two different shapes
+                                # depending which leg answered (SM-S1 #118).
+                                vector.upsert(fact_scope, [fact_record(f) for f in batch])
+                                committed_any = True
+                                group_committed = True
+                            if to_graph and self.graph is not None:
+                                self._graph_fact_batch(fact_scope, batch, receipt)
+                                committed_any = True
+                                group_committed = True
+                        finally:
+                            # `finally`, not "after the `if to_graph` block": a group's own graph leg
+                            # can raise right after its vector leg landed, and that group's own partial
+                            # commit is real growth exactly as much as a fully-landed group's is --
+                            # the single-group case below relies on this (its vector leg committing,
+                            # then its only group's graph leg raising, must still be counted, matching
+                            # the round-1 fix). Recorded per group, under that group's own `fact_scope`,
+                            # not once at the end under the pass-wide `scope` with the full `facts`
+                            # count -- a group after this one that the raise below stops the loop from
+                            # ever reaching gets no entry, since its `try` never ran.
+                            if group_committed:
+                                self._record_fact_growth(fact_scope, batch)
                 except PartialWriteError:
+                    # Nothing left to record here: every group that committed anything already
+                    # recorded its own growth above, inside the loop, before the raise.
                     raise
                 except MemoryOperationError:
                     # A refusal on the *first* write, before anything landed, is just a refusal --
                     # matching `write`, where a vector refusal precedes any commit and propagates bare.
-                    # Once something is committed it is a partial write like any other.
+                    # Once something is committed it is a partial write like any other -- but, as
+                    # above, already-committed groups already recorded their own growth.
                     if not committed_any:
                         raise
                     raise PartialWriteError(receipt) from None
@@ -1900,6 +2075,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # its own `SemanticProfileStore.write` failure here is a plain refusal too, uncounted
                 # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
                 # leg specifically.
+                #
+                # Recording a zero-accepted entry here (rather than skipping it) is what makes a scope
+                # that never consolidates anything distinguishable from one that was never asked.
+                self._record_fact_growth(scope, facts)
                 entities = self._entities(scope, episodes)
                 relations = self._relations(scope, episodes)
                 profile = self._update_profile(scope, episodes)
@@ -1965,15 +2144,28 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 committed_any = False
                 try:
                     for fact_scope, batch in self._by_scope(facts):
-                        if to_vector:
+                        group_committed = False
+                        try:
                             # See the sync half's comment: `fact_record` keeps the vector leg's shape
                             # in step with what `recall_facts` already returns from the graph leg.
-                            await vector.aupsert(fact_scope, [fact_record(f) for f in batch])
-                            committed_any = True
-                        if to_graph and self.graph is not None:
-                            await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)
-                            committed_any = True
+                            if to_vector:
+                                await vector.aupsert(fact_scope, [fact_record(f) for f in batch])
+                                committed_any = True
+                                group_committed = True
+                            if to_graph and self.graph is not None:
+                                _, failures = await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)])
+                                self._raise_write_failure(failures, receipt)
+                                committed_any = True
+                                group_committed = True
+                        finally:
+                            # See the sync half's comment: `finally` so a group's own partial commit
+                            # (vector landed, then its graph leg raised) is still counted, recorded
+                            # under its own `fact_scope` right when it lands.
+                            if group_committed:
+                                self._record_fact_growth(fact_scope, batch)
                 except PartialWriteError:
+                    # Nothing left to record here: every group that committed already recorded its own
+                    # growth above, inside the loop, before the raise.
                     raise
                 except MemoryOperationError:
                     if not committed_any:
@@ -2002,6 +2194,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # its own `SemanticProfileStore.awrite` failure here is a plain refusal too, uncounted
                 # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
                 # leg specifically.
+                #
+                # Recording a zero-accepted entry here (rather than skipping it) is what makes a scope
+                # that never consolidates anything distinguishable from one that was never asked.
+                self._record_fact_growth(scope, facts)
                 entities = await self._aentities(scope, episodes)
                 relations = await self._arelations(scope, episodes)
                 profile = await self._aupdate_profile(scope, episodes)

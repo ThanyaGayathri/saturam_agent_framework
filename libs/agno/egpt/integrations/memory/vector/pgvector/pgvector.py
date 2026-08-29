@@ -31,8 +31,8 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from egpt.integrations.memory.vector.pgvector import sql
-from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.embedding import resolve_memory_embedder
+from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     MemoryOperationError,
@@ -913,7 +913,7 @@ class PgVectorMemorySubstrate:
         if not records:
             return
         checked = self._checked(scope, records)
-        embeddings = self.pipeline.embed_texts([record.content for record in checked])
+        embeddings = self.pipeline.embed_texts([record.content for record in checked], scope=scope)
         self.ensure_partition(scope.tenant_id)
         rows = [self._row(scope, record, embedding) for record, embedding in zip(checked, embeddings)]
         self._write(sql.upsert_statement(self.schema, self.table), rows)
@@ -923,7 +923,7 @@ class PgVectorMemorySubstrate:
         if not records:
             return
         checked = self._checked(scope, records)
-        embeddings = await self.pipeline.aembed_texts([record.content for record in checked])
+        embeddings = await self.pipeline.aembed_texts([record.content for record in checked], scope=scope)
         await self.aensure_partition(scope.tenant_id)
         rows = [self._row(scope, record, embedding) for record, embedding in zip(checked, embeddings)]
         await self._awrite(sql.upsert_statement(self.schema, self.table), rows)
@@ -969,7 +969,7 @@ class PgVectorMemorySubstrate:
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
-        embedding = self.pipeline.embed_query(query.text)
+        embedding = self.pipeline.embed_query(query.text, scope=scope)
         rows = self._statements(self._search_call(scope, query, tiers, embedding))[-1]
         return self._ranked(rows, [self._record(row) for row in rows])
 
@@ -978,7 +978,7 @@ class PgVectorMemorySubstrate:
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
-        embedding = await self.pipeline.aembed_query(query.text)
+        embedding = await self.pipeline.aembed_query(query.text, scope=scope)
         rows = (await self._astatements(self._search_call(scope, query, tiers, embedding)))[-1]
         return self._ranked(rows, [self._record(row) for row in rows])
 
