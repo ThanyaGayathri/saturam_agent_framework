@@ -446,6 +446,20 @@ class BaseDb(ABC):
     def calculate_metrics(self) -> Optional[Any]:
         raise NotImplementedError
 
+    def get_usage_metrics(
+        self,
+        tenant_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return per-tenant/per-agent token usage aggregated from traces+spans.
+
+        Backends that store traces override this.  Others raise
+        ``NotImplementedError`` which the router surfaces as HTTP 501.
+        """
+        raise NotImplementedError("get_usage_metrics is not supported by this backend")
+
     # --- Knowledge ---
     @abstractmethod
     def delete_knowledge_content(self, id: str):
@@ -1906,6 +1920,20 @@ class AsyncBaseDb(ABC):
     @abstractmethod
     async def calculate_metrics(self) -> Optional[Any]:
         raise NotImplementedError
+
+    async def get_usage_metrics(
+        self,
+        tenant_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return per-tenant/per-agent token usage aggregated from traces+spans.
+
+        Backends that store traces override this.  Others raise
+        ``NotImplementedError`` which the router surfaces as HTTP 501.
+        """
+        raise NotImplementedError("get_usage_metrics is not supported by this backend")
 
     # --- Knowledge ---
     @abstractmethod

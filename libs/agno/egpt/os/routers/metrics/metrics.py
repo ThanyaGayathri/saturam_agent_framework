@@ -1,5 +1,5 @@
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional, Union, cast
 
 from fastapi import Depends, HTTPException, Query, Request
@@ -7,7 +7,7 @@ from fastapi.routing import APIRouter
 
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.os.auth import get_auth_token_from_request, get_authentication_dependency
-from egpt.os.routers.metrics.schemas import DayAggregatedMetrics, MetricsResponse
+from egpt.os.routers.metrics.schemas import DayAggregatedMetrics, MetricsResponse, UsageBreakdown, UsageMetricsResponse
 from egpt.os.schema import (
     BadRequestResponse,
     InternalServerErrorResponse,
@@ -16,10 +16,28 @@ from egpt.os.schema import (
     ValidationErrorResponse,
 )
 from egpt.os.settings import EgptServingSettings
+from egpt.os.tenancy import current_tenant_id, require_tenant_id
 from egpt.os.utils import get_db, to_utc_datetime
 from egpt.remote.base import RemoteDb
 
 logger = logging.getLogger(__name__)
+
+
+def rows_to_usage_breakdowns(rows: List[dict]) -> List[UsageBreakdown]:
+    """Convert raw DB rows to UsageBreakdown models."""
+    return [
+        UsageBreakdown(
+            tenant_id=row.get("tenant_id"),
+            agent_id=row.get("agent_id"),
+            model_name=row.get("model_name"),
+            input_tokens=int(row.get("input_tokens", 0)),
+            output_tokens=int(row.get("output_tokens", 0)),
+            total_tokens=int(row.get("total_tokens", 0)),
+            trace_count=int(row.get("trace_count", 0)),
+            span_count=int(row.get("span_count", 0)),
+        )
+        for row in rows
+    ]
 
 
 def get_metrics_router(
@@ -203,5 +221,80 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error refreshing metrics: {str(e)}")
+
+    # ------------------------------------------------------------------
+    # EGPT-4.5: Per-tenant/per-agent usage metrics from traces + spans
+    # ------------------------------------------------------------------
+
+    @router.get(
+        "/metrics/usage",
+        response_model=UsageMetricsResponse,
+        dependencies=[Depends(require_tenant_id)],
+        status_code=200,
+        operation_id="get_usage_metrics",
+        summary="Get per-tenant/per-agent token usage",
+        description=(
+            "Aggregate token usage (input, output, total) from traces and spans, "
+            "broken down by tenant, agent, and model. Scoped to the caller's tenant."
+        ),
+    )
+    async def get_usage_metrics(
+        request: Request,
+        start_date: Optional[datetime] = Query(default=None, description="Start of query window (ISO 8601)"),
+        end_date: Optional[datetime] = Query(default=None, description="End of query window (ISO 8601)"),
+        agent_id: Optional[str] = Query(default=None, description="Filter by agent ID"),
+        db_id: Optional[str] = Query(default=None, description="Database ID"),
+        table: Optional[str] = Query(default=None, description="Database table"),
+    ) -> UsageMetricsResponse:
+        try:
+            # Validate date range
+            if start_date is not None and end_date is not None and start_date > end_date:
+                raise HTTPException(status_code=400, detail="start_date must be <= end_date")
+
+            # Default to last 30 days when no dates supplied
+            if start_date is None and end_date is None:
+                from datetime import timedelta, timezone as tz
+
+                end_date = datetime.now(tz.utc)
+                start_date = end_date - timedelta(days=30)
+
+            tenant_id = current_tenant_id(request)
+
+            db = await get_db(dbs, db_id, table)
+
+            if isinstance(db, RemoteDb):
+                raise HTTPException(status_code=501, detail="Usage metrics not supported on remote backends")
+
+            try:
+                if isinstance(db, AsyncBaseDb):
+                    rows = await db.get_usage_metrics(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                else:
+                    rows = db.get_usage_metrics(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+            except NotImplementedError:
+                raise HTTPException(status_code=501, detail="Usage metrics not supported by this backend")
+
+            usage = rows_to_usage_breakdowns(rows)
+
+            return UsageMetricsResponse(
+                usage=usage,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting usage metrics: {e}")
+            raise HTTPException(status_code=500, detail="Error getting usage metrics")
 
     return router

@@ -49,3 +49,29 @@ class DayAggregatedMetrics(BaseModel):
 class MetricsResponse(BaseModel):
     metrics: List[DayAggregatedMetrics] = Field(..., description="List of daily aggregated metrics")
     updated_at: Optional[datetime] = Field(None, description="Timestamp of the most recent metrics update")
+
+
+# ---------------------------------------------------------------------------
+# Usage metrics (EGPT-4.5) — per-tenant/per-agent cost and token breakdown
+# ---------------------------------------------------------------------------
+
+
+class UsageBreakdown(BaseModel):
+    """Token usage breakdown for a single tenant+agent+model combination."""
+
+    tenant_id: Optional[str] = Field(None, description="Tenant ID (null for unscoped traces)")
+    agent_id: Optional[str] = Field(None, description="Agent ID")
+    model_name: Optional[str] = Field(None, description="LLM model name (e.g. gpt-4o)")
+    input_tokens: int = Field(0, description="Total input/prompt tokens", ge=0)
+    output_tokens: int = Field(0, description="Total output/completion tokens", ge=0)
+    total_tokens: int = Field(0, description="Sum of input + output tokens", ge=0)
+    trace_count: int = Field(0, description="Number of traces contributing to this row", ge=0)
+    span_count: int = Field(0, description="Number of LLM spans contributing to this row", ge=0)
+
+
+class UsageMetricsResponse(BaseModel):
+    """Per-tenant/per-agent token usage aggregated from traces+spans."""
+
+    usage: List[UsageBreakdown] = Field(default_factory=list, description="Usage breakdown rows")
+    start_date: Optional[datetime] = Field(None, description="Start of the query window")
+    end_date: Optional[datetime] = Field(None, description="End of the query window")

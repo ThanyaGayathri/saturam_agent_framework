@@ -2011,6 +2011,87 @@ class AsyncPostgresDb(AsyncBaseDb):
             log_warning(f"Exception getting metrics: {str(e)}")
             return [], None
 
+    # -- Usage metrics (EGPT-4.5) --
+    async def get_usage_metrics(
+        self,
+        tenant_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> List[dict]:
+        """Aggregate token usage from traces+spans, grouped by tenant/agent/model."""
+        try:
+            from sqlalchemy import cast as sa_cast
+            from sqlalchemy.types import BigInteger
+
+            traces_table = await self._get_table(table_type="traces")
+            spans_table = await self._get_table(table_type="spans")
+            if traces_table is None or spans_table is None:
+                return []
+
+            async with self.async_session_factory() as sess:
+                async with sess.begin():
+                    from sqlalchemy import case as sa_case, literal_column
+
+                    raw_input = func.coalesce(
+                        func.nullif(spans_table.c.attributes["llm.token_count.prompt"].astext, ""),
+                        func.nullif(spans_table.c.attributes["gen_ai.usage.prompt_tokens"].astext, ""),
+                    )
+                    raw_output = func.coalesce(
+                        func.nullif(spans_table.c.attributes["llm.token_count.completion"].astext, ""),
+                        func.nullif(spans_table.c.attributes["gen_ai.usage.completion_tokens"].astext, ""),
+                    )
+                    input_tok = sa_cast(
+                        sa_case((raw_input.op("~")(r"^\d+$"), raw_input), else_=literal_column("'0'")),
+                        BigInteger,
+                    )
+                    output_tok = sa_cast(
+                        sa_case((raw_output.op("~")(r"^\d+$"), raw_output), else_=literal_column("'0'")),
+                        BigInteger,
+                    )
+                    model_name = func.coalesce(
+                        spans_table.c.attributes["llm.model_name"].astext,
+                        spans_table.c.attributes["gen_ai.request.model"].astext,
+                    )
+
+                    stmt = (
+                        select(
+                            traces_table.c.tenant_id.label("tenant_id"),
+                            traces_table.c.agent_id.label("agent_id"),
+                            model_name.label("model_name"),
+                            func.coalesce(func.sum(input_tok), 0).label("input_tokens"),
+                            func.coalesce(func.sum(output_tok), 0).label("output_tokens"),
+                            func.coalesce(func.sum(input_tok + output_tok), 0).label("total_tokens"),
+                            func.count(func.distinct(traces_table.c.trace_id)).label("trace_count"),
+                            func.count(spans_table.c.span_id).label("span_count"),
+                        )
+                        .select_from(traces_table.join(spans_table, traces_table.c.trace_id == spans_table.c.trace_id))
+                        .where(spans_table.c.attributes["openinference.span.kind"].astext == "LLM")
+                    )
+
+                    if tenant_id is not None:
+                        stmt = stmt.where(traces_table.c.tenant_id == tenant_id)
+                    if agent_id is not None:
+                        stmt = stmt.where(traces_table.c.agent_id == agent_id)
+                    if start_date is not None:
+                        stmt = stmt.where(traces_table.c.start_time >= start_date.isoformat())
+                    if end_date is not None:
+                        stmt = stmt.where(traces_table.c.start_time <= end_date.isoformat())
+
+                    stmt = stmt.group_by(
+                        traces_table.c.tenant_id,
+                        traces_table.c.agent_id,
+                        model_name,
+                    )
+
+                    result = await sess.execute(stmt)
+                    rows = result.fetchall()
+                    return [dict(row._mapping) for row in rows]
+
+        except Exception as e:
+            log_error(f"Error getting usage metrics: {str(e)}")
+            raise
+
     # -- Knowledge methods --
     async def delete_knowledge_content(self, id: str):
         """Delete a knowledge row from the database.
