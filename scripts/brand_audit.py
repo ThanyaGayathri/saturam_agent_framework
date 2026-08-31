@@ -134,7 +134,10 @@ DENY_RULES: List[tuple] = [
     # and the module-constant spelling (`USER_AGENT = "agno-..."`).
     (
         "outbound-identity",
-        re.compile(r"(user[-_]agent|x-source|driverinfo\(name)\s*[\"':=(]?[^\n]{0,80}?agno", re.I),
+        re.compile(
+            r"(user[-_]agent|x-source|driverinfo\(name)\s*[\"':=(]?[^\n]{0,80}?agno",
+            re.I,
+        ),
         (),
     ),
     # `headers["user-agent"] += "; Origin/agno"`. Its own rule rather than a branch of
@@ -143,7 +146,11 @@ DENY_RULES: List[tuple] = [
     # Author/maintainer contact in published wheel metadata.
     ("packaging-contact", re.compile(r"@agno\.com", re.I), ()),
     # Project URLs and doc links. Exempt only where the hosts are deliberately named.
-    ("brand-url", re.compile(r"https?://(www\.|docs\.|os\.|app\.)?agno\.com", re.I), UPSTREAM_HOST_SITES),
+    (
+        "brand-url",
+        re.compile(r"https?://(www\.|docs\.|os\.|app\.)?agno\.com", re.I),
+        UPSTREAM_HOST_SITES,
+    ),
 ]
 
 # The docs tree carries every shipped-code rule plus two of its own. Both describe
@@ -153,60 +160,179 @@ DOCS_DENY_RULES: List[tuple] = DENY_RULES + [
     # A snippet that imports `agno` teaches a namespace this repo does not install:
     # the distribution is `egpt`. Cookbook .py was codemodded in EGPT-0.4, but the
     # markdown around it and .cursorrules were not.
-    ("stale-import", re.compile(r"\bfrom agno(\.[\w.]+)? import\b|^\s*import agno\b"), ()),
+    (
+        "stale-import",
+        re.compile(r"\bfrom agno(\.[\w.]+)? import\b|^\s*import agno\b"),
+        (),
+    ),
     # Clone and setup instructions must point at this repo. Citations of upstream
     # issues stay -- they are factually about upstream (see keep-upstream-citation).
-    ("clone-url", re.compile(r"github\.com/agno-agi/(?!agno/issues/)"), PROVENANCE_SITES),
+    (
+        "clone-url",
+        re.compile(r"github\.com/agno-agi/(?!agno/issues/)"),
+        PROVENANCE_SITES,
+    ),
 ]
 
 # Regressions this gate must catch, re-verified on every run. Each entry is the real
 # pre-rebrand text from the file named, so a rule that stops catching one of these is
 # a rule that has been widened past its purpose. See EGPT-0.12.
 SELF_TEST_CASES = [
-    ("libs/agno/egpt/integrations/tools/sofya/sofya.py", '"User-Agent": "agno-sofya",', "outbound-identity"),
-    ("libs/agno/egpt/integrations/knowledge/loaders/github.py", '"User-Agent": "Agno-Knowledge",', "outbound-identity"),
-    ("libs/agno/egpt/integrations/tools/perplexity/perplexity.py", '"X-Source": "agno",', "outbound-identity"),
-    ("libs/agno/egpt/integrations/db/mongo/mongo.py", 'DriverInfo(name="Agno", version=v)', "outbound-identity"),
-    ("libs/agno/egpt/integrations/tools/apify/apify.py", 'headers["user-agent"] += "; Origin/agno"', "outbound-identity"),
-    ("libs/agno/egpt/integrations/models/google/utils.py",'"User-Agent": "Mozilla/5.0 (compatible; agno/1.0)"', "outbound-identity"),
-    ("libs/agno/egpt/scheduler/cron.py", 'raise ImportError("pip install agno[scheduler]")', "install-hint"),
+    (
+        "libs/agno/egpt/integrations/tools/sofya/sofya.py",
+        '"User-Agent": "agno-sofya",',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/integrations/knowledge/loaders/github.py",
+        '"User-Agent": "Agno-Knowledge",',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/integrations/tools/perplexity/perplexity.py",
+        '"X-Source": "agno",',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/integrations/db/mongo/mongo.py",
+        'DriverInfo(name="Agno", version=v)',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/integrations/tools/apify/apify.py",
+        'headers["user-agent"] += "; Origin/agno"',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/integrations/models/google/utils.py",
+        '"User-Agent": "Mozilla/5.0 (compatible; agno/1.0)"',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/scheduler/cron.py",
+        'raise ImportError("pip install agno[scheduler]")',
+        "install-hint",
+    ),
     # The escape hatch for migration prose must not launder an install hint.
-    ("libs/agno/egpt/integrations/_utils/streamlit.py", 'raise ImportError("pip install agno")  # legacy', "install-hint"),
-    ("libs/agno/pyproject.toml", '{name = "Agno Team", email = "hello@agno.com"}', "packaging-contact"),
+    (
+        "libs/agno/egpt/integrations/_utils/streamlit.py",
+        'raise ImportError("pip install agno")  # legacy',
+        "install-hint",
+    ),
+    (
+        "libs/agno/pyproject.toml",
+        '{name = "Agno Team", email = "hello@agno.com"}',
+        "packaging-contact",
+    ),
     ("libs/agno/pyproject.toml", 'Homepage = "https://agno.com"', "brand-url"),
     # Evasions of an earlier, narrower draft of these rules. Each one shipped past the
     # first version of DENY, so each stays pinned here.
-    ("libs/agno/egpt/integrations/tools/sofya/sofya.py", 'USER_AGENT = "agno-sofya"', "outbound-identity"),
-    ("libs/agno/egpt/integrations/tools/apify/apify.py", 'user_agent = "Origin/agno"', "outbound-identity"),
-    ("libs/agno/egpt/integrations/models/google/utils.py",'"User-Agent": "Mozilla/5.0 (Macintosh; X 10_15_7) agno/1.0"', "outbound-identity"),
-    ("libs/agno/egpt/integrations/db/clickhouse/README.md","pip install -U agno", "install-hint"),
-    ("libs/agno/egpt/integrations/db/clickhouse/README.md","uv pip install 'agno[clickhouse]'", "install-hint"),
-    ("libs/agno/pyproject.toml", 'Documentation = "https://docs.agno.com"', "brand-url"),
+    (
+        "libs/agno/egpt/integrations/tools/sofya/sofya.py",
+        'USER_AGENT = "agno-sofya"',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/integrations/tools/apify/apify.py",
+        'user_agent = "Origin/agno"',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/integrations/models/google/utils.py",
+        '"User-Agent": "Mozilla/5.0 (Macintosh; X 10_15_7) agno/1.0"',
+        "outbound-identity",
+    ),
+    (
+        "libs/agno/egpt/integrations/db/clickhouse/README.md",
+        "pip install -U agno",
+        "install-hint",
+    ),
+    (
+        "libs/agno/egpt/integrations/db/clickhouse/README.md",
+        "uv pip install 'agno[clickhouse]'",
+        "install-hint",
+    ),
+    (
+        "libs/agno/pyproject.toml",
+        'Documentation = "https://docs.agno.com"',
+        "brand-url",
+    ),
 ]
 
 # The same idea for the docs tree: real pre-EGPT-0.13 text, re-checked every run.
 SELF_TEST_CASES_DOCS = [
-    ("cookbook/00_quickstart/README.md", "git clone https://github.com/agno-agi/agno.git", "clone-url"),
-    ("cookbook/90_models/cloudflare/README.md", "https://github.com/agno-agi/agno/blob/main/CONTRIBUTING.md", "clone-url"),
-    ("cookbook/93_components/README.md", "from agno.agent import Agent", "stale-import"),
+    (
+        "cookbook/00_quickstart/README.md",
+        "git clone https://github.com/agno-agi/agno.git",
+        "clone-url",
+    ),
+    (
+        "cookbook/90_models/cloudflare/README.md",
+        "https://github.com/agno-agi/agno/blob/main/CONTRIBUTING.md",
+        "clone-url",
+    ),
+    (
+        "cookbook/93_components/README.md",
+        "from agno.agent import Agent",
+        "stale-import",
+    ),
     (".cursorrules", "from agno.models.openai import OpenAIResponses", "stale-import"),
-    ("cookbook/02_agents/README.md", "uv pip install -U openai ddgs agno", "install-hint"),
-    ("cookbook/05_agent_os/scheduler/README.md", "pip install agno[scheduler]", "install-hint"),
-    ("scripts/perf_setup.sh", "uv pip install -U agno langgraph langchain_openai", "install-hint"),
+    (
+        "cookbook/02_agents/README.md",
+        "uv pip install -U openai ddgs agno",
+        "install-hint",
+    ),
+    (
+        "cookbook/05_agent_os/scheduler/README.md",
+        "pip install agno[scheduler]",
+        "install-hint",
+    ),
+    (
+        "scripts/perf_setup.sh",
+        "uv pip install -U agno langgraph langchain_openai",
+        "install-hint",
+    ),
     (".cursorrules", "Docs: https://docs.agno.com", "brand-url"),
-    ("CODE_OF_CONDUCT.md", "reported to the community leaders at help@agno.com.", "packaging-contact"),
-    ("cookbook/00_quickstart/run.py", "2. Visit https://os.agno.com in your browser", "brand-url"),
+    (
+        "CODE_OF_CONDUCT.md",
+        "reported to the community leaders at help@agno.com.",
+        "packaging-contact",
+    ),
+    (
+        "cookbook/00_quickstart/run.py",
+        "2. Visit https://os.agno.com in your browser",
+        "brand-url",
+    ),
 ]
 
 # The mirror image: lines that must stay ALLOWED. A widened DENY rule or a deleted
 # KEEP rule shows up here as a failure instead of as a silent false positive.
 SELF_TEST_ALLOWED_DOCS = [
     ("cookbook/scripts/run_pgvector.sh", "docker run -d ... agnohq/pgvector:16"),
-    ("cookbook/00_quickstart/requirements.txt", "openinference-instrumentation-agno==0.1.34"),
-    ("cookbook/07_knowledge/04_advanced/README.md", "For Graph RAG: `pip install lightrag-agno`"),
+    (
+        "cookbook/00_quickstart/requirements.txt",
+        "openinference-instrumentation-agno==0.1.34",
+    ),
+    (
+        "cookbook/07_knowledge/04_advanced/README.md",
+        "For Graph RAG: `pip install lightrag-agno`",
+    ),
     ("scripts/dev_setup.sh", 'AGNO_DIR="${REPO_ROOT}/libs/agno"'),
     ("scripts/demo_setup.sh", "uv pip install -e libs/egptctl -e libs/agno[demo]"),
     ("cookbook/91_tools/mcp/github.py", "https://github.com/agno-agi/agno/issues/123"),
+]
+
+# Shipped-code lines that must be KEEP-covered (not denied).
+# Pins the keep-compat-shim rule against accidental narrowing.
+SELF_TEST_ALLOWED_SHIPPED = [
+    (
+        "libs/agno/egpt/tracing/_agno_compat.py",
+        '        sys.modules["agno"] = egpt',
+    ),
+    (
+        "libs/agno/egpt/tracing/_agno_compat.py",
+        '            alias = "agno." + mod_name[5:]',
+    ),
 ]
 
 # Every entry is a documented decision, not a convenience. Adding one means deciding
@@ -215,12 +341,51 @@ KEEP_RULES: List[tuple] = [
     # -- The provenance record ----------------------------------------------------
     # PROVENANCE.md states which project this repo was forked from. Naming it is the
     # file's purpose; the row is matched exactly so no other upstream URL is allowed.
-    ("keep-provenance", re.compile(r"Source project \| https://github\.com/agno-agi/agno")),
+    (
+        "keep-provenance",
+        re.compile(r"Source project \| https://github\.com/agno-agi/agno"),
+    ),
     # -- English words that merely contain the substring (agnostic, diagnose, ...) -
     ("false-positive", re.compile(r"agnostic", re.I)),
     ("false-positive", re.compile(r"[a-z]agno[a-z]", re.I)),
     # -- Third-party package and class names we do not own -----------------------
-    ("third-party", re.compile(r"openinference[-_.]instrumentation[-_.]agno|AgnoInstrumentor")),
+    (
+        "third-party",
+        re.compile(r"openinference[-_.]instrumentation[-_.]agno|AgnoInstrumentor"),
+    ),
+    # sys.modules aliasing in tracing/_agno_compat.py and setup.py (#200).
+    # Narrowly scoped to patterns that only appear in the compat shim and its
+    # call site — avoids accidentally absorbing un-rebranded stale imports
+    # or other agno references elsewhere in the tree.
+    (
+        "keep-compat-shim",
+        re.compile(
+            # Code patterns unique to _agno_compat.py:
+            r'sys\.modules\["agno"\]\s*='  # sys.modules["agno"] = egpt
+            r'|"agno\."\s*\+\s*mod_name'  # alias = "agno." + mod_name[5:]
+            r'|sys\.modules\.get\("agno"\)'  # existing = sys.modules.get("agno")
+            r"|agno→egpt"  # log_debug message
+            r'|k\s*==\s*"agno"'  # k == "agno" in _reset_for_testing
+            r'|\.startswith\("agno\.'  # k.startswith("agno.") in _reset_for_testing
+            # Docstring/comment patterns with rst backtick quoting:
+            r"|``agno``\s*→\s*``egpt``"  # rst-quoted arrow
+            r"|Production-side\s+``agno``"  # module docstring title
+            r"|``agno\.\*``"  # "strips all ``agno.*`` entries"
+            r"|``agno``\s+package"  # "a real ``agno`` package"
+            r"|seed's\s+``agno``"  # "the seed's ``agno`` package"
+            r"|alias\s+``agno``\s*→"  # "alias ``agno`` → ``egpt``"
+            r"|``sys\.modules\[\"agno"  # "sys.modules["agno.*"]" in docstrings
+            # setup.py comment about the alias call:
+            r"|Register\s+agno\.\*\s*→\s*egpt\.\*"
+            r"|hardcoded\s+``from\s+agno\."
+            r"|``from\s+agno\.\w"
+            # _agno_compat.py prose that won't appear in normal code:
+            r"|clobbering\s+a\s+foreign"
+            r"|real\s+agno\s+package"
+            r"|agno→egpt\s+aliasing"
+            r"|sys\.modules\['agno'\]\s+already"
+        ),
+    ),
     # `lightrag-agno` is a real PyPI package by another author (cookbook Graph RAG).
     ("third-party", re.compile(r"lightrag[-_]agno", re.I)),
     # -- Upstream infrastructure with no Saturam equivalent (DEFER, see #149) -----
@@ -244,23 +409,41 @@ KEEP_RULES: List[tuple] = [
         ),
     ),
     # -- Legacy env prefix, honoured for one release (see egpt.brand.LEGACY_ENV_PREFIX)
-    ("keep-legacy-env", re.compile(r"\bAGNO_[A-Z0-9_]+|\bAGENTOS_[A-Z0-9_]+|\bAGNO_\b|\bLEGACY_ENV_PREFIX\b")),
+    (
+        "keep-legacy-env",
+        re.compile(
+            r"\bAGNO_[A-Z0-9_]+|\bAGENTOS_[A-Z0-9_]+|\bAGNO_\b|\bLEGACY_ENV_PREFIX\b"
+        ),
+    ),
     # -- Persistence identity: renaming re-points deployments at empty tables ------
     # Covers the documented `agno_*` legacy table prefix and its prose in db/README.
-    ("keep-persistence-identity", re.compile(r"agno_json_db|LEGACY_TABLE_PREFIX|agno_\*|agno_\b|agno_\"")),
+    (
+        "keep-persistence-identity",
+        re.compile(r"agno_json_db|LEGACY_TABLE_PREFIX|agno_\*|agno_\b|agno_\""),
+    ),
     # Container-level namespaces (schema, db name, key prefix, bucket path, docker
     # network). Renaming silently orphans existing data one level up, so they are
     # deliberately frozen -- see libs/agno/egpt/db/README.md.
     (
         "keep-persistence-identity",
-        re.compile(r"(db_schema|db_name|db_prefix|database|network|prefix|prefix_suffix)\s*[:=].{0,12}\"agno/?\""),
+        re.compile(
+            r"(db_schema|db_name|db_prefix|database|network|prefix|prefix_suffix)\s*[:=].{0,12}\"agno/?\""
+        ),
     ),
-    ("keep-persistence-identity", re.compile(r"db_schema|\"agno/\"|or \"agno\"|get\(\"database\", \"agno\"\)")),
+    (
+        "keep-persistence-identity",
+        re.compile(r"db_schema|\"agno/\"|or \"agno\"|get\(\"database\", \"agno\"\)"),
+    ),
     # Mongo keeps its legacy database name for the same reason.
     ("keep-persistence-identity", re.compile(r"db_name.{0,40}else \"agno\"")),
     # -- Local cache directory and logger namespace. Renaming the logger breaks
     # operator logging configs that filter on `agno.*`; the cache dir is keyed to it.
-    ("defer-log-namespace", re.compile(r"\.agno\b|logging\.getLogger|\"agno\.\{|agno\.\{logger_name\}|name \"agno\.")),
+    (
+        "defer-log-namespace",
+        re.compile(
+            r"\.agno\b|logging\.getLogger|\"agno\.\{|agno\.\{logger_name\}|name \"agno\."
+        ),
+    ),
     # -- `[tool.agno]` pyproject section read from existing infra projects --------
     ("keep-config-key", re.compile(r"\[?tool\.?\"?agno|\"agno\"\s*tool|get\(\"agno\"")),
     # -- Wire field on GET /, consumed by egptctl discovery. Renaming breaks every
@@ -285,7 +468,10 @@ KEEP_RULES: List[tuple] = [
     # -- OpenTelemetry span attribute names. Wire-facing, but renaming silently
     # breaks every existing dashboard and saved query; tracked as a follow-up
     # alongside the `agno_version` field (see #149 "out of scope").
-    ("defer-otel-attributes", re.compile(r"agno\.(run|team|agent|workflow|session|user)\.[a-z_]+")),
+    (
+        "defer-otel-attributes",
+        re.compile(r"agno\.(run|team|agent|workflow|session|user)\.[a-z_]+"),
+    ),
     # -- Paths into the private specs/ repo, which keeps its upstream layout -------
     ("keep-specs-path", re.compile(r"specs/agno/")),
     # -- Real credential prefix minted by the server; renaming breaks live tokens --
@@ -300,7 +486,9 @@ KEEP_RULES: List[tuple] = [
     # the exact phrasings so a bare `agno` elsewhere is still a finding.
     (
         "keep-legacy-mcp-entry",
-        re.compile(r"was `agno` before|\"agno\" entry|--server-name agno|--scope user agno"),
+        re.compile(
+            r"was `agno` before|\"agno\" entry|--server-name agno|--scope user agno"
+        ),
     ),
     # -- The libs/agno directory name (not user- or wire-facing) ------------------
     # Both separators: the .bat/.ps1 scripts spell it `libs\agno`, and a rule that
@@ -337,7 +525,9 @@ class Hit(NamedTuple):
     text: str
 
 
-def collect_hits(paths: List[str] = SHIPPED_PATHS, excludes: List[str] = []) -> List[Hit]:
+def collect_hits(
+    paths: List[str] = SHIPPED_PATHS, excludes: List[str] = []
+) -> List[Hit]:
     proc = subprocess.run(
         ["git", "grep", "-inE", "agno|agentos", "--", *paths, *excludes],
         cwd=REPO_ROOT,
@@ -416,33 +606,63 @@ def self_test_failures() -> List[str]:
         actual = deny_reason(path, text)
         if actual != expected:
             got = actual or "nothing"
-            failures.append(f"{path}: {text.strip()[:80]!r}\n      expected {expected}, caught by {got}")
+            failures.append(
+                f"{path}: {text.strip()[:80]!r}\n      expected {expected}, caught by {got}"
+            )
 
     for path, text, expected in SELF_TEST_CASES_DOCS:
         actual = deny_reason(path, text, DOCS_DENY_RULES, DOCS_PRESTRIP)
         if actual != expected:
             got = actual or "nothing"
-            failures.append(f"{path}: {text.strip()[:80]!r}\n      expected {expected}, caught by {got}")
+            failures.append(
+                f"{path}: {text.strip()[:80]!r}\n      expected {expected}, caught by {got}"
+            )
 
     # And the inverse: a rule widened until it swallows a legitimate line.
     for path, text in SELF_TEST_ALLOWED_DOCS:
         denied = deny_reason(path, text, DOCS_DENY_RULES, DOCS_PRESTRIP)
         if denied is not None:
-            failures.append(f"{path}: {text.strip()[:80]!r}\n      expected to be allowed, denied by {denied}")
+            failures.append(
+                f"{path}: {text.strip()[:80]!r}\n      expected to be allowed, denied by {denied}"
+            )
             continue
-        if classify(Hit(path, 0, text), DOCS_DENY_RULES, DOCS_PRESTRIP, DOCS_KEEP_RULES) is None:
-            failures.append(f"{path}: {text.strip()[:80]!r}\n      expected a KEEP rule to cover it, none did")
+        if (
+            classify(
+                Hit(path, 0, text), DOCS_DENY_RULES, DOCS_PRESTRIP, DOCS_KEEP_RULES
+            )
+            is None
+        ):
+            failures.append(
+                f"{path}: {text.strip()[:80]!r}\n      expected a KEEP rule to cover it, none did"
+            )
+    # Shipped-code KEEP coverage (same logic as docs, but uses shipped DENY/KEEP).
+    for path, text in SELF_TEST_ALLOWED_SHIPPED:
+        denied = deny_reason(path, text)
+        if denied is not None:
+            failures.append(
+                f"{path}: {text.strip()[:80]!r}\n      expected to be allowed, denied by {denied}"
+            )
+            continue
+        if classify(Hit(path, 0, text), DENY_RULES, None, KEEP_RULES) is None:
+            failures.append(
+                f"{path}: {text.strip()[:80]!r}\n      expected a KEEP rule to cover it, none did"
+            )
+
     return failures
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--summary", action="store_true", help="show allowed hits by category")
+    parser.add_argument(
+        "--summary", action="store_true", help="show allowed hits by category"
+    )
     args = parser.parse_args()
 
     regressions = self_test_failures()
     if regressions:
-        print(f"brand audit SELF-TEST FAILED: {len(regressions)} known regression(s) no longer caught\n")
+        print(
+            f"brand audit SELF-TEST FAILED: {len(regressions)} known regression(s) no longer caught\n"
+        )
         for failure in regressions:
             print(f"  {failure}")
         print(
@@ -453,7 +673,14 @@ def main() -> int:
 
     passes = [
         ("shipped", SHIPPED_PATHS, [], DENY_RULES, None, KEEP_RULES),
-        ("docs", DOCS_PATHS, DOCS_EXEMPT_PATHSPECS, DOCS_DENY_RULES, DOCS_PRESTRIP, DOCS_KEEP_RULES),
+        (
+            "docs",
+            DOCS_PATHS,
+            DOCS_EXEMPT_PATHSPECS,
+            DOCS_DENY_RULES,
+            DOCS_PRESTRIP,
+            DOCS_KEEP_RULES,
+        ),
     ]
 
     denied = []
@@ -477,16 +704,22 @@ def main() -> int:
 
         allowed.update(pass_allowed)
         if args.summary:
-            print(f"{label}: scanned {len(hits)} matching lines across {len(paths)} path(s)")
+            print(
+                f"{label}: scanned {len(hits)} matching lines across {len(paths)} path(s)"
+            )
             for category, count in sorted(pass_allowed.items(), key=lambda kv: -kv[1]):
                 print(f"  {count:5d}  {category}")
             print()
 
     if denied or findings:
-        print(f"brand audit FAILED: {len(denied) + len(findings)} unexpected agno/agentos reference(s)\n")
+        print(
+            f"brand audit FAILED: {len(denied) + len(findings)} unexpected agno/agentos reference(s)\n"
+        )
 
     if denied:
-        print(f"  Protected surfaces ({len(denied)}) -- these must be rebranded, not allowlisted:")
+        print(
+            f"  Protected surfaces ({len(denied)}) -- these must be rebranded, not allowlisted:"
+        )
         for reason, hit in denied:
             print(f"    [{reason}] {hit.path}:{hit.line_no}: {hit.text.strip()[:120]}")
         print(

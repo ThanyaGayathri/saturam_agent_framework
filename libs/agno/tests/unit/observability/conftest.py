@@ -5,15 +5,14 @@ Provides an InMemorySpanExporter wired into a fresh TracerProvider so that
 tests can assert on emitted spans without any external network or database.
 
 The EGPT package is published as ``egpt`` but the third-party instrumentor
-(openinference-instrumentation-agno) imports from ``agno.*``.  This is a
-test-only workaround that lets the instrumentor's hardcoded ``agno.*``
-imports resolve against this framework's ``egpt.*`` package.  Production code
-(``tracing/setup.py``) passes ``skip_dep_check=True`` to bypass the same
-incompatibility but does not need module aliasing because it never imports
-from the instrumented paths directly.  Note: ``find_model_subclasses()``
-(called inside ``instrument()``) walks all ``agno.models.*`` subpackages and
-wraps 35-46 real Model subclasses in production; here we only wrap StubModel
-and StubModelWithToolCall manually.
+(openinference-instrumentation-agno) imports from ``agno.*``.  The production
+compatibility shim (``egpt.tracing._agno_compat.ensure_agno_aliases``) is
+called here at module level to register the aliases before any openinference
+imports attempt to resolve ``agno.*``.
+
+Note: ``find_model_subclasses()`` (called inside ``instrument()``) walks all
+``agno.models.*`` subpackages and wraps 35-46 real Model subclasses in
+production; here we only wrap StubModel and StubModelWithToolCall manually.
 
 Coverage gaps (documented, follow-up work):
 - ``find_model_subclasses()`` auto-discovery is not exercised: StubModel is
@@ -26,7 +25,6 @@ Coverage gaps (documented, follow-up work):
 
 from __future__ import annotations
 
-import sys
 from typing import Generator
 
 import pytest
@@ -35,42 +33,12 @@ pytest.importorskip("openinference", reason="observability tests require openinf
 pytest.importorskip("opentelemetry.sdk", reason="observability tests require opentelemetry-sdk")
 
 # ---------------------------------------------------------------------------
-# sys.modules aliasing for agno.* -> egpt.*
+# sys.modules aliasing for agno.* -> egpt.* (dogfoods the production shim)
 # ---------------------------------------------------------------------------
-# Must happen at module level (before the openinference imports below attempt
-# to resolve ``agno.*``).  Tracked in _AGNO_ALIASES for teardown in the
-# session-scoped fixture.
 
-import egpt  # noqa: E402
-import egpt.agent  # noqa: E402
-import egpt.agent._run  # noqa: E402
-import egpt.agent.agent  # noqa: E402
-import egpt.team  # noqa: E402
-import egpt.team._run  # noqa: E402
-import egpt.tools  # noqa: E402
-import egpt.tools.function  # noqa: E402
-import egpt.models  # noqa: E402
-import egpt.models.base  # noqa: E402
-import egpt.models.message  # noqa: E402
-import egpt.run  # noqa: E402
-import egpt.run.agent  # noqa: E402
-import egpt.run.team  # noqa: E402
-import egpt.run.messages  # noqa: E402
-import egpt.workflow  # noqa: E402
-import egpt.workflow.workflow  # noqa: E402
-import egpt.workflow.step  # noqa: E402
+from egpt.tracing._agno_compat import ensure_agno_aliases  # noqa: E402
 
-_AGNO_ALIASES: list[str] = []
-
-sys.modules["agno"] = egpt
-_AGNO_ALIASES.append("agno")
-
-for _mod_name in list(sys.modules.keys()):
-    if _mod_name.startswith("egpt."):
-        _alias = "agno." + _mod_name[5:]
-        if _alias not in sys.modules:
-            sys.modules[_alias] = sys.modules[_mod_name]
-            _AGNO_ALIASES.append(_alias)
+ensure_agno_aliases()
 
 # ---------------------------------------------------------------------------
 # StubModel definition
@@ -193,12 +161,13 @@ from wrapt import wrap_function_wrapper  # noqa: E402
 def _cleanup_agno_aliases():
     """Remove agno.* sys.modules aliases after the test session.
 
-    The aliases are registered at module level (required for import resolution)
-    but cleaned up here to avoid polluting other tests sharing the same process.
+    The aliases are registered via ensure_agno_aliases() at module level
+    and cleaned up here to avoid polluting other tests sharing the same process.
     """
     yield
-    for alias in _AGNO_ALIASES:
-        sys.modules.pop(alias, None)
+    from egpt.tracing._agno_compat import _reset_for_testing
+
+    _reset_for_testing()
 
 
 @pytest.fixture

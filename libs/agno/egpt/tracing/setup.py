@@ -218,13 +218,17 @@ def setup_tracing(
             )
             return
 
-        # Set the global tracer provider
-        trace_api.set_tracer_provider(tracer_provider)
+        # Register agno.* → egpt.* sys.modules aliases so the instrumentor's
+        # hardcoded ``from agno.agent import _run`` imports resolve against
+        # this fork's ``egpt`` package (aicoe-tracker#200).
+        from egpt.tracing._agno_compat import ensure_agno_aliases
 
-        # Instrument EGPT with OpenInference.
-        # skip_dep_check=True is required because the instrumentor hardcodes
-        # a dependency check against the upstream package name (not "egpt").
-        # Without this flag, instrument() silently returns without wrapping.
+        ensure_agno_aliases()
+
+        # Instrument EGPT with OpenInference *before* claiming the global
+        # TracerProvider.  If instrumentation fails, we don't leave the
+        # process in a sticky broken state where the provider is set but
+        # nothing feeds it spans (aicoe-tracker#200).
         instrumentor = AgnoInstrumentor()
         instrumentor.instrument(tracer_provider=tracer_provider, skip_dep_check=True)
 
@@ -234,6 +238,10 @@ def setup_tracing(
                 "is False -- tracing may not be active. Check that "
                 "openinference-instrumentation-agno is installed and compatible."
             )
+            return
+
+        # Set the global tracer provider only after instrumentation succeeds.
+        trace_api.set_tracer_provider(tracer_provider)
 
         backends = []
         if db is not None and settings.tracing_db_enabled:
