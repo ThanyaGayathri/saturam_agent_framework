@@ -1365,3 +1365,30 @@ to `49_`. Output unchanged: 3 embedding entries, 5 cost entries, 7 growth entrie
 both `cost=$0.000066`, `growth_by_tenant()` `acme=6`/`globex=4`, 0 unpriced.
 
 ---
+
+### 50_pii_redaction.py
+
+**Status:** PASS
+
+**Description:** SM-X5's PII containment at the two memory boundaries. Builds a
+`CoLocatedMemoryProvider` over the same trimmed in-memory vector stand-in `48_memory_tracing.py`
+uses, with `config.pii` off (default) and on (`{"enabled": True}`), and runs write -> read for
+each. Also demonstrates: read/inject catching a record written before the policy was turned on
+(Decision 1, both boundaries independent), what `write`/`awrite` call directly
+(`redact_events_for_writeback`), and a tenant bringing its own `PIIDetectionGuardrail` with a
+custom pattern alongside the built-in checks.
+**Renumbered from `49_` to `50_` on merge with main: `feat/SM-X8` took `49_memory_cost_and_growth.py`
+while this branch was still catching up.**
+
+**Result:** Runs clean. With `config.pii` unset, the stored record and the injected context both
+carry the raw email/phone number verbatim. With `{"enabled": True}`, both are masked and the
+stored record's metadata carries `pii_redacted=['Email', 'Phone']`. A record written through a
+provider with PII handling off, then read back through a second provider (same backing store)
+with it on, comes back masked -- read/inject is not a backstop for write-back, it is a second,
+independent boundary. The custom-guardrail run masks both the built-in `Email` match and the
+custom `account_number` pattern in one write, reporting
+`pii_redacted=['Email', 'account_number']`.
+
+**Requires:** Nothing; no database, no model, no API key, no network.
+
+---

@@ -40,6 +40,7 @@ from egpt.memory.learn_stores import (
     unhonoured_slots,
 )
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.security.pii import redact_events_for_writeback
 from egpt.memory.tiers import MemoryTier, policy_for_tier
 from egpt.memory.types import (
     ConsolidationReport,
@@ -1090,8 +1091,14 @@ class SeedMemoryProvider(MemoryProvider):
         so the same failure reached a caller as two different types depending on which verb they
         used -- and `PartialWriteError`'s docstring is explicit that both adapters must fail the
         same way or there is no portable retry.
+
+        PII containment (SM-X5 #141) runs here, not just in ``write()``: ``write_tier`` is itself
+        a public, independently-callable entry point (this repo's own tests and cookbooks call it
+        directly), so redacting only in ``write()`` left every direct caller with zero protection
+        even when a tenant's policy opted in.
         """
         require_scope(scope, method="write_tier")
+        events = redact_events_for_writeback(events, self.config)
         self._validate_write(scope, events)
         self._reject_unserved(tier)
         stores = self._stores_for(tier)
@@ -1116,8 +1123,10 @@ class SeedMemoryProvider(MemoryProvider):
         return self._store_receipt(took, tier, events)
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
-        """Async variant of :meth:`write_tier`, with the same failure type."""
+        """Async variant of :meth:`write_tier`, with the same failure type. See its docstring for
+        why PII containment (SM-X5 #141) runs here rather than only in ``awrite()``."""
         require_scope(scope, method="awrite_tier")
+        events = redact_events_for_writeback(events, self.config)
         self._validate_write(scope, events)
         self._reject_unserved(tier)
         stores = self._stores_for(tier)
@@ -1256,6 +1265,10 @@ class SeedMemoryProvider(MemoryProvider):
 
         Grouping by tier is what lets ``_reject_unserved`` do its job: a default ``MemoryEvent`` is
         ``EPISODIC``, and the seed must refuse that rather than rewrite it as semantic.
+
+        PII containment (SM-X5 #141) is not redacted here: it runs inside ``write_tier`` itself
+        (see its docstring), so every group this method fans out to is redacted regardless of
+        whether the caller went through ``write`` or called ``write_tier`` directly.
         """
         require_scope(scope, method="write")
         with memory_span(
@@ -1274,7 +1287,8 @@ class SeedMemoryProvider(MemoryProvider):
             return self._merge_receipts(receipts)
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
-        """Async variant of :meth:`write`, with the same per-tier routing."""
+        """Async variant of :meth:`write`, with the same per-tier routing. See its docstring for
+        why PII containment (SM-X5 #141) is not redacted here."""
         require_scope(scope, method="awrite")
         with memory_span(
             "write",

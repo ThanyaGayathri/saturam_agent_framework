@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Sequence, Union
 
 from egpt.exceptions import CheckTrigger, InputCheckError
 from egpt.guardrails.base import BaseGuardrail
@@ -53,22 +53,39 @@ class PIIDetectionGuardrail(BaseGuardrail):
                         f"custom_patterns['{name}'] must be a str or re.Pattern, got {type(pattern).__name__}"
                     )
 
+    def detect(self, content: str) -> List[str]:
+        """Which of this guardrail's PII types are present in ``content``.
+
+        The read-only half of the check, shared by :meth:`check`/:meth:`async_check` (which
+        raise or mask based on it) and any other caller with a plain string and no
+        ``RunInput``/``TeamRunInput`` to check against -- e.g. the memory write-back/read-inject
+        boundaries in ``egpt.memory.security.pii``.
+        """
+        return [pii_type for pii_type, pattern in self.pii_patterns.items() if pattern.search(content)]
+
+    def mask(self, content: str, pii_types: Optional[Sequence[str]] = None) -> str:
+        """Mask every match of ``pii_types`` in ``content`` with ``*`` of the same length.
+
+        ``pii_types`` defaults to whatever :meth:`detect` finds in ``content`` -- pass the result
+        of a prior ``detect()`` call to avoid scanning the content twice.
+        """
+        types = pii_types if pii_types is not None else self.detect(content)
+        for pii_type in types:
+            pattern = self.pii_patterns[pii_type]
+
+            def mask_match(match: "re.Match[str]") -> str:
+                return "*" * len(match.group(0))
+
+            content = pattern.sub(mask_match, content)
+        return content
+
     def check(self, run_input: Union[RunInput, TeamRunInput]) -> None:
         """Check for PII patterns in the input."""
         content = run_input.input_content_string()
-        detected_pii = []
-        for pii_type, pattern in self.pii_patterns.items():
-            if pattern.search(content):
-                detected_pii.append(pii_type)
+        detected_pii = self.detect(content)
         if detected_pii:
             if self.mask_pii:
-                for pii_type in detected_pii:
-
-                    def mask_match(match):
-                        return "*" * len(match.group(0))
-
-                    content = self.pii_patterns[pii_type].sub(mask_match, content)
-                run_input.input_content = content
+                run_input.input_content = self.mask(content, detected_pii)
                 return
             else:
                 raise InputCheckError(
@@ -80,19 +97,10 @@ class PIIDetectionGuardrail(BaseGuardrail):
     async def async_check(self, run_input: Union[RunInput, TeamRunInput]) -> None:
         """Asynchronously check for PII patterns in the input."""
         content = run_input.input_content_string()
-        detected_pii = []
-        for pii_type, pattern in self.pii_patterns.items():
-            if pattern.search(content):
-                detected_pii.append(pii_type)
+        detected_pii = self.detect(content)
         if detected_pii:
             if self.mask_pii:
-                for pii_type in detected_pii:
-
-                    def mask_match(match):
-                        return "*" * len(match.group(0))
-
-                    content = self.pii_patterns[pii_type].sub(mask_match, content)
-                run_input.input_content = content
+                run_input.input_content = self.mask(content, detected_pii)
                 return
             else:
                 raise InputCheckError(

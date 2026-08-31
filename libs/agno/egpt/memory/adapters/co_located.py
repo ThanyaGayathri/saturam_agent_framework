@@ -30,6 +30,7 @@ an episode or a fact, which tier consolidation reads and which it writes -- is r
 
 import asyncio
 import inspect
+from dataclasses import fields as dataclass_fields
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar, Union
 from uuid import uuid4, uuid5
@@ -56,6 +57,12 @@ from egpt.memory.retrieval.rerank import (
 )
 from egpt.memory.retrieval.rerank import arerank_records, rerank_records
 from egpt.memory.schemas.semantic import fact_record
+from egpt.memory.security.pii import (
+    pii_guardrail_for_config,
+    redact_events_for_writeback,
+    redact_records_for_writeback,
+    redact_text_for_writeback,
+)
 from egpt.memory.semantic.profile import SemanticProfileStore
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
@@ -788,6 +795,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         require_scope(scope, method="write")
+        # PII containment, write-back boundary (SM-X5 #141): a no-op unless self.config.pii
+        # opts this tenant in. Every write-back caller reaches storage through this method (the
+        # run loop's write-back hooks, WorkingMemory.offload, a direct provider.write) -- placed
+        # here, not one layer up, for the same reason `memory_span` tracing (SM-X4) is per-adapter
+        # rather than on the abstract base: this is the actual seam.
+        events = redact_events_for_writeback(events, self.config)
         with memory_span(
             "write",
             tenant_id=scope.tenant_id,
@@ -872,6 +885,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         require_scope(scope, method="awrite")
+        events = redact_events_for_writeback(events, self.config)  # SM-X5 #141; see write()'s comment
         with memory_span(
             "write",
             tenant_id=scope.tenant_id,
@@ -1559,6 +1573,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
         to extract this pass" apart from "extraction was never configured" -- the two read
         identically as ``NO_ENTITIES`` otherwise, and a scheduler retrying the second case would
         wait forever for a pipeline that was never going to run.
+
+        PII containment (SM-X5 #141 round-1 review, finding #2): ``episodes`` here is already
+        redacted by ``consolidate``/``aconsolidate`` before this method runs, so
+        ``EntityExtractionPipeline.extract`` never reads raw episode content -- this closes the
+        verbatim-copy leak. It does not redact the pipeline's own generated
+        ``EntityWrite.description``/``.aliases``/``.properties``: ``EntityExtractionPipeline`` is
+        a standalone, config-agnostic class with no tenant-policy awareness of its own, and giving
+        it one is a larger change than this ticket's scope (parallel to the entities/relations
+        write-accounting gap already tracked as aicoe-tracker #186). Redacting clean episodes
+        substantially reduces this risk (the extractor has no raw PII to restate) but does not
+        eliminate it the way the fact/profile fixes above do for their own paths.
         """
         if self.entity_pipeline is None:
             return NO_ENTITIES
@@ -1575,7 +1600,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         Same ``episodes``, same ordering after the fact write, and the same
         wired-vs-empty-vs-never-wired distinction as :meth:`_entities` -- see that method's
-        docstring for why each of those matters.
+        docstring for why each of those matters, including the same PII-containment scope
+        boundary (SM-X5 #141 round-1 review, finding #2): ``episodes`` is redacted before this
+        runs, but ``RelationExtractionPipeline``'s own generated fact fields are not.
         """
         if self.relation_pipeline is None:
             return NO_RELATIONS
@@ -1608,6 +1635,41 @@ class CoLocatedMemoryProvider(MemoryProvider):
         from egpt.models.message import Message
 
         return [Message(role="user", content=r.content) for r in episodes if r.content]
+
+    def _redact_profile(self, profile: Any) -> Any:
+        """Mask PII out of a :class:`~egpt.learn.schemas.UserProfile`'s string fields before it
+        reaches :attr:`_semantic_profile`'s write (SM-X5 #141 round-1 review, finding #2).
+
+        ``_profile_messages(episodes)`` above already carries redacted episode content into the
+        extraction call (``episodes`` is redacted by the caller, ``consolidate``/
+        ``aconsolidate``), but the *output* ``UserProfile`` -- ``name``/``preferred_name``, plus
+        whatever custom fields a tenant's schema subclass adds -- is the LLM's own structured
+        summary, not a copy of episode text, and ``SemanticProfileStore._record`` serialises the
+        whole object into ``metadata["profile"]``, a field :func:`redact_records_for_writeback`
+        deliberately never touches (metadata is caller-structured data everywhere else in this
+        package). No existing helper reaches inside an arbitrary dataclass's fields, so this
+        walks ``dataclasses.fields(profile)`` directly rather than adding a `UserProfile`-specific
+        dependency to `memory/security/pii.py`.
+
+        Only ``str`` fields are touched, via the same guardrail every other write-back path uses
+        -- this catches a pattern match (an SSN typed into a free-text custom field, say) embedded
+        anywhere in a profile field, but it is not a substitute for "``name`` is identity data by
+        definition, regardless of pattern": a guardrail that does not pattern-match ordinary names
+        will not mask one. That is a capability limit of the guardrail this PR reuses, not
+        something this function papers over.
+        """
+        if pii_guardrail_for_config(self.config) is None:
+            return profile
+        changes: Dict[str, Any] = {}
+        for f in dataclass_fields(profile):
+            value = getattr(profile, f.name)
+            if isinstance(value, str):
+                redacted = redact_text_for_writeback(value, self.config)
+                if redacted != value:
+                    changes[f.name] = redacted
+        if not changes:
+            return profile
+        return replace(profile, **changes)
 
     def _update_profile(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ProfileSummary:
         """Run SM-S3's (#120) profile extraction over the episodes this pass kept, and persist
@@ -1642,6 +1704,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         updated = self.profile_store.extract_profile(messages, user_id=scope.user_id, existing_profile=existing)
         if updated is None:
             return {"complete": True, "updated": False}
+        updated = self._redact_profile(updated)
         receipt = self._semantic_profile.write(scope, updated)
         return {"complete": True, "updated": receipt is not None}
 
@@ -1658,6 +1721,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         updated = await self.profile_store.aextract_profile(messages, user_id=scope.user_id, existing_profile=existing)
         if updated is None:
             return {"complete": True, "updated": False}
+        updated = self._redact_profile(updated)
         receipt = await self._semantic_profile.awrite(scope, updated)
         return {"complete": True, "updated": receipt is not None}
 
@@ -1847,6 +1911,31 @@ class CoLocatedMemoryProvider(MemoryProvider):
         await self._areconcile_bounds(scope, episodes)
         return [e for e in episodes if e.is_current_belief() and _valid_at(e, instant)]
 
+    def _redact_facts(self, facts: Sequence[FactWrite]) -> List[FactWrite]:
+        """Mask PII out of every fact's ``record.content`` and SPO fields before a write (SM-X5
+        #141 round-1 review, finding #2).
+
+        ``record.content`` is redacted through :func:`redact_records_for_writeback`, the same
+        function ``episodes`` above was redacted with -- `FactWrite` composes a `MemoryRecord`, so
+        the two share the exact same leak shape. ``subject``/``predicate``/``object`` are separate
+        free-text fields the relation-extraction path populates outside ``record.content``
+        (`FactWrite`'s own docstring: "SPO is optional structure over the free-text statement in
+        ``record.content``") -- :func:`redact_records_for_writeback` never touches them, since it
+        only knows about the composed ``MemoryRecord``, so they need :func:`redact_text_for_writeback`
+        applied individually.
+        """
+        records = redact_records_for_writeback([f.record for f in facts], self.config)
+        redacted: List[FactWrite] = []
+        for fact, record in zip(facts, records):
+            subject = redact_text_for_writeback(fact.subject, self.config)
+            predicate = redact_text_for_writeback(fact.predicate, self.config)
+            obj = redact_text_for_writeback(fact.object, self.config)
+            if record is fact.record and subject == fact.subject and predicate == fact.predicate and obj == fact.object:
+                redacted.append(fact)
+                continue
+            redacted.append(replace(fact, record=record, subject=subject, predicate=predicate, object=obj))
+        return redacted
+
     @staticmethod
     def _check_distilled(facts: Sequence[FactWrite]) -> None:
         """The guard ``_prepare`` applies to a write batch, applied to a consolidated one.
@@ -1973,6 +2062,16 @@ class CoLocatedMemoryProvider(MemoryProvider):
             ]
             assert_scope_isolation(scope, scanned, method="consolidate")
             episodes = self._visible_episodes(scope, scanned, instant)
+            # PII containment (SM-X5 #141 round-1 review, finding #2): `consolidate` reads
+            # storage directly via `vector.scan` above, bypassing `write`/`awrite`'s redaction
+            # entirely -- these episodes may already carry raw PII, either from a bypassed write
+            # path or because they were written before this tenant's policy turned PII handling
+            # on (the read boundary's own justification, see `security/pii.py`'s module
+            # docstring). Redacting here keeps every LLM pass below from reading raw content, and
+            # `_distil`'s dedup default copies episode content verbatim into `FactWrite.record`
+            # (see `redact_records_for_writeback`'s docstring for why this alone is not
+            # sufficient for the LLM-generated paths).
+            episodes = redact_records_for_writeback(episodes, self.config)
             facts, merged, folded, derived_by, supersede = self._distil_facts(scope, episodes)
             # Folded in before the `if facts:` branch below, deliberately: an insight is written
             # through the exact same vector/graph loop, receipt, and `PartialWriteError` accounting a
@@ -1985,6 +2084,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # accounting a distilled fact or an insight is (`summarize.py`'s "one write model").
             summary_facts, summary = self._summarize(scope, episodes)
             facts += summary_facts
+            # A second pass, not a duplicate of the one above: episodes were clean going into
+            # distillation/reflection/summarization, but each of those is (in the fact_pipeline
+            # path) an LLM restating or paraphrasing episode content -- it can still reintroduce
+            # PII in its own words even from clean input. This is the choke point every fact this
+            # method itself writes to vector/graph funnels through.
+            facts = self._redact_facts(facts)
 
             if facts:
                 self._check_distilled(facts)
@@ -2125,6 +2230,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
             ]
             assert_scope_isolation(scope, scanned, method="aconsolidate")
             episodes = await self._avisible_episodes(scope, scanned, instant)
+            # PII containment (SM-X5 #141 round-1 review, finding #2): see the sync half's
+            # comment for why this runs here. `_redact_facts`/`redact_records_for_writeback` are
+            # pure functions with no I/O, so the sync helpers are reused as-is on this lane too.
+            episodes = redact_records_for_writeback(episodes, self.config)
             facts, merged, folded, derived_by, supersede = await self._adistil_facts(scope, episodes)
             # Same fold-before-branch as the sync half, for the same reason -- see its comment.
             insight_facts, reflection = await self._areflect(scope, episodes)
@@ -2132,6 +2241,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # See the sync half's comment: same fold-before-branch reasoning, one stage later.
             summary_facts, summary = await self._asummarize(scope, episodes)
             facts += summary_facts
+            facts = self._redact_facts(facts)
 
             if facts:
                 self._check_distilled(facts)

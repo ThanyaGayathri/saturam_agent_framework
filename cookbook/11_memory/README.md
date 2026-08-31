@@ -347,6 +347,21 @@ This section demonstrates how EGPT agents persist and use user memories across r
   **Renumbered from `48_` to `49_`: `feat/SM-X4` took `48_memory_tracing.py` while this branch
   was still catching up. Per this file's own convention, whoever merges second renumbers.**
 
+- `50_pii_redaction.py`: PII containment at the two memory boundaries (SM-X5 #141) --
+  `egpt.memory.security.pii` redacts PII on write-back (before an event's content reaches
+  storage, wired into `CoLocatedMemoryProvider.write`/`awrite` and `SeedMemoryProvider`'s the same
+  per-adapter way SM-X4's `memory_span` tracing is) and again on read/inject (before an assembled
+  feed-forward context re-enters a run's input, via `MemoryProvider.assemble_context`). Reuses the
+  seed's guardrail, `egpt.guardrails.pii.PIIDetectionGuardrail`, rather than a second regex
+  implementation. Driven by tenant policy via `MemoryProviderConfig.pii` -- `{}` (default) is a
+  safe no-op, `{"enabled": True}` turns both boundaries on, and a tenant can bring its own
+  guardrail with custom patterns. Five runs: off by default (raw PII round-trips), on (both
+  boundaries mask it), a record written before the policy turned on still gets caught on read
+  (Decision 1: both boundaries, not one), what `write`/`awrite` call directly, and a custom
+  guardrail alongside the built-in checks. No database, no model, no network.
+  **Renumbered from `49_` to `50_`: `feat/SM-X8` took `49_memory_cost_and_growth.py` while this
+  branch was still catching up. Per this file's own convention, whoever merges second renumbers.**
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

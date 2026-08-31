@@ -25,6 +25,7 @@ without touching a single call site.
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
+from egpt.memory.security.pii import redact_context_for_read
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     ConsolidationReport,
@@ -36,10 +37,33 @@ from egpt.memory.types import (
     Substrate,
     WriteReceipt,
 )
+from egpt.utils.log import log_warning
 
 if TYPE_CHECKING:  # `config` imports this module, so the annotation cannot be a runtime import
     from egpt.memory.config import MemoryProviderConfig
     from egpt.memory.working import WorkingMemory
+
+
+def _warn_if_redaction_pushed_over_budget(redacted: str, max_tokens: int, model_id: str) -> None:
+    """Log when PII masking (SM-X5 #141 round-1 review, finding #4) pushed an already
+    token-bounded context back over ``max_tokens``.
+
+    Only called when redaction actually changed the string -- the caller checks
+    ``redacted is not context`` first, so the common (nothing detected) case pays no extra
+    tokenization cost. Observability only: this does not re-truncate, matching how the
+    working-buffer overage `assemble_context`'s own docstring documents is also left to the
+    caller to detect and tolerate, not silently fixed up here.
+    """
+    from egpt.utils.tokens import count_text_tokens
+
+    used = count_text_tokens(redacted, model_id)
+    if used > max_tokens:
+        log_warning(
+            f"assemble_context: PII redaction pushed the returned context to {used} tokens, "
+            f"over the {max_tokens}-token budget it was assembled within. Masking a detected "
+            "span can cost more tokens than the text it replaced."
+        )
+
 
 __all__ = ["MemoryProvider"]
 
@@ -298,6 +322,24 @@ class MemoryProvider(ABC):
         with no signal in the returned ``str``. See
         :func:`~egpt.memory.retrieval.slice.assemble_bounded_context`'s own docstring for the full
         caveat and how to detect that case directly.
+
+        **The returned string is PII-checked before it comes back** (SM-X5 #141): the last step
+        redacts it per ``self.config.pii`` via :func:`~egpt.memory.security.pii.redact_context_for_read`
+        -- a no-op when that tenant's policy has PII handling off, which is the default. This is
+        the read/inject half of SM-X5's two boundaries; the write-back half runs separately, over
+        ``MemoryEvent.content``, before a caller's events ever reach :meth:`write`.
+
+        **Redaction runs after the token cut, and masks by character length, not token length**
+        (SM-X5 #141 round-1 review, finding #4): ``PIIDetectionGuardrail.mask`` replaces a
+        detected span with a fixed placeholder (e.g. ``"[REDACTED_EMAIL]"``), which can tokenize
+        to more or fewer tokens than what it replaced -- so a redacted return can land slightly
+        over ``max_tokens`` even when the pre-redaction context was exactly at budget. This is the
+        same class of documented overage as the working-buffer case above, not a new kind of
+        budget violation this method otherwise guarantees against; a warning is logged when it
+        happens (only checked when ``max_tokens`` was actually given, to avoid the extra
+        tokenization cost on the unbounded default path) so it is observable rather than silent,
+        but the caller is still responsible for tolerance in whatever consumes this string, the
+        same way the working-buffer overage already requires.
         """
         if max_tokens is not None:
             # Deferred import: breaks the provider <-> retrieval <-> working import cycle
@@ -316,10 +358,16 @@ class MemoryProvider(ABC):
             require_token_budget(max_tokens)
         persistent = self.read(scope, query if query is not None else MemoryQuery(text=""))
         if max_tokens is None:
-            return working.as_context(persistent)
-        from egpt.memory.retrieval.slice import assemble_bounded_context
+            context = working.as_context(persistent)
+        else:
+            from egpt.memory.retrieval.slice import assemble_bounded_context
 
-        return assemble_bounded_context(working, persistent, max_tokens=max_tokens, model_id=model_id)
+            context = assemble_bounded_context(working, persistent, max_tokens=max_tokens, model_id=model_id)
+
+        redacted = redact_context_for_read(context, self.config)
+        if max_tokens is not None and redacted is not context:
+            _warn_if_redaction_pushed_over_budget(redacted, max_tokens, model_id)
+        return redacted
 
     async def aassemble_context(
         self,
@@ -330,14 +378,22 @@ class MemoryProvider(ABC):
         max_tokens: Optional[int] = None,
         model_id: str = "gpt-4o",
     ) -> str:
-        """Async variant of :meth:`assemble_context`."""
+        """Async variant of :meth:`assemble_context`. See its docstring for why a warning is
+        logged (not corrected) when redaction pushes an already-bounded context back over
+        ``max_tokens`` (SM-X5 #141 round-1 review, finding #4)."""
         if max_tokens is not None:
             from egpt.memory.retrieval.slice import require_token_budget
 
             require_token_budget(max_tokens)
         persistent = await self.aread(scope, query if query is not None else MemoryQuery(text=""))
         if max_tokens is None:
-            return working.as_context(persistent)
-        from egpt.memory.retrieval.slice import assemble_bounded_context
+            context = working.as_context(persistent)
+        else:
+            from egpt.memory.retrieval.slice import assemble_bounded_context
 
-        return assemble_bounded_context(working, persistent, max_tokens=max_tokens, model_id=model_id)
+            context = assemble_bounded_context(working, persistent, max_tokens=max_tokens, model_id=model_id)
+
+        redacted = redact_context_for_read(context, self.config)
+        if max_tokens is not None and redacted is not context:
+            _warn_if_redaction_pushed_over_budget(redacted, max_tokens, model_id)
+        return redacted

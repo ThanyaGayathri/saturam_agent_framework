@@ -31,10 +31,12 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
+from egpt.guardrails.pii import PIIDetectionGuardrail
 from egpt.memory.errors import MemoryProviderConfigError
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.fuse import DEFAULT_RRF_K
 from egpt.memory.retrieval.rerank import DEFAULT_BUDGET_MS, DEFAULT_CANDIDATES, RerankerLike
+from egpt.memory.security.pii import PIIGuardrailLike
 from egpt.providers.model_provider import ProviderMode
 
 __all__ = [
@@ -112,6 +114,67 @@ def _validate_fusion(fusion: Dict[str, Any]) -> Dict[str, Any]:
 
 #: Keys ``config.rerank`` recognizes -- a closed set, same reasoning as ``_FUSION_KNOWN_KEYS``.
 _RERANK_KNOWN_KEYS = frozenset({"enabled", "reranker", "candidates", "budget_ms"})
+
+#: Keys ``config.pii`` recognizes -- a closed set, same reasoning as ``_FUSION_KNOWN_KEYS``.
+_PII_KNOWN_KEYS = frozenset({"enabled", "guardrail"})
+
+
+def _validate_pii(pii: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate ``config.pii`` at construction, per the four-questions boundary rule.
+
+    ``{}`` reads as disabled -- the same "zero-config is the safe no-op" convention
+    ``_validate_fusion``/``_validate_rerank`` establish for their own seams, applied here to the
+    PII containment boundary (SM-X5, #141): a deployment that never opts a tenant in keeps the
+    pre-SM-X5 behaviour, memory write-back and read-inject untouched. ``egpt.memory.security.pii``
+    is what actually applies this at the two boundaries -- this function only validates the shape.
+
+    ``guardrail`` lets a tenant bring its own :class:`~egpt.guardrails.pii.PIIDetectionGuardrail`
+    (custom patterns, a narrower or wider set of the built-in checks); omitting it builds the
+    default one (every built-in check on). Either way the instance is built/validated once, here,
+    not per write or per read.
+    """
+    if not isinstance(pii, dict):
+        raise MemoryProviderConfigError(f"config.pii must be a dict, got {type(pii).__name__}.", field_name="pii")
+    unknown = sorted(set(pii) - _PII_KNOWN_KEYS)
+    if unknown:
+        raise MemoryProviderConfigError(
+            f"config.pii has unknown key(s) {unknown}; only {sorted(_PII_KNOWN_KEYS)} are recognized.",
+            field_name="pii",
+        )
+    enabled = pii.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise MemoryProviderConfigError(
+            f"config.pii['enabled'] must be a bool, got {enabled!r}.", field_name="pii.enabled"
+        )
+    if not enabled:
+        if set(pii) - {"enabled"}:
+            # `guardrail` is meaningless while disabled -- the same "no knob that silently does
+            # nothing" rule `_validate_fusion` applies to `k`.
+            raise MemoryProviderConfigError(
+                "config.pii['guardrail'] is only meaningful when enabled=True.", field_name="pii"
+            )
+        return {"enabled": False}
+
+    guardrail = pii.get("guardrail")
+    if guardrail is None:
+        # `mask_pii` plays no role here -- `egpt.memory.security.pii` calls `detect`/`mask`
+        # directly, never `check`/`async_check`, so this flag (which only changes what those two
+        # methods do) is inert for a guardrail built here. Left at the class default rather than
+        # forced, so a caller-supplied instance reused from elsewhere is not silently rewritten.
+        guardrail = PIIDetectionGuardrail()
+    elif not isinstance(guardrail, PIIGuardrailLike):
+        # Structural, not `isinstance(guardrail, PIIDetectionGuardrail)`: `security/pii.py`'s own
+        # module docstring promises "any object exposing the same detect/mask shape works" (a
+        # future Presidio (EGPT-8) swap-in, or a tenant's own detector) -- checking the concrete
+        # class here silently narrowed that promise back down to one type (SM-X5 #141 round-1
+        # review, finding #3). Mirrors `_validate_rerank`'s `isinstance(reranker, RerankerLike)`.
+        raise MemoryProviderConfigError(
+            f"config.pii['guardrail'] must expose detect(content) and mask(content, pii_types), "
+            f"got {type(guardrail).__name__}.",
+            field_name="pii.guardrail",
+        )
+    return {"enabled": True, "guardrail": guardrail}
+
 
 #: Reranker module names that stay inside the air gap, mirroring ``egpt.memory.embedding``'s
 #: ``OFFLINE_CAPABLE`` for embedders (ADR 0003 A.3c) applied to the analogous rerank case (SM-R8
@@ -232,6 +295,26 @@ class MemoryProviderConfig:
     into the stage SM-H3 (#133) adds; see ``egpt.memory.retrieval.rerank``. Because this config is
     the per-tenant unit SM-C5 (#93) will resolve to (see the module docstring), this is also how
     rerank is "toggleable per tenant" -- one tenant's config, not a global switch.
+
+    ``pii`` is the same shape again: closed, validated, off by default. ``{}`` reads as disabled,
+    so a deployment that never opts in keeps write-back and read-inject exactly as before SM-X5
+    (#141). ``{"enabled": True}`` redacts PII (SSN/CC/email/phone by default) out of every
+    write-back event's ``content`` field before it reaches storage, and out of the assembled
+    feed-forward context before it is injected -- both boundaries, per issue #141's decision to
+    handle PII on both rather than one (a redact-once policy leaks on whichever path it skips).
+    Reuses ``egpt.guardrails.pii.PIIDetectionGuardrail`` (the seed's PII guardrail); pass
+    ``{"enabled": True, "guardrail": PIIDetectionGuardrail(...)}`` for a tenant-specific pattern
+    set. See ``egpt.memory.security.pii``, which is what actually applies this at the two
+    boundaries. Being per-tenant config is what makes this "driven by tenant policy": two tenants
+    sharing one deployment resolve to different ``MemoryProviderConfig``s (SM-C5), so one can have
+    PII handling on while another has it off, or a different pattern set.
+
+    **Only ``content`` is scanned -- ``entities``/``topics``/``metadata`` (and every other
+    structured field an event/record carries) are permanently exempt, on both boundaries, at every
+    call site**, not just for the common case (round-1 review, finding on the acceptance-criteria
+    claim above): they are caller-supplied structured data, not free text, and this guardrail's
+    patterns are built for scanning prose. A tenant that writes PII into a topic tag or a metadata
+    value rather than ``content`` will not have it caught by turning this on.
     """
 
     provider: str
@@ -240,6 +323,7 @@ class MemoryProviderConfig:
     graph: Dict[str, Any] = field(default_factory=dict)
     fusion: Dict[str, Any] = field(default_factory=dict)
     rerank: Dict[str, Any] = field(default_factory=dict)
+    pii: Dict[str, Any] = field(default_factory=dict)
     options: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -265,6 +349,7 @@ class MemoryProviderConfig:
 
         self.fusion = _validate_fusion(self.fusion)
         self.rerank = _validate_rerank(self.rerank, self.mode)
+        self.pii = _validate_pii(self.pii)
 
 
 def resolve_substrate(

@@ -101,6 +101,12 @@ from egpt.memory.schemas.episodic import (
     graph_node_id_for,
 )
 from egpt.memory.schemas.semantic import FACT_METADATA_KEYS, SPO_PROVENANCE_KEYS, fact_record
+from egpt.memory.security.pii import (
+    PII_REDACTED_KEY,
+    pii_guardrail_for_config,
+    redact_context_for_read,
+    redact_events_for_writeback,
+)
 
 # The semantic fact store (SM-S1)
 from egpt.memory.semantic import SemanticFactStore
@@ -259,6 +265,11 @@ __all__ = [
     "build_memory_provider_for",
     "register_provider",
     "registered_providers",
+    # PII containment at the write-back/read-inject boundaries (SM-X5 #141)
+    "PII_REDACTED_KEY",
+    "pii_guardrail_for_config",
+    "redact_context_for_read",
+    "redact_events_for_writeback",
     # The episode representation (SM-E1)
     "EPISODE_KEYS",
     "PROVENANCE_KEYS",
