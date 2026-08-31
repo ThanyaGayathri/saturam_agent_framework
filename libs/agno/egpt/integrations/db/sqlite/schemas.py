@@ -39,8 +39,7 @@ USER_MEMORY_TABLE_SCHEMA = {
     "memory": {"type": JSON, "nullable": False},
     # The tenant this memory belongs to (SM-C3 #91). Nullable and un-backfilled: rows written
     # before multi-tenancy mean "unscoped", which is what makes the migration reversible.
-    # Nothing filters on it yet -- MemoryManager still partitions by user_id alone, and the
-    # read/write path is aicoe-tracker#175.
+    # Filtered and stamped by every memory method here (aicoe-tracker#175).
     "tenant_id": {"type": String, "nullable": True, "index": True},
     "input": {"type": String, "nullable": True},
     "agent_id": {"type": String, "nullable": True},

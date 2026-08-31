@@ -8,6 +8,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from egpt.db.base import AsyncBaseDb, BaseDb
+from egpt.db.component_scope import TenantScopeRequiredError
 from egpt.db.schemas import UserMemory
 from egpt.memory.strategies import MemoryOptimizationStrategy
 from egpt.memory.strategies.types import (
@@ -33,6 +34,23 @@ from egpt.utils.string import parse_response_model_str
 
 if TYPE_CHECKING:
     from egpt.metrics import RunMetrics
+
+
+def _tenant_kwargs(tenant_id: Optional[str]) -> Dict[str, Any]:
+    """``{"tenant_id": tenant_id}`` when set, else empty (aicoe-tracker#175).
+
+    Spread into a downstream call (``**_tenant_kwargs(tenant_id)``) so a caller who never named a
+    tenant reaches a collaborator -- db, duck-typed manager, or a test's mocked method -- with
+    exactly the call it always got. Passing ``tenant_id=None`` explicitly instead would be
+    functionally identical to every real callee (the parameter defaults to ``None`` everywhere it
+    is threaded), but changes what a mock's call-args assertion sees.
+
+    Typed ``Dict[str, Any]`` rather than ``Dict[str, str]``: mypy checks a ``**dict`` spread
+    against *every* keyword-only parameter the callee has, not just the one key this dict ever
+    carries, so a narrower value type spuriously conflicts with a sibling keyword-only parameter
+    of a different type (e.g. ``deserialize: bool``) on the same call.
+    """
+    return {"tenant_id": tenant_id} if tenant_id is not None else {}
 
 
 class MemorySearchResponse(BaseModel):
@@ -130,13 +148,16 @@ class MemoryManager:
             raise ValueError("Could not resolve the default model.")
         return self.model
 
-    def read_from_db(self, user_id: Optional[str] = None):
+    def read_from_db(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None):
         if self.db:
+            # tenant_id is passed only when set, so a db/duck-typed collaborator that predates
+            # this parameter (aicoe-tracker#175) is called exactly as it always was.
+            kwargs = _tenant_kwargs(tenant_id)
             # If no user_id is provided, read all memories
             if user_id is None:
-                all_memories: List[UserMemory] = self.db.get_user_memories()  # type: ignore
+                all_memories: List[UserMemory] = self.db.get_user_memories(**kwargs)  # type: ignore
             else:
-                all_memories = self.db.get_user_memories(user_id=user_id)  # type: ignore
+                all_memories = self.db.get_user_memories(user_id=user_id, **kwargs)  # type: ignore
 
             memories: Dict[str, List[UserMemory]] = {}
             for memory in all_memories:
@@ -146,22 +167,27 @@ class MemoryManager:
             return memories
         return None
 
-    async def aread_from_db(self, user_id: Optional[str] = None):
+    async def aread_from_db(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None):
         if self.db:
+            kwargs = _tenant_kwargs(tenant_id)
             if isinstance(self.db, AsyncBaseDb):
                 # If no user_id is provided, read all memories
                 if user_id is None:
-                    all_memories: List[UserMemory] = await self.db.get_user_memories()  # type: ignore
+                    all_memories: List[UserMemory] = await self.db.get_user_memories(**kwargs)  # type: ignore
                 else:
-                    all_memories = await self.db.get_user_memories(user_id=user_id)  # type: ignore
+                    all_memories = await self.db.get_user_memories(user_id=user_id, **kwargs)  # type: ignore
             else:
                 # Off the loop. A synchronous driver blocks for the whole round trip, and on the
                 # async lane that stalls every other task in the process -- which is the failure an
                 # async variant exists to prevent, and the one a caller cannot see in the result.
                 if user_id is None:
-                    all_memories = await asyncio.to_thread(self.db.get_user_memories)  # type: ignore
+                    all_memories = await asyncio.to_thread(self.db.get_user_memories, **kwargs)  # type: ignore
                 else:
-                    all_memories = await asyncio.to_thread(self.db.get_user_memories, user_id=user_id)  # type: ignore
+                    all_memories = await asyncio.to_thread(
+                        self.db.get_user_memories,  # type: ignore[arg-type]
+                        user_id=user_id,
+                        **kwargs,
+                    )
 
             memories: Dict[str, List[UserMemory]] = {}
             for memory in all_memories:
@@ -182,13 +208,15 @@ class MemoryManager:
         self.set_log_level()
 
     # -*- Public Functions
-    def get_user_memories(self, user_id: Optional[str] = None) -> Optional[List[UserMemory]]:
+    def get_user_memories(
+        self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> Optional[List[UserMemory]]:
         """Get the user memories for a given user id"""
         if self.db:
             if user_id is None:
                 user_id = "default"
             # Refresh from the Db
-            memories = self.read_from_db(user_id=user_id)
+            memories = self.read_from_db(user_id=user_id, **_tenant_kwargs(tenant_id))
             if memories is None:
                 return []
             return memories.get(user_id, [])
@@ -196,13 +224,15 @@ class MemoryManager:
             log_warning("Memory Db not provided.")
             return []
 
-    async def aget_user_memories(self, user_id: Optional[str] = None) -> Optional[List[UserMemory]]:
+    async def aget_user_memories(
+        self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> Optional[List[UserMemory]]:
         """Get the user memories for a given user id"""
         if self.db:
             if user_id is None:
                 user_id = "default"
             # Refresh from the Db
-            memories = await self.aread_from_db(user_id=user_id)
+            memories = await self.aread_from_db(user_id=user_id, **_tenant_kwargs(tenant_id))
             if memories is None:
                 return []
             return memories.get(user_id, [])
@@ -210,13 +240,15 @@ class MemoryManager:
             log_warning("Memory Db not provided.")
             return []
 
-    def get_user_memory(self, memory_id: str, user_id: Optional[str] = None) -> Optional[UserMemory]:
+    def get_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> Optional[UserMemory]:
         """Get the user memory for a given user id"""
         if self.db:
             if user_id is None:
                 user_id = "default"
             # Refresh from the DB
-            memories = self.read_from_db(user_id=user_id)
+            memories = self.read_from_db(user_id=user_id, **_tenant_kwargs(tenant_id))
             if memories is None:
                 return None
             memories_for_user = memories.get(user_id, [])
@@ -232,17 +264,23 @@ class MemoryManager:
         self,
         memory: UserMemory,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[str]:
         """Add a user memory for a given user id
         Args:
             memory (UserMemory): The memory to add
             user_id (Optional[str]): The user id to add the memory to. If not provided, the memory is added to the "default" user.
+            tenant_id (Optional[str]): Tenant to stamp the memory with (aicoe-tracker#175).
+                Defaults to unscoped -- falls back to whatever ``memory.tenant_id`` already
+                carries. Only honoured by backends that implement tenant-scoped memory access
+                (``egpt/db/memory_scope.py``); passed through as-is to every other backend.
         Returns:
             str: The id of the memory, or None if it was not stored.
         """
         if self.db:
-            self._stamp_user_memory(memory=memory, user_id=user_id)
-            if not self._upsert_db_memory(memory=memory):
+            self._stamp_user_memory(memory=memory, user_id=user_id, **_tenant_kwargs(tenant_id))
+            if not self._upsert_db_memory(memory=memory, **_tenant_kwargs(tenant_id)):
                 return None
             return memory.memory_id
 
@@ -254,6 +292,8 @@ class MemoryManager:
         self,
         memory: UserMemory,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[str]:
         """Add a user memory for a given user id (async).
 
@@ -263,12 +303,14 @@ class MemoryManager:
         Args:
             memory (UserMemory): The memory to add
             user_id (Optional[str]): The user id to add the memory to. If not provided, the memory is added to the "default" user.
+            tenant_id (Optional[str]): Tenant to stamp the memory with (aicoe-tracker#175). See
+                :meth:`add_user_memory`.
         Returns:
             str: The id of the memory, or None if it was not stored.
         """
         if self.db:
-            self._stamp_user_memory(memory=memory, user_id=user_id)
-            if not await self._aupsert_db_memory(memory=memory):
+            self._stamp_user_memory(memory=memory, user_id=user_id, **_tenant_kwargs(tenant_id))
+            if not await self._aupsert_db_memory(memory=memory, **_tenant_kwargs(tenant_id)):
                 return None
             return memory.memory_id
 
@@ -277,15 +319,22 @@ class MemoryManager:
             return None
 
     @staticmethod
-    def _stamp_user_memory(memory: UserMemory, user_id: Optional[str] = None) -> None:
+    def _stamp_user_memory(memory: UserMemory, user_id: Optional[str] = None, tenant_id: Optional[str] = None) -> None:
         """Fill in the identity and timestamp a stored memory needs, **in place**.
 
         Returns nothing, because returning the instance it mutated reads as a builder and invites
         `stamped = _stamp(...)` beside a caller still holding the original.
+
+        ``tenant_id`` is stamped only when given (aicoe-tracker#175); omitted, ``memory.tenant_id``
+        is left exactly as the caller constructed it -- unlike ``user_id``, which always resolves
+        to ``"default"``, because a blank tenant is not a legitimate partition the way a
+        single-tenant deployment's implicit user is.
         """
         if memory.memory_id is None:
             memory.memory_id = str(uuid4())
         memory.user_id = user_id if user_id is not None else "default"
+        if tenant_id is not None:
+            memory.tenant_id = tenant_id
         if not memory.updated_at:
             memory.updated_at = now_epoch_s()
 
@@ -294,12 +343,16 @@ class MemoryManager:
         memory_id: str,
         memory: UserMemory,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[str]:
         """Replace a user memory for a given user id
         Args:
             memory_id (str): The id of the memory to replace
             memory (UserMemory): The memory to add
             user_id (Optional[str]): The user id to add the memory to. If not provided, the memory is added to the "default" user.
+            tenant_id (Optional[str]): Tenant to stamp the memory with (aicoe-tracker#175). See
+                :meth:`add_user_memory`.
         Returns:
             str: The id of the memory
         """
@@ -312,8 +365,10 @@ class MemoryManager:
 
             memory.memory_id = memory_id
             memory.user_id = user_id
+            if tenant_id is not None:
+                memory.tenant_id = tenant_id
 
-            if not self._upsert_db_memory(memory=memory):
+            if not self._upsert_db_memory(memory=memory, **_tenant_kwargs(tenant_id)):
                 return None
 
             return memory.memory_id
@@ -321,35 +376,48 @@ class MemoryManager:
             log_warning("Memory Db not provided.")
             return None
 
-    def clear(self) -> None:
-        """Clears the memory."""
+    def clear(self, *, tenant_id: Optional[str] = None) -> None:
+        """Clears the memory.
+
+        Args:
+            tenant_id (Optional[str]): Tenant to scope the clear to (aicoe-tracker#175). Defaults
+                to unscoped, which clears every tenant's memories on a backend that implements
+                tenant-scoped memory access.
+        """
         if self.db:
-            self.db.clear_memories()
+            kwargs = _tenant_kwargs(tenant_id)
+            self.db.clear_memories(**kwargs)
 
     def delete_user_memory(
         self,
         memory_id: str,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> None:
         """Delete a user memory for a given user id
         Args:
             memory_id (str): The id of the memory to delete
             user_id (Optional[str]): The user id to delete the memory from. If not provided, the memory is deleted from the "default" user.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175). Defaults
+                to unscoped.
         """
         if user_id is None:
             user_id = "default"
 
         if self.db:
-            self._delete_db_memory(memory_id=memory_id, user_id=user_id)
+            self._delete_db_memory(memory_id=memory_id, user_id=user_id, **_tenant_kwargs(tenant_id))
         else:
             log_warning("Memory DB not provided.")
             return None
 
-    def clear_user_memories(self, user_id: Optional[str] = None) -> None:
+    def clear_user_memories(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> None:
         """Clear all memories for a specific user.
 
         Args:
             user_id (Optional[str]): The user id to clear memories for. If not provided, clears memories for the "default" user.
+            tenant_id (Optional[str]): Tenant to scope the clear to (aicoe-tracker#175). Defaults
+                to unscoped.
         """
         if user_id is None:
             log_warning("Using default user id.")
@@ -367,7 +435,7 @@ class MemoryManager:
         # TODO: This is inefficient - we fetch all memories just to get their IDs.
         # Extend delete_user_memories() to accept just user_id and delete all memories
         # for that user directly without requiring a list of memory_ids.
-        memories = self.get_user_memories(user_id=user_id)
+        memories = self.get_user_memories(user_id=user_id, **_tenant_kwargs(tenant_id))
         if not memories:
             log_debug(f"No memories found for user {user_id}")
             return
@@ -377,14 +445,17 @@ class MemoryManager:
 
         if memory_ids:
             # Delete all memories in a single batch operation
-            self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
+            kwargs = _tenant_kwargs(tenant_id)
+            self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id, **kwargs)
             log_debug(f"Cleared {len(memory_ids)} memories for user {user_id}")
 
-    async def aclear_user_memories(self, user_id: Optional[str] = None) -> None:
+    async def aclear_user_memories(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> None:
         """Clear all memories for a specific user (async).
 
         Args:
             user_id (Optional[str]): The user id to clear memories for. If not provided, clears memories for the "default" user.
+            tenant_id (Optional[str]): Tenant to scope the clear to (aicoe-tracker#175). Defaults
+                to unscoped.
         """
         if user_id is None:
             user_id = "default"
@@ -394,9 +465,9 @@ class MemoryManager:
             return
 
         if isinstance(self.db, AsyncBaseDb):
-            memories = await self.aget_user_memories(user_id=user_id)
+            memories = await self.aget_user_memories(user_id=user_id, **_tenant_kwargs(tenant_id))
         else:
-            memories = self.get_user_memories(user_id=user_id)
+            memories = self.get_user_memories(user_id=user_id, **_tenant_kwargs(tenant_id))
 
         if not memories:
             log_debug(f"No memories found for user {user_id}")
@@ -407,10 +478,11 @@ class MemoryManager:
 
         if memory_ids:
             # Delete all memories in a single batch operation
+            kwargs = _tenant_kwargs(tenant_id)
             if isinstance(self.db, AsyncBaseDb):
-                await self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
+                await self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id, **kwargs)
             else:
-                self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id)
+                self.db.delete_user_memories(memory_ids=memory_ids, user_id=user_id, **kwargs)
             log_debug(f"Cleared {len(memory_ids)} memories for user {user_id}")
 
     # -*- Agent Functions
@@ -607,7 +679,7 @@ class MemoryManager:
         return response
 
     # -*- Memory Db Functions
-    def _upsert_db_memory(self, memory: UserMemory) -> bool:
+    def _upsert_db_memory(self, memory: UserMemory, tenant_id: Optional[str] = None) -> bool:
         """Write one memory to the database. **True only if the row landed.**
 
         The failure is still swallowed and logged rather than raised, because the tool surface and
@@ -615,34 +687,39 @@ class MemoryManager:
         What changed is that the outcome is now *reported*: it used to return a status string
         nobody read, so `add_user_memory` handed back an id for a row that was never written and
         every caller -- `SeedMemoryProvider` included -- saw a successful write.
+
+        ``tenant_id`` is passed to the db only when set (aicoe-tracker#175), so a db predating the
+        parameter is called exactly as it always was.
         """
         try:
             if not self.db:
                 raise ValueError("Memory db not initialized")
-            self.db.upsert_user_memory(memory=memory)
+            kwargs = _tenant_kwargs(tenant_id)
+            self.db.upsert_user_memory(memory=memory, **kwargs)
             return True
         except Exception as e:
             log_warning(f"Error storing memory in db: {str(e)}")
             return False
 
-    async def _aupsert_db_memory(self, memory: UserMemory) -> bool:
+    async def _aupsert_db_memory(self, memory: UserMemory, tenant_id: Optional[str] = None) -> bool:
         """Async variant of `_upsert_db_memory`, awaiting an async db and calling a sync one."""
         try:
             if not self.db:
                 raise ValueError("Memory db not initialized")
+            kwargs = _tenant_kwargs(tenant_id)
             if isinstance(self.db, AsyncBaseDb):
-                await self.db.upsert_user_memory(memory=memory)
+                await self.db.upsert_user_memory(memory=memory, **kwargs)
             else:
                 # Off the loop, for the reason `aread_from_db` states: the seed bridge used to wrap
                 # this whole path in `asyncio.to_thread`, and awaiting the async verbs instead of
                 # the thread hop must not hand a synchronous driver the event loop.
-                await asyncio.to_thread(self.db.upsert_user_memory, memory=memory)
+                await asyncio.to_thread(self.db.upsert_user_memory, memory=memory, **kwargs)
             return True
         except Exception as e:
             log_warning(f"Error storing memory in db: {str(e)}")
             return False
 
-    def _delete_db_memory(self, memory_id: str, user_id: Optional[str] = None) -> str:
+    def _delete_db_memory(self, memory_id: str, user_id: Optional[str] = None, tenant_id: Optional[str] = None) -> str:
         """Use this function to delete a memory from the database."""
         try:
             if not self.db:
@@ -651,7 +728,8 @@ class MemoryManager:
             if user_id is None:
                 user_id = "default"
 
-            self.db.delete_user_memory(memory_id=memory_id, user_id=user_id)
+            kwargs = _tenant_kwargs(tenant_id)
+            self.db.delete_user_memory(memory_id=memory_id, user_id=user_id, **kwargs)
             return "Memory deleted successfully"
         except Exception as e:
             log_warning(f"Error deleting memory in db: {str(e)}")
@@ -664,6 +742,8 @@ class MemoryManager:
         limit: Optional[int] = None,
         retrieval_method: Optional[Literal["last_n", "first_n", "agentic"]] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[UserMemory]:
         """Search through user memories using the specified retrieval method.
 
@@ -675,6 +755,7 @@ class MemoryManager:
                 - "first_n": Return the oldest memories
                 - "agentic": Return memories most similar to the query, but using an agentic approach
             user_id: The user to search for. Optional.
+            tenant_id: Tenant to scope the search to (aicoe-tracker#175). Defaults to unscoped.
 
         Returns:
             A list of UserMemory objects matching the search criteria.
@@ -685,7 +766,7 @@ class MemoryManager:
 
         self.set_log_level()
 
-        memories = self.read_from_db(user_id=user_id)
+        memories = self.read_from_db(user_id=user_id, **_tenant_kwargs(tenant_id))
         if memories is None:
             memories = {}
 
@@ -721,6 +802,8 @@ class MemoryManager:
         limit: Optional[int] = None,
         retrieval_method: Optional[Literal["last_n", "first_n", "agentic"]] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[UserMemory]:
         """Search through user memories using the specified retrieval method (async).
 
@@ -736,6 +819,7 @@ class MemoryManager:
                 - "first_n": Return the oldest memories
                 - "agentic": Return memories most similar to the query, but using an agentic approach
             user_id: The user to search for. Optional.
+            tenant_id: Tenant to scope the search to (aicoe-tracker#175). Defaults to unscoped.
 
         Returns:
             A list of UserMemory objects matching the search criteria.
@@ -746,7 +830,7 @@ class MemoryManager:
 
         self.set_log_level()
 
-        memories = await self.aread_from_db(user_id=user_id)
+        memories = await self.aread_from_db(user_id=user_id, **_tenant_kwargs(tenant_id))
         if not memories:
             return []
 
@@ -979,6 +1063,8 @@ class MemoryManager:
             MemoryOptimizationStrategyType, MemoryOptimizationStrategy
         ] = MemoryOptimizationStrategyType.SUMMARIZE,
         apply: bool = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[UserMemory]:
         """Optimize user memories using the specified strategy.
 
@@ -988,6 +1074,8 @@ class MemoryManager:
                 - Enum: MemoryOptimizationStrategyType.SUMMARIZE
                 - Instance: Custom MemoryOptimizationStrategy instance
             apply: If True, automatically replace memories in database.
+            tenant_id: Tenant to scope the optimization to (aicoe-tracker#175). Defaults to
+                unscoped.
 
         Returns:
             List of optimized UserMemory objects.
@@ -1001,7 +1089,7 @@ class MemoryManager:
             )
 
         # Get user memories
-        memories = self.get_user_memories(user_id=user_id)
+        memories = self.get_user_memories(user_id=user_id, **_tenant_kwargs(tenant_id))
         if not memories:
             log_debug("No memories to optimize")
             return []
@@ -1026,9 +1114,10 @@ class MemoryManager:
                 return optimized_memories
 
             # Clear all existing memories for the user
-            self.clear_user_memories(user_id=user_id)
+            self.clear_user_memories(user_id=user_id, **_tenant_kwargs(tenant_id))
 
             # Add all optimized memories
+            db_kwargs = _tenant_kwargs(tenant_id)
             for opt_mem in optimized_memories:
                 # Ensure memory has an ID (generate if needed for new memories)
                 if not opt_mem.memory_id:
@@ -1036,7 +1125,7 @@ class MemoryManager:
 
                     opt_mem.memory_id = str(uuid4())
 
-                self.db.upsert_user_memory(memory=opt_mem)
+                self.db.upsert_user_memory(memory=opt_mem, **db_kwargs)
 
         optimized_tokens = strategy_instance.count_tokens(optimized_memories)
         log_debug(f"Optimization complete. New token count: {optimized_tokens}")
@@ -1050,6 +1139,8 @@ class MemoryManager:
             MemoryOptimizationStrategyType, MemoryOptimizationStrategy
         ] = MemoryOptimizationStrategyType.SUMMARIZE,
         apply: bool = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[UserMemory]:
         """Async version of optimize_memories.
 
@@ -1059,6 +1150,8 @@ class MemoryManager:
                 - Enum: MemoryOptimizationStrategyType.SUMMARIZE
                 - Instance: Custom MemoryOptimizationStrategy instance
             apply: If True, automatically replace memories in database.
+            tenant_id: Tenant to scope the optimization to (aicoe-tracker#175). Defaults to
+                unscoped.
 
         Returns:
             List of optimized UserMemory objects.
@@ -1068,9 +1161,9 @@ class MemoryManager:
 
         # Get user memories - handle both sync and async DBs
         if isinstance(self.db, AsyncBaseDb):
-            memories = await self.aget_user_memories(user_id=user_id)
+            memories = await self.aget_user_memories(user_id=user_id, **_tenant_kwargs(tenant_id))
         else:
-            memories = self.get_user_memories(user_id=user_id)
+            memories = self.get_user_memories(user_id=user_id, **_tenant_kwargs(tenant_id))
 
         if not memories:
             log_debug("No memories to optimize")
@@ -1096,9 +1189,10 @@ class MemoryManager:
                 return optimized_memories
 
             # Clear all existing memories for the user
-            await self.aclear_user_memories(user_id=user_id)
+            await self.aclear_user_memories(user_id=user_id, **_tenant_kwargs(tenant_id))
 
             # Add all optimized memories
+            db_kwargs = _tenant_kwargs(tenant_id)
             for opt_mem in optimized_memories:
                 # Ensure memory has an ID (generate if needed for new memories)
                 if not opt_mem.memory_id:
@@ -1107,9 +1201,9 @@ class MemoryManager:
                     opt_mem.memory_id = str(uuid4())
 
                 if isinstance(self.db, AsyncBaseDb):
-                    await self.db.upsert_user_memory(memory=opt_mem)
+                    await self.db.upsert_user_memory(memory=opt_mem, **db_kwargs)
                 elif isinstance(self.db, BaseDb):
-                    self.db.upsert_user_memory(memory=opt_mem)
+                    self.db.upsert_user_memory(memory=opt_mem, **db_kwargs)
 
         optimized_tokens = strategy_instance.count_tokens(optimized_memories)
         log_debug(f"Memory optimization complete. New token count: {optimized_tokens}")
@@ -1537,6 +1631,17 @@ class MemoryManager:
                 )
                 log_debug(f"Memory added: {memory_id}")
                 return "Memory added successfully"
+            except TenantScopeRequiredError as e:
+                # require_memory_tenant_id=True refusing an unscoped write is a deployment
+                # misconfiguration, not a transient storage error, so it's logged distinctly
+                # from the generic except below rather than folded into "Error adding memory"
+                # (aicoe-tracker#175 round-1 review, finding #2). Not re-raised: this closure
+                # has no way to supply a tenant_id (aicoe-tracker#175 round-2 review) -- nothing
+                # threads one through create_user_memories/run_memory_task/_get_db_tools yet --
+                # so propagating would crash the entire agent run on every agentic memory call
+                # once the flag is on, which is worse than the pre-existing gap it replaces.
+                log_warning(f"Refusing to add memory: tenant scope required but not available: {str(e)}")
+                return "Error adding memory: tenant scope required"
             except Exception as e:
                 log_warning(f"Error storing memory in db: {str(e)}")
                 return "Error adding memory"
@@ -1569,6 +1674,12 @@ class MemoryManager:
                 )
                 log_debug("Memory updated")
                 return "Memory updated successfully"
+            except TenantScopeRequiredError as e:
+                # See the matching comment in add_memory above: not re-raised because this
+                # closure has no way to supply a tenant_id yet (aicoe-tracker#175 round-2
+                # review) -- propagating would crash the entire agent run.
+                log_warning(f"Refusing to update memory: tenant scope required but not available: {str(e)}")
+                return "Error updating memory: tenant scope required"
             except Exception as e:
                 log_warning(f"Error storing memory in db: {str(e)}")
                 return "Error adding memory"
@@ -1584,6 +1695,12 @@ class MemoryManager:
                 db.delete_user_memory(memory_id=memory_id, user_id=user_id)
                 log_debug("Memory deleted")
                 return "Memory deleted successfully"
+            except TenantScopeRequiredError as e:
+                # See the matching comment in add_memory above: not re-raised because this
+                # closure has no way to supply a tenant_id yet (aicoe-tracker#175 round-2
+                # review) -- propagating would crash the entire agent run.
+                log_warning(f"Refusing to delete memory: tenant scope required but not available: {str(e)}")
+                return "Error deleting memory: tenant scope required"
             except Exception as e:
                 log_warning(f"Error deleting memory in db: {str(e)}")
                 return "Error deleting memory"
@@ -1594,7 +1711,17 @@ class MemoryManager:
             Returns:
                 str: A message indicating if the memory was cleared successfully or not.
             """
-            db.clear_memories()
+            try:
+                db.clear_memories()
+            except TenantScopeRequiredError as e:
+                # Same contract as the other three agentic closures above: this one has no way to
+                # supply a tenant_id either, so propagating would crash the agent run on every
+                # agentic clear once require_memory_tenant_id is on.
+                log_warning(f"Refusing to clear memories: tenant scope required but not available: {str(e)}")
+                return "Error clearing memory: tenant scope required"
+            except Exception as e:
+                log_warning(f"Error clearing memories in db: {str(e)}")
+                return "Error clearing memory"
             log_debug("Memory cleared")
             return "Memory cleared successfully"
 
@@ -1661,6 +1788,12 @@ class MemoryManager:
                     )
                 log_debug(f"Memory added: {memory_id}")
                 return "Memory added successfully"
+            except TenantScopeRequiredError as e:
+                # See the matching comment in the sync add_memory above: not re-raised because
+                # this closure has no way to supply a tenant_id yet (aicoe-tracker#175 round-2
+                # review) -- propagating would crash the entire agent run.
+                log_warning(f"Refusing to add memory: tenant scope required but not available: {str(e)}")
+                return "Error adding memory: tenant scope required"
             except Exception as e:
                 log_warning(f"Error storing memory in db: {str(e)}")
                 return "Error adding memory"
@@ -1706,6 +1839,12 @@ class MemoryManager:
                     )
                 log_debug("Memory updated")
                 return "Memory updated successfully"
+            except TenantScopeRequiredError as e:
+                # See the matching comment in add_memory above: not re-raised because this
+                # closure has no way to supply a tenant_id yet (aicoe-tracker#175 round-2
+                # review) -- propagating would crash the entire agent run.
+                log_warning(f"Refusing to update memory: tenant scope required but not available: {str(e)}")
+                return "Error updating memory: tenant scope required"
             except Exception as e:
                 log_warning(f"Error storing memory in db: {str(e)}")
                 return "Error adding memory"
@@ -1724,6 +1863,12 @@ class MemoryManager:
                     db.delete_user_memory(memory_id=memory_id, user_id=user_id)
                 log_debug("Memory deleted")
                 return "Memory deleted successfully"
+            except TenantScopeRequiredError as e:
+                # See the matching comment in add_memory above: not re-raised because this
+                # closure has no way to supply a tenant_id yet (aicoe-tracker#175 round-2
+                # review) -- propagating would crash the entire agent run.
+                log_warning(f"Refusing to delete memory: tenant scope required but not available: {str(e)}")
+                return "Error deleting memory: tenant scope required"
             except Exception as e:
                 log_warning(f"Error deleting memory in db: {str(e)}")
                 return "Error deleting memory"
@@ -1734,10 +1879,18 @@ class MemoryManager:
             Returns:
                 str: A message indicating if the memory was cleared successfully or not.
             """
-            if isinstance(db, AsyncBaseDb):
-                await db.clear_memories()
-            else:
-                db.clear_memories()
+            try:
+                if isinstance(db, AsyncBaseDb):
+                    await db.clear_memories()
+                else:
+                    db.clear_memories()
+            except TenantScopeRequiredError as e:
+                # Async twin of the sync clear_memory guard above, kept in step.
+                log_warning(f"Refusing to clear memories: tenant scope required but not available: {str(e)}")
+                return "Error clearing memory: tenant scope required"
+            except Exception as e:
+                log_warning(f"Error clearing memories in db: {str(e)}")
+                return "Error clearing memory"
             log_debug("Memory cleared")
             return "Memory cleared successfully"
 

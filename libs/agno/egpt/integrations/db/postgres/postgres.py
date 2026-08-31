@@ -105,6 +105,7 @@ class PostgresDb(BaseDb):
         create_schema: bool = True,
         require_tenant_id: bool = False,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a PostgreSQL database.
@@ -148,6 +149,10 @@ class PostgresDb(BaseDb):
                 ``require_tenant_id`` (aicoe-tracker#197) -- a deliberately separate flag, not
                 auto-enabled by ``EgptOS``. See ``egpt/db/session_scope.py`` for why.
                 ``EGPT_REQUIRE_SESSION_TENANT_ID`` sets it for dbs built outside EgptOS.
+            require_memory_tenant_id (bool): The memory counterpart of ``require_tenant_id``
+                (aicoe-tracker#175) -- another deliberately separate, not auto-enabled flag. See
+                ``egpt/db/memory_scope.py`` for why. ``EGPT_REQUIRE_MEMORY_TENANT_ID`` sets it for
+                dbs built outside EgptOS.
 
         Raises:
             ValueError: If neither db_url nor db_engine is provided.
@@ -178,6 +183,7 @@ class PostgresDb(BaseDb):
             table_prefix=table_prefix,
             require_tenant_id=require_tenant_id,
             require_session_tenant_id=require_session_tenant_id,
+            require_memory_tenant_id=require_memory_tenant_id,
             session_table=session_table,
             memory_table=memory_table,
             metrics_table=metrics_table,
@@ -229,7 +235,8 @@ class PostgresDb(BaseDb):
         (EGPT-2.7): ``EgptOS`` enables it by mutating the registered instance, and
         ``egpt.db.utils.resolve_db_from_config`` clones on the component rehydration path, so a
         clone that dropped it would remove the guard exactly where components get written.
-        ``require_session_tenant_id`` (aicoe-tracker#197) is carried over for the same reason.
+        ``require_session_tenant_id`` (aicoe-tracker#197) and ``require_memory_tenant_id``
+        (aicoe-tracker#175) are carried over for the same reason.
         """
         return PostgresDb(
             db_url=self.db_url,
@@ -239,6 +246,7 @@ class PostgresDb(BaseDb):
             id=self.id,
             require_tenant_id=self.require_tenant_id,
             require_session_tenant_id=self.require_session_tenant_id,
+            require_memory_tenant_id=self.require_memory_tenant_id,
             **overrides,
         )
 
@@ -270,6 +278,7 @@ class PostgresDb(BaseDb):
             id=data.get("id"),
             require_tenant_id=bool(data.get("require_tenant_id", False)),
             require_session_tenant_id=bool(data.get("require_session_tenant_id", False)),
+            require_memory_tenant_id=bool(data.get("require_memory_tenant_id", False)),
         )
 
     def close(self) -> None:
@@ -1569,12 +1578,14 @@ class PostgresDb(BaseDb):
             return []
 
     # -- Memory methods --
-    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None):
+    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None):
         """Delete a user memory from the database.
 
         Args:
             memory_id (str): The ID of the memory to delete.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             bool: True if deletion was successful, False otherwise.
@@ -1582,6 +1593,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "delete_user_memory")
         try:
             table = self._get_table(table_type="memories")
             if table is None:
@@ -1592,6 +1604,8 @@ class PostgresDb(BaseDb):
 
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
 
                 result = sess.execute(delete_stmt)
 
@@ -1605,16 +1619,21 @@ class PostgresDb(BaseDb):
             log_error(f"Error deleting user memory: {str(e)}")
             raise e
 
-    def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete user memories from the database.
 
         Args:
             memory_ids (List[str]): The IDs of the memories to delete.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "delete_user_memories")
         try:
             table = self._get_table(table_type="memories")
             if table is None:
@@ -1625,6 +1644,8 @@ class PostgresDb(BaseDb):
 
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
 
                 result = sess.execute(delete_stmt)
 
@@ -1637,15 +1658,18 @@ class PostgresDb(BaseDb):
             log_error(f"Error deleting user memories: {str(e)}")
             raise e
 
-    def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    def get_all_memory_topics(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> List[str]:
         """Get all memory topics from the database.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             List[str]: List of memory topics.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_all_memory_topics")
         try:
             table = self._get_table(table_type="memories")
             if table is None:
@@ -1660,6 +1684,8 @@ class PostgresDb(BaseDb):
                 ]
                 if user_id is not None:
                     conditions.append(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    conditions.append(table.c.tenant_id == tenant_id)
 
                 try:
                     # jsonb_array_elements_text is a set-returning function that must be used with select_from
@@ -1677,6 +1703,8 @@ class PostgresDb(BaseDb):
                     ]
                     if user_id is not None:
                         json_conditions.append(table.c.user_id == user_id)
+                    if tenant_id is not None:
+                        json_conditions.append(table.c.tenant_id == tenant_id)
                     stmt = select(func.json_array_elements_text(table.c.topics).label("topic"))
                     stmt = stmt.select_from(table)
                     stmt = stmt.where(and_(*json_conditions))
@@ -1691,7 +1719,12 @@ class PostgresDb(BaseDb):
             return []
 
     def get_user_memory(
-        self, memory_id: str, deserialize: Optional[bool] = True, user_id: Optional[str] = None
+        self,
+        memory_id: str,
+        deserialize: Optional[bool] = True,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Get a memory from the database.
 
@@ -1699,6 +1732,8 @@ class PostgresDb(BaseDb):
             memory_id (str): The ID of the memory to get.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#175). Defaults
+                to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Union[UserMemory, Dict[str, Any], None]:
@@ -1708,6 +1743,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memory")
         try:
             table = self._get_table(table_type="memories")
             if table is None:
@@ -1718,6 +1754,8 @@ class PostgresDb(BaseDb):
 
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 result = sess.execute(stmt).fetchone()
                 if not result:
@@ -1745,6 +1783,8 @@ class PostgresDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """Get all memories from the database as UserMemory objects.
 
@@ -1759,6 +1799,8 @@ class PostgresDb(BaseDb):
             sort_by (Optional[str]): The column to sort by.
             sort_order (Optional[str]): The order to sort by.
             deserialize (Optional[bool]): Whether to serialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
 
         Returns:
@@ -1769,6 +1811,7 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memories")
         try:
             table = self._get_table(table_type="memories")
             if table is None:
@@ -1779,6 +1822,8 @@ class PostgresDb(BaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if agent_id is not None:
                     stmt = stmt.where(table.c.agent_id == agent_id)
                 if team_id is not None:
@@ -1816,26 +1861,40 @@ class PostgresDb(BaseDb):
             log_error(f"Exception reading from memory table: {str(e)}")
             raise e
 
-    def clear_memories(self) -> None:
+    def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
+
+        Args:
+            tenant_id (Optional[str]): Tenant to scope the deletion to (aicoe-tracker#175).
+                Defaults to unscoped, which deletes every tenant's memories; refused when the db
+                was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "clear_memories")
         try:
             table = self._get_table(table_type="memories")
             if table is None:
                 return
 
             with self.Session() as sess, sess.begin():
-                sess.execute(table.delete())
+                delete_stmt = table.delete()
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
+                sess.execute(delete_stmt)
 
         except Exception as e:
             log_error(f"Exception deleting all memories: {str(e)}")
             raise e
 
     def get_user_memory_stats(
-        self, limit: Optional[int] = None, page: Optional[int] = None, user_id: Optional[str] = None
+        self,
+        limit: Optional[int] = None,
+        page: Optional[int] = None,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memories stats.
 
@@ -1843,6 +1902,8 @@ class PostgresDb(BaseDb):
             limit (Optional[int]): The maximum number of user stats to return.
             page (Optional[int]): The page number.
             user_id (Optional[str]): User ID for filtering.
+            tenant_id (Optional[str]): Tenant to scope the stats to (aicoe-tracker#175). Defaults
+                to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: A list of dictionaries containing user stats and total count.
@@ -1859,6 +1920,7 @@ class PostgresDb(BaseDb):
             total_count: 1,
         )
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memory_stats")
         try:
             table = self._get_table(table_type="memories")
             if table is None:
@@ -1874,6 +1936,8 @@ class PostgresDb(BaseDb):
                     stmt = stmt.where(table.c.user_id == user_id)
                 else:
                     stmt = stmt.where(table.c.user_id.is_not(None))
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 stmt = stmt.group_by(table.c.user_id)
                 stmt = stmt.order_by(func.max(table.c.updated_at).desc())
 
@@ -1904,13 +1968,18 @@ class PostgresDb(BaseDb):
             raise e
 
     def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Upsert a user memory in the database.
 
         Args:
             memory (UserMemory): The user memory to upsert.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the memory with (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with
+                ``require_memory_tenant_id``. Falls back to ``memory.tenant_id`` when not given,
+                and is only applied on insert; an existing row's tenant is never changed by an
+                update.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -1920,6 +1989,13 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during upsert.
         """
+        # Fall back to memory.tenant_id *before* validating scope: a pinned single-tenant seed
+        # bridge deliberately omits the tenant_id kwarg (SeedMemoryProvider._manager_tenant_kwargs)
+        # since memory.tenant_id is already stamped correctly by _user_memory. Validating the raw
+        # kwarg first would refuse every write in that combination even though the memory object
+        # already carries a valid tenant (aicoe-tracker#175 round-1 review, finding #3).
+        effective_tenant_id = tenant_id if tenant_id is not None else memory.tenant_id
+        effective_tenant_id = self._require_memory_tenant_scope(effective_tenant_id, "upsert_user_memory")
         try:
             table = self._get_table(table_type="memories", create_table_if_not_found=True)
             if table is None:
@@ -1940,6 +2016,7 @@ class PostgresDb(BaseDb):
                     memory=memory.memory,
                     input=sanitized_input,
                     user_id=memory.user_id,
+                    tenant_id=effective_tenant_id,
                     agent_id=memory.agent_id,
                     team_id=memory.team_id,
                     topics=memory.topics,
@@ -1961,6 +2038,7 @@ class PostgresDb(BaseDb):
                         updated_at=current_time,
                         # Preserve created_at on update - don't overwrite existing value
                         created_at=table.c.created_at,
+                        # tenant_id is deliberately absent -- never changed by an update.
                     ),
                 ).returning(table)
 
@@ -1979,7 +2057,12 @@ class PostgresDb(BaseDb):
             raise e
 
     def upsert_memories(
-        self, memories: List[UserMemory], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        memories: List[UserMemory],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk insert or update multiple memories in the database for improved performance.
@@ -1989,6 +2072,10 @@ class PostgresDb(BaseDb):
             deserialize (Optional[bool]): Whether to deserialize the memories. Defaults to True.
             preserve_updated_at (bool): If True, preserve the updated_at from the memory object.
                                        If False (default), set updated_at to current time.
+            tenant_id (Optional[str]): Tenant to stamp every memory with (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with
+                ``require_memory_tenant_id``. Falls back to each memory's own ``tenant_id`` when
+                not given, and is only applied on insert.
 
         Returns:
             List[Union[UserMemory, Dict[str, Any]]]: List of upserted memories
@@ -1996,6 +2083,20 @@ class PostgresDb(BaseDb):
         Raises:
             Exception: If an error occurs during bulk upsert.
         """
+        # Like upsert_user_memory: validate against the effective (fallback-applied) tenant, not
+        # the raw kwarg alone, so a caller relying on each memory's own tenant_id (with no
+        # explicit tenant_id kwarg) isn't refused just because none of them share one shared
+        # value to validate up front (aicoe-tracker#175 round-1 review, finding #3).
+        if tenant_id is not None:
+            tenant_id = self._require_memory_tenant_scope(tenant_id, "upsert_memories")
+        elif memories:
+            # Capture the normalized (fallback-applied, whitespace-stripped) return value back
+            # onto each memory, not just validate it -- upsert_user_memory's single-item path
+            # writes the normalized value, and the bulk_data build below reads memory.tenant_id
+            # directly, so discarding the return here would silently store the raw, un-stripped
+            # value instead (aicoe-tracker#175 round-2 review).
+            for memory in memories:
+                memory.tenant_id = self._require_memory_tenant_scope(memory.tenant_id, "upsert_memories")
         try:
             if not memories:
                 return []
@@ -2025,6 +2126,7 @@ class PostgresDb(BaseDb):
                         "memory": memory.memory,
                         "input": sanitized_input,
                         "user_id": memory.user_id,
+                        "tenant_id": tenant_id if tenant_id is not None else memory.tenant_id,
                         "agent_id": memory.agent_id,
                         "team_id": memory.team_id,
                         "topics": memory.topics,
@@ -2041,7 +2143,9 @@ class PostgresDb(BaseDb):
                 update_columns = {
                     col.name: insert_stmt.excluded[col.name]
                     for col in table.columns
-                    if col.name not in ["memory_id", "created_at"]  # Don't update primary key or created_at
+                    # Don't update the primary key, created_at, or tenant_id -- an existing row's
+                    # tenant is never changed by an upsert, the same rule upsert_user_memory follows.
+                    if col.name not in ["memory_id", "created_at", "tenant_id"]
                 }
                 stmt = insert_stmt.on_conflict_do_update(index_elements=["memory_id"], set_=update_columns).returning(
                     table

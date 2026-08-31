@@ -82,6 +82,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Async interface for interacting with a SQLite database.
@@ -111,6 +112,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             id (Optional[str]): ID of the database.
             require_session_tenant_id (bool): Refuse unscoped session/run access (aicoe-tracker#197).
                 Defaults to unscoped; see ``egpt/db/session_scope.py``.
+            require_memory_tenant_id (bool): Refuse unscoped memory access (aicoe-tracker#175).
+                Defaults to unscoped; see ``egpt/db/memory_scope.py``.
 
         Raises:
             ValueError: If none of the tables are provided.
@@ -155,6 +158,7 @@ class AsyncSqliteDb(AsyncBaseDb):
             auth_tokens_table=auth_tokens_table,
             service_accounts_table=service_accounts_table,
             require_session_tenant_id=require_session_tenant_id,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
 
         _engine: Optional[AsyncEngine] = db_engine
@@ -201,6 +205,7 @@ class AsyncSqliteDb(AsyncBaseDb):
             db_engine=self.db_engine,
             id=self.id,
             require_session_tenant_id=self.require_session_tenant_id,
+            require_memory_tenant_id=self.require_memory_tenant_id,
             **overrides,
         )
 
@@ -1387,12 +1392,16 @@ class AsyncSqliteDb(AsyncBaseDb):
 
     # -- Memory methods --
 
-    async def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None):
+    async def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ):
         """Delete a user memory from the database.
 
         Args:
             memory_id (str): The ID of the memory to delete.
             user_id (Optional[str]): The user ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             bool: True if deletion was successful, False otherwise.
@@ -1400,6 +1409,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "delete_user_memory")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1409,6 +1419,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.memory_id == memory_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
 
                 success = result.rowcount > 0  # type: ignore
@@ -1421,16 +1433,21 @@ class AsyncSqliteDb(AsyncBaseDb):
             log_error(f"Error deleting user memory: {str(e)}")
             raise e
 
-    async def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete user memories from the database.
 
         Args:
             memory_ids (List[str]): The IDs of the memories to delete.
             user_id (Optional[str]): The user ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "delete_user_memories")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1440,6 +1457,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.memory_id.in_(memory_ids))
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
                 if result.rowcount == 0:  # type: ignore
                     log_debug(f"No user memories found with ids: {memory_ids}")
@@ -1448,15 +1467,20 @@ class AsyncSqliteDb(AsyncBaseDb):
             log_error(f"Error deleting user memories: {str(e)}")
             raise e
 
-    async def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    async def get_all_memory_topics(
+        self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> List[str]:
         """Get all memory topics from the database.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             List[str]: List of memory topics.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_all_memory_topics")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1466,6 +1490,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 stmt = select(table.c.topics).where(table.c.topics.is_not(None))
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 rows = (await sess.execute(stmt)).fetchall()
 
                 topics_set: set = set()
@@ -1491,6 +1517,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         memory_id: str,
         deserialize: Optional[bool] = True,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Get a memory from the database.
 
@@ -1498,6 +1526,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             memory_id (str): The ID of the memory to get.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
             user_id (Optional[str]): The user ID to filter by. Defaults to None.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#175). Defaults
+                to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -1507,6 +1537,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memory")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1516,6 +1547,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 stmt = select(table).where(table.c.memory_id == memory_id)
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 result = (await sess.execute(stmt)).fetchone()
                 if result is None:
                     return None
@@ -1542,6 +1575,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """Get all memories from the database as UserMemory objects.
 
@@ -1556,6 +1591,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             sort_by (Optional[str]): The column to sort by.
             sort_order (Optional[str]): The order to sort by.
             deserialize (Optional[bool]): Whether to serialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
 
         Returns:
@@ -1566,6 +1603,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memories")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1577,6 +1615,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if agent_id is not None:
                     stmt = stmt.where(table.c.agent_id == agent_id)
                 if team_id is not None:
@@ -1619,6 +1659,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         limit: Optional[int] = None,
         page: Optional[int] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memories stats.
 
@@ -1626,6 +1668,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             limit (Optional[int]): The maximum number of user stats to return.
             page (Optional[int]): The page number.
             user_id (Optional[str]): User ID for filtering.
+            tenant_id (Optional[str]): Tenant to scope the stats to (aicoe-tracker#175). Defaults
+                to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: A list of dictionaries containing user stats and total count.
@@ -1642,6 +1686,7 @@ class AsyncSqliteDb(AsyncBaseDb):
             total_count: 1,
         )
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memory_stats")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1658,6 +1703,8 @@ class AsyncSqliteDb(AsyncBaseDb):
                     stmt = stmt.where(table.c.user_id == user_id)
                 else:
                     stmt = stmt.where(table.c.user_id.is_not(None))
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 stmt = stmt.group_by(table.c.user_id)
                 stmt = stmt.order_by(func.max(table.c.updated_at).desc())
 
@@ -1688,13 +1735,18 @@ class AsyncSqliteDb(AsyncBaseDb):
             raise e
 
     async def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Upsert a user memory in the database.
 
         Args:
             memory (UserMemory): The user memory to upsert.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the memory with (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with
+                ``require_memory_tenant_id``. Falls back to ``memory.tenant_id`` when not given,
+                and is only applied on insert; an existing row's tenant is never changed by an
+                update.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -1704,6 +1756,13 @@ class AsyncSqliteDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during upsert.
         """
+        # Fall back to memory.tenant_id *before* validating scope: a pinned single-tenant seed
+        # bridge deliberately omits the tenant_id kwarg (SeedMemoryProvider._manager_tenant_kwargs)
+        # since memory.tenant_id is already stamped correctly by _user_memory. Validating the raw
+        # kwarg first would refuse every write in that combination even though the memory object
+        # already carries a valid tenant (aicoe-tracker#175 round-1 review, finding #3).
+        effective_tenant_id = tenant_id if tenant_id is not None else memory.tenant_id
+        effective_tenant_id = self._require_memory_tenant_scope(effective_tenant_id, "upsert_user_memory")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1718,6 +1777,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                 async with sess.begin():
                     stmt = sqlite.insert(table).values(
                         user_id=memory.user_id,
+                        tenant_id=effective_tenant_id,
                         agent_id=memory.agent_id,
                         team_id=memory.team_id,
                         memory_id=memory.memory_id,
@@ -1740,6 +1800,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                             updated_at=current_time,
                             # Preserve created_at on update - don't overwrite existing value
                             created_at=table.c.created_at,
+                            # tenant_id is deliberately absent -- never changed by an update.
                         ),
                     ).returning(table)
 
@@ -1764,6 +1825,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         memories: List[UserMemory],
         deserialize: Optional[bool] = True,
         preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk upsert multiple user memories for improved performance on large datasets.
@@ -1771,6 +1834,10 @@ class AsyncSqliteDb(AsyncBaseDb):
         Args:
             memories (List[UserMemory]): List of memories to upsert.
             deserialize (Optional[bool]): Whether to deserialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp every memory with (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with
+                ``require_memory_tenant_id``. Falls back to each memory's own ``tenant_id`` when
+                not given, and is only applied on insert.
 
         Returns:
             List[Union[UserMemory, Dict[str, Any]]]: List of upserted memories.
@@ -1781,6 +1848,20 @@ class AsyncSqliteDb(AsyncBaseDb):
         if not memories:
             return []
 
+        # Like upsert_user_memory: validate against the effective (fallback-applied) tenant, not
+        # the raw kwarg alone, so a caller relying on each memory's own tenant_id (with no
+        # explicit tenant_id kwarg) isn't refused just because none of them share one shared
+        # value to validate up front (aicoe-tracker#175 round-1 review, finding #3).
+        if tenant_id is not None:
+            tenant_id = self._require_memory_tenant_scope(tenant_id, "upsert_memories")
+        else:
+            # Capture the normalized (fallback-applied, whitespace-stripped) return value back
+            # onto each memory, not just validate it -- upsert_user_memory's single-item path
+            # writes the normalized value, and the bulk_data build below reads memory.tenant_id
+            # directly, so discarding the return here would silently store the raw, un-stripped
+            # value instead (aicoe-tracker#175 round-2 review).
+            for memory in memories:
+                memory.tenant_id = self._require_memory_tenant_scope(memory.tenant_id, "upsert_memories")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1789,7 +1870,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                     result
                     for memory in memories
                     if memory is not None
-                    for result in [await self.upsert_user_memory(memory, deserialize=deserialize)]
+                    for result in [await self.upsert_user_memory(memory, deserialize=deserialize, tenant_id=tenant_id)]
                     if result is not None
                 ]
             # Prepare bulk data
@@ -1806,6 +1887,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                 bulk_data.append(
                     {
                         "user_id": memory.user_id,
+                        "tenant_id": tenant_id if tenant_id is not None else memory.tenant_id,
                         "agent_id": memory.agent_id,
                         "team_id": memory.team_id,
                         "memory_id": memory.memory_id,
@@ -1835,6 +1917,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                         updated_at=stmt.excluded.updated_at,
                         # Preserve created_at on update
                         created_at=table.c.created_at,
+                        # tenant_id is deliberately absent -- never changed by an update.
                     ),
                 )
                 await sess.execute(stmt, bulk_data)
@@ -1861,23 +1944,32 @@ class AsyncSqliteDb(AsyncBaseDb):
                 result
                 for memory in memories
                 if memory is not None
-                for result in [await self.upsert_user_memory(memory, deserialize=deserialize)]
+                for result in [await self.upsert_user_memory(memory, deserialize=deserialize, tenant_id=tenant_id)]
                 if result is not None
             ]
 
-    async def clear_memories(self) -> None:
+    async def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
+
+        Args:
+            tenant_id (Optional[str]): Tenant to scope the deletion to (aicoe-tracker#175).
+                Defaults to unscoped, which deletes every tenant's memories; refused when the db
+                was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "clear_memories")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
                 return
 
             async with self.async_session_factory() as sess, sess.begin():
-                await sess.execute(table.delete())
+                delete_stmt = table.delete()
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
+                await sess.execute(delete_stmt)
 
         except Exception as e:
             from egpt.utils.log import log_warning

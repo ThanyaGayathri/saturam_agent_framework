@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import AsyncBaseDb, SessionType
+from egpt.db.memory_scope import require_unsupported_memory_tenant_scope
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
@@ -162,6 +163,7 @@ class AsyncMongoDb(AsyncBaseDb):
         id: Optional[str] = None,
         server_selection_timeout_ms: Optional[int] = None,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Async interface for interacting with a MongoDB database.
@@ -195,6 +197,10 @@ class AsyncMongoDb(AsyncBaseDb):
             require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
                 does not implement tenant-scoped session enforcement, and construction raises if
                 this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
+            require_memory_tenant_id (bool): Refuse unscoped memory access (aicoe-tracker#175).
+                Defaults to unscoped; this backend does not implement tenant-scoped memory
+                enforcement, so construction raises if this or ``EGPT_REQUIRE_MEMORY_TENANT_ID``
+                resolve to True. See ``egpt/db/memory_scope.py``.
 
         Raises:
             ValueError: If neither db_url nor db_client is provided, or if db_client type is unsupported.
@@ -221,8 +227,10 @@ class AsyncMongoDb(AsyncBaseDb):
             schedules_table=schedules_collection,
             schedule_runs_table=schedule_runs_collection,
             require_session_tenant_id=require_session_tenant_id,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
         require_unsupported_session_tenant_scope("AsyncMongoDb", self.require_session_tenant_id)
+        require_unsupported_memory_tenant_scope("AsyncMongoDb", self.require_memory_tenant_id)
 
         # Detect client type if provided
         if db_client is not None:
@@ -1204,12 +1212,18 @@ class AsyncMongoDb(AsyncBaseDb):
 
     # -- Memory methods --
 
-    async def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None):
+    # tenant_id (aicoe-tracker#175) accepted for signature parity with BaseDb; this backend does
+    # not implement tenant-scoped memory filtering yet.
+
+    async def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ):
         """Delete a user memory from the database.
 
         Args:
             memory_id (str): The ID of the memory to delete.
             user_id (Optional[str]): The ID of the user to verify ownership. If provided, only delete if the memory belongs to this user.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Returns:
             bool: True if the memory was deleted, False otherwise.
@@ -1238,12 +1252,15 @@ class AsyncMongoDb(AsyncBaseDb):
             log_error(f"Error deleting memory: {str(e)}")
             raise e
 
-    async def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete user memories from the database.
 
         Args:
             memory_ids (List[str]): The IDs of the memories to delete.
             user_id (Optional[str]): The ID of the user to verify ownership. If provided, only delete memories that belong to this user.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If there is an error deleting the memories.
@@ -1266,11 +1283,14 @@ class AsyncMongoDb(AsyncBaseDb):
             log_error(f"Error deleting memories: {str(e)}")
             raise e
 
-    async def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    async def get_all_memory_topics(
+        self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> List[str]:
         """Get all memory topics from the database.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Returns:
             List[str]: The topics.
@@ -1295,7 +1315,12 @@ class AsyncMongoDb(AsyncBaseDb):
             raise e
 
     async def get_user_memory(
-        self, memory_id: str, deserialize: Optional[bool] = True, user_id: Optional[str] = None
+        self,
+        memory_id: str,
+        deserialize: Optional[bool] = True,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[UserMemory]:
         """Get a memory from the database.
 
@@ -1303,6 +1328,7 @@ class AsyncMongoDb(AsyncBaseDb):
             memory_id (str): The ID of the memory to get.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
             user_id (Optional[str]): The ID of the user to verify ownership. If provided, only return the memory if it belongs to this user.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Returns:
             Optional[UserMemory]:
@@ -1345,6 +1371,8 @@ class AsyncMongoDb(AsyncBaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """Get all memories from the database as UserMemory objects.
 
@@ -1359,6 +1387,7 @@ class AsyncMongoDb(AsyncBaseDb):
             sort_by (Optional[str]): The field to sort the memories by.
             sort_order (Optional[str]): The order to sort the memories by.
             deserialize (Optional[bool]): Whether to serialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Returns:
             Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
@@ -1418,6 +1447,8 @@ class AsyncMongoDb(AsyncBaseDb):
         limit: Optional[int] = None,
         page: Optional[int] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memories stats.
 
@@ -1425,6 +1456,7 @@ class AsyncMongoDb(AsyncBaseDb):
             limit (Optional[int]): The limit of the memories to get.
             page (Optional[int]): The page number to get.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: A tuple containing the memories stats and the total count.
@@ -1482,13 +1514,14 @@ class AsyncMongoDb(AsyncBaseDb):
             raise e
 
     async def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Upsert a user memory in the database.
 
         Args:
             memory (UserMemory): The memory to upsert.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -1533,7 +1566,12 @@ class AsyncMongoDb(AsyncBaseDb):
             raise e
 
     async def upsert_memories(
-        self, memories: List[UserMemory], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        memories: List[UserMemory],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk upsert multiple user memories for improved performance on large datasets.
@@ -1542,6 +1580,7 @@ class AsyncMongoDb(AsyncBaseDb):
             memories (List[UserMemory]): List of memories to upsert.
             deserialize (Optional[bool]): Whether to deserialize the memories. Defaults to True.
             preserve_updated_at (bool): If True, preserve the updated_at from the memory object.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Returns:
             List[Union[UserMemory, Dict[str, Any]]]: List of upserted memories.
@@ -1625,8 +1664,11 @@ class AsyncMongoDb(AsyncBaseDb):
                 if result is not None
             ]
 
-    async def clear_memories(self) -> None:
+    async def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
+
+        Args:
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb (aicoe-tracker#175); this backend does not filter or stamp by it. Construction refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If an error occurs during deletion.

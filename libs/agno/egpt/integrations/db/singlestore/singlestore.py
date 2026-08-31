@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, SessionType
+from egpt.db.memory_scope import require_unsupported_memory_tenant_scope
 from egpt.db.migrations.manager import MigrationManager
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
@@ -60,6 +61,7 @@ class SingleStoreDb(BaseDb):
         spans_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         create_schema: bool = True,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a SingleStore database.
@@ -83,6 +85,10 @@ class SingleStoreDb(BaseDb):
             versions_table (Optional[str]): Name of the table to store schema versions.
             create_schema (bool): Whether to automatically create the database schema if it doesn't exist.
                 Set to False if schema is managed externally (e.g., via migrations). Defaults to True.
+            require_memory_tenant_id (bool): Refuse unscoped memory access (aicoe-tracker#175).
+                Defaults to unscoped; this backend does not implement tenant-scoped memory
+                enforcement, so construction raises if this or EGPT_REQUIRE_MEMORY_TENANT_ID
+                resolve to True. See egpt/db/memory_scope.py.
         Raises:
             ValueError: If neither db_url nor db_engine is provided.
             ValueError: If none of the tables are provided.
@@ -113,7 +119,9 @@ class SingleStoreDb(BaseDb):
             versions_table=versions_table,
             traces_table=traces_table,
             spans_table=spans_table,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
+        require_unsupported_memory_tenant_scope("SingleStoreDb", self.require_memory_tenant_id)
 
         _engine: Optional[Engine] = db_engine
         if _engine is None and db_url is not None:
@@ -1326,12 +1334,15 @@ class SingleStoreDb(BaseDb):
             return []
 
     # -- Memory methods --
-    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None):
+    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None):
         """Delete a user memory from the database.
 
         Args:
             memory_id (str): The ID of the memory to delete.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             bool: True if deletion was successful, False otherwise.
@@ -1360,12 +1371,17 @@ class SingleStoreDb(BaseDb):
             log_error(f"Error deleting memory: {str(e)}")
             raise e
 
-    def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete user memories from the database.
 
         Args:
             memory_ids (List[str]): The IDs of the memories to delete.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If an error occurs during deletion.
@@ -1387,11 +1403,14 @@ class SingleStoreDb(BaseDb):
             log_error(f"Error deleting memories: {str(e)}")
             raise e
 
-    def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    def get_all_memory_topics(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> List[str]:
         """Get all memory topics from the database.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             List[str]: List of memory topics.
@@ -1421,7 +1440,12 @@ class SingleStoreDb(BaseDb):
             raise e
 
     def get_user_memory(
-        self, memory_id: str, deserialize: Optional[bool] = True, user_id: Optional[str] = None
+        self,
+        memory_id: str,
+        deserialize: Optional[bool] = True,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[UserMemory]:
         """Get a memory from the database.
 
@@ -1429,6 +1453,9 @@ class SingleStoreDb(BaseDb):
             memory_id (str): The ID of the memory to get.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Union[UserMemory, Dict[str, Any], None]:
@@ -1473,6 +1500,8 @@ class SingleStoreDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """Get all memories from the database as UserMemory objects.
 
@@ -1487,6 +1516,9 @@ class SingleStoreDb(BaseDb):
             sort_by (Optional[str]): The column to sort by.
             sort_order (Optional[str]): The order to sort by.
             deserialize (Optional[bool]): Whether to serialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
 
         Returns:
@@ -1546,7 +1578,12 @@ class SingleStoreDb(BaseDb):
             raise e
 
     def get_user_memory_stats(
-        self, limit: Optional[int] = None, page: Optional[int] = None, user_id: Optional[str] = None
+        self,
+        limit: Optional[int] = None,
+        page: Optional[int] = None,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memories stats.
 
@@ -1554,6 +1591,9 @@ class SingleStoreDb(BaseDb):
             limit (Optional[int]): The maximum number of user stats to return.
             page (Optional[int]): The page number.
             user_id (Optional[str]): User ID for filtering.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: A list of dictionaries containing user stats and total count.
@@ -1615,13 +1655,16 @@ class SingleStoreDb(BaseDb):
             raise e
 
     def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Upsert a user memory in the database.
 
         Args:
             memory (UserMemory): The user memory to upsert.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -1686,7 +1729,12 @@ class SingleStoreDb(BaseDb):
             raise e
 
     def upsert_memories(
-        self, memories: List[UserMemory], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        memories: List[UserMemory],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk upsert multiple user memories for improved performance on large datasets.
@@ -1694,6 +1742,9 @@ class SingleStoreDb(BaseDb):
         Args:
             memories (List[UserMemory]): List of memories to upsert.
             deserialize (Optional[bool]): Whether to deserialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             List[Union[UserMemory, Dict[str, Any]]]: List of upserted memories.
@@ -1771,8 +1822,13 @@ class SingleStoreDb(BaseDb):
             log_error(f"Exception during bulk memory upsert: {str(e)}")
             return []
 
-    def clear_memories(self) -> None:
+    def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
+
+        Args:
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If an error occurs during deletion.

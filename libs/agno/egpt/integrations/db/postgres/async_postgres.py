@@ -78,6 +78,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         table_prefix: Optional[str] = None,
         create_schema: bool = True,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Async interface for interacting with a PostgreSQL database.
@@ -117,6 +118,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                 Set to False if schema is managed externally (e.g., via migrations). Defaults to True.
             require_session_tenant_id (bool): Refuse unscoped session/run access (aicoe-tracker#197).
                 Defaults to unscoped; see ``egpt/db/session_scope.py``.
+            require_memory_tenant_id (bool): Refuse unscoped memory access (aicoe-tracker#175).
+                Defaults to unscoped; see ``egpt/db/memory_scope.py``.
 
         Raises:
             ValueError: If neither db_url nor db_engine is provided.
@@ -166,6 +169,7 @@ class AsyncPostgresDb(AsyncBaseDb):
             auth_tokens_table=auth_tokens_table,
             service_accounts_table=service_accounts_table,
             require_session_tenant_id=require_session_tenant_id,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
 
         self.db_schema: str = db_schema if db_schema is not None else "ai"
@@ -199,6 +203,7 @@ class AsyncPostgresDb(AsyncBaseDb):
             create_schema=self.create_schema,
             id=self.id,
             require_session_tenant_id=self.require_session_tenant_id,
+            require_memory_tenant_id=self.require_memory_tenant_id,
             **overrides,
         )
 
@@ -1163,8 +1168,14 @@ class AsyncPostgresDb(AsyncBaseDb):
             return None
 
     # -- Memory methods --
-    async def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None):
+    async def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ):
         """Delete a user memory from the database.
+
+        Args:
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             bool: True if deletion was successful, False otherwise.
@@ -1172,6 +1183,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "delete_user_memory")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1181,6 +1193,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                 delete_stmt = table.delete().where(table.c.memory_id == memory_id)
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
                 result = await sess.execute(delete_stmt)
 
                 success = result.rowcount > 0  # type: ignore
@@ -1192,15 +1206,20 @@ class AsyncPostgresDb(AsyncBaseDb):
         except Exception as e:
             log_error(f"Error deleting user memory: {str(e)}")
 
-    async def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete user memories from the database.
 
         Args:
             memory_ids (List[str]): The IDs of the memories to delete.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "delete_user_memories")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1211,6 +1230,8 @@ class AsyncPostgresDb(AsyncBaseDb):
 
                 if user_id is not None:
                     delete_stmt = delete_stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
 
                 result = await sess.execute(delete_stmt)
 
@@ -1222,15 +1243,20 @@ class AsyncPostgresDb(AsyncBaseDb):
         except Exception as e:
             log_error(f"Error deleting user memories: {str(e)}")
 
-    async def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    async def get_all_memory_topics(
+        self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> List[str]:
         """Get all memory topics from the database.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             List[str]: List of memory topics.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_all_memory_topics")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1245,6 +1271,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                 ]
                 if user_id is not None:
                     conditions.append(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    conditions.append(table.c.tenant_id == tenant_id)
 
                 try:
                     # jsonb_array_elements_text is a set-returning function that must be used with select_from
@@ -1262,6 +1290,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                     ]
                     if user_id is not None:
                         json_conditions.append(table.c.user_id == user_id)
+                    if tenant_id is not None:
+                        json_conditions.append(table.c.tenant_id == tenant_id)
                     stmt = select(func.json_array_elements_text(table.c.topics).label("topic"))
                     stmt = stmt.select_from(table)
                     stmt = stmt.where(and_(*json_conditions))
@@ -1281,6 +1311,8 @@ class AsyncPostgresDb(AsyncBaseDb):
         memory_id: str,
         deserialize: Optional[bool] = True,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Get a memory from the database.
 
@@ -1288,6 +1320,8 @@ class AsyncPostgresDb(AsyncBaseDb):
             memory_id (str): The ID of the memory to get.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
             user_id (Optional[str]): The ID of the user to filter by.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#175). Defaults
+                to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Union[UserMemory, Dict[str, Any], None]:
@@ -1297,6 +1331,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memory")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1306,6 +1341,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                 stmt = select(table).where(table.c.memory_id == memory_id)
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 result = await sess.execute(stmt)
                 row = result.fetchone()
@@ -1334,6 +1371,8 @@ class AsyncPostgresDb(AsyncBaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """Get all memories from the database as UserMemory objects.
 
@@ -1348,6 +1387,8 @@ class AsyncPostgresDb(AsyncBaseDb):
             sort_by (Optional[str]): The column to sort by.
             sort_order (Optional[str]): The order to sort by.
             deserialize (Optional[bool]): Whether to serialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
@@ -1357,6 +1398,7 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during retrieval.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memories")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1367,6 +1409,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                 # Filtering
                 if user_id is not None:
                     stmt = stmt.where(table.c.user_id == user_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 if agent_id is not None:
                     stmt = stmt.where(table.c.agent_id == agent_id)
                 if team_id is not None:
@@ -1405,19 +1449,28 @@ class AsyncPostgresDb(AsyncBaseDb):
             log_error(f"Exception reading from memory table: {str(e)}")
             return [] if deserialize else ([], 0)
 
-    async def clear_memories(self) -> None:
+    async def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
+
+        Args:
+            tenant_id (Optional[str]): Tenant to scope the deletion to (aicoe-tracker#175).
+                Defaults to unscoped, which deletes every tenant's memories; refused when the db
+                was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "clear_memories")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
                 return
 
             async with self.async_session_factory() as sess, sess.begin():
-                await sess.execute(table.delete())
+                delete_stmt = table.delete()
+                if tenant_id is not None:
+                    delete_stmt = delete_stmt.where(table.c.tenant_id == tenant_id)
+                await sess.execute(delete_stmt)
 
         except Exception as e:
             log_warning(f"Exception deleting all memories: {str(e)}")
@@ -1663,7 +1716,12 @@ class AsyncPostgresDb(AsyncBaseDb):
             raise e
 
     async def get_user_memory_stats(
-        self, limit: Optional[int] = None, page: Optional[int] = None, user_id: Optional[str] = None
+        self,
+        limit: Optional[int] = None,
+        page: Optional[int] = None,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memories stats.
 
@@ -1671,6 +1729,8 @@ class AsyncPostgresDb(AsyncBaseDb):
             limit (Optional[int]): The maximum number of user stats to return.
             page (Optional[int]): The page number.
             user_id (Optional[str]): User ID for filtering.
+            tenant_id (Optional[str]): Tenant to scope the stats to (aicoe-tracker#175). Defaults
+                to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: A list of dictionaries containing user stats and total count.
@@ -1687,6 +1747,7 @@ class AsyncPostgresDb(AsyncBaseDb):
             total_count: 1,
         )
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memory_stats")
         try:
             table = await self._get_table(table_type="memories")
             if table is None:
@@ -1703,6 +1764,8 @@ class AsyncPostgresDb(AsyncBaseDb):
                     stmt = stmt.where(table.c.user_id == user_id)
                 else:
                     stmt = stmt.where(table.c.user_id.is_not(None))
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
                 stmt = stmt.group_by(table.c.user_id)
                 stmt = stmt.order_by(func.max(table.c.updated_at).desc())
 
@@ -1734,13 +1797,18 @@ class AsyncPostgresDb(AsyncBaseDb):
             return [], 0
 
     async def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Upsert a user memory in the database.
 
         Args:
             memory (UserMemory): The user memory to upsert.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the memory with (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with
+                ``require_memory_tenant_id``. Falls back to ``memory.tenant_id`` when not given,
+                and is only applied on insert; an existing row's tenant is never changed by an
+                update.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -1750,6 +1818,13 @@ class AsyncPostgresDb(AsyncBaseDb):
         Raises:
             Exception: If an error occurs during upsert.
         """
+        # Fall back to memory.tenant_id *before* validating scope: a pinned single-tenant seed
+        # bridge deliberately omits the tenant_id kwarg (SeedMemoryProvider._manager_tenant_kwargs)
+        # since memory.tenant_id is already stamped correctly by _user_memory. Validating the raw
+        # kwarg first would refuse every write in that combination even though the memory object
+        # already carries a valid tenant (aicoe-tracker#175 round-1 review, finding #3).
+        effective_tenant_id = tenant_id if tenant_id is not None else memory.tenant_id
+        effective_tenant_id = self._require_memory_tenant_scope(effective_tenant_id, "upsert_user_memory")
         try:
             table = await self._get_table(table_type="memories", create_table_if_not_found=True)
             if table is None:
@@ -1774,6 +1849,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                         memory=sanitized_memory,
                         input=sanitized_input,
                         user_id=memory.user_id,
+                        tenant_id=effective_tenant_id,
                         agent_id=memory.agent_id,
                         team_id=memory.team_id,
                         topics=sanitized_topics,
@@ -1795,6 +1871,7 @@ class AsyncPostgresDb(AsyncBaseDb):
                             updated_at=current_time,
                             # Preserve created_at on update - don't overwrite existing value
                             created_at=table.c.created_at,
+                            # tenant_id is deliberately absent -- never changed by an update.
                         ),
                     ).returning(table)
 

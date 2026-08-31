@@ -5,10 +5,15 @@ a deployment gets the ``MemoryProvider`` API over the memory it already has
 (``LearningMachine``'s stores and ``MemoryManager``'s ``UserMemory`` CRUD), with no pgvector, no
 graph, and no migration.
 
-Most of this file is refusals, and that is the point. The seed cannot honour tenancy, valid time,
+Most of this file is refusals, and that is the point. The seed cannot honour valid time,
 substrates, or an episodic tier, so each of those is rejected at the boundary rather than accepted
 and ignored -- an ignored parameter returns a wrong answer that looks right, which is the one
-failure the layer above cannot see.
+failure the layer above cannot see. Tenancy is the one entry in that list that is no longer
+absolute: ``MemoryManager``'s CRUD threads ``tenant_id`` to a backend that filters on it for real
+on Postgres, SQLite and ``InMemoryDb`` (``egpt.db.memory_scope``, aicoe-tracker#175), so a
+manager-only deployment on one of those needs no ``single_tenant`` declaration at all. A bound
+``LearningStore`` still cannot honour a tenant -- no store accepts one -- so that gap is refused
+exactly as before; see :meth:`SeedMemoryProvider._tenant_scoping_gaps`.
 
 Which store serves which tier, which scope slots each one's ``recall`` filters on, and which its
 ``process`` can record, is :mod:`egpt.memory.learn_stores` (SM-C2 #90) -- reads and writes are both
@@ -23,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, NoReturn
 from uuid import NAMESPACE_OID, uuid5
 from weakref import WeakKeyDictionary
 
+from egpt.db.memory_scope import MEMORY_TENANT_SCOPE_SUPPORTED_BACKENDS
 from egpt.db.schemas import UserMemory
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
 from egpt.memory.learn_stores import (
@@ -218,8 +224,7 @@ class SeedMemoryProvider(MemoryProvider):
         self._awrite_locks: "WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[int, asyncio.Lock]]" = (
             WeakKeyDictionary()
         )
-        self._require_single_tenant_acknowledgement()
-        self._tenant: str = self._require_declared_tenant()
+        self._tenant: Optional[str] = self._resolve_tenant_pin()
 
     @staticmethod
     def _bind_stores(
@@ -351,39 +356,83 @@ class SeedMemoryProvider(MemoryProvider):
                 field_name="rerank.enabled",
             )
 
-    def _require_single_tenant_acknowledgement(self) -> None:
-        """Refuse to build unless the deployment states it is single-tenant.
+    def _tenant_scoping_gaps(self) -> List[str]:
+        """Reasons this instance cannot honour ``Scope.tenant_id`` for real, on every path it
+        would serve.
 
-        ``MemoryManager`` partitions on ``user_id`` alone, so ``Scope.tenant_id`` is accepted on
-        every call and applied on none. SM-C3 (#91) added the ``tenant_id`` column, but a column
-        no query filters on changes nothing here::
+        Empty means every path this provider can serve threads ``tenant_id`` all the way to a
+        backend that filters on it for real (``egpt.db.memory_scope``, aicoe-tracker#175), so
+        ``Scope.tenant_id`` alone is enough isolation and ``options['single_tenant']`` need not be
+        declared. Non-empty must be closed by ``options['single_tenant']`` instead -- the same
+        refusal this method used to raise unconditionally, now naming *which* path cannot honour
+        it rather than asserting that none can.
 
-            write(Scope(tenant_id='acme',   user_id='ada')) -> "acme Q4 revenue is 12M"
-            read (Scope(tenant_id='globex', user_id='ada')) -> ["acme Q4 revenue is 12M"]
+        Two gaps, because tenancy can fail on either serving path:
 
-        The relabel is what makes it critical rather than merely absent: the projection stamps the
-        *reader's* scope onto the row, so every check above this layer sees a well-formed ``globex``
-        record.
-
-        Namespacing the manager key (``f"{tenant}/{user}"``) is the tempting alternative and is
-        worse: it orphans every row an existing deployment already wrote, with no error anywhere.
-        Threading the column through the manager and every backend is aicoe-tracker#175.
+        * **A bound ``LearningStore``.** No store accepts a ``tenant_id`` at all
+          (``egpt.memory.learn_stores``) -- ``_recall_kwargs`` does not even pass one -- so a
+          store-served tier ignores ``Scope.tenant_id`` regardless of what the manager's db can
+          do. Closing this is a different ticket: it needs the stores themselves to grow a
+          parameter, not a column threaded through ``BaseDb``.
+        * **A manager whose db cannot filter.** ``MemoryManager``'s CRUD threads ``tenant_id``
+          through since aicoe-tracker#175, but only Postgres, SQLite and ``InMemoryDb``
+          (:data:`egpt.db.memory_scope.MEMORY_TENANT_SCOPE_SUPPORTED_BACKENDS`) implement the
+          predicate behind it -- every other backend accepts the keyword for signature parity and
+          silently ignores it, which would relabel exactly the way this refusal exists to prevent.
         """
-        if not self.config.options.get("single_tenant"):
+        gaps: List[str] = []
+        if any(self.stores.values()):
+            gaps.append(
+                "a LearningStore is bound to at least one tier, and no LearningStore accepts a "
+                "tenant_id (egpt.memory.learn_stores) -- a store-served read or write would "
+                "ignore Scope.tenant_id entirely"
+            )
+        if self.manager is not None:
+            backend = type(getattr(self.manager, "db", None)).__name__
+            if backend not in MEMORY_TENANT_SCOPE_SUPPORTED_BACKENDS:
+                gaps.append(
+                    f"the bound MemoryManager's db ({backend}) does not implement tenant-scoped "
+                    "memory access (aicoe-tracker#175); its memory CRUD accepts tenant_id for "
+                    "signature parity only, so a manager-served read or write would share one "
+                    "pool across every tenant"
+                )
+        return gaps
+
+    def _resolve_tenant_pin(self) -> Optional[str]:
+        """The one tenant this instance is pinned to, or ``None`` for a genuinely multi-tenant
+        instance.
+
+        ``None`` is reachable in exactly one case: :meth:`_tenant_scoping_gaps` found none *and*
+        the deployment did not ask to pin anyway. Every other combination pins, the same way the
+        seed always has:
+
+        * Gaps exist and ``options['single_tenant']`` is not set -- refused. Serving the call
+          anyway would leak across tenants and relabel the row with the reader's tenant, hiding
+          the leak from every check above this layer.
+        * ``options['single_tenant']`` is set (regardless of gaps) -- pinned to
+          ``options['tenant_id']`` via :meth:`_require_declared_tenant`, exactly as before. A
+          deployment that *can* go multi-tenant may still choose to pin, e.g. to keep every
+          instance single-tenant as a matter of policy.
+        """
+        gaps = self._tenant_scoping_gaps()
+        single_tenant = bool(self.config.options.get("single_tenant"))
+        if gaps and not single_tenant:
             raise MemoryProviderConfigError(
-                "SeedMemoryProvider cannot enforce tenant isolation: MemoryManager partitions "
-                "by user_id alone, so Scope.tenant_id is accepted and never applied. The "
-                "UserMemory.tenant_id column exists but no query filters on it. Two tenants "
-                "sharing a user_id would read each "
-                "other's memories, and the projection would stamp the reader's tenant onto the "
-                "result, hiding the leak from every check above this layer.\n\n"
+                "SeedMemoryProvider cannot enforce tenant isolation on every path it would "
+                "serve:\n" + "\n".join(f"  - {gap}" for gap in gaps) + "\n\n"
+                "Two tenants sharing a user_id would read each other's memories, and the "
+                "projection would stamp the reader's tenant onto the result, hiding the leak "
+                "from every check above this layer.\n\n"
                 "If this deployment serves exactly one tenant, say so explicitly:\n"
                 '    MemoryProviderConfig(provider="seed", options={"single_tenant": True, '
                 '"tenant_id": "acme"})\n\n'
-                "For real multi-tenant memory use the co_located provider, or wait for the "
-                "tenant-scoped read/write path (aicoe-tracker#175).",
+                "For real multi-tenant memory with a LearningStore bound, use the co_located "
+                "provider. A manager-only deployment backed by Postgres, SQLite or InMemoryDb "
+                "needs no single_tenant declaration at all -- Scope.tenant_id is threaded to a "
+                "backend that filters on it for real.",
                 field_name="options.single_tenant",
             )
+        return self._require_declared_tenant() if single_tenant else None
 
     def _require_declared_tenant(self) -> str:
         """The one tenant this instance may ever serve. **Mandatory, and from config.**
@@ -408,8 +457,15 @@ class SeedMemoryProvider(MemoryProvider):
     # -- request guards -------------------------------------------------------
 
     def _guard_tenant(self, scope: Scope) -> None:
-        """``single_tenant: True`` is a claim about the deployment, not a blanket exemption."""
-        if self._tenant != scope.tenant_id:
+        """``single_tenant: True`` is a claim about the deployment, not a blanket exemption.
+
+        A no-op when this instance is not pinned (``self._tenant is None``): that only happens
+        when :meth:`_tenant_scoping_gaps` found none, so every path this provider serves already
+        threads ``Scope.tenant_id`` to a backend that filters on it for real -- this check would
+        be redundant with the db-level guard, and would wrongly refuse every tenant but the first
+        one to call in.
+        """
+        if self._tenant is not None and self._tenant != scope.tenant_id:
             raise MemoryOperationError(
                 f"This SeedMemoryProvider is configured single_tenant for {self._tenant!r}; "
                 f"refusing a call scoped to {scope.tenant_id!r}. The seed's storage cannot "
@@ -676,6 +732,20 @@ class SeedMemoryProvider(MemoryProvider):
             )
         ]
 
+    def _manager_tenant_kwargs(self, scope: Scope) -> Dict[str, str]:
+        """``tenant_id`` to hand the manager, or nothing at all (aicoe-tracker#175).
+
+        Empty in pinned mode (``self._tenant is not None``): a pinned instance already excludes
+        every other tenant via :meth:`_guard_tenant`, so nothing is gained by also passing
+        ``tenant_id`` -- and a duck-typed manager that predates the parameter (this bridge's own
+        test doubles included) must keep receiving exactly the call it always got.
+
+        Populated only in the genuinely multi-tenant case (``self._tenant is None``), which
+        :meth:`_tenant_scoping_gaps` only ever leaves reachable when the bound manager's db can
+        filter on it for real.
+        """
+        return {"tenant_id": scope.tenant_id} if self._tenant is None else {}
+
     def _manager_records(self, scope: Scope, query: MemoryQuery) -> List[MemoryRecord]:
         """Retrieve through ``MemoryManager``. **This is not vector search.**
 
@@ -688,7 +758,11 @@ class SeedMemoryProvider(MemoryProvider):
             return []
         self._reject_unfilterable_scope(scope)
         memories = self.manager.search_user_memories(
-            query=query.text, limit=query.limit, retrieval_method="last_n", user_id=scope.user_id
+            query=query.text,
+            limit=query.limit,
+            retrieval_method="last_n",
+            user_id=scope.user_id,
+            **self._manager_tenant_kwargs(scope),
         )
         return [_record_from_user_memory(memory, scope) for memory in memories or []]
 
@@ -706,7 +780,13 @@ class SeedMemoryProvider(MemoryProvider):
         if asearch is None:
             return await asyncio.to_thread(self._manager_records, scope, query)
         self._reject_unfilterable_scope(scope)
-        memories = await asearch(query=query.text, limit=query.limit, retrieval_method="last_n", user_id=scope.user_id)
+        memories = await asearch(
+            query=query.text,
+            limit=query.limit,
+            retrieval_method="last_n",
+            user_id=scope.user_id,
+            **self._manager_tenant_kwargs(scope),
+        )
         return [_record_from_user_memory(memory, scope) for memory in memories or []]
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
@@ -909,13 +989,20 @@ class SeedMemoryProvider(MemoryProvider):
 
     @staticmethod
     def _user_memory(event: MemoryEvent, scope: Scope) -> UserMemory:
-        """The row one event becomes. Shared, so the two halves cannot store different columns."""
+        """The row one event becomes. Shared, so the two halves cannot store different columns.
+
+        ``tenant_id`` is stamped from the scope regardless of pin mode (aicoe-tracker#175): on a
+        backend that filters by it, this is the value that lands whether or not the call to
+        ``add_user_memory`` also names it explicitly. On a backend that cannot filter, it is
+        simply not read -- harmless.
+        """
         return UserMemory(
             memory=event.content,
             memory_id=event.id,
             topics=list(event.topics) if event.topics is not None else None,
             agent_id=scope.agent_id,
             team_id=scope.team_id,
+            tenant_id=scope.tenant_id,
             input=_provenance_note(event),
         )
 
@@ -924,9 +1011,12 @@ class SeedMemoryProvider(MemoryProvider):
             raise MemoryOperationError(f"No seed component is bound to the {tier.value!r} tier.", field_name="tier")
         self._reject_unstorable_scope(scope)
         ids: List[str] = []
+        tenant_kwargs = self._manager_tenant_kwargs(scope)
         for event in events:
             try:
-                memory_id = self.manager.add_user_memory(memory=self._user_memory(event, scope), user_id=scope.user_id)
+                memory_id = self.manager.add_user_memory(
+                    memory=self._user_memory(event, scope), user_id=scope.user_id, **tenant_kwargs
+                )
             except Exception as exc:
                 # `add_user_memory` is called once per event, so a failure partway leaves earlier
                 # events committed. Without this the ids were lost in a local and the receipt
@@ -951,12 +1041,15 @@ class SeedMemoryProvider(MemoryProvider):
             return await asyncio.to_thread(self._manager_write, scope, tier, events)
         self._reject_unstorable_scope(scope)
         ids: List[str] = []
+        tenant_kwargs = self._manager_tenant_kwargs(scope)
         for event in events:
             try:
                 # Annotated because `aadd` came from `getattr`, which types as `Any` and would
                 # silently switch this loop's checking off -- the sync twin below is checked, and
                 # two halves type-checked differently is how they drift.
-                memory_id: Optional[str] = await aadd(memory=self._user_memory(event, scope), user_id=scope.user_id)
+                memory_id: Optional[str] = await aadd(
+                    memory=self._user_memory(event, scope), user_id=scope.user_id, **tenant_kwargs
+                )
             except Exception as exc:
                 raise PartialWriteError(self._committed(tier, ids)) from exc
             self._require_stored(memory_id, tier, ids)

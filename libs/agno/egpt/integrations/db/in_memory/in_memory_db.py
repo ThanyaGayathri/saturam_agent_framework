@@ -32,6 +32,7 @@ class InMemoryDb(BaseDb):
         id: Optional[str] = None,
         *,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         """Interface for in-memory storage.
 
@@ -40,8 +41,15 @@ class InMemoryDb(BaseDb):
             id (Optional[str]): ID of the database.
             require_session_tenant_id (bool): Refuse unscoped session/run access
                 (aicoe-tracker#197). Defaults to unscoped; see ``egpt/db/session_scope.py``.
+            require_memory_tenant_id (bool): Refuse unscoped memory access (aicoe-tracker#175).
+                Defaults to unscoped; see ``egpt/db/memory_scope.py``.
         """
-        super().__init__(table_prefix=table_prefix, id=id, require_session_tenant_id=require_session_tenant_id)
+        super().__init__(
+            table_prefix=table_prefix,
+            id=id,
+            require_session_tenant_id=require_session_tenant_id,
+            require_memory_tenant_id=require_memory_tenant_id,
+        )
 
         # Initialize in-memory storage dictionaries
         self._sessions: List[Dict[str, Any]] = []
@@ -62,6 +70,7 @@ class InMemoryDb(BaseDb):
             table_prefix=data.get("table_prefix"),
             id=data.get("id"),
             require_session_tenant_id=bool(data.get("require_session_tenant_id", False)),
+            require_memory_tenant_id=bool(data.get("require_memory_tenant_id", False)),
         )
 
     def table_exists(self, table_name: str) -> bool:
@@ -460,26 +469,32 @@ class InMemoryDb(BaseDb):
             return []
 
     # -- Memory methods --
-    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None):
+    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None):
         """Delete a user memory from in-memory storage.
 
         Args:
             memory_id (str): The ID of the memory to delete.
             user_id (Optional[str]): The ID of the user. If provided, verifies the memory belongs to this user before deletion.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "delete_user_memory")
         try:
             original_count = len(self._memories)
 
-            # If user_id is provided, verify ownership before deleting
-            if user_id is not None:
-                self._memories = [
-                    m for m in self._memories if not (m.get("memory_id") == memory_id and m.get("user_id") == user_id)
-                ]
-            else:
-                self._memories = [m for m in self._memories if m.get("memory_id") != memory_id]
+            def _keep(m: Dict[str, Any]) -> bool:
+                if m.get("memory_id") != memory_id:
+                    return True
+                if user_id is not None and m.get("user_id") != user_id:
+                    return True
+                if tenant_id is not None and m.get("tenant_id") != tenant_id:
+                    return True
+                return False
+
+            self._memories = [m for m in self._memories if _keep(m)]
 
             if len(self._memories) < original_count:
                 log_debug(f"Successfully deleted user memory id: {memory_id}")
@@ -490,35 +505,46 @@ class InMemoryDb(BaseDb):
             log_error(f"Error deleting memory: {str(e)}")
             raise e
 
-    def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete multiple user memories from in-memory storage.
 
         Args:
             memory_ids (List[str]): The IDs of the memories to delete.
             user_id (Optional[str]): The ID of the user. If provided, only deletes memories belonging to this user.
+            tenant_id (Optional[str]): Tenant to scope the delete to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "delete_user_memories")
         try:
-            # If user_id is provided, verify ownership before deleting
-            if user_id is not None:
-                self._memories = [
-                    m for m in self._memories if not (m.get("memory_id") in memory_ids and m.get("user_id") == user_id)
-                ]
-            else:
-                self._memories = [m for m in self._memories if m.get("memory_id") not in memory_ids]
+
+            def _keep(m: Dict[str, Any]) -> bool:
+                if m.get("memory_id") not in memory_ids:
+                    return True
+                if user_id is not None and m.get("user_id") != user_id:
+                    return True
+                if tenant_id is not None and m.get("tenant_id") != tenant_id:
+                    return True
+                return False
+
+            self._memories = [m for m in self._memories if _keep(m)]
             log_debug(f"Successfully deleted {len(memory_ids)} user memories")
 
         except Exception as e:
             log_error(f"Error deleting memories: {str(e)}")
             raise e
 
-    def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    def get_all_memory_topics(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> List[str]:
         """Get all memory topics from in-memory storage.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
+            tenant_id (Optional[str]): Tenant to scope the listing to (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             List[str]: List of unique topics.
@@ -526,10 +552,13 @@ class InMemoryDb(BaseDb):
         Raises:
             Exception: If an error occurs while reading topics.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_all_memory_topics")
         try:
             topics = set()
             for memory in self._memories:
                 if user_id is not None and memory.get("user_id") != user_id:
+                    continue
+                if tenant_id is not None and memory.get("tenant_id") != tenant_id:
                     continue
                 memory_topics = memory.get("topics", [])
                 if isinstance(memory_topics, list):
@@ -541,7 +570,12 @@ class InMemoryDb(BaseDb):
             raise e
 
     def get_user_memory(
-        self, memory_id: str, deserialize: Optional[bool] = True, user_id: Optional[str] = None
+        self,
+        memory_id: str,
+        deserialize: Optional[bool] = True,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Get a user memory from in-memory storage.
 
@@ -549,6 +583,8 @@ class InMemoryDb(BaseDb):
             memory_id (str): The ID of the memory to retrieve.
             deserialize (Optional[bool]): Whether to deserialize the memory. Defaults to True.
             user_id (Optional[str]): The ID of the user. If provided, only returns the memory if it belongs to this user.
+            tenant_id (Optional[str]): Tenant to scope the read to (aicoe-tracker#175). Defaults
+                to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]: The memory object or dictionary, or None if not found.
@@ -556,11 +592,14 @@ class InMemoryDb(BaseDb):
         Raises:
             Exception: If an error occurs while reading the memory.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memory")
         try:
             for memory_data in self._memories:
                 if memory_data.get("memory_id") == memory_id:
                     # Filter by user_id if provided
                     if user_id is not None and memory_data.get("user_id") != user_id:
+                        continue
+                    if tenant_id is not None and memory_data.get("tenant_id") != tenant_id:
                         continue
 
                     memory_data_copy = deepcopy(memory_data)
@@ -586,12 +625,17 @@ class InMemoryDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memories")
         try:
             # Apply filters
             filtered_memories = []
             for memory_data in self._memories:
                 if user_id is not None and memory_data.get("user_id") != user_id:
+                    continue
+                if tenant_id is not None and memory_data.get("tenant_id") != tenant_id:
                     continue
                 if agent_id is not None and memory_data.get("agent_id") != agent_id:
                     continue
@@ -630,7 +674,12 @@ class InMemoryDb(BaseDb):
             raise e
 
     def get_user_memory_stats(
-        self, limit: Optional[int] = None, page: Optional[int] = None, user_id: Optional[str] = None
+        self,
+        limit: Optional[int] = None,
+        page: Optional[int] = None,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memory statistics.
 
@@ -638,6 +687,8 @@ class InMemoryDb(BaseDb):
             limit (Optional[int]): Maximum number of stats to return.
             page (Optional[int]): Page number for pagination.
             user_id (Optional[str]): User ID for filtering.
+            tenant_id (Optional[str]): Tenant to scope the stats to (aicoe-tracker#175). Defaults
+                to unscoped; refused when the db was built with ``require_memory_tenant_id``.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: List of user memory statistics and total count.
@@ -645,6 +696,7 @@ class InMemoryDb(BaseDb):
         Raises:
             Exception: If an error occurs while getting stats.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "get_user_memory_stats")
         try:
             user_stats = {}
 
@@ -652,6 +704,8 @@ class InMemoryDb(BaseDb):
                 memory_user_id = memory.get("user_id")
                 # filter by user_id if provided
                 if user_id is not None and memory_user_id != user_id:
+                    continue
+                if tenant_id is not None and memory.get("tenant_id") != tenant_id:
                     continue
                 if memory_user_id:
                     if memory_user_id not in user_stats:
@@ -684,19 +738,34 @@ class InMemoryDb(BaseDb):
             raise e
 
     def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
+        """Upsert a user memory in in-memory storage.
+
+        Args:
+            memory (UserMemory): The user memory to upsert.
+            deserialize (Optional[bool]): Whether to deserialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp the memory with (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with
+                ``require_memory_tenant_id``. Falls back to ``memory.tenant_id`` when not given,
+                and is only applied on insert; an existing row's tenant is never changed by an
+                update.
+        """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "upsert_user_memory")
         try:
             if memory.memory_id is None:
                 memory.memory_id = str(uuid4())
 
             memory_dict = memory.to_dict() if hasattr(memory, "to_dict") else memory.__dict__
             memory_dict["updated_at"] = int(time.time())
+            memory_dict["tenant_id"] = tenant_id if tenant_id is not None else memory.tenant_id
 
             # Find existing memory to update
             memory_updated = False
             for i, existing_memory in enumerate(self._memories):
                 if existing_memory.get("memory_id") == memory.memory_id:
+                    # tenant_id is never changed by an update -- carry the existing row's forward.
+                    memory_dict["tenant_id"] = existing_memory.get("tenant_id")
                     self._memories[i] = memory_dict
                     memory_updated = True
                     break
@@ -715,7 +784,12 @@ class InMemoryDb(BaseDb):
             raise e
 
     def upsert_memories(
-        self, memories: List[UserMemory], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        memories: List[UserMemory],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk upsert multiple user memories for improved performance on large datasets.
@@ -723,6 +797,10 @@ class InMemoryDb(BaseDb):
         Args:
             memories (List[UserMemory]): List of memories to upsert.
             deserialize (Optional[bool]): Whether to deserialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Tenant to stamp every memory with (aicoe-tracker#175).
+                Defaults to unscoped; refused when the db was built with
+                ``require_memory_tenant_id``. Falls back to each memory's own ``tenant_id`` when
+                not given, and is only applied on insert.
 
         Returns:
             List[Union[UserMemory, Dict[str, Any]]]: List of upserted memories.
@@ -733,6 +811,7 @@ class InMemoryDb(BaseDb):
         if not memories:
             return []
 
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "upsert_memories")
         try:
             log_info(f"In-memory database: processing {len(memories)} memories with individual upsert operations")
             # For in-memory database, individual upserts are actually efficient
@@ -740,7 +819,7 @@ class InMemoryDb(BaseDb):
             results = []
             for memory in memories:
                 if memory is not None:
-                    result = self.upsert_user_memory(memory, deserialize=deserialize)
+                    result = self.upsert_user_memory(memory, deserialize=deserialize, tenant_id=tenant_id)
                     if result is not None:
                         results.append(result)
             return results
@@ -749,14 +828,23 @@ class InMemoryDb(BaseDb):
             log_error(f"Exception during bulk memory upsert: {str(e)}")
             return []
 
-    def clear_memories(self) -> None:
+    def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories.
+
+        Args:
+            tenant_id (Optional[str]): Tenant to scope the deletion to (aicoe-tracker#175).
+                Defaults to unscoped, which deletes every tenant's memories; refused when the db
+                was built with ``require_memory_tenant_id``.
 
         Raises:
             Exception: If an error occurs during deletion.
         """
+        tenant_id = self._require_memory_tenant_scope(tenant_id, "clear_memories")
         try:
-            self._memories.clear()
+            if tenant_id is None:
+                self._memories.clear()
+            else:
+                self._memories = [m for m in self._memories if m.get("tenant_id") != tenant_id]
 
         except Exception as e:
             log_warning(f"Exception deleting all memories: {str(e)}")

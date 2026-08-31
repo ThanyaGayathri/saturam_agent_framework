@@ -336,9 +336,10 @@ class UserMemory:
 
     agent_id: Optional[str] = None
     team_id: Optional[str] = None
-    # Nullable, and not backfilled: rows written before multi-tenancy mean "unscoped". Nothing
-    # reads it yet -- the manager still partitions on user_id alone, which is why
-    # SeedMemoryProvider keeps refusing multi-tenant deployments (aicoe-tracker#175).
+    # Nullable, and not backfilled: rows written before multi-tenancy mean "unscoped". Filtered
+    # and stamped by MemoryManager's CRUD and by BaseDb's memory methods on Postgres, SQLite and
+    # InMemoryDb (aicoe-tracker#175, egpt.db.memory_scope) -- every other backend still accepts
+    # tenant_id for signature parity only.
     tenant_id: Optional[str] = None
 
     def __post_init__(self) -> None:

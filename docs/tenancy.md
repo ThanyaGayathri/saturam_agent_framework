@@ -1,15 +1,15 @@
-# Tenant scoping (EGPT-2.4, runtime hydration EGPT-2.5, row-level enforcement EGPT-2.7, sessions/runs aicoe-tracker#197)
+# Tenant scoping (EGPT-2.4, runtime hydration EGPT-2.5, row-level enforcement EGPT-2.7, sessions/runs aicoe-tracker#197, memory aicoe-tracker#175)
 
 Normative reference for how a request's tenant is resolved and what the component registry API
 does with it. Companion to [capability-policy.md](capability-policy.md), which covers *which
 capabilities* a tenant may reference; this document covers *which rows* a caller may reach.
 
-Scoping is enforced at two layers, and sections 6–8 are the second one. Sections 1–5 cover the
+Scoping is enforced at two layers, and sections 6–9 are the second one. Sections 1–5 cover the
 request-level gates: how the tenant is resolved from the credential and what the `/components` API
 and runtime hydration do with it. Section 6 covers the data layer underneath, where every component
-query requires a tenant regardless of which caller reached it. Section 8 covers the identical
-enforcement for sessions and runs, with the departures from section 6's pattern that made a direct
-copy unsafe.
+query requires a tenant regardless of which caller reached it. Sections 8 and 9 cover the identical
+enforcement for sessions/runs and for memory respectively, each with its own departures from
+section 6's pattern that made a direct copy unsafe.
 
 ---
 
@@ -619,3 +619,77 @@ wired in, the two flags are independent, the optional-parameter behaviour), `tes
 test_session_tenant_adversarial.py` (tenant B cannot read, list, rename, delete, or overwrite
 tenant A's session), and `tests/unit/workflow/test_workflow_tenant_scoping.py` (the
 `self.tenant_id` read/write consistency and `deep_copy()` propagation).
+
+## 9. Row-level enforcement for memory (aicoe-tracker#175)
+
+Sections 6 and 8 cover components and sessions. This section is the same pattern's third
+application: the `memories` table, whose nullable `tenant_id` column SM-C3 (#91) added but which
+nothing read or wrote until now. `MemoryManager`'s CRUD (`get_user_memories`, `add_user_memory`,
+`search_user_memories`, `delete_user_memory`, `clear`, and their async twins) threads an optional
+`tenant_id` to `BaseDb`/`AsyncBaseDb`'s memory methods, the same "optional, not required" shape
+section 8 uses for sessions and for the identical reason: this surface is reachable from the
+agentic memory-creation loop and from any downstream code that reads or writes memories directly,
+most of which has no tenant to name in an ordinary single-tenant deployment.
+
+### `require_memory_tenant_id` is a third, independent flag
+
+Not shared with `require_tenant_id` or `require_session_tenant_id` — see `egpt/db/memory_scope.py`
+for the full argument, which mirrors section 8's for sessions: nothing threads a tenant through
+the agentic memory-creation call sites (`MemoryManager.create_user_memories`/`update_memory_task`
+and their async twins), so sharing either existing flag would start refusing those call sites'
+unscoped writes the instant an operator turned on tenancy elsewhere. `require_memory_tenant_id` is
+therefore its own constructor argument / `EGPT_REQUIRE_MEMORY_TENANT_ID` env var, off by default
+and not auto-enabled by `EgptOS`, backed by its own `BaseDb._require_memory_tenant_scope` /
+`AsyncBaseDb._require_memory_tenant_scope` guard method.
+
+### Backend support matrix
+
+Narrower than the session matrix: the tenant column itself only exists on Postgres and SQLite
+(`db/migrations/versions/v2_8_0.py` — MySQL, SingleStore and DynamoDB "define a memories table but
+get neither the column nor the tier tables"). `InMemoryDb` needs no migration, since it carries no
+schema, so it joins the two SQL backends as the third backend that can actually filter.
+
+| Backend | Memory tenant enforcement |
+|---|---|
+| `SqliteDb` / `AsyncSqliteDb` | Enforced (singular + bulk upsert both tenant-guarded; `tenant_id` is stamped only on insert, never changed by an update) |
+| `PostgresDb` / `AsyncPostgresDb` | Enforced, same shape |
+| `InMemoryDb` | Enforced |
+| `MySQLDb`, `AsyncMySQLDb`, `SingleStoreDb`, `DynamoDb`, `FirestoreDb`, `MongoDb`, `AsyncMongoDb`, `RedisDb`, `SurrealDb`, `JsonDb`, `GcsJsonDb` | **Not implemented.** Every memory method accepts `tenant_id` for signature parity with `BaseDb`, but nothing filters or stamps by it. Constructing one with `require_memory_tenant_id=True` (explicitly or via `EGPT_REQUIRE_MEMORY_TENANT_ID`) raises `NotImplementedError` at `__init__` (`egpt.db.memory_scope.require_unsupported_memory_tenant_scope`) — the flag can never silently report protection it does not provide. |
+| `ClickhouseDb` | N/A — trace-only backend; its memory methods are stubs regardless of tenancy |
+
+### `tenant_id` on `upsert_user_memory` falls back to the row, unlike sessions
+
+`upsert_session`'s `tenant_id` is the sole source of truth for what gets stamped — the session
+object's own state is not consulted. `UserMemory` already carries its own `tenant_id` field
+(unlike `Session`, whose subclasses' `tenant_id` fields are not read by the upsert path either), so
+`upsert_user_memory`/`upsert_memories` fall back to `memory.tenant_id` when the keyword is not
+given, rather than always stamping `NULL`. The keyword still wins when both are present, but the
+enforcement check (`_require_memory_tenant_scope`) validates the *effective* tenant — the keyword
+when given, otherwise the fallback to `memory.tenant_id` — not the keyword alone: a deployment
+with `require_memory_tenant_id=True` and a caller relying purely on `UserMemory.tenant_id` (e.g. a
+pinned single-tenant seed bridge) is not refused, as long as the memory object itself carries a
+real tenant.
+
+### `SeedMemoryProvider`'s single-tenant refusal is narrowed, not removed
+
+`egpt/memory/adapters/seed.py`'s `SeedMemoryProvider` used to refuse to construct at all unless
+the deployment declared `options={"single_tenant": True, "tenant_id": ...}` — the seed had no way
+to honour `Scope.tenant_id` at all. That refusal is now conditional
+(`SeedMemoryProvider._tenant_scoping_gaps`): it still fires when a `LearningStore` is bound to any
+tier (no store accepts a `tenant_id` — that is a separate, unstarted piece of work) or when the
+bound `MemoryManager`'s db is not in the table above, but a manager-only deployment backed by
+Postgres, SQLite or `InMemoryDb` needs no `single_tenant` declaration at all: `Scope.tenant_id` is
+threaded straight through to a backend that filters on it for real. A deployment may still choose
+to pin explicitly even when it would not have to — `single_tenant` remains available as a
+narrower, opt-in posture.
+
+### Migration
+
+No new migration: `db/migrations/versions/v2_8_0.py` already added the column and its index for
+Postgres and SQLite. This ticket is the consumer half named in that migration's own docstring and
+in SM-C3's SPEC section 11.3 row.
+
+Full test coverage: `tests/unit/db/test_memory_tenant_scoping.py` (cross-tenant isolation on real
+`SqliteDb`/`AsyncSqliteDb`, the fail-closed flag, and the unsupported-backend refusal) and
+`tests/unit/memory/test_provider_seed_bridge.py` (the narrowed `SeedMemoryProvider` refusal, both
+the still-refused and the newly-allowed shapes).

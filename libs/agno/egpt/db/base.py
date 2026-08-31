@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.component_scope import require_tenant_id_from_env, resolve_tenant_scope
+from egpt.db.memory_scope import require_memory_tenant_id_from_env
 from egpt.db.schemas import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
@@ -67,6 +68,14 @@ class BaseDb(ABC):
     ``require_session_tenant_id`` is therefore opt-in only (constructor argument or
     ``EGPT_REQUIRE_SESSION_TENANT_ID``), for operators who have verified their deployment's
     session writes are tenant-safe. See ``egpt/db/session_scope.py``.
+
+    ``require_memory_tenant_id`` is the same fail-closed contract again, for memory access
+    (aicoe-tracker#175) -- its own flag for the same reason ``require_session_tenant_id`` is not
+    ``require_tenant_id``: nothing threads a tenant through the agentic memory-creation call
+    sites, so sharing either existing flag would start refusing those unscoped writes the moment
+    an operator turned on tenancy elsewhere. Only Postgres, SQLite and ``InMemoryDb`` can actually
+    enforce it -- see ``egpt/db/memory_scope.py``. Opt-in only (constructor argument or
+    ``EGPT_REQUIRE_MEMORY_TENANT_ID``).
     """
 
     # We assume the database to be up to date with the 2.0.0 release
@@ -97,6 +106,7 @@ class BaseDb(ABC):
         id: Optional[str] = None,
         require_tenant_id: bool = False,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         self.id = id or str(uuid4())
         # Refuse unscoped component access (EGPT-2.7). Off by default so a single-tenant
@@ -114,6 +124,10 @@ class BaseDb(ABC):
         # not-auto-enabled flag; see the class docstring for why it cannot simply reuse
         # ``require_tenant_id``. Same one-way OR contract as above.
         self.require_session_tenant_id = require_session_tenant_id or require_session_tenant_id_from_env()
+        # Refuse unscoped memory access (aicoe-tracker#175) -- a separate, deliberately
+        # not-auto-enabled flag; see the class docstring for why it cannot share
+        # ``require_tenant_id`` or ``require_session_tenant_id``. Same one-way OR contract.
+        self.require_memory_tenant_id = require_memory_tenant_id or require_memory_tenant_id_from_env()
         self.table_prefix = validate_table_prefix(table_prefix)
         self.session_table_name = session_table or f"{self.table_prefix}sessions"
         self.culture_table_name = culture_table or f"{self.table_prefix}culture"
@@ -163,6 +177,8 @@ class BaseDb(ABC):
             data["require_tenant_id"] = True
         if self.require_session_tenant_id:
             data["require_session_tenant_id"] = True
+        if self.require_memory_tenant_id:
+            data["require_memory_tenant_id"] = True
         for param, suffix in TABLE_SUFFIXES.items():
             value = getattr(self, table_name_attr(param), None)
             if value is not None and value != f"{self.table_prefix}{suffix}":
@@ -198,6 +214,7 @@ class BaseDb(ABC):
             id=data.get("id"),
             require_tenant_id=bool(data.get("require_tenant_id", False)),
             require_session_tenant_id=bool(data.get("require_session_tenant_id", False)),
+            require_memory_tenant_id=bool(data.get("require_memory_tenant_id", False)),
         )
 
     def clone_with_table_overrides(self, **overrides: Any) -> Optional["BaseDb"]:
@@ -367,20 +384,38 @@ class BaseDb(ABC):
         raise NotImplementedError
 
     # --- Memory ---
+    # Tenant scoping (aicoe-tracker#175): every memory method takes an optional, keyword-only
+    # ``tenant_id``, defaulting to ``None`` (unscoped) -- the same shape ``egpt/db/session_scope.py``
+    # established for sessions, and for the same reason: this surface is called from the agentic
+    # memory-creation loop and any downstream code that reads or writes memories directly, most of
+    # which has no tenant to name in an ordinary single-tenant deployment. Gated by its own
+    # ``require_memory_tenant_id`` flag rather than ``require_tenant_id``/``require_session_tenant_id``
+    # -- see the class docstring and ``egpt/db/memory_scope.py``.
+    #   - *Omitted* or *explicitly ``None``* -- unscoped: no tenant predicate is applied. This is
+    #     what single-tenant deployments and pre-existing call sites get, and it is the only way
+    #     to reach the NULL-``tenant_id`` rows written before this column existed (SM-C3 #91). A
+    #     db built with ``require_memory_tenant_id=True`` refuses it with
+    #     ``TenantScopeRequiredError``.
+    #   - *A value* -- restricts the statement to that tenant, and is stamped onto rows an upsert
+    #     creates. It is never changed by an update: a memory does not move between tenants.
     @abstractmethod
-    def clear_memories(self) -> None:
+    def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None) -> None:
+    def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    def get_all_memory_topics(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> List[str]:
         raise NotImplementedError
 
     @abstractmethod
@@ -389,6 +424,8 @@ class BaseDb(ABC):
         memory_id: str,
         deserialize: Optional[bool] = True,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         raise NotImplementedError
 
@@ -405,6 +442,8 @@ class BaseDb(ABC):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         raise NotImplementedError
 
@@ -414,12 +453,14 @@ class BaseDb(ABC):
         limit: Optional[int] = None,
         page: Optional[int] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         raise NotImplementedError
 
     @abstractmethod
     def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         raise NotImplementedError
 
@@ -429,6 +470,8 @@ class BaseDb(ABC):
         memories: List[UserMemory],
         deserialize: Optional[bool] = True,
         preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """Bulk upsert multiple memories for improved performance on large datasets."""
         raise NotImplementedError
@@ -769,6 +812,18 @@ class BaseDb(ABC):
         """
         return resolve_tenant_scope(
             tenant_id, require=self.require_session_tenant_id, method=method, flag_name="require_session_tenant_id"
+        )
+
+    def _require_memory_tenant_scope(self, tenant_id: Optional[str], method: str) -> Optional[str]:
+        """Validate one memory call's tenant scope against this db's memory policy.
+
+        The memory counterpart of :meth:`_require_session_tenant_scope` (aicoe-tracker#175),
+        backed by ``self.require_memory_tenant_id`` rather than either of the other two flags --
+        see the class docstring and ``egpt/db/memory_scope.py`` for why memory enforcement is
+        deliberately its own flag.
+        """
+        return resolve_tenant_scope(
+            tenant_id, require=self.require_memory_tenant_id, method=method, flag_name="require_memory_tenant_id"
         )
 
     # --- Components (Optional) ---
@@ -1670,6 +1725,10 @@ class AsyncBaseDb(ABC):
     one-directional way as sync ``BaseDb`` -- see that class's docstring for why this is a
     separate flag from component tenant enforcement (``AsyncBaseDb`` has no component methods at
     all, so there is no async ``require_tenant_id`` to share it with).
+
+    ``require_memory_tenant_id`` is the same contract for memory access (aicoe-tracker#175), its
+    own flag for the same reason ``require_session_tenant_id`` is not shared -- see
+    ``egpt/db/memory_scope.py``.
     """
 
     def __init__(
@@ -1692,9 +1751,11 @@ class AsyncBaseDb(ABC):
         service_accounts_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         self.id = id or str(uuid4())
         self.require_session_tenant_id = require_session_tenant_id or require_session_tenant_id_from_env()
+        self.require_memory_tenant_id = require_memory_tenant_id or require_memory_tenant_id_from_env()
         self.table_prefix = validate_table_prefix(table_prefix)
         self.session_table_name = session_table or f"{self.table_prefix}sessions"
         self.memory_table_name = memory_table or f"{self.table_prefix}memories"
@@ -1749,6 +1810,15 @@ class AsyncBaseDb(ABC):
         """
         return resolve_tenant_scope(
             tenant_id, require=self.require_session_tenant_id, method=method, flag_name="require_session_tenant_id"
+        )
+
+    def _require_memory_tenant_scope(self, tenant_id: Optional[str], method: str) -> Optional[str]:
+        """Validate one memory call's tenant scope against this db's memory policy.
+
+        The async counterpart of ``BaseDb._require_memory_tenant_scope`` (aicoe-tracker#175).
+        """
+        return resolve_tenant_scope(
+            tenant_id, require=self.require_memory_tenant_id, method=method, flag_name="require_memory_tenant_id"
         )
 
     async def _create_all_tables(self) -> None:
@@ -1854,20 +1924,28 @@ class AsyncBaseDb(ABC):
         raise NotImplementedError
 
     # --- Memory ---
+    # Tenant scoping (aicoe-tracker#175): see ``BaseDb``'s memory section for the full contract --
+    # optional, keyword-only, gated by ``self.require_memory_tenant_id``.
     @abstractmethod
-    async def clear_memories(self) -> None:
+    async def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    async def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None) -> None:
+    async def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    async def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    async def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    async def get_all_memory_topics(
+        self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> List[str]:
         raise NotImplementedError
 
     @abstractmethod
@@ -1876,6 +1954,8 @@ class AsyncBaseDb(ABC):
         memory_id: str,
         deserialize: Optional[bool] = True,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         raise NotImplementedError
 
@@ -1892,6 +1972,8 @@ class AsyncBaseDb(ABC):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         raise NotImplementedError
 
@@ -1901,12 +1983,14 @@ class AsyncBaseDb(ABC):
         limit: Optional[int] = None,
         page: Optional[int] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         raise NotImplementedError
 
     @abstractmethod
     async def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         raise NotImplementedError
 

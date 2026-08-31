@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, SessionType
+from egpt.db.memory_scope import require_unsupported_memory_tenant_scope
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
@@ -69,6 +70,7 @@ class DynamoDb(BaseDb):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a DynamoDB database.
@@ -90,6 +92,10 @@ class DynamoDb(BaseDb):
             require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
                 does not implement tenant-scoped session enforcement, and construction raises if
                 this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
+            require_memory_tenant_id (bool): Refuse unscoped memory access (aicoe-tracker#175).
+                Defaults to unscoped; this backend does not implement tenant-scoped memory
+                enforcement, so construction raises if this or EGPT_REQUIRE_MEMORY_TENANT_ID
+                resolve to True. See egpt/db/memory_scope.py.
 
         Raises:
             ValueError: If no db_client is given and AWS_REGION is set neither as an
@@ -123,8 +129,10 @@ class DynamoDb(BaseDb):
             traces_table=traces_table,
             spans_table=spans_table,
             require_session_tenant_id=require_session_tenant_id,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
         require_unsupported_session_tenant_scope("DynamoDb", self.require_session_tenant_id)
+        require_unsupported_memory_tenant_scope("DynamoDb", self.require_memory_tenant_id)
 
         if db_client is not None:
             self.client = db_client
@@ -787,13 +795,21 @@ class DynamoDb(BaseDb):
 
     # --- User Memory ---
 
-    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None) -> None:
+    # tenant_id (aicoe-tracker#175) accepted for signature parity with BaseDb; this backend does
+    # not implement tenant-scoped memory filtering yet.
+
+    def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """
         Delete a user memory from the database.
 
         Args:
             memory_id: The ID of the memory to delete.
             user_id: The ID of the user (optional, for filtering).
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If any error occurs while deleting the user memory.
@@ -822,13 +838,18 @@ class DynamoDb(BaseDb):
             log_error(f"Failed to delete user memory {memory_id}: {str(e)}")
             raise e
 
-    def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """
         Delete user memories from the database in batches.
 
         Args:
             memory_ids: List of memory IDs to delete
             user_id: The ID of the user (optional, for filtering).
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If any error occurs while deleting the user memories.
@@ -863,11 +884,14 @@ class DynamoDb(BaseDb):
             log_error(f"Failed to delete user memories: {str(e)}")
             raise e
 
-    def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    def get_all_memory_topics(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> List[str]:
         """Get all memory topics from the database.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             List[str]: List of unique memory topics.
@@ -911,6 +935,8 @@ class DynamoDb(BaseDb):
         memory_id: str,
         deserialize: Optional[bool] = True,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """
         Get a user memory from the database as a UserMemory object.
@@ -919,6 +945,9 @@ class DynamoDb(BaseDb):
             memory_id: The ID of the memory to get.
             deserialize: Whether to deserialize the memory.
             user_id: The ID of the user (optional, for filtering).
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Optional[UserMemory]: The user memory data if found, None otherwise.
@@ -961,6 +990,8 @@ class DynamoDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """
         Get user memories from the database as a list of UserMemory objects.
@@ -977,6 +1008,9 @@ class DynamoDb(BaseDb):
             sort_by: The field to sort the memories by.
             sort_order: The order to sort the memories by.
             deserialize: Whether to deserialize the memories.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Union[List[UserMemory], List[Dict[str, Any]], Tuple[List[Dict[str, Any]], int]]: The user memories data.
@@ -1074,6 +1108,8 @@ class DynamoDb(BaseDb):
         limit: Optional[int] = None,
         page: Optional[int] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memories stats.
 
@@ -1081,6 +1117,9 @@ class DynamoDb(BaseDb):
             limit (Optional[int]): The maximum number of user stats to return.
             page (Optional[int]): The page number.
             user_id (Optional[str]): The ID of the user (optional, for filtering).
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: A list of dictionaries containing user stats and total count.
@@ -1172,13 +1211,16 @@ class DynamoDb(BaseDb):
             raise e
 
     def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """
         Upsert a user memory into the database.
 
         Args:
             memory: The memory to upsert.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Optional[Dict[str, Any]]: The upserted memory data if successful, None otherwise.
@@ -1201,7 +1243,12 @@ class DynamoDb(BaseDb):
             raise e
 
     def upsert_memories(
-        self, memories: List[UserMemory], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        memories: List[UserMemory],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk upsert multiple user memories for improved performance on large datasets.
@@ -1209,6 +1256,9 @@ class DynamoDb(BaseDb):
         Args:
             memories (List[UserMemory]): List of memories to upsert.
             deserialize (Optional[bool]): Whether to deserialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             List[Union[UserMemory, Dict[str, Any]]]: List of upserted memories.
@@ -1237,8 +1287,13 @@ class DynamoDb(BaseDb):
             log_error(f"Exception during bulk memory upsert: {str(e)}")
             return []
 
-    def clear_memories(self) -> None:
+    def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
+
+        Args:
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If an error occurs during deletion.

@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, SessionType
+from egpt.db.memory_scope import require_unsupported_memory_tenant_scope
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
@@ -57,6 +58,7 @@ class RedisDb(BaseDb):
         spans_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a Redis database.
@@ -85,6 +87,9 @@ class RedisDb(BaseDb):
             require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
                 does not implement tenant-scoped session enforcement, and construction raises if
                 this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
+            require_memory_tenant_id (bool): Must stay False (aicoe-tracker#175) -- this backend
+                does not implement tenant-scoped memory enforcement, and construction raises if
+                this or ``EGPT_REQUIRE_MEMORY_TENANT_ID`` resolve to True.
 
         Raises:
             ValueError: If neither redis_client nor db_url is provided.
@@ -106,8 +111,10 @@ class RedisDb(BaseDb):
             traces_table=traces_table,
             spans_table=spans_table,
             require_session_tenant_id=require_session_tenant_id,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
         require_unsupported_session_tenant_scope("RedisDb", self.require_session_tenant_id)
+        require_unsupported_memory_tenant_scope("RedisDb", self.require_memory_tenant_id)
 
         self.db_prefix = db_prefix
         self.expire = expire
@@ -762,7 +769,10 @@ class RedisDb(BaseDb):
 
     # -- Memory methods --
 
-    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None):
+    # tenant_id (aicoe-tracker#175) accepted for signature parity with BaseDb; this backend
+    # does not implement tenant-scoped memory filtering yet.
+
+    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None):
         """Delete a user memory from Redis.
 
         Args:
@@ -797,7 +807,9 @@ class RedisDb(BaseDb):
             log_error(f"Error deleting user memory: {str(e)}")
             raise e
 
-    def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete user memories from Redis.
 
         Args:
@@ -826,7 +838,7 @@ class RedisDb(BaseDb):
             log_error(f"Error deleting user memories: {str(e)}")
             raise e
 
-    def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    def get_all_memory_topics(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> List[str]:
         """Get all memory topics from Redis.
 
         Args:
@@ -853,7 +865,12 @@ class RedisDb(BaseDb):
             raise e
 
     def get_user_memory(
-        self, memory_id: str, deserialize: Optional[bool] = True, user_id: Optional[str] = None
+        self,
+        memory_id: str,
+        deserialize: Optional[bool] = True,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Get a memory from Redis.
 
@@ -895,6 +912,8 @@ class RedisDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """Get all memories from Redis as UserMemory objects.
 
@@ -961,6 +980,8 @@ class RedisDb(BaseDb):
         limit: Optional[int] = None,
         page: Optional[int] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memory stats from Redis.
 
@@ -1016,7 +1037,7 @@ class RedisDb(BaseDb):
             raise e
 
     def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Upsert a user memory in Redis.
 
@@ -1060,7 +1081,12 @@ class RedisDb(BaseDb):
             raise e
 
     def upsert_memories(
-        self, memories: List[UserMemory], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        memories: List[UserMemory],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk upsert multiple user memories for improved performance on large datasets.
@@ -1096,7 +1122,7 @@ class RedisDb(BaseDb):
             log_error(f"Exception during bulk memory upsert: {str(e)}")
             return []
 
-    def clear_memories(self) -> None:
+    def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
 
         Raises:

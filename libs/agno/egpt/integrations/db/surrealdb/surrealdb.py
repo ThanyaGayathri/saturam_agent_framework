@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, SessionType
+from egpt.db.memory_scope import require_unsupported_memory_tenant_scope
 from egpt.db.schemas import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
@@ -72,6 +73,7 @@ class SurrealDb(BaseDb):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         require_session_tenant_id: bool = False,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a SurrealDB database.
@@ -94,6 +96,10 @@ class SurrealDb(BaseDb):
             require_session_tenant_id (bool): Must stay False (aicoe-tracker#197) -- this backend
                 does not implement tenant-scoped session enforcement, and construction raises if
                 this or ``EGPT_REQUIRE_SESSION_TENANT_ID`` resolve to True.
+            require_memory_tenant_id (bool): Refuse unscoped memory access (aicoe-tracker#175).
+                Defaults to unscoped; this backend does not implement tenant-scoped memory
+                enforcement, so construction raises if this or ``EGPT_REQUIRE_MEMORY_TENANT_ID``
+                resolve to True. See ``egpt/db/memory_scope.py``.
         """
         if id is None:
             base_seed = db_url
@@ -112,8 +118,10 @@ class SurrealDb(BaseDb):
             traces_table=traces_table,
             spans_table=spans_table,
             require_session_tenant_id=require_session_tenant_id,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
         require_unsupported_session_tenant_scope("SurrealDb", self.require_session_tenant_id)
+        require_unsupported_memory_tenant_scope("SurrealDb", self.require_memory_tenant_id)
         self._client = client
         self._db_url = db_url
         self._db_creds = db_creds
@@ -635,8 +643,13 @@ class SurrealDb(BaseDb):
         return list(deserialize_sessions(session_type, desurrealized))
 
     # --- Memory ---
-    def clear_memories(self) -> None:
+    def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
+
+        Args:
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If an error occurs during deletion.
@@ -790,12 +803,17 @@ class SurrealDb(BaseDb):
 
         return deserialize_cultural_knowledge(result)  # type: ignore
 
-    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None) -> None:
+    def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete a user memory from the database.
 
         Args:
             memory_id (str): The ID of the memory to delete.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             bool: True if deletion was successful, False otherwise.
@@ -814,12 +832,17 @@ class SurrealDb(BaseDb):
                 {"user": user_rec_id, "memory": mem_rec_id},
             )
 
-    def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete user memories from the database.
 
         Args:
             memory_ids (List[str]): The IDs of the memories to delete.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If an error occurs during deletion.
@@ -835,11 +858,14 @@ class SurrealDb(BaseDb):
                 {"records": records, "user": user_rec_id},  # type: ignore[dict-item]
             )
 
-    def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    def get_all_memory_topics(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> List[str]:
         """Get all memory topics from the database.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             List[str]: List of memory topics.
@@ -873,7 +899,12 @@ class SurrealDb(BaseDb):
         return list(result)
 
     def get_user_memory(
-        self, memory_id: str, deserialize: Optional[bool] = True, user_id: Optional[str] = None
+        self,
+        memory_id: str,
+        deserialize: Optional[bool] = True,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Get a memory from the database.
 
@@ -881,6 +912,9 @@ class SurrealDb(BaseDb):
             memory_id (str): The ID of the memory to get.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -917,6 +951,8 @@ class SurrealDb(BaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """Get all memories from the database as UserMemory objects.
 
@@ -931,6 +967,9 @@ class SurrealDb(BaseDb):
             sort_by (Optional[str]): The column to sort by.
             sort_order (Optional[str]): The order to sort by.
             deserialize (Optional[bool]): Whether to serialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
 
         Returns:
@@ -979,6 +1018,8 @@ class SurrealDb(BaseDb):
         limit: Optional[int] = None,
         page: Optional[int] = None,
         user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memories stats.
 
@@ -986,6 +1027,9 @@ class SurrealDb(BaseDb):
             limit (Optional[int]): The maximum number of user stats to return.
             page (Optional[int]): The page number.
             user_id (Optional[str]): The ID of the user to filter by. Defaults to None.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: A list of dictionaries containing user stats and total count.
@@ -1043,13 +1087,16 @@ class SurrealDb(BaseDb):
         return list(result), total_count
 
     def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Upsert a user memory in the database.
 
         Args:
             memory (UserMemory): The user memory to upsert.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -1077,7 +1124,7 @@ class SurrealDb(BaseDb):
         return deserialize_user_memory(result)
 
     def upsert_memories(
-        self, memories: List[UserMemory], deserialize: Optional[bool] = True
+        self, memories: List[UserMemory], deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk insert or update multiple memories in the database for improved performance.
@@ -1085,6 +1132,9 @@ class SurrealDb(BaseDb):
         Args:
             memories (List[UserMemory]): The list of memories to upsert.
             deserialize (Optional[bool]): Whether to deserialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             List[Union[UserMemory, Dict[str, Any]]]: List of upserted memories

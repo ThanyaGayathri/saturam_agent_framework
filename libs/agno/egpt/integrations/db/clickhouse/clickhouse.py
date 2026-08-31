@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from egpt.db.base import BaseDb, ComponentType
 from egpt.db.filter_converter import TRACE_COLUMNS as TRACE_FILTER_COLUMNS
+from egpt.db.memory_scope import require_unsupported_memory_tenant_scope
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalRunRecord
 from egpt.db.schemas.knowledge import KnowledgeRow
@@ -80,6 +81,7 @@ class ClickhouseDb(BaseDb):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         create_schema: bool = True,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Args:
@@ -101,6 +103,10 @@ class ClickhouseDb(BaseDb):
                 id is derived from the connection params so the same logical DB
                 gets the same id across reloads.
             create_schema: Create database + tables on startup if missing.
+            require_memory_tenant_id (bool): Must stay False (aicoe-tracker#175) -- this
+                backend is traces-only and does not implement memory storage at all, let
+                alone tenant-scoped memory enforcement. Construction raises if this or
+                ``EGPT_REQUIRE_MEMORY_TENANT_ID`` resolve to True.
         """
         if id is None:
             seed = f"clickhouse://{username}@{host}:{port}/{database}"
@@ -111,7 +117,9 @@ class ClickhouseDb(BaseDb):
             traces_table=traces_table,
             spans_table=spans_table,
             versions_table=versions_table,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
+        require_unsupported_memory_tenant_scope("ClickhouseDb", self.require_memory_tenant_id)
 
         self.host = host
         self.port = port
@@ -696,16 +704,21 @@ class ClickhouseDb(BaseDb):
         raise NotImplementedError(_TRACES_ONLY_ERROR)
 
     # --- Memory ---
-    def clear_memories(self) -> None:
+    # tenant_id (aicoe-tracker#175) accepted for signature parity with BaseDb; unused (traces/spans only)
+    def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         raise NotImplementedError(_TRACES_ONLY_ERROR)
 
-    def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None) -> None:
+    def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError(_TRACES_ONLY_ERROR)
 
-    def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         raise NotImplementedError(_TRACES_ONLY_ERROR)
 
-    def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    def get_all_memory_topics(self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None) -> List[str]:
         return []
 
     def get_user_memory(self, *args, **kwargs):  # type: ignore[override]

@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from egpt.db.schemas import UserMemory
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.memory.adapters.seed import SeedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, build_memory_provider
 from egpt.memory.manager import MemoryManager
@@ -604,6 +605,96 @@ def test_the_seed_bridge_never_crosses_tenants():
 
     with pytest.raises(MemoryOperationError, match="single_tenant"):
         bridge.read_tier(GLOBEX, MemoryTier.SEMANTIC, MemoryQuery(text="revenue"))
+
+
+# ---------------------------------------------------------------------------
+# aicoe-tracker#175: the manager path threads Scope.tenant_id to a real backend
+# ---------------------------------------------------------------------------
+#
+# The refusal above fires against `FakeManager`, which has no `.db` at all -- exactly the shape
+# that still cannot be trusted. These tests exercise the *narrowed* half: a manager backed by a
+# real, tenant-scope-capable `SqliteDb` (`egpt.db.memory_scope.MEMORY_TENANT_SCOPE_SUPPORTED_BACKENDS`)
+# needs no `single_tenant` declaration at all, and isolation is real -- not merely refused.
+
+
+def _sqlite_manager(tmp_path) -> MemoryManager:
+    """A real `MemoryManager` over a real `SqliteDb` -- one of the backends that can filter on
+    `tenant_id` for real (aicoe-tracker#175), unlike every `FakeManager` in this module."""
+    return MemoryManager(db=SqliteDb(db_file=str(tmp_path / "seed_tenant.db")))
+
+
+def test_a_manager_only_deployment_on_a_supported_backend_needs_no_single_tenant_pin(tmp_path):
+    """The narrowed refusal: SqliteDb can filter on tenant_id for real, so construction succeeds
+    with no options['single_tenant'] declared at all -- unlike the FakeManager case above."""
+    bridge = SeedMemoryProvider(manager=_sqlite_manager(tmp_path), config=MemoryProviderConfig(provider="seed"))
+    assert bridge._tenant is None
+
+
+def test_the_multi_tenant_bridge_never_crosses_tenants(tmp_path):
+    """The positive case `test_the_seed_bridge_never_crosses_tenants` pins around: real isolation
+    through manager -> SqliteDb, on a bridge that was never told to pin."""
+    bridge = SeedMemoryProvider(manager=_sqlite_manager(tmp_path), config=MemoryProviderConfig(provider="seed"))
+
+    bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="acme Q4 revenue is 12M", scope=ACME)])
+    bridge.write_tier(GLOBEX, MemoryTier.SEMANTIC, [MemoryEvent(content="globex Q4 revenue is 9M", scope=GLOBEX)])
+
+    acme_slice = bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="revenue"))
+    globex_slice = bridge.read_tier(GLOBEX, MemoryTier.SEMANTIC, MemoryQuery(text="revenue"))
+
+    assert [r.content for r in acme_slice] == ["acme Q4 revenue is 12M"]
+    assert [r.content for r in globex_slice] == ["globex Q4 revenue is 9M"]
+
+
+async def test_the_multi_tenant_bridge_isolates_tenants_on_the_async_lane(tmp_path):
+    """The same isolation, through `awrite_tier`/`aread_tier` -- a real (non-async) SqliteDb, so
+    this also pins that the sync-db thread hop still carries `tenant_id` correctly."""
+    bridge = SeedMemoryProvider(manager=_sqlite_manager(tmp_path), config=MemoryProviderConfig(provider="seed"))
+
+    await bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="acme secret", scope=ACME)])
+    await bridge.awrite_tier(GLOBEX, MemoryTier.SEMANTIC, [MemoryEvent(content="globex secret", scope=GLOBEX)])
+
+    acme_records = await bridge.aread_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="secret"))
+    globex_records = await bridge.aread_tier(GLOBEX, MemoryTier.SEMANTIC, MemoryQuery(text="secret"))
+
+    assert [r.content for r in acme_records] == ["acme secret"]
+    assert [r.content for r in globex_records] == ["globex secret"]
+
+
+def test_a_bound_store_still_requires_single_tenant_even_on_a_supported_backend(tmp_path):
+    """The manager's db being capable is not enough: no LearningStore accepts tenant_id at all
+    (egpt.memory.learn_stores), so a store-bound tier still needs the deployment to pin."""
+    with pytest.raises(MemoryProviderConfigError, match="cannot enforce tenant isolation"):
+        SeedMemoryProvider(
+            manager=_sqlite_manager(tmp_path),
+            stores={MemoryTier.SEMANTIC: FakeStore()},
+            config=MemoryProviderConfig(provider="seed"),
+        )
+
+
+def test_an_unsupported_backend_still_requires_single_tenant():
+    """A manager whose db is not in MEMORY_TENANT_SCOPE_SUPPORTED_BACKENDS still cannot be
+    trusted to filter -- accepting tenant_id for signature parity is not enforcement."""
+
+    class FakeUnsupportedDb:
+        """Stands in for a backend outside MEMORY_TENANT_SCOPE_SUPPORTED_BACKENDS."""
+
+    class ManagerWithUnsupportedDb(FakeManager):
+        def __init__(self) -> None:
+            super().__init__()
+            self.db = FakeUnsupportedDb()
+
+    with pytest.raises(MemoryProviderConfigError, match="cannot enforce tenant isolation"):
+        SeedMemoryProvider(manager=ManagerWithUnsupportedDb(), config=MemoryProviderConfig(provider="seed"))
+
+
+def test_single_tenant_may_still_be_declared_on_a_supported_backend(tmp_path):
+    """A deployment may choose to pin even though it does not have to -- the pre-#175 behaviour
+    is preserved as an explicit, narrower opt-in rather than removed."""
+    bridge = SeedMemoryProvider(manager=_sqlite_manager(tmp_path), config=seed_config())
+    assert bridge._tenant == "acme"
+
+    with pytest.raises(MemoryOperationError, match="single_tenant"):
+        bridge.read_tier(GLOBEX, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
 
 
 @pytest.mark.parametrize("slot", ["agent_id", "team_id", "session_id"])
@@ -2235,3 +2326,45 @@ def test_a_store_that_can_answer_is_not_warned_about(learning_type, recwarn):
     SeedMemoryProvider(stores={MemoryTier.SEMANTIC: SlotNamingStore(learning_type)}, config=seed_config())
 
     assert [w for w in recwarn if "every read of this tier" in str(w.message)] == []
+
+
+# ============================================================================
+# PINNED BRIDGE + require_memory_tenant_id (aicoe-tracker#175 round-1 review, finding #3)
+#
+# A pinned single-tenant bridge deliberately omits the tenant_id kwarg on manager calls
+# (`_manager_tenant_kwargs`), relying on `memory.tenant_id` already being stamped correctly by
+# `_user_memory`. Combined with `require_memory_tenant_id=True` on the underlying db -- a
+# reasonable defense-in-depth setup, not a contrived one -- a write must still succeed: the db
+# validates the *effective* tenant (falling back to `memory.tenant_id`) before refusing, not the
+# raw, deliberately-omitted kwarg.
+# ============================================================================
+
+
+def test_a_pinned_bridge_writes_successfully_even_when_the_db_requires_memory_tenant_id(tmp_path):
+    db = SqliteDb(db_file=str(tmp_path / "pinned_strict.db"), require_memory_tenant_id=True)
+    bridge = SeedMemoryProvider(manager=MemoryManager(db=db), config=seed_config())
+
+    receipt = bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="acme's memory", scope=ACME)])
+
+    assert receipt.accepted == 1
+    stored = db.get_user_memories(user_id=ACME.user_id, tenant_id=ACME.tenant_id)
+    assert [m.memory for m in stored] == ["acme's memory"]
+
+
+async def test_a_pinned_bridge_writes_successfully_on_the_async_lane_too(tmp_path):
+    # AsyncSqliteDb resolves SQLAlchemy's aiosqlite dialect, which imports the driver at connect
+    # time; every other test in this module runs driver-free (CONTRIBUTING.md, "Optional
+    # dependencies").
+    pytest.importorskip("aiosqlite", reason="AsyncSqliteDb's dialect imports aiosqlite at connect time")
+
+    from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
+
+    db = AsyncSqliteDb(db_file=str(tmp_path / "pinned_strict_async.db"), require_memory_tenant_id=True)
+    await db._create_all_tables()
+    bridge = SeedMemoryProvider(manager=MemoryManager(db=db), config=seed_config())
+
+    receipt = await bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="acme's memory", scope=ACME)])
+
+    assert receipt.accepted == 1
+    stored = await db.get_user_memories(user_id=ACME.user_id, tenant_id=ACME.tenant_id)
+    assert [m.memory for m in stored] == ["acme's memory"]

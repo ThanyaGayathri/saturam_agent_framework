@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import AsyncBaseDb, SessionType
+from egpt.db.memory_scope import require_unsupported_memory_tenant_scope
 from egpt.db.migrations.manager import MigrationManager
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
@@ -58,6 +59,7 @@ class AsyncMySQLDb(AsyncBaseDb):
         versions_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         create_schema: bool = True,
+        require_memory_tenant_id: bool = False,
     ):
         """
         Async interface for interacting with a MySQL database.
@@ -83,6 +85,10 @@ class AsyncMySQLDb(AsyncBaseDb):
             versions_table (Optional[str]): Name of the table to store schema versions.
             create_schema (bool): Whether to automatically create the database schema if it doesn't exist.
                 Set to False if schema is managed externally (e.g., via migrations). Defaults to True.
+            require_memory_tenant_id (bool): Refuse unscoped memory access (aicoe-tracker#175).
+                Defaults to unscoped; this backend does not implement tenant-scoped memory
+                enforcement, so construction raises if this or EGPT_REQUIRE_MEMORY_TENANT_ID
+                resolve to True. See egpt/db/memory_scope.py.
 
         Raises:
             ValueError: If neither db_url nor db_engine is provided.
@@ -109,7 +115,9 @@ class AsyncMySQLDb(AsyncBaseDb):
             traces_table=traces_table,
             spans_table=spans_table,
             versions_table=versions_table,
+            require_memory_tenant_id=require_memory_tenant_id,
         )
+        require_unsupported_memory_tenant_scope("AsyncMySQLDb", self.require_memory_tenant_id)
 
         _engine: Optional[AsyncEngine] = db_engine
         if _engine is None and db_url is not None:
@@ -1311,8 +1319,15 @@ class AsyncMySQLDb(AsyncBaseDb):
             ]
 
     # -- Memory methods --
-    async def delete_user_memory(self, memory_id: str, user_id: Optional[str] = None) -> None:
+    async def delete_user_memory(
+        self, memory_id: str, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete a user memory from the database.
+
+        Args:
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             bool: True if deletion was successful, False otherwise.
@@ -1340,12 +1355,17 @@ class AsyncMySQLDb(AsyncBaseDb):
         except Exception as e:
             log_error(f"Error deleting user memory: {str(e)}")
 
-    async def delete_user_memories(self, memory_ids: List[str], user_id: Optional[str] = None) -> None:
+    async def delete_user_memories(
+        self, memory_ids: List[str], user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> None:
         """Delete user memories from the database.
 
         Args:
             memory_ids (List[str]): The IDs of the memories to delete.
             user_id (Optional[str]): Optional user ID to filter deletions.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If an error occurs during deletion.
@@ -1369,11 +1389,16 @@ class AsyncMySQLDb(AsyncBaseDb):
         except Exception as e:
             log_error(f"Error deleting user memories: {str(e)}")
 
-    async def get_all_memory_topics(self, user_id: Optional[str] = None) -> List[str]:
+    async def get_all_memory_topics(
+        self, user_id: Optional[str] = None, *, tenant_id: Optional[str] = None
+    ) -> List[str]:
         """Get all memory topics from the database.
 
         Args:
             user_id (Optional[str]): Optional user ID to filter topics.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             List[str]: List of memory topics.
@@ -1411,13 +1436,21 @@ class AsyncMySQLDb(AsyncBaseDb):
             return []
 
     async def get_user_memory(
-        self, memory_id: str, deserialize: Optional[bool] = True, user_id: Optional[str] = None
+        self,
+        memory_id: str,
+        deserialize: Optional[bool] = True,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Get a memory from the database.
 
         Args:
             memory_id (str): The ID of the memory to get.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Union[UserMemory, Dict[str, Any], None]:
@@ -1464,6 +1497,8 @@ class AsyncMySQLDb(AsyncBaseDb):
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
         deserialize: Optional[bool] = True,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
         """Get all memories from the database as UserMemory objects.
 
@@ -1478,6 +1513,9 @@ class AsyncMySQLDb(AsyncBaseDb):
             sort_by (Optional[str]): The column to sort by.
             sort_order (Optional[str]): The order to sort by.
             deserialize (Optional[bool]): Whether to serialize the memories. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Union[List[UserMemory], Tuple[List[Dict[str, Any]], int]]:
@@ -1538,8 +1576,13 @@ class AsyncMySQLDb(AsyncBaseDb):
             log_error(f"Exception reading from memory table: {str(e)}")
             return [] if deserialize else ([], 0)
 
-    async def clear_memories(self) -> None:
+    async def clear_memories(self, *, tenant_id: Optional[str] = None) -> None:
         """Delete all memories from the database.
+
+        Args:
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Raises:
             Exception: If an error occurs during deletion.
@@ -1786,13 +1829,21 @@ class AsyncMySQLDb(AsyncBaseDb):
             raise e
 
     async def get_user_memory_stats(
-        self, limit: Optional[int] = None, page: Optional[int] = None, user_id: Optional[str] = None
+        self,
+        limit: Optional[int] = None,
+        page: Optional[int] = None,
+        user_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get user memories stats.
 
         Args:
             limit (Optional[int]): The maximum number of user stats to return.
             page (Optional[int]): The page number.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Tuple[List[Dict[str, Any]], int]: A list of dictionaries containing user stats and total count.
@@ -1857,13 +1908,16 @@ class AsyncMySQLDb(AsyncBaseDb):
             return [], 0
 
     async def upsert_user_memory(
-        self, memory: UserMemory, deserialize: Optional[bool] = True
+        self, memory: UserMemory, deserialize: Optional[bool] = True, *, tenant_id: Optional[str] = None
     ) -> Optional[Union[UserMemory, Dict[str, Any]]]:
         """Upsert a user memory in the database.
 
         Args:
             memory (UserMemory): The user memory to upsert.
             deserialize (Optional[bool]): Whether to serialize the memory. Defaults to True.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             Optional[Union[UserMemory, Dict[str, Any]]]:
@@ -1930,7 +1984,12 @@ class AsyncMySQLDb(AsyncBaseDb):
             return None
 
     async def upsert_memories(
-        self, memories: List[UserMemory], deserialize: Optional[bool] = True, preserve_updated_at: bool = False
+        self,
+        memories: List[UserMemory],
+        deserialize: Optional[bool] = True,
+        preserve_updated_at: bool = False,
+        *,
+        tenant_id: Optional[str] = None,
     ) -> List[Union[UserMemory, Dict[str, Any]]]:
         """
         Bulk upsert multiple user memories for improved performance on large datasets.
@@ -1939,6 +1998,9 @@ class AsyncMySQLDb(AsyncBaseDb):
             memories (List[UserMemory]): List of memories to upsert.
             deserialize (Optional[bool]): Whether to deserialize the memories. Defaults to True.
             preserve_updated_at (bool): If True, preserve the updated_at from the memory object.
+            tenant_id (Optional[str]): Accepted for signature parity with BaseDb
+                (aicoe-tracker#175); this backend does not filter or stamp by it. Construction
+                refuses require_memory_tenant_id=True.
 
         Returns:
             List[Union[UserMemory, Dict[str, Any]]]: List of upserted memories.

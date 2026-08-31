@@ -134,16 +134,28 @@ TENANT_SCOPE_REQUIRED_DETAIL = (
 )
 
 
+#: What each tenant-scope flag's refusal should call the operation it gates, keyed by the flag
+#: name ``resolve_tenant_scope`` receives. New callers of ``resolve_tenant_scope`` add their flag
+#: here rather than falling into a wrong default -- ``require_memory_tenant_id`` (aicoe-
+#: tracker#175) used to fall through to the "session/run" branch below and tell an operator
+#: debugging a memory-scope refusal to toggle the unrelated session flag.
+_TENANT_SCOPE_FLAG_LABELS = {
+    "require_tenant_id": "component",
+    "require_session_tenant_id": "session/run",
+    "require_memory_tenant_id": "memory",
+}
+
+
 def _tenant_scope_required_detail(flag_name: str) -> str:
     """Build the unscoped-access refusal detail naming ``flag_name`` rather than a fixed flag.
 
-    ``resolve_tenant_scope`` is shared between component and session enforcement
-    (aicoe-tracker#197), which are gated by two deliberately separate flags
-    (``require_tenant_id`` vs. ``require_session_tenant_id`` -- see ``egpt/db/session_scope.py``
-    for why). A refusal must name the flag the caller actually needs to change, or an operator
-    debugging a session-scope error is told to toggle the unrelated component flag.
+    ``resolve_tenant_scope`` is shared across component, session (aicoe-tracker#197) and memory
+    (aicoe-tracker#175) enforcement, each gated by its own deliberately separate flag -- see
+    ``egpt/db/session_scope.py`` and ``egpt/db/memory_scope.py`` for why. A refusal must name the
+    flag the caller actually needs to change, or an operator debugging one scope's error is told
+    to toggle an unrelated flag.
     """
-    what = "component" if flag_name == "require_tenant_id" else "session/run"
+    what = _TENANT_SCOPE_FLAG_LABELS.get(flag_name, flag_name)
     return (
         f"This database requires every {what} operation to name a tenant, and this call passed "
         f"tenant_id=None (unscoped). Pass the caller's tenant, or build the db without "
