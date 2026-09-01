@@ -741,14 +741,14 @@ class RelationExtractionPipeline:
             candidates=candidates,
             edges_written=len(written),
             edges_invalidated=invalidated,
-            # `edges_invalidated` repeated inside `details`, not only as the report's own field:
-            # `CoLocatedMemoryProvider._relations`/`_arelations` (SM-L5 #126) return only
-            # `.details` to `consolidate`/`aconsolidate`, discarding the typed report and this
-            # field along with it -- which is why `ConsolidationReport.contradictions_resolved`
-            # stayed hard-coded to 0 even once this pipeline was wired and invalidating edges.
-            # An extra key, not a `RELATION_KEYS` floor member (see `RelationSummary`'s docstring
-            # in `co_located.py`): promoting it to the floor is a separate decision this ticket
-            # does not make.
+            # `edges_invalidated` also surfaced in `details` for the serialized
+            # ``ConsolidationReport.details["relations"]`` view. This is now a plain convenience,
+            # NOT the load-bearing workaround it was before aicoe-tracker#195:
+            # `CoLocatedMemoryProvider._relations`/`_arelations` return the *typed* report today,
+            # so `ConsolidationReport.contradictions_resolved` reads `edges_invalidated` off the
+            # typed field directly and no longer depends on this duplication to reach it. Kept
+            # because `details["relations"]["edges_invalidated"]` is a documented, tested part of
+            # the serialized surface. An extra key, not a `RELATION_KEYS` floor member.
             details=relation_details(extractor=RELATION_EXTRACTOR_ID, complete=complete, edges_invalidated=invalidated),
         )
 

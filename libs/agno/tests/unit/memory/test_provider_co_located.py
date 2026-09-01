@@ -603,6 +603,60 @@ def test_contradictions_resolved_stays_zero_with_no_relation_pipeline_wired():
     assert p.consolidate(ACME).contradictions_resolved == 0
 
 
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_a_typed_report_field_reaches_the_consolidation_report_without_details_duplication(half):
+    """Regression for aicoe-tracker#195: `_relations`/`_arelations` now return the typed
+    `RelationExtractionReport`, so `ConsolidationReport.contradictions_resolved` reads
+    `edges_invalidated` off the typed field -- NOT off `.details`. Proven here with a stub
+    pipeline whose typed report carries `edges_invalidated=3` while its `.details` dict
+    deliberately omits it: the pre-#195 code (reading `details.get("edges_invalidated", 0)`)
+    would report 0; the fixed code reports 3. This pins that a future typed report field no
+    longer needs the manual `.details` duplication the old `relations.py._report` used."""
+    from egpt.memory.graph.relations import RELATION_EXTRACTOR_ID, RelationExtractionReport, relation_details
+
+    class _TypedFieldOnlyPipeline:
+        """Returns a report with edges_invalidated on the TYPED field but not in .details."""
+
+        def _report(self, scope):
+            return RelationExtractionReport(
+                scope=scope,
+                episodes_read=1,
+                candidates=1,
+                edges_written=1,
+                edges_invalidated=3,
+                # .details intentionally does NOT carry edges_invalidated -- only the floor keys.
+                details=relation_details(extractor=RELATION_EXTRACTOR_ID, complete=True),
+            )
+
+        def run(self, scope, episodes):
+            return self._report(scope)
+
+        async def arun(self, scope, episodes):
+            return self._report(scope)
+
+    vector, graph = FakeVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(
+        vector=vector,
+        graph=graph,
+        config=MemoryProviderConfig(provider="co_located"),
+        relation_pipeline=_TypedFieldOnlyPipeline(),
+    )
+
+    if half == "sync":
+        p.write(ACME, [event("Ada works at Acme", id="e1")])
+        report = p.consolidate(ACME)
+    else:
+        await p.awrite(ACME, [event("Ada works at Acme", id="e1")])
+        report = await p.aconsolidate(ACME)
+
+    # Read off the typed field, even though .details omits edges_invalidated.
+    assert report.contradictions_resolved == 3
+    # And details["relations"] stays a plain JSON-shaped dict (the documented contract), here
+    # without the count since this stub chose not to surface it there.
+    assert isinstance(report.details["relations"], dict)
+    assert "edges_invalidated" not in report.details["relations"]
+
+
 class _RelationStub:
     """Returns one relation per episode, keyed on content -- same shape as
     ``test_graph_relations.py``'s ``StubExtractor``, kept local since only two tests in this file

@@ -129,8 +129,8 @@ if TYPE_CHECKING:
     from egpt.memory.consolidation.extract import FactExtractionPipeline
     from egpt.memory.consolidation.reflect import ReflectionCommit, ReflectionPipeline
     from egpt.memory.consolidation.summarize import SummaryPipeline
-    from egpt.memory.graph.entities import EntityExtractionPipeline
-    from egpt.memory.graph.relations import RelationExtractionPipeline
+    from egpt.memory.graph.entities import EntityExtractionPipeline, EntityExtractionReport
+    from egpt.memory.graph.relations import RelationExtractionPipeline, RelationExtractionReport
     from egpt.models.message import Message
 
 
@@ -225,6 +225,24 @@ EntitySummary = Union[Dict[str, Any], str]
 #: that floor is shared by every provider this seam will ever grow, and widening it is a
 #: deliberate, separately-reviewable decision this ticket does not make.
 RelationSummary = Union[Dict[str, Any], str]
+
+#: What :meth:`CoLocatedMemoryProvider._relations`/:meth:`_arelations` now return
+#: (aicoe-tracker#195): the *typed* :class:`~egpt.memory.graph.relations.RelationExtractionReport`
+#: from a wired pipeline, or the :data:`~egpt.memory.types.NO_RELATIONS` sentinel string from an
+#: unwired one. Returning the whole report -- not just its ``.details`` dict -- means every typed
+#: field on it (``edges_invalidated`` today, anything added tomorrow) reaches ``_report`` without
+#: needing to be manually duplicated into ``.details`` at the pipeline (the workaround #195
+#: removes). ``_report`` still writes the plain ``report.details`` dict into
+#: ``consolidation_details(relations=...)``, so ``details["relations"]`` stays a JSON-shaped dict
+#: (the documented contract) and the ``NO_RELATIONS`` sentinel path is unchanged.
+RelationResult = Union["RelationExtractionReport", str]
+
+#: What :meth:`CoLocatedMemoryProvider._entities`/:meth:`_aentities` now return
+#: (aicoe-tracker#195): the typed :class:`~egpt.memory.graph.entities.EntityExtractionReport` from
+#: a wired pipeline, or :data:`~egpt.memory.types.NO_ENTITIES` from an unwired one. The same
+#: no-silent-drop treatment as :data:`RelationResult`, applied for consistency -- no
+#: ``ConsolidationReport`` field reads a typed entity count today, but pre-empting the same gap.
+EntityResult = Union["EntityExtractionReport", str]
 
 #: The ``details["reflection"]`` counterpart to :data:`EntitySummary` (SM-L6 #127): a
 #: ``reflection_details`` payload from a wired pipeline, or
@@ -1585,8 +1603,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         facts: Sequence[FactWrite],
         merged: int,
         folded: int,
-        entities: EntitySummary,
-        relations: RelationSummary,
+        entities: EntityResult,
+        relations: RelationResult,
         reflection: ReflectionSummary,
         summary: SummarySummary,
         derived_by: str = _DETERMINISTIC_DEDUP_STRATEGY_ID,
@@ -1610,6 +1628,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # only -- nothing here raises or blocks the write on it, matching the round-2/3 review's own
         # "policy on violation stays in #194" boundary.
         provenance = provenance_report(facts, resolved_episode_ids={r.id for r in scanned})
+        # `entities`/`relations` are now the *typed* reports (aicoe-tracker#195) or the
+        # NO_ENTITIES/NO_RELATIONS sentinel string when unwired. Read the typed fields directly off
+        # the report, and derive the plain `.details` dict for `consolidation_details` so
+        # `details["entities"]`/`details["relations"]` stay JSON-shaped (the documented contract)
+        # and the sentinel path is unchanged.
+        entities_details = entities if isinstance(entities, str) else entities.details
+        relations_details = relations if isinstance(relations, str) else relations.details
+        # `edges_invalidated` off the typed field, not `.details.get(...)`: the field is the source
+        # of truth (SM-G5 #103), and reading it here is what lets `relations.py`'s `_report` stop
+        # duplicating it into `.details` purely to survive the trip (#195).
+        edges_invalidated = 0 if isinstance(relations, str) else relations.edges_invalidated
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=len(scanned),
@@ -1619,20 +1648,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # in separate fields rather than summed into one that neither could be recovered from.
             duplicates_merged=merged,
             near_duplicate_facts_folded=folded,
-            # `relations["edges_invalidated"]` (SM-L5 #126), not hard-coded 0: `_relations`/
-            # `_arelations` hand back only `RelationExtractionReport.details`, and before SM-L5
-            # added `edges_invalidated` to that dict (`relations.py`'s own `_report`), the count
-            # SM-G5's pipeline was already producing had nowhere to reach this field from -- it
-            # stayed 0 even on a pass that genuinely invalidated edges. `relations` is a bare
-            # string (`NO_RELATIONS`) when no pipeline is wired, hence the `isinstance` guard
-            # rather than a plain `.get`.
+            # `edges_invalidated` (SM-G5 #103), read off the typed `RelationExtractionReport` above
+            # (aicoe-tracker#195). Before #195, `_relations`/`_arelations` handed back only
+            # `.details`, so this count could reach here only via a manual duplication into that
+            # dict at `relations.py`'s own `_report`; returning the typed report removed that
+            # workaround. `0` when no relation pipeline is wired (`relations` is the NO_RELATIONS
+            # string, guarded above).
             #
             # `fact_pipeline`'s own UPDATE/DELETE retirements are deliberately not folded in here:
             # per ADR 0003 SS B.6, "the graph remains sole authority for semantic contradiction/
             # invalidation" -- a vector-side transaction-time supersede is a *different* mechanism
             # (module docstring, `consolidation/extract.py`), not a second contradiction this field
             # should also count.
-            contradictions_resolved=relations.get("edges_invalidated", 0) if isinstance(relations, dict) else 0,
+            contradictions_resolved=edges_invalidated,
             details=consolidation_details(
                 derived_by=derived_by,
                 # `>=`, deliberately conservative: `scan` returns at most `limit`, so a full page
@@ -1641,11 +1669,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # unnecessary cap increase, the false negative costs silent loss of the tail.
                 complete=not hit_cap,
                 supersede=supersede,
-                entities=entities,
+                # The plain `.details` dict (or NO_ENTITIES/NO_RELATIONS sentinel), never the typed
+                # report object -- `details` is the documented `Dict[str, Any]` contract shape,
+                # kept JSON-clean even though the method returns now carry the typed report (#195).
+                entities=entities_details,
                 # `relations`, `reflection`, `profile` and `summary` are free extra keys, not
                 # `CONSOLIDATION_KEYS` floor members (see `RelationSummary`'s docstring): promoting
                 # any of them is a separate, deliberate decision this ticket does not make.
-                relations=relations,
+                relations=relations_details,
                 reflection=reflection,
                 profile=profile,
                 summary=summary,
@@ -1663,7 +1694,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             ),
         )
 
-    def _entities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntitySummary:
+    def _entities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntityResult:
         """Run SM-G2's (#100) entity extraction over the episodes this pass kept.
 
         Over ``episodes`` rather than ``scanned``: an episode the graph has recorded as false is one
@@ -1702,15 +1733,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """
         if self.entity_pipeline is None:
             return NO_ENTITIES
-        return self.entity_pipeline.run(scope, episodes).details
+        # Return the typed report, not just `.details` (aicoe-tracker#195): `_report` extracts the
+        # `.details` dict for `consolidation_details` itself, so no typed field is silently dropped
+        # on the way there. Parallel to `_relations` -- see its docstring.
+        return self.entity_pipeline.run(scope, episodes)
 
-    async def _aentities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntitySummary:
+    async def _aentities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntityResult:
         """Async variant of :meth:`_entities`, making the same decisions."""
         if self.entity_pipeline is None:
             return NO_ENTITIES
-        return (await self.entity_pipeline.arun(scope, episodes)).details
+        return await self.entity_pipeline.arun(scope, episodes)
 
-    def _relations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationSummary:
+    def _relations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationResult:
         """Run SM-G3's (#101) relation extraction over the episodes this pass kept.
 
         Same ``episodes``, same ordering after the fact write, and the same
@@ -1718,27 +1752,25 @@ class CoLocatedMemoryProvider(MemoryProvider):
         docstring for why each of those matters, including the same PII-containment scope
         boundary (SM-X5 #141 round-1 review, finding #2): ``episodes`` is redacted before this
         runs, but ``RelationExtractionPipeline``'s own generated fact fields are not.
+
+        **Returns the typed** :class:`~egpt.memory.graph.relations.RelationExtractionReport`
+        (or the ``NO_RELATIONS`` sentinel when unwired), not just its ``.details`` dict
+        (aicoe-tracker#195). Every typed field on the report -- ``edges_invalidated`` today,
+        anything added later -- now reaches ``_report`` directly; ``_report`` reads what it needs
+        off the typed object and still writes the plain ``.details`` dict into
+        ``consolidation_details``. This removes the need for ``relations.py``'s ``_report`` to
+        manually copy ``edges_invalidated`` into ``.details`` just so it could survive the trip.
         """
         if self.relation_pipeline is None:
             return NO_RELATIONS
-        # TODO(aicoe-tracker #195): this discards the typed `RelationExtractionReport` entirely,
-        # keeping only `.details` -- a `Dict[str, Any]`. `edges_invalidated` survives that only
-        # because `relations.py`'s own `_report` deliberately duplicates it into `.details` as a
-        # workaround (see that call site's comment); any *other* field added to the typed report
-        # in the future will silently fail to reach `ConsolidationReport` the same way
-        # `edges_invalidated` did before SM-L5, unless it gets the same manual duplication.
-        # Returning the typed report itself (or a richer summary than `RelationSummary`'s
-        # `Union[Dict[str, Any], str]`) would close this for good, but changes this method's
-        # public return shape and every `NO_RELATIONS`-pattern-matching call site -- wider than
-        # one ticket, tracked separately at aicoe-tracker #195.
-        return self.relation_pipeline.run(scope, episodes).details
+        return self.relation_pipeline.run(scope, episodes)
 
-    async def _arelations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationSummary:
-        """Async variant of :meth:`_relations`, making the same decisions -- including the same
-        `.details`-only TODO gap; see that method's comment."""
+    async def _arelations(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> RelationResult:
+        """Async variant of :meth:`_relations`, making the same decisions -- returning the typed
+        report (aicoe-tracker#195)."""
         if self.relation_pipeline is None:
             return NO_RELATIONS
-        return (await self.relation_pipeline.arun(scope, episodes)).details
+        return await self.relation_pipeline.arun(scope, episodes)
 
     def _profile_messages(self, episodes: Sequence[MemoryRecord]) -> List["Message"]:
         """Episodes, as the ``Message`` list ``UserProfileStore.extract_profile`` expects.
