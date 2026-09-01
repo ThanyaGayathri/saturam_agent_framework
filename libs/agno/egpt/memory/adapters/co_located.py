@@ -247,9 +247,7 @@ def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:
 
 #: Default ``reason`` for :func:`_positive_int` -- ``max_episodes_per_pass``'s own failure mode,
 #: kept as the default so every pre-existing call site's message is unchanged.
-_ZERO_NEVER_DRAINS = (
-    "Zero would scan nothing while reporting the tier as undrained, which a scheduler retries forever."
-)
+_ZERO_NEVER_DRAINS = "Zero would scan nothing while reporting the tier as undrained, which a scheduler retries forever."
 
 
 def _positive_int(value: Any, option: str, *, reason: str = _ZERO_NEVER_DRAINS) -> int:

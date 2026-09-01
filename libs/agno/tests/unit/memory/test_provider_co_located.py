@@ -1089,6 +1089,120 @@ async def test_a_failed_awrite_does_not_advance_the_async_cursor():
     assert retry.episodic_scanned == 3
 
 
+THIRD = Scope(tenant_id="initech", user_id="u1")
+
+
+@pytest.mark.parametrize("bad", [0, -1, "lots", 3.5, True])
+def test_max_scan_cursors_is_validated_at_construction(bad):
+    """SM-L1x (#189): the cap is a bound reaching the same construction-time validator every
+    other bound on this adapter gets, not a value trusted three frames down."""
+    with pytest.raises(MemoryProviderConfigError, match="max_scan_cursors"):
+        CoLocatedMemoryProvider(vector=FakeVector(), max_scan_cursors=bad)
+
+
+def test_scan_cursors_are_capped_at_max_scan_cursors():
+    """SM-L1x (#189): `_scan_cursors` grows one entry per (scope, tier) pair ever consolidated
+    with no bound (aicoe-tracker #189's own finding). Capped at `max_scan_cursors`, a fourth
+    distinct scope must evict one of the first three rather than the dict growing past the cap.
+
+    Mutation guard: removing the `while len(...) > self.max_scan_cursors: popitem(...)` loop in
+    `_advance_cursor` makes this fail with `len(p._scan_cursors) == 3` instead of `2`.
+    """
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=FakeGraph(), max_scan_cursors=2)
+    fourth = Scope(tenant_id="umbrella", user_id="u1")
+
+    for scope in (ACME, OTHER, THIRD, fourth):
+        p.write(scope, [event("unique content for this scope", scope=scope, id=f"e-{scope.tenant_id}")])
+        p.consolidate(scope)
+
+    assert len(p._scan_cursors) == 2, "the cap must never be exceeded, however many scopes consolidate"
+
+
+def test_eviction_drops_the_least_recently_touched_pair_not_the_oldest_inserted():
+    """SM-L1x (#189): eviction must be LRU (least-recently-*touched*), not FIFO
+    (least-recently-*inserted*) -- a scope consolidated on every tick must never be the one
+    evicted just because another scope's cursor was written after it once and then never touched
+    again.
+
+    Sequence with `max_scan_cursors=2`: consolidate(ACME), consolidate(OTHER) -- insertion order
+    is [ACME, OTHER]. A no-op re-consolidation of ACME (nothing new written, so `_advance_cursor`
+    itself does nothing) must still refresh ACME's recency via `_read_cursor`, making OTHER the
+    least-recently-touched. Consolidating THIRD then must evict OTHER, not ACME.
+
+    Mutation guard: removing `_read_cursor`'s `move_to_end` call makes this fail -- ACME would be
+    evicted instead of OTHER, because a FIFO keyed on insertion order (untouched by the no-op
+    re-consolidation) evicts ACME first.
+    """
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=FakeGraph(), max_scan_cursors=2)
+    p.write(ACME, [event("acme content", scope=ACME, id="e-acme")])
+    p.write(OTHER, [event("other content", scope=OTHER, id="e-other")])
+    p.write(THIRD, [event("third content", scope=THIRD, id="e-third")])
+
+    p.consolidate(ACME)
+    p.consolidate(OTHER)
+    no_op = p.consolidate(ACME)  # nothing new for ACME -- a touch, not an advance
+    assert no_op.episodic_scanned == 0
+
+    p.consolidate(THIRD)
+
+    assert (OTHER.key(), MemoryTier.EPISODIC) not in p._scan_cursors, "OTHER was least recently touched"
+    assert (ACME.key(), MemoryTier.EPISODIC) in p._scan_cursors, "ACME was refreshed by the no-op pass"
+    assert (THIRD.key(), MemoryTier.EPISODIC) in p._scan_cursors
+
+
+def test_an_evicted_cursor_rescans_from_the_beginning_next_time():
+    """SM-L1x (#189): eviction is safe exactly because it degrades to `_scan_cursors`'s own
+    documented no-cursor behaviour -- "start from the beginning" -- never a lost or duplicated
+    fact. Confirms the eviction this ticket adds does not silently make the tier appear drained
+    for a scope whose cursor was in fact reclaimed for capacity, not because it finished."""
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=FakeGraph(), max_scan_cursors=1)
+    p.write(ACME, [event("acme content", scope=ACME, id="e-acme")])
+    p.write(OTHER, [event("other content", scope=OTHER, id="e-other")])
+
+    first = p.consolidate(ACME)
+    assert first.episodic_scanned == 1
+    p.consolidate(OTHER)  # evicts ACME's cursor under a cap of 1
+    assert (ACME.key(), MemoryTier.EPISODIC) not in p._scan_cursors
+
+    rescan = p.consolidate(ACME)
+
+    assert rescan.episodic_scanned == 1, "an evicted cursor rescans the tier, it does not skip it"
+
+
+async def test_aconsolidate_shares_the_same_cap_and_eviction_as_consolidate():
+    """SM-L1x (#189)'s async twin check: `aconsolidate` drives the identical `_read_cursor` /
+    `_advance_cursor` instance methods `consolidate` does (there is no separate async-side cursor
+    or cap), so a cap enforced through the async half must behave exactly like the sync test
+    above -- same eviction, same rescan-on-eviction fallback."""
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=FakeGraph(), max_scan_cursors=1)
+    p.write(ACME, [event("acme content", scope=ACME, id="e-acme")])
+    p.write(OTHER, [event("other content", scope=OTHER, id="e-other")])
+
+    first = await p.aconsolidate(ACME)
+    assert first.episodic_scanned == 1
+    await p.aconsolidate(OTHER)  # evicts ACME's cursor under a cap of 1
+    assert (ACME.key(), MemoryTier.EPISODIC) not in p._scan_cursors
+
+    rescan = await p.aconsolidate(ACME)
+
+    assert rescan.episodic_scanned == 1, "an evicted cursor rescans the tier, it does not skip it"
+
+
+def test_build_wires_max_scan_cursors_from_options():
+    """SM-L1x (#189): config-driven like every other bound on this adapter (`max_episodes_per_pass`,
+    `max_concurrent_writes`) -- a caller who needs a smaller footprint than the default should not
+    need the constructor directly."""
+    config = MemoryProviderConfig(
+        provider="co_located",
+        options={"vector_substrate": FakeVector(), "graph_substrate": FakeGraph(), "max_scan_cursors": 3},
+    )
+
+    built = build_memory_provider(config)
+
+    assert isinstance(built, CoLocatedMemoryProvider)
+    assert built.max_scan_cursors == 3
+
+
 async def test_async_consolidation_covers_the_same_episodes():
     p, _, _ = provider()
     for i in range(5):
