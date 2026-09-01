@@ -123,6 +123,14 @@ def _record_from_user_memory(memory: UserMemory, scope: Scope) -> MemoryRecord:
     on it yet, and it has no temporal fields at all, so the tenant comes from the caller's scope
     and the bi-temporal fields stay ``None`` -- which reads correctly as "valid since forever,
     never invalidated, current belief".
+
+    ``topics=memory.topics`` is passed bare, not pre-copied: ``MemoryRecord.__post_init__``
+    (aicoe-tracker#181) both copies it and refuses a non-list. That guard covers the
+    ``MemoryEvent``/``MemoryRecord`` seam, not ``MemoryManager.add_memory``/``update_memory``
+    (``manager.py``), which write ``UserMemory`` rows directly and never construct either
+    envelope -- a row written with a bad ``topics`` through that older CRUD surface now raises
+    ``MemoryOperationError`` here, on read, rather than the ``list()``-on-a-string corruption
+    #181 fixed at the newer seam.
     """
     return MemoryRecord(
         # A row with no id still needs a stable one: `MemoryRecord.id` is the dedup key. Derived

@@ -389,6 +389,10 @@ def test_a_string_topics_is_refused_before_it_reaches_the_manager():
     """Issue #181: ``topics="deploy"`` used to become ``["d","e","p","l","o","y"]`` in the stored
     ``UserMemory`` row. The envelope now refuses it at ``MemoryEvent`` construction, so
     ``write_tier`` never even sees the event.
+
+    The ``MemoryEvent(...)`` below raises during argument evaluation, before ``write_tier`` is
+    entered -- this proves a corrupted event can never be built, not that ``write_tier`` itself
+    does anything special with a bad one.
     """
     manager = FakeManager()
     bridge = SeedMemoryProvider(manager=manager, config=seed_config())

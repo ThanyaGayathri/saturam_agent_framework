@@ -168,12 +168,16 @@ def _require_topics_list(value: Any, owner: str) -> None:
     copy ``topics`` downstream: PR #76 round 2 showed a fix applied to some sites and not others
     is worse than the original defect. Those six sites keep their ``list(...)`` copies -- with
     this guard upstream, each is copying a value already known to be a list.
+
+    Construction-time only: neither envelope is frozen, so this does not stop a caller from
+    setting ``event.topics = "deploy"`` after the fact. Nothing downstream re-checks the type --
+    ``episode_from_event`` trusts it unconditionally once past ``__post_init__``. No caller in
+    this codebase mutates ``topics`` post-construction today.
     """
     if value is not None and not isinstance(value, list):
         raise MemoryOperationError(
-            f"{owner}.topics must be a list of strings, got {type(value).__name__}: {value!r}. "
-            "Copying it would risk splitting a string into one-character topics instead of "
-            "failing.",
+            f"{owner}.topics must be a list, got {type(value).__name__}: {value!r}. Copying it "
+            "would risk splitting a string into one-character topics instead of failing.",
             field_name="topics",
         )
 

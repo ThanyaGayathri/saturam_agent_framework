@@ -174,6 +174,20 @@ def test_a_list_topics_is_still_accepted_and_copied():
     assert record.topics == topics
 
 
+def test_a_constructed_event_does_not_alias_the_callers_topics_list():
+    """`MemoryEvent` now copies `topics`, mirroring `MemoryRecord` (see
+    `test_a_returned_record_does_not_alias_the_callers_topics_list` below): a caller batching
+    several events from one shared `topics` list must not have every already-built event mutate
+    together if that list changes after construction.
+    """
+    topics = ["deploy"]
+    event = MemoryEvent(content="hi", scope=a_scope(), topics=topics)
+
+    topics.append("INJECTED")
+
+    assert event.topics == ["deploy"]
+
+
 def test_query_normalizes_as_of():
     dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
     assert MemoryQuery(text="q", as_of=dt).as_of == int(dt.timestamp())  # type: ignore[arg-type]

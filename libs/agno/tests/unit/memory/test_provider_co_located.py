@@ -194,6 +194,10 @@ def test_a_string_topics_is_refused_before_it_reaches_either_substrate():
     row -- a well-formed list, so nothing downstream could tell it apart from real topics. The
     envelope now refuses it at ``MemoryEvent`` construction, so ``write`` never even sees the
     event.
+
+    ``event(...)`` below raises during argument evaluation, before ``write`` is entered -- this
+    proves a corrupted event can never be built, not that ``write`` itself does anything special
+    with a bad one.
     """
     p, vector, graph = provider()
 
