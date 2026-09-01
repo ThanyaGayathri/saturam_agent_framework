@@ -2037,6 +2037,25 @@ class CoLocatedMemoryProvider(MemoryProvider):
         facts, folded = merge_near_duplicate_facts(facts)
         return facts, merged, folded, _DETERMINISTIC_DEDUP_STRATEGY_ID, NO_SUPERSEDE
 
+    @staticmethod
+    def _episode_receipt(episodes: Sequence[MemoryRecord]) -> WriteReceipt:
+        """The receipt shape for a partial write in the ``else`` branch of ``consolidate``.
+
+        That branch runs precisely when ``facts`` is empty, so the fact-derived
+        ``event_ids=[f.record.id for f in facts]`` every other ``PartialWriteError`` in this method
+        carries would be vacuous here (aicoe-tracker #186). ``episodes`` is what ``_entities`` and
+        ``_relations`` were actually handed, so it is what a retry re-runs extraction against.
+        """
+        tiers: List[MemoryTier] = []
+        for episode in episodes:
+            if episode.tier not in tiers:
+                tiers.append(episode.tier)
+        return WriteReceipt(
+            accepted=len(episodes),
+            event_ids=[e.id for e in episodes if e.id is not None],
+            tiers_written=tiers,
+        )
+
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="consolidate")
         with memory_span(
@@ -2166,26 +2185,38 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 except Exception as exc:
                     raise PartialWriteError(receipt) from exc
             else:
-                # No `receipt` exists here to attach -- `facts` is empty, so no *semantic fact* was
-                # committed above. `_entities`/`_relations` below can still write graph nodes/edges of
-                # their own, uncounted by this branch's `PartialWriteError` handling -- a pre-existing
-                # gap, pre-existing for `_entities` alone and now also covering `_relations`'s
-                # write below -- this ticket does not widen the fix for either; tracked as
-                # aicoe-tracker #186. A failure here is a plain refusal, matching
-                # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
-                # branch above, not an oversight against it -- see the review-round-3 note in
-                # `_entities`'s own docstring.
+                # No fact-derived `receipt` exists here -- `facts` is empty, so no *semantic fact*
+                # was committed above. `_entities`/`_relations` own a dedicated graph port and can
+                # still write nodes/edges of their own, so a failure here is exactly as much a
+                # partial write as one in the `if facts:` branch once either pipeline has actually
+                # run (aicoe-tracker #186) -- `_episode_receipt` builds the receipt from `episodes`
+                # since no fact receipt exists to reuse. Neither pipeline running yet is not a
+                # partial write and propagates bare, matching `write`'s rule for a refusal before
+                # any commit.
                 #
-                # `_update_profile`'s write below carries the identical gap (QC round 3, PR #135):
-                # its own `SemanticProfileStore.write` failure here is a plain refusal too, uncounted
-                # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
-                # leg specifically.
+                # `_update_profile`'s write below still carries the identical gap (QC round 3, PR
+                # #135) -- out of this ticket's scope, per its own acceptance criteria naming only
+                # `_entities`/`_relations`; not a separate oversight for the profile leg
+                # specifically.
                 #
                 # Recording a zero-accepted entry here (rather than skipping it) is what makes a scope
                 # that never consolidates anything distinguishable from one that was never asked.
                 self._record_fact_growth(scope, facts)
-                entities = self._entities(scope, episodes)
-                relations = self._relations(scope, episodes)
+                entities_committed = False
+                relations_committed = False
+                try:
+                    entities = self._entities(scope, episodes)
+                    entities_committed = self.entity_pipeline is not None
+                    # After entities, not before: relation edges land on the same entity nodes by
+                    # name (module docstring), so running this second lets a fresh node exist before
+                    # any edge that names it -- though `upsert_facts` creates a bare endpoint either
+                    # way, so this is ordering for readability, not a correctness dependency.
+                    relations = self._relations(scope, episodes)
+                    relations_committed = self.relation_pipeline is not None
+                except Exception as exc:
+                    if not (entities_committed or relations_committed):
+                        raise
+                    raise PartialWriteError(self._episode_receipt(episodes)) from exc
                 profile = self._update_profile(scope, episodes)
             # After every write in this pass has landed, never before: advancing on a pass that then
             # raises would have the next call skip the very episodes that failed to consolidate, which
@@ -2290,26 +2321,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 except Exception as exc:
                     raise PartialWriteError(receipt) from exc
             else:
-                # No `receipt` exists here to attach -- `facts` is empty, so no *semantic fact* was
-                # committed above. `_entities`/`_relations` below can still write graph nodes/edges of
-                # their own, uncounted by this branch's `PartialWriteError` handling -- a pre-existing
-                # gap, pre-existing for `_entities` alone and now also covering `_relations`'s
-                # write below -- this ticket does not widen the fix for either; tracked as
-                # aicoe-tracker #186. A failure here is a plain refusal, matching
-                # `write`'s rule: propagate bare, do not wrap. Deliberately parallel to the `if facts:`
-                # branch above, not an oversight against it -- see the review-round-3 note in
-                # `_entities`'s own docstring.
-                #
-                # `_aupdate_profile`'s write below carries the identical gap (QC round 3, PR #135):
-                # its own `SemanticProfileStore.awrite` failure here is a plain refusal too, uncounted
-                # by any receipt -- the same #186 scope-out, not a separate oversight for the profile
-                # leg specifically.
+                # Async twin of the sync half's `else` branch above -- same reasoning, same
+                # `_committed` gate, same #186 scope-out for `_aupdate_profile` below.
                 #
                 # Recording a zero-accepted entry here (rather than skipping it) is what makes a scope
                 # that never consolidates anything distinguishable from one that was never asked.
                 self._record_fact_growth(scope, facts)
-                entities = await self._aentities(scope, episodes)
-                relations = await self._arelations(scope, episodes)
+                entities_committed = False
+                relations_committed = False
+                try:
+                    entities = await self._aentities(scope, episodes)
+                    entities_committed = self.entity_pipeline is not None
+                    relations = await self._arelations(scope, episodes)
+                    relations_committed = self.relation_pipeline is not None
+                except Exception as exc:
+                    if not (entities_committed or relations_committed):
+                        raise
+                    raise PartialWriteError(self._episode_receipt(episodes)) from exc
                 profile = await self._aupdate_profile(scope, episodes)
             self._advance_cursor(cursor_key, scanned)
             return self._report(

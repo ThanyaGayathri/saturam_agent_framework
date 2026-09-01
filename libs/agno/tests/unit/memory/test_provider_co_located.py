@@ -7,6 +7,7 @@ invalidation rather than in-place mutation (F10).
 """
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -2540,3 +2541,94 @@ def test_an_episode_whose_valid_time_has_not_started_is_not_consolidated():
 
     facts = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
     assert facts == [], "a future-dated episode is not evidence yet"
+
+
+# ---------------------------------------------------------------------------
+# aicoe-tracker #186 -- the no-facts branch's entity/relation write guard
+# ---------------------------------------------------------------------------
+
+
+class _EmptyFactPipeline:
+    """A `fact_pipeline` double that always finds nothing to distil, so `consolidate` takes the
+    `else` branch even though `episodes` is non-empty -- the only way to reach it without an empty
+    scan, since the zero-config `_distil` default always emits one fact per non-empty episode
+    group and would take the `if facts:` branch instead."""
+
+    def distil(self, scope, episodes):
+        return [], FactExtractionReport(scope=scope, episodes_read=len(episodes))
+
+    async def adistil(self, scope, episodes):
+        return self.distil(scope, episodes)
+
+
+class _OKPipeline:
+    """An entity/relation pipeline double that succeeds -- standing in for "this pipeline ran and,
+    per its own contract, may have already written graph nodes/edges of its own"."""
+
+    def run(self, scope, episodes):
+        return SimpleNamespace(details={"complete": True})
+
+    async def arun(self, scope, episodes):
+        return self.run(scope, episodes)
+
+
+class _BoomPipeline:
+    """An entity/relation pipeline double that always raises."""
+
+    def run(self, scope, episodes):
+        raise RuntimeError("extraction blew up")
+
+    async def arun(self, scope, episodes):
+        raise RuntimeError("extraction blew up")
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_a_relations_failure_after_entities_ran_is_a_partial_write_with_no_facts(half):
+    """The gap #186 closes. Before the fix, this failure propagated as a bare `RuntimeError` with
+    no receipt -- even though `_entities` already ran and, on a real pipeline, may have already
+    committed graph nodes. `_entities`/`_relations` own a dedicated graph port and write inside
+    themselves (unlike a distilled fact, which flows through `consolidate`'s own write loop), so no
+    fact-derived receipt exists for this branch to reuse; `_episode_receipt` builds one from the
+    episodes both pipelines were actually handed.
+    """
+    p = CoLocatedMemoryProvider(
+        vector=FakeVector(),
+        graph=FakeGraph(),
+        fact_pipeline=_EmptyFactPipeline(),
+        entity_pipeline=_OKPipeline(),
+        relation_pipeline=_BoomPipeline(),
+    )
+    p.write(ACME, [event("alpha beta gamma", id="ep1")])
+
+    with pytest.raises(PartialWriteError) as exc:
+        if half == "sync":
+            p.consolidate(ACME)
+        else:
+            await p.aconsolidate(ACME)
+
+    assert isinstance(exc.value.__cause__, RuntimeError)
+    assert exc.value.receipt.event_ids == ["ep1"], "a retry needs the episode ids extraction ran over"
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_an_entities_failure_with_nothing_committed_propagates_bare_with_no_facts(half):
+    """The mirror case: `_entities` is the *first* call in the branch and raises immediately, so
+    nothing in this branch has committed yet -- matching `write`'s rule that a refusal before any
+    commit propagates bare rather than wrapping a receipt naming nothing retryable.
+    """
+    p = CoLocatedMemoryProvider(
+        vector=FakeVector(),
+        graph=FakeGraph(),
+        fact_pipeline=_EmptyFactPipeline(),
+        entity_pipeline=_BoomPipeline(),
+        relation_pipeline=None,
+    )
+    p.write(ACME, [event("alpha beta gamma", id="ep1")])
+
+    with pytest.raises(RuntimeError, match="extraction blew up") as exc:
+        if half == "sync":
+            p.consolidate(ACME)
+        else:
+            await p.aconsolidate(ACME)
+
+    assert not isinstance(exc.value, PartialWriteError), "nothing committed yet, so this is a plain refusal"
