@@ -19,8 +19,8 @@ from egpt.learn.curate import Curator
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError
 from egpt.memory.graph.entities import (
+    ENTITY_EXTRACTOR_ID,
     ENTITY_KEYS,
-    EXTRACTOR_ID,
     EntityExtractionPipeline,
     EntityExtractor,
     ExtractedEntities,
@@ -148,7 +148,7 @@ def test_an_entity_reaches_the_graph_as_a_node(is_async):
     assert report.entities_written == 1
     (stored,) = list(graph.entities.values())
     assert (stored.name, stored.entity_type) == ("Acme Corp", "company")
-    assert stored.derived_by == EXTRACTOR_ID
+    assert stored.derived_by == ENTITY_EXTRACTOR_ID
     assert graph.calls.count("aupsert_entities" if is_async else "upsert_entities") == 1
 
 
@@ -284,6 +284,28 @@ def test_the_pipeline_refuses_an_unscoped_pass():
         with pytest.raises(MemoryScopeRequiredError) as excinfo:
             call()
         assert excinfo.value.verb == verb
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_extractor_returning_none_is_refused_naming_the_extractor(is_async):
+    """The Protocol contract ("return empty, not None") is documented, not enforced by the type
+    system -- a custom extractor violating it must raise a named error, not a bare TypeError from
+    iterating None several frames from the call site. Mirrors
+    ``RelationExtractionPipeline``'s guard (SM-G3)."""
+
+    class ReturnsNone:
+        def extract(self, episode):
+            return None
+
+        async def aextract(self, episode):
+            return None
+
+    pipe, _ = pipeline(extractor=ReturnsNone())
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        asyncio.run(pipe.arun(ACME, [episode("x")])) if is_async else pipe.run(ACME, [episode("x")])
+
+    assert excinfo.value.field_name == "extractor"
 
 
 # ---------------------------------------------------------------------------
@@ -603,7 +625,7 @@ def test_consolidate_runs_the_pass_and_reports_it(is_async):
 
     assert extractor.seen, "the consolidation lane is where extraction runs"
     assert graph.entities
-    assert report.details["entities"]["extractor"] == EXTRACTOR_ID
+    assert report.details["entities"]["extractor"] == ENTITY_EXTRACTOR_ID
     assert set(report.details["entities"]) >= set(ENTITY_KEYS)
 
 

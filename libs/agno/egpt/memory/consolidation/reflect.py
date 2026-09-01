@@ -88,7 +88,7 @@ __all__ = [
 ReflectionCommit = Callable[[], None]
 
 #: Stamped on every insight's ``derived_by``, so a row's producer is readable off the record --
-#: the same convention ``EXTRACTOR_ID`` (``graph/entities.py``) and ``derived_by`` on the
+#: the same convention ``ENTITY_EXTRACTOR_ID`` (``graph/entities.py``) and ``derived_by`` on the
 #: deterministic-dedup facts (``co_located.py``) already follow.
 REFLECTOR_ID = "sm_l6.reflection"
 

@@ -46,7 +46,7 @@ __all__ = [
 #: Stamped nowhere on the written row -- a merge is not a new fact about the entity, and
 #: ``upsert_entities_statement`` has no field for "who last resolved this node" the way
 #: ``derived_by`` records who last extracted it. Kept for the report only, matching
-#: ``entities.py.EXTRACTOR_ID``'s role there.
+#: ``entities.py.ENTITY_EXTRACTOR_ID``'s role there.
 RESOLVER_ID = "sm_g8.entity_resolution"
 
 #: :meth:`~egpt.memory.substrates.GraphSubstrate.match_entities`'s own default, restated so a

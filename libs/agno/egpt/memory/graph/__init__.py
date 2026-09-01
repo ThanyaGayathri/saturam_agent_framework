@@ -7,8 +7,8 @@ integration (``egpt/integrations/memory/graph/``); nothing here imports one.
 """
 
 from egpt.memory.graph.entities import (
+    ENTITY_EXTRACTOR_ID,
     ENTITY_KEYS,
-    EXTRACTOR_ID,
     EntityExtractionPipeline,
     EntityExtractionReport,
     EntityExtractor,
@@ -60,8 +60,8 @@ from egpt.memory.graph.temporal import (
 __all__ = [
     "DEFAULT_MATCH_LIMIT",
     "DEFAULT_MIN_SCORE",
+    "ENTITY_EXTRACTOR_ID",
     "ENTITY_KEYS",
-    "EXTRACTOR_ID",
     "RELATION_EXTRACTOR_ID",
     "RELATION_KEYS",
     "EntityExtractionPipeline",

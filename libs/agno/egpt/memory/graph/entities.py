@@ -44,8 +44,8 @@ if TYPE_CHECKING:
     from egpt.models.message import Message
 
 __all__ = [
+    "ENTITY_EXTRACTOR_ID",
     "ENTITY_KEYS",
-    "EXTRACTOR_ID",
     "EntityExtractionPipeline",
     "EntityExtractionReport",
     "EntityExtractor",
@@ -57,7 +57,9 @@ __all__ = [
 ]
 
 #: Stamped on every candidate's ``derived_by``, so a row's producer is readable off the node.
-EXTRACTOR_ID = "sm_g2.entity_extraction"
+#: Named apart from relations.py's ``RELATION_EXTRACTOR_ID`` -- both are re-exported from
+#: ``graph/__init__``, and two module-level constants of that name would shadow each other there.
+ENTITY_EXTRACTOR_ID = "sm_g2.entity_extraction"
 
 #: How many episodes one pass extracts from. Each is one model call and SM-R9 sizes graph
 #: extraction at ~$220/tenant per 100k memories, so an uncapped pass is a bill rather than a wait.
@@ -299,6 +301,17 @@ class EntityExtractionPipeline:
     @staticmethod
     def _candidates(episode: MemoryRecord, extracted: Sequence[ExtractedEntity]) -> List[EntityWrite]:
         """Attach the scope and the provenance the extractor deliberately does not carry."""
+        if extracted is None:
+            # The Protocol docstring says "an episode naming none returns empty, not None" -- a
+            # contract, not a runtime guard. Without this, a custom extractor returning None hits
+            # `for item in extracted` and raises a bare TypeError several frames from here, with
+            # nothing pointing back at the extractor that violated the contract. Mirrors
+            # `RelationExtractionPipeline._candidates`'s guard (SM-G3).
+            raise MemoryOperationError(
+                f"The extractor returned None for episode {episode.id!r}; return an empty "
+                "sequence for an episode with no entities, not None.",
+                field_name="extractor",
+            )
         return [
             EntityWrite(
                 name=item.name,
@@ -312,7 +325,7 @@ class EntityExtractionPipeline:
                 properties=dict(item.properties),
                 source_episode_ids=[episode.id],
                 confidence=item.confidence,
-                derived_by=EXTRACTOR_ID,
+                derived_by=ENTITY_EXTRACTOR_ID,
             )
             for item in extracted
         ]
@@ -446,7 +459,7 @@ class EntityExtractionPipeline:
             candidates=candidates,
             entities_written=len(written),
             details=entity_details(
-                extractor=EXTRACTOR_ID,
+                extractor=ENTITY_EXTRACTOR_ID,
                 embedding_version=written[0].embedding_version if written else None,
                 complete=complete,
             ),
