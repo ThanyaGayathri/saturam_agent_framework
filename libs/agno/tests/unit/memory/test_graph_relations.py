@@ -1081,7 +1081,8 @@ def test_a_collaborator_missing_either_half_is_refused_at_construction(name, bro
     assert excinfo.value.field_name == name
 
 
-def test_an_extractor_returning_none_is_refused_naming_the_extractor():
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_extractor_returning_none_is_refused_naming_the_extractor(is_async):
     """The Protocol contract ("return empty, not None") is documented, not enforced by the type
     system -- a custom extractor violating it must raise a named error, not a bare TypeError from
     iterating None several frames from the call site."""
@@ -1096,7 +1097,7 @@ def test_an_extractor_returning_none_is_refused_naming_the_extractor():
     pipe, _ = pipeline(extractor=ReturnsNone())
 
     with pytest.raises(MemoryOperationError) as excinfo:
-        pipe.run(ACME, [episode("x")])
+        asyncio.run(pipe.arun(ACME, [episode("x")])) if is_async else pipe.run(ACME, [episode("x")])
 
     assert excinfo.value.field_name == "extractor"
 
