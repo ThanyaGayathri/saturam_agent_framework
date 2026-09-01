@@ -8,6 +8,7 @@ invalidation rather than in-place mutation (F10).
 
 from dataclasses import replace
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -25,6 +26,7 @@ from egpt.memory.graph.temporal import RuleBasedValidTimeExtractor, ValidTimeSpa
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FUSION_KEYS,
+    EntityWrite,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
@@ -2582,6 +2584,30 @@ class _BoomPipeline:
         raise RuntimeError("extraction blew up")
 
 
+class _CommitsThenBoomsPipeline:
+    """Writes one batch to the graph, then raises -- entirely inside one `run`/`arun` call.
+
+    Mirrors what `EntityExtractionPipeline`/`RelationExtractionPipeline` actually do: both group
+    their candidates by scope via `_batches(...)` and write one batch at a time with no try/except
+    of their own (`libs/agno/egpt/memory/graph/entities.py`, `.../relations.py`), so a second-batch
+    failure surfaces from *inside* the single `self._entities(...)`/`self._relations(...)` call --
+    after a first batch already landed, but before that call can ever return control to
+    `consolidate` (round-1 review, PR #171). This double reproduces that shape directly, rather
+    than relying on the real pipelines' internal batching.
+    """
+
+    def __init__(self, graph):
+        self.graph = graph
+
+    def run(self, scope, episodes):
+        self.graph.upsert_entities(scope, [EntityWrite(name="Acme Corp", entity_type="company", scope=scope)])
+        raise RuntimeError("second batch blew up")
+
+    async def arun(self, scope, episodes):
+        await self.graph.aupsert_entities(scope, [EntityWrite(name="Acme Corp", entity_type="company", scope=scope)])
+        raise RuntimeError("second batch blew up")
+
+
 @pytest.mark.parametrize("half", ["sync", "async"])
 async def test_a_relations_failure_after_entities_ran_is_a_partial_write_with_no_facts(half):
     """The gap #186 closes. Before the fix, this failure propagated as a bare `RuntimeError` with
@@ -2608,14 +2634,48 @@ async def test_a_relations_failure_after_entities_ran_is_a_partial_write_with_no
 
     assert isinstance(exc.value.__cause__, RuntimeError)
     assert exc.value.receipt.event_ids == ["ep1"], "a retry needs the episode ids extraction ran over"
+    assert exc.value.receipt.tiers_written == [], "nothing tier-denominated landed here -- see _episode_receipt"
 
 
 @pytest.mark.parametrize("half", ["sync", "async"])
-async def test_an_entities_failure_with_nothing_committed_propagates_bare_with_no_facts(half):
-    """The mirror case: `_entities` is the *first* call in the branch and raises immediately, so
-    nothing in this branch has committed yet -- matching `write`'s rule that a refusal before any
-    commit propagates bare rather than wrapping a receipt naming nothing retryable.
+async def test_a_mid_batch_partial_commit_inside_one_pipeline_call_is_still_a_partial_write(half):
+    """Round-1 review, PR #171 (Major): the guard used to key off "did `_entities`/`_relations`
+    *return* successfully", which cannot see a failure that happens *inside* one of those calls --
+    exactly what a real pipeline's own per-scope batching produces when batch 2 raises after batch
+    1 already committed. `_CommitsThenBoomsPipeline` writes to the graph and then raises in the
+    same `run`/`arun` call, so `_entities`/`_relations` never returns at all; the fix now gates on
+    whether a pipeline is *wired*, not on whether its call completed, so this is still wrapped.
     """
+    graph = FakeGraph()
+    p = CoLocatedMemoryProvider(
+        vector=FakeVector(),
+        graph=graph,
+        fact_pipeline=_EmptyFactPipeline(),
+        entity_pipeline=_CommitsThenBoomsPipeline(graph),
+        relation_pipeline=None,
+    )
+    p.write(ACME, [event("alpha beta gamma", id="ep1")])
+
+    with pytest.raises(PartialWriteError) as exc:
+        if half == "sync":
+            p.consolidate(ACME)
+        else:
+            await p.aconsolidate(ACME)
+
+    assert isinstance(exc.value.__cause__, RuntimeError)
+    assert exc.value.receipt.event_ids == ["ep1"]
+    assert graph.entities, "the first batch's write must actually have landed, or this proves nothing"
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_a_wired_pipelines_failure_is_conservatively_a_partial_write_even_unproven(half):
+    """`_entities`/`_relations` return only `.details`, discarding the typed report -- so even on
+    a *clean* failure (no batching involved) this branch cannot tell "raised before any batch"
+    from "raised after one landed" (see the `else` branch's own comment). Once a pipeline is
+    wired, the only safe reading of any exception it raises is "might have committed something",
+    matching `_graph_fact_batch`'s existing precedent for a batch that raises. This is the
+    deliberate, disclosed cost of closing that gap: a caller may retry occasionally when nothing
+    was actually written, never lose a receipt it needed."""
     p = CoLocatedMemoryProvider(
         vector=FakeVector(),
         graph=FakeGraph(),
@@ -2625,10 +2685,44 @@ async def test_an_entities_failure_with_nothing_committed_propagates_bare_with_n
     )
     p.write(ACME, [event("alpha beta gamma", id="ep1")])
 
-    with pytest.raises(RuntimeError, match="extraction blew up") as exc:
+    with pytest.raises(PartialWriteError) as exc:
         if half == "sync":
             p.consolidate(ACME)
         else:
             await p.aconsolidate(ACME)
 
-    assert not isinstance(exc.value, PartialWriteError), "nothing committed yet, so this is a plain refusal"
+    assert isinstance(exc.value.__cause__, RuntimeError)
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_neither_pipeline_wired_lets_an_unrelated_failure_propagate_bare(half):
+    """The one case with no commit ambiguity: with neither pipeline wired, `_entities`/
+    `_relations` short-circuit to a sentinel before touching the graph, so nothing in this branch
+    can raise from pipeline activity. `_entities` is monkeypatched to simulate an unrelated bug
+    reaching this branch anyway, pinning that the guard still propagates it bare rather than
+    wrapping a receipt that names nothing retryable.
+    """
+    p = CoLocatedMemoryProvider(
+        vector=FakeVector(),
+        graph=FakeGraph(),
+        fact_pipeline=_EmptyFactPipeline(),
+        entity_pipeline=None,
+        relation_pipeline=None,
+    )
+    p.write(ACME, [event("alpha beta gamma", id="ep1")])
+
+    def boom(self, scope, episodes):
+        raise RuntimeError("unrelated bug")
+
+    async def aboom(self, scope, episodes):
+        raise RuntimeError("unrelated bug")
+
+    with pytest.raises(RuntimeError, match="unrelated bug") as exc:
+        if half == "sync":
+            with patch.object(CoLocatedMemoryProvider, "_entities", boom):
+                p.consolidate(ACME)
+        else:
+            with patch.object(CoLocatedMemoryProvider, "_aentities", aboom):
+                await p.aconsolidate(ACME)
+
+    assert not isinstance(exc.value, PartialWriteError), "nothing wired, so nothing could have committed"

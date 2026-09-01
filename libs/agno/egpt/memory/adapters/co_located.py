@@ -2045,15 +2045,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ``event_ids=[f.record.id for f in facts]`` every other ``PartialWriteError`` in this method
         carries would be vacuous here (aicoe-tracker #186). ``episodes`` is what ``_entities`` and
         ``_relations`` were actually handed, so it is what a retry re-runs extraction against.
+
+        ``tiers_written=[]``, deliberately, not the source episodes' own tier (round-1 review,
+        PR #171): unlike ``write``'s ``_receipt``, where ``stamped`` events are written *into*
+        ``event.tier``, nothing here writes to a ``MemoryTier`` at all -- ``_entities``/
+        ``_relations`` write graph nodes/edges keyed by scope. Reporting the episodes' tier would
+        read as "this tier was written", which ``seed.py``'s receipt-merging (``tiers_written``
+        iteration) takes literally, and nothing tier-denominated landed here.
         """
-        tiers: List[MemoryTier] = []
-        for episode in episodes:
-            if episode.tier not in tiers:
-                tiers.append(episode.tier)
         return WriteReceipt(
             accepted=len(episodes),
             event_ids=[e.id for e in episodes if e.id is not None],
-            tiers_written=tiers,
+            tiers_written=[],
         )
 
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
@@ -2188,11 +2191,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # No fact-derived `receipt` exists here -- `facts` is empty, so no *semantic fact*
                 # was committed above. `_entities`/`_relations` own a dedicated graph port and can
                 # still write nodes/edges of their own, so a failure here is exactly as much a
-                # partial write as one in the `if facts:` branch once either pipeline has actually
-                # run (aicoe-tracker #186) -- `_episode_receipt` builds the receipt from `episodes`
-                # since no fact receipt exists to reuse. Neither pipeline running yet is not a
-                # partial write and propagates bare, matching `write`'s rule for a refusal before
-                # any commit.
+                # partial write as one in the `if facts:` branch once either pipeline is wired
+                # (aicoe-tracker #186) -- `_episode_receipt` builds the receipt from `episodes`
+                # since no fact receipt exists to reuse.
+                #
+                # **Gated on wiring, not on "the call returned" (round-1 review, PR #171).** Both
+                # pipelines write in per-scope batches *inside* their own `run`/`arun`
+                # (`EntityExtractionPipeline`/`RelationExtractionPipeline`), with no try/except of
+                # their own -- so a batch-2 failure after batch 1 already landed raises out of
+                # `self._entities(...)`/`self._relations(...)` before any "the call succeeded"
+                # flag could be set. This branch cannot see into that batching, so it cannot tell
+                # "raised before any batch" from "raised after one committed" -- and, per
+                # `_graph_fact_batch`'s own precedent ("a batch that raises may have committed part
+                # of itself"), the only safe reading of an exception from a wired pipeline is that
+                # it might have. Neither pipeline being wired is the one case with no such
+                # uncertainty: `_entities`/`_relations` short-circuit to a sentinel before touching
+                # the graph, so nothing here can raise, and this stays a bare propagation.
                 #
                 # `_update_profile`'s write below still carries the identical gap (QC round 3, PR
                 # #135) -- out of this ticket's scope, per its own acceptance criteria naming only
@@ -2202,19 +2216,16 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # Recording a zero-accepted entry here (rather than skipping it) is what makes a scope
                 # that never consolidates anything distinguishable from one that was never asked.
                 self._record_fact_growth(scope, facts)
-                entities_committed = False
-                relations_committed = False
+                pipeline_wired = self.entity_pipeline is not None or self.relation_pipeline is not None
                 try:
                     entities = self._entities(scope, episodes)
-                    entities_committed = self.entity_pipeline is not None
                     # After entities, not before: relation edges land on the same entity nodes by
                     # name (module docstring), so running this second lets a fresh node exist before
                     # any edge that names it -- though `upsert_facts` creates a bare endpoint either
                     # way, so this is ordering for readability, not a correctness dependency.
                     relations = self._relations(scope, episodes)
-                    relations_committed = self.relation_pipeline is not None
                 except Exception as exc:
-                    if not (entities_committed or relations_committed):
+                    if not pipeline_wired:
                         raise
                     raise PartialWriteError(self._episode_receipt(episodes)) from exc
                 profile = self._update_profile(scope, episodes)
@@ -2322,20 +2333,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     raise PartialWriteError(receipt) from exc
             else:
                 # Async twin of the sync half's `else` branch above -- same reasoning, same
-                # `_committed` gate, same #186 scope-out for `_aupdate_profile` below.
+                # wiring-gated check, same #186 scope-out for `_aupdate_profile` below.
                 #
                 # Recording a zero-accepted entry here (rather than skipping it) is what makes a scope
                 # that never consolidates anything distinguishable from one that was never asked.
                 self._record_fact_growth(scope, facts)
-                entities_committed = False
-                relations_committed = False
+                pipeline_wired = self.entity_pipeline is not None or self.relation_pipeline is not None
                 try:
                     entities = await self._aentities(scope, episodes)
-                    entities_committed = self.entity_pipeline is not None
                     relations = await self._arelations(scope, episodes)
-                    relations_committed = self.relation_pipeline is not None
                 except Exception as exc:
-                    if not (entities_committed or relations_committed):
+                    if not pipeline_wired:
                         raise
                     raise PartialWriteError(self._episode_receipt(episodes)) from exc
                 profile = await self._aupdate_profile(scope, episodes)
