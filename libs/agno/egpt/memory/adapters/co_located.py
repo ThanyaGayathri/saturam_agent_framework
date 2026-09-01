@@ -685,10 +685,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 tier=target,
                 occurred_at=occurred_at,
                 # `MemoryEvent.__post_init__` (aicoe-tracker#181) now copies `topics` again once
-                # `replace()` reconstructs the event below -- redundant but harmless. Left as-is
-                # rather than trimmed: if `__post_init__`'s copy is ever made conditional, this
-                # explicit one is the only thing standing between `records` (below) and aliasing
-                # the caller's original list.
+                # `replace()` reconstructs the event below -- one new redundant copy on this path
+                # (this call was already followed by `MemoryRecord.__post_init__`'s own copy
+                # pre-#181; `__post_init__`'s is the only one that's new). Left as-is rather than
+                # trimmed: if `__post_init__`'s copy is ever made conditional, this explicit one
+                # is the only thing standing between `records` (below) and aliasing the caller's
+                # original list.
                 topics=list(event.topics) if event.topics is not None else None,
                 entities=entities if event.entities is not None else None,
                 metadata=dict(event.metadata),

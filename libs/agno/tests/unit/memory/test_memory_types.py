@@ -165,6 +165,21 @@ def test_a_non_iterable_topics_is_refused_by_name_not_a_bare_typeerror(envelope)
         envelope(**kwargs)
 
 
+@pytest.mark.parametrize("envelope", [MemoryEvent, MemoryRecord])
+@pytest.mark.parametrize("bad_topics", [("deploy",), {"deploy"}], ids=["tuple", "set"])
+def test_a_tuple_or_set_topics_is_refused_not_silently_accepted(envelope, bad_topics):
+    """Before this guard, a tuple/set was silently accepted and copied via `list(topics)` --
+    valid by duck typing, but `topics` is typed `Optional[List[str]]`. Pinning this so an
+    accidental future `isinstance(value, (list, tuple))` relaxation gets caught.
+    """
+    kwargs = dict(content="hi", scope=a_scope(), topics=bad_topics)
+    if envelope is MemoryRecord:
+        kwargs.update(id="r1", tier=MemoryTier.EPISODIC)
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        envelope(**kwargs)
+
+
 def test_a_list_topics_is_still_accepted_and_copied():
     topics = ["deploy", "infra"]
     event = MemoryEvent(content="hi", scope=a_scope(), topics=topics)

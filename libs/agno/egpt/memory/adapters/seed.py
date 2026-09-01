@@ -60,6 +60,7 @@ from egpt.memory.types import (
 )
 from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes
 from egpt.tracing.memory import memory_span
+from egpt.utils.log import log_warning
 
 if TYPE_CHECKING:
     from egpt.learn.machine import LearningMachine
@@ -130,7 +131,11 @@ def _record_from_user_memory(memory: UserMemory, scope: Scope) -> MemoryRecord:
     (``manager.py``), which write ``UserMemory`` rows directly and never construct either
     envelope -- a row written with a bad ``topics`` through that older CRUD surface now raises
     ``MemoryOperationError`` here, on read, rather than the ``list()``-on-a-string corruption
-    #181 fixed at the newer seam.
+    #181 fixed at the newer seam. That refusal is not left to propagate: it would abort every
+    other memory in the same page over one bad row, so callers of this function through
+    :meth:`SeedMemoryProvider._manager_records`/``_amanager_records`` catch it and skip the row
+    instead (:meth:`SeedMemoryProvider._manager_records_from`) -- this function itself stays a
+    pure refusal, the isolation is the caller's job.
     """
     return MemoryRecord(
         # A row with no id still needs a stable one: `MemoryRecord.id` is the dedup key. Derived
@@ -755,6 +760,31 @@ class SeedMemoryProvider(MemoryProvider):
         """
         return {"tenant_id": scope.tenant_id} if self._tenant is None else {}
 
+    @staticmethod
+    def _manager_records_from(memories: Optional[Iterable[UserMemory]], scope: Scope) -> List[MemoryRecord]:
+        """Project each ``UserMemory`` the manager returned, skipping one that fails rather than
+        failing the whole page.
+
+        ``MemoryManager.add_memory``/``update_memory`` (and ``MemoryTools``' variants) write
+        ``UserMemory`` rows directly -- never through ``MemoryEvent``/``MemoryRecord``, so
+        #181's construction-time ``topics`` guard never sees them. A row written with a bad
+        ``topics`` through that older CRUD surface used to read back silently corrupted
+        (``list("deploy")`` -> one-char topics); #181 turned that into
+        :class:`MemoryOperationError`, raised from :func:`_record_from_user_memory`. Left
+        uncaught, one such row would abort this scope's *entire* tier read, repeatedly, until
+        someone finds and fixes the row by hand -- worse than the silent corruption it replaced.
+        Skipping the row and logging keeps the guard's refuse-don't-corrupt intent for new writes
+        while not making an already-stored row, this bridge did not write and cannot fix, take
+        the rest of the page down with it.
+        """
+        records = []
+        for memory in memories or []:
+            try:
+                records.append(_record_from_user_memory(memory, scope))
+            except MemoryOperationError as exc:
+                log_warning(f"Skipping unreadable memory {memory.memory_id!r} for scope {scope.key()!r}: {exc}")
+        return records
+
     def _manager_records(self, scope: Scope, query: MemoryQuery) -> List[MemoryRecord]:
         """Retrieve through ``MemoryManager``. **This is not vector search.**
 
@@ -773,7 +803,7 @@ class SeedMemoryProvider(MemoryProvider):
             user_id=scope.user_id,
             **self._manager_tenant_kwargs(scope),
         )
-        return [_record_from_user_memory(memory, scope) for memory in memories or []]
+        return self._manager_records_from(memories, scope)
 
     async def _amanager_records(self, scope: Scope, query: MemoryQuery) -> List[MemoryRecord]:
         """The same retrieval on the async lane, awaiting the manager when it has an async half.
@@ -796,7 +826,7 @@ class SeedMemoryProvider(MemoryProvider):
             user_id=scope.user_id,
             **self._manager_tenant_kwargs(scope),
         )
-        return [_record_from_user_memory(memory, scope) for memory in memories or []]
+        return self._manager_records_from(memories, scope)
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         require_scope(scope, method="read_tier")

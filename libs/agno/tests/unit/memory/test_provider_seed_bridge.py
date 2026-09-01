@@ -421,6 +421,43 @@ async def test_a_string_topics_is_refused_before_it_reaches_the_manager_async():
     assert manager.added == []
 
 
+def test_a_legacy_bad_topics_row_is_skipped_on_read_not_a_page_abort():
+    """The construction-time guard (#181) only covers ``MemoryEvent``/``MemoryRecord`` -- a
+    ``UserMemory`` row written straight through ``MemoryManager.add_memory``/``update_memory``
+    (bypassing both envelopes, as this manager double does here) can still carry a bad
+    ``topics``. Reading it back must skip that one row, not take the rest of the scope's memories
+    down with it -- the exact regression this PR's own guard would otherwise introduce at the
+    read seam, since ``_record_from_user_memory`` now raises where it used to silently corrupt.
+    """
+    manager = FakeManager(
+        [
+            UserMemory(memory="prefers dark mode", memory_id="m1", topics=["ui"]),
+            UserMemory(memory="deployed the billing service", memory_id="m2", topics="deploy"),  # type: ignore[arg-type]
+            UserMemory(memory="likes concise answers", memory_id="m3", topics=["tone"]),
+        ]
+    )
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    records = bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+
+    assert [r.content for r in records] == ["prefers dark mode", "likes concise answers"]
+
+
+async def test_a_legacy_bad_topics_row_is_skipped_on_read_not_a_page_abort_async():
+    manager = FakeManager(
+        [
+            UserMemory(memory="prefers dark mode", memory_id="m1", topics=["ui"]),
+            UserMemory(memory="deployed the billing service", memory_id="m2", topics="deploy"),  # type: ignore[arg-type]
+            UserMemory(memory="likes concise answers", memory_id="m3", topics=["tone"]),
+        ]
+    )
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    records = await bridge.aread_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+
+    assert [r.content for r in records] == ["prefers dark mode", "likes concise answers"]
+
+
 def test_a_user_memory_projects_with_bi_temporal_fields_unset():
     """UserMemory has no temporal columns until SM-C3; None reads as 'current, always valid'."""
     manager = FakeManager([UserMemory(memory="x", memory_id="m1")])

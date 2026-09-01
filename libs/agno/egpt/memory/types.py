@@ -165,9 +165,12 @@ def _require_topics_list(value: Any, owner: str) -> None:
     ``list()`` instead of the named refusal every other boundary in this module raises.
 
     Guarded once, here, on both envelope types, rather than at each of the six call sites that
-    copy ``topics`` downstream: PR #76 round 2 showed a fix applied to some sites and not others
-    is worse than the original defect. Those six sites keep their ``list(...)`` copies -- with
-    this guard upstream, each is copying a value already known to be a list.
+    copy ``topics`` downstream (``MemoryRecord.detached()``, ``CoLocatedMemoryProvider._prepare``
+    x2, its consolidate path, ``SeedMemoryProvider``'s write path, and
+    ``schemas/episodic.py::episode_from_event``): PR #76 round 2 showed a fix applied to some
+    sites and not others is worse than the original defect. Those six sites keep their
+    ``list(...)`` copies -- with this guard upstream, each is copying a value already known to
+    be a list.
 
     Construction-time only: neither envelope is frozen, so this does not stop a caller from
     setting ``event.topics = "deploy"`` after the fact. Nothing downstream re-checks the type --
