@@ -32,7 +32,20 @@ import asyncio
 import inspect
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Dict,
+    List,
+    Optional,
+    OrderedDict,
+    Sequence,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 from uuid import uuid4, uuid5
 
 from egpt.memory.config import (
@@ -147,6 +160,12 @@ _MAX_CONCURRENT_WRITES = 16
 #: re-reading the same window.
 _MAX_EPISODES_PER_PASS = 5_000
 
+#: Cap on distinct ``(scope, tier)`` cursor entries kept in ``_scan_cursors`` (SM-L1x #189).
+#: Chosen well above any single-tenant deployment's realistic scope count, so it only bites the
+#: high-cardinality case the ticket names -- an evicted entry is never a correctness loss, only
+#: redundant work (see ``_scan_cursors``'s own docstring).
+_MAX_SCAN_CURSORS = 10_000
+
 #: What ``ConsolidationReport.details["entities"]`` holds: an ``entity_details`` payload from a
 #: wired pipeline, or the ``NO_ENTITIES`` sentinel string from an unwired one. Named rather than
 #: left ``Any`` (review finding on PR #89) -- ``Any`` suppresses static analysis on every caller and
@@ -226,18 +245,25 @@ def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:
     }
 
 
-def _positive_int(value: Any, option: str) -> int:
+#: Default ``reason`` for :func:`_positive_int` -- ``max_episodes_per_pass``'s own failure mode,
+#: kept as the default so every pre-existing call site's message is unchanged.
+_ZERO_NEVER_DRAINS = (
+    "Zero would scan nothing while reporting the tier as undrained, which a scheduler retries forever."
+)
+
+
+def _positive_int(value: Any, option: str, *, reason: str = _ZERO_NEVER_DRAINS) -> int:
     """Validate a bound that reaches a substrate, at construction rather than three frames down.
 
-    Both bounds arrive through ``config.options``, so they are user-supplied and get the same
-    boundary treatment as everything else in this package. ``0`` is the case that matters:
-    ``max_episodes_per_pass=0`` scans nothing forever while reporting a tier that needs draining,
-    so a scheduler retries for eternity and nothing is ever consolidated.
+    Every bound arrives through ``config.options``, so each is user-supplied and gets the same
+    boundary treatment as everything else in this package. ``reason`` names *why* zero (or
+    negative) is invalid for the specific option being checked -- ``max_episodes_per_pass=0``
+    fails differently from ``max_scan_cursors=0``, and a shared message that only fit the first
+    caller would misdescribe the second's actual failure mode.
     """
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise MemoryProviderConfigError(
-            f"{option} must be an integer >= 1, got {value!r}. Zero would scan nothing while "
-            "reporting the tier as undrained, which a scheduler retries forever.",
+            f"{option} must be an integer >= 1, got {value!r}. {reason}",
             field_name=f"options.{option}",
         )
     return value
@@ -348,6 +374,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         config: Optional[MemoryProviderConfig] = None,
         max_episodes_per_pass: int = _MAX_EPISODES_PER_PASS,
         max_concurrent_writes: int = _MAX_CONCURRENT_WRITES,
+        max_scan_cursors: int = _MAX_SCAN_CURSORS,
         entity_pipeline: Optional["EntityExtractionPipeline"] = None,
         relation_pipeline: Optional["RelationExtractionPipeline"] = None,
         reflection_pipeline: Optional["ReflectionPipeline"] = None,
@@ -434,15 +461,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
         #: docstring is explicit that a caller-facing cursor was tried and failed three times).
         #: Not durable across a process restart -- a fresh instance rescans from the beginning,
         #: which costs redundant work but not correctness, because a fact id is derived from its
-        #: source episodes.
-        #: TODO(SM-L1x, aicoe-tracker #189): grows with the active scope set and is never
-        #: evicted -- one entry per (scope, tier) pair ever consolidated on this instance, for
-        #: the instance's lifetime. Bounded per-deployment today by how many distinct scopes one
-        #: process consolidates (today, ``ConsolidationWorker``'s own configured scope list); a
-        #: high-cardinality scope set (many users x many tiers, over a long-lived process) would
-        #: want a bounded LRU or eviction on idle rather than this plain dict. Should land before
-        #: SM-L9 wires this worker into a multi-tenant cron scheduler.
-        self._scan_cursors: Dict[Tuple[str, MemoryTier], ScanCursor] = {}
+        #: source episodes. The same is true of an *evicted* entry (SM-L1x #189): dropping a
+        #: (scope, tier) pair's cursor only means its next pass rescans from the beginning, never
+        #: a lost or duplicated fact. Bounded to ``max_scan_cursors`` entries, least-recently-used
+        #: evicted first -- both ``_read_cursor`` (below) and ``_advance_cursor`` refresh an
+        #: entry's recency, so a scope consolidated on every tick is never the one evicted even
+        #: though it is not the most recently *inserted*.
+        self.max_scan_cursors = _positive_int(
+            max_scan_cursors,
+            "max_scan_cursors",
+            reason=(
+                "Zero would evict a scope+tier's cursor immediately after every pass that "
+                "advances it, forcing every subsequent call to rescan that tier from the beginning."
+            ),
+        )
+        self._scan_cursors: "OrderedDict[Tuple[str, MemoryTier], ScanCursor]" = OrderedDict()
 
     def substrates(self) -> Dict[Substrate, bool]:
         return {Substrate.VECTOR: self.vector is not None, Substrate.GRAPH: self.graph is not None}
@@ -1363,6 +1396,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """
         return scope.key(), tier
 
+    def _read_cursor(self, key: Tuple[str, MemoryTier]) -> Optional[ScanCursor]:
+        """The cursor for ``key``, or ``None`` for a pair never consolidated (or since evicted --
+        the two are indistinguishable and, per ``_scan_cursors``'s docstring, equivalent: both
+        mean "start from the beginning").
+
+        Refreshes ``key``'s LRU recency on a hit, same as ``_advance_cursor`` -- called from both
+        ``consolidate`` and ``aconsolidate`` on *every* pass, including one that reads nothing new
+        (the tier is already drained), so a scope kept alive purely by repeated no-op passes is
+        never mistaken for idle and evicted ahead of a scope that has not been touched in longer.
+        """
+        cursor = self._scan_cursors.get(key)
+        if cursor is not None:
+            self._scan_cursors.move_to_end(key)
+        return cursor
+
     def _advance_cursor(self, key: Tuple[str, MemoryTier], scanned: Sequence[MemoryRecord]) -> None:
         """Move the cursor to the last row this pass read, if it read any.
 
@@ -1379,11 +1427,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
         here; a deployment where writer clocks can disagree meaningfully needs one, and it is not
         built by this ticket. Pinned by
         ``test_a_backdated_write_below_the_cursor_is_never_consolidated``.
+
+        Also refreshes ``key``'s LRU recency and evicts past ``max_scan_cursors`` (SM-L1x #189):
+        the least-recently-touched pair first, via ``_scan_cursors``'s insertion/move-to-end order.
         """
         if not scanned:
             return
         last = scanned[-1]
         self._scan_cursors[key] = (last.created_at or 0, last.id)
+        self._scan_cursors.move_to_end(key)
+        while len(self._scan_cursors) > self.max_scan_cursors:
+            self._scan_cursors.popitem(last=False)
 
     def _distil(self, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], int]:
         """Group near-duplicate episodes and emit one fact per group.
@@ -2057,7 +2111,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     scope,
                     CONSOLIDATION_SOURCE,
                     limit=self.max_episodes_per_pass,
-                    after=self._scan_cursors.get(cursor_key),
+                    after=self._read_cursor(cursor_key),
                 )
             ]
             assert_scope_isolation(scope, scanned, method="consolidate")
@@ -2225,7 +2279,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     scope,
                     CONSOLIDATION_SOURCE,
                     limit=self.max_episodes_per_pass,
-                    after=self._scan_cursors.get(cursor_key),
+                    after=self._read_cursor(cursor_key),
                 )
             ]
             assert_scope_isolation(scope, scanned, method="aconsolidate")
@@ -2363,6 +2417,7 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
         config=config,
         max_episodes_per_pass=config.options.get("max_episodes_per_pass", _MAX_EPISODES_PER_PASS),
         max_concurrent_writes=config.options.get("max_concurrent_writes", _MAX_CONCURRENT_WRITES),
+        max_scan_cursors=config.options.get("max_scan_cursors", _MAX_SCAN_CURSORS),
         # Injected, not resolved by registry key: the pipeline needs a model and an embedder, and
         # naming those in provider config would put SM-V2's (#96) embedder selection here.
         entity_pipeline=config.options.get("entity_pipeline"),
