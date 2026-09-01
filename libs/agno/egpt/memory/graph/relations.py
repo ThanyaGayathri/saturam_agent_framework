@@ -106,7 +106,7 @@ __all__ = [
 ]
 
 #: Stamped on every candidate's ``derived_by``, so a row's producer is readable off the edge.
-#: Named apart from entities.py's ``EXTRACTOR_ID`` -- both are re-exported from ``graph/__init__``,
+#: Named apart from entities.py's ``ENTITY_EXTRACTOR_ID`` -- both are re-exported from ``graph/__init__``,
 #: and two module-level constants of that name would shadow each other there.
 RELATION_EXTRACTOR_ID = "sm_g3.relation_extraction"
 
