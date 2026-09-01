@@ -180,7 +180,11 @@ def test_a_tuple_or_set_topics_is_refused_not_silently_accepted(envelope, bad_to
         envelope(**kwargs)
 
 
-def test_a_list_topics_is_still_accepted_and_copied():
+def test_a_list_topics_is_still_accepted():
+    """Value equality only -- not a copy/aliasing test. `MemoryEvent`'s non-aliasing is exercised
+    right below by `test_a_constructed_event_does_not_alias_the_callers_topics_list`;
+    `MemoryRecord`'s by `test_a_returned_record_does_not_alias_the_callers_topics_list`.
+    """
     topics = ["deploy", "infra"]
     event = MemoryEvent(content="hi", scope=a_scope(), topics=topics)
     record = MemoryRecord(id="r1", tier=MemoryTier.EPISODIC, content="hi", scope=a_scope(), topics=topics)

@@ -221,11 +221,14 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
     occurred_at = event.occurred_at if event.occurred_at is not None else now
     metadata = dict(event.metadata)
     if event.topics is not None:
-        # Not `_require_list`: `MemoryEvent.__post_init__` (SM-C1 #89 / #181) already refuses a
-        # non-list `topics` at construction, so by the time an event reaches here the type is
-        # guaranteed. Only the read-path calls below still need the named refusal -- they defend
-        # rows arriving from a direct database insert, which no envelope sees.
-        metadata[TOPICS_KEY] = list(event.topics)
+        # `_require_list`, not a bare `list(...)`: `MemoryEvent.__post_init__` (SM-C1 #89 / #181)
+        # validates `topics` at construction, but neither envelope is frozen, so
+        # `event.topics = "deploy"` after construction bypasses `__post_init__` entirely and
+        # reproduces the exact character-split corruption #181 exists to prevent -- no caller
+        # does this today, but this project has prior history (PR #76 round 2, see
+        # `_require_topics_list`'s docstring) with exactly this class of partial-guard gap, and
+        # the re-check is O(1) when the value is already a list.
+        metadata[TOPICS_KEY] = _require_list(event.topics, TOPICS_KEY, event.id)
     scope = event.scope
     return EpisodicRecord(
         id=event.id,
