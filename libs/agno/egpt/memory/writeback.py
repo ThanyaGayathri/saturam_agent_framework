@@ -221,10 +221,7 @@ def event_from_tool_execution(
         scope=scope,
         tier=MemoryTier.EPISODIC,
         role="tool",
-        # Passed through, not pre-copied: `list(topics)` here would turn a caller's
-        # `topics="deploy"` mistake into a well-formed one-character-per-topic list *before*
-        # `MemoryEvent.__post_init__` (#181) ever sees it, silently defeating that guard. The
-        # envelope validates and copies `topics` itself.
+        # Passed through, not pre-copied -- see `event_from_message`'s `topics=` above for why.
         topics=topics,
         occurred_at=occurred_at,
         metadata=event_metadata,

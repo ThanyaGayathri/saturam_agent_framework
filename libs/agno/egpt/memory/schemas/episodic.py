@@ -27,6 +27,7 @@ from egpt.memory.types import (
     MemoryRecord,
     Scope,
     escape_key_slot,
+    require_list_field,
 )
 from egpt.utils.dttm import now_epoch_s
 
@@ -146,13 +147,19 @@ def _require_list(value: Any, name: str, episode_id: str) -> List[str]:
     corruption survives a round trip with nothing to detect it. On the read side the same value
     arrives from ``MemoryRow.__post_init__``, which copies a value that is already a list and
     leaves any other alone, so a row inserted straight into the database keeps its bare string.
+
+    The isinstance check itself is :func:`~egpt.memory.types.require_list_field`, shared with
+    ``types.py``'s own ``topics`` guard, so the two do not carry independently-maintained copies
+    of the same test.
     """
-    if not isinstance(value, list):
-        raise MemoryOperationError(
+    require_list_field(
+        value,
+        field_name=name,
+        message=(
             f"Episode {episode_id!r} carries {name}={value!r}, which is a {type(value).__name__} "
-            "rather than a list. Copying it would split it into characters instead of failing.",
-            field_name=name,
-        )
+            "rather than a list. Copying it would split it into characters instead of failing."
+        ),
+    )
     return list(value)
 
 

@@ -458,6 +458,61 @@ async def test_a_legacy_bad_topics_row_is_skipped_on_read_not_a_page_abort_async
     assert [r.content for r in records] == ["prefers dark mode", "likes concise answers"]
 
 
+def test_skipping_a_bad_topics_row_backfills_the_page_rather_than_under_filling_it():
+    """``MemoryManager.search_user_memories`` truncates to ``query.limit`` *before*
+    ``_manager_records_from`` ever sees a row, so skipping a bad one there without re-asking would
+    silently hand back fewer records than requested even though a perfectly good row (``m3``) sits
+    just past the truncated page. ``_manager_records`` must re-ask with a bigger limit to backfill
+    it rather than return an under-filled page with nothing but a log line to say why.
+    """
+    manager = FakeManager(
+        [
+            UserMemory(memory="deployed the billing service", memory_id="m1", topics="deploy"),  # type: ignore[arg-type]
+            UserMemory(memory="prefers dark mode", memory_id="m2", topics=["ui"]),
+            UserMemory(memory="likes concise answers", memory_id="m3", topics=["tone"]),
+        ]
+    )
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    records = bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=2))
+
+    assert [r.content for r in records] == ["prefers dark mode", "likes concise answers"]
+
+
+async def test_skipping_a_bad_topics_row_backfills_the_page_rather_than_under_filling_it_async():
+    manager = FakeManager(
+        [
+            UserMemory(memory="deployed the billing service", memory_id="m1", topics="deploy"),  # type: ignore[arg-type]
+            UserMemory(memory="prefers dark mode", memory_id="m2", topics=["ui"]),
+            UserMemory(memory="likes concise answers", memory_id="m3", topics=["tone"]),
+        ]
+    )
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    records = await bridge.aread_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=2))
+
+    assert [r.content for r in records] == ["prefers dark mode", "likes concise answers"]
+
+
+def test_a_page_that_is_mostly_bad_rows_still_returns_rather_than_looping_forever():
+    """The backfill loop is bounded (``_MANAGER_BACKFILL_ATTEMPTS``): a store with more bad rows
+    than good ones must still return whatever it could read, not retry until it has hammered the
+    manager up to ``MAX_LIMIT``.
+    """
+    memories = [
+        UserMemory(memory=f"bad-{i}", memory_id=f"bad{i}", topics="deploy")  # type: ignore[arg-type]
+        for i in range(20)
+    ]
+    memories.insert(5, UserMemory(memory="prefers dark mode", memory_id="good1", topics=["ui"]))
+    manager = FakeManager(memories)
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    records = bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=2))
+
+    assert len(manager.search_calls) == SeedMemoryProvider._MANAGER_BACKFILL_ATTEMPTS
+    assert [r.content for r in records] == ["prefers dark mode"]
+
+
 def test_a_user_memory_projects_with_bi_temporal_fields_unset():
     """UserMemory has no temporal columns until SM-C3; None reads as 'current, always valid'."""
     manager = FakeManager([UserMemory(memory="x", memory_id="m1")])

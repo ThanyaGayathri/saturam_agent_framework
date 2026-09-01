@@ -275,19 +275,19 @@ def test_topics_survive_the_write_path_as_a_copy():
     assert episode.metadata[TOPICS_KEY] == ["deploy"]
 
 
-def test_a_topics_string_assigned_after_construction_is_still_refused():
-    """`MemoryEvent.__post_init__` (aicoe-tracker#181) only validates `topics` at construction --
-    neither envelope is frozen, so `event.topics = "deploy"` after the fact bypasses it entirely.
-    Without a read-path guard here too, this reproduces the exact character-split corruption #181
-    exists to prevent (``list("deploy")`` -> ``["d","e","p","l","o","y"]``, silently accepted).
-    No caller in this codebase mutates `topics` post-construction today, but this project has
-    prior history (PR #76 round 2) with exactly this class of partial-guard gap.
+def test_a_topics_string_assigned_after_construction_is_refused_immediately():
+    """Neither envelope is a frozen dataclass, so a guard that only ran in `__post_init__`
+    (aicoe-tracker#181) would let `event.topics = "deploy"` after the fact bypass validation
+    entirely and reproduce the exact character-split corruption #181 exists to prevent
+    (``list("deploy")`` -> ``["d","e","p","l","o","y"]``, silently accepted downstream). Both
+    envelopes instead override `__setattr__` to re-run the guard, and re-copy, on every set of
+    `topics` -- not only the one `__post_init__` makes -- so the mutation itself raises here,
+    rather than surfacing later at whichever reader happens to trust it.
     """
     event = an_event(topics=["deploy"])
-    event.topics = "deploy"  # type: ignore[assignment]
 
     with pytest.raises(MemoryOperationError, match=TOPICS_KEY):
-        episode_from_event(event)
+        event.topics = "deploy"  # type: ignore[assignment]
 
 
 @pytest.mark.parametrize("reserved", ["importance", "occurred_at", "topics"])
