@@ -1428,13 +1428,25 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         Also refreshes ``key``'s LRU recency and evicts past ``max_scan_cursors`` (SM-L1x #189):
         the least-recently-touched pair first, via ``_scan_cursors``'s insertion/move-to-end order.
+
+        The ``move_to_end`` call below is redundant against *today's* two call sites -- both
+        ``consolidate`` and ``aconsolidate`` call ``_read_cursor`` for the same ``key`` first,
+        which already moves an existing key to the end -- but kept anyway as defensive redundancy:
+        it is what keeps this method correct on its own terms if a future caller ever advances a
+        key without reading it first (review round 1, PR #174).
         """
         if not scanned:
             return
         last = scanned[-1]
         self._scan_cursors[key] = (last.created_at or 0, last.id)
         self._scan_cursors.move_to_end(key)
-        while len(self._scan_cursors) > self.max_scan_cursors:
+        # `self._scan_cursors and` guards a `max_scan_cursors` mutated to <= 0 after construction
+        # (bypassing `_positive_int`'s one-time check in `__init__` -- it is a plain public
+        # attribute, matching every other bound on this adapter): without it, `len(...) > n` for
+        # `n <= 0` never turns false once the dict is empty, and `popitem` on an empty
+        # `OrderedDict` raises `KeyError` (review round 1, PR #174) -- a new crash the old plain
+        # `dict` had no eviction loop to produce.
+        while self._scan_cursors and len(self._scan_cursors) > self.max_scan_cursors:
             self._scan_cursors.popitem(last=False)
 
     def _distil(self, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], int]:

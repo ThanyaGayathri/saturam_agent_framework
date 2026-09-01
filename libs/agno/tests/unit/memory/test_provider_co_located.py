@@ -1118,6 +1118,29 @@ def test_scan_cursors_are_capped_at_max_scan_cursors():
     assert len(p._scan_cursors) == 2, "the cap must never be exceeded, however many scopes consolidate"
 
 
+def test_a_non_positive_max_scan_cursors_set_after_construction_does_not_crash():
+    """Review round 1, PR #174: `max_scan_cursors` is a plain public attribute (matching every
+    other bound on this adapter), so `_positive_int`'s guard in `__init__` only ever runs once --
+    it does not stop a caller from setting `provider.max_scan_cursors` to a non-positive value
+    afterward. Before this fix, the eviction loop's `len(self._scan_cursors) > self.max_scan_cursors`
+    never turns false once the dict empties for such a value, and `popitem` on an empty
+    `OrderedDict` raised `KeyError` -- a new crash the old plain `dict` had no eviction loop to
+    produce.
+
+    Mutation guard: dropping the `self._scan_cursors and` guard from `_advance_cursor`'s eviction
+    `while` makes this raise `KeyError` instead of passing.
+    """
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=FakeGraph(), max_scan_cursors=5)
+    p.write(ACME, [event("acme content", scope=ACME, id="e-acme")])
+    p.consolidate(ACME)
+    p.max_scan_cursors = -3
+
+    p.write(OTHER, [event("other content", scope=OTHER, id="e-other")])
+    p.consolidate(OTHER)  # must not raise KeyError
+
+    assert dict(p._scan_cursors) == {}, "every cursor is evicted immediately under a non-positive cap"
+
+
 def test_eviction_drops_the_least_recently_touched_pair_not_the_oldest_inserted():
     """SM-L1x (#189): eviction must be LRU (least-recently-*touched*), not FIFO
     (least-recently-*inserted*) -- a scope consolidated on every tick must never be the one
