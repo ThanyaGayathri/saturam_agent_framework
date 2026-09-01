@@ -53,9 +53,16 @@ class TokenEmbedder:
     Not a stand-in for a model -- which one to use is SM-V2's (#96). It is here because the store is
     what is under test and a real model would make these properties depend on its weights: shared
     tokens give a genuinely smaller cosine distance, which is all the ranking assertions need.
+
+    ``offline_capable``: this file's fixtures construct ``PgVectorMemorySubstrate`` directly, which
+    defaults to ``mode=ProviderMode.LOCAL`` (Mode A, the air-gapped path). Declaring it here is the
+    escape hatch ``embedding.py``'s air-gap check documents for exactly this case -- an in-process
+    embedder that reaches nothing outside the air gap -- and matches ``test_mode_a.py``'s
+    ``OfflineTokenEmbedder`` of the same shape.
     """
 
     dimensions = DIM
+    offline_capable = True
 
     def get_embedding(self, text_):
         vector = [0.0] * DIM

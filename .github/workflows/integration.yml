@@ -68,6 +68,28 @@ jobs:
           --health-timeout 5s
           --health-retries 20
 
+      # The memory subsystem's graph substrate (SM-G1 #99) and its real-backend proofs
+      # (test_mode_a.py's SM-X1 #137, and the full write -> consolidate -> retrieve -> inject
+      # loop in test_e2e_symbiotic_loop.py, SM-X10 #146) are gated on EGPT_INTEGRATION_NEO4J,
+      # which nothing here set -- so, same failure mode as the postgres block's own comment
+      # above, one substrate over, both suites reported green by never running in CI. Community
+      # edition, matching cookbook/scripts/run_neo4j.sh and SM-R2's ratification for CI use; the
+      # port mapping and password mirror that script so a local run and CI exercise the same
+      # server. The healthcheck hits the container's own port (not the host-mapped one --
+      # options: healthchecks run inside the service container's network namespace).
+      neo4j:
+        image: neo4j:5
+        env:
+          NEO4J_AUTH: neo4j/smg1testpassword
+        ports:
+          - 7691:7687
+          - 7476:7474
+        options: >-
+          --health-cmd "wget -qO- http://localhost:7474 || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       - uses: actions/checkout@v4
 
@@ -93,6 +115,8 @@ jobs:
           EGPT_TELEMETRY: false
           EGPT_INTEGRATION_MYSQL: "1"
           EGPT_INTEGRATION_POSTGRES: "1"
+          EGPT_INTEGRATION_PGVECTOR: "1"
+          EGPT_INTEGRATION_NEO4J: "1"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
