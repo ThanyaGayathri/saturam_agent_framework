@@ -221,7 +221,11 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
     occurred_at = event.occurred_at if event.occurred_at is not None else now
     metadata = dict(event.metadata)
     if event.topics is not None:
-        metadata[TOPICS_KEY] = _require_list(event.topics, TOPICS_KEY, event.id)
+        # Not `_require_list`: `MemoryEvent.__post_init__` (SM-C1 #89 / #181) already refuses a
+        # non-list `topics` at construction, so by the time an event reaches here the type is
+        # guaranteed. Only the read-path calls below still need the named refusal -- they defend
+        # rows arriving from a direct database insert, which no envelope sees.
+        metadata[TOPICS_KEY] = list(event.topics)
     scope = event.scope
     return EpisodicRecord(
         id=event.id,

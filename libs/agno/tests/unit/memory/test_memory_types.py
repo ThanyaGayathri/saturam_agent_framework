@@ -16,6 +16,7 @@ from egpt.memory.types import (
     WRITE_KEYS,
     ConsolidationReport,
     MemoryEvent,
+    MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
@@ -130,6 +131,47 @@ def test_event_normalizes_but_does_not_stamp_occurred_at():
     dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
     stamped = MemoryEvent(content="hi", scope=a_scope(), occurred_at=dt)  # type: ignore[arg-type]
     assert stamped.occurred_at == int(dt.timestamp())
+
+
+# ---------------------------------------------------------------------------
+# topics: a non-list is refused rather than coerced (issue #181, residual from SM-E1 #108)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("envelope", [MemoryEvent, MemoryRecord])
+def test_a_string_topics_is_refused_not_split_into_characters(envelope):
+    """``list("deploy")`` is six one-character topics and raises nothing -- the corruption this
+    guard exists to catch is a *well-formed* list, so no downstream check can detect it once it
+    lands.
+    """
+    kwargs = dict(content="hi", scope=a_scope(), topics="deploy")
+    if envelope is MemoryRecord:
+        kwargs.update(id="r1", tier=MemoryTier.EPISODIC)
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        envelope(**kwargs)
+
+
+@pytest.mark.parametrize("envelope", [MemoryEvent, MemoryRecord])
+def test_a_non_iterable_topics_is_refused_by_name_not_a_bare_typeerror(envelope):
+    """A non-iterable ``topics=42`` used to raise ``TypeError`` from inside ``list()`` -- unnamed,
+    unlike every other refusal this envelope raises.
+    """
+    kwargs = dict(content="hi", scope=a_scope(), topics=42)
+    if envelope is MemoryRecord:
+        kwargs.update(id="r1", tier=MemoryTier.EPISODIC)
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        envelope(**kwargs)
+
+
+def test_a_list_topics_is_still_accepted_and_copied():
+    topics = ["deploy", "infra"]
+    event = MemoryEvent(content="hi", scope=a_scope(), topics=topics)
+    record = MemoryRecord(id="r1", tier=MemoryTier.EPISODIC, content="hi", scope=a_scope(), topics=topics)
+
+    assert event.topics == topics
+    assert record.topics == topics
 
 
 def test_query_normalizes_as_of():

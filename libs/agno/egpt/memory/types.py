@@ -155,6 +155,29 @@ def _epoch_or_none(value: Any) -> Optional[int]:
     return to_epoch_s(value)
 
 
+def _require_topics_list(value: Any, owner: str) -> None:
+    """Refuse a non-list ``topics`` rather than coercing it.
+
+    ``list("deploy")`` is six one-character topics and raises nothing -- a *well-formed* list, so
+    no downstream guard can detect the corruption (issue #181, residual from SM-E1 #108's
+    ``schemas/episodic.py::_require_list``, which caught this for the episode projection only). A
+    non-iterable such as ``topics=42`` would otherwise raise a bare ``TypeError`` from inside
+    ``list()`` instead of the named refusal every other boundary in this module raises.
+
+    Guarded once, here, on both envelope types, rather than at each of the six call sites that
+    copy ``topics`` downstream: PR #76 round 2 showed a fix applied to some sites and not others
+    is worse than the original defect. Those six sites keep their ``list(...)`` copies -- with
+    this guard upstream, each is copying a value already known to be a list.
+    """
+    if value is not None and not isinstance(value, list):
+        raise MemoryOperationError(
+            f"{owner}.topics must be a list of strings, got {type(value).__name__}: {value!r}. "
+            "Copying it would risk splitting a string into one-character topics instead of "
+            "failing.",
+            field_name="topics",
+        )
+
+
 def escape_key_slot(value: Optional[str]) -> str:
     """One slot of :meth:`Scope.key`, with the separator made unambiguous.
 
@@ -494,6 +517,7 @@ class MemoryRecord:
         # `topics` is copied here, with the other two, so the class is closed rather than the
         # instance: the seed read path builds records straight from stored rows and never calls
         # `detached()`, so a consumer appending to `record.topics` wrote into the store.
+        _require_topics_list(self.topics, "MemoryRecord")
         self.topics = list(self.topics) if self.topics is not None else None
 
     def is_current_belief(self) -> bool:
@@ -576,6 +600,13 @@ class MemoryEvent:
         # that rejects a blank tenant, a bool timestamp and a negative limit should not leave this
         # one to explode three frames away.
         self.metadata = dict(self.metadata or {})
+        _require_topics_list(self.topics, "MemoryEvent")
+        # Copied, not merely validated, for the same reason `MemoryRecord` copies it: a caller
+        # batching several events from one shared `topics` list (`writeback.py`'s
+        # `event_from_message` / `event_from_tool_execution`, built for `events_from_run`) must
+        # not have every already-built event's topics mutate together if that list changes after
+        # this call.
+        self.topics = list(self.topics) if self.topics is not None else None
 
 
 @dataclass

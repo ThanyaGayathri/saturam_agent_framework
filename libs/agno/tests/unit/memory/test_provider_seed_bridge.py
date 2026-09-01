@@ -385,6 +385,38 @@ def test_writes_land_as_user_memories_carrying_scope_identity():
     assert written.agent_id == "a1"
 
 
+def test_a_string_topics_is_refused_before_it_reaches_the_manager():
+    """Issue #181: ``topics="deploy"`` used to become ``["d","e","p","l","o","y"]`` in the stored
+    ``UserMemory`` row. The envelope now refuses it at ``MemoryEvent`` construction, so
+    ``write_tier`` never even sees the event.
+    """
+    manager = FakeManager()
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        bridge.write_tier(
+            ACME_AGENT,
+            MemoryTier.SEMANTIC,
+            [MemoryEvent(content="likes concise answers", scope=ACME_AGENT, topics="deploy")],
+        )
+
+    assert manager.added == []
+
+
+async def test_a_string_topics_is_refused_before_it_reaches_the_manager_async():
+    manager = FakeManager()
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        await bridge.awrite_tier(
+            ACME_AGENT,
+            MemoryTier.SEMANTIC,
+            [MemoryEvent(content="likes concise answers", scope=ACME_AGENT, topics="deploy")],
+        )
+
+    assert manager.added == []
+
+
 def test_a_user_memory_projects_with_bi_temporal_fields_unset():
     """UserMemory has no temporal columns until SM-C3; None reads as 'current, always valid'."""
     manager = FakeManager([UserMemory(memory="x", memory_id="m1")])
