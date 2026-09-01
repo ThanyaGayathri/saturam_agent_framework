@@ -192,7 +192,12 @@ def _fresh_provider(mode: ProviderMode) -> CoLocatedMemoryProvider:
     with built.vector._engine.begin() as connection:
         connection.execute(text(f"DELETE FROM {sql.qualified('ai', PG_TABLE)}"))
     with built.graph._driver.session(database=built.graph.database) as session:
-        session.run("MATCH (n) DETACH DELETE n")
+        # Scoped to this file's own tenant prefixes (`acme-*`, `globex-*`), not a whole-database
+        # wipe -- so a run here can't clobber `test_mode_a.py`'s graph state if the two suites are
+        # ever run concurrently (e.g. under `-n`/xdist).
+        session.run(
+            "MATCH (n) WHERE n.tenant_id STARTS WITH 'acme-' OR n.tenant_id STARTS WITH 'globex-' DETACH DELETE n"
+        )
     return built
 
 
@@ -245,9 +250,14 @@ def test_full_loop_write_consolidate_retrieve_inject(mode):
         assert report.semantic_written == 4
 
         # -- Turn 3: feed-forward read must inject the consolidated fact before the model call. --
+        # The ``[semantic]`` tag (not just the phrase) is the point of this assertion: without it,
+        # this would also pass on the raw episodic write alone -- ``MemoryQuery``'s default tiers
+        # search episodic and semantic together, and the deterministic strategy copies episode
+        # content verbatim, so an un-tagged match can't tell "consolidation ran" from "it didn't
+        # need to."
         _turn("r3", "What did I say about my support ticket preference?")
         injected = [getattr(m, "content", None) for m in model.invocations[-1]]
-        assert any(content and "email over phone" in content for content in injected), (
+        assert any(content and "[semantic]" in content and "email over phone" in content for content in injected), (
             f"consolidated memory was not injected into the model call; saw: {injected}"
         )
 
@@ -312,9 +322,9 @@ async def test_full_loop_write_consolidate_retrieve_inject_async(mode):
 
         await _turn("r2", "What did I ask you to send me weekly?")
         injected = [getattr(m, "content", None) for m in model.invocations[-1]]
-        assert any(content and "weekly billing summaries" in content for content in injected), (
-            f"consolidated memory was not injected into the async model call; saw: {injected}"
-        )
+        assert any(
+            content and "[semantic]" in content and "weekly billing summaries" in content for content in injected
+        ), f"consolidated memory was not injected into the async model call; saw: {injected}"
 
         vector_hits = await provider.vector.asearch(
             consolidate_scope, MemoryQuery(text="weekly billing summaries", tiers=[MemoryTier.SEMANTIC])
