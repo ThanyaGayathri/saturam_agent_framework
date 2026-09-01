@@ -183,21 +183,28 @@ def _config(mode: ProviderMode) -> MemoryProviderConfig:
     )
 
 
-def _fresh_provider(mode: ProviderMode) -> CoLocatedMemoryProvider:
-    """Build a provider for ``mode``, clearing any rows a previous run left behind -- cleared
-    before returning, not at teardown, so one test's leftovers cannot leak into the next (the
-    same drop-before-yield split ``test_mode_a.py``'s ``provider`` fixture uses)."""
+def _fresh_provider(mode: ProviderMode, tenant_id: str) -> CoLocatedMemoryProvider:
+    """Build a provider for ``mode``, clearing any rows ``tenant_id`` left behind from a previous
+    run -- cleared before returning, not at teardown, so one test's leftovers cannot leak into the
+    next (the same drop-before-yield split ``test_mode_a.py``'s ``provider`` fixture uses).
+
+    Scoped to the exact ``tenant_id`` in play, not a shared prefix: this file runs four
+    parametrized cases (``mode_a``/``mode_b`` x sync/async) whose tenants share a common prefix
+    (``acme-local``/``acme-frontier``, ``globex-local``/``globex-frontier``) -- a prefix-scoped
+    delete can't tell those apart and would let one case's reset clobber another's in-flight rows
+    under concurrent execution (e.g. ``-n``/xdist). Exact-match scoping also means a run here can't
+    clobber ``test_mode_a.py``'s graph state, since that file's tenants are plain ``"acme"``/
+    ``"globex"``, never equal to this file's ``mode``-suffixed ids.
+    """
     built = build_memory_provider(_config(mode))
     assert isinstance(built, CoLocatedMemoryProvider)
     with built.vector._engine.begin() as connection:
-        connection.execute(text(f"DELETE FROM {sql.qualified('ai', PG_TABLE)}"))
-    with built.graph._driver.session(database=built.graph.database) as session:
-        # Scoped to this file's own tenant prefixes (`acme-*`, `globex-*`), not a whole-database
-        # wipe -- so a run here can't clobber `test_mode_a.py`'s graph state if the two suites are
-        # ever run concurrently (e.g. under `-n`/xdist).
-        session.run(
-            "MATCH (n) WHERE n.tenant_id STARTS WITH 'acme-' OR n.tenant_id STARTS WITH 'globex-' DETACH DELETE n"
+        connection.execute(
+            text(f"DELETE FROM {sql.qualified('ai', PG_TABLE)} WHERE tenant_id = :tenant_id"),
+            {"tenant_id": tenant_id},
         )
+    with built.graph._driver.session(database=built.graph.database) as session:
+        session.run("MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n", tenant_id=tenant_id)
     return built
 
 
@@ -213,9 +220,9 @@ def test_full_loop_write_consolidate_retrieve_inject(mode):
     received* -- proving injection, not just that ``provider.read`` can find the fact when called
     directly.
     """
-    provider = _fresh_provider(mode)
+    tenant_id = f"acme-{mode.value}"
+    provider = _fresh_provider(mode, tenant_id)
     try:
-        tenant_id = f"acme-{mode.value}"
         user_id = "ada"
         session_id = "s1"
         model = ScriptedModel(
@@ -254,7 +261,12 @@ def test_full_loop_write_consolidate_retrieve_inject(mode):
         # this would also pass on the raw episodic write alone -- ``MemoryQuery``'s default tiers
         # search episodic and semantic together, and the deterministic strategy copies episode
         # content verbatim, so an un-tagged match can't tell "consolidation ran" from "it didn't
-        # need to."
+        # need to." This doesn't exercise ranking, though: the candidate pool here (4 episodes + 4
+        # facts) stays under ``MemoryQuery``'s default ``limit=10``, so every candidate is returned
+        # and rendered regardless of score -- the same reasoning as the 0.8-Jaccard-threshold
+        # comment above, spelled out so a future extension of this test (more turns, another
+        # consolidation pass) doesn't silently push the pool over the limit and stop testing what
+        # this assertion claims to.
         _turn("r3", "What did I say about my support ticket preference?")
         injected = [getattr(m, "content", None) for m in model.invocations[-1]]
         assert any(content and "[semantic]" in content and "email over phone" in content for content in injected), (
@@ -292,9 +304,9 @@ async def test_full_loop_write_consolidate_retrieve_inject_async(mode):
     path reaches the same real state as the sync path, not re-deriving the fact-count arithmetic
     the sync test above already pins down.
     """
-    provider = _fresh_provider(mode)
+    tenant_id = f"globex-{mode.value}"
+    provider = _fresh_provider(mode, tenant_id)
     try:
-        tenant_id = f"globex-{mode.value}"
         user_id = "bob"
         session_id = "s1"
         model = ScriptedModel(
