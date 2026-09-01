@@ -36,7 +36,19 @@ reflection pass here neither reads nor supersedes an existing insight -- it only
 
 from dataclasses import dataclass, field
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple, Union, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+    Union,
+    runtime_checkable,
+)
 from uuid import NAMESPACE_OID, uuid5
 
 from pydantic import BaseModel, Field
@@ -61,11 +73,19 @@ __all__ = [
     "LLMInsightSynthesizer",
     "REFLECTION_KEYS",
     "REFLECTOR_ID",
+    "ReflectionCommit",
     "ReflectionPipeline",
     "ReflectionReport",
     "SynthesizedInsight",
     "reflection_details",
 ]
+
+#: A zero-arg callback returned by :meth:`ReflectionPipeline.run`/:meth:`arun` alongside the
+#: report.  The caller invokes it *after* it has confirmed the report's insights actually landed
+#: in the substrate, to clear the scope's accumulation and reset the trigger (two-phase commit,
+#: aicoe-tracker#193).  Calling it is idempotent; not calling it (because the write failed) leaves
+#: the accumulation and trigger armed so the next pass retries on the same cluster.
+ReflectionCommit = Callable[[], None]
 
 #: Stamped on every insight's ``derived_by``, so a row's producer is readable off the record --
 #: the same convention ``EXTRACTOR_ID`` (``graph/entities.py``) and ``derived_by`` on the
@@ -473,13 +493,44 @@ class ReflectionPipeline:
                 self._trigger.record_event(scope, now=now, size=-_clamped_importance(episode))
         return pending
 
-    def _consume(self, scope: Scope) -> None:
-        """Clear a scope's accumulation after a triggered pass, whether or not it produced an
-        insight -- a decline is still a decision, and re-offering the same cluster every
-        subsequent pass would ask the synthesizer the same question until new episodes arrive
-        regardless."""
-        self._pending.pop(scope.key(), None)
-        self._trigger.reset(scope)
+    def _consume(self, scope: Scope, consumed_ids: Sequence[str], now: float) -> None:
+        """Clear *only the episodes this pass synthesized over* from a scope's accumulation,
+        whether or not it produced an insight -- a decline is still a decision, and re-offering
+        the same cluster every subsequent pass would ask the synthesizer the same question until
+        new episodes arrive regardless.
+
+        **Bound to what the pass actually saw, not a blind reset (aicoe-tracker#193 review).**
+        Because ``commit`` is now caller-invoked and can fire arbitrarily late -- after the caller's
+        whole write pipeline -- a concurrent direct call to ``arun``/``aconsolidate`` for the same
+        scope can accumulate a *new* episode into ``self._pending[key]`` in the meantime. Popping
+        the whole key (the earlier design) would silently discard that concurrent episode's
+        accumulation, which this call never synthesized over. Instead: remove exactly
+        ``consumed_ids`` from pending, and debit only their importance from the shared trigger via
+        a negative ``record_event`` (:class:`SizeTrigger` accumulates by addition, the same
+        mechanism the cap-trim in :meth:`_accumulate` already uses to decrement). Any episode a
+        concurrent call added after synthesis stays in pending with its trigger credit intact.
+        """
+        key = scope.key()
+        pending = self._pending.get(key)
+        if pending is None:
+            return
+        consumed = set(consumed_ids)
+        survivors = [e for e in pending if e.id not in consumed]
+        for episode in pending:
+            if episode.id in consumed:
+                # Debit only what this pass is consuming; a concurrent call's credit is untouched.
+                self._trigger.record_event(scope, now=now, size=-_clamped_importance(episode))
+        if survivors:
+            pending[:] = survivors
+        else:
+            # Fully consumed: pop the key and `reset` the trigger outright rather than relying on
+            # the debit loop netting to exactly 0.0. Summed negative `record_event`s can leave a
+            # floating-point residue, and never remove the scope's key from `SizeTrigger._totals`
+            # -- a clean `reset` restores the pre-fix behaviour (and matches what the
+            # `ReflectionCommit` docstring claims). Only in this branch: when survivors remain, the
+            # per-episode debit above is the correct partial decrement.
+            self._pending.pop(key, None)
+            self._trigger.reset(scope)
 
     @staticmethod
     def _accumulated_importance(pending: Sequence[MemoryRecord]) -> float:
@@ -547,15 +598,48 @@ class ReflectionPipeline:
 
     # -- the pass ---------------------------------------------------------------
 
-    def run(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ReflectionReport:
+    @staticmethod
+    def _noop_commit() -> None:
+        """The commit callback for a pass that accumulated nothing to consume.
+
+        Returned for an untriggered pass (still building toward the threshold -- consuming here
+        would discard the accumulation the *next* pass needs).  Idempotent no-op so the caller
+        can always invoke the returned callback unconditionally.
+        """
+
+    def _commit_for(self, scope: Scope, consumed_ids: Sequence[str]) -> ReflectionCommit:
+        """Build the deferred-consume callback for a triggered pass.
+
+        Bound to ``scope`` *and the specific episode ids this pass synthesized over*, so a late
+        ``commit`` removes only what this call saw -- never a concurrent call's newly-accumulated
+        episode (aicoe-tracker#193 review). Idempotent: after the first call these ids are gone
+        from pending, so a second call's set-difference removes nothing and debits nothing.
+        """
+        # Snapshot the ids at synthesis time -- `consumed_ids` is derived from `pending`, which is
+        # already a fresh list here, but freezing to a tuple makes the binding explicit.
+        ids = tuple(consumed_ids)
+
+        def _commit() -> None:
+            self._consume(scope, ids, now_epoch_s())
+
+        return _commit
+
+    def run(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[ReflectionReport, ReflectionCommit]:
         """Accumulate, and synthesize if the accumulation just crossed the threshold.
 
-        **A synthesizer exception propagates, and leaves the trigger armed.** ``_consume`` is
-        reached only after :meth:`InsightSynthesizer.synthesize` returns, so a raise there skips
-        it: the accumulation and the trigger's running total are both left exactly as they were,
-        and the *next* call to :meth:`run` for this scope re-evaluates the same threshold-crossed
-        state and retries synthesis on the same (possibly since-grown) cluster. This is
-        deliberate, not an oversight -- the same "a failed pass is safe to retry" contract
+        Returns ``(report, commit)``.  **The caller must invoke ``commit`` only after it has
+        confirmed the report's insights actually landed** in the vector/graph substrate -- this
+        is the two-phase commit (aicoe-tracker#193) that keeps the accumulation and trigger armed
+        until the write is durable.  ``commit`` is a no-op on an untriggered pass (nothing to
+        consume) and idempotent in every case, so the caller may invoke it unconditionally once
+        the write step succeeds.
+
+        **A synthesizer exception propagates, and leaves the trigger armed.** ``commit`` is never
+        returned on that path -- the raise happens before this method returns -- so the
+        accumulation and the trigger's running total are both left exactly as they were, and the
+        *next* call to :meth:`run` for this scope re-evaluates the same threshold-crossed state
+        and retries synthesis on the same (possibly since-grown) cluster. This is deliberate, not
+        an oversight -- the same "a failed pass is safe to retry" contract
         :class:`~egpt.memory.consolidation.worker.ConsolidationWorker` already gives every
         ``consolidate`` pass, extended to this stage rather than inventing a second retry policy.
         It does mean a *permanently* unsynthesizable cluster (a model that never returns a valid
@@ -566,8 +650,8 @@ class ReflectionPipeline:
 
         **A raised exception is marked with ``reflection_triggered = True``** if and only if it
         happened after :class:`SizeTrigger` had already fired for this call -- which is exactly
-        the window between the ``should_fire`` check above and :meth:`_consume` below, the only
-        place an exception can originate once execution reaches this point. A caller catching
+        the window between the ``should_fire`` check above and the ``commit`` returned below, the
+        only place an exception can originate once execution reaches this point. A caller catching
         broadly (``_reflect``/``_areflect``) reads that attribute to report
         ``details["triggered"]`` correctly: ``True`` for a failure *after* the threshold crossed
         (the trigger is still armed, a retry is pending), ``False`` for one *before* it was ever
@@ -581,26 +665,22 @@ class ReflectionPipeline:
         ``__slots__`` can refuse an arbitrary attribute with its own ``AttributeError``, which
         must not replace the exception this block is already propagating.
 
-        **``_consume`` runs before the caller's write is confirmed.** ``co_located.consolidate``
-        folds ``report.insights`` into its own write loop *after* this method has already
-        returned, so a write failure there does not roll anything back here. This does not lose
-        the insight: the vector-scan cursor never advances on a raised exception (``consolidate``
-        propagates before reaching ``_advance_cursor``), so the *same* un-advanced episodes are
-        handed to the next pass, re-accumulate (nothing here retains state across the failure to
-        conflict with that), re-cross the threshold identically, and re-synthesize into a
-        ``FactWrite`` whose id is derived from the source episode set alone -- unchanged by
-        content -- so the retried write upserts the same row rather than duplicating it (verified:
-        a forced write failure followed by a retry on the same episodes lands the insight
-        correctly). What is real: the retry costs a **second synthesis call** (an LLM call, unlike
-        the free-to-recompute dedup facts in ``_distil``), and if the synthesizer is
-        non-deterministic, the retried wording may differ from the failed attempt's. Tracked:
-        aicoe-tracker#193.
+        **Consume is deferred until the caller confirms the write (aicoe-tracker#193).**
+        ``co_located.consolidate`` folds ``report.insights`` into its own write loop *after* this
+        method returns, then invokes ``commit`` only once that write has landed.  A write failure
+        there leaves ``commit`` uncalled, so the accumulation and trigger stay armed and the next
+        pass re-synthesizes the same cluster into a ``FactWrite`` whose id is derived from the
+        source episode set alone -- so the retried write upserts the same row rather than
+        duplicating it.  The remaining cost of a write failure is one extra synthesis call on the
+        retry (an LLM call); if the synthesizer is non-deterministic the retried wording may
+        differ, but the id/idempotence is unaffected.
         """
         require_scope(scope, method="run")
         now = now_epoch_s()
         pending = list(self._accumulate(scope, self._selected(episodes), now))
         if not self._trigger.should_fire(scope, now=now):
-            return self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
+            report = self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
+            return report, self._noop_commit
         total = self._accumulated_importance(pending)
         considered = len(pending)
         try:
@@ -611,13 +691,14 @@ class ReflectionPipeline:
             except (AttributeError, TypeError):
                 pass
             raise
-        self._consume(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
-        return self._report(scope, considered, total, insights, triggered=True)
+        report = self._report(scope, considered, total, insights, triggered=True)
+        return report, self._commit_for(scope, [e.id for e in pending])
 
-    async def arun(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> ReflectionReport:
+    async def arun(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[ReflectionReport, ReflectionCommit]:
         """Async variant of :meth:`run`, making the same decisions through the same helpers --
-        see :meth:`run`'s docstring for what a synthesizer exception leaves behind.
+        see :meth:`run`'s docstring for the ``(report, commit)`` contract and what a synthesizer
+        exception leaves behind.
 
         ``pending`` is snapshotted into a fresh list before the ``await``: :meth:`_accumulate`
         returns the very list object stored in ``self._pending[key]``, and a concurrent ``arun``
@@ -627,24 +708,28 @@ class ReflectionPipeline:
         never shown, or a trimmed episode it no longer holds. ``considered`` is computed from the
         same snapshot, before the ``await``, for the identical reason.
 
-        **The snapshot protects citation correctness, not credit accumulation.** A concurrent
-        ``arun`` call for this scope that appends a new episode *while this call is suspended*
-        still credits that episode's importance to :class:`SizeTrigger` (the trigger is shared
-        state, never snapshotted) -- but this call's own :meth:`_consume`, once it resumes, resets
-        that shared trigger to zero regardless, discarding the concurrent call's credit along with
-        this one's. ``ConsolidationWorker`` never calls ``aconsolidate`` twice concurrently for one
-        scope, so this is unreachable through the worker; it is reachable only through direct
-        concurrent calls to ``aconsolidate``/``arun``, which the interface docstring already
-        documents as tolerated-but-costing-duplicate-work rather than serialized.
+        **The snapshot protects citation correctness; ``commit`` is bound to what this call saw.**
+        A concurrent ``arun`` call for this scope that appends a new episode *while this call is
+        suspended* (or between this call's return and its late ``commit``) still credits that
+        episode's importance to :class:`SizeTrigger` (the trigger is shared state, never
+        snapshotted) -- and this call's ``commit`` no longer discards it: :meth:`_consume` removes
+        only the specific episode ids *this* pass synthesized over and debits only their trigger
+        credit, leaving a concurrent call's newly-accumulated episode in ``pending`` with its
+        credit intact (aicoe-tracker#193 review). ``ConsolidationWorker`` never calls
+        ``aconsolidate`` twice concurrently for one scope, so the concurrent case is unreachable
+        through the worker; it is reachable only through direct concurrent calls to
+        ``aconsolidate``/``arun``, which the interface docstring documents as
+        tolerated-but-costing-duplicate-work rather than serialized.
 
-        See :meth:`run`'s docstring for the attribute-assignment guard and the
-        ``_consume``-before-write-confirmation note -- both apply identically here.
+        See :meth:`run`'s docstring for the attribute-assignment guard and the deferred-consume
+        contract -- both apply identically here.
         """
         require_scope(scope, method="arun")
         now = now_epoch_s()
         pending = list(self._accumulate(scope, self._selected(episodes), now))
         if not self._trigger.should_fire(scope, now=now):
-            return self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
+            report = self._report(scope, len(pending), self._accumulated_importance(pending), [], triggered=False)
+            return report, self._noop_commit
         total = self._accumulated_importance(pending)
         considered = len(pending)
         try:
@@ -655,6 +740,6 @@ class ReflectionPipeline:
             except (AttributeError, TypeError):
                 pass
             raise
-        self._consume(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
-        return self._report(scope, considered, total, insights, triggered=True)
+        report = self._report(scope, considered, total, insights, triggered=True)
+        return report, self._commit_for(scope, [e.id for e in pending])

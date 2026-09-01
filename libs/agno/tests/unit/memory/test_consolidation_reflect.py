@@ -90,6 +90,30 @@ def insight(title="Ships fast", text="Acme consistently ships ahead of schedule"
     return SynthesizedInsight(has_insight=True, title=title, insight=text)
 
 
+def run_and_commit(pipe, scope, episodes, *, is_async=False):
+    """Drive ``run``/``arun`` and immediately invoke the two-phase-commit callback.
+
+    Standalone ``ReflectionPipeline`` tests that previously relied on ``run`` consuming
+    automatically now call ``commit()`` to simulate a confirmed write (aicoe-tracker#193).
+    Returns just the report, matching the old single-value return shape those tests expect.
+    """
+    call = pipe.arun(scope, episodes) if is_async else pipe.run(scope, episodes)
+    report, commit = asyncio.run(call) if is_async else call
+    commit()
+    return report
+
+
+def run_no_commit(pipe, scope, episodes, *, is_async=False):
+    """Drive ``run``/``arun`` WITHOUT committing -- the report only, accumulation left armed.
+
+    For tests that assert on pre-commit state (what was synthesized/cited) without wanting the
+    accumulation cleared.
+    """
+    call = pipe.arun(scope, episodes) if is_async else pipe.run(scope, episodes)
+    report, _commit = asyncio.run(call) if is_async else call
+    return report
+
+
 # ---------------------------------------------------------------------------
 # AC 1 -- insights generated from episode clusters, gated on accumulated importance
 # ---------------------------------------------------------------------------
@@ -101,8 +125,7 @@ def test_below_threshold_never_synthesizes(is_async):
     pipe = ReflectionPipeline(synth, importance_threshold=5.0)
     episodes = [episode("a", "e1", importance=0.2), episode("b", "e2", importance=0.3)]
 
-    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
-    report = asyncio.run(call) if is_async else call
+    report = run_and_commit(pipe, ACME, episodes, is_async=is_async)
 
     assert report.details["triggered"] is False
     assert report.insights == []
@@ -116,8 +139,7 @@ def test_crossing_the_threshold_synthesizes_and_cites_every_source(is_async):
     pipe = ReflectionPipeline(synth, importance_threshold=1.0)
     episodes = [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)]
 
-    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
-    report = asyncio.run(call) if is_async else call
+    report = run_and_commit(pipe, ACME, episodes, is_async=is_async)
 
     assert report.details["triggered"] is True
     assert report.accumulated_importance == pytest.approx(1.2)
@@ -138,10 +160,10 @@ def test_accumulates_across_passes_not_just_within_one():
     synth = StubSynthesizer(result=insight())
     pipe = ReflectionPipeline(synth, importance_threshold=1.0)
 
-    first = pipe.run(ACME, [episode("a", "e1", importance=0.6)])
+    first = run_and_commit(pipe, ACME, [episode("a", "e1", importance=0.6)])
     assert first.details["triggered"] is False
 
-    second = pipe.run(ACME, [episode("b", "e2", importance=0.6)])
+    second = run_and_commit(pipe, ACME, [episode("b", "e2", importance=0.6)])
 
     assert second.details["triggered"] is True
     (fact,) = second.insights
@@ -155,11 +177,11 @@ def test_a_decline_still_resets_the_accumulator():
     synth = StubSynthesizer(result=None)
     pipe = ReflectionPipeline(synth, importance_threshold=1.0)
 
-    triggered = pipe.run(ACME, [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)])
+    triggered = run_and_commit(pipe, ACME, [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)])
     assert triggered.details["triggered"] is True
     assert triggered.insights == []
 
-    after = pipe.run(ACME, [episode("c", "e3", importance=0.1)])
+    after = run_and_commit(pipe, ACME, [episode("c", "e3", importance=0.1)])
 
     assert after.details["triggered"] is False, "the accumulator must have been reset, not left over threshold"
     assert synth.calls == [("e1", "e2")], "a fresh, sub-threshold pass must not re-ask about the consumed cluster"
@@ -169,8 +191,8 @@ def test_each_scope_accumulates_independently():
     synth = StubSynthesizer(result=insight())
     pipe = ReflectionPipeline(synth, importance_threshold=1.0)
 
-    pipe.run(ACME, [episode("a", "e1", scope=ACME, importance=0.6)])
-    report = pipe.run(BOB, [episode("b", "e2", scope=BOB, importance=0.6)])
+    run_and_commit(pipe, ACME, [episode("a", "e1", scope=ACME, importance=0.6)])
+    report = run_and_commit(pipe, BOB, [episode("b", "e2", scope=BOB, importance=0.6)])
 
     assert report.details["triggered"] is False, "Bob's own episode alone must not cross the threshold"
 
@@ -182,8 +204,8 @@ def test_duplicate_episodes_across_calls_are_not_double_counted():
     pipe = ReflectionPipeline(synth, importance_threshold=1.0)
     same = episode("a", "e1", importance=0.6)
 
-    first = pipe.run(ACME, [same])
-    second = pipe.run(ACME, [same])
+    first = run_and_commit(pipe, ACME, [same])
+    second = run_and_commit(pipe, ACME, [same])
 
     assert first.details["triggered"] is False
     assert second.details["triggered"] is False
@@ -219,19 +241,25 @@ def test_arun_snapshots_pending_before_the_await():
     pipe = ReflectionPipeline(MutatingSynthesizer(None), importance_threshold=0.5)
     pipe.synthesizer._pipe_ref = pipe  # tie the synthesizer back to its own pipeline
 
-    report = asyncio.run(pipe.arun(ACME, [episode("a", "e1", importance=0.6)]))
+    report = run_and_commit(pipe, ACME, [episode("a", "e1", importance=0.6)], is_async=True)
 
     assert report.details["triggered"] is True
     (fact,) = report.insights
     assert fact.source_episode_ids == ["e1"], "must cite only what this call actually accumulated and showed"
     assert report.episodes_considered == 1
-    # `_consume` resets the *shared* trigger and pending dict unconditionally, so the intruder's
-    # own credit (added directly to the shared trigger, not to this call's `pending` snapshot) is
-    # discarded along with this call's -- documented as a known, accepted asymmetry in `arun`'s
-    # own docstring ("the snapshot protects citation correctness, not credit accumulation"),
-    # pinned explicitly here so a future change to close it is a deliberate, visible decision.
-    assert ACME.key() not in pipe._pending
-    assert pipe._trigger._accumulated(ACME) == 0.0
+    # Two-phase-commit (aicoe-tracker#193 review): `commit` now removes only the ids THIS call
+    # synthesized over (`["e1"]`), not the whole scope key. The intruder episode a concurrent call
+    # added mid-`await` -- standing in for a real concurrent `arun` -- survives with its own trigger
+    # credit intact, rather than being silently discarded by a blind reset. This is the fix for the
+    # widened concurrency window; the earlier design popped the whole key and lost the intruder.
+    assert ACME.key() in pipe._pending
+    assert [e.id for e in pipe._pending[ACME.key()]] == ["e-intruder"], "the concurrent episode must survive commit"
+    # The trigger debits only e1's credit (this pass's consumed id); the intruder's credit was
+    # never added here because the mutating synthesizer appends to _pending directly, bypassing
+    # `_accumulate`/`record_event` (a real concurrent `arun` would add both). The point pinned is
+    # that commit does NOT blindly reset the trigger to zero the way the earlier design did -- it
+    # subtracts only e1 (0.6), leaving whatever the concurrent path credited (0.0 in this stand-in).
+    assert pipe._trigger._accumulated(ACME) == pytest.approx(0.0)
 
 
 def test_run_also_snapshots_pending_symmetrically_with_arun():
@@ -258,7 +286,7 @@ def test_run_also_snapshots_pending_symmetrically_with_arun():
     pipe = ReflectionPipeline(MutatingSynthesizer(None), importance_threshold=0.5)
     pipe.synthesizer._pipe_ref = pipe
 
-    report = pipe.run(ACME, [episode("a", "e1", importance=0.6)])
+    report = run_no_commit(pipe, ACME, [episode("a", "e1", importance=0.6)])
 
     (fact,) = report.insights
     assert fact.source_episode_ids == ["e1"], "must cite only what this call actually accumulated and showed"
@@ -271,9 +299,9 @@ def test_max_episodes_per_reflection_drops_the_oldest():
     synth = StubSynthesizer(result=insight())
     pipe = ReflectionPipeline(synth, importance_threshold=1_000.0, max_episodes_per_reflection=2)
 
-    pipe.run(ACME, [episode("a", "e1", importance=0.0, created_at=1)])
-    pipe.run(ACME, [episode("b", "e2", importance=0.0, created_at=2)])
-    pipe.run(ACME, [episode("c", "e3", importance=0.0, created_at=3)])
+    run_no_commit(pipe, ACME, [episode("a", "e1", importance=0.0, created_at=1)])
+    run_no_commit(pipe, ACME, [episode("b", "e2", importance=0.0, created_at=2)])
+    run_no_commit(pipe, ACME, [episode("c", "e3", importance=0.0, created_at=3)])
 
     assert [e.id for e in pipe._pending[ACME.key()]] == ["e2", "e3"]
 
@@ -288,8 +316,8 @@ def test_dropping_an_episode_at_the_cap_also_undoes_its_contribution_to_the_trig
     synth = StubSynthesizer(result=insight())
     pipe = ReflectionPipeline(synth, importance_threshold=0.35, max_episodes_per_reflection=1)
 
-    pipe.run(ACME, [episode("a", "e1", importance=0.3, created_at=1)])  # immediately trimmed away
-    report = pipe.run(ACME, [episode("b", "e2", importance=0.3, created_at=2)])  # also trimmed
+    run_no_commit(pipe, ACME, [episode("a", "e1", importance=0.3, created_at=1)])  # immediately trimmed away
+    report = run_no_commit(pipe, ACME, [episode("b", "e2", importance=0.3, created_at=2)])  # also trimmed
 
     assert report.details["triggered"] is False
     assert report.accumulated_importance == pytest.approx(0.3), "only the surviving episode counts"
@@ -304,8 +332,8 @@ def test_negative_importance_is_clamped_not_subtracted():
     synth = StubSynthesizer(result=insight())
     pipe = ReflectionPipeline(synth, importance_threshold=1.0)
 
-    pipe.run(ACME, [episode("a", "e1", importance=0.6)])
-    report = pipe.run(ACME, [episode("b", "e2", importance=-0.6)])
+    run_no_commit(pipe, ACME, [episode("a", "e1", importance=0.6)])
+    report = run_no_commit(pipe, ACME, [episode("b", "e2", importance=-0.6)])
 
     assert report.accumulated_importance == pytest.approx(0.6), "the negative contributes 0.0, not -0.6"
     assert report.details["triggered"] is False, "0.6 alone must not have crossed a 1.0 threshold"
@@ -315,7 +343,7 @@ def test_bumping_the_threshold_all_the_way_down_fires_on_the_very_first_episode(
     synth = StubSynthesizer(result=insight())
     pipe = ReflectionPipeline(synth, importance_threshold=0.01)
 
-    report = pipe.run(ACME, [episode("a", "e1", importance=0.5)])
+    report = run_no_commit(pipe, ACME, [episode("a", "e1", importance=0.5)])
 
     assert report.details["triggered"] is True
 
@@ -497,7 +525,7 @@ def test_details_carry_the_reflection_floor():
     synth = StubSynthesizer(result=insight())
     pipe = ReflectionPipeline(synth, importance_threshold=1.0)
 
-    report = pipe.run(ACME, [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)])
+    report = run_no_commit(pipe, ACME, [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)])
 
     assert set(report.details) >= set(REFLECTION_KEYS)
     assert report.details["reflector"] == REFLECTOR_ID
@@ -678,6 +706,211 @@ def test_a_write_failure_recovers_on_retry_via_the_same_idempotent_id(is_async):
 
 
 @pytest.mark.parametrize("is_async", [False, True])
+def test_cross_pass_accumulation_survives_a_write_failure(is_async):
+    """The scenario where deferring ``_consume`` actually prevents *data loss*, not just a wasted
+    LLM call (aicoe-tracker#193 review, Major).
+
+    Episode A accumulates in pass N below the threshold; pass N completes successfully, so the
+    scan cursor advances past A and A becomes permanently un-scannable -- its only remaining trace
+    is ``ReflectionPipeline._pending``. Pass N+1 scans B, which combines with A to cross the
+    threshold and synthesize over ``[A, B]``. If that write then fails:
+
+    - Pre-fix: ``_consume`` had already fired inside ``run`` before the write was attempted, so A
+      was popped from ``_pending``; since A can never be re-scanned, its contribution was silently
+      and permanently lost -- the retry re-synthesizes over ``[B]`` alone.
+    - Post-fix: ``commit`` is never invoked on the failed write, so ``_pending`` still holds A;
+      the retry re-accumulates B against the still-armed A and synthesizes over ``[A, B]`` again.
+
+    Asserts the retried insight still cites A."""
+
+    class FailOnceVector(FakeVector):
+        def __init__(self):
+            super().__init__()
+            self.fail_next = False
+
+        def upsert(self, scope, records):
+            if self.fail_next:
+                self.fail_next = False
+                raise RuntimeError("simulated write failure")
+            return super().upsert(scope, records)
+
+        async def aupsert(self, scope, records):
+            if self.fail_next:
+                self.fail_next = False
+                raise RuntimeError("simulated write failure")
+            return await super().aupsert(scope, records)
+
+    synth = StubSynthesizer(result=insight())
+    vector = FailOnceVector()
+    graph = FakeGraph()
+    # Threshold 1.0: one 0.6 episode alone stays below; two cross it.
+    pipe = ReflectionPipeline(synth, importance_threshold=1.0)
+    memory = CoLocatedMemoryProvider(
+        vector=vector, graph=graph, config=MemoryProviderConfig(provider="co_located"), reflection_pipeline=pipe
+    )
+
+    def consolidate():
+        return asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+    # Pass N: episode A, below threshold. Pass completes cleanly -> cursor advances past A.
+    memory.write(ACME, [MemoryEvent(content="Acme shipped v1", scope=ACME, id="epA", metadata={"importance": 0.6})])
+    first = consolidate()
+    assert first.details["reflection"]["triggered"] is False, "A alone must stay below the threshold"
+    assert synth.calls == [], "no synthesis yet"
+
+    # Pass N+1: episode B crosses the threshold combined with A (which is now un-scannable).
+    memory.write(ACME, [MemoryEvent(content="Acme shipped v2", scope=ACME, id="epB", metadata={"importance": 0.6})])
+    vector.fail_next = True
+    with pytest.raises(Exception):
+        consolidate()
+    # Synthesis ran over [epA, epB] -- A survived cross-pass in _pending.
+    assert synth.calls == [("epA", "epB")]
+
+    # Retry: A is still armed (commit never fired on the failed write), so the retry re-synthesizes
+    # over [epA, epB] again and the write lands.
+    report = consolidate()
+    assert report.details["reflection"]["triggered"] is True
+    assert synth.calls == [("epA", "epB"), ("epA", "epB")], "the retry re-synthesizes over the same cross-pass set"
+
+    insight_rows = [
+        r
+        for r in vector.rows.get(ACME.tenant_id, {}).values()
+        if r.tier is MemoryTier.SEMANTIC and r.metadata.get("kind") == "insight"
+    ]
+    assert len(insight_rows) == 1
+    assert insight_rows[0].provenance["source_episode_ids"] == ["epA", "epB"], (
+        "the landed insight must still cite epA -- the cross-pass episode the pre-fix bug lost"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Two-phase commit (aicoe-tracker#193): run/arun return (report, commit); consume is deferred
+# until the caller invokes commit after confirming the write.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_run_returns_a_report_and_a_commit_callback(is_async):
+    """The new contract: run/arun return a 2-tuple, not a bare report."""
+    synth = StubSynthesizer(result=insight())
+    pipe = ReflectionPipeline(synth, importance_threshold=1.0)
+    episodes = [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)]
+
+    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
+    report, commit = asyncio.run(call) if is_async else call
+
+    assert callable(commit)
+    assert report.details["triggered"] is True
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_not_committing_leaves_the_accumulation_armed(is_async):
+    """A triggered pass whose caller never invokes ``commit`` (write failed) must leave the
+    accumulation and trigger armed, so the next pass re-offers the same cluster."""
+    synth = StubSynthesizer(result=insight())
+    pipe = ReflectionPipeline(synth, importance_threshold=1.0)
+    episodes = [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)]
+
+    # First pass triggers but the caller does NOT commit (simulating a write failure).
+    run_no_commit(pipe, ACME, episodes, is_async=is_async)
+
+    # State is still armed: pending held, trigger still over threshold.
+    assert ACME.key() in pipe._pending
+    assert pipe._trigger._accumulated(ACME) == pytest.approx(1.2)
+
+    # Next pass re-offers the same cluster (no new episodes needed).
+    report = run_no_commit(pipe, ACME, [], is_async=is_async)
+    assert report.details["triggered"] is True
+    assert synth.calls == [("e1", "e2"), ("e1", "e2")], "the same cluster is re-synthesized on retry"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_committing_clears_the_accumulation(is_async):
+    """Invoking ``commit`` after a fully-consumed triggered pass clears pending AND resets the
+    trigger outright -- the key is removed from ``SizeTrigger._totals``, not left as a near-zero
+    floating-point residue (aicoe-tracker#193 review, Minor)."""
+    synth = StubSynthesizer(result=insight())
+    pipe = ReflectionPipeline(synth, importance_threshold=1.0)
+    episodes = [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)]
+
+    run_and_commit(pipe, ACME, episodes, is_async=is_async)
+
+    assert ACME.key() not in pipe._pending
+    assert pipe._trigger._accumulated(ACME) == 0.0
+    # `reset` removes the key entirely rather than leaving a residual ~0.0 entry.
+    assert ACME.key() not in pipe._trigger._totals
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_commit_is_idempotent(is_async):
+    """Calling ``commit`` twice is safe -- _consume is a pop + reset, both idempotent."""
+    synth = StubSynthesizer(result=insight())
+    pipe = ReflectionPipeline(synth, importance_threshold=1.0)
+    episodes = [episode("a", "e1", importance=0.6), episode("b", "e2", importance=0.6)]
+
+    call = pipe.arun(ACME, episodes) if is_async else pipe.run(ACME, episodes)
+    _report, commit = asyncio.run(call) if is_async else call
+
+    commit()
+    commit()  # must not raise
+    assert ACME.key() not in pipe._pending
+
+
+def test_a_late_commit_does_not_discard_a_concurrent_calls_accumulation():
+    """Regression (aicoe-tracker#193 review, Major): because ``commit`` is caller-invoked and can
+    fire arbitrarily late (after the whole write pipeline), a concurrent call for the same scope
+    can accumulate a *new* below-threshold episode into ``_pending`` before the first call's
+    ``commit`` fires. A blind ``pop(scope.key())`` would silently discard that concurrent
+    episode's trigger credit -- content the first call never synthesized over. ``commit`` must
+    remove only the ids the first call actually saw.
+
+    Modeled without real concurrency: call A triggers (returns a deferred commit bound to
+    ``[e1]``); call B then accumulates ``e2`` below the threshold; A's commit fires last and must
+    leave ``e2`` armed."""
+    synth = StubSynthesizer(result=insight())
+    pipe = ReflectionPipeline(synth, importance_threshold=1.0)
+
+    # Call A: crosses the threshold on e1 + e2a, gets a deferred commit but does not fire it yet.
+    _report_a, commit_a = pipe.run(ACME, [episode("a", "e1", importance=0.6), episode("b", "e2a", importance=0.6)])
+
+    # Call B (concurrent, same scope): a fresh below-threshold episode arms in _pending.
+    # It does NOT re-cross the threshold on its own because A has not consumed yet, so the
+    # accumulation is now [e1, e2a, e2b]; B's own run triggers again on the combined set, but we
+    # only care that A's stale commit must not wipe B's contribution. Simulate B as a plain
+    # accumulate without committing:
+    pipe.run(ACME, [episode("c", "e2b", importance=0.2)])  # returns a commit we deliberately drop
+
+    # A's stale commit fires now -- it must remove only e1 + e2a, leaving e2b armed.
+    commit_a()
+
+    remaining = [e.id for e in pipe._pending.get(ACME.key(), [])]
+    assert remaining == ["e2b"], "A's late commit must not discard the concurrently-accumulated e2b"
+    assert pipe._trigger._accumulated(ACME) == pytest.approx(0.2), "only e2b's credit remains"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_untriggered_pass_returns_a_noop_commit(is_async):
+    """An untriggered pass returns a callback that must NOT clear the accumulation the next pass
+    needs -- committing it would discard the below-threshold progress."""
+    synth = StubSynthesizer(result=insight())
+    pipe = ReflectionPipeline(synth, importance_threshold=5.0)
+
+    call = (
+        pipe.arun(ACME, [episode("a", "e1", importance=0.5)])
+        if is_async
+        else pipe.run(ACME, [episode("a", "e1", importance=0.5)])
+    )
+    report, commit = asyncio.run(call) if is_async else call
+
+    assert report.details["triggered"] is False
+    commit()  # no-op — must not clear the accumulation
+
+    # The below-threshold episode is still accumulating.
+    assert ACME.key() in pipe._pending
+    assert pipe._trigger._accumulated(ACME) == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("is_async", [False, True])
 def test_a_synthesis_failure_does_not_block_the_rest_of_the_pass(is_async):
     """Regression (review round 1, PR #119): reflection runs *before* the fact-write ``try`` --
     nothing from this pass has committed at that point, so an uncaught synthesis failure used to
@@ -728,6 +961,56 @@ def test_a_pre_threshold_failure_reports_triggered_false(is_async):
     assert report.details["reflection"]["triggered"] is False
     assert report.details["reflection"]["complete"] is False
     assert "refused before any accumulation" in report.details["reflection"]["error"]
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_old_shape_pipeline_fails_clearly_not_as_a_silent_retry_loop(is_async):
+    """Regression (aicoe-tracker#193 review, Minor): reflection_pipeline is duck-typed, so a stale
+    custom pipeline still returning a bare ReflectionReport (the pre-two-phase-commit shape)
+    instead of a (report, commit) tuple must raise a clear, non-retryable config error -- not be
+    swallowed by the broad ``except Exception`` as an ordinary "will retry next pass", which would
+    loop forever since no retry fixes a structural mismatch."""
+    from egpt.memory.config import MemoryProviderConfigError
+    from egpt.memory.consolidation.reflect import ReflectionReport
+
+    class OldShapePipeline:
+        """Returns a bare report, the pre-#193 contract."""
+
+        def run(self, scope, episodes):
+            return ReflectionReport(scope=scope)
+
+        async def arun(self, scope, episodes):
+            return ReflectionReport(scope=scope)
+
+    memory, _, _ = provider(synthesizer=None)
+    memory.reflection_pipeline = OldShapePipeline()
+    memory.write(ACME, [MemoryEvent(content="Acme shipped early", scope=ACME, metadata={"importance": 0.9})])
+
+    with pytest.raises(MemoryProviderConfigError, match="two-phase commit"):
+        asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_tuple_with_a_non_report_first_element_fails_clearly(is_async):
+    """Regression (aicoe-tracker#193 review, Nit): a pipeline returning ``(wrong_object, callable)``
+    has the right tuple shape but a first element that is not a report -- must raise the clear
+    ``MemoryProviderConfigError`` rather than a bare ``AttributeError`` at the ``report.insights``
+    access."""
+    from egpt.memory.config import MemoryProviderConfigError
+
+    class WrongReportPipeline:
+        def run(self, scope, episodes):
+            return object(), (lambda: None)
+
+        async def arun(self, scope, episodes):
+            return object(), (lambda: None)
+
+    memory, _, _ = provider(synthesizer=None)
+    memory.reflection_pipeline = WrongReportPipeline()
+    memory.write(ACME, [MemoryEvent(content="Acme shipped early", scope=ACME, metadata={"importance": 0.9})])
+
+    with pytest.raises(MemoryProviderConfigError, match="two-phase commit"):
+        asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
 
 
 @pytest.mark.parametrize("is_async", [False, True])

@@ -114,11 +114,55 @@ from egpt.utils.log import log_warning
 if TYPE_CHECKING:
     from egpt.learn.stores.user_profile import UserProfileStore
     from egpt.memory.consolidation.extract import FactExtractionPipeline
-    from egpt.memory.consolidation.reflect import ReflectionPipeline
+    from egpt.memory.consolidation.reflect import ReflectionCommit, ReflectionPipeline
     from egpt.memory.consolidation.summarize import SummaryPipeline
     from egpt.memory.graph.entities import EntityExtractionPipeline
     from egpt.memory.graph.relations import RelationExtractionPipeline
     from egpt.models.message import Message
+
+
+def _noop_reflection_commit() -> None:
+    """Deferred-consume callback for a reflection that produced nothing to commit.
+
+    Returned by :meth:`CoLocatedMemoryProvider._reflect`/:meth:`_areflect` when reflection is
+    unwired or failed -- there is no accumulation to consume, so the caller's post-write
+    invocation is a safe no-op (two-phase commit, aicoe-tracker#193).
+    """
+
+
+def _unpack_reflection_result(result: Any) -> Tuple[Any, "ReflectionCommit"]:
+    """Unpack a ``reflection_pipeline.run``/``arun`` result into ``(report, commit)``.
+
+    ``reflection_pipeline`` is duck-typed -- ``_checked_pipeline`` verifies only that ``run``/
+    ``arun`` are *callable*, not their return shape. Two-phase commit (aicoe-tracker#193) changed
+    that shape from a bare ``ReflectionReport`` to a ``(report, commit)`` tuple, a breaking API
+    change. A stale custom pipeline still returning a bare report would otherwise raise a generic
+    ``TypeError: cannot unpack`` that the callers' broad ``except Exception`` swallows as an
+    ordinary "will retry next pass" -- a *permanent* silent failure loop, since no retry fixes a
+    structural mismatch. Detected here and raised as a clear, non-retryable
+    :class:`MemoryProviderConfigError` naming the actual contract, so it propagates out of
+    ``consolidate`` to whoever wired the pipeline (this check is outside the callers' broad catch).
+    """
+    shape_ok = (
+        isinstance(result, tuple)
+        and len(result) == 2
+        and callable(result[1])
+        # Also probe result[0] for the report contract, so a (wrong_object, callable) return
+        # surfaces this clear config error rather than a bare AttributeError at `report.insights`
+        # below (aicoe-tracker#193 review nit).
+        and hasattr(result[0], "insights")
+        and hasattr(result[0], "details")
+    )
+    if not shape_ok:
+        raise MemoryProviderConfigError(
+            "reflection_pipeline.run/arun must return a (ReflectionReport, commit_callback) tuple "
+            f"(two-phase commit, aicoe-tracker#193), got {type(result).__name__}. A custom "
+            "reflection_pipeline updated for an older single-report return shape must be updated "
+            "to defer consume via the returned callback.",
+            field_name="options.reflection_pipeline",
+        )
+    return result[0], result[1]
+
 
 __all__ = ["CoLocatedMemoryProvider"]
 
@@ -1732,14 +1776,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
         receipt = await self._semantic_profile.awrite(scope, updated)
         return {"complete": True, "updated": receipt is not None}
 
-    def _reflect(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], ReflectionSummary]:
+    def _reflect(
+        self, scope: Scope, episodes: Sequence[MemoryRecord]
+    ) -> Tuple[List[FactWrite], ReflectionSummary, "ReflectionCommit"]:
         """Run SM-L6's (#127) reflection over the episodes this pass kept.
 
-        Returns the candidate insight ``FactWrite``s alongside the report details, rather than
-        writing them here -- unlike :meth:`_entities`/:meth:`_relations`, which own a dedicated
-        graph port and write inside themselves, an insight is a SEMANTIC fact that must go through
-        the exact same vector/graph write loop a distilled fact does (``reflect.py``'s "one write
-        model"), so the caller folds it into ``facts`` before that loop runs.
+        Returns ``(insights, details, commit)`` -- the candidate insight ``FactWrite``s, the
+        report details, and a deferred-consume callback ``consolidate`` invokes *after* the write
+        loop confirms the insights landed (two-phase commit, aicoe-tracker#193). Unlike
+        :meth:`_entities`/:meth:`_relations`, which own a dedicated graph port and write inside
+        themselves, an insight is a SEMANTIC fact that must go through the exact same vector/graph
+        write loop a distilled fact does (``reflect.py``'s "one write model"), so the caller folds
+        it into ``facts`` before that loop runs, then invokes ``commit`` once it has landed. The
+        callback is a no-op when reflection is unwired or failed.
 
         Same wired-vs-never-wired distinction as :meth:`_entities`: ``NO_REFLECTION`` only when no
         pipeline is configured, never merely because this pass's accumulated importance had not
@@ -1769,10 +1818,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         stage; the mandatory dedup/entity/relation work must not go down with it -- the same
         each-child-independent guarantee ``AnyTrigger`` (SM-L2 #123, ``triggers.py``) already
         makes for its own children. Caught and logged here, not swallowed silently: the pipeline's
-        own trigger is left armed (``_consume`` was never reached inside ``run``), so the next
-        pass retries synthesis on the same accumulation -- the same "safe to retry" contract
-        every other pass in this module already carries -- without blocking anything else in the
-        meantime.
+        own trigger is left armed (``run`` raised before returning its ``commit``, so ``_consume``
+        is never reached), so the next pass retries synthesis on the same accumulation -- the same
+        "safe to retry" contract every other pass in this module already carries -- without
+        blocking anything else in the meantime. On the failure path a no-op ``commit`` is
+        returned, so the caller's unconditional post-write invocation stays safe.
 
         **``MemoryScopeRequiredError`` is not caught here -- it propagates.** Every other
         exception this call can raise is a runtime failure worth retrying (a bad model response,
@@ -1785,30 +1835,32 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ``reflection_pipeline`` reached some other way.
         """
         if self.reflection_pipeline is None:
-            return [], NO_REFLECTION
+            return [], NO_REFLECTION, _noop_reflection_commit
         try:
-            report = self.reflection_pipeline.run(scope, episodes)
+            result = self.reflection_pipeline.run(scope, episodes)
         except MemoryScopeRequiredError:
             raise
         except Exception as exc:
             log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
-            return [], reflection_failed_details(exc)
-        return report.insights, report.details
+            return [], reflection_failed_details(exc), _noop_reflection_commit
+        report, commit = _unpack_reflection_result(result)
+        return report.insights, report.details, commit
 
     async def _areflect(
         self, scope: Scope, episodes: Sequence[MemoryRecord]
-    ) -> Tuple[List[FactWrite], ReflectionSummary]:
+    ) -> Tuple[List[FactWrite], ReflectionSummary, "ReflectionCommit"]:
         """Async variant of :meth:`_reflect`, making the same decisions."""
         if self.reflection_pipeline is None:
-            return [], NO_REFLECTION
+            return [], NO_REFLECTION, _noop_reflection_commit
         try:
-            report = await self.reflection_pipeline.arun(scope, episodes)
+            result = await self.reflection_pipeline.arun(scope, episodes)
         except MemoryScopeRequiredError:
             raise
         except Exception as exc:
             log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
-            return [], reflection_failed_details(exc)
-        return report.insights, report.details
+            return [], reflection_failed_details(exc), _noop_reflection_commit
+        report, commit = _unpack_reflection_result(result)
+        return report.insights, report.details, commit
 
     def _summarize(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], SummarySummary]:
         """Run SM-L8's (#129) hierarchical summarization over the episodes this pass kept.
@@ -2084,7 +2136,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # through the exact same vector/graph loop, receipt, and `PartialWriteError` accounting a
             # distilled fact is, so a pass with no duplicate facts but a triggered reflection still
             # takes the `if facts:` path rather than needing a second, parallel write branch.
-            insight_facts, reflection = self._reflect(scope, episodes)
+            insight_facts, reflection, reflection_commit = self._reflect(scope, episodes)
             facts += insight_facts
             # Same fold-before-branch reasoning as reflection, one stage later: a summary node is
             # written through the exact same vector/graph loop, receipt, and `PartialWriteError`
@@ -2194,6 +2246,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 entities = self._entities(scope, episodes)
                 relations = self._relations(scope, episodes)
                 profile = self._update_profile(scope, episodes)
+            # Two-phase commit for reflection (aicoe-tracker#193): the insight write has now
+            # landed (or there was none), so it is safe to clear the reflection accumulation and
+            # reset its trigger. Invoked here, after both write branches converge and before the
+            # cursor advances -- a write failure above raises before reaching this point, leaving
+            # the accumulation armed so the next pass re-synthesizes the same cluster (the retried
+            # insight upserts the same id-derived row). No-op when reflection produced nothing.
+            reflection_commit()
             # After every write in this pass has landed, never before: advancing on a pass that then
             # raises would have the next call skip the very episodes that failed to consolidate, which
             # is the caller-hands-the-termination-condition failure mode the interface docstring warns
@@ -2243,7 +2302,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             episodes = redact_records_for_writeback(episodes, self.config)
             facts, merged, folded, derived_by, supersede = await self._adistil_facts(scope, episodes)
             # Same fold-before-branch as the sync half, for the same reason -- see its comment.
-            insight_facts, reflection = await self._areflect(scope, episodes)
+            insight_facts, reflection, reflection_commit = await self._areflect(scope, episodes)
             facts += insight_facts
             # See the sync half's comment: same fold-before-branch reasoning, one stage later.
             summary_facts, summary = await self._asummarize(scope, episodes)
@@ -2318,6 +2377,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 entities = await self._aentities(scope, episodes)
                 relations = await self._arelations(scope, episodes)
                 profile = await self._aupdate_profile(scope, episodes)
+            # Two-phase commit for reflection (aicoe-tracker#193) -- see the sync half's comment.
+            # The insight write has landed (or there was none), so it is safe to clear the
+            # accumulation and reset the trigger. A write failure above raises before reaching
+            # this point, leaving the accumulation armed for the next pass.
+            reflection_commit()
             self._advance_cursor(cursor_key, scanned)
             return self._report(
                 scope,
