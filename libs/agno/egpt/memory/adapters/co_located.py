@@ -298,13 +298,41 @@ def reflection_failed_details(exc: BaseException) -> Dict[str, Any]:
     ``getattr`` defaults to ``False`` for an exception that never passed through that attribute
     assignment -- true of every pre-threshold failure, and of any exception a non-``reflect.py``
     caller of this function might pass.
+
+    ``gave_up`` reads ``exc.reflection_gave_up`` (aicoe-tracker#191): ``True`` only on the pass
+    where :class:`ReflectionPipeline` hit ``max_consecutive_failures`` and *permanently discarded*
+    the accumulation. Without it, that pass is byte-identical here to the ordinary below-bound
+    failures before it (same ``triggered``/``complete``/``error``), leaving a caller reading
+    structured details -- not logs -- unable to tell that data was just dropped for good. Same
+    ``getattr`` default (``False``) for any exception that never passed through that assignment.
     """
     return {
         "reflector": None,
         "complete": False,
         "triggered": bool(getattr(exc, "reflection_triggered", False)),
+        "gave_up": bool(getattr(exc, "reflection_gave_up", False)),
         "error": str(exc),
     }
+
+
+def _reflection_failure_log(scope: Scope, exc: BaseException) -> str:
+    """The WARNING message for a caught reflection failure, honest about which of the two failure
+    modes this is (aicoe-tracker#191, rasik review PR #176 finding 2).
+
+    The unconditional "will retry next pass" this used to always log is *false* on the give-up
+    pass: once :class:`ReflectionPipeline` hits ``max_consecutive_failures`` it discards the
+    accumulation permanently, so nothing retries it -- telling an operator otherwise hides a real
+    data drop. ``exc.reflection_gave_up`` (set by ``reflect.py`` only on that pass) selects the
+    accurate wording; every ordinary below-bound failure keeps the retry message it always had.
+    Shared by :meth:`_reflect`/:meth:`_areflect` so the sync and async paths cannot drift.
+    """
+    if getattr(exc, "reflection_gave_up", False):
+        return (
+            f"Reflection failed for scope {scope.key()!r} and hit its consecutive-failure bound; "
+            f"giving up on this cluster -- its accumulation was discarded and will NOT be retried "
+            f"(aicoe-tracker#191): {exc}"
+        )
+    return f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}"
 
 
 #: Default ``reason`` for :func:`_positive_int` -- ``max_episodes_per_pass``'s own failure mode,
@@ -1937,7 +1965,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         except MemoryScopeRequiredError:
             raise
         except Exception as exc:
-            log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
+            log_warning(_reflection_failure_log(scope, exc))
             return [], reflection_failed_details(exc), _noop_reflection_commit
         report, commit = _unpack_reflection_result(result)
         return report.insights, report.details, commit
@@ -1953,7 +1981,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         except MemoryScopeRequiredError:
             raise
         except Exception as exc:
-            log_warning(f"Reflection failed for scope {scope.key()!r}, will retry next pass: {exc}")
+            log_warning(_reflection_failure_log(scope, exc))
             return [], reflection_failed_details(exc), _noop_reflection_commit
         report, commit = _unpack_reflection_result(result)
         return report.insights, report.details, commit

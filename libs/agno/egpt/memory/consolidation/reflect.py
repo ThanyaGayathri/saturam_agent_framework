@@ -59,6 +59,7 @@ from egpt.memory.metrics import meter_response_extraction_cost
 from egpt.memory.tiers import CONSOLIDATION_TARGET
 from egpt.memory.types import FactWrite, MemoryOperationError, MemoryRecord, Scope, require_scope
 from egpt.utils.dttm import now_epoch_s
+from egpt.utils.log import log_warning
 from egpt.utils.prompts import get_json_output_prompt
 from egpt.utils.string import parse_response_model_str
 
@@ -68,6 +69,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEFAULT_IMPORTANCE_THRESHOLD",
+    "DEFAULT_MAX_CONSECUTIVE_FAILURES",
     "DEFAULT_MAX_EPISODES_PER_REFLECTION",
     "InsightSynthesizer",
     "LLMInsightSynthesizer",
@@ -105,6 +107,16 @@ DEFAULT_IMPORTANCE_THRESHOLD: ThresholdSource = 5.0
 #: -- without a cap, a scope that never reaches the importance threshold would grow its pending
 #: list forever rather than settling for citing whatever most recently mattered.
 DEFAULT_MAX_EPISODES_PER_REFLECTION = 200
+
+#: How many *consecutive* synthesis failures on one scope's accumulation are tolerated before the
+#: pipeline gives up on that cluster -- consuming it unconditionally and logging at WARNING
+#: instead of re-offering it to the synthesizer on every future pass forever (aicoe-tracker#191).
+#: Retrying is the right default for a transient failure (a network blip, a rate limit) that a
+#: later pass can succeed on; a *permanently* unsynthesizable cluster (persistently malformed
+#: model output, content the synthesizer can never accept) would otherwise retry indefinitely
+#: with no bound. Five leaves generous room for transient recovery while still bounding the
+#: permanent case; the counter resets to zero on the first success.
+DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
 
 #: Keys every :class:`ReflectionReport` carries, the floor
 #: :data:`~egpt.memory.types.CONSOLIDATION_KEYS` provides for the pass that drives this one.
@@ -412,6 +424,7 @@ class ReflectionPipeline:
         synthesizer: InsightSynthesizer,
         importance_threshold: ThresholdSource = DEFAULT_IMPORTANCE_THRESHOLD,
         max_episodes_per_reflection: int = DEFAULT_MAX_EPISODES_PER_REFLECTION,
+        max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
     ) -> None:
         missing = [verb for verb in ("synthesize", "asynthesize") if not callable(getattr(synthesizer, verb, None))]
         if missing:
@@ -430,8 +443,18 @@ class ReflectionPipeline:
                 f"max_episodes_per_reflection must be an integer >= 1, got {max_episodes_per_reflection!r}.",
                 field_name="max_episodes_per_reflection",
             )
+        if (
+            not isinstance(max_consecutive_failures, int)
+            or isinstance(max_consecutive_failures, bool)
+            or max_consecutive_failures < 1
+        ):
+            raise MemoryOperationError(
+                f"max_consecutive_failures must be an integer >= 1, got {max_consecutive_failures!r}.",
+                field_name="max_consecutive_failures",
+            )
         self.synthesizer = synthesizer
         self.max_episodes_per_reflection = max_episodes_per_reflection
+        self.max_consecutive_failures = max_consecutive_failures
         #: SM-L2's own trigger (module docstring), fed importance instead of size/event-count.
         # Pre-validated under this constructor's own parameter name: `SizeTrigger.__init__`
         # would otherwise raise "threshold must be a positive number", naming a parameter this
@@ -441,6 +464,9 @@ class ReflectionPipeline:
         self._trigger = SizeTrigger(validated_threshold(importance_threshold, "importance_threshold"))
         #: Episodes accumulated per scope (keyed by ``Scope.key()``) since the last reset.
         self._pending: Dict[str, List[MemoryRecord]] = {}
+        #: Consecutive synthesis failures per scope (keyed by ``Scope.key()``), reset to zero on
+        #: the first success and cleared entirely when a scope gives up (aicoe-tracker#191).
+        self._consecutive_failures: Dict[str, int] = {}
 
     # -- shared decisions -----------------------------------------------------
 
@@ -531,6 +557,70 @@ class ReflectionPipeline:
             # per-episode debit above is the correct partial decrement.
             self._pending.pop(key, None)
             self._trigger.reset(scope)
+            # The cluster is gone, so its failure history is meaningless -- clear it so a future
+            # accumulation on this scope starts with a fresh circuit breaker (aicoe-tracker#191).
+            self._consecutive_failures.pop(key, None)
+
+    def _record_synthesis_failure(self, scope: Scope) -> bool:
+        """Increment the consecutive-failure count for ``scope`` and report whether to give up.
+
+        Returns ``True`` once the count reaches :attr:`max_consecutive_failures` -- the caller
+        then consumes the accumulation unconditionally (giving up on this permanently
+        unsynthesizable cluster) rather than re-offering it forever (aicoe-tracker#191).
+        """
+        key = scope.key()
+        count = self._consecutive_failures.get(key, 0) + 1
+        self._consecutive_failures[key] = count
+        return count >= self.max_consecutive_failures
+
+    def _reset_failures(self, scope: Scope) -> None:
+        """Clear the consecutive-failure count for ``scope`` after a successful synthesis."""
+        self._consecutive_failures.pop(scope.key(), None)
+
+    def _on_synthesis_failure(self, scope: Scope, consumed_ids: Sequence[str], exc: BaseException) -> None:
+        """Shared failure handling for :meth:`run`/:meth:`arun` -- mark the exception, bump the
+        consecutive-failure counter, and give up on the cluster once the bound is reached.
+
+        The exception is always re-raised by the caller (this pass still failed and the caller
+        reports it). The circuit break's effect is on *future* passes: once
+        :attr:`max_consecutive_failures` consecutive failures have accrued for this scope, the
+        accumulation is consumed here -- unconditionally, exactly as a successful pass's ``commit``
+        would -- so the next pass starts fresh instead of re-offering the same permanently
+        unsynthesizable cluster forever (aicoe-tracker#191). Below the bound, nothing is consumed
+        and the trigger stays armed, preserving the "safe to retry" contract for transient
+        failures a later pass can succeed on.
+        """
+        try:
+            exc.reflection_triggered = True  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            pass
+        if self._record_synthesis_failure(scope):
+            # Mark the give-up on the exception itself so a caller reading
+            # `reflection_failed_details` (co_located.py) can tell this apart from an ordinary
+            # below-bound "failed but still armed, will retry" failure -- the two are otherwise
+            # byte-identical in `ReflectionReport.details` (rasik review, PR #176, finding 2).
+            try:
+                exc.reflection_gave_up = True  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                pass
+            log_warning(
+                f"Reflection synthesis failed {self.max_consecutive_failures} consecutive times for "
+                f"scope {scope.key()!r}; giving up on this cluster and clearing its accumulation "
+                f"(aicoe-tracker#191). Last error: {exc}"
+            )
+            # Clear the failure counter *unconditionally* here, not only via `_consume`'s
+            # fully-consumed branch (rasik review, PR #176, finding 1). Under the concurrent-`arun`
+            # scenario this module documents -- a concurrent call appends a fresh episode to the
+            # shared `self._pending[key]` while this call is suspended in synthesis -- the give-up
+            # `_consume` below lands in the *partial*-consume branch (survivors remain), which never
+            # touches `_consecutive_failures`. Relying on it there would leave the counter maxed
+            # out, so the unrelated fresh accumulation inherits a tripped breaker and gives up on
+            # its very first failure instead of getting the full `max_consecutive_failures` retries.
+            # The cluster this counter tracked is being given up regardless of survivors, so its
+            # history is meaningless -- clear it directly.
+            self._consecutive_failures.pop(scope.key(), None)
+            # Give up: consume the accumulation just as a confirmed success would.
+            self._consume(scope, consumed_ids, now_epoch_s())
 
     @staticmethod
     def _accumulated_importance(pending: Sequence[MemoryRecord]) -> float:
@@ -634,19 +724,26 @@ class ReflectionPipeline:
         consume) and idempotent in every case, so the caller may invoke it unconditionally once
         the write step succeeds.
 
-        **A synthesizer exception propagates, and leaves the trigger armed.** ``commit`` is never
-        returned on that path -- the raise happens before this method returns -- so the
-        accumulation and the trigger's running total are both left exactly as they were, and the
-        *next* call to :meth:`run` for this scope re-evaluates the same threshold-crossed state
-        and retries synthesis on the same (possibly since-grown) cluster. This is deliberate, not
-        an oversight -- the same "a failed pass is safe to retry" contract
+        **A synthesizer exception propagates, and leaves the trigger armed -- up to a bound.**
+        ``commit`` is never returned on that path -- the raise happens before this method returns
+        -- so the accumulation and the trigger's running total are both left exactly as they were,
+        and the *next* call to :meth:`run` for this scope re-evaluates the same threshold-crossed
+        state and retries synthesis on the same (possibly since-grown) cluster. This is
+        deliberate -- the same "a failed pass is safe to retry" contract
         :class:`~egpt.memory.consolidation.worker.ConsolidationWorker` already gives every
-        ``consolidate`` pass, extended to this stage rather than inventing a second retry policy.
-        It does mean a *permanently* unsynthesizable cluster (a model that never returns a valid
-        response for this content) retries every call indefinitely, with no backoff or give-up --
-        no bound exists here today (tracked: aicoe-tracker#191). The caller decides how much that
-        costs: see ``CoLocatedMemoryProvider._reflect``'s docstring for why *that* caller catches
-        this and keeps retrying without blocking the rest of consolidation.
+        ``consolidate`` pass, extended to this stage rather than inventing a second retry policy --
+        and correct for a *transient* failure (a network blip, a rate limit) a later pass can
+        succeed on. A *permanently* unsynthesizable cluster (a model that never returns a valid
+        response for this content) would otherwise retry every call forever; a per-scope
+        consecutive-failure counter bounds that (aicoe-tracker#191). After
+        :attr:`max_consecutive_failures` consecutive failures for one scope, :meth:`run` gives up
+        on that cluster -- consuming the accumulation unconditionally (as a confirmed success's
+        ``commit`` would) and logging at WARNING -- so the next pass starts fresh rather than
+        re-offering the same doomed cluster. The counter resets to zero on the first success, so a
+        run of transient failures shorter than the bound followed by a success costs nothing. The
+        failing pass still re-raises either way; the caller
+        (``CoLocatedMemoryProvider._reflect``) catches it and keeps the rest of consolidation
+        running -- see its docstring.
 
         **A raised exception is marked with ``reflection_triggered = True``** if and only if it
         happened after :class:`SizeTrigger` had already fired for this call -- which is exactly
@@ -664,6 +761,18 @@ class ReflectionPipeline:
         duck-typed there. Assigning it is itself guarded: a C-extension exception type using
         ``__slots__`` can refuse an arbitrary attribute with its own ``AttributeError``, which
         must not replace the exception this block is already propagating.
+
+        **The give-up pass additionally marks ``reflection_gave_up = True``** on the exception
+        (aicoe-tracker#191, rasik review PR #176 finding 2). This is the *only* signal that
+        distinguishes the pass that permanently discarded the cluster from the ordinary
+        below-bound failures before it: ``ReflectionReport.details`` is byte-identical on both
+        (``triggered=True, complete=False, error=...``), so a caller reading structured details
+        rather than scraping logs would otherwise have no way to know the accumulation was just
+        dropped for good. ``_reflect``/``_areflect`` in ``co_located.py`` read this attribute to
+        set a distinct ``details["gave_up"]`` and log an accurate message on this path instead of
+        the standard "will retry next pass" (which is false once the cluster is gone). Same
+        bare-attribute, same assignment guard, and the same duck-typing rationale as
+        ``reflection_triggered``.
 
         **Consume is deferred until the caller confirms the write (aicoe-tracker#193).**
         ``co_located.consolidate`` folds ``report.insights`` into its own write loop *after* this
@@ -683,17 +792,16 @@ class ReflectionPipeline:
             return report, self._noop_commit
         total = self._accumulated_importance(pending)
         considered = len(pending)
+        consumed_ids = [e.id for e in pending]
         try:
             insight = self.synthesizer.synthesize(pending)
         except Exception as exc:
-            try:
-                exc.reflection_triggered = True  # type: ignore[attr-defined]
-            except (AttributeError, TypeError):
-                pass
+            self._on_synthesis_failure(scope, consumed_ids, exc)
             raise
+        self._reset_failures(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
         report = self._report(scope, considered, total, insights, triggered=True)
-        return report, self._commit_for(scope, [e.id for e in pending])
+        return report, self._commit_for(scope, consumed_ids)
 
     async def arun(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[ReflectionReport, ReflectionCommit]:
         """Async variant of :meth:`run`, making the same decisions through the same helpers --
@@ -732,14 +840,13 @@ class ReflectionPipeline:
             return report, self._noop_commit
         total = self._accumulated_importance(pending)
         considered = len(pending)
+        consumed_ids = [e.id for e in pending]
         try:
             insight = await self.synthesizer.asynthesize(pending)
         except Exception as exc:
-            try:
-                exc.reflection_triggered = True  # type: ignore[attr-defined]
-            except (AttributeError, TypeError):
-                pass
+            self._on_synthesis_failure(scope, consumed_ids, exc)
             raise
+        self._reset_failures(scope)
         insights = [self._to_fact(scope, pending, insight)] if insight is not None else []
         report = self._report(scope, considered, total, insights, triggered=True)
-        return report, self._commit_for(scope, [e.id for e in pending])
+        return report, self._commit_for(scope, consumed_ids)

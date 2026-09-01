@@ -12,6 +12,7 @@ triggered insight into the same vector/graph write loop a distilled fact uses.
 """
 
 import asyncio
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -784,6 +785,242 @@ def test_cross_pass_accumulation_survives_a_write_failure(is_async):
 
 
 # ---------------------------------------------------------------------------
+# Circuit break (aicoe-tracker#191): a permanently-failing synthesizer is bounded, not retried
+# forever. A transient run of failures shorter than the bound still recovers.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_max_consecutive_failures_is_validated(is_async):
+    for bad in (0, -1, 1.5, True):
+        with pytest.raises(MemoryOperationError) as excinfo:
+            ReflectionPipeline(StubSynthesizer(), max_consecutive_failures=bad)
+        assert excinfo.value.field_name == "max_consecutive_failures"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_permanently_failing_cluster_is_given_up_after_the_bound(is_async, caplog):
+    """A synthesizer that always raises must not be retried forever. After
+    ``max_consecutive_failures`` consecutive failures the pipeline gives up: the accumulation is
+    consumed, so the next pass no longer re-offers the same doomed cluster (aicoe-tracker#191).
+
+    The give-up also logs at WARNING -- the only externally-visible signal (besides
+    ``exc.reflection_gave_up``) that the cluster was discarded rather than merely failing. That
+    log is asserted here so a regression that drops it, mangles its format string, or logs it at
+    the wrong level fails this test rather than passing silently (rasik review, PR #176, finding
+    3). ``egpt`` sets ``propagate = False`` on its logger, so ``caplog`` is attached to that
+    logger by name rather than the root."""
+    boom = BoomSynthesizer()
+    pipe = ReflectionPipeline(boom, importance_threshold=0.1, max_consecutive_failures=3)
+
+    def one_pass():
+        call = pipe.arun(ACME, [episode("a", "e1", importance=0.9)]) if is_async else None
+        with pytest.raises(RuntimeError, match="synthesis blew up"):
+            asyncio.run(call) if is_async else pipe.run(ACME, [episode("a", "e1", importance=0.9)])
+
+    # Failures 1 and 2: below the bound, the cluster stays armed for a retry -- and must NOT log
+    # the give-up WARNING yet.
+    with caplog.at_level(logging.WARNING, logger="egpt"):
+        one_pass()
+        assert ACME.key() in pipe._pending
+        one_pass()
+        assert ACME.key() in pipe._pending
+        assert pipe._consecutive_failures[ACME.key()] == 2
+    assert not [r for r in caplog.records if "giving up on this cluster" in r.message], (
+        "below the bound, no give-up WARNING should have been logged"
+    )
+
+    # Failure 3 hits the bound: the pass still raises, but the accumulation is now consumed, and
+    # the give-up is logged at WARNING naming the scope, the bound, and the ticket.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="egpt"):
+        one_pass()
+    assert ACME.key() not in pipe._pending, "the doomed cluster must be given up after the bound"
+    assert ACME.key() not in pipe._consecutive_failures, "the failure counter is cleared on give-up"
+    assert pipe._trigger._accumulated(ACME) == 0.0
+    assert boom.calls == 3
+    give_up_logs = [
+        r for r in caplog.records if r.levelno == logging.WARNING and "giving up on this cluster" in r.message
+    ]
+    assert len(give_up_logs) == 1, "the give-up pass must log exactly one WARNING"
+    message = give_up_logs[0].message
+    assert "3 consecutive times" in message, "the WARNING must name the bound that was hit"
+    assert ACME.key() in message, "the WARNING must name the scope"
+    assert "aicoe-tracker#191" in message
+
+
+def test_give_up_clears_the_counter_even_when_a_concurrent_call_left_a_survivor():
+    """Regression (rasik review, PR #176, finding 1): the failure-counter clear must not depend on
+    ``_consume`` reaching its fully-consumed branch.
+
+    Under the concurrent-``arun`` window this module documents -- a concurrent call appends a fresh
+    episode to the shared ``_pending[key]`` while this call is suspended inside synthesis -- the
+    give-up ``_consume`` removes only the ids this pass saw, leaving the concurrent survivor in
+    pending. That lands in ``_consume``'s *partial* branch, which never touches
+    ``_consecutive_failures``. If the clear relied on that branch, the maxed-out counter would
+    survive and the unrelated fresh accumulation would inherit a tripped breaker -- giving up on
+    its very first failure instead of getting the full bound.
+
+    Modeled without real concurrency (same style as
+    ``test_a_late_commit_does_not_discard_a_concurrent_calls_accumulation``): accumulate A's
+    cluster, snapshot A's ids, accumulate a concurrent B episode into the shared pending, then
+    drive ``_on_synthesis_failure`` directly with A's snapshot -- exactly the state a suspended
+    concurrent ``arun`` produces."""
+    boom = BoomSynthesizer()
+    pipe = ReflectionPipeline(boom, importance_threshold=0.1, max_consecutive_failures=1)
+    now = 1000.0
+
+    pending_a = pipe._accumulate(ACME, [episode("A's cluster", "eA", importance=0.9)], now)
+    consumed_ids_a = [e.id for e in pending_a]  # A's snapshot, taken before its await
+    # Concurrent call lands a fresh, unrelated episode in the shared pending while A is suspended.
+    pipe._accumulate(ACME, [episode("B's cluster", "eB", importance=0.05)], now)
+
+    exc = RuntimeError("synthesis blew up")
+    pipe._on_synthesis_failure(ACME, consumed_ids_a, exc)
+
+    # A's cluster is correctly given up; B's survives.
+    remaining = [e.id for e in pipe._pending.get(ACME.key(), [])]
+    assert remaining == ["eB"], "only A's consumed cluster should be gone; B's survivor stays"
+    # The counter is cleared despite the partial consume -- B starts with a fresh breaker.
+    assert ACME.key() not in pipe._consecutive_failures, (
+        "the failure counter must be cleared on give-up even when a survivor kept _consume in its partial branch"
+    )
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_the_give_up_pass_is_distinguishable_from_an_ordinary_below_bound_failure(is_async):
+    """Regression (rasik review, PR #176, finding 2): the give-up pass must carry a structured
+    signal a caller can read without scraping logs.
+
+    ``ReflectionReport.details`` is byte-identical on an ordinary below-bound failure and the pass
+    that permanently discards the cluster -- so ``reflect.py`` marks ``exc.reflection_gave_up``
+    only on the give-up pass, and ``co_located.reflection_failed_details`` surfaces it as
+    ``details["gave_up"]``. Below the bound the flag stays absent/False."""
+    from egpt.memory.adapters.co_located import reflection_failed_details
+
+    boom = BoomSynthesizer()
+    pipe = ReflectionPipeline(boom, importance_threshold=0.1, max_consecutive_failures=2)
+
+    def one_pass():
+        with pytest.raises(RuntimeError, match="synthesis blew up") as excinfo:
+            if is_async:
+                asyncio.run(pipe.arun(ACME, [episode("a", "e1", importance=0.9)]))
+            else:
+                pipe.run(ACME, [episode("a", "e1", importance=0.9)])
+        return excinfo.value
+
+    # Pass 1: below the bound -- failed but still armed. No give-up signal.
+    exc1 = one_pass()
+    assert getattr(exc1, "reflection_triggered", False) is True
+    assert getattr(exc1, "reflection_gave_up", False) is False
+    details1 = reflection_failed_details(exc1)
+    assert details1["gave_up"] is False
+    assert details1["triggered"] is True
+
+    # Pass 2: hits the bound -- the cluster is discarded. The give-up signal is set, and it is the
+    # ONLY field distinguishing this from pass 1's details.
+    exc2 = one_pass()
+    assert getattr(exc2, "reflection_gave_up", False) is True
+    details2 = reflection_failed_details(exc2)
+    assert details2["gave_up"] is True
+    # Everything except `gave_up` is identical between the two passes -- proving `gave_up` is the
+    # sole discriminator a caller has.
+    assert {k: v for k, v in details1.items() if k != "gave_up"} == {
+        k: v for k, v in details2.items() if k != "gave_up"
+    }
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_transient_run_of_failures_shorter_than_the_bound_recovers(is_async):
+    """Failures below the bound must not give up -- a synthesizer that fails twice then succeeds
+    (a network blip, a rate limit) lands the insight on the third pass over the same cluster, and
+    the failure counter resets to zero on that success."""
+
+    class FlakySynthesizer:
+        def __init__(self, fail_times):
+            self.fail_times = fail_times
+            self.calls = 0
+
+        def synthesize(self, episodes):
+            self.calls += 1
+            if self.calls <= self.fail_times:
+                raise RuntimeError("transient blip")
+            return insight()
+
+        async def asynthesize(self, episodes):
+            await asyncio.sleep(0)
+            return self.synthesize(episodes)
+
+    flaky = FlakySynthesizer(fail_times=2)
+    pipe = ReflectionPipeline(flaky, importance_threshold=0.1, max_consecutive_failures=5)
+    ep = episode("a", "e1", importance=0.9)
+
+    for _ in range(2):
+        call = pipe.arun(ACME, [ep]) if is_async else None
+        with pytest.raises(RuntimeError, match="transient blip"):
+            asyncio.run(call) if is_async else pipe.run(ACME, [ep])
+
+    # Still armed -- 2 < 5, no give-up.
+    assert ACME.key() in pipe._pending
+    assert pipe._consecutive_failures[ACME.key()] == 2
+
+    # Third pass succeeds on the same cluster; counter resets.
+    report = run_no_commit(pipe, ACME, [ep], is_async=is_async)
+    assert report.details["triggered"] is True
+    (fact,) = report.insights
+    assert fact.source_episode_ids == ["e1"]
+    assert ACME.key() not in pipe._consecutive_failures, "the counter resets to zero on success"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_success_between_failures_resets_the_counter(is_async):
+    """Consecutive means consecutive: a success in the middle resets the count, so a later
+    failure starts counting from one again rather than accumulating across the success."""
+
+    class OnDemandSynthesizer:
+        def __init__(self):
+            self.mode = "fail"
+
+        def synthesize(self, episodes):
+            if self.mode == "fail":
+                raise RuntimeError("boom")
+            return insight()
+
+        async def asynthesize(self, episodes):
+            await asyncio.sleep(0)
+            return self.synthesize(episodes)
+
+    synth = OnDemandSynthesizer()
+    pipe = ReflectionPipeline(synth, importance_threshold=0.1, max_consecutive_failures=3)
+
+    def fail_pass(ep_id):
+        ep = episode("x", ep_id, importance=0.9)
+        call = pipe.arun(ACME, [ep]) if is_async else None
+        with pytest.raises(RuntimeError):
+            asyncio.run(call) if is_async else pipe.run(ACME, [ep])
+
+    def ok_pass(ep_id):
+        return run_no_commit(pipe, ACME, [episode("x", ep_id, importance=0.9)], is_async=is_async)
+
+    synth.mode = "fail"
+    fail_pass("e1")
+    fail_pass("e2")
+    assert pipe._consecutive_failures[ACME.key()] == 2
+
+    # A success resets the counter to zero.
+    synth.mode = "ok"
+    ok_pass("e3")
+    assert ACME.key() not in pipe._consecutive_failures
+
+    # Two more failures do NOT give up (count restarts from one, not three).
+    synth.mode = "fail"
+    fail_pass("e4")
+    fail_pass("e5")
+    assert pipe._consecutive_failures[ACME.key()] == 2
+    assert ACME.key() in pipe._pending, "the count restarted after the success, so no give-up yet"
+
+
+# ---------------------------------------------------------------------------
 # Two-phase commit (aicoe-tracker#193): run/arun return (report, commit); consume is deferred
 # until the caller invokes commit after confirming the write.
 # ---------------------------------------------------------------------------
@@ -1063,6 +1300,53 @@ def test_a_permanent_synthesis_failure_retries_on_the_same_cluster_next_pass(is_
 
     assert second.details["reflection"]["triggered"] is True
     assert working.calls == [("e1",)], "the same, still-accumulated episode must be re-offered"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_the_give_up_pass_reports_gave_up_and_logs_accurately_through_consolidate(is_async, caplog):
+    """End-to-end through ``consolidate`` (rasik review, PR #176, finding 2): the give-up pass must
+    both surface ``details["reflection"]["gave_up"] == True`` to a caller reading the report AND
+    log the accurate "will NOT be retried" WARNING instead of the standard, now-false "will retry
+    next pass" that ``co_located._reflect`` logs on every other caught reflection failure.
+
+    Driven with a synthesizer that always raises and ``max_consecutive_failures=2``: passes 1
+    reports an ordinary below-bound failure (``gave_up`` False, retry log), pass 2 is the give-up
+    (``gave_up`` True, discard log)."""
+    boom = BoomSynthesizer()
+    pipe = ReflectionPipeline(boom, importance_threshold=0.1, max_consecutive_failures=2)
+    vector, graph = FakeVector(), FakeGraph()
+    memory = CoLocatedMemoryProvider(
+        vector=vector, graph=graph, config=MemoryProviderConfig(provider="co_located"), reflection_pipeline=pipe
+    )
+    memory.write(ACME, [MemoryEvent(content="Acme shipped early", scope=ACME, id="e1", metadata={"importance": 0.9})])
+
+    def consolidate():
+        return asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+    # Pass 1: below the bound -- ordinary retry, no give-up signal, retry log.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="egpt"):
+        first = consolidate()
+    assert first.details["reflection"]["gave_up"] is False
+    assert first.details["reflection"]["triggered"] is True
+    assert any("will retry next pass" in r.message for r in caplog.records), (
+        "a below-bound failure keeps the ordinary retry message"
+    )
+    assert not any("will NOT be retried" in r.message for r in caplog.records)
+
+    # Pass 2: hits the bound -- give-up signal set, and the log tells the truth.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="egpt"):
+        second = consolidate()
+    assert second.details["reflection"]["gave_up"] is True, (
+        "a caller reading the report must be able to tell the cluster was discarded"
+    )
+    give_up_msgs = [r.message for r in caplog.records if "will NOT be retried" in r.message]
+    assert give_up_msgs, "the give-up pass must log the accurate 'will NOT be retried' message"
+    assert not any("will retry next pass" in r.message for r in caplog.records), (
+        "the stale 'will retry next pass' message must not fire on the give-up pass"
+    )
+    assert boom.calls == 2
 
 
 @pytest.mark.parametrize("is_async", [False, True])
