@@ -27,6 +27,7 @@ from egpt.memory.types import (
     MemoryRecord,
     Scope,
     escape_key_slot,
+    require_list_field,
 )
 from egpt.utils.dttm import now_epoch_s
 
@@ -146,13 +147,19 @@ def _require_list(value: Any, name: str, episode_id: str) -> List[str]:
     corruption survives a round trip with nothing to detect it. On the read side the same value
     arrives from ``MemoryRow.__post_init__``, which copies a value that is already a list and
     leaves any other alone, so a row inserted straight into the database keeps its bare string.
+
+    The isinstance check itself is :func:`~egpt.memory.types.require_list_field`, shared with
+    ``types.py``'s own ``topics`` guard, so the two do not carry independently-maintained copies
+    of the same test.
     """
-    if not isinstance(value, list):
-        raise MemoryOperationError(
+    require_list_field(
+        value,
+        field_name=name,
+        message=(
             f"Episode {episode_id!r} carries {name}={value!r}, which is a {type(value).__name__} "
-            "rather than a list. Copying it would split it into characters instead of failing.",
-            field_name=name,
-        )
+            "rather than a list. Copying it would split it into characters instead of failing."
+        ),
+    )
     return list(value)
 
 
@@ -221,6 +228,13 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
     occurred_at = event.occurred_at if event.occurred_at is not None else now
     metadata = dict(event.metadata)
     if event.topics is not None:
+        # `_require_list`, not a bare `list(...)`: `MemoryEvent.__post_init__` (SM-C1 #89 / #181)
+        # validates `topics` at construction, but neither envelope is frozen, so
+        # `event.topics = "deploy"` after construction bypasses `__post_init__` entirely and
+        # reproduces the exact character-split corruption #181 exists to prevent -- no caller
+        # does this today, but this project has prior history (PR #76 round 2, see
+        # `_require_topics_list`'s docstring) with exactly this class of partial-guard gap, and
+        # the re-check is O(1) when the value is already a list.
         metadata[TOPICS_KEY] = _require_list(event.topics, TOPICS_KEY, event.id)
     scope = event.scope
     return EpisodicRecord(

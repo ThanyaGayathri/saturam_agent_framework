@@ -189,6 +189,35 @@ def test_write_tier_overrides_the_events_own_tier():
     assert vector.rows["acme"][receipt.event_ids[0]].tier is MemoryTier.SEMANTIC
 
 
+def test_a_string_topics_is_refused_before_it_reaches_either_substrate():
+    """Issue #181: ``topics="deploy"`` used to become ``["d","e","p","l","o","y"]`` in the stored
+    row -- a well-formed list, so nothing downstream could tell it apart from real topics. The
+    envelope now refuses it at ``MemoryEvent`` construction, so ``write`` never even sees the
+    event.
+
+    ``event(...)`` below raises during argument evaluation, before ``write`` is entered -- this
+    proves a corrupted event can never be built, not that ``write`` itself does anything special
+    with a bad one.
+    """
+    p, vector, graph = provider()
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        p.write(ACME, [event("deployed the billing service", topics="deploy")])
+
+    assert vector.rows.get("acme", {}) == {}
+    assert graph.rows.get("acme", []) == []
+
+
+async def test_a_string_topics_is_refused_before_it_reaches_either_substrate_async():
+    p, vector, graph = provider()
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        await p.awrite(ACME, [event("deployed the billing service", topics="deploy")])
+
+    assert vector.rows.get("acme", {}) == {}
+    assert graph.rows.get("acme", []) == []
+
+
 # ---------------------------------------------------------------------------
 # Read and fusion
 # ---------------------------------------------------------------------------

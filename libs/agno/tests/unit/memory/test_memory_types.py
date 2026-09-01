@@ -16,6 +16,7 @@ from egpt.memory.types import (
     WRITE_KEYS,
     ConsolidationReport,
     MemoryEvent,
+    MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
@@ -130,6 +131,80 @@ def test_event_normalizes_but_does_not_stamp_occurred_at():
     dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
     stamped = MemoryEvent(content="hi", scope=a_scope(), occurred_at=dt)  # type: ignore[arg-type]
     assert stamped.occurred_at == int(dt.timestamp())
+
+
+# ---------------------------------------------------------------------------
+# topics: a non-list is refused rather than coerced (issue #181, residual from SM-E1 #108)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("envelope", [MemoryEvent, MemoryRecord])
+def test_a_string_topics_is_refused_not_split_into_characters(envelope):
+    """``list("deploy")`` is six one-character topics and raises nothing -- the corruption this
+    guard exists to catch is a *well-formed* list, so no downstream check can detect it once it
+    lands.
+    """
+    kwargs = dict(content="hi", scope=a_scope(), topics="deploy")
+    if envelope is MemoryRecord:
+        kwargs.update(id="r1", tier=MemoryTier.EPISODIC)
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        envelope(**kwargs)
+
+
+@pytest.mark.parametrize("envelope", [MemoryEvent, MemoryRecord])
+def test_a_non_iterable_topics_is_refused_by_name_not_a_bare_typeerror(envelope):
+    """A non-iterable ``topics=42`` used to raise ``TypeError`` from inside ``list()`` -- unnamed,
+    unlike every other refusal this envelope raises.
+    """
+    kwargs = dict(content="hi", scope=a_scope(), topics=42)
+    if envelope is MemoryRecord:
+        kwargs.update(id="r1", tier=MemoryTier.EPISODIC)
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        envelope(**kwargs)
+
+
+@pytest.mark.parametrize("envelope", [MemoryEvent, MemoryRecord])
+@pytest.mark.parametrize("bad_topics", [("deploy",), {"deploy"}], ids=["tuple", "set"])
+def test_a_tuple_or_set_topics_is_refused_not_silently_accepted(envelope, bad_topics):
+    """Before this guard, a tuple/set was silently accepted and copied via `list(topics)` --
+    valid by duck typing, but `topics` is typed `Optional[List[str]]`. Pinning this so an
+    accidental future `isinstance(value, (list, tuple))` relaxation gets caught.
+    """
+    kwargs = dict(content="hi", scope=a_scope(), topics=bad_topics)
+    if envelope is MemoryRecord:
+        kwargs.update(id="r1", tier=MemoryTier.EPISODIC)
+
+    with pytest.raises(MemoryOperationError, match="topics"):
+        envelope(**kwargs)
+
+
+def test_a_list_topics_is_still_accepted():
+    """Value equality only -- not a copy/aliasing test. `MemoryEvent`'s non-aliasing is exercised
+    right below by `test_a_constructed_event_does_not_alias_the_callers_topics_list`;
+    `MemoryRecord`'s by `test_a_returned_record_does_not_alias_the_callers_topics_list`.
+    """
+    topics = ["deploy", "infra"]
+    event = MemoryEvent(content="hi", scope=a_scope(), topics=topics)
+    record = MemoryRecord(id="r1", tier=MemoryTier.EPISODIC, content="hi", scope=a_scope(), topics=topics)
+
+    assert event.topics == topics
+    assert record.topics == topics
+
+
+def test_a_constructed_event_does_not_alias_the_callers_topics_list():
+    """`MemoryEvent` now copies `topics`, mirroring `MemoryRecord` (see
+    `test_a_returned_record_does_not_alias_the_callers_topics_list` below): a caller batching
+    several events from one shared `topics` list must not have every already-built event mutate
+    together if that list changes after construction.
+    """
+    topics = ["deploy"]
+    event = MemoryEvent(content="hi", scope=a_scope(), topics=topics)
+
+    topics.append("INJECTED")
+
+    assert event.topics == ["deploy"]
 
 
 def test_query_normalizes_as_of():

@@ -59,6 +59,7 @@ __all__ = [
     "PartialWriteError",
     "PROFILE_NO_USER",
     "render_context_lines",
+    "require_list_field",
     "require_scope",
     "RetrievalCandidates",
     "SCOPE_SLOTS",
@@ -153,6 +154,56 @@ def _epoch_or_none(value: Any) -> Optional[int]:
             f"Use datetime.now(timezone.utc) or epoch seconds. Got {value!r}."
         )
     return to_epoch_s(value)
+
+
+def require_list_field(value: Any, *, field_name: str, message: str) -> None:
+    """Raise :class:`MemoryOperationError` if ``value`` is not a ``list``. The one isinstance
+    check every list-shaped field across the seam needs -- ``topics`` here and
+    ``schemas/episodic.py``'s ``_require_list`` (``topics``, ``entity_ids``, ``supersedes``,
+    ``superseded_by``) both delegate to it rather than keeping their own copy of the check.
+
+    PR #76 round 2 is what a duplicated version of this class of guard, patched on one side and
+    not the other, actually costs -- so the check itself lives in exactly one place, even though
+    each caller's error message and null-handling stay its own: an episode row names the episode
+    id and always has a value to check, while an envelope field is ``Optional`` and names the
+    owning class instead.
+    """
+    if not isinstance(value, list):
+        raise MemoryOperationError(message, field_name=field_name)
+
+
+def _require_topics_list(value: Any, owner: str) -> None:
+    """Refuse a non-list ``topics`` rather than coercing it.
+
+    ``list("deploy")`` is six one-character topics and raises nothing -- a *well-formed* list, so
+    no downstream guard can detect the corruption (issue #181, residual from SM-E1 #108's
+    ``schemas/episodic.py::_require_list``, which caught this for the episode projection only). A
+    non-iterable such as ``topics=42`` would otherwise raise a bare ``TypeError`` from inside
+    ``list()`` instead of the named refusal every other boundary in this module raises.
+
+    Guarded once, here, on both envelope types, rather than at each of the six call sites that
+    copy ``topics`` downstream (``MemoryRecord.detached()``, ``CoLocatedMemoryProvider._prepare``
+    x2, its consolidate path, ``SeedMemoryProvider``'s write path, and
+    ``schemas/episodic.py::episode_from_event``): PR #76 round 2 showed a fix applied to some
+    sites and not others is worse than the original defect. Those six sites keep their
+    ``list(...)`` copies -- with this guard upstream, each is copying a value already known to
+    be a list.
+
+    Enforced for the envelope's full lifetime, not only at construction: both ``MemoryRecord`` and
+    ``MemoryEvent`` override ``__setattr__`` to run this same check (and re-copy) on every set of
+    ``topics``, not only the one ``__post_init__`` makes, so ``record.topics = "deploy"`` after
+    construction raises here instead of silently reproducing the corruption #181 exists to
+    prevent.
+    """
+    if value is not None:
+        require_list_field(
+            value,
+            field_name="topics",
+            message=(
+                f"{owner}.topics must be a list, got {type(value).__name__}: {value!r}. Copying it "
+                "would risk splitting a string into one-character topics instead of failing."
+            ),
+        )
 
 
 def escape_key_slot(value: Optional[str]) -> str:
@@ -491,10 +542,21 @@ class MemoryRecord:
             )
         self.provenance = dict(self.provenance or {})
         self.metadata = dict(self.metadata or {})
-        # `topics` is copied here, with the other two, so the class is closed rather than the
-        # instance: the seed read path builds records straight from stored rows and never calls
-        # `detached()`, so a consumer appending to `record.topics` wrote into the store.
-        self.topics = list(self.topics) if self.topics is not None else None
+        # `topics` needs no handling here: the dataclass-generated `__init__` already set it
+        # through `__setattr__` below before `__post_init__` ran, so it is already validated and
+        # copied by the time this method sees it.
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # `topics` is copied here, on every set rather than only construction, so the class is
+        # closed rather than the instance: the seed read path builds records straight from stored
+        # rows and never calls `detached()`, so a consumer appending to `record.topics` wrote into
+        # the store. Re-validating on every set, not only the first, is what actually closes
+        # #181's gap -- a non-frozen dataclass otherwise lets `record.topics = "deploy"` bypass
+        # `__post_init__` entirely and reproduce the corruption the guard exists to prevent.
+        if name == "topics" and value is not None:
+            _require_topics_list(value, "MemoryRecord")
+            value = list(value)
+        super().__setattr__(name, value)
 
     def is_current_belief(self) -> bool:
         """Whether this row is what the system believes *now* (``expired_at IS NULL``).
@@ -576,6 +638,22 @@ class MemoryEvent:
         # that rejects a blank tenant, a bool timestamp and a negative limit should not leave this
         # one to explode three frames away.
         self.metadata = dict(self.metadata or {})
+        # `topics` needs no handling here: the dataclass-generated `__init__` already set it
+        # through `__setattr__` below before `__post_init__` ran, so it is already validated and
+        # copied by the time this method sees it.
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Copied on every set, not merely validated, for the same reason `MemoryRecord` does: a
+        # caller batching several events from one shared `topics` list (`writeback.py`'s
+        # `event_from_message` / `event_from_tool_execution`, built for `events_from_run`) must
+        # not have every already-built event's topics mutate together if that list changes after
+        # this call. Re-checked on every set, not only construction, so `event.topics = "deploy"`
+        # after the fact raises here instead of silently reproducing #181's corruption past
+        # `__post_init__`'s one-time check.
+        if name == "topics" and value is not None:
+            _require_topics_list(value, "MemoryEvent")
+            value = list(value)
+        super().__setattr__(name, value)
 
 
 @dataclass

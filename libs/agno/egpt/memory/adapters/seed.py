@@ -43,6 +43,7 @@ from egpt.memory.provider import MemoryProvider
 from egpt.memory.security.pii import redact_events_for_writeback
 from egpt.memory.tiers import MemoryTier, policy_for_tier
 from egpt.memory.types import (
+    MAX_LIMIT,
     ConsolidationReport,
     MemoryEvent,
     MemoryOperationError,
@@ -60,6 +61,7 @@ from egpt.memory.types import (
 )
 from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes
 from egpt.tracing.memory import memory_span
+from egpt.utils.log import log_warning
 
 if TYPE_CHECKING:
     from egpt.learn.machine import LearningMachine
@@ -123,6 +125,18 @@ def _record_from_user_memory(memory: UserMemory, scope: Scope) -> MemoryRecord:
     on it yet, and it has no temporal fields at all, so the tenant comes from the caller's scope
     and the bi-temporal fields stay ``None`` -- which reads correctly as "valid since forever,
     never invalidated, current belief".
+
+    ``topics=memory.topics`` is passed bare, not pre-copied: ``MemoryRecord.__post_init__``
+    (aicoe-tracker#181) both copies it and refuses a non-list. That guard covers the
+    ``MemoryEvent``/``MemoryRecord`` seam, not ``MemoryManager.add_memory``/``update_memory``
+    (``manager.py``), which write ``UserMemory`` rows directly and never construct either
+    envelope -- a row written with a bad ``topics`` through that older CRUD surface now raises
+    ``MemoryOperationError`` here, on read, rather than the ``list()``-on-a-string corruption
+    #181 fixed at the newer seam. That refusal is not left to propagate: it would abort every
+    other memory in the same page over one bad row, so callers of this function through
+    :meth:`SeedMemoryProvider._manager_records`/``_amanager_records`` catch it and skip the row
+    instead (:meth:`SeedMemoryProvider._manager_records_from`) -- this function itself stays a
+    pure refusal, the isolation is the caller's job.
     """
     return MemoryRecord(
         # A row with no id still needs a stable one: `MemoryRecord.id` is the dedup key. Derived
@@ -747,6 +761,56 @@ class SeedMemoryProvider(MemoryProvider):
         """
         return {"tenant_id": scope.tenant_id} if self._tenant is None else {}
 
+    #: Bound on how many times :meth:`_manager_records`/``_amanager_records`` re-ask the manager
+    #: for a bigger page to backfill rows :meth:`_manager_records_from` skipped. A handful of
+    #: isolated bad legacy rows converge in one or two rounds; a store that is *mostly* unreadable
+    #: rows should degrade to "return what's readable" rather than hammering the manager once per
+    #: bad row up to :data:`~egpt.memory.types.MAX_LIMIT`.
+    _MANAGER_BACKFILL_ATTEMPTS = 3
+
+    @staticmethod
+    def _manager_records_from(memories: Optional[Iterable[UserMemory]], scope: Scope) -> Tuple[List[MemoryRecord], int]:
+        """Project each ``UserMemory`` the manager returned, skipping one that fails rather than
+        failing the whole page. Returns the records plus how many rows were skipped, so the caller
+        can backfill the page instead of silently handing back fewer rows than asked for.
+
+        ``MemoryManager.add_memory``/``update_memory`` (and ``MemoryTools``' variants) write
+        ``UserMemory`` rows directly -- never through ``MemoryEvent``/``MemoryRecord``, so
+        #181's construction-time ``topics`` guard never sees them. A row written with a bad
+        ``topics`` through that older CRUD surface used to read back silently corrupted
+        (``list("deploy")`` -> one-char topics); #181 turned that into
+        :class:`MemoryOperationError`, raised from :func:`_record_from_user_memory`. Left
+        uncaught, one such row would abort this scope's *entire* tier read, repeatedly, until
+        someone finds and fixes the row by hand -- worse than the silent corruption it replaced.
+        Skipping the row and logging keeps the guard's refuse-don't-corrupt intent for new writes
+        while not making an already-stored row, this bridge did not write and cannot fix, take
+        the rest of the page down with it.
+
+        Deliberately the opposite of :meth:`_raise_read_failure`, not an inconsistency with it:
+        that one re-raises because its failures mean a whole *store* could not be reached, so the
+        page it would have contributed is entirely missing and there is nothing partial to return.
+        This one skips because the fetch itself succeeded and only one row in it is bad -- failing
+        the whole page over that row would be strictly worse than the corruption #181 fixed.
+        """
+        records = []
+        skipped = 0
+        for memory in memories or []:
+            try:
+                records.append(_record_from_user_memory(memory, scope))
+            except MemoryOperationError as exc:
+                skipped += 1
+                log_warning(f"Skipping unreadable memory {memory.memory_id!r} for scope {scope.key()!r}: {exc}")
+        return records, skipped
+
+    def _manager_search_kwargs(self, scope: Scope, query: MemoryQuery, limit: int) -> Dict[str, Any]:
+        return {
+            "query": query.text,
+            "limit": limit,
+            "retrieval_method": "last_n",
+            "user_id": scope.user_id,
+            **self._manager_tenant_kwargs(scope),
+        }
+
     def _manager_records(self, scope: Scope, query: MemoryQuery) -> List[MemoryRecord]:
         """Retrieve through ``MemoryManager``. **This is not vector search.**
 
@@ -754,18 +818,26 @@ class SeedMemoryProvider(MemoryProvider):
         there is nothing to rank by; ``agentic`` is excluded because it runs an LLM round trip and
         ``MemoryProvider.read`` promises no query-time LLM on the hot path. Real similarity search
         over memory arrives with SM-V1 (#95) as a vector substrate, not as a knob here.
+
+        A page short of ``query.limit`` because :meth:`_manager_records_from` skipped a bad row is
+        backfilled by re-asking with a bigger limit, rather than handed back under-filled: the
+        manager already truncates to ``limit`` before this method ever sees a row, so a caller
+        asking for 10 and getting 9 back because row 7 was unreadable would never know an 11th,
+        perfectly good row existed just past the original page.
         """
         if self.manager is None:  # unreachable via read_tier; explicit beats `assert`, which -O strips
             return []
         self._reject_unfilterable_scope(scope)
-        memories = self.manager.search_user_memories(
-            query=query.text,
-            limit=query.limit,
-            retrieval_method="last_n",
-            user_id=scope.user_id,
-            **self._manager_tenant_kwargs(scope),
-        )
-        return [_record_from_user_memory(memory, scope) for memory in memories or []]
+        limit = query.limit
+        records: List[MemoryRecord] = []
+        for _ in range(self._MANAGER_BACKFILL_ATTEMPTS):
+            memories = self.manager.search_user_memories(**self._manager_search_kwargs(scope, query, limit))
+            fetched = len(memories) if memories is not None else 0
+            records, skipped = self._manager_records_from(memories, scope)
+            if skipped == 0 or fetched < limit or limit >= MAX_LIMIT:
+                break
+            limit = min(limit + skipped, MAX_LIMIT)
+        return records
 
     async def _amanager_records(self, scope: Scope, query: MemoryQuery) -> List[MemoryRecord]:
         """The same retrieval on the async lane, awaiting the manager when it has an async half.
@@ -773,7 +845,8 @@ class SeedMemoryProvider(MemoryProvider):
         The thread hop stays for a duck-typed manager without one -- this bridge checks its
         collaborators by method, not by type. ``last_n`` is hardcoded for the reason
         :meth:`_manager_records` gives: there is nothing to rank by, and ``agentic`` would put an
-        LLM round trip on a read path that promises none.
+        LLM round trip on a read path that promises none. The backfill-on-skip loop is the same
+        one, for the same reason.
         """
         if self.manager is None:
             return []
@@ -781,14 +854,16 @@ class SeedMemoryProvider(MemoryProvider):
         if asearch is None:
             return await asyncio.to_thread(self._manager_records, scope, query)
         self._reject_unfilterable_scope(scope)
-        memories = await asearch(
-            query=query.text,
-            limit=query.limit,
-            retrieval_method="last_n",
-            user_id=scope.user_id,
-            **self._manager_tenant_kwargs(scope),
-        )
-        return [_record_from_user_memory(memory, scope) for memory in memories or []]
+        limit = query.limit
+        records: List[MemoryRecord] = []
+        for _ in range(self._MANAGER_BACKFILL_ATTEMPTS):
+            memories = await asearch(**self._manager_search_kwargs(scope, query, limit))
+            fetched = len(memories) if memories is not None else 0
+            records, skipped = self._manager_records_from(memories, scope)
+            if skipped == 0 or fetched < limit or limit >= MAX_LIMIT:
+                break
+            limit = min(limit + skipped, MAX_LIMIT)
+        return records
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         require_scope(scope, method="read_tier")
