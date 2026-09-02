@@ -15,6 +15,16 @@ except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
 
+_TABLE_TYPES = {"approvals"}
+_SYNC_BACKENDS = {"PostgresDb", "MySQLDb", "SingleStoreDb", "SqliteDb"}
+_ASYNC_BACKENDS = {"AsyncPostgresDb", "AsyncMySQLDb", "AsyncSqliteDb"}
+
+
+def supports(table_type: str, db_type: str) -> bool:
+    """Whether this migration has code for (table_type, db_type)."""
+    return table_type in _TABLE_TYPES and db_type in (_SYNC_BACKENDS | _ASYNC_BACKENDS)
+
+
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     """
     Add run_status column to approvals table.
@@ -25,7 +35,7 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type != "approvals":
+        if not supports(table_type, db_type):
             return False
 
         if db_type == "PostgresDb":
@@ -54,7 +64,7 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type != "approvals":
+        if not supports(table_type, db_type):
             return False
 
         if db_type == "AsyncPostgresDb":
@@ -81,7 +91,7 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type != "approvals":
+        if not supports(table_type, db_type):
             return False
 
         if db_type == "PostgresDb":
@@ -110,7 +120,7 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type != "approvals":
+        if not supports(table_type, db_type):
             return False
 
         if db_type == "AsyncPostgresDb":

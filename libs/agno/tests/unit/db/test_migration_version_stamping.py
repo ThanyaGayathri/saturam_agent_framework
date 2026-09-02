@@ -1,13 +1,12 @@
 """What ``MigrationManager.up()`` records, and for which tables (aicoe-tracker#178).
 
 Two branches that ran uncovered until SM-C3's mutation sweep found them: the ``None``-version
-skip, and the version stamp written for a table no migration touched. Both are pinned here as
-they behave **today**, including the wart, so #178 has a test to flip rather than a description
-to argue with.
-
-Three candidate fixes for the stamping wart have now been tested and rejected -- see
-``TestStampingOnBackendsWithoutSupport``. The rejections are the useful part; without them #178
-reads like a one-line change.
+skip, and the version stamp written for a table no migration touched. The first is pinned as it
+has always behaved -- see ``TestTheNoneVersionSkip``. The second was a wart: a backend with no
+migration code for a table type got stamped anyway. ``TestStampingOnBackendsWithoutSupport``
+records how #178 fixed it -- via a declarative ``supports(table_type, db_type)`` predicate that
+each ``versions/vX_Y_Z`` module exposes and ``MigrationManager._supports`` checks across the
+whole catalogue -- and keeps the two rejected candidates on record so the fix is not re-litigated.
 """
 
 import asyncio
@@ -19,7 +18,6 @@ pytest.importorskip("sqlalchemy")
 
 from egpt.db.base import AsyncBaseDb, BaseDb  # noqa: E402
 from egpt.db.migrations.manager import MigrationManager
-
 from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
 LATEST = MigrationManager.available_versions[-1][1].public
@@ -69,52 +67,61 @@ class TestTheNoneVersionSkip:
 
         assert db.versions == {}, "a stamp here means the table was migrated from an assumed floor"
 
-    def test_the_floor_is_treated_as_unstamped_and_does_migrate(self):
-        """The deliberate asymmetry the manager's docstring describes: 2.0.0 is not None."""
-        db = _UnsupportedDb()
+    def test_the_floor_is_treated_as_unstamped_and_does_migrate(self, tmp_path):
+        """The deliberate asymmetry the manager's docstring describes: 2.0.0 is not None.
+
+        Needs a backend at least one shipped migration actually supports -- ``_UnsupportedDb``
+        would never be stamped regardless of this branch, since #178, which would make this
+        pass for the wrong reason.
+        """
+        db = SqliteDb(db_file=str(tmp_path / "floor.db"))
+        db._create_all_tables()
 
         asyncio.run(MigrationManager(db).up())
 
-        assert db.versions, "the 2.0.0 floor must be migrated from, unlike None"
+        assert db.get_latest_schema_version(db.session_table_name) == LATEST, (
+            "the 2.0.0 floor must be migrated from, unlike None"
+        )
 
 
 class TestStampingOnBackendsWithoutSupport:
-    """**Known wart, tracked as aicoe-tracker#178.** A backend that can never have these tables
-    is still stamped as though it had them.
+    """**aicoe-tracker#178, fixed.** A backend no shipped migration recognizes for a table type
+    is left unstamped for it, rather than being stamped as though the (nonexistent) work were
+    done.
 
-    This test passes *because* the behaviour is wrong; it fails when #178 fixes it, which is the
-    signal that the fix landed. Do not "fix" the test.
-
-    Why it is not fixed here -- three candidates, all tested against real code:
+    The fix is candidate 3 from the earlier investigation: each ``versions/vX_Y_Z`` module now
+    declares ``supports(table_type, db_type)`` -- the same predicate that gates its own
+    ``up``/``down`` dispatch, so there is exactly one place that can drift -- and
+    ``MigrationManager._supports`` checks it across the whole catalogue before ``up()`` will
+    stamp a table. Two other candidates were tried first and rejected:
 
     1. Stamp only when a migration executed. Regresses supported backends: a SQLite ``sessions``
        table ends up stamped 2.3.0 (the last version that touched it) instead of the target, so
-       every later run re-walks the tail of the chain.
+       every later run re-walks the tail of the chain. ``TestSupportedBackends`` below is the
+       regression guard for this.
     2. Skip the stamp when the table does not exist. Regresses a fresh SQLite database whose
        tables are not built yet -- ``test_schema_version_roundtrip`` pins that it is stamped, and
        the manager cannot tell that case from an unsupported backend: both are "table absent, no
-       migration ran".
-    3. Per-(version, backend, table type) support declarations. Correct, and a contract change
-       across all six shipped migration modules -- which is #178's scope, not a patch bolted onto
-       a schema PR.
+       migration ran". The declarative predicate sidesteps this because it never looks at
+       ``table_exists`` at all.
     """
 
-    def test_an_unsupported_backend_is_stamped_for_tables_it_never_created(self):
+    def test_an_unsupported_backend_is_left_unstamped(self):
         db = _UnsupportedDb()
 
         asyncio.run(MigrationManager(db).up())
 
         assert db.table_exists(db.memory_episodic_table_name) is False
-        assert db.versions[db.memory_episodic_table_name] == LATEST
+        assert db.memory_episodic_table_name not in db.versions
 
-    def test_the_wart_predates_the_memory_tiers(self):
-        """Sessions is mis-stamped identically, so SM-C3 widened an existing behaviour rather
-        than introducing one."""
+    def test_the_fix_covers_backends_predating_the_memory_tiers_too(self):
+        """Sessions was mis-stamped identically before the fix, so this covers the same
+        mechanism SM-C3 merely widened rather than introduced."""
         db = _UnsupportedDb()
 
         asyncio.run(MigrationManager(db).up())
 
-        assert db.versions[db.session_table_name] == LATEST
+        assert db.session_table_name not in db.versions
 
 
 class TestSupportedBackends:
@@ -142,7 +149,7 @@ class TestSupportedBackends:
 
 def test_the_async_abc_reaches_the_same_code_path():
     """The manager branches on the ABC for every read and write it makes, so an async backend
-    that stopped being stamped would be invisible to every test above."""
+    that started being wrongly stamped again would be invisible to every test above."""
 
     class _AsyncDb(AsyncBaseDb):
         def __init__(self):
@@ -163,4 +170,17 @@ def test_the_async_abc_reaches_the_same_code_path():
 
     asyncio.run(MigrationManager(db).up())
 
-    assert db.versions[db.memory_episodic_table_name] == LATEST
+    assert db.memory_episodic_table_name not in db.versions
+
+
+def test_a_supported_async_backend_is_still_stamped(tmp_path):
+    """The async mirror of ``TestSupportedBackends``: the fix must not make async backends
+    ``MigrationManager`` genuinely supports stop being stamped."""
+    pytest.importorskip("aiosqlite", reason="AsyncSqliteDb needs a real async engine")
+    from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
+
+    db = AsyncSqliteDb(db_file=str(tmp_path / "async_stamping.db"))
+
+    asyncio.run(MigrationManager(db).up())
+
+    assert asyncio.run(db.get_latest_schema_version(db.session_table_name)) == LATEST

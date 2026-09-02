@@ -47,6 +47,15 @@ def _index_name(table_name: str) -> str:
     return f"idx_{table_name}_tenant_id"
 
 
+_SYNC_BACKENDS = {"PostgresDb", "SqliteDb", "MySQLDb", "SingleStoreDb"}
+_ASYNC_BACKENDS = {"AsyncPostgresDb", "AsyncSqliteDb", "AsyncMySQLDb"}
+
+
+def supports(table_type: str, db_type: str) -> bool:
+    """Whether this migration has code for (table_type, db_type)."""
+    return table_type == SESSION_TABLE_TYPE and db_type in (_SYNC_BACKENDS | _ASYNC_BACKENDS)
+
+
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     """Add tenant_id and its index to the sessions table.
 
@@ -56,7 +65,7 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type != SESSION_TABLE_TYPE:
+        if not supports(table_type, db_type):
             return False
 
         if db_type == "PostgresDb":
@@ -82,7 +91,7 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type != SESSION_TABLE_TYPE:
+        if not supports(table_type, db_type):
             return False
 
         if db_type == "AsyncPostgresDb":
@@ -108,7 +117,7 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type != SESSION_TABLE_TYPE:
+        if not supports(table_type, db_type):
             return False
 
         if db_type == "PostgresDb":
@@ -134,7 +143,7 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type != SESSION_TABLE_TYPE:
+        if not supports(table_type, db_type):
             return False
 
         if db_type == "AsyncPostgresDb":

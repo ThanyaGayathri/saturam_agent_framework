@@ -19,6 +19,20 @@ except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
 
+_TABLE_TYPES = {"memories", "sessions", "evals", "metrics", "knowledge", "culture"}
+_SYNC_BACKENDS = {"PostgresDb", "MySQLDb", "SqliteDb", "SingleStoreDb"}
+_ASYNC_BACKENDS = {"AsyncPostgresDb", "AsyncSqliteDb"}
+
+
+def supports(table_type: str, db_type: str) -> bool:
+    """Whether this migration has code for (table_type, db_type).
+
+    The single declaration backing both the sync/async dispatch below and
+    ``MigrationManager``'s check of whether a table is even eligible for stamping.
+    """
+    return table_type in _TABLE_TYPES and db_type in (_SYNC_BACKENDS | _ASYNC_BACKENDS)
+
+
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     """
     Apply the following changes to the database:
@@ -35,6 +49,8 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
+        if not supports(table_type, db_type):
+            return False
         if db_type == "PostgresDb":
             return _migrate_postgres(db, table_type, table_name)
         elif db_type == "MySQLDb":
@@ -67,6 +83,8 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
+        if not supports(table_type, db_type):
+            return False
         if db_type == "AsyncPostgresDb":
             return await _migrate_async_postgres(db, table_type, table_name)
         elif db_type == "AsyncSqliteDb":
@@ -93,6 +111,8 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
+        if not supports(table_type, db_type):
+            return False
         if db_type == "PostgresDb":
             return _revert_postgres(db, table_type, table_name)
         elif db_type == "MySQLDb":
@@ -123,6 +143,8 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
+        if not supports(table_type, db_type):
+            return False
         if db_type == "AsyncPostgresDb":
             return await _revert_async_postgres(db, table_type, table_name)
         elif db_type == "AsyncSqliteDb":
