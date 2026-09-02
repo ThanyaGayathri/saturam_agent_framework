@@ -11,6 +11,16 @@ touched, in either direction, which is what makes this migration reversible.
 
 Index names match the ones the backend table builders derive (``idx_{table}_{columns}``) so a
 freshly created table and a migrated table end up with the same schema.
+
+``component_audit`` (EGPT-2.6) is declared supported here too, but is not one of the three
+tables above: it was born with ``tenant_id`` and its composite index already in place, so there
+is no DDL for this migration to apply. ``supports()`` says yes so ``MigrationManager`` will
+stamp it forward like any genuinely-supported table (aicoe-tracker#178 -- a table with nothing
+left to migrate must still reach the target version); ``up``/``down`` special-case it into a
+true no-op *before* reaching the DDL helpers below, rather than folding it into
+``COMPONENT_TABLE_TYPES``. That distinction matters for ``down()``: unlike the other three
+tables, ``component_audit``'s ``tenant_id`` is not something this migration ever added, so
+reverting it would drop a column the table's own code assumes always exists.
 """
 
 from typing import List, Tuple
@@ -26,6 +36,10 @@ except ImportError:
 
 
 COMPONENT_TABLE_TYPES = ("components", "component_configs", "component_links")
+
+# component_audit needs no migration (see module docstring) but is still declared supported,
+# so a table with nothing left to migrate still gets stamped to the target version.
+_NO_OP_TABLE_TYPES = ("component_audit",)
 
 # Composite indexes to create per component table type, as (column tuple,) entries. The index
 # name is derived from the resolved table name, so it is computed at migration time.
@@ -48,6 +62,21 @@ def _index_names(table_type: str, table_name: str) -> List[str]:
     return [f"idx_{table_name}_{'_'.join(columns)}" for columns in _COMPOSITE_INDEX_COLUMNS[table_type]]
 
 
+# The single declaration of which backends this migration has code for. supports() and every
+# dispatch below read these same two tuples -- adding a backend to one without adding a
+# matching branch below is no longer possible, because there is no second set to fall out of
+# sync with the branches.
+_POSTGRES_DB_TYPES = ("PostgresDb", "AsyncPostgresDb")
+_SQLITE_DB_TYPES = ("SqliteDb", "AsyncSqliteDb")
+
+
+def supports(table_type: str, db_type: str) -> bool:
+    """Whether this migration has code for (table_type, db_type)."""
+    if table_type not in COMPONENT_TABLE_TYPES and table_type not in _NO_OP_TABLE_TYPES:
+        return False
+    return db_type in _POSTGRES_DB_TYPES or db_type in _SQLITE_DB_TYPES
+
+
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     """Add tenant_id and its composite indexes to a component table.
 
@@ -57,12 +86,15 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type not in COMPONENT_TABLE_TYPES:
+        if not supports(table_type, db_type):
+            return False
+        if table_type in _NO_OP_TABLE_TYPES:
+            log_info(f"{table_name} already has tenant_id at creation; nothing to migrate.")
             return False
 
-        if db_type == "PostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return _migrate_postgres(db, table_type, table_name)
-        elif db_type == "SqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return _migrate_sqlite(db, table_type, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations")
@@ -81,12 +113,15 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type not in COMPONENT_TABLE_TYPES:
+        if not supports(table_type, db_type):
+            return False
+        if table_type in _NO_OP_TABLE_TYPES:
+            log_info(f"{table_name} already has tenant_id at creation; nothing to migrate.")
             return False
 
-        if db_type == "AsyncPostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return await _migrate_async_postgres(db, table_type, table_name)
-        elif db_type == "AsyncSqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return await _migrate_async_sqlite(db, table_type, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations")
@@ -105,12 +140,17 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type not in COMPONENT_TABLE_TYPES:
+        if not supports(table_type, db_type):
+            return False
+        if table_type in _NO_OP_TABLE_TYPES:
+            # component_audit's tenant_id predates this migration -- it is not this migration's
+            # to remove. See the module docstring.
+            log_info(f"{table_name}'s tenant_id is not managed by this migration; nothing to revert.")
             return False
 
-        if db_type == "PostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return _revert_postgres(db, table_type, table_name)
-        elif db_type == "SqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return _revert_sqlite(db, table_type, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")
@@ -129,12 +169,15 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if table_type not in COMPONENT_TABLE_TYPES:
+        if not supports(table_type, db_type):
+            return False
+        if table_type in _NO_OP_TABLE_TYPES:
+            log_info(f"{table_name}'s tenant_id is not managed by this migration; nothing to revert.")
             return False
 
-        if db_type == "AsyncPostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return await _revert_async_postgres(db, table_type, table_name)
-        elif db_type == "AsyncSqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return await _revert_async_sqlite(db, table_type, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")

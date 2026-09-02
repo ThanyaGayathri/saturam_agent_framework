@@ -19,6 +19,27 @@ except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
 
+_TABLE_TYPES = {"memories", "sessions", "evals", "metrics", "knowledge", "culture"}
+
+# The single declaration of which backends this migration has code for, one tuple per backend
+# family (sync and async variants together). supports() and every dispatch below read these
+# same tuples, so a backend added to one without a matching branch is no longer possible --
+# there is no second set to fall out of sync with the branches. MySQL and SingleStore have no
+# async class, so their tuples have one member each; that is what keeps async_up/async_down
+# falling through to "does not require schema migrations" for them, matching the pre-refactor
+# behaviour exactly.
+_POSTGRES_DB_TYPES = ("PostgresDb", "AsyncPostgresDb")
+_MYSQL_DB_TYPES = ("MySQLDb",)
+_SQLITE_DB_TYPES = ("SqliteDb", "AsyncSqliteDb")
+_SINGLESTORE_DB_TYPES = ("SingleStoreDb",)
+_SUPPORTED_DB_TYPES = _POSTGRES_DB_TYPES + _MYSQL_DB_TYPES + _SQLITE_DB_TYPES + _SINGLESTORE_DB_TYPES
+
+
+def supports(table_type: str, db_type: str) -> bool:
+    """Whether this migration has code for (table_type, db_type)."""
+    return table_type in _TABLE_TYPES and db_type in _SUPPORTED_DB_TYPES
+
+
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     """
     Apply the following changes to the database:
@@ -35,13 +56,15 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if db_type == "PostgresDb":
+        if not supports(table_type, db_type):
+            return False
+        if db_type in _POSTGRES_DB_TYPES:
             return _migrate_postgres(db, table_type, table_name)
-        elif db_type == "MySQLDb":
+        elif db_type in _MYSQL_DB_TYPES:
             return _migrate_mysql(db, table_type, table_name)
-        elif db_type == "SqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return _migrate_sqlite(db, table_type, table_name)
-        elif db_type == "SingleStoreDb":
+        elif db_type in _SINGLESTORE_DB_TYPES:
             return _migrate_singlestore(db, table_type, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations (NoSQL/document store)")
@@ -67,9 +90,11 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if db_type == "AsyncPostgresDb":
+        if not supports(table_type, db_type):
+            return False
+        if db_type in _POSTGRES_DB_TYPES:
             return await _migrate_async_postgres(db, table_type, table_name)
-        elif db_type == "AsyncSqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return await _migrate_async_sqlite(db, table_type, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations (NoSQL/document store)")
@@ -93,13 +118,15 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if db_type == "PostgresDb":
+        if not supports(table_type, db_type):
+            return False
+        if db_type in _POSTGRES_DB_TYPES:
             return _revert_postgres(db, table_type, table_name)
-        elif db_type == "MySQLDb":
+        elif db_type in _MYSQL_DB_TYPES:
             return _revert_mysql(db, table_type, table_name)
-        elif db_type == "SqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return _revert_sqlite(db, table_type, table_name)
-        elif db_type == "SingleStoreDb":
+        elif db_type in _SINGLESTORE_DB_TYPES:
             return _revert_singlestore(db, table_type, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")
@@ -123,9 +150,11 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     db_type = type(db).__name__
 
     try:
-        if db_type == "AsyncPostgresDb":
+        if not supports(table_type, db_type):
+            return False
+        if db_type in _POSTGRES_DB_TYPES:
             return await _revert_async_postgres(db, table_type, table_name)
-        elif db_type == "AsyncSqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return await _revert_async_sqlite(db, table_type, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")
@@ -574,7 +603,9 @@ def _migrate_mysql(db: BaseDb, table_type: str, table_name: str) -> bool:
                 )
 
         sess.commit()
-        return True
+        # Only "memories" has DDL above; MySQL has no JSON/JSONB distinction, so there is
+        # nothing to convert for the other five table types in _TABLE_TYPES.
+        return table_type == "memories"
 
 
 def _migrate_sqlite(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -636,7 +667,9 @@ def _migrate_sqlite(db: BaseDb, table_type: str, table_name: str) -> bool:
                 sess.execute(text(f"ALTER TABLE {quoted_table} ADD COLUMN feedback VARCHAR"))
 
         sess.commit()
-        return True
+        # Only "memories" has DDL above; SQLite has no JSON/JSONB distinction, so there is
+        # nothing to convert for the other five table types in _TABLE_TYPES.
+        return table_type == "memories"
 
 
 async def _migrate_async_sqlite(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
@@ -699,7 +732,9 @@ async def _migrate_async_sqlite(db: AsyncBaseDb, table_type: str, table_name: st
                 await sess.execute(text(f"ALTER TABLE {quoted_table} ADD COLUMN feedback VARCHAR"))
 
         await sess.commit()
-        return True
+        # Only "memories" has DDL above; SQLite has no JSON/JSONB distinction, so there is
+        # nothing to convert for the other five table types in _TABLE_TYPES.
+        return table_type == "memories"
 
 
 def _migrate_singlestore(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -782,7 +817,9 @@ def _migrate_singlestore(db: BaseDb, table_type: str, table_name: str) -> bool:
                 )
 
         sess.commit()
-        return True
+        # Only "memories" has DDL above; SingleStore has no JSON/JSONB distinction, so there is
+        # nothing to convert for the other five table types in _TABLE_TYPES.
+        return table_type == "memories"
 
 
 def _revert_postgres(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -818,7 +855,9 @@ def _revert_postgres(db: BaseDb, table_type: str, table_name: str) -> bool:
             sess.execute(text(f"DROP INDEX IF EXISTS idx_{table_name}_created_at"))
             sess.execute(text(f"ALTER TABLE {quoted_schema}.{quoted_table} DROP COLUMN IF EXISTS created_at"))
         sess.commit()
-        return True
+        # Only "memories" is reverted above; the JSON->JSONB conversion for the other five
+        # table types in _TABLE_TYPES is intentionally not reverted, so nothing happened for them.
+        return table_type == "memories"
 
 
 async def _revert_async_postgres(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
@@ -855,7 +894,9 @@ async def _revert_async_postgres(db: AsyncBaseDb, table_type: str, table_name: s
             await sess.execute(text(f"DROP INDEX IF EXISTS idx_{table_name}_created_at"))
             await sess.execute(text(f"ALTER TABLE {quoted_schema}.{quoted_table} DROP COLUMN IF EXISTS created_at"))
         await sess.commit()
-        return True
+        # Only "memories" is reverted above; the JSON->JSONB conversion for the other five
+        # table types in _TABLE_TYPES is intentionally not reverted, so nothing happened for them.
+        return table_type == "memories"
 
 
 def _revert_mysql(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -923,7 +964,9 @@ def _revert_mysql(db: BaseDb, table_type: str, table_name: str) -> bool:
                 sess.execute(text(f"ALTER TABLE {quoted_schema}.{quoted_table} DROP COLUMN `created_at`"))
 
         sess.commit()
-        return True
+        # Only "memories" is reverted above; MySQL never had a JSON/JSONB distinction to
+        # revert for the other five table types in _TABLE_TYPES, so nothing happened for them.
+        return table_type == "memories"
 
 
 def _revert_sqlite(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -974,4 +1017,6 @@ def _revert_singlestore(db: BaseDb, table_type: str, table_name: str) -> bool:
             )
             sess.execute(text(f"ALTER TABLE {quoted_schema}.{quoted_table} DROP COLUMN IF EXISTS `created_at`"))
         sess.commit()
-        return True
+        # Only "memories" is reverted above; SingleStore never had a JSON/JSONB distinction to
+        # revert for the other five table types in _TABLE_TYPES, so nothing happened for them.
+        return table_type == "memories"

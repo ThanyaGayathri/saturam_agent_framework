@@ -85,6 +85,37 @@ class MigrationManager:
             return None
         return packaging_version.parse(raw_version)
 
+    def _supports(self, table_type: str, db_type: str) -> bool:
+        """Whether any shipped migration declares it can handle (table_type, db_type).
+
+        Declarative, not derived from executing a migration: each ``versions/vX_Y_Z`` module
+        exposes its own ``supports()`` predicate (the same one that gates its ``up``/``down``
+        dispatch), checked here across the *whole* catalogue -- not just the versions between
+        the table's current version and the target. Support, once shipped, does not need
+        reasserting by every later version to stay true: a table with nothing left to migrate
+        must still be stamped all the way to the latest version, not just the last version that
+        actually touched it -- that is what makes "stamp only when a migration executed" wrong:
+        it would stamp a SQLite table with nothing left to migrate at the last version that
+        touched it (e.g. 2.3.0) instead of the target, so every later ``up()`` would re-walk the
+        tail of the migration chain forever.
+
+        A backend this returns ``False`` for has no code path, in any shipped migration, that
+        would ever touch this table -- so ``up()`` must not stamp it: the stamp would claim a
+        schema state that was never verified, let alone reached.
+
+        A table type can also be genuinely supported with nothing to migrate: ``component_audit``
+        was born with ``tenant_id`` already in place, so ``v2_6_0.supports()`` returns ``True``
+        for it while its ``up``/``down`` are a declared no-op (see that module's docstring). That
+        is different from a table type no migration recognizes at all, which stays unstamped.
+        """
+        for version, _ in self.available_versions:
+            if version == "v2_0_0":
+                continue  # the 2.0.0 floor ships no migration module; nothing to import
+            module = importlib.import_module(f"egpt.db.migrations.versions.{version}")
+            if module.supports(table_type, db_type):
+                return True
+        return False
+
     def _resolve_tables(self, table_type: Optional[str]) -> Optional[list[tuple[str, str]]]:
         """Resolve the (table_type, table_name) pairs to migrate.
 
@@ -137,8 +168,13 @@ class MigrationManager:
         if tables is None:
             return
 
-        # Handle migrations for each table separately (extend in future if needed):
-        for table_type, table_name in tables:
+        db_type = type(self.db).__name__
+
+        # Handle migrations for each table separately (extend in future if needed). The loop
+        # variable is deliberately not named `table_type`: this method also takes a `table_type`
+        # parameter, and `self._supports(...)` below must read the per-table value, not whichever
+        # of the two a reader assumes.
+        for tt, table_name in tables:
             current_version = await self._current_version(table_name)
             if current_version is None:
                 log_info(f"Skipping migration: No version found for table {table_name}.")
@@ -148,6 +184,15 @@ class MigrationManager:
             if _target_version <= current_version and not force:
                 log_info(
                     f"Skipping migration: the version of table '{table_name}' ({current_version}) is less or equal to the target version ({_target_version})."
+                )
+                continue
+
+            if not self._supports(tt, db_type):
+                # No shipped migration has ever touched (table_type, db_type): the table may not
+                # even exist on this backend. Stamping it would claim a schema state that was
+                # never verified, so it is left exactly as it was found.
+                log_info(
+                    f"{db_type} has no migration support for table type '{tt}'; leaving table {table_name} unstamped."
                 )
                 continue
 
@@ -163,13 +208,12 @@ class MigrationManager:
                         break
 
                     log_info(f"Applying migration {normalised_version} on {table_name}")
-                    migration_executed = await self._up_migration(version, table_type, table_name)
+                    migration_executed = await self._up_migration(version, tt, table_name)
                     latest_version = normalised_version.public
                     if migration_executed:
-                        latest_version = normalised_version.public
                         log_info(f"Successfully applied migration {normalised_version} on table {table_name}")
                     else:
-                        log_info(f"Skipping application of migration {normalised_version} on table {table_name}")
+                        log_info(f"No changes needed for migration {normalised_version} on table {table_name}")
 
             if latest_version:
                 log_info(f"Storing version {latest_version} in database for table {table_name}")
@@ -199,6 +243,12 @@ class MigrationManager:
 
     async def down(self, target_version: str, table_type: Optional[str] = None, force: bool = False):
         """Handle executing a down migration.
+
+        Unlike ``up()``, this has no manager-level ``self._supports()`` gate: it relies entirely
+        on each version module's own ``supports()``/dispatch to decide whether it did real work.
+        That is intentional -- reverting is table-type-scoped per module already, and a second
+        gate here would not add anything ``supports()`` doesn't already check -- but it does mean
+        ``down()`` has no defense-in-depth against a module's dispatch being wrong.
 
         Args:
             target_version: The version to migrate to. e.g. "v2.3.0"

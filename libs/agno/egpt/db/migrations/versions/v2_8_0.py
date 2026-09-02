@@ -364,7 +364,10 @@ async def _tier_table_async(db: AsyncBaseDb, db_type: str, table_type: str, tabl
 # ---------------------------------------------------------------------------
 
 
-def _supported(db_type: str) -> bool:
+def supports(table_type: str, db_type: str) -> bool:
+    """Whether this migration has code for (table_type, db_type)."""
+    if table_type != MEMORY_TABLE_TYPE and table_type not in MEMORY_TIER_TABLE_TYPES:
+        return False
     return db_type in _POSTGRES_DB_TYPES or db_type in _SQLITE_DB_TYPES
 
 
@@ -372,14 +375,12 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     """Create a memory tier table, or add tenant_id to the memories table."""
     db_type = type(db).__name__
     try:
-        if not _supported(db_type):
-            log_info(f"{db_type} does not require schema migrations")
+        if not supports(table_type, db_type):
+            log_info(f"{db_type} does not require schema migrations for {table_type}")
             return False
         if table_type == MEMORY_TABLE_TYPE:
             return _tenant_column_sync(db, db_type, table_name, revert=False)
-        if table_type in MEMORY_TIER_TABLE_TYPES:
-            return _tier_table_sync(db, db_type, table_type, table_name, revert=False)
-        return False
+        return _tier_table_sync(db, db_type, table_type, table_name, revert=False)
     except Exception as e:
         log_error(f"Error running migration v2.8.0 for {db_type} on table {table_name}: {str(e)}")
         raise
@@ -389,14 +390,12 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     """Create a memory tier table, or add tenant_id to the memories table."""
     db_type = type(db).__name__
     try:
-        if not _supported(db_type):
-            log_info(f"{db_type} does not require schema migrations")
+        if not supports(table_type, db_type):
+            log_info(f"{db_type} does not require schema migrations for {table_type}")
             return False
         if table_type == MEMORY_TABLE_TYPE:
             return await _tenant_column_async(db, db_type, table_name, revert=False)
-        if table_type in MEMORY_TIER_TABLE_TYPES:
-            return await _tier_table_async(db, db_type, table_type, table_name, revert=False)
-        return False
+        return await _tier_table_async(db, db_type, table_type, table_name, revert=False)
     except Exception as e:
         log_error(f"Error running migration v2.8.0 for {db_type} on table {table_name}: {str(e)}")
         raise
@@ -406,14 +405,12 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
     """Drop a memory tier table, or remove tenant_id from the memories table."""
     db_type = type(db).__name__
     try:
-        if not _supported(db_type):
-            log_info(f"Revert not implemented for {db_type}")
+        if not supports(table_type, db_type):
+            log_info(f"Revert not implemented for {db_type} on {table_type}")
             return False
         if table_type == MEMORY_TABLE_TYPE:
             return _tenant_column_sync(db, db_type, table_name, revert=True)
-        if table_type in MEMORY_TIER_TABLE_TYPES:
-            return _tier_table_sync(db, db_type, table_type, table_name, revert=True)
-        return False
+        return _tier_table_sync(db, db_type, table_type, table_name, revert=True)
     except Exception as e:
         log_error(f"Error reverting migration v2.8.0 for {db_type} on table {table_name}: {str(e)}")
         raise
@@ -423,14 +420,12 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     """Drop a memory tier table, or remove tenant_id from the memories table."""
     db_type = type(db).__name__
     try:
-        if not _supported(db_type):
-            log_info(f"Revert not implemented for {db_type}")
+        if not supports(table_type, db_type):
+            log_info(f"Revert not implemented for {db_type} on {table_type}")
             return False
         if table_type == MEMORY_TABLE_TYPE:
             return await _tenant_column_async(db, db_type, table_name, revert=True)
-        if table_type in MEMORY_TIER_TABLE_TYPES:
-            return await _tier_table_async(db, db_type, table_type, table_name, revert=True)
-        return False
+        return await _tier_table_async(db, db_type, table_type, table_name, revert=True)
     except Exception as e:
         log_error(f"Error reverting migration v2.8.0 for {db_type} on table {table_name}: {str(e)}")
         raise

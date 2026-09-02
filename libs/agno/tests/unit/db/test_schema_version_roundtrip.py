@@ -15,7 +15,7 @@ once the TTL lapses, which is the same silent re-run arriving hours later. Those
 a mock client, so they need no container either.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -50,6 +50,13 @@ def sqlite_db(tmp_path):
 
 
 BACKEND_FIXTURES = ["in_memory_db", "json_db", "sqlite_db"]
+
+# aicoe-tracker#178: MigrationManager only stamps a table when at least one shipped migration
+# declares it can handle (table_type, db_type). No migration module has ever recognized
+# InMemoryDb or JsonDb -- they are not SQL backends any ``versions/vX_Y_Z`` module dispatches
+# on -- so up() correctly leaves them at the "2.0.0" floor rather than claiming work that never
+# ran. SqliteDb is a real, recognized backend and is stamped to the latest version as before.
+STAMPED_TO_LATEST = {"sqlite_db"}
 
 
 @pytest.mark.parametrize("db_fixture", BACKEND_FIXTURES)
@@ -102,26 +109,48 @@ def test_upsert_overwrites_rather_than_duplicating(db_fixture, request):
 @pytest.mark.parametrize("db_fixture", BACKEND_FIXTURES)
 @pytest.mark.asyncio
 async def test_migration_manager_runs_and_records(db_fixture, request):
-    """End to end: the manager reads, migrates and writes the version back."""
+    """End to end: the manager reads, migrates and writes the version back.
+
+    Only holds that shape for a backend at least one shipped migration recognizes (currently
+    ``sqlite_db`` among these fixtures) -- see ``STAMPED_TO_LATEST``. For ``in_memory_db`` and
+    ``json_db``, no migration recognizes the backend at all, so this exercises the other side of
+    aicoe-tracker#178 instead: the table is correctly left at the floor rather than migrated and
+    stamped.
+    """
     db = request.getfixturevalue(db_fixture)
 
     await MigrationManager(db).up()
 
-    # Every table the manager knows about and this db models should now be stamped.
-    assert db.get_latest_schema_version(TABLE_A) == LATEST
+    expected = LATEST if db_fixture in STAMPED_TO_LATEST else "2.0.0"
+    assert db.get_latest_schema_version(TABLE_A) == expected
 
 
 @pytest.mark.parametrize("db_fixture", BACKEND_FIXTURES)
 @pytest.mark.asyncio
 async def test_second_up_is_a_no_op(db_fixture, request):
-    """A backend that forgets its version would re-run every migration, every start."""
+    """A backend that forgets its version would re-run every migration, every start.
+
+    For ``in_memory_db``/``json_db`` there is no real work to begin with -- see
+    ``STAMPED_TO_LATEST`` -- so this pins "stays unstamped" being stable across repeated calls,
+    not "the same migrated version" being stable.
+
+    Checks the stamp *and* that no migration module is actually re-invoked on the second call --
+    the stamp alone can look stable even if every migration silently re-ran and reached the same
+    idempotent end state (each migration's own DDL checks ``information_schema``/``PRAGMA``
+    before applying), which would hide an unnecessary DDL-existence-check round trip on every
+    ``up()`` call after the first.
+    """
     db = request.getfixturevalue(db_fixture)
 
     await MigrationManager(db).up()
     stamped = db.get_latest_schema_version(TABLE_A)
-    await MigrationManager(db).up()
 
-    assert db.get_latest_schema_version(TABLE_A) == stamped == LATEST
+    with patch.object(MigrationManager, "_up_migration", new_callable=AsyncMock) as mock_up_migration:
+        await MigrationManager(db).up()
+    mock_up_migration.assert_not_called()
+
+    expected = LATEST if db_fixture in STAMPED_TO_LATEST else "2.0.0"
+    assert db.get_latest_schema_version(TABLE_A) == stamped == expected
 
 
 def test_json_versions_survive_a_new_instance(tmp_path):
