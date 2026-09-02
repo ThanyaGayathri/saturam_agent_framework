@@ -44,7 +44,7 @@ def run_strategy(
     for session in dataset.sessions:
         result = strategy.consolidate(session, facts, usage)
         facts = result.facts
-    return _score(strategy_name, dataset, facts, usage, llm, with_qa, qa_limit, is_async=False)
+    return _score(strategy, dataset, facts, usage, llm, with_qa, qa_limit, is_async=False)
 
 
 async def arun_strategy(
@@ -61,21 +61,27 @@ async def arun_strategy(
     for session in dataset.sessions:
         result = await strategy.aconsolidate(session, facts, usage)
         facts = result.facts
-    return await _ascore(strategy_name, dataset, facts, usage, llm, with_qa, qa_limit)
+    return await _ascore(strategy, dataset, facts, usage, llm, with_qa, qa_limit)
 
 
-def _base_report(strategy_name: str, dataset: Dataset, facts, usage) -> Dict[str, Any]:
-    return {
-        "strategy": strategy_name,
+def _base_report(strategy, dataset: Dataset, facts, usage) -> Dict[str, Any]:
+    report: Dict[str, Any] = {
+        "strategy": strategy.name,
         "dataset": dataset.name,
         "n_episodes": dataset.n_episodes,
         "n_sessions": len(dataset.sessions),
         "usage": usage.to_dict(),
     }
+    # Travels with the measurement rather than staying in source comments only (round-2 review,
+    # PR #178) -- e.g. PipelineStrategy's lower-bound-not-an-estimate caveat on
+    # dedup_score/conflict_accuracy.
+    if strategy.metric_caveat:
+        report["metric_caveat"] = strategy.metric_caveat
+    return report
 
 
-def _score(strategy_name, dataset, facts, usage, llm, with_qa, qa_limit, is_async) -> Dict[str, Any]:
-    report = _base_report(strategy_name, dataset, facts, usage)
+def _score(strategy, dataset, facts, usage, llm, with_qa, qa_limit, is_async) -> Dict[str, Any]:
+    report = _base_report(strategy, dataset, facts, usage)
     if dataset.targets:
         asserted = judge_targets(dataset.targets, facts, llm, usage)
         m = label_metrics(facts, dataset.targets, dataset.episode_ids, asserted=asserted)
@@ -87,8 +93,8 @@ def _score(strategy_name, dataset, facts, usage, llm, with_qa, qa_limit, is_asyn
     return report
 
 
-async def _ascore(strategy_name, dataset, facts, usage, llm, with_qa, qa_limit) -> Dict[str, Any]:
-    report = _base_report(strategy_name, dataset, facts, usage)
+async def _ascore(strategy, dataset, facts, usage, llm, with_qa, qa_limit) -> Dict[str, Any]:
+    report = _base_report(strategy, dataset, facts, usage)
     if dataset.targets:
         asserted = await ajudge_targets(dataset.targets, facts, llm, usage)
         m = label_metrics(facts, dataset.targets, dataset.episode_ids, asserted=asserted)

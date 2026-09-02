@@ -68,6 +68,12 @@ def _print_table(reports: List[Dict[str, Any]]) -> None:
                 val = r.get(key)
             cells.append(("" if val is None else str(val)).ljust(w))
         print("  ".join(cells))
+    # Printed with the table, not left in source comments only, so a reader of the numbers sees
+    # it without opening the strategy's code (round-2 review, PR #178).
+    for r in reports:
+        caveat = r.get("metric_caveat")
+        if caveat:
+            print(f"\n[{r.get('strategy', '?')}] {caveat}")
 
 
 def main() -> None:

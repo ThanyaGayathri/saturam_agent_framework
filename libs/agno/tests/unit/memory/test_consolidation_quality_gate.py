@@ -223,3 +223,188 @@ def test_dedup_score_meets_the_ratified_threshold():
 def test_fact_recall_meets_the_ratified_threshold():
     """ADR 0003 section A.7: fact_recall >= 0.95 against gold target facts."""
     pytest.fail("not implemented -- aicoe-tracker#194")
+
+
+# ============================================================================
+# The production call site (aicoe-tracker#194 item 1)
+# ============================================================================
+
+
+def _provider_with_flag(flag):
+    from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
+    from tests.unit.memory._fakes import FakeGraph, FakeVector
+
+    return CoLocatedMemoryProvider(vector=FakeVector(), graph=FakeGraph(), check_provenance_on_consolidate=flag)
+
+
+def _dangling_fact(scope):
+    from egpt.memory.tiers import MemoryTier
+    from egpt.memory.types import FactWrite, MemoryRecord
+
+    return FactWrite(
+        record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=scope),
+        derived_by="test",
+        source_episode_ids=["no-such-episode"],
+    )
+
+
+def test_provenance_check_is_off_by_default(caplog):
+    """SM-L7 shipped `provenance_report` with no caller; #194 item 1 wires one. It must stay opt-in:
+    the check needs the scope's *full* resolved episode set, which is an unbounded scan per pass on
+    top of the bounded one consolidation already does."""
+    # Constructed WITHOUT the kwarg -- passing `False` explicitly would pass even if the default
+    # flipped to True, which is exactly the regression this test exists to catch.
+    from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
+    from egpt.memory.types import Scope
+    from tests.unit.memory._fakes import FakeGraph, FakeVector
+
+    provider = CoLocatedMemoryProvider(vector=FakeVector(), graph=FakeGraph())
+    assert provider.check_provenance_on_consolidate is False
+    scope = Scope(tenant_id="acme", user_id="u1")
+    with caplog.at_level("WARNING"):
+        provider._check_provenance(scope, [_dangling_fact(scope)])
+    assert "does not resolve" not in caplog.text
+
+
+def test_provenance_check_warns_on_a_dangling_citation_when_enabled(caplog):
+    """The ratified `provenance_validity == 1.0` gate, at a production call site."""
+    from egpt.memory.types import Scope
+
+    provider = _provider_with_flag(True)
+    scope = Scope(tenant_id="acme", user_id="u1")
+    with caplog.at_level("WARNING"):
+        provider._check_provenance(scope, [_dangling_fact(scope)])
+    assert "does not resolve" in caplog.text
+    assert "f1" in caplog.text
+
+
+def test_provenance_check_is_silent_when_every_citation_resolves(caplog):
+    """A clean pass must not log -- an always-warning gate is one an operator learns to ignore."""
+    from egpt.memory.tiers import MemoryTier
+    from egpt.memory.types import FactWrite, MemoryRecord, Scope
+
+    provider = _provider_with_flag(True)
+    scope = Scope(tenant_id="acme", user_id="u1")
+    provider.vector.upsert(scope, [MemoryRecord(id="e1", tier=MemoryTier.EPISODIC, content="ep", scope=scope)])
+    fact = FactWrite(
+        record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=scope),
+        derived_by="test",
+        source_episode_ids=["e1"],
+    )
+    with caplog.at_level("WARNING"):
+        provider._check_provenance(scope, [fact])
+    assert "does not resolve" not in caplog.text
+
+
+def test_provenance_check_never_raises_when_episode_resolution_fails(caplog):
+    """It is a measurement bolted onto a pass that has already committed facts: it must not be able
+    to turn a successful consolidation into a failed one."""
+    from egpt.memory.types import Scope
+
+    provider = _provider_with_flag(True)
+    scope = Scope(tenant_id="acme", user_id="u1")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("substrate down")
+
+    provider.vector.scan = boom
+    with caplog.at_level("WARNING"):
+        provider._check_provenance(scope, [_dangling_fact(scope)])  # must not raise
+    assert "Provenance check skipped" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# The production call sites, driven for real (round-2 review, PR #178)
+#
+# The four tests above call `_check_provenance` directly -- they pin the helper thoroughly but not
+# a single production call site, so a mutation that deleted both `consolidate`/`aconsolidate`'s
+# calls to it left every one of them green. These two go through `provider.consolidate(scope)` /
+# `await provider.aconsolidate(scope)` for real, with `max_episodes_per_pass=1` forcing two passes
+# via the resumption cursor -- the same shape as
+# `test_promotion_meets_the_ratified_quality_gate_across_two_consolidation_passes` above, except
+# through the provider rather than the pipeline directly. This also closes the untested
+# full-vs-batch scan bound: union-forward provenance means pass 2's fact legitimately cites pass
+# 1's episode, which only an unbounded scan (not the per-pass `limit=max_episodes_per_pass` bound)
+# resolves without a false "dangling" warning.
+# ---------------------------------------------------------------------------
+
+
+def _provider_with_pipeline(vector, graph, extractor, decider):
+    from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
+
+    pipeline = FactExtractionPipeline(vector=vector, extractor=extractor, decider=decider)
+    return CoLocatedMemoryProvider(
+        vector=vector,
+        graph=graph,
+        check_provenance_on_consolidate=True,
+        fact_pipeline=pipeline,
+        max_episodes_per_pass=1,
+    )
+
+
+def test_consolidate_runs_the_real_provenance_check_across_two_passes(caplog):
+    """Deleting `consolidate`'s `self._check_provenance(scope, facts)` call must fail this test --
+    unlike the four helper-level tests above, this one cannot pass without the wiring."""
+    from tests.unit.memory._fakes import FakeGraph, FakeVector
+
+    vector = FakeVector()
+    graph = FakeGraph()
+    provider = _provider_with_pipeline(
+        vector,
+        graph,
+        extractor=ScriptedExtractor("ada lives in berlin"),
+        decider=ScriptedDecider(op="ADD", statement="ada lives in berlin"),
+    )
+    vector.upsert(ACME, [episode("ada moved to berlin", "e1", created_at=1000)])
+
+    with caplog.at_level("WARNING"):
+        provider.consolidate(ACME)
+    assert "does not resolve" not in caplog.text
+
+    # Pass 2: a second episode, and a scripted UPDATE against pass 1's fact -- the pipeline unions
+    # `source_episode_ids` forward (extract.py), so pass 2's fact legitimately cites "e1" too, an
+    # episode outside this pass's own `max_episodes_per_pass=1` batch.
+    provider.fact_pipeline.decider = ScriptedDecider(op="UPDATE", target_index=0, statement="ada lives in lisbon")
+    provider.fact_pipeline.extractor = ScriptedExtractor("ada lives in lisbon")
+    vector.upsert(ACME, [episode("ada moved to lisbon", "e2", created_at=2000)])
+
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        provider.consolidate(ACME)
+
+    # The check resolved the FULL episode set, not the pass-2 batch alone -- the untested
+    # correctness property Critical-2 flagged: `limit=self.max_episodes_per_pass` at this call
+    # site would report the "e1" citation as dangling, since pass 2's own scan only covers "e2".
+    assert vector.scan_limits[-1] is None, "the provenance check must resolve against an unbounded scan"
+    assert "does not resolve" not in caplog.text
+
+
+async def test_aconsolidate_runs_the_real_provenance_check_across_two_passes(caplog):
+    """Async twin -- pins `aconsolidate`'s call to `_acheck_provenance` (not the sync helper) the
+    same way the sync test above pins `consolidate`'s call to `_check_provenance`."""
+    from tests.unit.memory._fakes import FakeGraph, FakeVector
+
+    vector = FakeVector()
+    graph = FakeGraph()
+    provider = _provider_with_pipeline(
+        vector,
+        graph,
+        extractor=ScriptedExtractor("ada lives in berlin"),
+        decider=ScriptedDecider(op="ADD", statement="ada lives in berlin"),
+    )
+    await vector.aupsert(ACME, [episode("ada moved to berlin", "e1", created_at=1000)])
+
+    with caplog.at_level("WARNING"):
+        await provider.aconsolidate(ACME)
+    assert "does not resolve" not in caplog.text
+
+    provider.fact_pipeline.decider = ScriptedDecider(op="UPDATE", target_index=0, statement="ada lives in lisbon")
+    provider.fact_pipeline.extractor = ScriptedExtractor("ada lives in lisbon")
+    await vector.aupsert(ACME, [episode("ada moved to lisbon", "e2", created_at=2000)])
+
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        await provider.aconsolidate(ACME)
+
+    assert vector.scan_limits[-1] is None, "the async provenance check must resolve against an unbounded ascan"
+    assert "does not resolve" not in caplog.text

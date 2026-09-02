@@ -464,6 +464,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         max_episodes_per_pass: int = _MAX_EPISODES_PER_PASS,
         max_concurrent_writes: int = _MAX_CONCURRENT_WRITES,
         max_scan_cursors: int = _MAX_SCAN_CURSORS,
+        check_provenance_on_consolidate: bool = False,
         entity_pipeline: Optional["EntityExtractionPipeline"] = None,
         relation_pipeline: Optional["RelationExtractionPipeline"] = None,
         reflection_pipeline: Optional["ReflectionPipeline"] = None,
@@ -544,6 +545,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self.max_episodes_per_pass = _positive_int(max_episodes_per_pass, "max_episodes_per_pass")
         #: Cap on simultaneous per-record backend calls in one async write.
         self.max_concurrent_writes = _positive_int(max_concurrent_writes, "max_concurrent_writes")
+        #: Run ADR 0003 section A.7's referential ``provenance_validity`` gate over each pass's
+        #: distilled facts (aicoe-tracker#194 item 1). Off by default, and the default is the
+        #: recommendation for most deployments: the check needs the scope's **full** resolved
+        #: episode-id set, not this pass's batch -- union-forward provenance routinely cites
+        #: episodes from earlier passes, so checking against the batch would report every
+        #: legitimate old citation as dangling -- and resolving that full set is an unbounded
+        #: ``scan`` per pass, on top of the bounded one consolidation already does.
+        #:
+        #: **Logs, never raises, never quarantines.** A dangling citation is a data-integrity
+        #: signal, not a reason to fail a consolidation pass that has already committed facts:
+        #: raising here would turn a reporting gate into a partial-write path, and quarantining
+        #: would mean this seam deciding to withhold a fact the extractor already accepted --
+        #: a retention policy no ticket has ratified. ``provenance_report`` stays what SM-L7 built:
+        #: a measurement. Escalating from log to enforcement is a deliberate follow-up decision,
+        #: not something to inherit by default from wiring the call site.
+        self.check_provenance_on_consolidate = check_provenance_on_consolidate
         #: The resumption cursor SM-L1 (#122) brings, keyed by ``(scope.key(), tier)``. Lives on the
         #: instance, not the substrate: it is how repeated ``consolidate`` calls jointly drain a
         #: tier larger than one pass without adding a parameter to the public method (the interface
@@ -2114,6 +2131,79 @@ class CoLocatedMemoryProvider(MemoryProvider):
         routed = substrates_for_tier(CONSOLIDATION_TARGET) if facts else frozenset()
         return "vector" in routed, "graph" in routed
 
+    def _check_provenance(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        """ADR 0003 section A.7's referential ``provenance_validity`` gate, per pass.
+
+        Opt-in (``check_provenance_on_consolidate``), and a no-op when the flag is off or the pass
+        distilled nothing -- see that attribute's docstring for why off is the default and why this
+        logs rather than raises or quarantines (aicoe-tracker#194 item 1).
+
+        **Resolves the scope's full episode-id set, not this pass's batch.** ``consolidate`` scans
+        with ``limit=self.max_episodes_per_pass`` and a cursor, so its ``scanned`` list is one
+        batch; union-forward provenance routinely cites episodes distilled in earlier passes, and
+        checking against the batch would report every one of those legitimate citations as
+        dangling. That is the false positive #194 names explicitly, and it is why this pays for an
+        unbounded ``scan`` rather than reusing the rows already in hand.
+
+        A resolution failure is swallowed for the same reason a violation only logs: this is a
+        measurement bolted onto a pass that has already committed, and it must not be able to turn
+        a successful consolidation into a failed one.
+        """
+        if not self.check_provenance_on_consolidate or not facts or self.vector is None:
+            return
+        from egpt.memory.consolidation.provenance import provenance_report
+
+        try:
+            resolved = {
+                record.id
+                for record in self.vector.scan(scope, MemoryTier.EPISODIC, limit=None)
+                if record.id is not None
+            }
+        except Exception as exc:
+            log_warning(f"Provenance check skipped for scope {scope.key()!r}: episode resolution failed: {exc}")
+            return
+        report = provenance_report(facts, resolved_episode_ids=resolved)
+        if not report.is_valid:
+            log_warning(
+                f"Provenance check for scope {scope.key()!r}: {len(report.dangling)} of "
+                f"{report.checked} distilled fact(s) cite an episode that does not resolve. "
+                f"Fact ids: {list(report.dangling)}"
+            )
+
+    async def _acheck_provenance(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        """Async twin of :meth:`_check_provenance`, making the same decisions.
+
+        Not a shared sync body called from both lanes (round-2 review): ``_check_provenance``'s
+        unbounded ``scan`` runs synchronously on the event loop when reached from ``aconsolidate``,
+        the one hook in that method still calling the sync substrate verb -- everything else in
+        ``aconsolidate`` already awaits ``vector.ascan``/wraps CPU work in ``asyncio.to_thread`` for
+        exactly this reason. Worse on an async-native-only substrate: a sync ``scan`` that
+        deliberately raises (legal -- the port requires both, but a backend may refuse the sync one)
+        hits the same ``except Exception`` swallow below and reads as "resolution failed" --
+        indistinguishable from a transient outage, so an operator who opted into the flag gets no
+        checking and no signal that it is off.
+        """
+        if not self.check_provenance_on_consolidate or not facts or self.vector is None:
+            return
+        from egpt.memory.consolidation.provenance import provenance_report
+
+        try:
+            resolved = {
+                record.id
+                for record in await self.vector.ascan(scope, MemoryTier.EPISODIC, limit=None)
+                if record.id is not None
+            }
+        except Exception as exc:
+            log_warning(f"Provenance check skipped for scope {scope.key()!r}: episode resolution failed: {exc}")
+            return
+        report = provenance_report(facts, resolved_episode_ids=resolved)
+        if not report.is_valid:
+            log_warning(
+                f"Provenance check for scope {scope.key()!r}: {len(report.dangling)} of "
+                f"{report.checked} distilled fact(s) cite an episode that does not resolve. "
+                f"Fact ids: {list(report.dangling)}"
+            )
+
     def _visible_episodes(self, scope: Scope, episodes: List[MemoryRecord], instant: int) -> List[MemoryRecord]:
         """Drop episodes the graph has recorded as false before anything is distilled.
 
@@ -2326,6 +2416,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # accounting a distilled fact or an insight is (`summarize.py`'s "one write model").
             summary_facts, summary = self._summarize(scope, episodes)
             facts += summary_facts
+            # ADR 0003 section A.7's referential provenance gate (aicoe-tracker#194 item 1).
+            # Here rather than inside the write loop below: it is a measurement over what this
+            # pass distilled, not a write, and must not sit anywhere it could turn a committed
+            # pass into a `PartialWriteError`. Off unless opted in -- see
+            # `check_provenance_on_consolidate`.
+            self._check_provenance(scope, facts)
             # A second pass, not a duplicate of the one above: episodes were clean going into
             # distillation/reflection/summarization, but each of those is (in the fact_pipeline
             # path) an LLM restating or paraphrasing episode content -- it can still reintroduce
@@ -2510,6 +2606,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
             # See the sync half's comment: same fold-before-branch reasoning, one stage later.
             summary_facts, summary = await self._asummarize(scope, episodes)
             facts += summary_facts
+            # ADR 0003 section A.7's referential provenance gate (aicoe-tracker#194 item 1).
+            # Here rather than inside the write loop below: it is a measurement over what this
+            # pass distilled, not a write, and must not sit anywhere it could turn a committed
+            # pass into a `PartialWriteError`. Off unless opted in -- see
+            # `check_provenance_on_consolidate`. `_acheck_provenance`, not the sync helper
+            # (round-2 review): this lane awaits `vector.ascan` instead of blocking the event loop
+            # on a sync `scan` -- see that method's own docstring.
+            await self._acheck_provenance(scope, facts)
             facts = self._redact_facts(facts)
 
             if facts:

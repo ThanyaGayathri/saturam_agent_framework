@@ -10,6 +10,7 @@ from harness.strategies.baseline import NoConsolidationStrategy
 from harness.strategies.hierarchical import HierarchicalSummaryStrategy
 from harness.strategies.hybrid import HybridStrategy
 from harness.strategies.mem0 import Mem0MergeStrategy
+from harness.strategies.pipeline import PipelineStrategy
 from harness.strategies.reflection import ReflectionStrategy
 
 STRATEGIES = {
@@ -18,6 +19,10 @@ STRATEGIES = {
     "reflection": ReflectionStrategy,
     "hierarchical": HierarchicalSummaryStrategy,
     "hybrid": HybridStrategy,
+    # The shipped `FactExtractionPipeline` itself, not a prototype (aicoe-tracker#194 item 2):
+    # the four labelled-corpus metrics ADR 0003 section A.7 ratifies are only meaningful when
+    # measured against the code that actually runs.
+    "pipeline": PipelineStrategy,
 }
 
 __all__ = [
@@ -27,5 +32,6 @@ __all__ = [
     "ReflectionStrategy",
     "HierarchicalSummaryStrategy",
     "HybridStrategy",
+    "PipelineStrategy",
     "STRATEGIES",
 ]

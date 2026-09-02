@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from textwrap import dedent
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from harness.llm import LLMClient
 from harness.schemas import ConsolidationResult, Episode, MergeOp, SemanticFact, UsageStats
@@ -107,6 +107,12 @@ class ConsolidationStrategy(ABC):
     """
 
     name: str = "base"
+
+    #: A caveat that changes how this strategy's metrics may be read -- e.g. "these numbers are a
+    #: lower bound, not an estimate" -- surfaced into the report dict (``runner.py``'s
+    #: ``_base_report``) rather than left in source comments only, so it travels with the
+    #: measurement (round-2 review, PR #178). ``None`` for a strategy with nothing to flag.
+    metric_caveat: Optional[str] = None
 
     def __init__(self, llm: LLMClient) -> None:
         self.llm = llm
