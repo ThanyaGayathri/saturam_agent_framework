@@ -852,7 +852,7 @@ convention, whoever merges second renumbers -- three times, this time.
 
 ### 33_reflection.py
 
-**Status:** PARTIAL
+**Status:** PASS
 
 **Description:** Importance-gated reflection (SM-L6): wires a `ReflectionPipeline` (threshold 1.2)
 into `CoLocatedMemoryProvider`, writes three episodes about the same incident (importances
@@ -860,17 +860,18 @@ into `CoLocatedMemoryProvider`, writes three episodes about the same incident (i
 through the ordinary SEMANTIC-tier read path, showing it still carries `source_episode_ids` for
 all three episodes.
 
-**Result:** Verified structurally with a mocked `Model.response` (no network) -- the script runs
-end to end: `report.details["reflection"]["triggered"]` is `True`, the insight is retrievable via
-`memory.read`, and its provenance names all three episode ids. **Not run against a real model**: no
-`OPENAI_API_KEY` was available in the environment that wrote this cookbook, the same gap
-`21_episode_importance.py` logs. `ReflectionPipeline`'s own decisions (accumulation, threshold
-crossing, provenance, sync/async parity) are covered against a stub synthesizer by
-`libs/agno/tests/unit/memory/test_consolidation_reflect.py`, and `LLMInsightSynthesizer._extract`'s
-response-format handling is now also covered against a mocked `Model` in that same file -- what
-remains unverified is specifically the real-model response shape this mock cannot guarantee to
-match. Follow-up: [aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192).
-Re-run with a real key and flip this entry to a full PASS/FAIL when it lands.
+**Result:** Verified against a **live model** (`OpenAIResponses(id="gpt-5.5")`, real
+`OPENAI_API_KEY`), closing [aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192).
+Two consecutive runs, both clean: total importance 1.5 crosses the 1.2 threshold,
+`report.details["reflection"]["triggered"]` is `True`, the synthesized insight comes back through
+the ordinary SEMANTIC-tier `memory.read` path, and its provenance cites all three episode ids
+(`['ep-0', 'ep-1', 'ep-2']`) on both runs. The insight *wording* differs between runs (expected
+LLM variance -- "Turn late regressions into early automated gates" vs "Turn escaped regressions
+into earlier automated gates"); the structure, trigger, retrieval and citations are identical.
+This exercises the one path the earlier mocked run could not: `LLMInsightSynthesizer._extract`'s
+real-model response-format handling. `ReflectionPipeline`'s own decisions (accumulation, threshold
+crossing, provenance, sync/async parity) remain covered by
+`libs/agno/tests/unit/memory/test_consolidation_reflect.py`.
 
 **Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
 
@@ -926,8 +927,10 @@ to match (the mocked response above returns raw JSON `SummarizeStrategy.optimize
 since the real, unmocked call there requests no structured output -- an artifact of this
 verification's single fixed mock answering both the structured session-summary call and the plain
 rollup-fold call, not a defect in the pipeline itself). Follow-up: re-run with a real key and flip
-this entry to a full PASS/FAIL when one is available (same tracking as `33_reflection.py`'s
-[aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192)).
+this entry to a full PASS/FAIL when one is available. `33_reflection.py`'s own equivalent gap was
+closed against a live model in [aicoe-tracker#192](https://github.com/Saturam-Inc/aicoe-tracker/issues/192);
+that ticket is scoped to `33_reflection.py` only, so this cookbook's live-model verification needs
+its own separate follow-up, not yet filed.
 
 **Requires:** `OPENAI_API_KEY`; no database. Run with `.venvs/demo`.
 
