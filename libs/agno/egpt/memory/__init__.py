@@ -1,6 +1,7 @@
 # Imported for its registration side effect: in-tree adapters self-register on import, so
-# `build_memory_provider` can resolve "co_located" without the caller knowing the module exists.
-from egpt.memory.adapters import CoLocatedMemoryProvider, SeedMemoryProvider
+# `build_memory_provider` can resolve "co_located"/"external" without the caller knowing the
+# module exists.
+from egpt.memory.adapters import CoLocatedMemoryProvider, ExternalMemoryProvider, SeedMemoryProvider
 from egpt.memory.config import (
     MemoryConfigResolver,
     MemoryPolicyKey,
@@ -246,6 +247,7 @@ __all__ = [
     # The seam and its construction path (SM-C1)
     "CONSOLIDATION_KEYS",
     "CoLocatedMemoryProvider",
+    "ExternalMemoryProvider",
     "EntityWrite",
     "FUSION_KEYS",
     "MAX_LIMIT",

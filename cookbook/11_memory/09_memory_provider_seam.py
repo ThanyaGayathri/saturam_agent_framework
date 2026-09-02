@@ -408,15 +408,19 @@ def mode_a_config() -> MemoryProviderConfig:
 
 
 def frontier_config() -> MemoryProviderConfig:
-    """Mode B is declared here and served by the same adapter, on purpose.
+    """Mode B: the ``external`` adapter (SM-X2 #138), over the same two toy doubles this file uses
+    for Mode A.
 
-    There is no external adapter yet: writing one against substrates that do not exist would prove
-    only that a class can be subclassed. SM-X2 (#138) builds it against a real remote backend. What
-    this shows is the part that is real today -- the mode reaches the provider, and the consumer
-    below never sees it.
+    ``ExternalMemoryProvider`` composes the identical two substrate ports ``CoLocatedMemoryProvider``
+    does -- a port does not know or care whether the process on the other end is in-VPC or across a
+    network -- so swapping ``InMemoryVector``/``InMemoryGraph`` for a real pgvector DSN and Neo4j URI
+    here is the only edit a real deployment would make; this demo stays on doubles for the same
+    reason ``mode_a_config`` does. The real-backend proof (real pgvector + real Neo4j, over an
+    actual network round trip) is ``tests/integration/memory/test_mode_b.py``, the direct sibling of
+    Mode A's own ``tests/integration/memory/test_mode_a.py``.
     """
     return MemoryProviderConfig(
-        provider="co_located",
+        provider="external",
         mode=ProviderMode.FRONTIER,
         options={
             "vector_substrate": InMemoryVector(),
@@ -483,7 +487,9 @@ if __name__ == "__main__":
     remember_and_recall(build_memory_provider(mode_a_config()), scope)
 
     print()
-    print("Mode FRONTIER -- same consumer function, only the config changed:")
+    print(
+        "Mode B (external, provider='external') -- same consumer function, only the config changed:"
+    )
     remember_and_recall(build_memory_provider(frontier_config()), scope)
 
     # ---------------------------------------------------------------------

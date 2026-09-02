@@ -14,14 +14,15 @@ Neither proves the whole loop: an ``Agent`` turn writing back through the real h
 real substrates, consolidating into real semantic facts, and a *later* turn's feed-forward read
 actually injecting that fact into the messages sent to the model. That gap is this file's job.
 
-**Both modes, one adapter.** Mode B has no real external-service adapter yet -- that is SM-X2's
-(#138), still open. Per ``09_memory_provider_seam.py`` and ``test_mode_a.py``'s own docstring
-("per-tenant *selection* of Mode A vs Mode B is SM-C5's; this file always builds one static
-config"), Mode B is exercised the way the rest of the codebase already does today: the same
-``CoLocatedMemoryProvider``, over the same real ephemeral pgvector + Neo4j, with
-``mode=ProviderMode.FRONTIER`` instead of ``LOCAL``. What changes between the two is the
-deployment-mode flag the seam threads through (``resolve_substrate``'s air-gap check, embedder /
-reranker eligibility) -- not the backend under test.
+**Both modes, each through its own registered adapter.** Mode B now has its real external-service
+adapter (SM-X2 #138, ``egpt.memory.adapters.external.ExternalMemoryProvider``, ``config.provider=
+"external"``), so this file selects the adapter by ``config.provider`` the same way a tenant's
+Mode A/B switch (SM-C5 #93) would, rather than building ``co_located`` with ``mode=FRONTIER`` as a
+stand-in for an adapter that did not exist yet. Both cases still run over the same real ephemeral
+pgvector + Neo4j -- what differs between them is which registered provider key resolves, and the
+deployment-mode flag each one threads through (``resolve_substrate``'s air-gap check, embedder /
+reranker eligibility, and ``ExternalMemoryProvider``'s own ``deployment: "external"`` diagnostics
+stamp) -- not the backend under test.
 
 Gated on **both** ``EGPT_INTEGRATION_PGVECTOR`` and ``EGPT_INTEGRATION_NEO4J``; start the engines
 with ``cookbook/scripts/run_pgvector.sh`` and ``cookbook/scripts/run_neo4j.sh``.
@@ -47,6 +48,7 @@ from egpt.agent.agent import Agent  # noqa: E402
 from egpt.integrations.memory.vector.pgvector import sql  # noqa: E402
 from egpt.memory import MemoryProviderConfig, MemoryQuery, MemoryTier, build_memory_provider  # noqa: E402
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider  # noqa: E402
+from egpt.memory.adapters.external import ExternalMemoryProvider  # noqa: E402
 from egpt.memory.types import Scope, Substrate  # noqa: E402
 from egpt.models.base import Model  # noqa: E402
 from egpt.models.message import MessageMetrics  # noqa: E402
@@ -167,9 +169,13 @@ def _neo4j_settings() -> dict:
 
 def _config(mode: ProviderMode) -> MemoryProviderConfig:
     """One config per mode, both legs real. The only construction call site is
-    ``build_memory_provider`` -- nothing here names ``CoLocatedMemoryProvider`` directly."""
+    ``build_memory_provider`` -- nothing here names ``CoLocatedMemoryProvider``/
+    ``ExternalMemoryProvider`` directly. ``provider`` follows ``mode`` (SM-X2 #138): Mode A
+    (``LOCAL``) resolves ``"co_located"``, Mode B (``FRONTIER``) resolves ``"external"`` -- the
+    same pairing a real per-tenant config (SM-C5 #93) would carry, rather than one adapter wearing
+    both modes."""
     return MemoryProviderConfig(
-        provider="co_located",
+        provider="external" if mode is ProviderMode.FRONTIER else "co_located",
         mode=mode,
         vector={
             "backend": "pgvector",
@@ -197,7 +203,8 @@ def _fresh_provider(mode: ProviderMode, tenant_id: str) -> CoLocatedMemoryProvid
     ``"globex"``, never equal to this file's ``mode``-suffixed ids.
     """
     built = build_memory_provider(_config(mode))
-    assert isinstance(built, CoLocatedMemoryProvider)
+    assert isinstance(built, CoLocatedMemoryProvider)  # true for both: ExternalMemoryProvider subclasses it
+    assert isinstance(built, ExternalMemoryProvider) == (mode is ProviderMode.FRONTIER)
     with built.vector._engine.begin() as connection:
         connection.execute(
             text(f"DELETE FROM {sql.qualified('ai', PG_TABLE)} WHERE tenant_id = :tenant_id"),

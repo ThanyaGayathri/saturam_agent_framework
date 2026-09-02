@@ -177,7 +177,7 @@ def _unpack_reflection_result(result: Any) -> Tuple[Any, "ReflectionCommit"]:
     return result[0], result[1]
 
 
-__all__ = ["CoLocatedMemoryProvider"]
+__all__ = ["CoLocatedMemoryProvider", "build_co_located_kwargs"]
 
 #: Jaccard threshold above which two episodes are treated as the same thing.
 #: Deterministic and crude on purpose; real extraction is SM-L3's (#124). What punctuation-only
@@ -1263,8 +1263,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 bounds_reconciled=bounds_reconciled,
                 instant=instant,
                 **rerank_diagnostics,
+                **self._fusion_extra(),
             ),
         )
+
+    def _fusion_extra(self) -> Dict[str, Any]:
+        """Extra keys a subclass adds to ``MemorySlice.fusion``, beyond the :data:`FUSION_KEYS`
+        floor. Empty here -- ``adapters.external.ExternalMemoryProvider`` (Mode B, SM-X2 #138) is
+        the one adapter that overrides this, to stamp ``deployment: "external"`` so a diagnostic
+        can tell which side of the seam a slice came from without the caller branching on
+        ``type(provider)`` or ``config.mode``. ``fusion_diagnostics``'s own docstring names
+        ``deployment`` as exactly the kind of extra this floor-not-ceiling contract exists for.
+        """
+        return {}
 
     def _fusion_method(self) -> str:
         """The provider's fusion strategy, read from ``config.fusion`` (SM-H2 #132).
@@ -2562,14 +2573,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
 @register_provider("co_located")
 def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
-    """The only construction call site, for a real backend and an injected double alike.
+    """The only construction call site for Mode A, for a real backend and an injected double alike.
+
+    Delegates to :func:`build_co_located_kwargs`, the shared resolution ``adapters.external``
+    (Mode B, SM-X2 #138) reuses rather than duplicates -- Mode A and Mode B compose the identical
+    two ports through the identical registry path, so the two legs cannot diverge between them
+    either.
+    """
+    return CoLocatedMemoryProvider(**build_co_located_kwargs(config))
+
+
+def build_co_located_kwargs(config: MemoryProviderConfig) -> Dict[str, Any]:
+    """Resolve ``config`` into the keyword arguments :class:`CoLocatedMemoryProvider` (or a
+    subclass, e.g. ``adapters.external.ExternalMemoryProvider``) takes.
 
     Both ``config.vector`` and ``config.graph`` resolve through ``egpt.registry.discovery.construct``
     -- ``vectorstore`` for one (SM-V1 #95) and ``graphdb`` for the other (SM-G1 #99) -- along the
     identical path, so the two legs cannot diverge. ``options`` keeps carrying an already-built
     substrate, which is how a test injects a double.
     """
-    return CoLocatedMemoryProvider(
+    return dict(
         # A `vectorstore` rather than a `vectordb`: the latter's backends answer `VectorDb`, whose
         # async methods carry the `async_` prefix rather than this seam's `a`, and which knows
         # nothing of a scope or a tier.
