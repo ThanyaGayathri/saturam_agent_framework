@@ -20,6 +20,7 @@ import inspect
 import pytest
 
 from egpt.db.base import AsyncBaseDb, BaseDb
+from egpt.db.migrations.manager import MigrationManager
 
 # Every concrete backend. Kept explicit rather than discovered, so that deleting a backend
 # from this list is a visible diff rather than a silent loss of coverage.
@@ -172,3 +173,66 @@ def test_backend_list_is_complete():
 
     missing = discovered - covered
     assert not missing, f"Backends missing from the contract test: {sorted(missing)}"
+
+
+# ---------------------------------------------------------------------------
+# The migration-version-module contract (aicoe-tracker#178)
+#
+# MigrationManager._supports() calls `module.supports(table_type, db_type)` on every
+# versions/vX_Y_Z module in its catalogue, unconditionally -- there is no signature check or
+# `getattr` fallback anywhere in the call chain. A module that omits `supports` (or ships it
+# with the wrong signature) raises AttributeError/TypeError out of `up()` for the very first
+# table on every backend, not just its own version. This is the same failure class #160 pinned
+# above for `get_latest_schema_version`/`upsert_schema_version`, one level up the stack: pin it
+# statically here too, rather than relying on a database run to discover it.
+# ---------------------------------------------------------------------------
+
+MIGRATION_MODULES = [version for version, _ in MigrationManager.available_versions if version != "v2_0_0"]
+
+
+@pytest.mark.parametrize("version", MIGRATION_MODULES)
+def test_migration_module_defines_the_full_entry_point_contract(version):
+    """Every non-floor version module must define all five entry points MigrationManager
+    dispatches to by attribute access alone."""
+    module = importlib.import_module(f"egpt.db.migrations.versions.{version}")
+
+    for name in ("supports", "up", "async_up", "down", "async_down"):
+        assert hasattr(module, name), f"versions.{version} does not define {name}()"
+
+
+@pytest.mark.parametrize("version", MIGRATION_MODULES)
+def test_migration_module_supports_has_the_right_signature(version):
+    module = importlib.import_module(f"egpt.db.migrations.versions.{version}")
+
+    assert _params(module.supports) == ["table_type", "db_type"], (
+        f"versions.{version}.supports{inspect.signature(module.supports)} does not match the "
+        "(table_type, db_type) contract MigrationManager._supports calls it with."
+    )
+
+
+@pytest.mark.parametrize("version", MIGRATION_MODULES)
+def test_migration_module_supports_is_total(version):
+    """`supports()` must return `False` rather than raise for input it does not recognize --
+    `MigrationManager._supports` calls every module's `supports()` for every table type it
+    knows about, not just the ones a given migration targets."""
+    module = importlib.import_module(f"egpt.db.migrations.versions.{version}")
+
+    assert module.supports("not-a-real-table-type", "NotARealDbType") is False
+
+
+def test_every_migration_module_on_disk_is_registered():
+    """The inverse of the check above: a version file nobody points `available_versions` at is
+    dead code, and a version listed in `available_versions` with no file is the ModuleNotFoundError
+    `_supports`/`_up_migration`/`_down_migration` would raise the moment it is reached."""
+    import pathlib
+
+    import egpt.db.migrations.versions as versions_pkg
+
+    versions_dir = pathlib.Path(versions_pkg.__file__).parent
+    on_disk = {p.stem for p in versions_dir.glob("v*.py")}
+
+    registered = {version for version, _ in MigrationManager.available_versions}
+
+    assert on_disk == registered - {"v2_0_0"}, (
+        f"on disk: {sorted(on_disk)}, registered (excluding the floor): {sorted(registered - {'v2_0_0'})}"
+    )

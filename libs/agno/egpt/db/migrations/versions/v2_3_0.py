@@ -27,8 +27,10 @@ _ASYNC_BACKENDS = {"AsyncPostgresDb", "AsyncSqliteDb"}
 def supports(table_type: str, db_type: str) -> bool:
     """Whether this migration has code for (table_type, db_type).
 
-    The single declaration backing both the sync/async dispatch below and
-    ``MigrationManager``'s check of whether a table is even eligible for stamping.
+    The single declaration of *which table types* this migration touches -- the dispatch below
+    no longer carries its own copy of that check. The ``_SYNC_BACKENDS``/``_ASYNC_BACKENDS`` sets
+    are not similarly derived: they must be kept in sync with the ``db_type == "..."`` dispatch by
+    hand, same as before this function existed.
     """
     return table_type in _TABLE_TYPES and db_type in (_SYNC_BACKENDS | _ASYNC_BACKENDS)
 

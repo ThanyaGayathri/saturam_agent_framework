@@ -72,10 +72,14 @@ class TestTheNoneVersionSkip:
 
         Needs a backend at least one shipped migration actually supports -- ``_UnsupportedDb``
         would never be stamped regardless of this branch, since #178, which would make this
-        pass for the wrong reason.
+        pass for the wrong reason. ``_create_all_tables()`` alone is not enough either: SQLite
+        stamps every table it creates at ``latest_schema_version`` in ``_get_or_create_table``,
+        so the version has to be forced back down to the floor first, or the assertion below
+        would pass even if this branch were broken.
         """
         db = SqliteDb(db_file=str(tmp_path / "floor.db"))
         db._create_all_tables()
+        db.upsert_schema_version(db.session_table_name, "2.0.0")
 
         asyncio.run(MigrationManager(db).up())
 
@@ -91,9 +95,13 @@ class TestStampingOnBackendsWithoutSupport:
 
     The fix is candidate 3 from the earlier investigation: each ``versions/vX_Y_Z`` module now
     declares ``supports(table_type, db_type)`` -- the same predicate that gates its own
-    ``up``/``down`` dispatch, so there is exactly one place that can drift -- and
+    ``up``/``down`` dispatch, unifying the *table_type* half of that check into one place -- and
     ``MigrationManager._supports`` checks it across the whole catalogue before ``up()`` will
-    stamp a table. Two other candidates were tried first and rejected:
+    stamp a table. The *db_type* half is still a second, hand-maintained declaration in most
+    modules (the per-backend sets next to the dispatch chain); ``test_schema_version_contract.py``
+    pins that every module defines the entry points this depends on, but not that the two db_type
+    declarations agree -- see that risk called out in the module docstrings. Two other candidates
+    were tried first and rejected:
 
     1. Stamp only when a migration executed. Regresses supported backends: a SQLite ``sessions``
        table ends up stamped 2.3.0 (the last version that touched it) instead of the target, so

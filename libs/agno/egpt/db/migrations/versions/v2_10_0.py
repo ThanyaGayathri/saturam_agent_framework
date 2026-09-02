@@ -35,7 +35,7 @@ except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
 
-SESSION_TABLE_TYPE = "traces"
+TRACE_TABLE_TYPE = "traces"
 
 # SQLite gained ALTER TABLE ... DROP COLUMN in 3.35.0.
 _SQLITE_DROP_COLUMN_MIN_VERSION = (3, 35, 0)
@@ -58,7 +58,7 @@ _ASYNC_BACKENDS = {"AsyncPostgresDb", "AsyncSqliteDb"}
 
 def supports(table_type: str, db_type: str) -> bool:
     """Whether this migration has code for (table_type, db_type)."""
-    return table_type == SESSION_TABLE_TYPE and db_type in (_SYNC_BACKENDS | _ASYNC_BACKENDS)
+    return table_type == TRACE_TABLE_TYPE and db_type in (_SYNC_BACKENDS | _ASYNC_BACKENDS)
 
 
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
