@@ -236,3 +236,119 @@ def test_every_migration_module_on_disk_is_registered():
     assert on_disk == registered - {"v2_0_0"}, (
         f"on disk: {sorted(on_disk)}, registered (excluding the floor): {sorted(registered - {'v2_0_0'})}"
     )
+
+
+# ---------------------------------------------------------------------------
+# The per-version supports() truth table (round-2 review of aicoe-tracker#178)
+#
+# The contract tests above pin that every version module *defines* supports() with the right
+# shape. They do not pin that any individual module's supports() answers correctly for the
+# pairs it claims to handle (or correctly refuses) -- before this test, mutating a single
+# module's supports() to always return False left the whole suite green, because every test
+# that actually exercises stamping runs MigrationManager against the full eight-module
+# catalogue, and the other seven modules cover for the mutated one. Verified: flipping
+# v2_9_0.supports() to `return False` and rerunning left `test_schema_version_roundtrip.py`
+# and `test_migration_version_stamping.py` fully passing.
+#
+# Each row below is a literal, independent of the module's own constants -- a module and this
+# truth table would have to be wrong in the same way for a regression to slip through both.
+# ---------------------------------------------------------------------------
+
+TRUTH = {
+    "v2_3_0": {
+        "table_types": {"memories", "sessions", "evals", "metrics", "knowledge", "culture"},
+        "db_types": {"PostgresDb", "AsyncPostgresDb", "MySQLDb", "SqliteDb", "AsyncSqliteDb", "SingleStoreDb"},
+    },
+    "v2_5_0": {
+        "table_types": {"sessions"},
+        "db_types": {
+            "PostgresDb",
+            "AsyncPostgresDb",
+            "MySQLDb",
+            "AsyncMySQLDb",
+            "SingleStoreDb",
+            "SqliteDb",
+            "AsyncSqliteDb",
+        },
+    },
+    "v2_5_6": {
+        "table_types": {"approvals"},
+        "db_types": {
+            "PostgresDb",
+            "AsyncPostgresDb",
+            "MySQLDb",
+            "AsyncMySQLDb",
+            "SingleStoreDb",
+            "SqliteDb",
+            "AsyncSqliteDb",
+        },
+    },
+    "v2_6_0": {
+        # component_audit is genuinely supported despite having no DDL of its own: it was born
+        # with tenant_id already in place. See the module docstring and
+        # MigrationManager._supports().
+        "table_types": {"components", "component_configs", "component_links", "component_audit"},
+        "db_types": {"PostgresDb", "AsyncPostgresDb", "SqliteDb", "AsyncSqliteDb"},
+    },
+    "v2_7_0": {
+        "table_types": {"service_accounts"},
+        "db_types": {"PostgresDb", "AsyncPostgresDb", "SqliteDb", "AsyncSqliteDb"},
+    },
+    "v2_8_0": {
+        "table_types": {
+            "memories",
+            "memory_episodic",
+            "memory_semantic_fact",
+            "memory_entity",
+            "memory_relation",
+            "memory_procedural",
+            "memory_link",
+        },
+        "db_types": {"PostgresDb", "AsyncPostgresDb", "SqliteDb", "AsyncSqliteDb"},
+    },
+    "v2_9_0": {
+        "table_types": {"sessions"},
+        "db_types": {
+            "PostgresDb",
+            "AsyncPostgresDb",
+            "SqliteDb",
+            "AsyncSqliteDb",
+            "MySQLDb",
+            "AsyncMySQLDb",
+            "SingleStoreDb",
+        },
+    },
+    "v2_10_0": {
+        "table_types": {"traces"},
+        "db_types": {"PostgresDb", "AsyncPostgresDb", "SqliteDb", "AsyncSqliteDb"},
+    },
+}
+
+assert set(TRUTH) == set(MIGRATION_MODULES), "TRUTH is out of sync with MigrationManager.available_versions"
+
+# The full universe of table types and db types worth checking each module against: every
+# table type MigrationManager knows how to resolve, plus every db_type with contract coverage
+# above -- wide enough that a module wrongly claiming an unrelated pair shows up as a failure,
+# not just a module wrongly refusing a pair it should claim.
+ALL_TABLE_TYPES = sorted(
+    set(MigrationManager._TABLE_TYPE_TO_ATTR) | set().union(*(t["table_types"] for t in TRUTH.values()))
+)
+ALL_DB_TYPES = sorted({name for _, name in BACKENDS} | set().union(*(t["db_types"] for t in TRUTH.values())))
+
+_MATRIX_CASES = [
+    (version, table_type, db_type)
+    for version in MIGRATION_MODULES
+    for table_type in ALL_TABLE_TYPES
+    for db_type in ALL_DB_TYPES
+]
+_MATRIX_IDS = [f"{version}-{table_type}-{db_type}" for version, table_type, db_type in _MATRIX_CASES]
+
+
+@pytest.mark.parametrize(("version", "table_type", "db_type"), _MATRIX_CASES, ids=_MATRIX_IDS)
+def test_migration_module_supports_matches_the_truth_table(version, table_type, db_type):
+    module = importlib.import_module(f"egpt.db.migrations.versions.{version}")
+    expected = table_type in TRUTH[version]["table_types"] and db_type in TRUTH[version]["db_types"]
+    actual = module.supports(table_type, db_type)
+    assert actual is expected, (
+        f"versions.{version}.supports({table_type!r}, {db_type!r}) returned {actual!r}, expected {expected!r}"
+    )

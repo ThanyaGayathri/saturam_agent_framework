@@ -100,6 +100,11 @@ class MigrationManager:
         A backend this returns ``False`` for has no code path, in any shipped migration, that
         would ever touch this table -- so ``up()`` must not stamp it: the stamp would claim a
         schema state that was never verified, let alone reached.
+
+        A table type can also be genuinely supported with nothing to migrate: ``component_audit``
+        was born with ``tenant_id`` already in place, so ``v2_6_0.supports()`` returns ``True``
+        for it while its ``up``/``down`` are a declared no-op (see that module's docstring). That
+        is different from a table type no migration recognizes at all, which stays unstamped.
         """
         for version, _ in self.available_versions:
             if version == "v2_0_0":
@@ -163,8 +168,11 @@ class MigrationManager:
 
         db_type = type(self.db).__name__
 
-        # Handle migrations for each table separately (extend in future if needed):
-        for table_type, table_name in tables:
+        # Handle migrations for each table separately (extend in future if needed). The loop
+        # variable is deliberately not named `table_type`: this method also takes a `table_type`
+        # parameter, and `self._supports(...)` below must read the per-table value, not whichever
+        # of the two a reader assumes.
+        for tt, table_name in tables:
             current_version = await self._current_version(table_name)
             if current_version is None:
                 log_info(f"Skipping migration: No version found for table {table_name}.")
@@ -177,13 +185,12 @@ class MigrationManager:
                 )
                 continue
 
-            if not self._supports(table_type, db_type):
+            if not self._supports(tt, db_type):
                 # No shipped migration has ever touched (table_type, db_type): the table may not
                 # even exist on this backend. Stamping it would claim a schema state that was
                 # never verified, so it is left exactly as it was found.
                 log_info(
-                    f"{db_type} has no migration support for table type '{table_type}'; "
-                    f"leaving table {table_name} unstamped."
+                    f"{db_type} has no migration support for table type '{tt}'; leaving table {table_name} unstamped."
                 )
                 continue
 
@@ -199,7 +206,7 @@ class MigrationManager:
                         break
 
                     log_info(f"Applying migration {normalised_version} on {table_name}")
-                    migration_executed = await self._up_migration(version, table_type, table_name)
+                    migration_executed = await self._up_migration(version, tt, table_name)
                     latest_version = normalised_version.public
                     if migration_executed:
                         log_info(f"Successfully applied migration {normalised_version} on table {table_name}")

@@ -46,13 +46,18 @@ def _index_name(table_name: str) -> str:
     return f"idx_{table_name}_tenant_id"
 
 
-_SYNC_BACKENDS = {"PostgresDb", "SqliteDb"}
-_ASYNC_BACKENDS = {"AsyncPostgresDb", "AsyncSqliteDb"}
+# The single declaration of which backends this migration has code for. supports() and every
+# dispatch below read these same two tuples, so a backend added to one without a matching
+# branch is no longer possible -- there is no second set to fall out of sync with the branches.
+_POSTGRES_DB_TYPES = ("PostgresDb", "AsyncPostgresDb")
+_SQLITE_DB_TYPES = ("SqliteDb", "AsyncSqliteDb")
 
 
 def supports(table_type: str, db_type: str) -> bool:
     """Whether this migration has code for (table_type, db_type)."""
-    return table_type == SERVICE_ACCOUNT_TABLE_TYPE and db_type in (_SYNC_BACKENDS | _ASYNC_BACKENDS)
+    if table_type != SERVICE_ACCOUNT_TABLE_TYPE:
+        return False
+    return db_type in _POSTGRES_DB_TYPES or db_type in _SQLITE_DB_TYPES
 
 
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -67,9 +72,9 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
         if not supports(table_type, db_type):
             return False
 
-        if db_type == "PostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return _migrate_postgres(db, table_name)
-        elif db_type == "SqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return _migrate_sqlite(db, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations")
@@ -91,9 +96,9 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
         if not supports(table_type, db_type):
             return False
 
-        if db_type == "AsyncPostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return await _migrate_async_postgres(db, table_name)
-        elif db_type == "AsyncSqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return await _migrate_async_sqlite(db, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations")
@@ -115,9 +120,9 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
         if not supports(table_type, db_type):
             return False
 
-        if db_type == "PostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return _revert_postgres(db, table_name)
-        elif db_type == "SqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return _revert_sqlite(db, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")
@@ -139,9 +144,9 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
         if not supports(table_type, db_type):
             return False
 
-        if db_type == "AsyncPostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return await _revert_async_postgres(db, table_name)
-        elif db_type == "AsyncSqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return await _revert_async_sqlite(db, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")

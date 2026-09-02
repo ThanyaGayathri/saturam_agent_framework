@@ -95,13 +95,13 @@ class TestStampingOnBackendsWithoutSupport:
 
     The fix is candidate 3 from the earlier investigation: each ``versions/vX_Y_Z`` module now
     declares ``supports(table_type, db_type)`` -- the same predicate that gates its own
-    ``up``/``down`` dispatch, unifying the *table_type* half of that check into one place -- and
-    ``MigrationManager._supports`` checks it across the whole catalogue before ``up()`` will
-    stamp a table. The *db_type* half is still a second, hand-maintained declaration in most
-    modules (the per-backend sets next to the dispatch chain); ``test_schema_version_contract.py``
-    pins that every module defines the entry points this depends on, but not that the two db_type
-    declarations agree -- see that risk called out in the module docstrings. Two other candidates
-    were tried first and rejected:
+    ``up``/``down`` dispatch, unifying both the *table_type* and *db_type* halves of that check
+    into one declaration per module (per-backend-family tuples the dispatch branches read
+    directly, not a second hand-maintained set) -- and ``MigrationManager._supports`` checks it
+    across the whole catalogue before ``up()`` will stamp a table.
+    ``test_schema_version_contract.py``'s per-``(version, table_type, db_type)`` truth table pins
+    that each module's ``supports()`` answers correctly on its own, not just as part of the
+    aggregate this class exercises. Two other candidates were tried first and rejected:
 
     1. Stamp only when a migration executed. Regresses supported backends: a SQLite ``sessions``
        table ends up stamped 2.3.0 (the last version that touched it) instead of the target, so
@@ -153,6 +153,47 @@ class TestSupportedBackends:
         asyncio.run(MigrationManager(sqlite_db).up())
 
         assert sqlite_db.get_latest_schema_version(sqlite_db.memory_episodic_table_name) == LATEST
+
+
+class TestATableTypeWithNoMigrationsOfItsOwn:
+    """``component_audit`` (EGPT-2.6): a table type born fully-specified, with no migration that
+    ever needs to touch it.
+
+    This is a third shape the declarative model has to handle, distinct from both cases above:
+    unlike ``memory_episodic`` on an unsupported backend, ``v2_6_0.supports()`` returns ``True``
+    for ``component_audit`` (it was flagged in review as a table with zero supporting versions,
+    which would leave it permanently unstamped on every backend); unlike ``sessions``, no
+    migration module ever runs DDL against it, because ``tenant_id`` and its index already exist
+    at creation. ``v2_6_0.up``/``down`` special-case it into a true no-op rather than folding it
+    into ``COMPONENT_TABLE_TYPES``, since -- unlike the other three component tables --
+    ``component_audit``'s ``tenant_id`` is not optional and must never be reverted.
+    """
+
+    @pytest.fixture
+    def sqlite_db(self, tmp_path):
+        return SqliteDb(db_file=str(tmp_path / "component_audit_stamping.db"))
+
+    def test_it_is_stamped_to_latest_despite_no_migration_touching_it(self, sqlite_db):
+        sqlite_db._create_all_tables()
+        sqlite_db.upsert_schema_version(sqlite_db.component_audit_table_name, "2.0.0")
+
+        asyncio.run(MigrationManager(sqlite_db).up())
+
+        assert sqlite_db.get_latest_schema_version(sqlite_db.component_audit_table_name) == LATEST
+
+    def test_down_never_touches_its_structural_tenant_id(self, sqlite_db):
+        """tenant_id on component_audit predates every migration in the catalogue -- dropping it
+        would break the table's own write path, which assumes the column always exists."""
+        from sqlalchemy import text
+
+        sqlite_db._create_all_tables()
+        table_name = sqlite_db.component_audit_table_name
+
+        asyncio.run(MigrationManager(sqlite_db).down("2.0.0", table_type="component_audit", force=True))
+
+        with sqlite_db.Session() as sess:
+            columns = {row[1] for row in sess.execute(text(f"PRAGMA table_info({table_name})")).fetchall()}
+        assert "tenant_id" in columns
 
 
 def test_the_async_abc_reaches_the_same_code_path():

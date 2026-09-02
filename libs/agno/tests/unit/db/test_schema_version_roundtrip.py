@@ -111,7 +111,11 @@ def test_upsert_overwrites_rather_than_duplicating(db_fixture, request):
 async def test_migration_manager_runs_and_records(db_fixture, request):
     """End to end: the manager reads, migrates and writes the version back.
 
-    Only for a backend at least one shipped migration recognizes -- see ``STAMPED_TO_LATEST``.
+    Only holds that shape for a backend at least one shipped migration recognizes (currently
+    ``sqlite_db`` among these fixtures) -- see ``STAMPED_TO_LATEST``. For ``in_memory_db`` and
+    ``json_db``, no migration recognizes the backend at all, so this exercises the other side of
+    aicoe-tracker#178 instead: the table is correctly left at the floor rather than migrated and
+    stamped.
     """
     db = request.getfixturevalue(db_fixture)
 
@@ -124,7 +128,12 @@ async def test_migration_manager_runs_and_records(db_fixture, request):
 @pytest.mark.parametrize("db_fixture", BACKEND_FIXTURES)
 @pytest.mark.asyncio
 async def test_second_up_is_a_no_op(db_fixture, request):
-    """A backend that forgets its version would re-run every migration, every start."""
+    """A backend that forgets its version would re-run every migration, every start.
+
+    For ``in_memory_db``/``json_db`` there is no real work to begin with -- see
+    ``STAMPED_TO_LATEST`` -- so this pins "stays unstamped" being stable across repeated calls,
+    not "the same migrated version" being stable.
+    """
     db = request.getfixturevalue(db_fixture)
 
     await MigrationManager(db).up()

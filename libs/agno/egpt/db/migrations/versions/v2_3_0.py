@@ -20,19 +20,24 @@ except ImportError:
 
 
 _TABLE_TYPES = {"memories", "sessions", "evals", "metrics", "knowledge", "culture"}
-_SYNC_BACKENDS = {"PostgresDb", "MySQLDb", "SqliteDb", "SingleStoreDb"}
-_ASYNC_BACKENDS = {"AsyncPostgresDb", "AsyncSqliteDb"}
+
+# The single declaration of which backends this migration has code for, one tuple per backend
+# family (sync and async variants together). supports() and every dispatch below read these
+# same tuples, so a backend added to one without a matching branch is no longer possible --
+# there is no second set to fall out of sync with the branches. MySQL and SingleStore have no
+# async class, so their tuples have one member each; that is what keeps async_up/async_down
+# falling through to "does not require schema migrations" for them, matching the pre-refactor
+# behaviour exactly.
+_POSTGRES_DB_TYPES = ("PostgresDb", "AsyncPostgresDb")
+_MYSQL_DB_TYPES = ("MySQLDb",)
+_SQLITE_DB_TYPES = ("SqliteDb", "AsyncSqliteDb")
+_SINGLESTORE_DB_TYPES = ("SingleStoreDb",)
+_SUPPORTED_DB_TYPES = _POSTGRES_DB_TYPES + _MYSQL_DB_TYPES + _SQLITE_DB_TYPES + _SINGLESTORE_DB_TYPES
 
 
 def supports(table_type: str, db_type: str) -> bool:
-    """Whether this migration has code for (table_type, db_type).
-
-    The single declaration of *which table types* this migration touches -- the dispatch below
-    no longer carries its own copy of that check. The ``_SYNC_BACKENDS``/``_ASYNC_BACKENDS`` sets
-    are not similarly derived: they must be kept in sync with the ``db_type == "..."`` dispatch by
-    hand, same as before this function existed.
-    """
-    return table_type in _TABLE_TYPES and db_type in (_SYNC_BACKENDS | _ASYNC_BACKENDS)
+    """Whether this migration has code for (table_type, db_type)."""
+    return table_type in _TABLE_TYPES and db_type in _SUPPORTED_DB_TYPES
 
 
 def up(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -53,13 +58,13 @@ def up(db: BaseDb, table_type: str, table_name: str) -> bool:
     try:
         if not supports(table_type, db_type):
             return False
-        if db_type == "PostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return _migrate_postgres(db, table_type, table_name)
-        elif db_type == "MySQLDb":
+        elif db_type in _MYSQL_DB_TYPES:
             return _migrate_mysql(db, table_type, table_name)
-        elif db_type == "SqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return _migrate_sqlite(db, table_type, table_name)
-        elif db_type == "SingleStoreDb":
+        elif db_type in _SINGLESTORE_DB_TYPES:
             return _migrate_singlestore(db, table_type, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations (NoSQL/document store)")
@@ -87,9 +92,9 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     try:
         if not supports(table_type, db_type):
             return False
-        if db_type == "AsyncPostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return await _migrate_async_postgres(db, table_type, table_name)
-        elif db_type == "AsyncSqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return await _migrate_async_sqlite(db, table_type, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations (NoSQL/document store)")
@@ -115,13 +120,13 @@ def down(db: BaseDb, table_type: str, table_name: str) -> bool:
     try:
         if not supports(table_type, db_type):
             return False
-        if db_type == "PostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return _revert_postgres(db, table_type, table_name)
-        elif db_type == "MySQLDb":
+        elif db_type in _MYSQL_DB_TYPES:
             return _revert_mysql(db, table_type, table_name)
-        elif db_type == "SqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return _revert_sqlite(db, table_type, table_name)
-        elif db_type == "SingleStoreDb":
+        elif db_type in _SINGLESTORE_DB_TYPES:
             return _revert_singlestore(db, table_type, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")
@@ -147,9 +152,9 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
     try:
         if not supports(table_type, db_type):
             return False
-        if db_type == "AsyncPostgresDb":
+        if db_type in _POSTGRES_DB_TYPES:
             return await _revert_async_postgres(db, table_type, table_name)
-        elif db_type == "AsyncSqliteDb":
+        elif db_type in _SQLITE_DB_TYPES:
             return await _revert_async_sqlite(db, table_type, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")
