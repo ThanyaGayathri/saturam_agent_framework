@@ -10,15 +10,21 @@ not drive them all.
 The providers are deliberately not variations of one class:
 
 * ``co_located`` -- composing both substrate ports, and each port alone.
+* ``external`` -- Mode B (SM-X2 #138): the identical two ports, ``mode=FRONTIER``, registered
+  under its own ``config.provider`` key so a tenant's Mode A/B switch (SM-C5 #93) actually selects
+  an adapter (see ``adapters.external``'s module docstring for why it is a thin subclass rather
+  than a second composition).
 * ``seed`` -- an entirely different internal shape: no substrates at all, delegating to
   ``MemoryManager`` and the ``learn`` stores.
 
 **What this does not prove**, stated here so it is not read as more than it is: no provider here
-crosses a network, loads an SDK, or incurs real latency, and there is no Mode B adapter -- writing
-one against substrates that do not exist would prove only that a class can be subclassed. ADR 0003
-section 5 asks SM-C1 to re-prove config-only swap against a **real** external backend; no such
-backend exists yet (SM-V1 #95, SM-G1 #99), so both the adapter and that re-proof are
-**SM-X2's (#138)**. This establishes seam shape, and no more.
+crosses a network, loads an SDK, or incurs real latency -- every config below, ``external``
+included, is still built over ``FakeVector``/``FakeGraph``. This file's job is seam *shape*: one
+consumer function, unmodified, driving every registered adapter and every wiring. ADR 0003 section
+5 also asks for config-only swap to be re-proved against a **real** external backend, over a real
+network, with real latency and real partial-failure behaviour -- that re-proof is
+``tests/integration/memory/test_mode_b.py`` (SM-X2 #138), the direct sibling of Mode A's own
+``test_mode_a.py`` (SM-X1 #137). This file establishes seam shape, and no more.
 """
 
 from typing import Any, Dict, List
@@ -137,8 +143,24 @@ def graph_only_config() -> MemoryProviderConfig:
     )
 
 
+def external_config() -> MemoryProviderConfig:
+    """Mode B: the ``external`` adapter (SM-X2 #138), ``mode=FRONTIER``, both ports wired.
+
+    Still doubles at this layer -- see the module docstring for why, and
+    ``tests/integration/memory/test_mode_b.py`` for the real-backend re-proof. What this entry buys
+    by sitting in ``ALL_CONFIGS`` is every invariant below run against a *second*, differently-keyed
+    adapter for free, the same way ``mode_a`` already runs them against ``co_located``.
+    """
+    return MemoryProviderConfig(
+        provider="external",
+        mode=ProviderMode.FRONTIER,
+        options={"vector_substrate": FakeVector(), "graph_substrate": FakeGraph()},
+    )
+
+
 ALL_CONFIGS = {
     "mode_a": mode_a_config,
+    "external": external_config,
     "seed": seed_config,
     "vector_only": vector_only_config,
     "graph_only": graph_only_config,
@@ -186,25 +208,54 @@ def test_the_seed_provider_is_a_genuinely_different_shape():
     assert all(build_memory_provider(mode_a_config()).substrates().values())
 
 
-def test_the_mode_is_carried_and_selects_no_adapter():
-    """``FRONTIER`` is accepted and reaches the adapter; no *adapter* branches on it.
+def test_the_mode_is_carried_and_the_external_adapter_selects_on_it():
+    """``FRONTIER`` is accepted, and ``provider="external"`` (SM-X2 #138) is the adapter it now
+    reaches -- superseding this test's own former claim that no adapter branched on it yet.
 
-    Since SM-V2 (#96) a **backend** does: the vector store picks its embedder per mode and refuses a
-    remote one under Mode A. What stays true is that the provider and its consumers are identical
-    either way -- the mode changes what gets built beneath the seam, never the seam.
-
-    The Mode B *adapter* is still SM-X2's (#138).
+    Since SM-V2 (#96) a **backend** already picked its embedder per mode and refused a remote one
+    under Mode A; what SM-X2 adds is a *seam-level* selector, so a tenant's Mode A/B switch
+    (SM-C5 #93) can name ``provider="external"`` and not only a ``mode`` that used to select
+    nothing. The consumer-visible contract stays identical either way -- that is the point of the
+    swap proof this test still belongs to.
     """
     frontier = build_memory_provider(
         MemoryProviderConfig(
-            provider="co_located",
+            provider="external",
             mode=ProviderMode.FRONTIER,
             options={"vector_substrate": FakeVector(), "graph_substrate": FakeGraph()},
         )
     )
 
     assert frontier.config.mode is ProviderMode.FRONTIER
+    assert frontier.provider_key == "external"
     assert consumer_workload(frontier, ACME) == consumer_workload(build_memory_provider(mode_a_config()), ACME)
+
+
+def test_external_under_mode_local_is_refused():
+    """Mode B is ``FRONTIER`` by definition (SPEC deviation D1) -- naming ``provider="external"``
+    under ``mode=LOCAL`` gives one config two disagreeing answers to "which mode am I in", and is
+    refused at construction rather than silently building an air-gapped "external" provider."""
+    with pytest.raises(MemoryProviderConfigError, match="FRONTIER"):
+        build_memory_provider(
+            MemoryProviderConfig(
+                provider="external",
+                mode=ProviderMode.LOCAL,
+                options={"vector_substrate": FakeVector(), "graph_substrate": FakeGraph()},
+            )
+        )
+
+
+def test_external_stamps_deployment_on_the_fusion_diagnostics():
+    """The one observable difference the adapter itself adds, per its own docstring: a caller can
+    tell which side of the seam a read answered from without branching on ``type(provider)``."""
+    frontier = build_memory_provider(external_config())
+    local = build_memory_provider(mode_a_config())
+
+    frontier_slice = frontier.read(ACME, MemoryQuery(text="", tiers=[MemoryTier.SEMANTIC]))
+    local_slice = local.read(ACME, MemoryQuery(text="", tiers=[MemoryTier.SEMANTIC]))
+
+    assert frontier_slice.fusion["deployment"] == "external"
+    assert "deployment" not in local_slice.fusion
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +276,7 @@ def test_every_in_tree_adapter_is_reachable_by_config():
     """Registration is the swap mechanism; an unregistered adapter is unreachable from config."""
     from egpt.memory.config import registered_providers
 
-    assert {"co_located", "seed"} <= set(registered_providers())
+    assert {"co_located", "external", "seed"} <= set(registered_providers())
 
 
 # ---------------------------------------------------------------------------

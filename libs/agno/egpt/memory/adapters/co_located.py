@@ -89,6 +89,7 @@ from egpt.memory.tiers import (
     substrates_for_tier,
 )
 from egpt.memory.types import (
+    FUSION_KEYS,
     NO_ENTITIES,
     NO_PROFILE,
     NO_REFLECTION,
@@ -177,7 +178,7 @@ def _unpack_reflection_result(result: Any) -> Tuple[Any, "ReflectionCommit"]:
     return result[0], result[1]
 
 
-__all__ = ["CoLocatedMemoryProvider"]
+__all__ = ["CoLocatedMemoryProvider", "build_co_located_kwargs"]
 
 #: Jaccard threshold above which two episodes are treated as the same thing.
 #: Deterministic and crude on purpose; real extraction is SM-L3's (#124). What punctuation-only
@@ -1199,6 +1200,31 @@ class CoLocatedMemoryProvider(MemoryProvider):
         `query.limit` truncation), so a rerank-narrowed pool is one more instance of an already-
         acknowledged gap, not a new one.
         """
+        # `fusion_diagnostics` is called with two extras dicts double-splatted alongside eleven
+        # literal keywords (`instant` plus every `FUSION_KEYS` entry) below -- a key any of the
+        # three shares with either of the other two raises a bare `TypeError: got multiple values
+        # for keyword argument` at the call site, before `fusion_diagnostics`'s own `**extra`/
+        # `.update()` handling in its body ever runs, so nothing there can rescue a collision that
+        # happens here. Checked up front so a colliding key names itself in a
+        # `MemoryOperationError` instead (round-4 review finding).
+        fusion_extra = self._fusion_extra()
+        reserved = frozenset(FUSION_KEYS) | {"instant"}
+        for label, extra in (("rerank_diagnostics", rerank_diagnostics), ("_fusion_extra()", fusion_extra)):
+            collision = reserved & extra.keys()
+            if collision:
+                raise MemoryOperationError(
+                    f"{label} used reserved fusion key(s) {sorted(collision)}, which would collide "
+                    "with fusion_diagnostics's own floor and raise a bare TypeError building "
+                    f"MemorySlice.fusion. Rename the key(s) in {label}.",
+                    field_name="fusion",
+                )
+        cross_collision = rerank_diagnostics.keys() & fusion_extra.keys()
+        if cross_collision:
+            raise MemoryOperationError(
+                f"rerank_diagnostics and _fusion_extra() both define fusion key(s) "
+                f"{sorted(cross_collision)}. One must rename.",
+                field_name="fusion",
+            )
         # Both predicates, always. `is_current_belief` is transaction time only, and under SCD-2
         # the successor row carries a past `t_invalid` with `expired_at = None` -- so checking only
         # current belief let `read()` and `read(as_of=now)` disagree at the same instant.
@@ -1263,8 +1289,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 bounds_reconciled=bounds_reconciled,
                 instant=instant,
                 **rerank_diagnostics,
+                **fusion_extra,
             ),
         )
+
+    def _fusion_extra(self) -> Dict[str, Any]:
+        """Extra keys a subclass adds to ``MemorySlice.fusion``, beyond the :data:`FUSION_KEYS`
+        floor. Empty here -- ``adapters.external.ExternalMemoryProvider`` (Mode B, SM-X2 #138) is
+        the one adapter that overrides this, to stamp ``deployment: "external"`` so a diagnostic
+        can tell which side of the seam a slice came from without the caller branching on
+        ``type(provider)`` or ``config.mode``. ``fusion_diagnostics``'s own docstring names
+        ``deployment`` as exactly the kind of extra this floor-not-ceiling contract exists for.
+        """
+        return {}
 
     def _fusion_method(self) -> str:
         """The provider's fusion strategy, read from ``config.fusion`` (SM-H2 #132).
@@ -2562,14 +2599,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
 @register_provider("co_located")
 def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
-    """The only construction call site, for a real backend and an injected double alike.
+    """The only construction call site for Mode A, for a real backend and an injected double alike.
+
+    Delegates to :func:`build_co_located_kwargs`, the shared resolution ``adapters.external``
+    (Mode B, SM-X2 #138) reuses rather than duplicates -- Mode A and Mode B compose the identical
+    two ports through the identical registry path, so the two legs cannot diverge between them
+    either.
+    """
+    return CoLocatedMemoryProvider(**build_co_located_kwargs(config))
+
+
+def build_co_located_kwargs(config: MemoryProviderConfig) -> Dict[str, Any]:
+    """Resolve ``config`` into the keyword arguments :class:`CoLocatedMemoryProvider` (or a
+    subclass, e.g. ``adapters.external.ExternalMemoryProvider``) takes.
 
     Both ``config.vector`` and ``config.graph`` resolve through ``egpt.registry.discovery.construct``
     -- ``vectorstore`` for one (SM-V1 #95) and ``graphdb`` for the other (SM-G1 #99) -- along the
     identical path, so the two legs cannot diverge. ``options`` keeps carrying an already-built
     substrate, which is how a test injects a double.
     """
-    return CoLocatedMemoryProvider(
+    return dict(
         # A `vectorstore` rather than a `vectordb`: the latter's backends answer `VectorDb`, whose
         # async methods carry the `async_` prefix rather than this seam's `a`, and which knows
         # nothing of a scope or a tier.
