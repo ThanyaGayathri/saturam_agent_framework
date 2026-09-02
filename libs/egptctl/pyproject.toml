@@ -1,6 +1,6 @@
 [project]
 name = "egptctl"
-version = "0.1.0"
+version = "0.2.0"
 description = "The EGPT CLI: connect and operate EgptOS from the terminal, built for humans and coding agents"
 requires-python = ">=3.9,<4"
 readme = "README.md"
