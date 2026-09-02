@@ -1490,6 +1490,26 @@ def test_the_fusion_payload_carries_every_contract_key():
     assert set(FUSION_KEYS) <= set(p.read(ACME, MemoryQuery(text="alpha")).fusion)
 
 
+def test_a_colliding_fusion_extra_key_raises_a_named_error_not_a_bare_typeerror():
+    """Round-4 review, PR #180: `_fusion_extra` is a public extension point
+    (`adapters.external.ExternalMemoryProvider` is one such override) and nothing enforced that an
+    override's key must avoid `FUSION_KEYS`/`instant` -- a collision reached `fusion_diagnostics`'s
+    own double-splat call site as a bare `TypeError: got multiple values for keyword argument`,
+    which the function's own safe `**extra`/`.update()` handling never gets a chance to rescue,
+    since Python resolves keyword arguments into one frame before the callee runs."""
+
+    class CollidingProvider(CoLocatedMemoryProvider):
+        def _fusion_extra(self):
+            return {"vector_hits": -1}
+
+    vector, graph = FakeVector(), FakeGraph()
+    p = CollidingProvider(vector=vector, graph=graph, config=MemoryProviderConfig(provider="co_located"))
+    p.write(ACME, [event("alpha")])
+
+    with pytest.raises(MemoryOperationError, match="vector_hits"):
+        p.read(ACME, MemoryQuery(text="alpha"))
+
+
 def test_a_wired_hybrid_store_reports_a_nonzero_lexical_hits_count():
     """`test_the_fusion_payload_carries_every_contract_key` uses a plain `FakeVector`, so it can
     only ever see `lexical_hits=0` -- that a wired `HybridSearchSubstrate` actually populates the

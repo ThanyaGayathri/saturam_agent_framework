@@ -109,6 +109,17 @@ copied, so a template that skipped the guard would teach the one shape those doc
 Output is unchanged by it, which is the point: the guard fires on scopes a caller should never
 have built, and this file builds none of them.
 
+**Re-run for SM-X2 (#138, PR #180):** the note under `11_memory_tiers.py` below records that this
+file's local `InMemoryGraph` double had drifted behind `GraphSubstrate` -- missing
+`upsert_entities`/`aupsert_entities`, `match_entities`/`amatch_entities`, `merge_entities`/
+`amerge_entities`, and `recall_facts`/`arecall_facts`, added by already-merged sibling tickets
+(SM-G2, SM-G8, SM-G7) -- and Mode A failed with `TypeError: config.options['graph_substrate'] is a
+InMemoryGraph, which does not satisfy GraphSubstrate` before Mode B was ever reached. Fixed here by
+bringing the double's method set up to the current port (toy implementations: exact-key entity
+matching, canonical-folds-duplicates merging, and the same entity/relation/valid-time filter shape
+`recall_episodes` already used, applied to the `(:Entity)-[:REL]->(:Entity)` fact shape). Re-run
+confirms both Mode A and Mode B blocks now produce the identical output recorded above.
+
 ---
 
 ### 10_graph_substrate_neo4j.py

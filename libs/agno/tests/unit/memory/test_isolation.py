@@ -29,8 +29,12 @@ seam, which the per-substrate suites cannot exercise.
 
 **What this deliberately does not build:**
 
-* A live-backend rerun of the same sweep is SM-X2's (#138), which owns proving config-only swap
-  (and by extension this suite) against a real Mode B backend; no such backend exists yet.
+* A live-backend rerun of the **full** attack sweep this file runs. SM-X2 (#138) shipped the Mode
+  B adapter and proved config-only swap against real pgvector + Neo4j
+  (``tests/integration/memory/test_mode_b.py``), including a basic two-tenant isolation check
+  (``test_tenant_isolation_holds_on_real_engines``, the Mode B twin of ``test_mode_a.py``'s
+  identical property) -- but not this file's full every-verb, both-directions, sync-and-async
+  attack matrix. Replaying that whole matrix against a live Mode B backend is still unowned.
 * The ``HybridSearchSubstrate`` leg (``search_candidates``/``asearch_candidates``, backed by
   ``FakeHybridVector`` in ``_fakes.py`` and read by ``pgvector.py`` and the retrieval
   orchestrator) is outside this file's config matrix entirely -- wiring a ``hybrid`` wiring in

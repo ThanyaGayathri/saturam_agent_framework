@@ -194,6 +194,14 @@ weaviate = ["weaviate-client"]
 # Dependencies for Knowledge
 chonkie = [
     "chonkie[semantic,code]>=1.6.7",
+    # tree-sitter-language-pack 1.16.1 (2026-09-01) changed `process()`'s return type from an
+    # object exposing `.chunks` to a plain dict (`ProcessResult` became a `TypedDict`), which
+    # chonkie 1.7.0's `CodeChunker._process_code` (`return result.chunks`) does not handle --
+    # every `CodeChunking` call raises `AttributeError: 'dict' object has no attribute 'chunks'`,
+    # or `ValueError: Could not auto-detect the language` for `language="auto"`. Pinned below the
+    # break until a chonkie release adapts to the new return shape; confirmed 1.15.8 still returns
+    # the pre-change shape.
+    "tree-sitter-language-pack<1.16.0",
 ]
 csv = ["aiofiles"]
 docx = ["python-docx"]
