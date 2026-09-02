@@ -164,6 +164,15 @@ class InMemoryHybridVector:
         require_scope(scope, method="ascan")
         return self.scan(scope, tier, limit, after)
 
+    def get_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="get_record")
+        row = self._bucket(scope).get(id)
+        return replace(row) if row is not None and scoped(row.scope, scope) else None
+
+    async def aget_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="aget_record")
+        return self.get_record(scope, id)
+
 
 class InMemoryGraph:
     """`09`'s `InMemoryGraph`, trimmed to the read-path methods this demo needs."""

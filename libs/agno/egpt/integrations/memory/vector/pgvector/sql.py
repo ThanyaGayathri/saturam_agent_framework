@@ -657,6 +657,32 @@ def scan_statement(
     return statement, binds
 
 
+def get_record_statement(schema: str, table: str, scope: Scope, id: str) -> Tuple[str, Dict[str, Any]]:
+    """A single row by id, within ``scope`` -- the real point lookup ``VectorSubstrate.get_record``
+    promises (aicoe-tracker #198), not ``scan`` filtered client-side.
+
+    Built from :func:`scope_predicate` like every other row-reading statement here, plus ``id``
+    as an ordinary bound predicate -- never interpolated, for the same injection reason every
+    other scope value travels as a bind. No ``LIMIT``/``ORDER BY``: ``id`` is the dedup key
+    :func:`upsert_statement` replaces by, unique per tenant partition, so at most one row can
+    match.
+
+    **No current-belief filter, matching** :func:`scan_statement`, **not** :func:`search_statement`.
+    This is a lookup by identity, not a ranked read -- the port states the current-belief predicate
+    for ranked reads only, and a caller that already knows the id it wants (e.g. a profile row
+    :meth:`~egpt.memory.semantic.profile.SemanticProfileStore.get` reads back by its deterministic
+    id) is entitled to see the row it wrote, expired or not, the same way ``scan`` returns it.
+    """
+    predicate, binds = scope_predicate(scope)
+    statement = (
+        f"SELECT {_READ_COLUMNS}, NULL::float8 AS distance "
+        f"FROM {qualified(schema, table)} "
+        f"WHERE {predicate} AND id = :id"
+    )
+    binds["id"] = id
+    return statement, binds
+
+
 def ef_search_statement(ef_search: int) -> str:
     """``SET LOCAL hnsw.ef_search``, interpolated as a validated literal.
 

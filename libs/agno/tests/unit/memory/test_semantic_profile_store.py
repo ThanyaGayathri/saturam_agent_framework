@@ -229,35 +229,34 @@ def test_get_ignores_a_same_id_row_carrying_the_wrong_record_kind():
     assert s.get(ACME) is None
 
 
-def test_get_finds_a_profile_beyond_the_first_scan_page():
-    """`get`/`aget` paginate in `_SCAN_BATCH_SIZE`-row batches (QC round 3, PR #135) rather than
-    one unbounded scan -- this forces the profile row into the *second* page and proves the loop
-    actually continues past a full first page instead of stopping at it."""
+def test_get_finds_a_profile_alongside_unrelated_semantic_tier_rows():
+    """`get`/`aget` read via `VectorSubstrate.get_record` (aicoe-tracker #198), a point lookup by
+    id -- unlike the paginated scan it replaced, this needs no particular row count or sort order
+    to find the profile row; it proves the lookup is not accidentally dependent on the other rows
+    a tenant's SEMANTIC tier happens to hold (SM-S1 #118 facts share the tier)."""
     s, vector = store()
-    # 200 filler rows sorting (by id, tied on created_at=None/0) before "user_profile/...",
-    # matching `_SCAN_BATCH_SIZE`'s default of 200 exactly, so page one is entirely fillers.
-    fillers = [
-        MemoryRecord(id=f"aaa{i:04d}", tier=MemoryTier.SEMANTIC, content="filler", scope=ACME) for i in range(200)
-    ]
-    vector.upsert(ACME, fillers)
+    others = [MemoryRecord(id=f"fact-{i}", tier=MemoryTier.SEMANTIC, content="unrelated", scope=ACME) for i in range(5)]
+    vector.upsert(ACME, others)
     s.write(ACME, UserProfile(user_id="ada", name="Ada"))
 
     got = s.get(ACME)
     assert got is not None
     assert got.name == "Ada"
+    assert "get_record" in vector.calls
+    assert "scan" not in vector.calls
 
 
-async def test_aget_finds_a_profile_beyond_the_first_scan_page():
+async def test_aget_finds_a_profile_alongside_unrelated_semantic_tier_rows():
     s, vector = store()
-    fillers = [
-        MemoryRecord(id=f"aaa{i:04d}", tier=MemoryTier.SEMANTIC, content="filler", scope=ACME) for i in range(200)
-    ]
-    await vector.aupsert(ACME, fillers)
+    others = [MemoryRecord(id=f"fact-{i}", tier=MemoryTier.SEMANTIC, content="unrelated", scope=ACME) for i in range(5)]
+    await vector.aupsert(ACME, others)
     await s.awrite(ACME, UserProfile(user_id="ada", name="Ada"))
 
     got = await s.aget(ACME)
     assert got is not None
     assert got.name == "Ada"
+    assert "aget_record" in vector.calls
+    assert "ascan" not in vector.calls
 
 
 def test_get_logs_a_warning_when_a_matched_row_fails_to_parse(caplog):

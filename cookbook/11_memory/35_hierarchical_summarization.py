@@ -140,6 +140,19 @@ class InMemoryVector:
         require_scope(scope, method="ascan")
         return self.scan(scope, tier, limit, after)
 
+    def get_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="get_record")
+        row = self._bucket(scope).get(id)
+        return (
+            replace(row)
+            if row is not None and _scope_matches(row.scope, scope)
+            else None
+        )
+
+    async def aget_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="aget_record")
+        return self.get_record(scope, id)
+
 
 # ---------------------------------------------------------------------------
 # 1. Wire a SummaryPipeline into a provider, with a short day period so this

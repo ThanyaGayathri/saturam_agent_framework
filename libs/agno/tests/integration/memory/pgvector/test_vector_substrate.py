@@ -216,6 +216,46 @@ def test_the_limit_is_applied_by_the_backend(any_store):
     assert len(any_store.search(ACME, MemoryQuery(text="cat", limit=2))) == 2
 
 
+# -- get_record: a real point lookup, not a scan (aicoe-tracker #198) ---------
+
+
+def test_get_record_returns_the_one_matching_row_among_others(any_store):
+    """The behavioural proof the port promises: a caller that knows the id it wants gets exactly
+    that row back, whether or not anything else shares the tier -- it does not need to scan."""
+    any_store.upsert(ACME, [record(f"e{index}", f"filler {index}") for index in range(5)])
+    any_store.upsert(ACME, [record("target", "the one I want")])
+
+    got = any_store.get_record(ACME, "target")
+
+    assert got is not None
+    assert got.id == "target"
+    assert got.content == "the one I want"
+
+
+def test_get_record_returns_none_for_an_id_never_written(any_store):
+    any_store.upsert(ACME, [record("e1", "the cat sat on the mat")])
+    assert any_store.get_record(ACME, "never-written") is None
+
+
+def test_get_record_cannot_reach_another_tenants_row(any_store):
+    any_store.upsert(GLOBEX, [record("e1", "the cat sat on the mat", scope=GLOBEX)])
+    assert any_store.get_record(ACME, "e1") is None
+
+
+def test_get_record_cannot_reach_another_users_row_inside_one_tenant(any_store):
+    any_store.upsert(ACME_BOB, [record("e1", "the cat sat on the mat", scope=ACME_BOB)])
+    assert any_store.get_record(ACME, "e1") is None
+
+
+def test_get_record_finds_a_row_in_any_tier_with_no_tier_argument(any_store):
+    """``id`` is the dedup key across a tenant's whole corpus, not per-tier -- the port takes no
+    ``tier`` parameter, matching what ``upsert`` already keys by."""
+    any_store.upsert(ACME, [record("s1", "a semantic fact", tier=MemoryTier.SEMANTIC)])
+    got = any_store.get_record(ACME, "s1")
+    assert got is not None
+    assert got.tier is MemoryTier.SEMANTIC
+
+
 def test_the_substrate_satisfies_the_port(store):
     assert isinstance(store, VectorSubstrate)
 
@@ -406,6 +446,14 @@ async def test_both_halves_return_the_same_records(async_store):
     assert [row for row in await async_store.ascan(ACME, MemoryTier.EPISODIC)] == async_store.scan(
         ACME, MemoryTier.EPISODIC
     )
+
+
+async def test_aget_record_mirrors_the_sync_half(async_store):
+    await async_store.aupsert(ACME, [record("e1", "the cat sat on the mat")])
+    got = await async_store.aget_record(ACME, "e1")
+    assert got is not None
+    assert got == async_store.get_record(ACME, "e1")
+    assert await async_store.aget_record(ACME, "never-written") is None
 
 
 async def test_the_async_half_scopes_exactly_as_the_sync_half_does(async_store):

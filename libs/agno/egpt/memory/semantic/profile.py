@@ -13,15 +13,14 @@ and write already gets (SM-C4) rather than from an unguessable id.
 There is exactly one row per user: :func:`profile_record_id` derives a deterministic id from
 ``scope.user_id``, and a write replaces it in place (``VectorSubstrate.upsert`` is upsert-by-id).
 Unlike :class:`~egpt.memory.semantic.facts.SemanticFactStore`, there is no graph leg -- a profile
-is a flat set of fields, not a triple or a node with edges. Neither substrate port offers "get by
-id" (only ``search``/``scan``), so :meth:`SemanticProfileStore.get` reads it back through
-``scan`` filtered to that one id -- an **O(N) walk of the scope's whole SEMANTIC tier**, which
-also holds every ordinary fact (SM-S1 #118). ``scope.user_id`` narrows *which tenant/user bucket*
-is scanned, not how many rows within it are read; a user with many accumulated facts pays this
-scan on every consolidation pass. A true point lookup needs a
-``VectorSubstrate.get_record(scope, id)`` port method that does not exist yet -- tracked as
-aicoe-tracker #198, not built here: it is a substrate-port change with implications for every
-other caller of this seam, a decision this ticket does not own.
+is a flat set of fields, not a triple or a node with edges. :meth:`SemanticProfileStore.get` reads
+it back through :meth:`~egpt.memory.substrates.VectorSubstrate.get_record` (aicoe-tracker #198),
+a real point lookup rather than a client-side filter over an enumeration -- SM-S3 (#120) originally
+shipped this as a paginated ``scan`` filtered to one id, an O(N) walk of the scope's whole
+SEMANTIC tier (which also holds every ordinary fact, SM-S1 #118) that paid its full row count on
+every consolidation pass, since a profile is read on every one (PR #135 round 3 review). ``#198``
+closed that: the substrate-port change was scoped as its own ticket rather than folded in here,
+since it has implications for every other caller of this seam, not only this one.
 
 **Every profile read/write operates on a scope narrowed to ``(tenant_id, user_id)`` only**
 (:func:`_profile_scope`), regardless of what ``agent_id``/``team_id``/``session_id`` the caller's
@@ -49,23 +48,14 @@ from egpt.memory.types import (
     escape_key_slot,
     require_scope,
 )
-from egpt.utils.log import log_debug, log_warning
+from egpt.utils.log import log_warning
 
 __all__ = ["SemanticProfileStore", "profile_record_id"]
 
-#: Marks a vector row as this store's, so a scan over the SEMANTIC tier -- which also holds
-#: ordinary facts (SM-S1 #118) -- can tell the two apart without guessing from the id shape alone.
+#: Marks a vector row as this store's, so a lookup that lands on the right id but a foreign
+#: scope's row shaped like a profile (or vice versa) can still be told apart without guessing
+#: from the id shape alone (QC round 2, PR #135).
 _RECORD_KIND = "user_profile"
-
-#: Above this many scanned rows, :meth:`SemanticProfileStore.get`/:meth:`aget` log rather than
-#: stay silent -- an interim signal for the O(N) cost this module's docstring already names,
-#: cheap enough to carry until aicoe-tracker #198 lands a real point lookup.
-_SCAN_WARNING_THRESHOLD = 500
-
-#: Page size for :meth:`SemanticProfileStore.get`/:meth:`aget`'s paginated scan. Still O(N) round
-#: trips over the tier in the worst case (no point-lookup port method exists -- #198), but bounds
-#: peak memory to one page rather than the whole tier, which an unbounded ``scan()`` call did not.
-_SCAN_BATCH_SIZE = 200
 
 
 def _profile_scope(scope: Scope) -> Scope:
@@ -184,10 +174,9 @@ class SemanticProfileStore:
         caller (see :meth:`get`'s docstring); a corrupted row is not, on its own, grounds to raise
         out of a read path every consolidation pass depends on. ``get``/``aget`` staying silent
         does not mean *nothing* stays silent, though: a mismatched-schema or corrupted row is a
-        data problem, not routine cache-miss volume, so it logs at ``warning`` rather than the
-        scan-count log's ``debug`` just below (QC round 4, PR #135) -- loud enough that an
-        operator watching normal logs sees it, without changing the return contract every existing
-        caller (including this store's own tests) already relies on.
+        data problem, not routine cache-miss volume, so it logs at ``warning`` (QC round 4, PR
+        #135) -- loud enough that an operator watching normal logs sees it, without changing the
+        return contract every existing caller (including this store's own tests) already relies on.
         """
         parsed = from_dict_safe(self.schema, record.metadata.get("profile"))
         if parsed is None:
@@ -201,31 +190,28 @@ class SemanticProfileStore:
     def get(self, scope: Scope) -> Optional[Any]:
         """The user's profile, or ``None`` when unwired, never written, or unparseable.
 
-        Paginated in ``_SCAN_BATCH_SIZE``-row batches rather than one unbounded
-        ``vector.scan`` call: still O(N) in the scope's SEMANTIC-tier row count (there is no
-        point-lookup port method -- see the module docstring, aicoe-tracker #198), but this
-        bounds *peak memory* to one batch instead of the whole tier, and a batch smaller than
-        the page size is how the loop knows the tier is exhausted without a second round trip.
+        A real point lookup (:meth:`~egpt.memory.substrates.VectorSubstrate.get_record`,
+        aicoe-tracker #198) rather than a scan -- see the module docstring for the O(N) cost this
+        replaced. The ``record_kind`` check still runs after the lookup returns: the deterministic
+        id alone cannot rule out a foreign-scope row that happens to collide on it (QC round 2,
+        PR #135), and ``get_record`` answers by id within the given scope, not by content.
+
+        No longer tier-scoped the way the removed ``scan(..., MemoryTier.SEMANTIC, ...)`` loop
+        was -- ``get_record`` takes no ``tier`` (correct for a point-lookup port: ``id`` is the
+        dedup key across a scope's whole corpus, not per-tier), so a profile-id row planted
+        outside ``SEMANTIC`` would now resolve where it previously returned ``None``. Benign in
+        practice: :meth:`_record` only ever writes ``MemoryTier.SEMANTIC``, so this store never
+        produces such a row itself, and :data:`_RECORD_KIND` remains as the second guard against
+        anything that did (round-2 review, PR #175).
         """
         require_scope(scope, method="get")
         if self.vector is None:
             return None
         narrowed = _profile_scope(scope)
-        record_id = profile_record_id(narrowed)
-        after: Optional[Any] = None
-        scanned = 0
-        while True:
-            batch = self.vector.scan(narrowed, MemoryTier.SEMANTIC, limit=_SCAN_BATCH_SIZE, after=after)
-            scanned += len(batch)
-            for record in batch:
-                if record.id == record_id and record.metadata.get("record_kind") == _RECORD_KIND:
-                    self._warn_if_large_scan("get", narrowed, scanned)
-                    return self._parse(narrowed, record)
-            if len(batch) < _SCAN_BATCH_SIZE:
-                break
-            after = (batch[-1].created_at or 0, batch[-1].id)
-        self._warn_if_large_scan("get", narrowed, scanned)
-        return None
+        record = self.vector.get_record(narrowed, profile_record_id(narrowed))
+        if record is None or record.metadata.get("record_kind") != _RECORD_KIND:
+            return None
+        return self._parse(narrowed, record)
 
     async def aget(self, scope: Scope) -> Optional[Any]:
         """Async twin of :meth:`get`, making the same decisions."""
@@ -233,26 +219,7 @@ class SemanticProfileStore:
         if self.vector is None:
             return None
         narrowed = _profile_scope(scope)
-        record_id = profile_record_id(narrowed)
-        after: Optional[Any] = None
-        scanned = 0
-        while True:
-            batch = await self.vector.ascan(narrowed, MemoryTier.SEMANTIC, limit=_SCAN_BATCH_SIZE, after=after)
-            scanned += len(batch)
-            for record in batch:
-                if record.id == record_id and record.metadata.get("record_kind") == _RECORD_KIND:
-                    self._warn_if_large_scan("aget", narrowed, scanned)
-                    return self._parse(narrowed, record)
-            if len(batch) < _SCAN_BATCH_SIZE:
-                break
-            after = (batch[-1].created_at or 0, batch[-1].id)
-        self._warn_if_large_scan("aget", narrowed, scanned)
-        return None
-
-    @staticmethod
-    def _warn_if_large_scan(method: str, narrowed: Scope, scanned: int) -> None:
-        if scanned > _SCAN_WARNING_THRESHOLD:
-            log_debug(
-                f"SemanticProfileStore.{method}: scanned {scanned} SEMANTIC-tier rows for one "
-                f"profile lookup (user_id={narrowed.user_id}); see aicoe-tracker #198."
-            )
+        record = await self.vector.aget_record(narrowed, profile_record_id(narrowed))
+        if record is None or record.metadata.get("record_kind") != _RECORD_KIND:
+            return None
+        return self._parse(narrowed, record)

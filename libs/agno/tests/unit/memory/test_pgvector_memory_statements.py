@@ -54,6 +54,7 @@ def row_reading_statements(scope):
         "lexical_search_windowed": sql.lexical_search_statement("ai", "memory_vectors", scope, "english", WINDOW)[0],
         "scan": sql.scan_statement("ai", "memory_vectors", scope, 10)[0],
         "scan_unlimited": sql.scan_statement("ai", "memory_vectors", scope, None)[0],
+        "get_record": sql.get_record_statement("ai", "memory_vectors", scope, "e1")[0],
     }
 
 
@@ -68,6 +69,7 @@ def test_every_row_reading_builder_is_covered():
         "search_statement",
         "lexical_search_statement",
         "scan_statement",
+        "get_record_statement",
         "create_partition_statement",
         "upsert_statement",
         "ef_search_statement",
@@ -193,6 +195,32 @@ def test_an_unlimited_scan_emits_no_limit_clause_and_binds_no_limit():
     assert "limit" not in binds
     statement, binds = sql.scan_statement("ai", "memory_vectors", FULL, 0)
     assert binds["limit"] == 0
+
+
+def test_get_record_filters_on_a_bound_id_with_no_limit_or_ordering():
+    """A point lookup by id -- no ``LIMIT``/``ORDER BY``, since ``id`` is unique per tenant
+    partition and at most one row can match (aicoe-tracker #198)."""
+    statement, binds = sql.get_record_statement("ai", "memory_vectors", FULL, "e1")
+    assert "id = :id" in statement
+    assert binds["id"] == "e1"
+    assert "LIMIT" not in statement
+    assert "ORDER BY" not in statement
+
+
+def test_get_record_never_interpolates_the_id_into_the_statement_text():
+    """The id travels as a bind like every scope value does -- interpolating a caller-supplied id
+    would be an injection point regardless of whether today's ids happen to be safe."""
+    unmistakable_id = "zzrecordidzz"
+    statement, binds = sql.get_record_statement("ai", "memory_vectors", FULL, unmistakable_id)
+    assert unmistakable_id not in statement
+    assert binds["id"] == unmistakable_id
+
+
+def test_get_record_deliberately_does_not_filter_current_belief():
+    """Same asymmetry as ``scan`` -- a lookup by identity, not a ranked read, so a caller that
+    already knows the id it wants sees the row it wrote, expired or not."""
+    statement, _ = sql.get_record_statement("ai", "memory_vectors", FULL, "e1")
+    assert "expired_at IS NULL" not in statement
 
 
 def test_the_upsert_replaces_by_the_partition_key_and_the_id():
@@ -561,16 +589,24 @@ def test_the_text_search_config_probe_resolves_the_way_the_ddl_will():
     assert "CAST(:ts_config AS text)" in statement
 
 
-@pytest.mark.parametrize("builder", ["search_statement", "lexical_search_statement", "scan_statement"])
+@pytest.mark.parametrize(
+    "builder", ["search_statement", "lexical_search_statement", "scan_statement", "get_record_statement"]
+)
 def test_no_row_reading_statement_can_be_built_without_a_scope(builder):
     """SM-C4 (#92): a forgotten scope must error, never be read as "no predicate". Guarded inside
     ``scope_predicate`` -- which every row-reading statement here is built from -- so a statement
     added later inherits it without anyone remembering to."""
-    args = {"search_statement": ("ai", "v"), "lexical_search_statement": ("ai", "v"), "scan_statement": ("ai", "v")}
+    args = {
+        "search_statement": ("ai", "v"),
+        "lexical_search_statement": ("ai", "v"),
+        "scan_statement": ("ai", "v"),
+        "get_record_statement": ("ai", "v"),
+    }
     extra = {
         "search_statement": (None,),
         "lexical_search_statement": ("english", None),
         "scan_statement": (10,),
+        "get_record_statement": ("e1",),
     }[builder]
     with pytest.raises(MemoryScopeRequiredError):
         getattr(sql, builder)(*args[builder], None, *extra)

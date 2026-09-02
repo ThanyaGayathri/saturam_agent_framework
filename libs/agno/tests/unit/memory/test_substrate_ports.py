@@ -51,6 +51,10 @@ class CompleteVector:
         self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None, after: Optional[ScanCursor] = None
     ) -> List[MemoryRecord]: ...
 
+    def get_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]: ...
+
+    async def aget_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]: ...
+
 
 class CompleteGraph:
     """Structurally satisfies GraphSubstrate without inheriting from it."""
@@ -154,7 +158,9 @@ def test_a_complete_backend_satisfies_the_port_without_inheriting():
     assert isinstance(CompleteGraph(), GraphSubstrate)
 
 
-@pytest.mark.parametrize("missing", ["upsert", "aupsert", "search", "asearch", "scan", "ascan"])
+@pytest.mark.parametrize(
+    "missing", ["upsert", "aupsert", "search", "asearch", "scan", "ascan", "get_record", "aget_record"]
+)
 def test_a_vector_backend_missing_any_method_fails_the_port(missing):
     assert not isinstance(without(CompleteVector, missing)(), VectorSubstrate)
 
@@ -306,3 +312,57 @@ def test_the_double_scopes_on_every_slot_not_only_the_tenant():
 
     assert vector.search(bob, MemoryQuery(text="alice salary")) == []
     assert len(vector.search(alice, MemoryQuery(text="alice salary"))) == 1
+
+
+def test_get_record_cannot_reach_another_users_row_inside_one_tenant():
+    """`FakeVector.get_record` re-validates the full conjunctive scope after the id lookup, not
+    just the tenant bucket the row was found in -- deleting that re-validation leaves the rest of
+    the suite green (round-2 review, PR #175: the double's own tenant-keyed bucket alone cannot
+    answer this, since it keys on ``tenant_id`` only)."""
+    from tests.unit.memory._fakes import FakeVector
+
+    alice = Scope(tenant_id="acme", user_id="alice")
+    bob = Scope(tenant_id="acme", user_id="bob")
+    vector = FakeVector()
+    vector.upsert(alice, [MemoryRecord(id="a1", tier=MemoryTier.SEMANTIC, content="alice secret", scope=alice)])
+
+    assert vector.get_record(bob, "a1") is None
+    got = vector.get_record(alice, "a1")
+    assert got is not None
+    assert got.content == "alice secret"
+
+
+async def test_aget_record_cannot_reach_another_users_row_inside_one_tenant():
+    from tests.unit.memory._fakes import FakeVector
+
+    alice = Scope(tenant_id="acme", user_id="alice")
+    bob = Scope(tenant_id="acme", user_id="bob")
+    vector = FakeVector()
+    await vector.aupsert(alice, [MemoryRecord(id="a1", tier=MemoryTier.SEMANTIC, content="alice secret", scope=alice)])
+
+    assert await vector.aget_record(bob, "a1") is None
+    got = await vector.aget_record(alice, "a1")
+    assert got is not None
+    assert got.content == "alice secret"
+
+
+def test_get_record_visits_at_most_one_row_regardless_of_tenant_size():
+    """The ticket's central promise (aicoe-tracker #198) is a real point lookup, not a scan filtered
+    to one id -- ``assert "scan" not in vector.calls`` alone does not pin this, since a linear
+    ``get_record`` that walks ``_matching`` instead of calling ``scan`` would pass that check too
+    (round-2 review, PR #175). ``rows_visited`` is incremented only inside ``_matching`` (the path
+    ``search``/``scan`` take), so a `get_record` that stays O(1) never moves it, however large the
+    tenant bucket is."""
+    from tests.unit.memory._fakes import FakeVector
+
+    scope = Scope(tenant_id="acme", user_id="ada")
+    vector = FakeVector()
+    vector.upsert(
+        scope, [MemoryRecord(id=f"r{i}", tier=MemoryTier.SEMANTIC, content="filler", scope=scope) for i in range(500)]
+    )
+
+    before = vector.rows_visited
+    got = vector.get_record(scope, "r499")
+
+    assert got is not None
+    assert vector.rows_visited == before

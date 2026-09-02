@@ -463,6 +463,7 @@ def test_no_substrate_double_answers_an_unscoped_call(double, shape):
         "upsert": ([],),
         "search": (query,),
         "scan": (MemoryTier.SEMANTIC,),
+        "get_record": ("e1",),
         "upsert_episodes": ([],),
         "upsert_facts": ([],),
         "upsert_entities": ([],),

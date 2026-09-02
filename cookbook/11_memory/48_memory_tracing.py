@@ -132,6 +132,14 @@ class InMemoryVector:
         require_scope(scope, method="ascan")
         return self.scan(scope, tier, limit, after)
 
+    def get_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="get_record")
+        return self.rows.get(id)
+
+    async def aget_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="aget_record")
+        return self.get_record(scope, id)
+
 
 # ---------------------------------------------------------------------------
 # Tracing setup

@@ -1111,3 +1111,15 @@ class PgVectorMemorySubstrate:
         if call is None:
             return []
         return [self._record(row) for row in (await self._astatements([call]))[0]]
+
+    def get_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="get_record")
+        statement, binds = sql.get_record_statement(self.schema, self.table, scope, id)
+        rows = self._statements([(statement, binds)])[0]
+        return self._record(rows[0]) if rows else None
+
+    async def aget_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="aget_record")
+        statement, binds = sql.get_record_statement(self.schema, self.table, scope, id)
+        rows = (await self._astatements([(statement, binds)]))[0]
+        return self._record(rows[0]) if rows else None

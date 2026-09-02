@@ -172,13 +172,22 @@ class FakeVector:
         #: still returns the right rows on a corpus that happens to sit inside it, so only the
         #: request distinguishes filtering in-search from filtering afterwards.
         self.search_windows: List[Optional[ValidWindow]] = []
+        #: Rows read out of a tenant bucket by :meth:`_matching`, cumulative across every call.
+        #: :meth:`get_record` deliberately never routes through ``_matching`` -- it looks a row up
+        #: by id directly, an O(1) dict access -- so this counter is what makes that distinction
+        #: observable to a test: a `get_record` reimplemented as a linear scan-and-filter over
+        #: ``_matching`` (which would still satisfy the port and pass every other assertion) moves
+        #: this counter; the real point lookup does not (round-2 review, PR #175).
+        self.rows_visited = 0
 
     def _bucket(self, scope: Scope) -> Dict[str, MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, {})
 
     def _matching(self, scope: Scope) -> List[MemoryRecord]:
         """Rows this scope may see -- every set slot, not just the tenant."""
-        return [r for r in self._bucket(scope).values() if scoped(r.scope, scope)]
+        rows = list(self._bucket(scope).values())
+        self.rows_visited += len(rows)
+        return [r for r in rows if scoped(r.scope, scope)]
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
         require_scope(scope, method="upsert")
@@ -245,6 +254,24 @@ class FakeVector:
         await _yield()
         self.calls.append("ascan")
         return self.scan(scope, tier, limit, after)
+
+    def get_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="get_record")
+        self.calls.append("get_record")
+        row = self._bucket(scope).get(id)
+        # Re-validates the full conjunctive scope, not just the tenant bucket the row was found
+        # in -- a bare dict `.get()` would be *more* permissive than the real backend (whose
+        # `WHERE` clause carries every set slot), which is exactly backwards for a double that
+        # must be stricter than the loosest real one, not looser.
+        if row is None or not scoped(row.scope, scope):
+            return None
+        return replace(row)
+
+    async def aget_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        require_scope(scope, method="aget_record")
+        await _yield()
+        self.calls.append("aget_record")
+        return self.get_record(scope, id)
 
 
 class FakeHybridVector(FakeVector):

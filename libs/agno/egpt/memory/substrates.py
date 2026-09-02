@@ -195,6 +195,38 @@ class VectorSubstrate(Protocol):
         """Async variant of :meth:`scan`."""
         ...
 
+    def get_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        """A single record by id, or ``None`` -- a real point lookup, not ``scan`` filtered client-side.
+
+        A caller that already knows the one id it wants (:class:`~egpt.memory.semantic.profile.SemanticProfileStore`
+        is the motivating case, aicoe-tracker #198) had no way to ask for it directly: only
+        ``search`` (ranked, and an id is not a query) and ``scan`` (an O(N) walk of the whole tier
+        for a scope, since it enumerates rather than looks up). Filtering a scan client-side for
+        one id pays the tier's full row count on every call, and that cost is not rare -- it is
+        the *steady state* for a caller that reads one known row every time (SM-S3 #120, PR #135
+        round 3 review). A backend must answer this as an actual O(1)/O(log N) lookup -- by
+        primary key or an equivalent index -- not by scanning and comparing ids in Python; a
+        conforming implementation that just wrapped ``scan`` would satisfy this Protocol
+        structurally while defeating the entire reason it exists.
+
+        Applies the same conjunctive scope predicate as every other method here, id included in
+        the ``WHERE``, not checked after the fact: an id is a caller-supplied string with no
+        uniqueness guarantee *across* scopes (only :meth:`upsert`'s per-scope bucket makes it
+        unique within one), so a lookup that fetched by id alone and only then compared ``scope``
+        could momentarily reach a different tenant's row before rejecting it -- exactly the kind
+        of narrow window ``require_scope``-first exists to close everywhere else on this port.
+
+        Returns ``None`` for an id this scope has never written, or one that exists under a
+        *different* scope -- both read as "not found here", never as an error. Not tier-scoped:
+        ``id`` is the dedup key :meth:`upsert` replaces by, unique per scope across every tier, so
+        there is nothing for a ``tier`` parameter to disambiguate.
+        """
+        ...
+
+    async def aget_record(self, scope: Scope, id: str) -> Optional[MemoryRecord]:
+        """Async variant of :meth:`get_record`."""
+        ...
+
 
 @runtime_checkable
 class HybridSearchSubstrate(Protocol):
