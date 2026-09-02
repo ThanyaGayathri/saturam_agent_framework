@@ -89,6 +89,7 @@ from egpt.memory.tiers import (
     substrates_for_tier,
 )
 from egpt.memory.types import (
+    FUSION_KEYS,
     NO_ENTITIES,
     NO_PROFILE,
     NO_REFLECTION,
@@ -1199,6 +1200,31 @@ class CoLocatedMemoryProvider(MemoryProvider):
         `query.limit` truncation), so a rerank-narrowed pool is one more instance of an already-
         acknowledged gap, not a new one.
         """
+        # `fusion_diagnostics` is called with two extras dicts double-splatted alongside eleven
+        # literal keywords (`instant` plus every `FUSION_KEYS` entry) below -- a key any of the
+        # three shares with either of the other two raises a bare `TypeError: got multiple values
+        # for keyword argument` at the call site, before `fusion_diagnostics`'s own `**extra`/
+        # `.update()` handling in its body ever runs, so nothing there can rescue a collision that
+        # happens here. Checked up front so a colliding key names itself in a
+        # `MemoryOperationError` instead (round-4 review finding).
+        fusion_extra = self._fusion_extra()
+        reserved = frozenset(FUSION_KEYS) | {"instant"}
+        for label, extra in (("rerank_diagnostics", rerank_diagnostics), ("_fusion_extra()", fusion_extra)):
+            collision = reserved & extra.keys()
+            if collision:
+                raise MemoryOperationError(
+                    f"{label} used reserved fusion key(s) {sorted(collision)}, which would collide "
+                    "with fusion_diagnostics's own floor and raise a bare TypeError building "
+                    f"MemorySlice.fusion. Rename the key(s) in {label}.",
+                    field_name="fusion",
+                )
+        cross_collision = rerank_diagnostics.keys() & fusion_extra.keys()
+        if cross_collision:
+            raise MemoryOperationError(
+                f"rerank_diagnostics and _fusion_extra() both define fusion key(s) "
+                f"{sorted(cross_collision)}. One must rename.",
+                field_name="fusion",
+            )
         # Both predicates, always. `is_current_belief` is transaction time only, and under SCD-2
         # the successor row carries a past `t_invalid` with `expired_at = None` -- so checking only
         # current belief let `read()` and `read(as_of=now)` disagree at the same instant.
@@ -1263,7 +1289,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 bounds_reconciled=bounds_reconciled,
                 instant=instant,
                 **rerank_diagnostics,
-                **self._fusion_extra(),
+                **fusion_extra,
             ),
         )
 

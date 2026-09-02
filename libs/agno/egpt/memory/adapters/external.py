@@ -25,13 +25,19 @@ What *is* Mode B's own, and what this subclass adds:
   (SM-C5, #93) can select an adapter, not only a ``config.mode`` value that (until now) selected
   nothing (``test_provider_swap.py``'s former ``test_the_mode_is_carried_and_selects_no_adapter``,
   now ``test_the_mode_is_carried_and_the_external_adapter_selects_on_it``).
-* Refusing construction under ``mode=LOCAL``. Mode A and Mode B are ``ProviderMode.LOCAL`` and
-  ``.FRONTIER`` (SPEC deviation D1); a deployment that names ``provider="external"`` under
+* Refusing construction under ``mode=LOCAL`` **via the registry**, i.e. through
+  :func:`build_memory_provider`/``_build_external`` below -- the only call site anything in this
+  codebase uses to reach ``ExternalMemoryProvider``. Mode A and Mode B are ``ProviderMode.LOCAL``
+  and ``.FRONTIER`` (SPEC deviation D1); a deployment that names ``provider="external"`` under
   ``mode=LOCAL`` has two answers to "which mode am I in" that disagree, which is exactly the drift
   ``resolve_substrate``'s own ``config.{field}`` + ``mode`` duplicate-mode refusal already rejects
   one level down. Catching it here, at construction, names the actual mismatch instead of
   surfacing as a confusing air-gap refusal from deep inside ``resolve_substrate`` or the embedder
-  it resolves (SM-V2 #96's ``_reject_online_for_local``).
+  it resolves (SM-V2 #96's ``_reject_online_for_local``). The check lives in the factory, not in
+  ``ExternalMemoryProvider.__init__`` (inherited unmodified from ``CoLocatedMemoryProvider``, which
+  never reads ``config.mode``) -- a caller that constructs the class directly, bypassing the
+  factory, bypasses this refusal too, matching the existing ``CoLocatedMemoryProvider`` convention
+  of trusting the registry rather than the constructor to hold this invariant.
 * Stamping ``deployment: "external"`` into every ``MemorySlice.fusion`` payload, via
   :meth:`~egpt.memory.adapters.co_located.CoLocatedMemoryProvider._fusion_extra` -- the extension
   point that hook exists for, per ``fusion_diagnostics``'s own "a floor, not a ceiling" docstring.

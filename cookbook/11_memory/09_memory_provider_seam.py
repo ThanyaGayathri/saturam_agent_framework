@@ -27,6 +27,7 @@ from uuid import uuid4
 
 from egpt.memory import (
     SCOPE_SLOTS,
+    EntityWrite,
     FactWrite,
     MemoryEvent,
     MemoryProvider,
@@ -48,6 +49,8 @@ from egpt.memory.graph.episodic import (
     require_recall_limit,
     require_time_window,
 )
+from egpt.memory.graph.semantic import require_fact_filters
+from egpt.memory.types import EntityMerge
 from egpt.providers.model_provider import ProviderMode
 
 # ---------------------------------------------------------------------------
@@ -172,6 +175,10 @@ class InMemoryGraph:
 
     def __init__(self) -> None:
         self.rows: Dict[str, List[MemoryRecord]] = {}
+        # Entity nodes (SM-G2 #100), keyed by (tenant_id, name) -- separate from `self.rows`, which
+        # only ever holds episodes and facts, matching the port's own upsert_entities/upsert_facts
+        # split.
+        self.entities: Dict[Tuple[str, str], EntityWrite] = {}
 
     def _bucket(self, scope: Scope) -> List[MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, [])
@@ -236,6 +243,62 @@ class InMemoryGraph:
     async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
         require_scope(scope, method="aupsert_facts")
         self.upsert_facts(scope, facts)
+
+    def upsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        require_scope(scope, method="upsert_entities")
+        for entity in entities:
+            self.entities[(scope.tenant_id, entity.name)] = entity
+
+    async def aupsert_entities(
+        self, scope: Scope, entities: Sequence[EntityWrite]
+    ) -> None:
+        require_scope(scope, method="aupsert_entities")
+        self.upsert_entities(scope, entities)
+
+    def match_entities(
+        self,
+        scope: Scope,
+        candidate: EntityWrite,
+        limit: int = 5,
+        min_score: float = 0.92,
+    ) -> List[Tuple[EntityWrite, float]]:
+        # A toy stand-in for the real backend's two-lookup match (exact key, plus embedding
+        # similarity above `min_score`): this double only ever needs the exact-key leg, since
+        # nothing in `remember_and_recall` calls entity resolution. Scored 1.0, matching what the
+        # real backend scores an exact-key match.
+        require_scope(scope, method="match_entities")
+        matches = [
+            (entity, 1.0)
+            for (tenant_id, name), entity in self.entities.items()
+            if tenant_id == scope.tenant_id
+            and name != candidate.name
+            and entity.key == candidate.key
+        ]
+        matches.sort(key=lambda pair: pair[0].name)
+        return matches[:limit]
+
+    async def amatch_entities(
+        self,
+        scope: Scope,
+        candidate: EntityWrite,
+        limit: int = 5,
+        min_score: float = 0.92,
+    ) -> List[Tuple[EntityWrite, float]]:
+        require_scope(scope, method="amatch_entities")
+        return self.match_entities(scope, candidate, limit, min_score)
+
+    def merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        require_scope(scope, method="merge_entities")
+        for merge in merges:
+            self.entities[(scope.tenant_id, merge.canonical.name)] = merge.canonical
+            for name in merge.duplicate_names:
+                self.entities.pop((scope.tenant_id, name), None)
+
+    async def amerge_entities(
+        self, scope: Scope, merges: Sequence[EntityMerge]
+    ) -> None:
+        require_scope(scope, method="amerge_entities")
+        self.merge_entities(scope, merges)
 
     def traverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
@@ -325,6 +388,67 @@ class InMemoryGraph:
     ) -> List[MemoryRecord]:
         require_scope(scope, method="arecall_episodes")
         return self.recall_episodes(scope, entities, since, until, limit)
+
+    def recall_facts(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        relation: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        # `recall_episodes`'s twin for the semantic subgraph (SM-G7 #105): only rows a triple write
+        # marked with SPO (`provenance["subject"]`) -- the untripled `(:Fact)` shape this cookbook's
+        # `remember_and_recall` writes has none to filter on, matching what the real backend's
+        # edge-only query returns.
+        require_scope(scope, method="recall_facts")
+        require_fact_filters(entities, relation, since, until)
+        require_time_window(since, until)
+        require_recall_limit(limit)
+        wanted = None if entities is None else set(entities)
+        hits = []
+        for row in self._bucket(scope):
+            if (
+                row.tier is not MemoryTier.SEMANTIC
+                or not row.is_current_belief()
+                or not scoped(row.scope, scope)
+                or "subject" not in row.provenance
+            ):
+                continue
+            if since is not None and (row.t_valid is None or row.t_valid < since):
+                continue
+            if until is not None and (row.t_valid is None or row.t_valid >= until):
+                continue
+            if relation is not None and row.provenance.get("predicate") != relation:
+                continue
+            if wanted is not None and not (
+                {row.provenance.get("subject"), row.provenance.get("object")} & wanted
+            ):
+                continue
+            hits.append(replace(row))
+        hits.sort(
+            key=lambda r: (
+                r.t_valid is None,
+                r.t_valid or 0,
+                r.created_at or 0,
+                r.content,
+                r.id,
+            )
+        )
+        return hits if limit is None else hits[:limit]
+
+    async def arecall_facts(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        relation: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        require_scope(scope, method="arecall_facts")
+        return self.recall_facts(scope, entities, relation, since, until, limit)
 
     def bounds_for_ids(
         self, scope: Scope, ids: Sequence[str]

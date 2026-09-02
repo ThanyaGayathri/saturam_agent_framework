@@ -59,13 +59,13 @@ pytestmark = pytest.mark.skipif(
     reason="needs both EGPT_INTEGRATION_PGVECTOR and EGPT_INTEGRATION_NEO4J",
 )
 
+from neo4j.exceptions import ServiceUnavailable  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from egpt.integrations.memory.vector.pgvector import sql  # noqa: E402
 from egpt.memory import MemoryProviderConfig, build_memory_provider  # noqa: E402
 from egpt.memory.adapters.external import ExternalMemoryProvider  # noqa: E402
-from egpt.memory.config import MemoryProviderConfigError  # noqa: E402
-from egpt.memory.errors import MemoryOperationError  # noqa: E402
+from egpt.memory.config import MemoryConfigResolver, MemoryProviderConfigError, build_memory_provider_for  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
 from egpt.memory.types import MemoryEvent, MemoryQuery, Scope, Substrate  # noqa: E402
 from egpt.providers.model_provider import ProviderMode  # noqa: E402
@@ -132,7 +132,15 @@ def _mode_b_config() -> MemoryProviderConfig:
 @pytest.fixture
 def provider():
     """A Mode B provider over real backends, cleared at setup so one test's leftover rows cannot
-    leak into the next -- the same drop-before-yield split ``test_mode_a.py``'s ``provider`` uses."""
+    leak into the next -- the same drop-before-yield split ``test_mode_a.py``'s ``provider`` uses.
+
+    **Blast radius** (round-4 review, PR #180): the unscoped ``MATCH (n) DETACH DELETE n`` below
+    (and its twin on ``async_provider``) shares one Neo4j container's state with ``test_mode_a.py``
+    and ``test_e2e_symbiotic_loop.py``, both of which run the same unscoped wipe -- pre-existing,
+    not introduced here, but this file is now the third sharing that risk. Under a concurrent
+    runner (e.g. ``pytest-xdist``) one file's setup could wipe rows another file's test just wrote.
+    Not fixed here: scoping every teardown to its own tenant prefix is a cross-file change these
+    three files would need to make together."""
     built = build_memory_provider(_mode_b_config())
     assert isinstance(built, ExternalMemoryProvider)  # the factory this key resolves to, sanity-checked once
     with built.vector._engine.begin() as connection:
@@ -146,7 +154,8 @@ def provider():
 @pytest.fixture
 async def async_provider():
     """Independently built, for the async half -- see ``test_mode_a.py``'s ``async_provider`` for
-    why sharing one instance across sync and async teardown is avoided."""
+    why sharing one instance across sync and async teardown is avoided. See ``provider``'s own
+    docstring for the unscoped-teardown blast radius this fixture shares with it."""
     built = build_memory_provider(_mode_b_config())
     with built.vector._engine.begin() as connection:
         connection.execute(text(f"DELETE FROM {sql.qualified('ai', PG_TABLE)}"))
@@ -248,6 +257,24 @@ def test_external_under_mode_local_is_refused_against_the_real_registry():
         )
 
 
+def test_build_memory_provider_for_resolves_a_real_external_provider_by_tenant():
+    """SM-C5's (#93) own acceptance criterion is "a tenant switches Mode A<->B by config" -- and
+    every other test in this file, plus ``test_provider_swap.py``, reaches
+    ``ExternalMemoryProvider`` only through ``build_memory_provider(config)`` directly.
+    ``MemoryConfigResolver``/``build_memory_provider_for`` is the actual per-tenant resolution path
+    that criterion describes, and nothing built one against ``"external"``/``"co_located"`` over a
+    real backend before this (round-4 review, elevated minor, PR #180) --
+    ``test_provider_per_tenant.py`` exercises the resolver extensively, but only against an
+    unrelated ``"recording"`` test double."""
+    resolver = MemoryConfigResolver(policies={"acme": _mode_b_config()})
+    built = build_memory_provider_for(resolver, tenant_id="acme")
+    try:
+        assert isinstance(built, ExternalMemoryProvider)
+        assert built.config.mode is ProviderMode.FRONTIER
+    finally:
+        built.close()
+
+
 # ---------------------------------------------------------------------------
 # The episodic -> semantic round trip, over both real engines
 # ---------------------------------------------------------------------------
@@ -335,10 +362,36 @@ def test_tenant_isolation_holds_on_real_engines(provider):
 def _reserve_unused_port() -> int:
     """A TCP port nothing is listening on, for a real connection-refused failure. Not a mock: the
     socket layer really does refuse the connection, the same failure an actually-down external
-    service produces."""
+    service produces.
+
+    **Narrow TOCTOU window** (round-4 review, PR #180): the probe socket is closed here, before the
+    Neo4j driver ever tries to connect, so something else in a shared network namespace (CI's
+    included) could in principle claim the port in the gap between the two. Low practical risk on a
+    high, ephemeral loopback port, and there is no portable way to reserve-without-closing a port a
+    *different* process (the driver's own connect) then reuses -- flagged rather than fixed."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
+
+
+@pytest.fixture
+def _listening_but_unresponsive_port():
+    """A port that completes the TCP handshake and then never speaks Bolt -- a real **hang**,
+    unlike :func:`_reserve_unused_port`'s socket, which is closed before Neo4j ever reaches it and
+    so only ever produces an immediate refusal.
+
+    ``listen()`` alone is enough: the kernel's own accept backlog completes the three-way handshake
+    on this process's behalf even though nothing here ever calls ``accept()``, so a client's
+    ``connect()`` returns successfully and the connection then sits open with no bytes flowing in
+    either direction -- exactly what a genuinely wedged (not merely down) external service looks
+    like on the wire."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    try:
+        yield listener.getsockname()[1]
+    finally:
+        listener.close()
 
 
 @pytest.fixture
@@ -383,6 +436,41 @@ async def one_leg_unreachable_provider():
     await built.aclose()
 
 
+@pytest.fixture
+async def one_leg_hanging_provider(_listening_but_unresponsive_port):
+    """Same shape as :func:`one_leg_unreachable_provider`, except the graph leg's port genuinely
+    **hangs** (see :func:`_listening_but_unresponsive_port`) rather than refusing outright -- what
+    :func:`test_a_leg_timing_out_fails_the_read_fast_within_the_configured_bound`'s own docstring
+    has always claimed to exercise, and what ``one_leg_unreachable_provider``'s ``ECONNREFUSED``
+    port cannot produce (round-4 review, PR #180)."""
+    config = MemoryProviderConfig(
+        provider="external",
+        mode=ProviderMode.FRONTIER,
+        vector={
+            "backend": "pgvector",
+            "db_url": _pg_url(),
+            "embedder": OfflineTokenEmbedder(),
+            "dim": OfflineTokenEmbedder.dimensions,
+            "table": PG_TABLE,
+            "auto_init_schema": True,
+        },
+        graph={
+            "backend": "neo4j",
+            "uri": f"bolt://127.0.0.1:{_listening_but_unresponsive_port}",
+            "username": "neo4j",
+            "password": "wrong",
+            # See `one_leg_unreachable_provider`'s identical comment: deferred so the failure this
+            # fixture exists to exercise happens on the read, not at construction.
+            "auto_init_schema": False,
+        },
+    )
+    built = build_memory_provider(config)
+    with built.vector._engine.begin() as connection:
+        connection.execute(text(f"DELETE FROM {sql.qualified('ai', PG_TABLE)}"))
+    yield built
+    await built.aclose()
+
+
 async def test_a_leg_erroring_fails_the_read_fast_without_a_partial_result(one_leg_unreachable_provider):
     """``aorchestrate``'s own docstring states the contract: "a leg failure aborts the read,
     propagating immediately rather than settling both first... a partial ``RetrievalLegs`` ... is a
@@ -392,23 +480,44 @@ async def test_a_leg_erroring_fails_the_read_fast_without_a_partial_result(one_l
     partial-result semantics, this is where it would have shown up."""
     provider = one_leg_unreachable_provider
 
-    with pytest.raises((MemoryOperationError, OSError, Exception)):
+    # `(MemoryOperationError, OSError, Exception)` used to stand here -- vacuous, since `Exception`
+    # is already a superclass of the other two, so the tuple was equivalent to `pytest.raises
+    # (Exception)` (round-4 review finding). `_translated`'s docstring (`neo4j.py`) is explicit that
+    # a `ServiceUnavailable` connection refusal propagates **unchanged**, never becoming this
+    # module's `MemoryOperationError` -- naming it here is what actually pins that contract instead
+    # of accepting whatever this fixture happens to raise.
+    with pytest.raises(ServiceUnavailable):
         await provider.aread(ACME, MemoryQuery(text="a fact worth reading back", tiers=[MemoryTier.SEMANTIC]))
 
 
-async def test_a_leg_timing_out_fails_the_read_fast_within_the_configured_bound(one_leg_unreachable_provider):
+@pytest.mark.timeout(20)  # safety net: a driver that ignores `wait_for`'s cancellation must not wedge the suite
+async def test_a_leg_timing_out_fails_the_read_fast_within_the_configured_bound(one_leg_hanging_provider):
     """The timeout half of the same claim: a leg that hangs rather than immediately refusing still
-    surfaces within the (short, test-configured) bound the driver was given, rather than the read
-    hanging forever or silently returning the other leg's candidates alone."""
-    provider = one_leg_unreachable_provider
+    surfaces within the (short, test-configured) bound the *caller* wraps it in, rather than the
+    read hanging forever or silently returning the other leg's candidates alone.
+
+    Previously this reused ``one_leg_unreachable_provider`` -- the identical fixture the adjacent
+    "erroring" test above uses, built from a closed loopback socket that refuses the connection
+    (``ECONNREFUSED``) near-instantly. That can never hang, so the ``wait_for`` bound below did no
+    work: the docstring claimed to test a timeout while the fixture could only ever produce a
+    refusal, an internal contradiction between what this test says and what it proves (round-4
+    review, Major, PR #180). ``one_leg_hanging_provider`` genuinely wedges the connection instead
+    (see its own docstring), so the bound below is load-bearing: deleting the ``wait_for`` wrapper
+    now makes this test hang rather than pass.
+
+    There is no driver-level connect timeout to bound this from the *Neo4j substrate's* side (its
+    constructor takes no such knob -- see ``one_leg_unreachable_provider``'s comment); the only
+    thing standing between a genuinely wedged leg and an indefinite hang is this ``asyncio.wait_for``
+    at the caller."""
+    provider = one_leg_hanging_provider
     started = time.monotonic()
-    with pytest.raises(Exception):
+    with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(
             provider.aread(ACME, MemoryQuery(text="anything", tiers=[MemoryTier.SEMANTIC])),
-            timeout=15.0,
+            timeout=4.0,
         )
     elapsed = time.monotonic() - started
-    assert elapsed < 15.0, f"the read took {elapsed:.1f}s to fail -- the driver's own timeout did not bound it"
+    assert elapsed < 5.0, f"the read took {elapsed:.1f}s to fail -- the wait_for bound did not hold it"
 
 
 async def test_the_two_read_legs_run_concurrently_not_sequentially(async_provider, monkeypatch):
@@ -457,3 +566,43 @@ async def test_the_two_read_legs_run_concurrently_not_sequentially(async_provide
         f"vector leg ran [{v_start:.6f}, {v_end:.6f}], graph leg ran [{g_start:.6f}, {g_end:.6f}] -- "
         "the windows do not overlap, so the two legs ran sequentially rather than concurrently"
     )
+
+
+async def test_the_async_verbs_never_fall_back_to_their_blocking_sync_twins(async_provider, monkeypatch):
+    """The gap the test above does not close (round-4 review, Major, PR #180): rewriting
+    ``awrite``, ``aread_tier`` or ``aconsolidate`` to call their sync twins (``self.vector.upsert``
+    instead of ``aupsert``, ``self.graph.traverse`` instead of ``atraverse``, and so on) left every
+    suite in this repo green, including this one, byte-identical to baseline -- concurrency is
+    proved for ``aread``'s vector/graph fan-out above, but nothing proved the other three async
+    verbs were even on the async path, let alone concurrent. In production that fallback is
+    blocking I/O on the event loop, the exact failure this codebase elsewhere spends
+    ``asyncio.to_thread`` to avoid.
+
+    Proved here directly rather than by timing: each verb's *sync* substrate methods are
+    monkeypatched to raise if called at all, so a verb that quietly delegates to blocking I/O fails
+    loudly and immediately instead of merely being slower than it should be."""
+
+    def _forbidden(name):
+        def _raise(*args, **kwargs):
+            raise AssertionError(
+                f"{name} was called from an async verb -- it should have called its async twin "
+                "instead of falling back to blocking I/O on the event loop."
+            )
+
+        return _raise
+
+    monkeypatch.setattr(async_provider.vector, "upsert", _forbidden("vector.upsert"))
+    monkeypatch.setattr(async_provider.vector, "search_candidates", _forbidden("vector.search_candidates"))
+    monkeypatch.setattr(async_provider.vector, "scan", _forbidden("vector.scan"))
+    monkeypatch.setattr(async_provider.graph, "upsert_episodes", _forbidden("graph.upsert_episodes"))
+    monkeypatch.setattr(async_provider.graph, "upsert_facts", _forbidden("graph.upsert_facts"))
+    monkeypatch.setattr(async_provider.graph, "traverse", _forbidden("graph.traverse"))
+
+    await async_provider.awrite(
+        ACME, [MemoryEvent(content="the async-only write probe moved to a managed provider", scope=ACME, id="aw-1")]
+    )
+    records = await async_provider.aread_tier(ACME, MemoryTier.EPISODIC, MemoryQuery(text="async-only write probe"))
+    assert records, "aread_tier found nothing -- the forbidden-sync-method setup broke the read, not just guarded it"
+
+    report = await async_provider.aconsolidate(ACME)
+    assert report.semantic_written == 1
