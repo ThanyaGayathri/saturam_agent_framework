@@ -363,6 +363,12 @@ jobs:
           # per egpt's own pyproject.toml extras -- so it's the one this job should catch going
           # unguarded (see egpt/tracing/exporter.py and egpt/tracing/schemas.py, which shipped
           # exactly that gap in v0.2.0).
+          #
+          # chromadb joins the uninstall list for the same reason: it imports
+          # opentelemetry.sdk.resources unconditionally at its own module load (unrelated to
+          # egpt), so leaving it installed while removing opentelemetry-sdk broke its collection
+          # with an ImportError instead of a skip -- test_chromadb.py had no importorskip gate
+          # because chromadb was never in this list before.
           uv pip uninstall \
             aioboto3 \
             aiosqlite \
@@ -370,6 +376,7 @@ jobs:
             asyncpg \
             boto3 \
             botocore \
+            chromadb \
             google-api-python-client \
             google-auth-httplib2 \
             google-auth-oauthlib \

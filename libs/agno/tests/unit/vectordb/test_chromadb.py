@@ -5,11 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.integrations.vectordb.chroma import ChromaDb
-from egpt.integrations.vectordb.chroma.chromadb import reciprocal_rank_fusion
-from egpt.knowledge.document import Document
-from egpt.vectordb.distance import Distance
-from egpt.vectordb.search import SearchType
+pytest.importorskip("chromadb", reason="the Chroma vector db needs its client")
+
+from egpt.integrations.vectordb.chroma import ChromaDb  # noqa: E402
+from egpt.integrations.vectordb.chroma.chromadb import reciprocal_rank_fusion  # noqa: E402
+from egpt.knowledge.document import Document  # noqa: E402
+from egpt.vectordb.distance import Distance  # noqa: E402
+from egpt.vectordb.search import SearchType  # noqa: E402
 
 TEST_COLLECTION = "test_collection"
 TEST_PATH = "tmp/test_chromadb"
