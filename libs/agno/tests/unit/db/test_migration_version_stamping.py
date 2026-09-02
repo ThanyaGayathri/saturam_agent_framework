@@ -10,6 +10,7 @@ whole catalogue -- and keeps the two rejected candidates on record so the fix is
 """
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -147,10 +148,16 @@ class TestSupportedBackends:
         assert sqlite_db.get_latest_schema_version(sqlite_db.session_table_name) == LATEST
 
     def test_a_second_run_leaves_the_stamp_where_it_was(self, sqlite_db):
+        """Checks the stamp *and* that no migration module is re-invoked on the second run --
+        the stamp alone can look stable even if every migration silently re-ran and reached the
+        same idempotent end state, which would hide unnecessary DDL-existence-check round trips
+        on every ``up()`` call after the first."""
         sqlite_db._create_all_tables()
         asyncio.run(MigrationManager(sqlite_db).up())
 
-        asyncio.run(MigrationManager(sqlite_db).up())
+        with patch.object(MigrationManager, "_up_migration", new_callable=AsyncMock) as mock_up_migration:
+            asyncio.run(MigrationManager(sqlite_db).up())
+        mock_up_migration.assert_not_called()
 
         assert sqlite_db.get_latest_schema_version(sqlite_db.memory_episodic_table_name) == LATEST
 

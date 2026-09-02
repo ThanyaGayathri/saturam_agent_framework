@@ -603,7 +603,9 @@ def _migrate_mysql(db: BaseDb, table_type: str, table_name: str) -> bool:
                 )
 
         sess.commit()
-        return True
+        # Only "memories" has DDL above; MySQL has no JSON/JSONB distinction, so there is
+        # nothing to convert for the other five table types in _TABLE_TYPES.
+        return table_type == "memories"
 
 
 def _migrate_sqlite(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -665,7 +667,9 @@ def _migrate_sqlite(db: BaseDb, table_type: str, table_name: str) -> bool:
                 sess.execute(text(f"ALTER TABLE {quoted_table} ADD COLUMN feedback VARCHAR"))
 
         sess.commit()
-        return True
+        # Only "memories" has DDL above; SQLite has no JSON/JSONB distinction, so there is
+        # nothing to convert for the other five table types in _TABLE_TYPES.
+        return table_type == "memories"
 
 
 async def _migrate_async_sqlite(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
@@ -728,7 +732,9 @@ async def _migrate_async_sqlite(db: AsyncBaseDb, table_type: str, table_name: st
                 await sess.execute(text(f"ALTER TABLE {quoted_table} ADD COLUMN feedback VARCHAR"))
 
         await sess.commit()
-        return True
+        # Only "memories" has DDL above; SQLite has no JSON/JSONB distinction, so there is
+        # nothing to convert for the other five table types in _TABLE_TYPES.
+        return table_type == "memories"
 
 
 def _migrate_singlestore(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -811,7 +817,9 @@ def _migrate_singlestore(db: BaseDb, table_type: str, table_name: str) -> bool:
                 )
 
         sess.commit()
-        return True
+        # Only "memories" has DDL above; SingleStore has no JSON/JSONB distinction, so there is
+        # nothing to convert for the other five table types in _TABLE_TYPES.
+        return table_type == "memories"
 
 
 def _revert_postgres(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -847,7 +855,9 @@ def _revert_postgres(db: BaseDb, table_type: str, table_name: str) -> bool:
             sess.execute(text(f"DROP INDEX IF EXISTS idx_{table_name}_created_at"))
             sess.execute(text(f"ALTER TABLE {quoted_schema}.{quoted_table} DROP COLUMN IF EXISTS created_at"))
         sess.commit()
-        return True
+        # Only "memories" is reverted above; the JSON->JSONB conversion for the other five
+        # table types in _TABLE_TYPES is intentionally not reverted, so nothing happened for them.
+        return table_type == "memories"
 
 
 async def _revert_async_postgres(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
@@ -884,7 +894,9 @@ async def _revert_async_postgres(db: AsyncBaseDb, table_type: str, table_name: s
             await sess.execute(text(f"DROP INDEX IF EXISTS idx_{table_name}_created_at"))
             await sess.execute(text(f"ALTER TABLE {quoted_schema}.{quoted_table} DROP COLUMN IF EXISTS created_at"))
         await sess.commit()
-        return True
+        # Only "memories" is reverted above; the JSON->JSONB conversion for the other five
+        # table types in _TABLE_TYPES is intentionally not reverted, so nothing happened for them.
+        return table_type == "memories"
 
 
 def _revert_mysql(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -952,7 +964,9 @@ def _revert_mysql(db: BaseDb, table_type: str, table_name: str) -> bool:
                 sess.execute(text(f"ALTER TABLE {quoted_schema}.{quoted_table} DROP COLUMN `created_at`"))
 
         sess.commit()
-        return True
+        # Only "memories" is reverted above; MySQL never had a JSON/JSONB distinction to
+        # revert for the other five table types in _TABLE_TYPES, so nothing happened for them.
+        return table_type == "memories"
 
 
 def _revert_sqlite(db: BaseDb, table_type: str, table_name: str) -> bool:
@@ -1003,4 +1017,6 @@ def _revert_singlestore(db: BaseDb, table_type: str, table_name: str) -> bool:
             )
             sess.execute(text(f"ALTER TABLE {quoted_schema}.{quoted_table} DROP COLUMN IF EXISTS `created_at`"))
         sess.commit()
-        return True
+        # Only "memories" is reverted above; SingleStore never had a JSON/JSONB distinction to
+        # revert for the other five table types in _TABLE_TYPES, so nothing happened for them.
+        return table_type == "memories"

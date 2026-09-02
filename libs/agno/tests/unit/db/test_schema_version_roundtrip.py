@@ -15,7 +15,7 @@ once the TTL lapses, which is the same silent re-run arriving hours later. Those
 a mock client, so they need no container either.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -133,12 +133,21 @@ async def test_second_up_is_a_no_op(db_fixture, request):
     For ``in_memory_db``/``json_db`` there is no real work to begin with -- see
     ``STAMPED_TO_LATEST`` -- so this pins "stays unstamped" being stable across repeated calls,
     not "the same migrated version" being stable.
+
+    Checks the stamp *and* that no migration module is actually re-invoked on the second call --
+    the stamp alone can look stable even if every migration silently re-ran and reached the same
+    idempotent end state (each migration's own DDL checks ``information_schema``/``PRAGMA``
+    before applying), which would hide an unnecessary DDL-existence-check round trip on every
+    ``up()`` call after the first.
     """
     db = request.getfixturevalue(db_fixture)
 
     await MigrationManager(db).up()
     stamped = db.get_latest_schema_version(TABLE_A)
-    await MigrationManager(db).up()
+
+    with patch.object(MigrationManager, "_up_migration", new_callable=AsyncMock) as mock_up_migration:
+        await MigrationManager(db).up()
+    mock_up_migration.assert_not_called()
 
     expected = LATEST if db_fixture in STAMPED_TO_LATEST else "2.0.0"
     assert db.get_latest_schema_version(TABLE_A) == stamped == expected

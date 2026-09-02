@@ -48,15 +48,19 @@ def _index_name(table_name: str) -> str:
 
 
 # The single declaration of which backends this migration has code for, one tuple per backend
-# family (sync and async variants together). supports() and every dispatch below read these
-# same tuples, so a backend added to one without a matching branch is no longer possible --
-# there is no second set to fall out of sync with the branches. SingleStore shares MySQL's
-# migration and has no async class, so it lives in the MySQL family tuple without an
-# "AsyncSingleStoreDb" counterpart; that is what keeps async_up/async_down falling through to
+# family. supports() and every dispatch below read these same tuples, so a backend added to one
+# without a matching branch is no longer possible -- there is no second set to fall out of sync
+# with the branches. SingleStore shares MySQL's migration and has no async class, so it must NOT
+# be in the tuple the async dispatch checks: _migrate_async_mysql/_revert_async_mysql call
+# db.async_session_factory(), an attribute SingleStoreDb (a BaseDb, not an AsyncBaseDb) does not
+# have. _MYSQL_FAMILY_DB_TYPES (used by the sync up/down dispatch, and to build
+# _SUPPORTED_DB_TYPES for supports()) includes it; _MYSQL_ASYNC_CAPABLE (used only by
+# async_up/async_down) does not -- that is what keeps async_up/async_down falling through to
 # "does not require schema migrations" for it, matching the pre-refactor behaviour exactly.
 _POSTGRES_DB_TYPES = ("PostgresDb", "AsyncPostgresDb")
 _SQLITE_DB_TYPES = ("SqliteDb", "AsyncSqliteDb")
 _MYSQL_FAMILY_DB_TYPES = ("MySQLDb", "AsyncMySQLDb", "SingleStoreDb")
+_MYSQL_ASYNC_CAPABLE = ("MySQLDb", "AsyncMySQLDb")
 _SUPPORTED_DB_TYPES = _POSTGRES_DB_TYPES + _SQLITE_DB_TYPES + _MYSQL_FAMILY_DB_TYPES
 
 
@@ -107,7 +111,7 @@ async def async_up(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
             return await _migrate_async_postgres(db, table_name)
         elif db_type in _SQLITE_DB_TYPES:
             return await _migrate_async_sqlite(db, table_name)
-        elif db_type in _MYSQL_FAMILY_DB_TYPES:
+        elif db_type in _MYSQL_ASYNC_CAPABLE:
             return await _migrate_async_mysql(db, table_name)
         else:
             log_info(f"{db_type} does not require schema migrations")
@@ -159,7 +163,7 @@ async def async_down(db: AsyncBaseDb, table_type: str, table_name: str) -> bool:
             return await _revert_async_postgres(db, table_name)
         elif db_type in _SQLITE_DB_TYPES:
             return await _revert_async_sqlite(db, table_name)
-        elif db_type in _MYSQL_FAMILY_DB_TYPES:
+        elif db_type in _MYSQL_ASYNC_CAPABLE:
             return await _revert_async_mysql(db, table_name)
         else:
             log_info(f"Revert not implemented for {db_type}")

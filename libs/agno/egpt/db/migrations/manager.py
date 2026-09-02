@@ -94,8 +94,10 @@ class MigrationManager:
         the table's current version and the target. Support, once shipped, does not need
         reasserting by every later version to stay true: a table with nothing left to migrate
         must still be stamped all the way to the latest version, not just the last version that
-        actually touched it (that is what makes "stamp only when a migration executed" wrong --
-        see the manager-level docstring in ``up()``).
+        actually touched it -- that is what makes "stamp only when a migration executed" wrong:
+        it would stamp a SQLite table with nothing left to migrate at the last version that
+        touched it (e.g. 2.3.0) instead of the target, so every later ``up()`` would re-walk the
+        tail of the migration chain forever.
 
         A backend this returns ``False`` for has no code path, in any shipped migration, that
         would ever touch this table -- so ``up()`` must not stamp it: the stamp would claim a
@@ -241,6 +243,12 @@ class MigrationManager:
 
     async def down(self, target_version: str, table_type: Optional[str] = None, force: bool = False):
         """Handle executing a down migration.
+
+        Unlike ``up()``, this has no manager-level ``self._supports()`` gate: it relies entirely
+        on each version module's own ``supports()``/dispatch to decide whether it did real work.
+        That is intentional -- reverting is table-type-scoped per module already, and a second
+        gate here would not add anything ``supports()`` doesn't already check -- but it does mean
+        ``down()`` has no defense-in-depth against a module's dispatch being wrong.
 
         Args:
             target_version: The version to migrate to. e.g. "v2.3.0"
