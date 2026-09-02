@@ -41,11 +41,7 @@ and its ``retrieval.orchestrate``/``aorchestrate`` call ``graph.traverse``/``atr
 flag is on, but the orchestrator itself has no PPR-specific knowledge -- it sees one graph leg,
 exactly as it did before this ticket; a re-projection cache/cadence (each call projects fresh under a
 call-unique catalog name and drops it after -- SM-R2 section "GDS graph projections are static
-snapshots" flags the cost as unmeasured at scale, not this ticket's to resolve); a k-hop/fan-out
-bound on the projection itself, unlike the sibling BFS leg's ``max_hops``/``max_anchor_entities``
-(round-2 review, Major-tracking -- filed as
-`aicoe-tracker#199 <https://github.com/Saturam-Inc/aicoe-tracker/issues/199>`_, since the flag
-defaults off and no tenant pays this cost without opting in); IDF-style edge
+snapshots" flags the cost as unmeasured at scale, not this ticket's to resolve); IDF-style edge
 weighting (no such property exists anywhere in this graph tier yet -- the projection is unweighted);
 and the full statistical ranking-quality study SM-R9's spike assigned this ticket (recall/all-hops
 gains under a bi-temporal projection, at real per-tenant scale) -- that is a benchmark-scale
@@ -160,6 +156,14 @@ class Neo4jGraphSubstrate:
     multihop_ppr_enabled: bool = False
     multihop_ppr_alpha: float = cypher.DEFAULT_PPR_ALPHA
     multihop_ppr_seed_top_m: int = cypher.DEFAULT_PPR_SEED_TOP_M
+    #: How many ``REL`` hops out from the seed anchors the PPR *projection* covers
+    #: (aicoe-tracker#199). ``None`` -- the default -- projects the whole tenant scope, the
+    #: behaviour every PPR-enabled deployment has today. Distinct from ``max_traverse_hops``
+    #: above, which bounds the BFS *walk*, not what PPR ranks over. Left unbounded by default
+    #: because #199 asks for the projection cost to be measured at a realistic per-tenant
+    #: scale before a bound is sized, and a too-low guess silently shrinks the graph PPR can
+    #: rank -- see ``cypher.DEFAULT_PPR_PROJECT_HOPS``.
+    multihop_ppr_project_hops: Optional[int] = cypher.DEFAULT_PPR_PROJECT_HOPS
 
     def __init__(
         self,
@@ -173,6 +177,7 @@ class Neo4jGraphSubstrate:
         multihop_ppr_enabled: bool = False,
         multihop_ppr_alpha: float = cypher.DEFAULT_PPR_ALPHA,
         multihop_ppr_seed_top_m: int = cypher.DEFAULT_PPR_SEED_TOP_M,
+        multihop_ppr_project_hops: Optional[int] = cypher.DEFAULT_PPR_PROJECT_HOPS,
     ) -> None:
         resolved_uri: str = uri or os.getenv("NEO4J_URI") or "bolt://localhost:7687"
         username = username or os.getenv("NEO4J_USERNAME")
@@ -212,8 +217,15 @@ class Neo4jGraphSubstrate:
         # whose anchor set resolves empty does not raise at all; it silently no-ops, the same as a
         # correctly-configured empty-anchor call would. Both are accepted silently here at
         # construction either way.
+        #
+        # `multihop_ppr_project_hops` (aicoe-tracker#199) is deferred identically, and named here
+        # so this comment stays a complete list of what construction does *not* check (round-1
+        # review, Nit): `cypher.ppr_statements` validates it on the same first call that reaches
+        # this leg, alongside `seed_top_m`. `None` is a valid value -- it means "no neighborhood
+        # bound" -- so unlike the others there is no non-`None` default to guard against.
         self.multihop_ppr_alpha = multihop_ppr_alpha
         self.multihop_ppr_seed_top_m = multihop_ppr_seed_top_m
+        self.multihop_ppr_project_hops = multihop_ppr_project_hops
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
         self._adriver: Optional["AsyncDriver"] = None
         # Eager, unlike `PgVector`'s deferred `create_schema`. The statements are idempotent, so a
@@ -1122,6 +1134,7 @@ class Neo4jGraphSubstrate:
             scope,
             terms=_terms(query.text),
             seed_top_m=self.multihop_ppr_seed_top_m,
+            project_hops=self.multihop_ppr_project_hops,
             graph_name=graph_name,
             as_of=temporal["as_of"],
             valid_from=temporal["valid_from"],

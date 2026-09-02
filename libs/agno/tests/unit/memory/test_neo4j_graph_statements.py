@@ -62,6 +62,22 @@ def all_statements(scope):
                 graph_name=cypher.ppr_graph_name(scope),
             ).items()
         ],
+        # The bounded-`project` branch (aicoe-tracker#199) is a *different* Cypher shape -- an
+        # anchor-seeded walk, with its own aliases -- so it needs its own entry here rather than
+        # `project_hops` threaded into the call above, which would swap the unbounded shape's
+        # coverage for the bounded one instead of adding it. Only `project` differs between the
+        # two, but the whole dict is swept for the same reason every other builder is: by shape,
+        # not by hand-picking which statements are interesting (round-1 review, Minor).
+        *[
+            (f"ppr_bounded[{name}]", text, params)
+            for name, (text, params) in cypher.ppr_statements(
+                scope,
+                terms=["ada"],
+                as_of=1000,
+                project_hops=2,
+                graph_name=cypher.ppr_graph_name(scope),
+            ).items()
+        ],
         # `rank` is built by a separate function since round-3 review (Major, TOCTOU fix): it takes
         # `seeds`' own resolved names as data, not a fresh anchor predicate -- `["ada"]` here stands
         # in for that already-fetched result, exactly as `Neo4jGraphSubstrate._ppr_rows`/`_appr_rows`
@@ -200,7 +216,7 @@ KEY_SCOPED_STATEMENTS = (
 #: name is itself derived from the scope by hashing (:func:`~egpt.integrations.memory.graph.neo4j.
 #: cypher.ppr_graph_name`), so two tenants' PPR calls cannot collide on one catalog entry even
 #: though the drop statement's own text carries no per-row predicate to assert on here.
-GRAPH_NAME_SCOPED_STATEMENTS = ("ppr[drop]",)
+GRAPH_NAME_SCOPED_STATEMENTS = ("ppr[drop]", "ppr_bounded[drop]")
 
 #: SM-H4 (#134)'s point-in-time leg: unlike every other statement, PPR's ``project``/``rank``
 #: **must** apply a valid-time predicate, because a GDS graph projection is a static snapshot that
@@ -209,7 +225,7 @@ GRAPH_NAME_SCOPED_STATEMENTS = ("ppr[drop]",)
 #: :func:`test_no_statement_applies_valid_time` guards (a different parameter, ``$ppr_as_of``, never
 #: ``$as_of``) -- see :func:`test_ppr_predicate_is_sm_r10_section_7s_5a_verbatim` for what *does*
 #: hold PPR to the same discipline every other bi-temporal predicate in this module follows.
-POINT_IN_TIME_STATEMENTS = ("ppr[project]", "ppr_rank")
+POINT_IN_TIME_STATEMENTS = ("ppr[project]", "ppr_bounded[project]", "ppr_rank")
 
 
 @pytest.mark.parametrize(
@@ -350,6 +366,122 @@ def test_ppr_statements_refuses_a_bad_seed_top_m(seed_top_m):
     with pytest.raises(MemoryOperationError) as excinfo:
         cypher.ppr_statements(FULL, terms=["ada"], seed_top_m=seed_top_m, graph_name="g")
     assert excinfo.value.field_name == "seed_top_m"
+
+
+@pytest.mark.parametrize("project_hops", [0, -1, 1.5, "2", True])
+def test_ppr_statements_refuses_a_bad_project_hops(project_hops):
+    """aicoe-tracker#199. `None` is a documented value (no neighborhood bound), so only
+    non-positive/non-int values are refused -- and `True` among them, since `isinstance(True, int)`
+    would otherwise interpolate `*0..True` into the Cypher and fail at the engine instead."""
+    with pytest.raises(MemoryOperationError) as excinfo:
+        cypher.ppr_statements(FULL, terms=["ada"], project_hops=project_hops, graph_name="g")
+    assert excinfo.value.field_name == "project_hops"
+
+
+#: The exact `project` statement the unbounded (default) path emits, captured from the merge-base
+#: before aicoe-tracker#199 added `project_hops`. Pinned as a literal rather than checked
+#: structurally because the whole default-off design rests on *byte-identical* behaviour for every
+#: deployment that does not opt in -- a reordered clause or a drifted param dict would pass an
+#: "absence of `path =`" check while still changing what an existing tenant's PPR call projects
+#: (round-1 review, Major).
+_UNBOUNDED_PROJECT_TEXT = (
+    "MATCH (n:Entity) WHERE n.tenant_id = $tenant_id AND n.agent_id = $agent_id "
+    "AND n.user_id = $user_id AND n.team_id = $team_id AND n.session_id = $session_id "
+    "OPTIONAL MATCH (n)-[r:REL]-(m:Entity) "
+    "WHERE m.tenant_id = $tenant_id AND m.agent_id = $agent_id AND m.user_id = $user_id "
+    "AND m.team_id = $team_id AND m.session_id = $session_id "
+    "AND r.tenant_id = $tenant_id AND r.agent_id = $agent_id AND r.user_id = $user_id "
+    "AND r.team_id = $team_id AND r.session_id = $session_id "
+    "AND r.expired_at IS NULL "
+    "AND ($valid_to IS NULL OR r.t_valid IS NULL OR r.t_valid < $valid_to) "
+    "AND ($valid_from IS NULL OR r.t_invalid IS NULL OR r.t_invalid > $valid_from) "
+    "RETURN gds.graph.project($ppr_graph_name, n, m) AS projected"
+)
+
+
+def test_ppr_unbounded_project_is_byte_identical_to_the_pre_199_statement():
+    """aicoe-tracker#199 ships `project_hops` opt-in, and the module docstring claims the default
+    path is byte-identical to before. `test_ppr_project_is_unbounded_by_default` checks that
+    structurally (no walk); this pins the literal text and params, so a silent drift on the path
+    every existing deployment is on fails loudly rather than passing an absence check."""
+    text, params = cypher.ppr_statements(FULL, terms=["ada"], graph_name="g")["project"]
+    assert text == _UNBOUNDED_PROJECT_TEXT
+    assert params == {
+        "tenant_id": "acme",
+        "agent_id": "agent-1",
+        "user_id": "ada",
+        "team_id": "team-9",
+        "session_id": "s-3",
+        "valid_from": None,
+        "valid_to": None,
+        "ppr_graph_name": "g",
+    }
+
+
+def test_ppr_project_is_unbounded_by_default():
+    """aicoe-tracker#199 ships the bound opt-in: the default must leave `project` exactly as it was,
+    or every existing PPR-enabled deployment silently starts ranking over a different graph."""
+    project = cypher.ppr_statements(FULL, terms=["ada"], graph_name="g")["project"][0]
+    assert project.startswith(f"MATCH (n:{cypher.ENTITY}) WHERE ")
+    assert "path =" not in project
+    assert f"[:{cypher.REL}*" not in project
+    assert cypher.DEFAULT_PPR_PROJECT_HOPS is None
+
+
+def test_ppr_project_hops_bounds_the_projection_to_the_seed_neighborhood():
+    """The bound is the whole point of #199: with it set, `project` walks out from the anchors
+    rather than scanning the scope. `*0..N` rather than `*1..N` -- an anchor is inside its own
+    neighborhood, and a 1-hop bound that dropped the seeds themselves would rank over a graph
+    missing the very entities it seeds from."""
+    project = cypher.ppr_statements(FULL, terms=["ada"], project_hops=2, graph_name="g")["project"][0]
+    assert f"MATCH path = (anchor)-[:{cypher.REL}*0..2]-(n:{cypher.ENTITY})" in project
+    assert "RETURN gds.graph.project($ppr_graph_name, n, m) AS projected" in project
+
+
+def test_ppr_project_hops_projects_the_same_anchors_seeds_resolves():
+    """`seeds` and a bounded `project` must centre on one anchor set. Two independently-resolved
+    sets would project a neighborhood around anchors the ranking never seeds from -- the same
+    TOCTOU shape `ppr_rank_statement` was split out to avoid."""
+    statements = cypher.ppr_statements(FULL, terms=["ada"], seed_top_m=4, project_hops=1, graph_name="g")
+    seeds_text, seeds_params = statements["seeds"]
+    project_text, project_params = statements["project"]
+    cut = "WITH DISTINCT anchor ORDER BY anchor.name ASC LIMIT $seed_top_m"
+    assert cut in seeds_text and cut in project_text
+    assert seeds_params["seed_top_m"] == project_params["seed_top_m"] == 4
+    assert seeds_params["terms"] == project_params["terms"] == ["ada"]
+
+
+def test_ppr_project_hops_walk_applies_the_same_temporal_predicate_as_the_projection():
+    """Round-1 review, Minor: the bounded walk originally checked scope and liveness but not
+    valid time, so a node reachable only through an out-of-window intermediate edge still entered
+    the neighborhood -- a path `_traverse_multihop` (which does apply it to every edge it crosses)
+    would never walk. Parity here means `temporal_clause`, not a hardcoded `_window_predicate`:
+    this builder branches on `as_of`, and the walk must answer the same temporal question the
+    projection does, binding the same parameter."""
+    windowed = cypher.ppr_statements(FULL, terms=["ada"], project_hops=2, valid_from=5, valid_to=9, graph_name="g")[
+        "project"
+    ]
+    assert "$valid_from" in windowed[0] and "$valid_to" in windowed[0]
+    assert "$ppr_as_of" not in windowed[0]
+    # The walk clause specifically, not just the outer OPTIONAL MATCH.
+    walk = windowed[0].split("all(rel IN relationships(path)")[1].split("WITH DISTINCT n")[0]
+    assert "$valid_to" in walk and "$valid_from" in walk
+
+    point = cypher.ppr_statements(FULL, terms=["ada"], project_hops=2, as_of=1234, graph_name="g")["project"]
+    point_walk = point[0].split("all(rel IN relationships(path)")[1].split("WITH DISTINCT n")[0]
+    assert "$ppr_as_of" in point_walk
+    assert "$valid_from" not in point_walk and "$valid_to" not in point_walk
+    assert point[1]["ppr_as_of"] == 1234
+
+
+def test_ppr_project_hops_scopes_every_node_it_walks_through():
+    """SM-C4 (#92): the walk must not leave the tenant's live graph on its way to a node it then
+    projects. Scoping only the two ends would let an intermediate hop cross scopes -- the exact
+    gap `_traverse_multihop`'s own docstring records having had."""
+    project = cypher.ppr_statements(FULL, terms=["ada"], project_hops=3, graph_name="g")["project"][0]
+    assert "all(mid IN nodes(path)[1..-1] WHERE mid.scope_key = anchor.scope_key)" in project
+    assert "rel.expired_at IS NULL AND rel.scope_key = anchor.scope_key" in project
+    assert "WHERE n.scope_key = anchor.scope_key" in project
 
 
 @pytest.mark.parametrize("alpha", [1.0, 1.5, -0.1, "0.5"])

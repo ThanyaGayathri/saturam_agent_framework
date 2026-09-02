@@ -40,6 +40,7 @@ __all__ = [
     "DEFAULT_MAX_ANCHOR_ENTITIES",
     "DEFAULT_MAX_HOPS",
     "DEFAULT_PPR_ALPHA",
+    "DEFAULT_PPR_PROJECT_HOPS",
     "DEFAULT_PPR_SEED_TOP_M",
     "ENTITY",
     "ENTITY_PROPERTIES",
@@ -463,6 +464,25 @@ DEFAULT_PPR_ALPHA = 0.85
 #: (a large one degrades toward unseeded global PageRank).
 DEFAULT_PPR_SEED_TOP_M = 3
 
+#: How many ``REL`` hops out from the seed anchors ``ppr_statements``' ``project`` statement
+#: projects (aicoe-tracker#199). ``None`` -- the default -- means **no neighborhood bound**: the
+#: projection scans the whole tenant scope, exactly as it did before this parameter existed.
+#:
+#: Unbounded is the default deliberately, and it is not the recommended setting. #199 opens by
+#: asking for the projection's real cost to be **measured at a realistic per-tenant scale** before
+#: a bound is sized, since SM-R2 already flags this as unmeasured. That measurement needs a live
+#: Neo4j + GDS at scale and has not been done, so shipping a number here would be the guess the
+#: ticket explicitly asks not to make -- and a guessed-too-low bound silently changes which rows
+#: PPR can rank, which is a wrong answer with no error rather than a slow one. Defaulting to
+#: ``None`` keeps every existing PPR-enabled deployment byte-identical and lets an operator who
+#: *has* measured their own graph opt in; the sizing question stays open on #199.
+#:
+#: When set, the bound is a neighborhood of the **seed anchors**, mirroring
+#: :data:`DEFAULT_MAX_HOPS`'s own construction-time convention -- and it is genuinely a different
+#: knob from that one, which bounds the *walk* the BFS leg performs, not the *projection* PPR
+#: ranks over.
+DEFAULT_PPR_PROJECT_HOPS: Optional[int] = None
+
 
 def ppr_graph_name(scope: Scope) -> str:
     """A deterministic, per-scope **prefix** for the GDS graph-catalog name PPR projects into.
@@ -544,6 +564,7 @@ def ppr_statements(
     *,
     terms: Sequence[str] = (),
     seed_top_m: int = DEFAULT_PPR_SEED_TOP_M,
+    project_hops: Optional[int] = DEFAULT_PPR_PROJECT_HOPS,
     as_of: Optional[int] = None,
     valid_from: Optional[int] = None,
     valid_to: Optional[int] = None,
@@ -596,15 +617,30 @@ def ppr_statements(
     name), ordered by name before the cut for the identical determinism reason
     :data:`DEFAULT_MAX_ANCHOR_ENTITIES` gives.
 
-    **The anchor cap does not bound ``project`` itself (round-2 review, Major-tracking, non-blocking
-    since the flag defaults off).** ``seed_top_m`` limits how many anchors seed the *ranking*;
-    ``project`` scans and projects every live entity/relationship in the whole tenant scope
-    regardless, with no neighborhood limit comparable to :func:`_traverse_multihop`'s
-    ``max_hops``/``max_anchor_entities`` and no GDS-side timeout or memory guard anywhere in this
-    module. Filed as `aicoe-tracker#199 <https://github.com/Saturam-Inc/aicoe-tracker/issues/199>`_
-    rather than fixed here -- bounding the projection to a k-hop neighborhood of the seed anchors is
-    a different Cypher shape with its own correctness properties to pin, not a small follow-up to
-    this statement.
+    **``project`` can be bounded to a neighborhood of the seed anchors** (``project_hops``,
+    `aicoe-tracker#199 <https://github.com/Saturam-Inc/aicoe-tracker/issues/199>`_).
+    ``seed_top_m`` limits how many anchors seed the *ranking*, not what ``project`` scans. With
+    ``project_hops=None`` (the default) ``project`` still projects every live entity/relationship
+    in the whole tenant scope, exactly as before this parameter existed; with a positive integer it
+    projects only entities within that many ``REL`` hops of the same anchor set ``seeds`` resolves,
+    mirroring :func:`_traverse_multihop`'s ``max_hops``/``max_anchor_entities`` shape.
+
+    **The default is deliberately unbounded, and that is not a recommendation.** #199 asks for the
+    projection's cost to be measured at a realistic per-tenant scale *before* a bound is sized;
+    that measurement needs a live Neo4j + GDS at scale and has not been done. A guessed bound is
+    not conservative here: too low and PPR silently ranks over a smaller graph than the query could
+    reach, which is a wrong answer with no error rather than a slow one. So the knob ships and the
+    sizing stays open on #199 -- see :data:`DEFAULT_PPR_PROJECT_HOPS`.
+
+    **Bounding changes what PPR can rank, by construction.** A projection is the universe
+    ``gds.pageRank`` walks; an entity outside it cannot be ranked however connected it is to a
+    seed. That is the point of the bound and also its cost, which is why it is opt-in: the two
+    settings answer measurably different questions, not the same question at different speeds.
+    The anchor set is shared with ``seeds`` (same ``anchor_predicate``, same ``ORDER BY
+    anchor.name ASC LIMIT $seed_top_m``) so the projected neighborhood is centred on exactly the
+    anchors that will seed the ranking, rather than a second, independently-resolved set --
+    the same TOCTOU reasoning :func:`ppr_rank_statement`'s own docstring gives for taking
+    ``seeds``' resolved names as input.
 
     **The projection is undirected and unweighted.** Undirected matches
     :func:`_traverse_multihop`'s own ``-[:REL*1..N]-`` walk (an anchor set is "involves this
@@ -667,6 +703,19 @@ def ppr_statements(
             "capping how many of them PPR seeds from.",
             field_name="seed_top_m",
         )
+    # `None` is the documented "no neighborhood bound" value, so it is not an error -- but a
+    # non-positive or non-int hop count is, and interpolating one into `*1..N` would build
+    # syntactically invalid Cypher that only fails at the engine (matching how `seed_top_m` is
+    # refused here rather than at the driver).
+    if project_hops is not None and (
+        not isinstance(project_hops, int) or isinstance(project_hops, bool) or project_hops < 1
+    ):
+        raise MemoryOperationError(
+            f"ppr_statements project_hops must be a positive integer or None, got {project_hops!r}. "
+            "None means the projection is not bounded to a neighborhood of the seed anchors; a "
+            "positive integer bounds it to that many REL hops out from them.",
+            field_name="project_hops",
+        )
     anchor_predicate, anchor_params = scope_predicate("anchor", scope, method=method)
     anchor_predicate = f"{anchor_predicate} AND {_anchor_predicate('anchor')}"
     node_predicate, node_params = scope_predicate("n", scope, method=method)
@@ -694,12 +743,55 @@ def ppr_statements(
         "RETURN anchor.name AS name",
         {**anchor_params, "terms": list(terms), "seed_top_m": seed_top_m},
     )
+    if project_hops is None:
+        # Unbounded: every live entity/relationship in scope, unchanged from before `project_hops`
+        # existed. Kept as its own branch rather than folded into the bounded shape with a
+        # sentinel hop count -- `*1..N` for a large N is not the same query as no walk at all, and
+        # a default that silently rewrote every existing deployment's projection into a different
+        # Cypher shape is exactly what defaulting to None is meant to avoid.
+        project_match = f"MATCH (n:{ENTITY}) WHERE {node_predicate} "
+        project_params: Dict[str, Any] = {**node_params, **temporal_params, "ppr_graph_name": graph_name}
+    else:
+        # Bounded: `n` ranges over the anchors themselves plus everything within `project_hops`
+        # REL hops of them. The anchor leg is the same predicate and the same deterministic cut
+        # `seeds` uses, so the projected neighborhood is centred on the anchors that will actually
+        # seed the ranking. Intermediate nodes and the relationships walked are scope-, liveness-
+        # and temporally checked inside the pattern -- per this module's SM-C4 (#92) convention of
+        # scoping every alias rather than trusting a join to carry an upstream one -- so the walk
+        # cannot leave the tenant's live graph on its way to a node it then projects.
+        #
+        # The walked edges carry `temporal_clause` (round-1 review, Minor), which is the real
+        # parity with `_traverse_multihop`'s own `AND {_window_predicate('rel')}` on its walk, not
+        # a literal copy of it: this builder already branches `as_of` -> `_point_in_time_predicate`
+        # / window -> `_window_predicate` for the projection itself, and hardcoding the window form
+        # here would apply window semantics -- and bind `$valid_from`/`$valid_to` -- to a walk whose
+        # projection is answering a point-in-time question with `$ppr_as_of`. Without this, a node
+        # reachable only through an out-of-window intermediate edge still entered the neighborhood
+        # and had its own in-window edges projected: a path `_traverse_multihop` would never walk.
+        project_match = (
+            f"MATCH (anchor:{ENTITY}) WHERE {anchor_predicate} "
+            "WITH DISTINCT anchor ORDER BY anchor.name ASC LIMIT $seed_top_m "
+            f"MATCH path = (anchor)-[:{REL}*0..{project_hops}]-(n:{ENTITY}) "
+            "WHERE n.scope_key = anchor.scope_key "
+            "AND all(mid IN nodes(path)[1..-1] WHERE mid.scope_key = anchor.scope_key) "
+            "AND all(rel IN relationships(path) "
+            f"WHERE rel.expired_at IS NULL AND rel.scope_key = anchor.scope_key "
+            f"AND {temporal_clause('rel')}) "
+            f"WITH DISTINCT n WHERE {node_predicate} "
+        )
+        project_params = {
+            **node_params,
+            **temporal_params,
+            "terms": list(terms),
+            "seed_top_m": seed_top_m,
+            "ppr_graph_name": graph_name,
+        }
+
     project = (
-        f"MATCH (n:{ENTITY}) WHERE {node_predicate} "
-        f"OPTIONAL MATCH (n)-[r:{REL}]-(m:{ENTITY}) "
+        project_match + f"OPTIONAL MATCH (n)-[r:{REL}]-(m:{ENTITY}) "
         f"WHERE {endpoint_predicate} AND {rel_predicate} AND {_live('r')} AND {temporal_clause('r')} "
         "RETURN gds.graph.project($ppr_graph_name, n, m) AS projected",
-        {**node_params, **temporal_params, "ppr_graph_name": graph_name},
+        project_params,
     )
     return {"drop": drop, "seeds": seeds, "project": project}
 
