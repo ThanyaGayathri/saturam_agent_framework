@@ -355,6 +355,14 @@ jobs:
           # Invariant: one entry per driver family gated in tests/unit; extend this list when
           # gating a new family, or the gates and the job that enforces them drift apart and
           # the job goes blind to exactly the family it should be checking.
+          #
+          # opentelemetry-sdk only, not opentelemetry-api: pydocket (a hard fastmcp dependency,
+          # and fastmcp/mcp stays installed here) unconditionally requires opentelemetry-api, so
+          # removing it too would fail mcp-family tests in an install combination that can never
+          # occur for real. opentelemetry-sdk has no such transitive pull -- it really is optional,
+          # per egpt's own pyproject.toml extras -- so it's the one this job should catch going
+          # unguarded (see egpt/tracing/exporter.py and egpt/tracing/schemas.py, which shipped
+          # exactly that gap in v0.2.0).
           uv pip uninstall \
             aioboto3 \
             aiosqlite \
@@ -367,6 +375,7 @@ jobs:
             google-auth-oauthlib \
             lancedb \
             neo4j \
+            opentelemetry-sdk \
             psycopg \
             psycopg-binary \
             psycopg2-binary \
