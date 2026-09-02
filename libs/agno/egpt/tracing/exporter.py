@@ -15,15 +15,12 @@ from egpt.utils.log import log_debug, log_error, log_warning
 # base dependency -- importing this module (transitively pulled in by `egpt.tracing`, which
 # `egpt.memory.adapters.co_located`'s `memory_span` import needs) must not require it. Mirrors the
 # OPENTELEMETRY_AVAILABLE guard in `tracing/setup.py`, whose `setup_tracing()` already refuses to
-# instantiate `DatabaseSpanExporter` unless this is True, so the stand-ins below are never
+# instantiate `DatabaseSpanExporter` unless that's True, so the stand-ins below are never
 # exercised for real -- they only keep the class importable/definable without the package.
 try:
     from opentelemetry.sdk.trace import ReadableSpan  # type: ignore
     from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult  # type: ignore
-
-    OPENTELEMETRY_AVAILABLE = True
 except ImportError:
-    OPENTELEMETRY_AVAILABLE = False
     ReadableSpan = Any  # type: ignore[assignment,misc]
 
     class SpanExporter:  # type: ignore[no-redef]
