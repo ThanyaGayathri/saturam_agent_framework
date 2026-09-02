@@ -6,8 +6,26 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from opentelemetry.sdk.trace import ReadableSpan  # type: ignore
-from opentelemetry.trace import SpanKind, StatusCode  # type: ignore
+# opentelemetry-sdk is an optional extra, not a base dependency -- see the matching guard (and its
+# rationale) in `tracing/exporter.py`, whose `from_otel_span` caller is the only place these types
+# are used for real.
+try:
+    from opentelemetry.sdk.trace import ReadableSpan  # type: ignore
+    from opentelemetry.trace import SpanKind, StatusCode  # type: ignore
+except ImportError:
+    ReadableSpan = Any  # type: ignore[assignment,misc]
+
+    class SpanKind:  # type: ignore[no-redef]
+        INTERNAL = "INTERNAL"
+        SERVER = "SERVER"
+        CLIENT = "CLIENT"
+        PRODUCER = "PRODUCER"
+        CONSUMER = "CONSUMER"
+
+    class StatusCode:  # type: ignore[no-redef]
+        UNSET = "UNSET"
+        OK = "OK"
+        ERROR = "ERROR"
 
 
 @dataclass
