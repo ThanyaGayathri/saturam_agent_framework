@@ -4,15 +4,31 @@ Custom OpenTelemetry SpanExporter that writes traces to EGPT database.
 
 import asyncio
 from collections import defaultdict
-from typing import Dict, List, Sequence, Union
-
-from opentelemetry.sdk.trace import ReadableSpan  # type: ignore
-from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult  # type: ignore
+from typing import Any, Dict, List, Sequence, Union
 
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.remote.base import RemoteDb
 from egpt.tracing.schemas import Span, create_trace_from_spans
 from egpt.utils.log import log_debug, log_error, log_warning
+
+# opentelemetry-sdk is an optional extra (see pyproject.toml's `opentelemetry`/`os` extras), not a
+# base dependency -- importing this module (transitively pulled in by `egpt.tracing`, which
+# `egpt.memory.adapters.co_located`'s `memory_span` import needs) must not require it. Mirrors the
+# OPENTELEMETRY_AVAILABLE guard in `tracing/setup.py`, whose `setup_tracing()` already refuses to
+# instantiate `DatabaseSpanExporter` unless that's True, so the stand-ins below are never
+# exercised for real -- they only keep the class importable/definable without the package.
+try:
+    from opentelemetry.sdk.trace import ReadableSpan  # type: ignore
+    from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult  # type: ignore
+except ImportError:
+    ReadableSpan = Any  # type: ignore[assignment,misc]
+
+    class SpanExporter:  # type: ignore[no-redef]
+        pass
+
+    class SpanExportResult:  # type: ignore[no-redef]
+        SUCCESS = "SUCCESS"
+        FAILURE = "FAILURE"
 
 
 class DatabaseSpanExporter(SpanExporter):

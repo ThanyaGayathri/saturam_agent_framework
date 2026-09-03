@@ -356,7 +356,7 @@ def test_detached_trace_context_starts_a_new_root_trace():
     reads a trace's identity from its root span) attributes the run to that protocol span,
     producing a NULL/mislabeled trace. Detaching makes the run its own root, attributed like
     a REST run."""
-    pytest.importorskip("opentelemetry")
+    pytest.importorskip("opentelemetry.sdk", reason="requires opentelemetry-sdk")
     from opentelemetry import trace as otel_trace
     from opentelemetry.sdk.trace import TracerProvider
 
