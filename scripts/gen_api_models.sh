@@ -11,7 +11,7 @@
 #      2. the pydantic models   (egpt_retail/api/models/_generated.py)
 #      3. the contract fixture  (egpt_retail/contracts/_fixtures/r3_contract.json)
 #
-#    All three are committed. ./scripts/validate.sh runs check_api_model_drift.py, which
+#    All three are committed. ./scripts/validate.sh runs check_api_contract.py, which
 #    rebuilds them into a temp dir and fails if the committed copies differ -- so the YAML
 #    stays the source of truth in practice, not just in principle.
 #

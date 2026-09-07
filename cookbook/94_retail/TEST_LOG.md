@@ -327,7 +327,7 @@ and empty states, refusing an unknown name with a 400 that lists the available o
    200 and the 404 of the same operation, so `?example=default` was ambiguous and the
    stub's first-match rule silently picked the 200. Fixed by renaming every error example
    to its code (`not_found`, `insufficient_scope`, `conflict`, `invalid`) and adding a
-   uniqueness check to `scripts/check_openapi.py`. A contract lint that only checks
+   uniqueness check to `scripts/check_api_contract.py`. A contract lint that only checks
    validity would never have found this; the stub found it by serving the wrong thing.
 2. **My own YAML was silently wrong in a way the validator could not see.** A flow-style
    example like `{description: What is sold, and how each product performs.}` parses as two
@@ -435,7 +435,7 @@ exactly where it leaked.
 rebuilt `.venv` from scratch with `./scripts/dev_setup.sh` and ran the script unchanged.
 
 **Result:** `mypy — Success: no issues found in 1741 source files`. The full script passes,
-including the new `product` target (ruff, mypy, openapi lint, contract drift). The errors are
+including the new `product` target (ruff, mypy, API contract check). The errors are
 environment drift in the venv they were observed in, not defects in the framework — which is
 what CI on `main` being green already implied. **No framework fix is needed**, and the
 inline fix planned for the R2 PR is withdrawn. Recorded so the next person does not chase it.

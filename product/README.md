@@ -36,7 +36,7 @@ they run without an install.
 
 ```bash
 ./scripts/gen_api_models.sh          # bundle the fragments, regenerate the models
-./scripts/validate.sh                # includes the openapi lint and the model drift check
+./scripts/validate.sh                # includes the API contract check
 ```
 
 Run the stub server, which serves every operation's declared examples:

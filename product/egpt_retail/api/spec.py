@@ -8,7 +8,7 @@ one: every path item is inlined, every external schema is hoisted into
 ``components.schemas`` under its own name, and every ``$ref`` is rewritten to point there.
 
 The bundle is deterministic and is committed beside the source
-(``egpt-retail.v1.bundled.json``). ``scripts/check_api_model_drift.py`` rebuilds it and
+(``egpt-retail.v1.bundled.json``). ``scripts/check_api_contract.py`` rebuilds it and
 fails if the committed copy differs, which is what keeps the YAML the source of truth in
 practice rather than in principle.
 

@@ -5,7 +5,7 @@
 #    EGPT Validate
 #
 #    ruff check + mypy for egpt, egptctl and product, ruff + pattern + import check
-#    for cookbook, the API contract lint and drift check, brand audit for the repo. Exits non-zero if anything fails —
+#    for cookbook, the API contract check, brand audit for the repo. Exits non-zero if anything fails —
 #    safe to gate on.
 #    egpt-infra is not part of the dev venv; it validates in its own CI job.
 #
@@ -79,8 +79,7 @@ run_step "import check" python3 "${REPO_ROOT}/cookbook/scripts/check_cookbook_im
 target "product"
 run_step "ruff check" ruff check "${REPO_ROOT}/product"
 run_step "mypy" mypy "${REPO_ROOT}/product/egpt_retail" --config-file "${REPO_ROOT}/product/pyproject.toml"
-run_step "openapi lint" python3 "${REPO_ROOT}/scripts/check_openapi.py"
-run_step "contract drift" python3 "${REPO_ROOT}/scripts/check_api_model_drift.py"
+run_step "api contract" python3 "${REPO_ROOT}/scripts/check_api_contract.py"
 
 target "repo"
 run_step "brand audit" python3 "${REPO_ROOT}/scripts/brand_audit.py"
