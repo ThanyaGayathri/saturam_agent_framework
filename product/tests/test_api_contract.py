@@ -7,11 +7,15 @@ test being written -- and a path whose example does not survive the trip through
 
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
+from fastapi.testclient import TestClient
 
+import egpt_retail.api.stub.server as stub_server
 from egpt_retail.api.spec import load_bundle
+from egpt_retail.api.stub import create_app
 
 from .conftest import bearer
 
@@ -113,6 +117,68 @@ def test_stub_mounts_every_operation_in_the_bundle(client):
         if m in _METHODS
     }
     assert mounted == declared
+
+
+def test_stub_operations_reflects_a_route_that_failed_to_mount(monkeypatch, tmp_path):
+    """Regression: `/stub/operations` must introspect FastAPI's own routing table, not
+    replay the bundle it was built from. A version that just replayed the bundle reported
+    an operation as mounted even when the mount loop skipped it -- indistinguishable from
+    a route that genuinely mounted, and unable to ever fail."""
+    bundle_path = tmp_path / "bundle.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "info": {"title": "t", "version": "0"},
+                "paths": {
+                    "/a": {
+                        "get": {
+                            "operationId": "opA",
+                            "responses": {
+                                "200": {
+                                    "content": {
+                                        "application/json": {
+                                            "examples": {"default": {"value": {}}}
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    },
+                    "/b": {
+                        "get": {
+                            "operationId": "opB",
+                            "responses": {
+                                "200": {
+                                    "content": {
+                                        "application/json": {
+                                            "examples": {"default": {"value": {}}}
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    },
+                },
+            }
+        )
+    )
+
+    real_mount = stub_server._mount
+
+    def _skip_op_b(app, route, method, operation, live, jwt_secret):
+        if operation.get("operationId") == "opB":
+            return
+        real_mount(app, route, method, operation, live, jwt_secret)
+
+    monkeypatch.setattr(stub_server, "_mount", _skip_op_b)
+    app = stub_server.create_app(bundle_path=bundle_path, fixture_path=None)
+    reported = {
+        op["operationId"]
+        for op in TestClient(app).get("/stub/operations").json()["operations"]
+    }
+    assert reported == {"opA"}, (
+        "a route that failed to mount must not be reported as mounted"
+    )
 
 
 # --- the semantic reads are live, not examples -----------------------------------------
@@ -230,8 +296,142 @@ def test_include_proposed_needs_its_own_scope(gated_client):
     assert "web_sessions" in {t["name"] for t in allowed.json()["tables"]}
 
 
-def test_activation_level_three_needs_admin_scope_is_documented(bundle):
-    """The contract says it; the stub serves the example. The real check is R1/R2's."""
+def test_include_proposed_scope_check_only_applies_where_the_operation_declares_it(
+    gated_client, bundle
+):
+    """Regression: a caller correctly scoped for an operation that has no
+    `include_proposed` parameter must not be blocked by passing that query string anyway.
+    `/kpis` never declares it -- confirm the contract still agrees, then prove it."""
+    op = bundle["paths"]["/kpis"]["get"]
+    assert not any(
+        p.get("name") == "include_proposed" for p in op.get("parameters", [])
+    )
+    response = gated_client.get(
+        "/kpis?include_proposed=true", headers=bearer("kpis:read")
+    )
+    assert response.status_code == 200
+
+
+def test_activation_level_three_needs_admin_scope(gated_client, bundle):
+    """Level >= 3 needs `use-cases:activate` in addition to `use-cases:write` (G11) --
+    separation of duties enforced by role, not just documented."""
     op = bundle["paths"]["/use-cases/{use_case_id}/activate"]["post"]
     assert "use-cases:activate" in op["description"]
     assert "403" in op["responses"]
+
+    writer = bearer("use-cases:write")
+    admin = bearer("use-cases:write", "use-cases:activate")
+
+    low_level = gated_client.post(
+        "/use-cases/uc_0002/activate", json={"level": 1}, headers=writer
+    )
+    assert low_level.status_code == 200
+
+    high_level_denied = gated_client.post(
+        "/use-cases/uc_0002/activate", json={"level": 3}, headers=writer
+    )
+    assert high_level_denied.status_code == 403
+    assert "use-cases:activate" in high_level_denied.json()["detail"]
+
+    high_level_allowed = gated_client.post(
+        "/use-cases/uc_0002/activate", json={"level": 3}, headers=admin
+    )
+    assert high_level_allowed.status_code == 200
+
+    no_level = gated_client.post("/use-cases/uc_0002/activate", json={}, headers=writer)
+    assert no_level.status_code == 200, (
+        "an omitted level must not require the admin scope"
+    )
+
+
+def test_scope_check_requires_every_scope_not_just_one(tmp_path):
+    """Regression: `set(required_scopes) <= granted` is an AND across every declared
+    scope. No shipped operation currently declares more than one, so nothing in the real
+    contract would catch a regression to OR-semantics -- this locks the rule in directly
+    against a synthetic multi-scope operation."""
+    bundle_path = tmp_path / "bundle.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "info": {"title": "t", "version": "0"},
+                "paths": {
+                    "/multi-scope": {
+                        "get": {
+                            "operationId": "multiScopeOp",
+                            "x-egpt-scopes": ["scope-a", "scope-b"],
+                            "responses": {
+                                "200": {
+                                    "content": {
+                                        "application/json": {
+                                            "examples": {
+                                                "default": {"value": {"ok": True}}
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    }
+                },
+            }
+        )
+    )
+    secret = "multi-scope-tests-only"
+    app = create_app(bundle_path=bundle_path, fixture_path=None, jwt_secret=secret)
+    gated = TestClient(app)
+
+    def token(*scopes):
+        from egpt_retail.api.stub import mint_token
+
+        return {"Authorization": f"Bearer {mint_token(secret, scopes)}"}
+
+    assert gated.get("/multi-scope", headers=token("scope-a")).status_code == 403
+    assert gated.get("/multi-scope", headers=token("scope-b")).status_code == 403
+    assert (
+        gated.get("/multi-scope", headers=token("scope-a", "scope-b")).status_code
+        == 200
+    )
+
+
+def test_served_example_is_validated_against_its_generated_model(tmp_path):
+    """Regression: an operation's served example is checked against the model its response
+    schema names, even when the operation is not one of the seven live semantic reads --
+    previously only those seven got `response_model` at all, so a corrupted or drifted
+    example on any of the other ~98 operations passed through unnoticed."""
+    bundle_path = tmp_path / "bundle.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "info": {"title": "t", "version": "0"},
+                "paths": {
+                    "/broken": {
+                        "get": {
+                            "operationId": "brokenOp",
+                            "responses": {
+                                "200": {
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {
+                                                "$ref": "#/components/schemas/Kpi"
+                                            },
+                                            "examples": {
+                                                "default": {
+                                                    "value": {
+                                                        "name": "missing required fields"
+                                                    }
+                                                }
+                                            },
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    }
+                },
+            }
+        )
+    )
+    app = create_app(bundle_path=bundle_path, fixture_path=None)
+    response = TestClient(app).get("/broken")
+    assert response.status_code == 500
+    assert response.json()["code"] == "example_schema_drift"

@@ -13,14 +13,20 @@ Two things are real rather than served from examples:
   contract fixture, so the three join-path outcomes -- a path, ``path: null``, and 503 for
   an unloaded reader -- are live behaviour, not described behaviour.
 * **Scope gating**, when a JWT secret is configured: every operation requires the scopes
-  its ``x-egpt-scopes`` names, and ``include_proposed=true`` additionally requires
-  ``semantic:read_proposed``. The framework has no config surface for a product-defined
-  scope in phase zero, so the stub reads the claim itself; registering the scope in the
+  its ``x-egpt-scopes`` names; ``include_proposed=true`` additionally requires
+  ``semantic:read_proposed`` on the operations that declare that parameter, and
+  ``activateUseCase`` additionally requires ``use-cases:activate`` when the requested
+  ``level`` is 3 or higher (G11). The framework has no config surface for a product-defined
+  scope in phase zero, so the stub reads the claim itself; registering these scopes in the
   framework's map is a phase-five cost recorded in the contract's changelog.
 
-Where the response schema names a generated model, the route declares it as its
-``response_model``, so the served example is validated against the model on every request
--- a third check that spec, models and examples agree.
+Where the response schema names a generated model, every served 2xx response -- the seven
+live semantic reads via FastAPI's own ``response_model``, and every other operation's served
+example via an explicit check right before it is returned -- is validated against that model,
+so spec, models and examples cannot silently drift apart at request time.
+``scripts/check_api_contract.py`` already enforces the same agreement statically at build
+time for every operation; this is the same guarantee, checked again against the live
+generated models on every request.
 
 FastAPI is used rather than a generic mock server because the prototype runs on Vite at
 another origin (CORS is one line here), because this repository has no Node toolchain, and
@@ -29,6 +35,7 @@ because the same app can later ride inside the R1 image with no extra layer.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +44,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from fastapi.routing import APIRoute
+from pydantic import TypeAdapter, ValidationError
 
 from egpt_retail.api import models as generated_models
 from egpt_retail.api.spec import BUNDLE_PATH, load_bundle
@@ -49,7 +58,15 @@ __all__ = ["create_app", "mint_token", "serve", "aserve", "READ_PROPOSED_SCOPE"]
 #: The scope `include_proposed=true` needs over HTTP. Defined by the contract, enforced here.
 READ_PROPOSED_SCOPE = "semantic:read_proposed"
 
+#: The scope a level>=3 `activateUseCase` call additionally needs (G11, separation of
+#: duties). Special-cased here for the same reason `READ_PROPOSED_SCOPE` is: the framework
+#: has no scope-mapping surface in phase zero, so the one operation whose enforcement
+#: depends on its own request body is checked directly rather than declaratively.
+_ACTIVATE_SCOPE = "use-cases:activate"
+_ACTIVATE_ADMIN_LEVEL = 3
+
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+_HTTP_METHODS_UPPER = {m.upper() for m in _HTTP_METHODS}
 
 
 # --- tokens ----------------------------------------------------------------------------
@@ -162,6 +179,48 @@ def _success_schema(operation: Mapping[str, Any]) -> Optional[Mapping[str, Any]]
             media = (response.get("content") or {}).get("application/json") or {}
             return media.get("schema")
     return None
+
+
+def _declares_parameter(operation: Mapping[str, Any], name: str) -> bool:
+    return any(
+        isinstance(p, Mapping) and p.get("name") == name
+        for p in operation.get("parameters") or []
+    )
+
+
+def _validate_served_example(
+    response_model: Any, status: int, content: Any, operation_id: str
+) -> None:
+    """Defense in depth: re-check a served example against its generated model at request
+    time, not just at build time. ``scripts/check_api_contract.py`` already validates every
+    example against its schema in CI; this catches a generated-model rebuild drifting from
+    the committed bundle (or vice versa) that the static check did not see, for every
+    operation -- not only the seven live semantic reads FastAPI's own ``response_model``
+    already covers.
+    """
+    if response_model is None or not (200 <= status < 300):
+        return
+    try:
+        TypeAdapter(response_model).validate_python(content)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "detail": f"{operation_id}: served example does not match its generated model: {exc}",
+                "code": "example_schema_drift",
+            },
+        )
+
+
+async def _json_body(request: Request) -> Any:
+    """The request body as JSON, or ``None`` if absent or unparsable."""
+    raw = await request.body()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
 
 
 # --- the semantic reads, answered live --------------------------------------------------
@@ -388,20 +447,26 @@ def create_app(
 
     @app.get("/stub/operations", include_in_schema=False)
     async def _operations() -> Dict[str, Any]:
-        """What the stub mounted, for a cookbook to compare against the bundle."""
-        return {
-            "operations": [
-                {
-                    "method": m.upper(),
-                    "path": r,
-                    "operationId": op.get("operationId"),
-                    "live": op.get("operationId") in live,
-                }
-                for r, it in bundle["paths"].items()
-                for m, op in it.items()
-                if m in _HTTP_METHODS
-            ]
-        }
+        """What the stub actually mounted, for a cookbook or test to compare against the
+        bundle. Introspects FastAPI's own routing table (``app.routes``) rather than
+        replaying the bundle it was built from -- otherwise an operation that silently
+        failed to mount would still be reported as present, since it would still be in the
+        bundle this endpoint was comparing against.
+        """
+        operations: List[Dict[str, Any]] = []
+        for route in app.routes:
+            if not isinstance(route, APIRoute) or route.path == "/stub/operations":
+                continue
+            for method in sorted((route.methods or set()) & _HTTP_METHODS_UPPER):
+                operations.append(
+                    {
+                        "method": method,
+                        "path": route.path,
+                        "operationId": route.name,
+                        "live": route.name in live,
+                    }
+                )
+        return {"operations": operations}
 
     return app
 
@@ -416,21 +481,33 @@ def _mount(
 ) -> None:
     operation_id = operation.get("operationId") or f"{method}_{route}"
     required_scopes: List[str] = list(operation.get("x-egpt-scopes") or [])
+    has_include_proposed = _declares_parameter(operation, "include_proposed")
     examples = _examples_for(operation)
     no_content = _no_content_status(operation)
     live_handler = live.get(operation_id)
     response_model = _model_for(_success_schema(operation))
 
     async def endpoint(request: Request) -> Any:
-        if jwt_secret is not None and required_scopes:
+        if jwt_secret is not None:
             granted = _scopes_from_request(request, jwt_secret)
-            if not set(required_scopes) <= granted:
+            if required_scopes and not set(required_scopes) <= granted:
                 return _forbid(required_scopes)
             if (
-                request.query_params.get("include_proposed", "false").lower() == "true"
+                has_include_proposed
+                and request.query_params.get("include_proposed", "false").lower()
+                == "true"
                 and READ_PROPOSED_SCOPE not in granted
             ):
                 return _forbid([READ_PROPOSED_SCOPE])
+            if operation_id == "activateUseCase":
+                body = await _json_body(request)
+                level = body.get("level") if isinstance(body, dict) else None
+                if (
+                    isinstance(level, int)
+                    and level >= _ACTIVATE_ADMIN_LEVEL
+                    and _ACTIVATE_SCOPE not in granted
+                ):
+                    return _forbid([_ACTIVATE_SCOPE])
 
         if live_handler is not None:
             return _call_live(live_handler, request)
@@ -439,6 +516,9 @@ def _mount(
         if wanted:
             for example in examples:
                 if example.name == wanted:
+                    _validate_served_example(
+                        response_model, example.status, example.value, operation_id
+                    )
                     return JSONResponse(
                         status_code=example.status, content=example.value
                     )
@@ -451,6 +531,9 @@ def _mount(
             )
         success = [e for e in examples if 200 <= e.status < 300]
         if success:
+            _validate_served_example(
+                response_model, success[0].status, success[0].value, operation_id
+            )
             return JSONResponse(status_code=success[0].status, content=success[0].value)
         if no_content is not None:
             return Response(status_code=no_content)
