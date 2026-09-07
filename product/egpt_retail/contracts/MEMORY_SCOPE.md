@@ -134,9 +134,14 @@ worse than one that refuses to start.
 ## Verification
 
 `cookbook/94_retail/K01_memory_scope_convention.py` builds each scope above against the real
-`Scope` class and prints the predicate it produces, including the three failure modes. It
-needs no database: `scope_predicate` is a pure function, and its output is the thing being
-agreed.
+`Scope` class, and runs the fragment `scope_predicate` actually emits against a one-row SQLite
+table to decide whether a stored row is visible to a given read. That last part matters: an
+earlier version reimplemented the "unset means any" rule in Python, so the matrix agreed with
+itself regardless of what the real function did — mutating `scope_predicate` to emit `IS NULL`
+for an unset slot left it entirely unmoved. It now fails, which is the only reason to trust it.
+
+It needs no database. SQLite stands in for the warehouse because the fragment is plain
+parameterised SQL with `:name` binds and no dialect-specific syntax.
 
 ## Open
 

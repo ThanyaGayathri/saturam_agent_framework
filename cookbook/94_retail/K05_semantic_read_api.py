@@ -265,6 +265,28 @@ print("6. Async variants")
 print("-" * 78)
 print("  every async read agrees with its sync twin:", asyncio.run(_check_async()))
 
+# Assert, do not merely print. These cookbooks are this lane's only tests.
+problems = []
+if "lead_score" in qr.column_names:
+    problems.append("a proposed column leaked into a default get_table")
+if "session_replay" in default_tables:
+    problems.append("a proposed table leaked into a default list_tables")
+if "session_replay" not in with_proposed:
+    problems.append("include_proposed=True did not reveal the proposed table")
+if path is None or path.hops != 2 or path.intermediate_tables != ("quote_requests",):
+    problems.append("the two-hop join path did not resolve as expected")
+if no_edges.find_join_path("contacts", "brand_traffic") is not None:
+    problems.append("a reader with no edges returned a path")
+if verdict.verdict.value != "ready" or blocked.verdict.value != "partial":
+    problems.append("feasibility through the read API did not agree with the fixture")
+if not asyncio.run(_check_async()):
+    problems.append("an async read disagreed with its sync twin")
+
 print()
 print("=" * 78)
+if problems:
+    print("Stub does NOT implement the contract:")
+    for problem in problems:
+        print("  -", problem)
+    raise SystemExit(1)
 print("Stub implements the contract. Lane R can wire against these signatures today.")

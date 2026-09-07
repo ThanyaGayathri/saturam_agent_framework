@@ -5,6 +5,24 @@ the change protocol in `docs/plan/delivery-plan.md`.
 
 ## KPI formula shape
 
+### 2.0.1 — 2026-09-07 — two correctness fixes from automated review
+
+Not a shape change; no field moved, so no re-agreement needed. Both were defects that made
+`KpiDefinition` refuse valid formulas.
+
+| Fix | Was |
+|---|---|
+| `source_tables` is normalised to lower case at construction | `referenced_tables` lower-cased what it read from the SQL but the drift check compared against the raw `source_tables`, so `source_tables={"Orders"}` against `FROM Orders` was refused — and the refusal blamed the author for omitting a table they had listed |
+| `_TABLE_RE` captures an optional schema qualifier and keeps the table | `FROM silver.orders` captured `silver`. Since `TableRef.schema` defaults to `"silver"`, qualified formulas are the expected case: listing `orders` failed construction, and listing `silver` passed construction and then left the KPI permanently blocked, because no snapshot holds a table called `silver` |
+| `_POSITIONAL_RE` no longer requires a non-word character before `?` | `WHERE a=?AND b=1` and `col?` slipped past the one check that refuses positional binding |
+
+Also in the validation harness, not the contract: the result-shape heuristic now strips
+subqueries and treats any outer `GROUP BY` as a rowset, instead of counting projected columns.
+The old rule tagged `SELECT SUM(x) FROM t GROUP BY t.id` as `SCALAR` — a rowset materialised
+as a metric and thresholded by an alert that could never be right. **This changes the corpus
+result: rowsets found went from 2 to 3**, the third being `Product.sell_through_rate`.
+
+
 ### 2.0.0 — 2026-09-07 — closed sets move out of Python
 
 Agreed by: Lane K. **Breaking; still awaiting Lane R review** along with 1.0.0.

@@ -53,8 +53,19 @@ class Confidence(str, Enum):
 
 
 class SynonymProposal(BaseModel):
-    """One proposed term or question pattern for a concept. Never written to the graph
-    directly -- it becomes a row in the proposals table and waits for a person (D10, G5)."""
+    """One proposed term or question pattern for a concept.
+
+    **Where the D10 guarantee actually lives.** Nothing in this schema can stop a model
+    emitting a proposal it should not have made -- a required ``rationale`` field makes an
+    untraceable claim awkward to express, not impossible, and no output schema can. The
+    guarantee is structural and sits downstream: the agent has no write path to the graph, its
+    output becomes a row in the proposals table (K7), and only a row a person accepted is
+    written. What the prompt and this schema buy is a proposal a reviewer can judge quickly,
+    which is what makes bulk review possible at all.
+
+    So a bad proposal here is a review burden, not a corrupted graph. Treat any change that
+    would let this type reach the graph without a human decision as breaking D10 and G5,
+    whatever the prompt says."""
 
     value: str = Field(description="The synonym or question pattern being proposed.")
     # No `description=` on these two. An enum-typed field serialises to a `$ref`, and strict

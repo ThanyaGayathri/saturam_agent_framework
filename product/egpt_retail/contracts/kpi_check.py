@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any, Dict, FrozenSet, List, Mapping, Sequence, Tuple
 
 from egpt_retail.contracts.kpi import (
-    _POSITIONAL_RE,
     Dialect,
     KpiDefinition,
     KpiParameter,
@@ -37,7 +36,9 @@ from egpt_retail.contracts.kpi import (
     ResultShape,
     bound_parameter_names,
     kpi_identifier,
+    positional_markers,
     referenced_tables,
+    substitute_first_positional,
 )
 
 __all__ = [
@@ -163,47 +164,49 @@ async def aload_poc_corpus(
     return await asyncio.to_thread(load_poc_corpus, path)
 
 
-def _split_top_level(text: str) -> List[str]:
-    """Split on commas that are not inside parentheses.
+def _strip_subqueries(sql: str) -> str:
+    """The statement with every parenthesised group removed.
 
-    A naive ``str.split(",")`` counts ``NULLIF(x, 0)`` as two projected columns and reports
-    a scalar metric as a row listing, which is the kind of false positive that gets a whole
-    harness ignored.
+    Result shape is a property of the **outer** query. A ``GROUP BY`` inside a derived table
+    says how that subquery aggregates and nothing about how many rows the statement returns --
+    ``SELECT AVG(cnt) FROM (SELECT COUNT(*) AS cnt FROM orders GROUP BY customer_id)`` is one
+    number. Stripping the parentheses first is what keeps the inner clause from being read as
+    the outer one.
     """
-    parts: List[str] = []
+    out: List[str] = []
     depth = 0
-    current: List[str] = []
-    for char in text:
+    for char in sql:
         if char == "(":
             depth += 1
-        elif char == ")":
-            depth -= 1
-        if char == "," and depth == 0:
-            parts.append("".join(current))
-            current = []
             continue
-        current.append(char)
-    parts.append("".join(current))
-    return [part for part in parts if part.strip()]
+        if char == ")":
+            depth = max(0, depth - 1)
+            continue
+        if depth == 0:
+            out.append(char)
+    return "".join(out)
 
 
 def _declared_result_shape(sql: str) -> Tuple[bool, str]:
-    """Whether the formula returns rows rather than one number, and why."""
-    if _LIMIT.search(sql):
+    """Whether the formula returns rows rather than one number, and why.
+
+    Any ``GROUP BY`` in the outer query means one row per group, whatever the projection
+    looks like. The earlier version of this counted projected columns instead, which got a
+    plain per-entity aggregate -- ``SELECT SUM(x) FROM t GROUP BY t.id``, one column, many
+    rows -- wrong in the direction that matters: silently tagged ``SCALAR``, then materialised
+    as a metric and thresholded by an alert that can never be right.
+
+    A formula whose ``WHERE`` happens to pin it to a single group is still reported as a
+    rowset. That cannot be determined statically, and a genuinely scalar metric has no reason
+    to carry a ``GROUP BY``.
+    """
+    outer = _strip_subqueries(sql)
+    if _LIMIT.search(outer):
         return True, "carries a LIMIT, so it returns a listing rather than one value"
-    if _ORDER_BY.search(sql):
+    if _ORDER_BY.search(outer):
         return True, "carries an ORDER BY, which only means something for a listing"
-    # A projection naming more than the aggregate, under a GROUP BY, is a row per group.
-    if re.search(r"\bGROUP\s+BY\b", sql, re.IGNORECASE):
-        upper = sql.upper()
-        head = sql[: upper.index("FROM")] if "FROM" in upper else sql
-        head = re.sub(r"^\s*SELECT\s+", "", head, flags=re.IGNORECASE)
-        projected = _split_top_level(head)
-        if len(projected) > 1:
-            return (
-                True,
-                f"projects {len(projected)} columns under a GROUP BY, so it returns one row per group",
-            )
+    if re.search(r"\bGROUP\s+BY\b", outer, re.IGNORECASE):
+        return True, "groups in the outer query, so it returns one row per group"
     return False, ""
 
 
@@ -218,7 +221,7 @@ def check_formula(concept: str, record: Mapping[str, Any]) -> List[Finding]:
             Finding(concept=concept, kpi_name=name, rule=rule, detail=detail)
         )
 
-    positional = _POSITIONAL_RE.findall(sql)
+    positional = positional_markers(sql)
     if positional:
         add(
             Rule.POSITIONAL_PARAMETER,
@@ -384,9 +387,16 @@ def migrate_poc_record(concept: str, record: Mapping[str, Any]) -> KpiDefinition
                 description="Scoping filter carried on the concept.",
             )
         )
-    elif _POSITIONAL_RE.search(sql):
-        bind = _CONCEPT_BIND[concept]
-        sql = _POSITIONAL_RE.sub("{" + bind + "}", sql, count=1)
+    elif positional_markers(sql):
+        try:
+            bind = _CONCEPT_BIND[concept]
+        except KeyError:
+            raise ValueError(
+                f"{concept!r} has no entry in _CONCEPT_BIND, so there is no way to know what "
+                f"its positional marker binds to. These maps are POC-specific by design; add "
+                f"the concept here if you are extending the corpus."
+            ) from None
+        sql = substitute_first_positional(sql, bind)
         parameters.append(
             KpiParameter(
                 name=bind,

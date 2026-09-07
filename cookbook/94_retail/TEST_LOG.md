@@ -219,3 +219,54 @@ double a flat namespace that cannot survive ambiguity, for a choice nobody makes
 here because the next reviewer will read it as a rule violation.
 
 ---
+
+### Review round 1 — all five scenarios re-run
+
+**Packages:** K14, K11, K5, K1, executor registry
+**Status:** PASS — after fixing 11 findings from automated review on PR #186
+
+**Description:** An automated review raised 6 Major, 2 Minor and 3 Nit findings. Every one was
+reproduced against the real code before being fixed; none was taken on faith.
+
+**Reproduced and fixed:**
+
+1. **`source_tables` case sensitivity** — `source_tables={"Orders"}` with `FROM Orders` was
+   refused at construction, because `referenced_tables` lower-cases and the comparison did not.
+   Now normalised at construction.
+2. **Schema-qualified table names** — `FROM silver.orders` captured `silver`. Worse than it
+   looks: `TableRef.schema` defaults to `"silver"`, so this is the expected case, and the
+   obvious workaround leaves the KPI permanently blocked. Regex now captures an optional
+   qualifier and keeps the table.
+3. **Result-shape heuristic, both directions** — `SELECT SUM(x) FROM t GROUP BY t.id` returned
+   `SCALAR` (a rowset materialised as a metric), and a `GROUP BY` inside a subquery leaked into
+   the outer classification. Replaced column-counting with subquery stripping plus "any outer
+   `GROUP BY` is a rowset". **Corpus rowsets went 2 → 3.**
+4. **K01 never called the function it claimed to verify** — `matches()` reimplemented the
+   "unset means any" rule in Python, so the isolation matrix agreed with itself whatever
+   `scope_predicate` did. Now runs the emitted fragment against a one-row SQLite table.
+5. **Cookbooks printed failures and exited 0** — all five now assert and exit non-zero.
+6. **`assert_registry_valid` docstring claimed it was wired** into the application factory.
+   Nothing calls it; there is no factory yet. Corrected to say the guarantee is available, not
+   active.
+
+**Mutation-tested the K01 fix**, which is the finding that mattered most. Mutated the real
+`scope_predicate` so an unset slot emits `IS NULL` instead of no clause — the change that in
+production would zero out the system read this convention exists to protect. Before the fix
+the cookbook was unmoved and exited 0; after, it exits 1 naming the broken invariant. `libs/`
+restored afterwards and verified clean.
+
+**What surprised me:** finding 4 is the one I would not have found myself. The harness looked
+thorough — three scopes, three rows, a printed matrix — and was checking my own restatement of
+the rule rather than the rule. A test that reimplements what it verifies passes for exactly as
+long as both copies are wrong in the same way.
+
+**Not fixed, deliberately:** the reviewer's Minor on the D10 refusal having no schema-level
+backstop. No output schema can stop a model emitting a bad proposal. The guarantee is
+structural and downstream — the agent has no write path, and only accepted rows reach the
+graph — so the docstring now says where the guarantee actually lives instead of implying the
+schema provides it.
+
+**Also found, not a code issue:** CI reported `ci-success` failing. It is the `run-ci` label
+gate, not a test failure — every other job was skipped.
+
+---

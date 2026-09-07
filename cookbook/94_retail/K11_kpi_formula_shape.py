@@ -154,6 +154,11 @@ print()
 print("Two tables missing -- does it name both?")
 print("-" * 78)
 print(" ", worst.kpi_identifier, "->", sorted(worst.missing_tables))
+# Assert, do not merely print: these cookbooks are this lane's only tests, so a check that
+# prints a wrong answer and exits 0 is a check that will not be believed when it matters.
+assert worst.missing_tables == {"orders", "order_items"}, (
+    f"expected both missing tables named, got {sorted(worst.missing_tables)}"
+)
 
 
 # --- The overlay, which is why grain is not a Python enum -------------------------------
@@ -235,11 +240,23 @@ conflicting = {
 with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
     json.dump(conflicting, handle)
     conflict_path = Path(handle.name)
+redefinition_refused = False
 try:
     load_vocabulary_set(overlay_path=conflict_path)
-    print("  FAIL: a redefinition of a core term was accepted")
 except ValueError as exc:
+    redefinition_refused = True
     print("  Redefining a core term is refused:", str(exc).split(".")[0])
 
 overlay_path.unlink()
 conflict_path.unlink()
+
+if not redefinition_refused:
+    raise SystemExit("G10 violated: an overlay redefining a core term was accepted.")
+if "quote_request" not in extended["grain"].values:
+    raise SystemExit("The overlay did not extend the grain vocabulary.")
+if incompatible_formulas != {
+    f"{f.concept}.{f.kpi_name}" for f in findings if f.severity is Severity.INCOMPATIBLE
+}:
+    raise SystemExit("Incompatible set changed between report and assertion.")
+print()
+print("All assertions passed.")

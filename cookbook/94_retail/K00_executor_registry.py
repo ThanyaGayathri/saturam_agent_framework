@@ -70,13 +70,20 @@ problems = check_registry(registry.functions)
 for problem in problems:
     print("  ", problem)
 
+collision_caught = False
 try:
     assert_registry_valid(registry.functions)
-    print("  FAIL: the registry was accepted")
 except InvalidExecutorRegistry as exc:
+    collision_caught = True
     print()
     print("  assert_registry_valid refuses to start:")
     print("   ", str(exc).splitlines()[0])
+if not collision_caught:
+    raise SystemExit(
+        "A duplicate executor name was accepted -- the check does not work."
+    )
+if not any(problem.kind == "duplicate-name" for problem in problems):
+    raise SystemExit("The duplicate was not reported as a duplicate-name problem.")
 
 print()
 print("4. Other shapes it catches")
@@ -119,6 +126,16 @@ assert_registry_valid(good)
 print("  ", executor_names(good), "-> accepted")
 print("   one executor, one name -- an async twin would double a namespace that")
 print("   cannot survive ambiguity, for a choice nobody makes.")
+
+malformed = check_registry(
+    [takes_two, wrong_parameter_name, _private_looking, lambda x: x]
+)
+expected_kinds = {"signature", "parameter-name", "private-name", "unnamed"}
+found_kinds = {problem.kind for problem in malformed}
+if not expected_kinds <= found_kinds:
+    raise SystemExit(
+        f"Malformed shapes not all caught: missing {sorted(expected_kinds - found_kinds)}"
+    )
 
 print()
 print("=" * 78)

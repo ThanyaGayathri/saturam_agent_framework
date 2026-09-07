@@ -11,6 +11,8 @@ Run:
     .venv/bin/python cookbook/94_retail/K01_memory_scope_convention.py
 """
 
+import sqlite3
+
 from egpt.integrations.memory.vector.pgvector.sql import scope_predicate
 from egpt.memory.types import SCOPE_SLOTS, Scope
 from egpt.os.middleware.jwt import INTERNAL_SCHEDULER_USER_ID
@@ -94,12 +96,33 @@ print("-" * 78)
 
 
 def matches(row: Scope, read: Scope) -> bool:
-    """Whether a stored row satisfies a read's equality predicate."""
-    for slot in SCOPE_SLOTS:
-        wanted = getattr(read, slot)
-        if wanted is not None and getattr(row, slot) != wanted:
-            return False
-    return True
+    """Whether a stored row satisfies a read's predicate -- as the substrate would decide it.
+
+    Runs the fragment `scope_predicate` actually emits against a one-row table, rather than
+    reimplementing the "unset means any" rule in Python. Reimplementing it would make this
+    matrix agree with itself no matter what the real function did: a mutation turning an unset
+    slot into `IS NULL` -- which in production would zero out the system read this convention
+    exists to protect -- left the old version of this check completely unmoved.
+
+    SQLite stands in for the warehouse here. The fragment is plain parameterised SQL with
+    `:name` binds and no dialect-specific syntax, so what it means is the same in both.
+    """
+    fragment, binds = scope_predicate(read)
+    connection = sqlite3.connect(":memory:")
+    try:
+        columns = ", ".join(SCOPE_SLOTS)
+        placeholders = ", ".join(f":{slot}" for slot in SCOPE_SLOTS)
+        connection.execute(f"CREATE TABLE memories ({columns})")
+        connection.execute(
+            f"INSERT INTO memories ({columns}) VALUES ({placeholders})",
+            {slot: getattr(row, slot) for slot in SCOPE_SLOTS},
+        )
+        found = connection.execute(
+            f"SELECT COUNT(*) FROM memories WHERE {fragment}", binds
+        ).fetchone()
+        return bool(found[0])
+    finally:
+        connection.close()
 
 
 rows = {
@@ -160,5 +183,20 @@ print("      uuid4-derived partition on every process start.")
 
 print()
 print("=" * 78)
-ok = not alice_sees_scheduled and not system_sees_alice and tenant_sees_all
-print("Convention holds." if ok else "Convention does NOT hold -- see above.")
+# Assert, do not merely print. These five cookbooks are the only tests this lane has, so a
+# regression that only prints a FAIL line is a regression nobody sees.
+failures = []
+if alice_sees_scheduled:
+    failures.append("a user-scoped read reached the scheduled run's memory")
+if system_sees_alice:
+    failures.append("the system read reached a user's memory")
+if not tenant_sees_all:
+    failures.append(
+        "the tenant-wide read did not reach every row, so the matrix proves nothing"
+    )
+if failures:
+    print("Convention does NOT hold:")
+    for failure in failures:
+        print("  -", failure)
+    raise SystemExit(1)
+print("Convention holds.")

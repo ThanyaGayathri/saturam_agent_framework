@@ -55,6 +55,8 @@ __all__ = [
     "assess_feasibility",
     "enums_match_vocabulary",
     "bound_parameter_names",
+    "positional_markers",
+    "substitute_first_positional",
     "referenced_tables",
 ]
 
@@ -66,12 +68,25 @@ CONTRACT_VERSION = "2.0.0"
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 #: Positional markers, matched only so the shape can reject them with a useful message.
-_POSITIONAL_RE = re.compile(r"(?<![:\w])\?(?!\w)")
+#: The lookbehind excludes ``:?`` (a named-parameter form in some drivers) but must not
+#: exclude a marker glued to a preceding word character -- ``WHERE a=?AND b=1`` is ugly and
+#: legal, and missing it would let a positional formula through the one check that refuses them.
+_POSITIONAL_RE = re.compile(r"(?<!:)\?")
 
-#: ``FROM x`` / ``JOIN x``. Crude on purpose -- it exists to cross-check a hand-authored
-#: ``source_tables`` against the formula text, not to be a SQL parser. The guard in R6 is
-#: what actually parses statements before execution.
-_TABLE_RE = re.compile(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+#: ``FROM x`` / ``JOIN x``, with an optional schema qualifier. Crude on purpose -- it exists
+#: to cross-check a hand-authored ``source_tables`` against the formula text, not to be a SQL
+#: parser. The guard in R6 is what actually parses statements before execution.
+#:
+#: The schema group matters: without it ``FROM silver.orders`` captured ``silver``, so a
+#: schema-qualified formula was refused at construction however its ``source_tables`` was
+#: written -- listing ``orders`` failed the drift check, and listing ``silver`` passed it and
+#: then left the KPI permanently blocked, because no snapshot contains a table called
+#: ``silver``. ``TableRef.schema`` defaults to ``"silver"``, so qualified formulas are the
+#: expected case rather than an exotic one.
+_TABLE_RE = re.compile(
+    r"\b(?:FROM|JOIN)\s+(?:([A-Za-z_][A-Za-z0-9_]*)\.)?([A-Za-z_][A-Za-z0-9_]*)",
+    re.IGNORECASE,
+)
 
 
 class ResultShape(str, Enum):
@@ -193,6 +208,13 @@ class KpiDefinition:
     concept: Optional[str] = None
 
     def __post_init__(self) -> None:
+        # Normalise before any comparison. ``referenced_tables`` lower-cases what it reads out
+        # of the SQL, so a ``source_tables`` entry written as ``"Orders"`` failed the drift
+        # check below against a formula that named the same table -- and the refusal blamed the
+        # author for omitting a table they had in fact listed.
+        object.__setattr__(
+            self, "source_tables", frozenset(t.lower() for t in self.source_tables)
+        )
         if not self.identifier.isidentifier():
             raise ValueError(
                 f"identifier must be an identifier, got {self.identifier!r}"
@@ -224,9 +246,9 @@ class KpiDefinition:
                 f"{self.identifier}: source_tables is empty, so feasibility cannot be computed"
             )
         read = referenced_tables(self.sql)
-        if read - set(self.source_tables):
+        if read - self.source_tables:
             raise ValueError(
-                f"{self.identifier}: formula reads {sorted(read - set(self.source_tables))} "
+                f"{self.identifier}: formula reads {sorted(read - self.source_tables)} "
                 "which source_tables does not list. Feasibility would report ready while the "
                 "formula is missing a table."
             )
@@ -273,12 +295,35 @@ def bound_parameter_names(sql: str) -> FrozenSet[str]:
 def referenced_tables(sql: str) -> FrozenSet[str]:
     """The tables a formula reads, by scanning ``FROM`` and ``JOIN``.
 
+    Returns bare, lower-cased table names: a schema qualifier is dropped, because that is how
+    ``source_tables`` is authored and how :attr:`TableRef.name` holds it. Two tables of the
+    same name in different schemas would collide here; declare the distinction in the semantic
+    layer rather than relying on this cross-check to spot it.
+
     Subquery aliases are not table names, so anything that never appears after ``FROM`` or
     ``JOIN`` is absent by construction. The result is a floor on what the formula touches,
     which is the right direction to be wrong in: it can under-report a table the declared
     ``source_tables`` also omits, but it cannot invent one.
     """
-    return frozenset(match.lower() for match in _TABLE_RE.findall(sql))
+    return frozenset(table.lower() for _schema, table in _TABLE_RE.findall(sql))
+
+
+def substitute_first_positional(sql: str, name: str) -> str:
+    """Replace the first positional ``?`` with a named ``{placeholder}``.
+
+    Lives here beside the pattern rather than in the harness, so the rule for what counts as a
+    positional marker has exactly one definition.
+    """
+    return _POSITIONAL_RE.sub("{" + name + "}", sql, count=1)
+
+
+def positional_markers(sql: str) -> Tuple[str, ...]:
+    """The positional ``?`` markers a formula uses.
+
+    Public so the validation harness does not have to import a private name to ask the one
+    question the shape refuses formulas over.
+    """
+    return tuple(_POSITIONAL_RE.findall(sql))
 
 
 def assess_feasibility(

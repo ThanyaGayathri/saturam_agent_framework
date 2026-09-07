@@ -146,7 +146,17 @@ print("   ", "OK " if explained else "FAIL", "said what was missing")
 
 print()
 print("=" * 78)
-if all([within_cap, no_reproposal, all_rationales, empty, explained]):
-    print("Template holds. Output conformed to the declared schema on both runs.")
-else:
-    print("Template did not hold. See the FAIL lines above.")
+checks = {
+    "at most eight proposals": within_cap,
+    "did not re-propose an existing synonym": no_reproposal,
+    "every proposal carries a rationale": all_rationales,
+    "refusal returned an empty list": empty,
+    "refusal said what was missing": explained,
+}
+failed = [name for name, passed in checks.items() if not passed]
+if failed:
+    print("Template did not hold:")
+    for name in failed:
+        print("  -", name)
+    raise SystemExit(1)
+print("Template holds. Output conformed to the declared schema on both runs.")
