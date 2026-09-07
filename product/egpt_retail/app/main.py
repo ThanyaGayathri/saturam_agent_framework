@@ -15,6 +15,7 @@ Everything below is construction. ``serve()`` is what runs it (``entrypoints/api
 from __future__ import annotations
 
 from egpt.os import EgptOS
+from egpt.os.config import AuthorizationConfig
 
 from egpt_retail.app.components import build_agents, build_registry, build_workflows
 from egpt_retail.app.db import build_control_plane_db
@@ -34,6 +35,20 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
             "other's callbacks. Inject a shared token."
         )
     db = build_control_plane_db(settings)
+    # JWT authorization is on exactly when a JWKS file is configured (R2). Locally that is an
+    # offline RS256 key pair mounted from a ConfigMap; on AKS it is the identity provider's keys.
+    # The scopes claim is the framework's default, `scopes`, a list. /health stays open by design
+    # (DEFAULT_EXCLUDED_ROUTE_PATHS); /config requires config:read.
+    authorization_config = (
+        AuthorizationConfig(
+            jwks_file=settings.retail_auth_jwks_file,
+            algorithm="RS256",
+            verify_audience=bool(settings.retail_auth_audience),
+            audience=settings.retail_auth_audience,
+        )
+        if settings.authorization_enabled
+        else None
+    )
     return EgptOS(
         id=OS_ID,
         name="Enterprise GPT",
@@ -42,6 +57,8 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
         agents=build_agents(settings, db),
         workflows=build_workflows(settings, db),
         registry=build_registry(),
+        authorization=settings.authorization_enabled,
+        authorization_config=authorization_config,
         scheduler=settings.scheduler_enabled,
         scheduler_base_url=settings.retail_scheduler_base_url,
         internal_service_token=settings.retail_internal_service_token,

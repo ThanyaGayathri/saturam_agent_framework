@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+    app: {{ .Release.Name }}-api
+    role: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector: {matchLabels: {app: {{ .Release.Name }}-api}}
+  template:
+    metadata:
+      labels: {{- include "egpt.labels" . | nindent 8 }}
+        app: {{ .Release.Name }}-api
+        role: api
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      containers:
+        - name: api
+          image: {{ include "egpt.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["api"]
+          env:
+            - {name: EGPT_RETAIL_ROLE, value: api}
+          {{- include "egpt.envFrom" . | nindent 10 }}
+          ports: [{containerPort: {{ .Values.api.port }}, name: http}]
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            initialDelaySeconds: 10
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+          {{- if .Values.auth.enabled }}
+          volumeMounts:
+            - {name: jwks, mountPath: /etc/egpt/jwks, readOnly: true}
+          {{- end }}
+      {{- if .Values.auth.enabled }}
+      volumes:
+        - name: jwks
+          configMap: {name: {{ .Release.Name }}-jwks}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+spec:
+  selector: {app: {{ .Release.Name }}-api}
+  ports: [{port: {{ .Values.api.port }}, targetPort: http, name: http}]

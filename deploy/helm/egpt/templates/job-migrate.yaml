@@ -1,0 +1,33 @@
+# Runs before the release's Deployments on every install and upgrade, once, as a single writer.
+# Never an initContainer: N replicas would be N concurrent migrations. Requires the database to
+# already exist -- which is why local infrastructure is its own chart, installed first.
+#
+# The env is inline, not `envFrom` the release ConfigMap: a pre-install hook runs before any of
+# the release's own resources exist, so a reference to `-env` or `-secrets` here leaves the pod in
+# CreateContainerConfigError forever (found on the first kind install). Migrate needs only the
+# control-plane URL, and a hook that depends on nothing but the database is the right shape.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-migrate
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  template:
+    metadata:
+      labels: {{- include "egpt.labels" . | nindent 8 }}
+        app: {{ .Release.Name }}-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: {{ include "egpt.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          env:
+            - name: EGPT_RETAIL_DB_URL
+              value: {{ .Values.database.directUrl | default .Values.database.url | quote }}

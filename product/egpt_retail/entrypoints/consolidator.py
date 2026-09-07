@@ -140,7 +140,7 @@ async def amain(once: bool = False, poll_interval: Optional[float] = None) -> in
     )
 
     lock = _AdvisoryLock(
-        psycopg_dsn(settings.retail_db_url), f"{_LOCK_NAMESPACE}:{slug}"
+        psycopg_dsn(settings.db_direct_url), f"{_LOCK_NAMESPACE}:{slug}"
     )
     if not lock.acquire():
         log.error(

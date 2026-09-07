@@ -588,3 +588,128 @@ and a chart cannot make `kubectl scale` impossible. The advisory lock on a dedic
 turns the pin into a refusal the log names; R2's chart guards are belt-and-braces on top.
 
 ---
+
+### R02_cluster_evidence.sh
+
+**Package:** R2 (P0, cluster and services) · D3 (one deployment per customer), D4 (Helm), D5
+(separate warehouse database), D14 (RBAC by scope) · G4, G11
+**Status:** PASS (third run; the first two failed and are recorded below)
+
+**Description:** The package's four scenarios, on kind (`deploy/kind/cluster.yaml`, two nodes,
+v1.37.0), as one script: install the infrastructure chart, mint two RS256 tokens offline,
+install the application chart (migrate as a `pre-install` hook), then 200/403/open-`/health`,
+pod kill under an in-cluster request loop, `kubectl scale` on the consolidator, and the Helm
+render guard. Azure is a placeholder throughout: plain `Secret` for Key Vault, a JWKS file for
+Entra, two Neo4j Community instances for two databases, MinIO for the storage account.
+
+**Result (third run, unedited):**
+
+```
+   NAME                                   READY   STATUS      RESTARTS
+   egpt-api-7c558c8578-4bzpr              true    Running     0
+   egpt-api-7c558c8578-w47gn              true    Running     0
+   egpt-consolidator-d4f7958b8-nlg8x      true    Running     0
+   egpt-migrate-slwdx                     false   Succeeded   0
+   egpt-minio / egpt-neo4j-memory / egpt-neo4j-ontology / egpt-pgbouncer / egpt-pipelines /
+   egpt-postgres / egpt-redis             true    Running     0
+
+   GET /health (no token)             -> 200
+   GET /config alice [config:read]    -> 200      os_id egpt-retail | agents ['synonym_proposer']
+   GET /config bob   [agents:read]    -> 403      {"detail":"Insufficient permissions. Required scope(s): config:read"}
+   GET /config (no token)             -> 401
+
+   deleting pod/egpt-api-7c558c8578-4bzpr at 23:32:05
+   requests: 188   non-200: 0   distinct codes:  188 200
+   api pods after : pod/egpt-api-7c558c8578-2wq8d pod/egpt-api-7c558c8578-w47gn
+
+   kubectl scale --replicas=2 accepted (a chart cannot stop this)
+   egpt-consolidator-d4f7958b8-6lhqn   Running   LASTEXIT 3
+   consolidator: another consolidator holds the lock for customer 'acme'; this instance exits 3. One replica per customer -- scale the API, not this.
+
+   OK   helm template fails on consolidator.replicaCount
+All R2 cluster scenarios passed.
+```
+
+Migrate hook, first install (fresh database): `Storing version 2.10.0 in database for table
+egpt_memory_link ... migrate: done`. Third install, same database: `Skipping migration: the
+version of table 'egpt_memory_link' (2.10.0) is less or equal to the target version (2.10.0)`.
+Both paths of the runner have now executed under the hook.
+
+**The two failed runs, and what each one taught:**
+
+1. **Run 1 — `CreateContainerConfigError`, `configmap "egpt-env" not found`.** The rule the
+   two-chart split exists for applies to the chart's own resources: a `pre-install` hook runs
+   before the release's ConfigMap and Secret exist, so a Job that `envFrom`s them can never
+   start on a clean install. The migrate Job now carries its one variable inline
+   (`EGPT_RETAIL_DB_URL`, the direct URL). A hook that depends on nothing but the database is
+   the right shape anyway.
+2. **Run 2 — every `api`/`pipelines` pod crash-looping (5 restarts), curl loop 39/39 `000`.**
+   First log line: `Failed to parse JWKS key: RS256 requires 'cryptography' to be installed`,
+   then `ValueError: At least one JWT verification key or JWKS file is required`. The
+   framework declares bare `PyJWT` (`libs/agno/pyproject.toml:60,78`), which verifies HS256
+   only; every RSA key in the JWKS fails to parse and the validator starts with zero keys. The
+   dev venv has `cryptography` transitively, so `test_r2_auth.py` and the devauth round trip
+   passed everywhere except the image. **Framework finding, Lane R's bucket:** any RS256
+   deployment of `egpt[os]` — Entra on AKS included — hits this; `PyJWT[crypto]` in the `os`
+   extra is the fix. For now `cryptography>=41.0` is a product runtime dependency with the
+   reason beside it.
+
+**What surprised me:**
+
+1. **The consolidator refusal came out first, on a broken cluster.** In run 2 the API pods
+   could not start, and the advisory lock still refused the second consolidator — `exits 3`
+   naming `acme`. It depends on Postgres alone, which is the property that makes it a real
+   guard rather than a chart convention.
+2. **Zero non-200 in 188 requests across a pod kill** is the readiness probe plus exec-form
+   `ENTRYPOINT`: SIGTERM reaches uvicorn, the pod leaves the endpoints before it stops. From
+   inside the cluster against the Service, as planned — a `port-forward` would have shown the
+   tunnel dying, not the app surviving.
+3. **`--set auth.jwks='{"keys":[]}'` is a list to Helm.** `--set` parses braces; the
+   real path is `--set-file auth.jwks=jwks.json`, which is a string. The lint command in
+   the chart README uses `--set-file` so nobody rediscovers this.
+4. **A failed first `helm install` blocks `upgrade --install` forever.** The script now
+   uninstalls a release in `failed` state before installing, so a rerun after a fix is one
+   command.
+
+**Deviations from the package text, restated here so they are not lost:** hard, not
+impossible — the chart cannot stop `kubectl scale`; the lock does. Two Neo4j Community
+instances, not two databases (Enterprise). PgBouncer in **session** mode; transaction mode
+needs `prepare_threshold=None` and would let the lock evaporate. Every Azure values path is
+listed as **NEVER** executed in `deploy/helm/egpt/README.md`; `deploy/AKS_CUTOVER.md` is the
+day they run.
+
+---
+
+### R02_wheel_contents.py
+
+**Package:** R2 (P0, the framework stays publishable)
+**Status:** PASS
+
+**Description:** Builds `libs/agno` into a temporary directory and lists what the wheel holds;
+then runs the same check CI runs (`scripts/check_wheel_contents.py`) after `python -m build`.
+
+**Result:**
+
+```
+   wheel: egpt-0.2.0-py3-none-any.whl (4120 KB)
+   members : 1746
+   top-level: ['egpt', 'egpt-0.2.0.dist-info']
+   product/frontend/deploy members: none
+   shipped data files: 5 (registry templates, console page)
+The egpt wheel carries only egpt/ and its dist-info. The framework stays publishable.
+```
+
+**What surprised me:**
+
+1. **The build broke `validate.sh`.** `python -m build --outdir <tmp>` still writes
+   `libs/agno/build/lib/egpt/` into the source tree, and the next `validate.sh` failed its
+   framework mypy step with `Duplicate module named "egpt" (also at "./build/lib/egpt/__init__.py")`
+   — an hour after the cookbook ran, in a step that has nothing to do with wheels. `build/` is
+   gitignored, so it is invisible to `git status`. `build_wheel()` now removes the tree it
+   created; the cookbook prints whether anything was left behind.
+2. **The check itself found nothing, and that is the point.** The property already holds because
+   of `packages.find include = ["egpt*"]`; the check exists for the day someone adds a
+   `package-dir`, a `MANIFEST.in`, or moves retail code under `libs/`. A guard on a property you
+   have costs one CI step; discovering it gone costs a release.
+
+---

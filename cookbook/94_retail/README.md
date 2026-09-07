@@ -19,6 +19,8 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R03_semantic_over_http.py` | R3 | The semantic read API over HTTP: seven reads live from the fixture, three join-path outcomes distinct on the wire, `include_proposed` scope-gated. |
 | `R01_local_stack.py` | R1 | The API entrypoint against a real Postgres: `/health` 200, `/config` lists the registered agent and the control-plane database. In-process by default; `EGPT_RETAIL_URL` for a running server. |
 | `R01_consolidator_no_work.py` | R1 | The consolidator's clean no-work exit in both shapes (slug unset; slug set with a real vector-only provider) and the single-instance refusal via the advisory lock. |
+| `R02_cluster_evidence.sh` | R2 | The four cluster scenarios on kind, end to end in `kubectl` and `helm`: infra chart, offline RS256 tokens, app chart with the migrate hook, 200/403/open `/health`, pod kill under an in-cluster request loop, consolidator scale refusal, render guard. Shell on purpose -- wrapping `kubectl` in `subprocess.run` to satisfy a file extension makes it harder to rerun by hand. |
+| `R02_wheel_contents.py` | R2 | Builds the `egpt` wheel and lists its members: nothing from `product/`, `frontend/` or `deploy/`. The regression guard CI runs after `python -m build`. |
 | `R03_prototype_screen.md` | R3 | The other half of R3's verification -- a prototype screen rendered from the stub. A procedure run in the prototype repository, with what to record. |
 
 Run:
@@ -42,6 +44,13 @@ and no model key:
 ```bash
 .venv/bin/python cookbook/94_retail/R01_local_stack.py
 .venv/bin/python cookbook/94_retail/R01_consolidator_no_work.py
+
+# R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
+docker build -f deploy/Dockerfile -t egpt-retail:dev .
+kind create cluster --name egpt --config deploy/kind/cluster.yaml
+kind load docker-image egpt-retail:dev --name egpt
+bash cookbook/94_retail/R02_cluster_evidence.sh
+.venv/bin/python cookbook/94_retail/R02_wheel_contents.py
 ```
 
 To run the stub as a server -- for the prototype screen, or to check `R03_stub_server.py`
