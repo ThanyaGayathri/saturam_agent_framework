@@ -68,10 +68,15 @@ CONTRACT_VERSION = "2.0.0"
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 #: Positional markers, matched only so the shape can reject them with a useful message.
-#: The lookbehind excludes ``:?`` (a named-parameter form in some drivers) but must not
-#: exclude a marker glued to a preceding word character -- ``WHERE a=?AND b=1`` is ugly and
-#: legal, and missing it would let a positional formula through the one check that refuses them.
-_POSITIONAL_RE = re.compile(r"(?<!:)\?")
+#: The lookbehind excludes ``:?`` (a named-parameter form in some drivers). A marker glued
+#: to a preceding *or* following word character is still caught -- ``WHERE a=?AND b=1`` and
+#: ``col?`` are both ugly and legal, and missing either would let a positional formula
+#: through the one check that refuses them. Only a marker glued on *both* sides is excluded:
+#: that shape never occurs in real positional-parameter syntax (a marker always follows an
+#: operator, comma, or paren, so at least one side is non-word), but it does occur inside an
+#: ordinary string literal -- a URL query string (``'foo.com/page?x=1'``) or free text
+#: (``'what?next'``) -- which would otherwise be misread as a positional parameter.
+_POSITIONAL_RE = re.compile(r"(?<!:)(?:(?<!\w)\?|\?(?!\w))")
 
 #: ``FROM x`` / ``JOIN x``, with an optional schema qualifier. Crude on purpose -- it exists
 #: to cross-check a hand-authored ``source_tables`` against the formula text, not to be a SQL

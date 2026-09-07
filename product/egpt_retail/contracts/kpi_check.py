@@ -172,18 +172,44 @@ def _strip_subqueries(sql: str) -> str:
     ``SELECT AVG(cnt) FROM (SELECT COUNT(*) AS cnt FROM orders GROUP BY customer_id)`` is one
     number. Stripping the parentheses first is what keeps the inner clause from being read as
     the outer one.
+
+    Tracks single-quoted string state while scanning, for two reasons. First, an unbalanced
+    ``(`` inside a string literal (a store name like ``'Toys(R)Us'``, a URL, any free-text
+    field) must not push ``depth`` above 0 for the rest of the statement, or a genuine outer
+    ``ORDER BY``/``GROUP BY``/``LIMIT`` appearing later gets silently stripped away with it.
+    Second, string content is dropped from the output entirely (not just paren-tracked): text
+    like ``'a) GROUP BY (b'`` is data, not SQL, and the keyword search downstream must not read
+    it as a real outer clause. A quote is escaped in SQL as ``''``, so seeing a second ``'``
+    immediately after one still inside a string closes nothing.
     """
     out: List[str] = []
     depth = 0
-    for char in sql:
+    in_string = False
+    i = 0
+    n = len(sql)
+    while i < n:
+        char = sql[i]
+        if char == "'":
+            if in_string and sql[i + 1 : i + 2] == "'":
+                i += 2
+                continue
+            in_string = not in_string
+            i += 1
+            continue
+        if in_string:
+            i += 1
+            continue
         if char == "(":
             depth += 1
+            i += 1
             continue
         if char == ")":
             depth = max(0, depth - 1)
+            i += 1
             continue
         if depth == 0:
             out.append(char)
+        i += 1
     return "".join(out)
 
 

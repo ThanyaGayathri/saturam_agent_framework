@@ -22,6 +22,7 @@ Run:
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any, Dict, List, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 
@@ -243,7 +244,16 @@ kpi = KpiDefinition(
 verdict = assess_feasibility(kpi, available_tables(reader))
 print(f"  {kpi.identifier}: {verdict.verdict.value} -- {verdict.rationale}")
 
-blocked = assess_feasibility(kpi, available_tables(no_edges) - {"brand_traffic"})
+# Genuinely missing from the reader's own data, not reconstructed by subtracting from its
+# output -- a bug that makes available_tables() over-report a table (a stale cache, a
+# hardcoded fallback, a TableSet.from_reader bug) would stay invisible to a check built the
+# other way, since the subtraction removes the table regardless of what the reader actually
+# said.
+without_brand_traffic: Dict[str, Any] = dict(FIXTURE)
+fixture_tables = cast(List[Dict[str, Any]], FIXTURE["tables"])
+without_brand_traffic["tables"] = [t for t in fixture_tables if t["name"] != "brand_traffic"]
+missing_table_reader = StubSemanticRead.from_payload(without_brand_traffic)
+blocked = assess_feasibility(kpi, available_tables(missing_table_reader))
 print(f"  with brand_traffic dropped: {blocked.verdict.value} -- {blocked.rationale}")
 
 # --- 6. Async variants exist and agree --------------------------------------------------
