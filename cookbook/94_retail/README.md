@@ -17,6 +17,8 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R03_build_contract_fixture.py` | R3 | The contract fixture the stub serves, derived from the shipped ontology and the vendored KPI corpus: generated not edited, and every behaviour the contract's examples claim is live in it. |
 | `R03_stub_server.py` | R3 | The API contract, running: every operation mounted, every one returning its declared example, and the example selector the empty and populated screens depend on. |
 | `R03_semantic_over_http.py` | R3 | The semantic read API over HTTP: seven reads live from the fixture, three join-path outcomes distinct on the wire, `include_proposed` scope-gated. |
+| `R01_local_stack.py` | R1 | The API entrypoint against a real Postgres: `/health` 200, `/config` lists the registered agent and the control-plane database. In-process by default; `EGPT_RETAIL_URL` for a running server. |
+| `R01_consolidator_no_work.py` | R1 | The consolidator's clean no-work exit in both shapes (slug unset; slug set with a real vector-only provider) and the single-instance refusal via the advisory lock. |
 | `R03_prototype_screen.md` | R3 | The other half of R3's verification -- a prototype screen rendered from the stub. A procedure run in the prototype repository, with what to record. |
 
 Run:
@@ -32,6 +34,14 @@ no services:
 .venv/bin/python cookbook/94_retail/R03_build_contract_fixture.py
 .venv/bin/python cookbook/94_retail/R03_stub_server.py
 .venv/bin/python cookbook/94_retail/R03_semantic_over_http.py
+```
+
+The R1 scripts need a Postgres on 5532 (`docker compose -f deploy/compose.yaml up -d postgres`)
+and no model key:
+
+```bash
+.venv/bin/python cookbook/94_retail/R01_local_stack.py
+.venv/bin/python cookbook/94_retail/R01_consolidator_no_work.py
 ```
 
 To run the stub as a server -- for the prototype screen, or to check `R03_stub_server.py`

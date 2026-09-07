@@ -1,0 +1,29 @@
+# The image builds from the repository root (it installs from libs/agno and product), so this
+# file sits here. Without it the build context carries the virtualenvs, every cookbook, the
+# benchmarks and the framework's test fixtures -- hundreds of megabytes the image never reads.
+.git
+.github
+.venv
+.venvs
+.claude
+.context
+.ruff_cache
+.mypy_cache
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/*.egg-info
+benchmarks
+cookbook
+docs
+examples
+scripts
+libs/agno/tests
+libs/agno_infra
+libs/egptctl
+product/tests
+deploy
+frontend
+*.md
+!product/README.md
+!product/egpt_retail/**/*.md

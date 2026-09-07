@@ -24,11 +24,19 @@ dependencies = [
   # that package in any environment where our egpt is absent. A pin no public index can
   # satisfy fails loudly instead.
   "egpt[os]==0.2.0",
+  # The model SDK is the product's choice, not the framework's: egpt[os] carries the server
+  # stack and no provider SDK, and the dev venv only has `openai` through egpt[dev]. Found by
+  # the first container run -- AzureOpenAI() raised ImportError inside the image and nowhere else.
+  "openai",
   "psycopg[binary]",
   "sqlalchemy",
   "pgvector",
   "neo4j",
 ]
+
+[project.scripts]
+# The image's ENTRYPOINT. Four argv values: api, pipelines, consolidator, migrate.
+egpt-retail = "egpt_retail.entrypoints.__main__:main"
 
 [project.optional-dependencies]
 # Everything needed to regenerate and check the API contract, plus the test runner.
@@ -70,9 +78,17 @@ target-version = "py310"
 "egpt_retail/api/models/_generated.py" = ["E501", "F401"]
 
 [tool.mypy]
+# Run through ./scripts/validate.sh, which sets MYPYPATH=libs/agno: the framework is an editable
+# install behind an import-hook finder, invisible to mypy without an explicit source path.
 python_version = "3.10"
 check_untyped_defs = true
 no_implicit_optional = true
 warn_unused_configs = true
 plugins = ["pydantic.mypy"]
 exclude = ["tests*"]
+
+[[tool.mypy.overrides]]
+# The framework is checked by its own config in libs/agno/pyproject.toml. Here it is only the
+# thing product/ types against: analysed for signatures, never reported on.
+module = ["egpt.*"]
+follow_imports = "silent"
