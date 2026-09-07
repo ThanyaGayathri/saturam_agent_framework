@@ -1,0 +1,110 @@
+{
+  "version": "1.0.0",
+  "_comment": [
+    "Shipped retail vocabularies (D9). Delivered with every deployment; customers extend",
+    "them with an overlay rather than forking them (G10).",
+    "",
+    "Terms here must be true of retail in general, not of one customer. A term that only",
+    "makes sense for a single deployment belongs in that deployment's overlay. The test to",
+    "apply before adding one: would the next retail customer recognise it without being",
+    "told what business we built it for?"
+  ],
+  "vocabularies": {
+    "grain": [
+      {
+        "value": "overall",
+        "description": "One row for the whole deployment. No breakdown."
+      },
+      {
+        "value": "customer",
+        "description": "One row per individual customer or contact."
+      },
+      {
+        "value": "customer_segment",
+        "description": "One row per defined segment of customers."
+      },
+      {
+        "value": "product",
+        "description": "One row per individual product or SKU."
+      },
+      {
+        "value": "product_category",
+        "description": "One row per category in the product hierarchy."
+      },
+      {
+        "value": "brand",
+        "description": "One row per brand."
+      },
+      {
+        "value": "supplier",
+        "description": "One row per supplier or vendor."
+      },
+      {
+        "value": "location",
+        "description": "One row per store, warehouse, region or other physical place."
+      },
+      {
+        "value": "channel",
+        "description": "One row per sales or marketing channel."
+      },
+      {
+        "value": "order",
+        "description": "One row per order or transaction."
+      },
+      {
+        "value": "time_period",
+        "description": "One row per period, at whatever calendar grain the KPI declares."
+      }
+    ],
+    "business_area": [
+      {
+        "value": "customer",
+        "description": "Who the customers are and how they behave."
+      },
+      {
+        "value": "product",
+        "description": "What is sold, and how each product performs."
+      },
+      {
+        "value": "inventory",
+        "description": "What is on hand, what is short, what is overstocked."
+      },
+      {
+        "value": "supply_chain",
+        "description": "Suppliers, lead times, fulfilment reliability."
+      },
+      {
+        "value": "marketing",
+        "description": "Reach, engagement and campaign performance."
+      },
+      {
+        "value": "sales",
+        "description": "Revenue, conversion and pipeline."
+      }
+    ],
+    "result_shape": [
+      {
+        "value": "scalar",
+        "description": "One value per grain per run. Can be thresholded and trended."
+      },
+      {
+        "value": "rowset",
+        "description": "A listing. Useful to a person; cannot be alerted on or trended."
+      }
+    ],
+    "feasibility": [
+      {
+        "value": "ready",
+        "description": "Every source table the formula needs is present in the semantic snapshot."
+      },
+      {
+        "value": "partial",
+        "description": "Some source tables are present and some are missing."
+      },
+      {
+        "value": "blocked",
+        "description": "No source table the formula needs is present."
+      }
+    ]
+  }
+}
