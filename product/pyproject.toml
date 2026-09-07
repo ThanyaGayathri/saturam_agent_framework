@@ -1,0 +1,78 @@
+# Enterprise GPT retail product -- the code that is NOT the framework.
+#
+# `product/` is a separate distribution from `egpt` (libs/agno) on purpose. The framework
+# wheel is built from libs/agno with `packages.find include = ["egpt*"]`, and import-linter's
+# `root_package = "egpt"` governs the framework alone, so nothing here can leak into
+# `pip install egpt`. This file exists so that `product/` is installable into the dev, demo
+# and container environments the same way the framework is: `uv pip install -e "product[dev]"`.
+#
+# See docs/plan/delivery-plan.md, "Where the code lives".
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "egpt-retail"
+version = "0.1.0"
+description = "Enterprise GPT retail product: contracts, executors, skills and the API contract."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  # PINNED, and installed after libs/agno. Public PyPI already holds an unrelated
+  # `egpt==0.0.1` (see .github/workflows/release.yml); an unpinned dependency resolves to
+  # that package in any environment where our egpt is absent. A pin no public index can
+  # satisfy fails loudly instead.
+  "egpt[os]==0.2.0",
+  "psycopg[binary]",
+  "sqlalchemy",
+  "pgvector",
+  "neo4j",
+]
+
+[project.optional-dependencies]
+# Everything needed to regenerate and check the API contract, plus the test runner.
+# Never installed into the runtime image.
+dev = [
+  "datamodel-code-generator>=0.26",
+  "openapi-spec-validator>=0.7",
+  "build",
+  "pytest",
+  "httpx",
+  "ruff",
+  "mypy",
+]
+
+[tool.setuptools.packages.find]
+include = ["egpt_retail*"]
+
+[tool.setuptools.package-data]
+# Data the product reads at runtime by path. Absent from here, an installed (non-editable)
+# copy silently loses its ontology, fixtures, prompts and contract.
+egpt_retail = [
+  "py.typed",
+  "ontology/*.json",
+  "contracts/_fixtures/*.json",
+  "skills/*.md",
+  "api/openapi/*.yaml",
+  "api/openapi/*.json",
+  "api/openapi/paths/*.yaml",
+  "api/openapi/schemas/*.yaml",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+# Generated from the OpenAPI document by scripts/gen_api_models.sh. Not hand-edited.
+"egpt_retail/api/models/_generated.py" = ["E501", "F401"]
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+no_implicit_optional = true
+warn_unused_configs = true
+plugins = ["pydantic.mypy"]
+exclude = ["tests*"]

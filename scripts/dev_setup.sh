@@ -19,6 +19,7 @@ CURR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${CURR_DIR}")"
 AGNO_DIR="${REPO_ROOT}/libs/agno"
 EGPTCTL_DIR="${REPO_ROOT}/libs/egptctl"
+PRODUCT_DIR="${REPO_ROOT}/product"
 VENV_DIR="${REPO_ROOT}/.venv"
 
 # Colors
@@ -62,11 +63,13 @@ echo -e "    ${DIM}Creating Python 3.12 venv...${NC}"
 echo -e "    ${DIM}> uv venv ${VENV_DIR} --python 3.12${NC}"
 uv venv "${VENV_DIR}" --python 3.12 --quiet
 
-# Install the separately distributed CLI and core library together for development.
+# Install the separately distributed CLI, the core library and the retail product together
+# for development. The product pins egpt to this checkout's version, so the framework must be
+# in the same resolve -- public PyPI holds an unrelated package under the same name.
 echo ""
-echo -e "    ${DIM}Installing egptctl[dev] and egpt[dev] in editable mode...${NC}"
-echo -e "    ${DIM}> uv pip install -e libs/egptctl[dev] -e libs/agno[dev]${NC}"
-VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}[dev]" -e "${AGNO_DIR}[dev]" --quiet
+echo -e "    ${DIM}Installing egptctl[dev], egpt[dev] and egpt-retail[dev] in editable mode...${NC}"
+echo -e "    ${DIM}> uv pip install -e libs/egptctl[dev] -e libs/agno[dev] -e product[dev]${NC}"
+VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}[dev]" -e "${AGNO_DIR}[dev]" -e "${PRODUCT_DIR}[dev]" --quiet
 
 # Copy activation command to clipboard
 ACTIVATE_CMD="source .venv/bin/activate"

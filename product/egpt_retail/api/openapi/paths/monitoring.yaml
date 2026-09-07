@@ -1,0 +1,467 @@
+# Monitoring. alerts.js is split into definitions and events; scheduled-runs.js maps onto
+# the framework's /schedules plus the delivery fields it lacks; monitor and quality are R14.
+
+/alerts:
+  get:
+    tags: [monitoring]
+    operationId: listAlertDefinitions
+    summary: Alert rules.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - name: kpi_identifier
+        in: query
+        required: false
+        schema: {type: string}
+      - name: enabled
+        in: query
+        required: false
+        schema: {type: boolean}
+    responses:
+      "200":
+        description: Definitions.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/monitoring.yaml#/AlertDefinition'
+            examples:
+              default:
+                value:
+                  - {id: alr_0001, name: Supplier on-time rate below 90%, kpi_identifier: supplier__on_time_rate_30d, operator: lt, threshold: 0.9, window: {length: 2, unit: day}, scope: {business_area: supply_chain, grain_value: null}, severity: warning, recipients: [{channel: in_app, address: ""}, {channel: email, address: buying@example.test}], recommended_actions: [Review the supplier's open deliveries., Put the supplier on notice if the rate holds for a week.], enabled: true, use_case_id: uc_0001, process_id: sc_1, created_at: "2026-09-03T10:00:00Z", last_evaluated_at: "2026-09-07T02:25:00Z", last_fired_at: "2026-09-07T02:25:00Z"}
+                  - {id: alr_0002, name: Stockout risk above 20 SKUs, kpi_identifier: stocklevel__stockout_risk_count, operator: gt, threshold: 20, window: null, scope: {business_area: inventory, grain_value: low}, severity: critical, recipients: [{channel: in_app, address: ""}], recommended_actions: [Draft replenishment POs for the listed SKUs.], enabled: true, use_case_id: null, process_id: inv_5, created_at: "2026-09-04T10:00:00Z", last_evaluated_at: "2026-09-07T02:25:00Z", last_fired_at: null}
+              empty:
+                value: []
+  post:
+    tags: [monitoring]
+    operationId: createAlertDefinition
+    summary: Define an alert on a scalar KPI.
+    x-egpt-scopes: [alerts:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/monitoring.yaml#/AlertDefinitionWrite'
+          examples:
+            default:
+              value: {name: Supplier on-time rate below 90%, kpi_identifier: supplier__on_time_rate_30d, operator: lt, threshold: 0.9, window: {length: 2, unit: day}, scope: {business_area: supply_chain}, severity: warning, recipients: [{channel: in_app}, {channel: email, address: buying@example.test}], recommended_actions: [Review the supplier's open deliveries.], enabled: true, use_case_id: uc_0001, process_id: sc_1}
+    responses:
+      "201":
+        description: Created.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/AlertDefinition'
+            examples:
+              default:
+                value: {id: alr_0001, name: Supplier on-time rate below 90%, kpi_identifier: supplier__on_time_rate_30d, operator: lt, threshold: 0.9, window: {length: 2, unit: day}, scope: {business_area: supply_chain, grain_value: null}, severity: warning, recipients: [{channel: in_app, address: ""}, {channel: email, address: buying@example.test}], recommended_actions: [Review the supplier's open deliveries.], enabled: true, use_case_id: uc_0001, process_id: sc_1, created_at: "2026-09-07T11:20:00Z", last_evaluated_at: null, last_fired_at: null}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "422":
+        description: The KPI is a rowset, or is not ready.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              rowset:
+                value: {detail: "stocklevel__reorder_urgency_list is a rowset and cannot be thresholded. Alerts need a scalar KPI.", code: kpi_not_scalar}
+
+/alerts/{alert_id}:
+  get:
+    tags: [monitoring]
+    operationId: getAlertDefinition
+    summary: One rule.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/alertId'
+    responses:
+      "200":
+        description: The definition.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/AlertDefinition'
+            examples:
+              default:
+                value: {id: alr_0001, name: Supplier on-time rate below 90%, kpi_identifier: supplier__on_time_rate_30d, operator: lt, threshold: 0.9, window: {length: 2, unit: day}, scope: {business_area: supply_chain, grain_value: null}, severity: warning, recipients: [{channel: in_app, address: ""}, {channel: email, address: buying@example.test}], recommended_actions: [Review the supplier's open deliveries., Put the supplier on notice if the rate holds for a week.], enabled: true, use_case_id: uc_0001, process_id: sc_1, created_at: "2026-09-03T10:00:00Z", last_evaluated_at: "2026-09-07T02:25:00Z", last_fired_at: "2026-09-07T02:25:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  patch:
+    tags: [monitoring]
+    operationId: updateAlertDefinition
+    summary: Edit a rule. Editing never changes an event it already fired.
+    x-egpt-scopes: [alerts:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/alertId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/monitoring.yaml#/AlertDefinitionWrite'
+          examples:
+            default:
+              value: {name: Supplier on-time rate below 90%, kpi_identifier: supplier__on_time_rate_30d, operator: lt, threshold: 0.85, severity: critical}
+    responses:
+      "200":
+        description: Updated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/AlertDefinition'
+            examples:
+              default:
+                value: {id: alr_0001, name: Supplier on-time rate below 90%, kpi_identifier: supplier__on_time_rate_30d, operator: lt, threshold: 0.85, window: {length: 2, unit: day}, scope: {business_area: supply_chain, grain_value: null}, severity: critical, recipients: [{channel: in_app, address: ""}, {channel: email, address: buying@example.test}], recommended_actions: [Review the supplier's open deliveries., Put the supplier on notice if the rate holds for a week.], enabled: true, use_case_id: uc_0001, process_id: sc_1, created_at: "2026-09-03T10:00:00Z", last_evaluated_at: "2026-09-07T02:25:00Z", last_fired_at: "2026-09-07T02:25:00Z"}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [monitoring]
+    operationId: deleteAlertDefinition
+    summary: Delete a rule. Its past events are kept.
+    x-egpt-scopes: [alerts:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/alertId'
+    responses:
+      "204":
+        description: Deleted.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/alert-events:
+  get:
+    tags: [monitoring]
+    operationId: listAlertEvents
+    summary: Fired alerts -- the inbox and the bell.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/monitoring.yaml#/AlertEventStatus'
+      - name: severity
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/monitoring.yaml#/Severity'
+      - name: business_area
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/common.yaml#/BusinessAreaId'
+    responses:
+      "200":
+        description: Events, newest first.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/monitoring.yaml#/AlertEvent'
+            examples:
+              default:
+                value:
+                  - {id: aev_0031, alert_id: alr_0001, alert_name: Supplier on-time rate below 90%, severity: warning, status: new, title: "Supplier on-time rate at 71% for sup_014", summary: "sup_014 delivered 71% of orders on time over the last 30 days, below the 90% threshold for two consecutive days.", business_area_id: supply_chain, process_id: sc_1, use_case_id: uc_0001, kpi: {identifier: supplier__on_time_rate_30d, name: Supplier On-Time Rate (30d), value: 0.71, delta: -0.12, unit: "%", as_of: "2026-09-06T23:59:59Z"}, rule: "supplier__on_time_rate_30d < 0.9 for 2 days", recommended_actions: [Review the supplier's open deliveries., Put the supplier on notice if the rate holds for a week.], fired_at: "2026-09-07T02:25:00Z", acknowledged_at: null, resolved_at: null, snooze_until: null, run_id: run_alerts_20260907, provenance_ref: run_alerts_20260907}
+                  - {id: aev_0030, alert_id: alr_0001, alert_name: Supplier on-time rate below 90%, severity: warning, status: resolved, title: "Supplier on-time rate at 84% for sup_003", summary: "sup_003 recovered to 88% after two late weeks.", business_area_id: supply_chain, process_id: sc_1, use_case_id: uc_0001, kpi: {identifier: supplier__on_time_rate_30d, name: Supplier On-Time Rate (30d), value: 0.84, delta: 0.05, unit: "%", as_of: "2026-09-04T23:59:59Z"}, rule: "supplier__on_time_rate_30d < 0.9 for 2 days", recommended_actions: [Review the supplier's open deliveries.], fired_at: "2026-09-05T02:25:00Z", acknowledged_at: "2026-09-05T08:10:00Z", resolved_at: "2026-09-06T09:00:00Z", snooze_until: null, run_id: run_alerts_20260905, provenance_ref: run_alerts_20260905}
+              empty:
+                value: []
+
+/alert-events/read-all:
+  post:
+    tags: [monitoring]
+    operationId: acknowledgeAllAlertEvents
+    summary: Mark every `new` event acknowledged. The bell's "mark all as read".
+    x-egpt-scopes: [monitoring:read]
+    responses:
+      "200":
+        description: How many changed.
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [acknowledged]
+              properties:
+                acknowledged: {type: integer}
+            examples:
+              default:
+                value: {acknowledged: 3}
+
+/alert-events/{event_id}:
+  get:
+    tags: [monitoring]
+    operationId: getAlertEvent
+    summary: One event.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/eventId'
+    responses:
+      "200":
+        description: The event.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/AlertEvent'
+            examples:
+              default:
+                value: {id: aev_0031, alert_id: alr_0001, alert_name: Supplier on-time rate below 90%, severity: warning, status: new, title: "Supplier on-time rate at 71% for sup_014", summary: "sup_014 delivered 71% of orders on time over the last 30 days, below the 90% threshold for two consecutive days.", business_area_id: supply_chain, process_id: sc_1, use_case_id: uc_0001, kpi: {identifier: supplier__on_time_rate_30d, name: Supplier On-Time Rate (30d), value: 0.71, delta: -0.12, unit: "%", as_of: "2026-09-06T23:59:59Z"}, rule: "supplier__on_time_rate_30d < 0.9 for 2 days", recommended_actions: [Review the supplier's open deliveries., Put the supplier on notice if the rate holds for a week.], fired_at: "2026-09-07T02:25:00Z", acknowledged_at: null, resolved_at: null, snooze_until: null, run_id: run_alerts_20260907, provenance_ref: run_alerts_20260907}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/alert-events/{event_id}/acknowledge:
+  post:
+    tags: [monitoring]
+    operationId: acknowledgeAlertEvent
+    summary: Acknowledge. A resolved event stays resolved.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/eventId'
+    responses:
+      "200":
+        description: The event.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/AlertEvent'
+            examples:
+              default:
+                value: {id: aev_0031, alert_id: alr_0001, alert_name: Supplier on-time rate below 90%, severity: warning, status: acknowledged, title: "Supplier on-time rate at 71% for sup_014", summary: "sup_014 delivered 71% of orders on time over the last 30 days, below the 90% threshold for two consecutive days.", business_area_id: supply_chain, process_id: sc_1, use_case_id: uc_0001, kpi: {identifier: supplier__on_time_rate_30d, name: Supplier On-Time Rate (30d), value: 0.71, delta: -0.12, unit: "%", as_of: "2026-09-06T23:59:59Z"}, rule: "supplier__on_time_rate_30d < 0.9 for 2 days", recommended_actions: [Review the supplier's open deliveries.], fired_at: "2026-09-07T02:25:00Z", acknowledged_at: "2026-09-07T11:30:00Z", resolved_at: null, snooze_until: null, run_id: run_alerts_20260907, provenance_ref: run_alerts_20260907}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/alert-events/{event_id}/snooze:
+  post:
+    tags: [monitoring]
+    operationId: snoozeAlertEvent
+    summary: Snooze until a time.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/eventId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/monitoring.yaml#/SnoozeRequest'
+          examples:
+            default:
+              value: {until: "2026-09-08T09:00:00Z"}
+    responses:
+      "200":
+        description: The event.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/AlertEvent'
+            examples:
+              default:
+                value: {id: aev_0031, alert_id: alr_0001, alert_name: Supplier on-time rate below 90%, severity: warning, status: snoozed, title: "Supplier on-time rate at 71% for sup_014", summary: "sup_014 delivered 71% of orders on time over the last 30 days, below the 90% threshold for two consecutive days.", business_area_id: supply_chain, process_id: sc_1, use_case_id: uc_0001, kpi: {identifier: supplier__on_time_rate_30d, name: Supplier On-Time Rate (30d), value: 0.71, delta: -0.12, unit: "%", as_of: "2026-09-06T23:59:59Z"}, rule: "supplier__on_time_rate_30d < 0.9 for 2 days", recommended_actions: [Review the supplier's open deliveries.], fired_at: "2026-09-07T02:25:00Z", acknowledged_at: null, resolved_at: null, snooze_until: "2026-09-08T09:00:00Z", run_id: run_alerts_20260907, provenance_ref: run_alerts_20260907}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/alert-events/{event_id}/resolve:
+  post:
+    tags: [monitoring]
+    operationId: resolveAlertEvent
+    summary: Resolve.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/eventId'
+    responses:
+      "200":
+        description: The event.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/AlertEvent'
+            examples:
+              default:
+                value: {id: aev_0031, alert_id: alr_0001, alert_name: Supplier on-time rate below 90%, severity: warning, status: resolved, title: "Supplier on-time rate at 71% for sup_014", summary: "sup_014 delivered 71% of orders on time over the last 30 days, below the 90% threshold for two consecutive days.", business_area_id: supply_chain, process_id: sc_1, use_case_id: uc_0001, kpi: {identifier: supplier__on_time_rate_30d, name: Supplier On-Time Rate (30d), value: 0.71, delta: -0.12, unit: "%", as_of: "2026-09-06T23:59:59Z"}, rule: "supplier__on_time_rate_30d < 0.9 for 2 days", recommended_actions: [Review the supplier's open deliveries.], fired_at: "2026-09-07T02:25:00Z", acknowledged_at: "2026-09-07T11:30:00Z", resolved_at: "2026-09-07T11:45:00Z", snooze_until: null, run_id: run_alerts_20260907, provenance_ref: run_alerts_20260907}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/alert-events/{event_id}/reopen:
+  post:
+    tags: [monitoring]
+    operationId: reopenAlertEvent
+    summary: Reopen as new.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/eventId'
+    responses:
+      "200":
+        description: The event.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/AlertEvent'
+            examples:
+              default:
+                value: {id: aev_0031, alert_id: alr_0001, alert_name: Supplier on-time rate below 90%, severity: warning, status: new, title: "Supplier on-time rate at 71% for sup_014", summary: "sup_014 delivered 71% of orders on time over the last 30 days, below the 90% threshold for two consecutive days.", business_area_id: supply_chain, process_id: sc_1, use_case_id: uc_0001, kpi: {identifier: supplier__on_time_rate_30d, name: Supplier On-Time Rate (30d), value: 0.71, delta: -0.12, unit: "%", as_of: "2026-09-06T23:59:59Z"}, rule: "supplier__on_time_rate_30d < 0.9 for 2 days", recommended_actions: [Review the supplier's open deliveries.], fired_at: "2026-09-07T02:25:00Z", acknowledged_at: null, resolved_at: null, snooze_until: null, run_id: run_alerts_20260907, provenance_ref: run_alerts_20260907}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/schedules/{schedule_id}/delivery:
+  get:
+    tags: [monitoring]
+    operationId: getScheduleDelivery
+    summary: How a scheduled run's result is delivered.
+    x-egpt-scopes: [monitoring:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/scheduleId'
+    responses:
+      "200":
+        description: Delivery.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/ScheduleDelivery'
+            examples:
+              default:
+                value: {schedule_id: sch_0001, channel: email, recipient: buying@example.test, label: Weekly supplier watch}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  put:
+    tags: [monitoring]
+    operationId: setScheduleDelivery
+    summary: Set delivery for a schedule.
+    x-egpt-scopes: [schedules:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/scheduleId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/monitoring.yaml#/ScheduleDeliveryWrite'
+          examples:
+            default:
+              value: {channel: email, recipient: buying@example.test, label: Weekly supplier watch}
+    responses:
+      "200":
+        description: Set.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/ScheduleDelivery'
+            examples:
+              default:
+                value: {schedule_id: sch_0001, channel: email, recipient: buying@example.test, label: Weekly supplier watch}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/monitoring/execution-health:
+  get:
+    tags: [monitoring]
+    operationId: getExecutionHealth
+    summary: Is it running? Per use case, from run history.
+    x-egpt-scopes: [monitoring:read]
+    responses:
+      "200":
+        description: Execution health.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/ExecutionHealth'
+            examples:
+              default:
+                value:
+                  as_of: "2026-09-07T11:50:00Z"
+                  use_cases:
+                    - {use_case_id: uc_0001, title: RFQ funnel -- weekly, version: 3, last_run_status: succeeded, last_run_at: "2026-09-07T05:00:00Z", runs_7d: 7, failures_7d: 1, silent: false, gates_waiting: 0, cost_7d: {input_tokens: 28400, output_tokens: 4210, drift_pct: 3.1}}
+                    - {use_case_id: uc_0002, title: Supplier reliability watch, version: 1, last_run_status: null, last_run_at: null, runs_7d: 0, failures_7d: 0, silent: true, gates_waiting: 0, cost_7d: {input_tokens: 0, output_tokens: 0, drift_pct: null}}
+              empty:
+                value: {as_of: "2026-09-07T11:50:00Z", use_cases: []}
+
+/monitoring/quality:
+  get:
+    tags: [monitoring]
+    operationId: getQualityAssessment
+    summary: Is it still right? Per use case, from the assessment pass.
+    x-egpt-scopes: [monitoring:read]
+    responses:
+      "200":
+        description: Quality.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/monitoring.yaml#/QualityAssessment'
+            examples:
+              default:
+                value:
+                  as_of: "2026-09-07T06:00:00Z"
+                  use_cases:
+                    - {use_case_id: uc_0001, version: 3, verdict: healthy, golden_pass_rate: 0.95, drift_score: 0.04, assessed_at: "2026-09-07T06:00:00Z", notes: ""}
+                    - {use_case_id: uc_0002, version: 1, verdict: unknown, golden_pass_rate: null, drift_score: null, assessed_at: "2026-09-07T06:00:00Z", notes: "No golden set on this version yet."}
+              degraded:
+                summary: Runs green, answers worse -- the failure execution health cannot see.
+                value:
+                  as_of: "2026-09-07T06:00:00Z"
+                  use_cases:
+                    - {use_case_id: uc_0001, version: 4, verdict: degraded, golden_pass_rate: 0.6, drift_score: 0.02, assessed_at: "2026-09-07T06:00:00Z", notes: "Golden pass rate fell from 0.95 on version 3 to 0.6 after the funnel_explanation prompt edit (0.1.0 -> 0.2.0)."}
+
+/monitoring/schedules/silent:
+  get:
+    tags: [monitoring]
+    operationId: listSilentSchedules
+    summary: Schedules that should have fired and did not.
+    x-egpt-scopes: [monitoring:read]
+    responses:
+      "200":
+        description: Silent schedules.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/monitoring.yaml#/SilentSchedule'
+            examples:
+              default:
+                value:
+                  - {schedule_id: sch_0002, use_case_id: uc_0002, name: Supplier reliability watch -- weekly, expected_at: "2026-09-07T05:00:00Z", last_fired_at: null}
+              empty:
+                value: []
+
+x-egpt-parameters:
+  alertId:
+    name: alert_id
+    in: path
+    required: true
+    schema: {type: string}
+  eventId:
+    name: event_id
+    in: path
+    required: true
+    schema: {type: string}
+  scheduleId:
+    name: schedule_id
+    in: path
+    required: true
+    schema: {type: string}
+
+x-egpt-responses:
+  InsufficientScope:
+    description: The token lacks a scope this operation requires.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          insufficient_scope:
+            value: {detail: "Insufficient permissions. Required scopes: alerts:write.", code: insufficient_scope}
+  NotFound:
+    description: No such resource.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          not_found:
+            value: {detail: "Not found.", code: not_found}

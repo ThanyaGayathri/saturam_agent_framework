@@ -1,0 +1,127 @@
+# The playground delta. Chat runs and session history are framework endpoints and are not
+# re-specified. Derived from saved-prompts.js, chat-filters.js, chat-mode.js and
+# report-drawer.js.
+
+SavedPrompt:
+  type: object
+  required: [id, text, label, saved_at, usage_count]
+  properties:
+    id: {type: string}
+    text: {type: string}
+    label: {type: string, default: ""}
+    saved_at:
+      $ref: './common.yaml#/Timestamp'
+    last_used_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    usage_count: {type: integer, default: 0}
+
+SavedPromptWrite:
+  type: object
+  required: [text]
+  properties:
+    text: {type: string}
+    label: {type: string}
+
+Period:
+  type: string
+  enum: [week, month, quarter, year, two_years, custom]
+
+ChatFilters:
+  type: object
+  description: The date window every answer in the playground is scoped to. Bound as the as-of window on every read, so the intro copy and the data agree.
+  required: [period]
+  properties:
+    period:
+      $ref: './playground.yaml#/Period'
+    from_date: {type: [string, "null"], format: date}
+    to_date: {type: [string, "null"], format: date}
+
+ChatMode:
+  type: string
+  enum: [full, brief]
+
+PlaygroundPreferences:
+  type: object
+  required: [mode]
+  properties:
+    mode:
+      $ref: './playground.yaml#/ChatMode'
+
+AnswerBlock:
+  type: object
+  description: One renderable block of an answer -- a finding, a table, a chart, a recommendation. The playground's answer format owns the inner shape; the report only needs the id and kind to pin it.
+  required: [id, kind]
+  properties:
+    id: {type: string}
+    kind:
+      $ref: './playground.yaml#/AnswerBlockKind'
+  additionalProperties: true
+
+ReportItem:
+  type: object
+  required: [id, block, pinned_at]
+  properties:
+    id: {type: string}
+    block:
+      $ref: './playground.yaml#/AnswerBlock'
+    source_question: {type: string, default: ""}
+    run_id:
+      type: [string, "null"]
+      description: The run the block came from, so its provenance is one hop away.
+    use_case_id: {type: [string, "null"]}
+    pinned_at:
+      $ref: './common.yaml#/Timestamp'
+
+Report:
+  type: object
+  required: [id, title, items, created_at, updated_at]
+  properties:
+    id: {type: string}
+    title: {type: string}
+    items:
+      type: array
+      items:
+        $ref: './playground.yaml#/ReportItem'
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+    updated_at:
+      $ref: './common.yaml#/Timestamp'
+
+ReportList:
+  type: object
+  required: [active_report_id, reports]
+  properties:
+    active_report_id: {type: [string, "null"]}
+    reports:
+      type: array
+      items:
+        $ref: './playground.yaml#/Report'
+
+ReportWrite:
+  type: object
+  required: [title]
+  properties:
+    title: {type: string}
+    make_active: {type: boolean, default: true}
+
+ReportBlockWrite:
+  type: object
+  required: [block]
+  properties:
+    block:
+      $ref: './playground.yaml#/AnswerBlock'
+    source_question: {type: string}
+    run_id: {type: [string, "null"]}
+    use_case_id: {type: [string, "null"]}
+
+ActiveReportWrite:
+  type: object
+  required: [report_id]
+  properties:
+    report_id: {type: string}
+
+AnswerBlockKind:
+  type: string
+  enum: [text, finding, table, chart, kpi, recommendation]

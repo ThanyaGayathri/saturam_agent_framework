@@ -74,6 +74,10 @@ target "cookbook"
 run_step "ruff format" ruff format "${REPO_ROOT}/cookbook"
 run_step "import sort" ruff check --select I --fix "${REPO_ROOT}/cookbook"
 
+target "product"
+run_step "ruff format" ruff format "${REPO_ROOT}/product"
+run_step "import sort" ruff check --select I --fix "${REPO_ROOT}/product"
+
 ELAPSED=$((SECONDS - START))
 echo ""
 if [[ ${#FAILURES[@]} -eq 0 ]]; then

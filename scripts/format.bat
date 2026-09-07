@@ -56,6 +56,13 @@ IF EXIST %COOKBOOK_FORMAT% (
     ECHO [WARNING] %COOKBOOK_FORMAT% does not exist, skipping
 )
 
+SET "PRODUCT_DIR=%REPO_ROOT%\product"
+IF EXIST "%PRODUCT_DIR%" (
+    ECHO [INFO] Formatting product
+    ruff format "%PRODUCT_DIR%"
+    ruff check --select I --fix "%PRODUCT_DIR%"
+)
+
 ECHO [INFO] All formatting complete.
 EXIT /B
 

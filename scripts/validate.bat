@@ -72,6 +72,19 @@ IF EXIST %AGNO_AWS_VALIDATE% (
 @REM     ECHO [WARNING] %COOKBOOK_VALIDATE% does not exist, skipping
 @REM )
 
+SET "PRODUCT_DIR=%REPO_ROOT%\product"
+IF EXIST "%PRODUCT_DIR%" (
+    ECHO [INFO] Validating product
+    ruff check "%PRODUCT_DIR%"
+    IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
+    mypy "%PRODUCT_DIR%\egpt_retail" --config-file "%PRODUCT_DIR%\pyproject.toml"
+    IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
+    python "%REPO_ROOT%\scripts\check_openapi.py"
+    IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
+    python "%REPO_ROOT%\scripts\check_api_model_drift.py"
+    IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
+)
+
 ECHO [INFO] All validations complete.
 EXIT /B 0
 

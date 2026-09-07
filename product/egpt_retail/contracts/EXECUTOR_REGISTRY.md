@@ -79,7 +79,11 @@ standing rule; this exemption is executors only.
   into stored workflows forever and would have to survive someone changing lanes. Uniqueness
   is enforced by the check below instead.
 - **The name is the API.** Renaming one is a breaking change under the change protocol: both
-  lanes agree first, and someone migrates the stored workflows.
+  lanes agree first, and someone migrates the stored workflows. The check below cannot
+  protect you here: `check_registry` inspects live functions and cannot see the
+  `executor_ref` strings already persisted in stored workflows, so a rename passes the check
+  and breaks every persisted workflow at once. *(Amendment by Lane R, 2026-09-07, on
+  accepting the convention.)*
 - **Verbs are specific.** `process_data` and `handle_step` are names two people will both
   reach for. Whatever it actually does, say that.
 

@@ -1,0 +1,547 @@
+# KPI discovery, catalog, feasibility and health. Derived from kpi-registry.js and
+# kpi-sources.js; the definition shape is Lane K's KPI formula contract.
+
+/kpis:
+  get:
+    tags: [kpis]
+    operationId: listKpis
+    summary: The KPI registry, with feasibility per row.
+    description: Flat. The prototype's categories -> sections -> kpis nesting is a rendering concern; `business_area` and `subject_area` are the two grouping keys it needs.
+    x-egpt-scopes: [kpis:read]
+    parameters:
+      - name: business_area
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/common.yaml#/BusinessAreaId'
+      - name: subject_area
+        in: query
+        required: false
+        schema: {type: string}
+      - name: active
+        in: query
+        required: false
+        schema: {type: boolean}
+      - name: feasibility
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/common.yaml#/FeasibilityVerdict'
+    responses:
+      "200":
+        description: KPIs.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/kpis.yaml#/Kpi'
+            examples:
+              default:
+                summary: "`KpiRegistry` -- the evidence screen for R3. Three shipped KPIs from the contract fixture, one blocked."
+                value:
+                  - id: kpi_0001
+                    identifier: stocklevel__days_of_stock
+                    name: Days of Stock Remaining
+                    description: Estimated days until stockout at current sell-through, per product at this stock level.
+                    business_area: inventory
+                    subject_area: Replenishment
+                    concept: StockLevel
+                    grain: product
+                    result_shape: rowset
+                    dialect: postgres
+                    source_tables: [inventory, order_items, orders, products]
+                    parameters: [{name: stock_level_name, kind: scalar, description: The stock level band.}]
+                    time_window: {length: 30, unit: day}
+                    validated_against_snapshot: "r3-contract.1"
+                    level: operational
+                    unit: Days
+                    industry_benchmark: 14-30 days safety stock
+                    active: true
+                    source: shipped
+                    dataset_ids: []
+                    process_ids: [inv_5]
+                    feasibility: {kpi_id: kpi_0001, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+                    updated_at: "2026-09-07T02:05:00Z"
+                  - id: kpi_0002
+                    identifier: supplier__on_time_rate_30d
+                    name: Supplier On-Time Rate (30d)
+                    description: Fraction of deliveries on time in the last 30 days.
+                    business_area: supply_chain
+                    subject_area: Supplier Management
+                    concept: Supplier
+                    grain: supplier
+                    result_shape: scalar
+                    dialect: postgres
+                    source_tables: [supplier_deliveries]
+                    parameters: [{name: supplier_id, kind: scalar, description: ""}]
+                    time_window: {length: 30, unit: day}
+                    validated_against_snapshot: "r3-contract.1"
+                    level: operational
+                    unit: "%"
+                    industry_benchmark: ">95%"
+                    active: true
+                    source: shipped
+                    dataset_ids: []
+                    process_ids: [sc_1]
+                    feasibility: {kpi_id: kpi_0002, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+                    updated_at: "2026-09-07T02:05:00Z"
+                  - id: kpi_0003
+                    identifier: product__avg_rating
+                    name: Average Product Rating
+                    description: Average star rating from reviews.
+                    business_area: product
+                    subject_area: Category Performance
+                    concept: Product
+                    grain: product
+                    result_shape: scalar
+                    dialect: postgres
+                    source_tables: [product_reviews, web_sessions]
+                    parameters: [{name: product_id, kind: scalar, description: ""}]
+                    time_window: null
+                    validated_against_snapshot: "r3-contract.1"
+                    level: tactical
+                    unit: Score
+                    industry_benchmark: ""
+                    active: true
+                    source: customer
+                    dataset_ids: []
+                    process_ids: []
+                    feasibility: {kpi_id: kpi_0003, verdict: partial, missing_tables: [web_sessions], rationale: "Missing from the semantic snapshot: web_sessions.", semantic_snapshot: "r3-contract.1"}
+                    updated_at: "2026-09-07T09:30:00Z"
+              empty:
+                summary: No KPIs yet -- the registry screen's empty state.
+                value: []
+  post:
+    tags: [kpis]
+    operationId: createKpi
+    summary: Author a KPI.
+    x-egpt-scopes: [kpis:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/kpis.yaml#/KpiWrite'
+          examples:
+            default:
+              value:
+                name: Supplier Fill Rate
+                description: Fraction of deliveries fulfilled (not cancelled).
+                business_area: supply_chain
+                subject_area: Supplier Management
+                concept: Supplier
+                grain: supplier
+                result_shape: scalar
+                dialect: postgres
+                sql: "SELECT COUNT(CASE WHEN status != 'cancelled' THEN 1 END) * 1.0 / NULLIF(COUNT(*), 0) FROM supplier_deliveries WHERE supplier_id = {supplier_id}"
+                source_tables: [supplier_deliveries]
+                parameters: [{name: supplier_id, kind: scalar, description: ""}]
+                time_window: null
+                level: operational
+                unit: "%"
+                active: true
+    responses:
+      "201":
+        description: Created, with its feasibility against the current snapshot.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/Kpi'
+            examples:
+              default:
+                value:
+                  id: kpi_0004
+                  identifier: supplier__fill_rate
+                  name: Supplier Fill Rate
+                  description: Fraction of deliveries fulfilled (not cancelled).
+                  business_area: supply_chain
+                  subject_area: Supplier Management
+                  concept: Supplier
+                  grain: supplier
+                  result_shape: scalar
+                  dialect: postgres
+                  sql: "SELECT COUNT(CASE WHEN status != 'cancelled' THEN 1 END) * 1.0 / NULLIF(COUNT(*), 0) FROM supplier_deliveries WHERE supplier_id = {supplier_id}"
+                  source_tables: [supplier_deliveries]
+                  parameters: [{name: supplier_id, kind: scalar, description: ""}]
+                  time_window: null
+                  validated_against_snapshot: "r3-contract.1"
+                  level: operational
+                  unit: "%"
+                  industry_benchmark: ""
+                  active: true
+                  source: customer
+                  dataset_ids: []
+                  process_ids: []
+                  feasibility: {kpi_id: kpi_0004, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+                  updated_at: "2026-09-07T10:00:00Z"
+      "422":
+        description: The formula failed construction. The message names the defect, exactly as `KpiDefinition.__post_init__` words it.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              positional:
+                value: {detail: "supplier__fill_rate: formula uses 1 positional '?' marker(s). Use named {placeholders} with a declared KpiParameter, so arity and meaning can be checked before execution.", code: invalid_formula}
+              drift:
+                value: {detail: "supplier__fill_rate: formula reads ['deliveries'] which source_tables does not list. Feasibility would report ready while the formula is missing a table.", code: invalid_formula}
+              vocabulary:
+                value: {detail: "'warehouse_zone' is not a permitted grain. This deployment permits: brand, channel, customer, customer_segment, location, order, overall, product, product_category, supplier, time_period. Add it to the customer overlay if the business genuinely has it -- do not pick the nearest term.", code: invalid_vocabulary_term}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/kpis/suggestions:
+  get:
+    tags: [kpis]
+    operationId: listKpiSuggestions
+    summary: Candidate KPIs proposed from the connected data (K12).
+    description: Read on demand and not stored; a suggestion becomes a KPI only through `POST /kpis`. Each is traceable to named tables, and the feasibility on it is a set difference, not the agent's opinion.
+    x-egpt-scopes: [kpis:read]
+    parameters:
+      - name: business_area
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/common.yaml#/BusinessAreaId'
+    responses:
+      "200":
+        description: Suggestions.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiSuggestionList'
+            examples:
+              default:
+                value:
+                  suggestions:
+                    - identifier: supplier__avg_lead_time_days
+                      name: Average Supplier Lead Time
+                      description: Average days between expected and actual delivery; positive means late.
+                      business_area: supply_chain
+                      concept: Supplier
+                      grain: supplier
+                      result_shape: scalar
+                      rationale: supplier_deliveries carries expected_date and actual_date for every delivery.
+                      derived_from_tables: [supplier_deliveries]
+                      confidence: high
+                      proposed_sql: "SELECT AVG(actual_date - expected_date) FROM supplier_deliveries WHERE supplier_id = {supplier_id} AND actual_date IS NOT NULL"
+                      feasibility: {kpi_id: supplier__avg_lead_time_days, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+                      proposed_by: {identifier: kpi_suggestion, version: "0.1.0"}
+                  notes: ""
+                  semantic_snapshot: "r3-contract.1"
+              refusal:
+                summary: The agent had nothing traceable to propose and said so, in the schema.
+                value:
+                  suggestions: []
+                  notes: "No accepted concept in business_area 'marketing' maps to a harvested table, so no suggestion would be traceable to an input."
+                  semantic_snapshot: "r3-contract.1"
+
+/kpis/health:
+  get:
+    tags: [kpis]
+    operationId: listKpiHealth
+    summary: Freshness of every KPI from gold.
+    x-egpt-scopes: [kpis:read]
+    responses:
+      "200":
+        description: Health per KPI.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/kpis.yaml#/KpiHealth'
+            examples:
+              default:
+                value:
+                  - {kpi_id: kpi_0001, identifier: stocklevel__days_of_stock, status: fresh, last_computed_at: "2026-09-07T02:20:00Z", as_of: "2026-09-06T23:59:59Z", staleness_hours: 8.5, last_run_id: run_gold_20260907, last_error: null}
+                  - {kpi_id: kpi_0002, identifier: supplier__on_time_rate_30d, status: failed, last_computed_at: "2026-09-06T02:20:00Z", as_of: "2026-09-05T23:59:59Z", staleness_hours: 32.5, last_run_id: run_gold_20260907, last_error: "column supplier_deliveries.actual_date does not exist"}
+                  - {kpi_id: kpi_0003, identifier: product__avg_rating, status: never_computed, last_computed_at: null, as_of: null, staleness_hours: null, last_run_id: null, last_error: null}
+              empty:
+                value: []
+
+/kpis/import:
+  post:
+    tags: [kpis]
+    operationId: importKpis
+    summary: Import KPIs from CSV.
+    x-egpt-scopes: [kpis:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/kpis.yaml#/KpiImportRequest'
+          examples:
+            default:
+              value:
+                csv: "name,description,business_area,grain,sql,source_tables\nSupplier Fill Rate,Fraction of deliveries fulfilled,supply_chain,supplier,\"SELECT COUNT(*) FROM supplier_deliveries WHERE supplier_id = {supplier_id}\",supplier_deliveries\n"
+                dry_run: false
+    responses:
+      "200":
+        description: What was imported and what was refused, row by row.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiImportResult'
+            examples:
+              default:
+                value:
+                  imported: [supplier__fill_rate]
+                  rejected:
+                    - {row: 3, reason: "product__avg_rating: formula uses undeclared parameter(s) ['product_id']"}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/kpis/{kpi_id}:
+  get:
+    tags: [kpis]
+    operationId: getKpi
+    summary: One KPI.
+    x-egpt-scopes: [kpis:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/kpiId'
+    responses:
+      "200":
+        description: The KPI.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/Kpi'
+            examples:
+              default:
+                value:
+                  id: kpi_0002
+                  identifier: supplier__on_time_rate_30d
+                  name: Supplier On-Time Rate (30d)
+                  description: Fraction of deliveries on time in the last 30 days.
+                  business_area: supply_chain
+                  subject_area: Supplier Management
+                  concept: Supplier
+                  grain: supplier
+                  result_shape: scalar
+                  dialect: postgres
+                  sql: "SELECT COUNT(CASE WHEN status = 'on_time' THEN 1 END) * 1.0 / NULLIF(COUNT(*), 0) FROM supplier_deliveries WHERE supplier_id = {supplier_id}"
+                  source_tables: [supplier_deliveries]
+                  parameters: [{name: supplier_id, kind: scalar, description: ""}]
+                  time_window: {length: 30, unit: day}
+                  validated_against_snapshot: "r3-contract.1"
+                  level: operational
+                  unit: "%"
+                  industry_benchmark: ">95%"
+                  active: true
+                  source: shipped
+                  dataset_ids: []
+                  process_ids: [sc_1]
+                  feasibility: {kpi_id: kpi_0002, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+                  updated_at: "2026-09-07T02:05:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  patch:
+    tags: [kpis]
+    operationId: updateKpi
+    summary: Edit a KPI. A formula edit re-validates and moves the KPI back to review against the current snapshot.
+    x-egpt-scopes: [kpis:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/kpiId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/kpis.yaml#/KpiWrite'
+          examples:
+            default:
+              value: {name: Supplier On-Time Rate (30d), description: Fraction of deliveries on time in the last 30 days., business_area: supply_chain, grain: supplier, sql: "SELECT COUNT(CASE WHEN status = 'on_time' THEN 1 END) * 1.0 / NULLIF(COUNT(*), 0) FROM supplier_deliveries WHERE supplier_id = {supplier_id}", source_tables: [supplier_deliveries], parameters: [{name: supplier_id, kind: scalar}], active: false}
+    responses:
+      "200":
+        description: Updated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/Kpi'
+            examples:
+              default:
+                value:
+                  id: kpi_0002
+                  identifier: supplier__on_time_rate_30d
+                  name: Supplier On-Time Rate (30d)
+                  description: Fraction of deliveries on time in the last 30 days.
+                  business_area: supply_chain
+                  subject_area: Supplier Management
+                  concept: Supplier
+                  grain: supplier
+                  result_shape: scalar
+                  dialect: postgres
+                  sql: "SELECT COUNT(CASE WHEN status = 'on_time' THEN 1 END) * 1.0 / NULLIF(COUNT(*), 0) FROM supplier_deliveries WHERE supplier_id = {supplier_id}"
+                  source_tables: [supplier_deliveries]
+                  parameters: [{name: supplier_id, kind: scalar, description: ""}]
+                  time_window: {length: 30, unit: day}
+                  validated_against_snapshot: "r3-contract.1"
+                  level: operational
+                  unit: "%"
+                  industry_benchmark: ">95%"
+                  active: false
+                  source: shipped
+                  dataset_ids: []
+                  process_ids: [sc_1]
+                  feasibility: {kpi_id: kpi_0002, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+                  updated_at: "2026-09-07T10:05:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "422":
+        description: The edited formula failed construction.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              invalid:
+                value: {detail: "supplier__on_time_rate_30d: declares parameter(s) ['supplier_id'] the formula never uses", code: invalid_formula}
+  delete:
+    tags: [kpis]
+    operationId: deleteKpi
+    summary: Retire a KPI.
+    description: Refused while a dashboard tile, an alert definition or an activated use case references it; the message names them.
+    x-egpt-scopes: [kpis:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/kpiId'
+    responses:
+      "204":
+        description: Deleted.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "409":
+        description: Still referenced.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              conflict:
+                value: {detail: "supplier__on_time_rate_30d is referenced by dashboard dsh_supply and alert alr_0002. Remove those references first.", code: still_referenced}
+
+/kpis/{kpi_id}/feasibility:
+  get:
+    tags: [kpis]
+    operationId: getKpiFeasibility
+    summary: Whether this KPI can be computed against the current snapshot.
+    description: A set difference between the formula's source tables and the semantic layer's tables. Takes no opinion from anything.
+    x-egpt-scopes: [kpis:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/kpiId'
+    responses:
+      "200":
+        description: The verdict.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Feasibility'
+            examples:
+              ready:
+                value: {kpi_id: kpi_0002, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+              partial:
+                value: {kpi_id: kpi_0003, verdict: partial, missing_tables: [web_sessions], rationale: "Missing from the semantic snapshot: web_sessions.", semantic_snapshot: "r3-contract.1"}
+              blocked:
+                value: {kpi_id: kpi_0009, verdict: blocked, missing_tables: [campaigns, campaign_spend], rationale: "Missing from the semantic snapshot: campaign_spend, campaigns.", semantic_snapshot: "r3-contract.1"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/kpi-sources:
+  get:
+    tags: [kpis]
+    operationId: listKpiSources
+    summary: User-added datasets in the KPI gallery.
+    x-egpt-scopes: [kpis:read]
+    responses:
+      "200":
+        description: Sources.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/kpis.yaml#/KpiSource'
+            examples:
+              default:
+                value:
+                  - {id: ksrc_0001, name: Supplier deliveries, description: One row per delivery with expected and actual dates., source_id: src_warehouse, table: supplier_deliveries, business_areas: [supply_chain], attributes: [supplier_id, expected_date, actual_date, status], linked_kpi_ids: [kpi_0002], created_at: "2026-09-02T11:00:00Z"}
+              empty:
+                value: []
+  post:
+    tags: [kpis]
+    operationId: createKpiSource
+    summary: Add a dataset to the gallery.
+    x-egpt-scopes: [kpis:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/kpis.yaml#/KpiSourceWrite'
+          examples:
+            default:
+              value: {name: Supplier deliveries, description: One row per delivery with expected and actual dates., source_id: src_warehouse, table: supplier_deliveries, business_areas: [supply_chain], attributes: [supplier_id, expected_date, actual_date, status], linked_kpi_ids: []}
+    responses:
+      "201":
+        description: Created.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiSource'
+            examples:
+              default:
+                value: {id: ksrc_0001, name: Supplier deliveries, description: One row per delivery with expected and actual dates., source_id: src_warehouse, table: supplier_deliveries, business_areas: [supply_chain], attributes: [supplier_id, expected_date, actual_date, status], linked_kpi_ids: [], created_at: "2026-09-07T10:10:00Z"}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/kpi-sources/{kpi_source_id}:
+  delete:
+    tags: [kpis]
+    operationId: deleteKpiSource
+    summary: Remove a dataset from the gallery.
+    x-egpt-scopes: [kpis:write]
+    parameters:
+      - name: kpi_source_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "204":
+        description: Deleted.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+x-egpt-parameters:
+  kpiId:
+    name: kpi_id
+    in: path
+    required: true
+    schema: {type: string}
+
+x-egpt-responses:
+  InsufficientScope:
+    description: The token lacks a scope this operation requires.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          insufficient_scope:
+            value: {detail: "Insufficient permissions. Required scopes: kpis:write.", code: insufficient_scope}
+  NotFound:
+    description: No such KPI.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          not_found:
+            value: {detail: "No KPI 'kpi_9999'.", code: not_found}

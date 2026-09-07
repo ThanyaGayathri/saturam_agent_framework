@@ -56,7 +56,7 @@ jobs:
           set -e
           uv venv .venv --python "${{ matrix.python-version }}"
           source .venv/bin/activate
-          uv pip install -e libs/egptctl[dev] -e libs/agno[dev]
+          uv pip install -e libs/egptctl[dev] -e libs/agno[dev] -e product[dev]
 
       - name: Run validate
         run: |
