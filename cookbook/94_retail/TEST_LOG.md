@@ -503,3 +503,107 @@ declared; the mapping in the shim is naming (`snake_case` to `camelCase`, `level
 capitalised), not shape.
 
 ---
+
+### R01_local_stack.py
+
+**Package:** R1 (P0, application image and entrypoints — the API entrypoint)
+**Status:** PASS
+
+**Description:** Ran the same `egpt_retail.app.main:app` the image serves, in-process with its
+lifespans, against a real Postgres (`agnohq/pgvector:18` on 5532 from `deploy/compose.yaml`).
+Called `/health` and `/config`. Then built the image and ran the compose stack — `migrate`,
+`api`, `consolidator` — and called both routes on the container from the host.
+
+**Result:** `/health` → 200 `{"status": "ok"}`. `/config` → 200, `os_id: egpt-retail`,
+`databases: [egpt-control-plane]`, one agent `synonym_proposer` with `model: {id: gpt-5.4,
+provider: Azure}`, no workflows (the RFQ chain is R10). The container's own access log shows
+the two requests; the evidence was taken from port 7780 after the finding below.
+
+**What surprised me, in order of how much it matters:**
+
+1. **The image had no `openai` SDK, and only the container knew.** `egpt[os]` carries the
+   server stack and no provider SDK; the dev venv gets `openai` through `egpt[dev]`. So the
+   in-process run passed, and the `api` container exited 1 at import with
+   `ImportError: openai not installed`. Fixed by making `openai` a runtime dependency of
+   `product/` — the product chooses the provider, so the product declares the SDK. This is
+   the single best argument for "run the image, not just the code" that this lane has.
+2. **The first compose evidence was from the wrong server.** Host port 7777 was already held
+   by a local EgptOS (`os_id: retail-playground-demo`, from the retail-playground branch), so
+   the compose `api` could not bind and my host-side curl hit the squatter — and reported it
+   as healthy. Caught because the body named a different OS. `compose.yaml` now takes
+   `EGPT_RETAIL_API_PORT`; the evidence is from 7780 with the container shown owning it.
+   Recorded because a green check against the wrong process is worse than a red one.
+3. **`migrate` on a fresh database is not a no-op.** I had written that a clean install only
+   skips and `auto_provision_dbs` creates the tables. The log shows `up()` applying 2.7.0
+   through 2.10.0 and creating the memory-tier tables (`egpt_memory_link` …) on the first run,
+   then skipping every table on the second. Docstring and compose comment corrected; the
+   Helm hook Job in R2 therefore does real work on a clean namespace.
+
+---
+
+### R01_consolidator_no_work.py
+
+**Package:** R1 (P0, the memory consolidator entrypoint) · touches G1, G2
+**Status:** PASS — re-run after fixing 3 findings from automated review on PR #188 (spurious
+advisory-unlock on a refused lock, the memory provider's engine never being closed, and
+`psycopg_dsn` only stripping the `+psycopg` suffix)
+
+**Description:** The package's evidence line — "the consolidator logs a clean no-work exit
+rather than an error" — with both shapes it can take, plus the single-instance refusal:
+slug unset (no provider built, nothing but a log line); slug set to `acme` against the real
+Postgres, which builds the vector-only Mode B provider (pgvector table self-provisioned, no
+Neo4j, no embedder key) and runs one tick; and a second instance while this script holds the
+customer's advisory lock.
+
+**Re-verified for PR #188's fixes.** This script's own assertions never covered engine
+cleanup, so the leak the review found would have passed silently here too. Checked
+separately, against the same live Postgres: before the fix, running `main(once=True)` three
+times in one process (this script's exact pattern) left 5 open server-side connections
+(`pg_stat_activity`, still-running process) against a baseline of 1; after wrapping the
+provider in `try/finally: await provider.aclose()`, three runs left the baseline unchanged at
+1. This script's own three exit codes (0, 0, 3) and log lines were unaffected by any of the
+three fixes and still match the **Result** below exactly.
+
+**Result:**
+
+```
+consolidator: no scopes configured -- EGPT_RETAIL_CUSTOMER_SLUG is unset. Nothing to consolidate. Exiting 0.
+consolidator: 1 scope(s) configured: acme/synonym_proposer/__scheduler__/*/*
+consolidator: tick complete -- 1 scope(s) checked, 0 with work, 1 pass(es), 0 error(s) in 0.01s
+consolidator: another consolidator holds the lock for customer 'acme'; this instance exits 3.
+```
+
+Exit codes 0, 0, 3. The compose `consolidator` service (loop mode, slug unset) logged the
+first line and exited 0 on its own.
+
+**What surprised me:**
+
+1. **The worker is silent on an empty scope list — every line above is new code.** With no
+   scopes `run_once()` returns `[]` and logs nothing at any level; `start()`/`stop()` log two
+   lines regardless of work. The package's evidence could not have been produced without the
+   entrypoint owning the summary. Kept in `product/`, never in the framework: the worker does
+   not know what "no work" means for this deployment, and the framework wiring is K1's.
+2. **Mode A refuses the embedder the deployment uses.** `ProviderMode.LOCAL` only accepts
+   offline-capable embedders (`sentence_transformer`, `fastembed`, `vllm`, `ollama`); an
+   Azure OpenAI embedding deployment forces `FRONTIER`. Consistent with the build plan (two
+   Azure deployments, GPU pool deferred), and worth knowing before anyone writes
+   `mode="local"` into a values file.
+3. **The pgvector store provisions itself and the migration runner cannot see it.**
+   `CREATE EXTENSION IF NOT EXISTS vector`, schema, partitioned table and indexes on
+   construction; `MigrationManager._TABLE_TYPE_TO_ATTR` covers the relational memory-tier
+   tables only. Two different things with the same word in their name.
+
+**Deliberately not done:** any user's memory. The consolidation scope carries
+`user_id="__scheduler__"`, so it reaches exactly the scheduler's partition and nothing a
+person wrote — there is no slug on a run context until K1 stamps it. **Open question for
+Lane K, raised not resolved:** whether the consolidation scope should carry `agent_id` (one
+pass per agent partition, as here) or drop it (one pass per tenant). Narrowing is conjunctive
+over every set slot, so the choice decides what the facts are keyed to.
+
+**A deviation upward, stated:** the package says "the consolidator pinned to one replica,
+because it has no distributed lock". The worker is idempotent by upsert-on-content-id, so
+two replicas cannot corrupt state — they redo the same window. Pinning is about wasted work,
+and a chart cannot make `kubectl scale` impossible. The advisory lock on a dedicated session
+turns the pin into a refusal the log names; R2's chart guards are belt-and-braces on top.
+
+---

@@ -78,7 +78,10 @@ run_step "import check" python3 "${REPO_ROOT}/cookbook/scripts/check_cookbook_im
 
 target "product"
 run_step "ruff check" ruff check "${REPO_ROOT}/product"
-run_step "mypy" mypy "${REPO_ROOT}/product/egpt_retail" --config-file "${REPO_ROOT}/product/pyproject.toml"
+# MYPYPATH: egpt is installed editable through an import-hook finder that mypy cannot follow,
+# so the framework's source tree is named explicitly. Without it every `egpt.*` import in
+# product/ is "import-not-found" and nothing behind it is checked.
+run_step "mypy" env MYPYPATH="${REPO_ROOT}/libs/agno" mypy "${REPO_ROOT}/product/egpt_retail" --config-file "${REPO_ROOT}/product/pyproject.toml"
 run_step "api contract" python3 "${REPO_ROOT}/scripts/check_api_contract.py"
 run_step "pytest" python3 -m pytest "${REPO_ROOT}/product/tests"
 
