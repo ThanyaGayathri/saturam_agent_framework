@@ -63,6 +63,12 @@ class Concept:
     #: Plain-language questions this concept should answer. Distinct from synonyms: a synonym
     #: is another name for the thing, a question pattern is how somebody asks about it.
     question_patterns: Tuple[str, ...] = ()
+    #: The corpus documents this concept is drawn from, so a practitioner reviewing it can
+    #: check the claim rather than take the author's word. Empty is permitted and means
+    #: *structural*: an entity every retail data model holds -- an order line, a web session --
+    #: that curated retail prose rarely discusses because it is a data-modelling fact rather
+    #: than a retail-practice one. Empty is a flag for review, not a defect.
+    sources: Tuple[str, ...] = ()
     origin: TermOrigin = TermOrigin.CORE
 
     def __post_init__(self) -> None:
@@ -288,6 +294,7 @@ def _parse(payload: Mapping[str, Any], origin: TermOrigin) -> Ontology:
             business_area=item.get("business_area", ""),
             synonyms=tuple(item.get("synonyms", ())),
             question_patterns=tuple(item.get("question_patterns", ())),
+            sources=tuple(item.get("sources", ())),
             origin=origin,
         )
         for item in payload.get("concepts", ())

@@ -1,0 +1,2083 @@
+{
+  "version": "1.0.0",
+  "_comment": [
+    "Retail metric definitions harvested from the 'Key Metrics and Benchmarks' sections",
+    "of the curated retail corpus (Saturam-Inc/retailGPT, research_docs).",
+    "",
+    "This is a K11 INPUT, not a KPI registry. Each entry carries a conceptual formula such",
+    "as 'COGS / Average Inventory' -- it names quantities, not columns. Turning one into a",
+    "KpiDefinition needs source_tables and SQL bound to a specific customer schema, which",
+    "is what K11 and the semantic layer do. Feasibility cannot be computed from this file.",
+    "",
+    "What it replaces is invention: K11's registry and K12's suggestion agent can cite a",
+    "curated definition with an industry benchmark instead of proposing a metric from",
+    "nothing. Every entry names the document it came from."
+  ],
+  "metrics": [
+    {
+      "name": "Gross Margin %",
+      "formula_text": "(Net Sales \u2212 COGS) / Net Sales \u00d7 100",
+      "benchmark": "Grocery: 22\u201328%; GM: 35\u201345%; Specialty: 40\u201365%",
+      "notes": "Primary buying team KPI",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "Net Margin %",
+      "formula_text": "Net Income / Net Sales \u00d7 100",
+      "benchmark": "Grocery: 1\u20133%; GM: 3\u20136%; Specialty: 5\u201312%",
+      "notes": "Retailer profitability signal",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "GMROI",
+      "formula_text": "Gross Margin ($) / Avg Inventory at Cost ($)",
+      "benchmark": "Grocery: >3.2x; GM: >2.0x; Apparel: >3.5x",
+      "notes": "Capital efficiency per category",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "Inventory Turns",
+      "formula_text": "COGS / Average Inventory at Cost",
+      "benchmark": "Grocery: 12\u201320x; Apparel: 4\u20136x; Electronics: 6\u201310x",
+      "notes": "Higher = better capital use",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "Shrinkage Rate",
+      "formula_text": "(Book Inv \u2212 Physical Count) / Book Inv \u00d7 100",
+      "benchmark": "US avg: 1.6% of retail sales (NRF, 2024)",
+      "notes": ">2% triggers loss prevention escalation",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "Comp Sales Growth",
+      "formula_text": "(Current Comps \u2212 Prior Comps) / Prior Comps \u00d7 100",
+      "benchmark": "+2\u20135% considered healthy; <0% is negative comp",
+      "notes": "13\u201315 month qualifying period",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "Basket Size (UPT)",
+      "formula_text": "Total Units Sold / Total Transactions",
+      "benchmark": "Grocery: 15\u201320; Convenience: 2\u20135; GM: 5\u201310",
+      "notes": "Cross-sell effectiveness proxy",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "Ticket Size (ATV)",
+      "formula_text": "Total Revenue / Total Transactions",
+      "benchmark": "Dollar store: $12\u201315; Grocery: $55\u201375; Hypermarket: $75\u2013110",
+      "notes": "Format-dependent; monitor vs. prior year",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "Footfall Conversion Rate",
+      "formula_text": "Transactions / Footfall Count \u00d7 100",
+      "benchmark": "Grocery: 80\u201395%; Specialty: 25\u201345%; Fashion: 20\u201335%",
+      "notes": "Reflects store execution and assortment fit",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "Markdown Rate",
+      "formula_text": "Markdown $ / Gross Sales \u00d7 100",
+      "benchmark": "Department store: 30\u201335%; Grocery: 3\u20135%; Fashion: 20\u201330%",
+      "notes": "Early markdown \u2192 lower rate + better turn",
+      "source": "01-retail-fundamentals-and-terminology.md"
+    },
+    {
+      "name": "CLV",
+      "formula_text": "AOV \u00d7 Frequency \u00d7 Lifespan",
+      "benchmark": "$500\u2013$5,000 (varies by format)",
+      "notes": "Grocery: $3,000\u2013$8,000; Specialty: $500\u2013$2,000",
+      "source": "02-customer-fundamentals-and-shopper-psychology.md"
+    },
+    {
+      "name": "NPS",
+      "formula_text": "% Promoters \u2212 % Detractors",
+      "benchmark": "50\u201370 = good; 70+ = excellent",
+      "notes": "Industry average retail NPS: ~40 (Satmetrix, 2023)",
+      "source": "02-customer-fundamentals-and-shopper-psychology.md"
+    },
+    {
+      "name": "CSAT",
+      "formula_text": "Satisfied / Total Respondents \u00d7 100",
+      "benchmark": "75\u201385% = acceptable; 85%+ = strong",
+      "notes": "Post-transaction survey within 24 hours",
+      "source": "02-customer-fundamentals-and-shopper-psychology.md"
+    },
+    {
+      "name": "Repeat Purchase Rate",
+      "formula_text": "Repeat Buyers / Total Buyers",
+      "benchmark": "25\u201340% in e-commerce; 60\u201375% in grocery",
+      "notes": "Measured at 90-day window",
+      "source": "02-customer-fundamentals-and-shopper-psychology.md"
+    },
+    {
+      "name": "CLV:CAC Ratio",
+      "formula_text": "CLV / Customer Acquisition Cost",
+      "benchmark": "3:1 minimum; 5:1 is strong",
+      "notes": "Below 3:1 indicates unsustainable unit economics",
+      "source": "02-customer-fundamentals-and-shopper-psychology.md"
+    },
+    {
+      "name": "Share of Wallet",
+      "formula_text": "Spend at retailer / Total category spend",
+      "benchmark": "Category-dependent; top-of-wallet = >40%",
+      "notes": "Primary loyalty indicator in grocery",
+      "source": "02-customer-fundamentals-and-shopper-psychology.md"
+    },
+    {
+      "name": "Churn Rate",
+      "formula_text": "Lost Customers / Starting Customers",
+      "benchmark": "<5% annually in grocery; <20% in specialty",
+      "notes": "Inversely related to CLV",
+      "source": "02-customer-fundamentals-and-shopper-psychology.md"
+    },
+    {
+      "name": "Sales per Square Foot",
+      "formula_text": "Total Sales / Total Selling Area (sq ft)",
+      "benchmark": "Grocery: $400\u2013$600/sq ft; Apparel: $200\u2013$400/sq ft; Apple Store: ~$5,500/sq ft",
+      "notes": "Best proxy for overall store productivity",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Sales per Linear Foot",
+      "formula_text": "Category Sales / Category Linear Shelf Feet",
+      "benchmark": "Grocery center-store: $250\u2013$500/lin ft/year",
+      "notes": "Used for category space allocation",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Space-to-Sales Index",
+      "formula_text": "(Space Share / Sales Share) \u00d7 100",
+      "benchmark": "Target range: 90\u2013110",
+      "notes": "Below 80: under-spaced; above 120: over-spaced",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Planogram Compliance Rate",
+      "formula_text": "(Correct Positions / Total Positions) \u00d7 100",
+      "benchmark": "Best-in-class: \u2265 85%; Average: 65\u201375%",
+      "notes": "Drives availability and promotional effectiveness",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Endcap Lift Index",
+      "formula_text": "Endcap Sales Velocity / Normal Shelf Velocity",
+      "benchmark": "2.0\u20135.0\u00d7 normal velocity",
+      "notes": "Higher for impulse/consumable categories",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Seasonal Sell-Through Rate",
+      "formula_text": "Units Sold at Full+First Markdown / Total Seasonal Units",
+      "benchmark": "\u2265 85% before clearance",
+      "notes": "Below 70% indicates over-buying or poor display",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Display ROI",
+      "formula_text": "(Incremental Sales \u00d7 Margin) / Display Investment",
+      "benchmark": "CPG target: 2.0\u20134.0\u00d7 investment",
+      "notes": "Includes vendor trade funding and retailer space cost",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Conversion Rate (Store)",
+      "formula_text": "Transactions / Store Traffic (footfall)",
+      "benchmark": "Grocery: 80\u201390%; Specialty: 20\u201340%; Fashion: 25\u201335%",
+      "notes": "VM quality is a primary driver of specialty conversion",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Units per Transaction (UPT)",
+      "formula_text": "Total Units Sold / Total Transactions",
+      "benchmark": "Grocery: 8\u201312 units; Mass: 10\u201316 units; Apparel: 2\u20133 items",
+      "notes": "Cross-merchandising and display storytelling drive UPT",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Dwell Time",
+      "formula_text": "Average time in store (minutes)",
+      "benchmark": "Grocery: 28\u201335 min; Fashion: 22\u201330 min; Apple Store: 15\u201320 min",
+      "notes": "Longer dwell correlates with higher spend in browsing formats",
+      "source": "03-merchandising-and-visual-merchandising.md"
+    },
+    {
+      "name": "Fair Share Index (FSI)",
+      "formula_text": "Category Share (%) / ACV Share (%)",
+      "benchmark": "1.0 = fair share; >1.1 = leadership; <0.85 = gap",
+      "notes": "Primary gap-finding tool",
+      "source": "04-category-management.md"
+    },
+    {
+      "name": "Space-to-Sales Ratio (SSR)",
+      "formula_text": "% Share of Facings / % Share of Category Sales",
+      "benchmark": "0.85\u20131.15 = at fair share",
+      "notes": "Values outside range trigger planogram review",
+      "source": "04-category-management.md"
+    },
+    {
+      "name": "Days of Supply (DoS)",
+      "formula_text": "(Facings \u00d7 Units/Facing) / Daily Unit Sales",
+      "benchmark": "= Replenishment cycle \u00b1 0.5 days",
+      "notes": "Below cycle = OOS risk; above = overstock",
+      "source": "04-category-management.md"
+    },
+    {
+      "name": "On-Shelf Availability (OSA)",
+      "formula_text": "In-stock SKUs / Total Listed SKUs (audited)",
+      "benchmark": "\u226597% (Destination); \u226595% (Routine)",
+      "notes": "OOS costs retailer ~4% of category sales",
+      "source": "04-category-management.md"
+    },
+    {
+      "name": "Household Penetration",
+      "formula_text": "Unique HH buyers / Total store HH base",
+      "benchmark": "Varies; target +2pp/year for growing category",
+      "notes": "Measured via loyalty card data",
+      "source": "04-category-management.md"
+    },
+    {
+      "name": "Category Market Share",
+      "formula_text": "Retailer cat sales / Total market cat sales",
+      "benchmark": "Benchmarked to ACV share (FSI)",
+      "notes": "Primary volume KPI",
+      "source": "04-category-management.md"
+    },
+    {
+      "name": "New Item Velocity",
+      "formula_text": "Units/store/week (new SKUs, 12-week avg)",
+      "benchmark": "\u22653.0 u/s/w to retain listing at most US grocers",
+      "notes": "Below threshold = delist trigger",
+      "source": "04-category-management.md"
+    },
+    {
+      "name": "Promotional ROI",
+      "formula_text": "Incremental GM$ / Total Promo Cost$",
+      "benchmark": ">1.5x for promotion to be self-funding",
+      "notes": "Includes margin foregone on baseline units",
+      "source": "04-category-management.md"
+    },
+    {
+      "name": "Promotion ROI",
+      "formula_text": "(Incremental GM - Promo Cost) / Promo Cost \u00d7 100",
+      "benchmark": ">50% = good; >100% = excellent",
+      "notes": "Measure over full 12-week cycle, not just event window",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "Price Elasticity of Demand (PED)",
+      "formula_text": "% \u0394Qty / % \u0394Price",
+      "benchmark": "Elastic: < -1; Inelastic: > -1",
+      "notes": "Varies significantly by category and competitive context",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "Sell-Through Rate (ST%)",
+      "formula_text": "Units Sold / Units Received \u00d7 100",
+      "benchmark": "80\u201390% at end of season = healthy",
+      "notes": "Below 70% signals markdown risk; above 95% signals under-buy",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "Trade Promotion ROI",
+      "formula_text": "Incremental GM / Trade Investment \u00d7 100",
+      "benchmark": "Industry average: 30\u201340% break-even; best-in-class: 70%+",
+      "notes": "72% of promotions fail to break even (McKinsey, 2023)",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "KVI Price Index",
+      "formula_text": "Retailer KVI Avg Price / Competitor KVI Avg Price \u00d7 100",
+      "benchmark": "95\u2013102 = competitive; <95 = price investment opportunity",
+      "notes": "Focus on 200\u2013500 highest-frequency items",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "Promotional Sales Mix",
+      "formula_text": "Promotional Sales $ / Total Sales $",
+      "benchmark": "EDLP: <15%; High-Low: 30\u201350%",
+      "notes": "High promotional mix erodes baseline and trains deal-seeking",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "Average Promotional Discount Depth",
+      "formula_text": "(Regular Price - Promo Price) / Regular Price \u00d7 100",
+      "benchmark": "Grocery: 20\u201330%; Apparel: 30\u201350%",
+      "notes": "Deeper discounts required to drive elastic demand in competitive categories",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "Gross Margin Return on Promotional Investment (GMROPI)",
+      "formula_text": "Incremental GM / Total Promotional Spend",
+      "benchmark": ">1.5\u00d7 = acceptable; >2.5\u00d7 = strong",
+      "notes": "Vendor-funded promotions should target >3\u00d7 for retailer to approve",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "Endcap Lift Factor",
+      "formula_text": "Endcap Sales Rate / Aisle Sales Rate",
+      "benchmark": "3\u20135\u00d7 category average",
+      "notes": "Varies by category, display quality, and promotional depth",
+      "source": "05-pricing-strategy-and-promotions.md"
+    },
+    {
+      "name": "Private Label Penetration",
+      "formula_text": "PL Unit Sales / Total Category Unit Sales \u00d7 100",
+      "benchmark": "Grocery: 22% (US), 47% (UK); Non-food: 30%+",
+      "notes": "Benchmark against format peers, not total market",
+      "source": "06-private-label-and-own-brand-strategy.md"
+    },
+    {
+      "name": "Own-Brand Gross Margin",
+      "formula_text": "(Retail Price \u2212 COGS) / Retail Price \u00d7 100",
+      "benchmark": "Economy: 30\u201338%; Mid: 38\u201348%; Premium: 48\u201360%",
+      "notes": "Compare to NB equivalent in same category",
+      "source": "06-private-label-and-own-brand-strategy.md"
+    },
+    {
+      "name": "Price Index vs. National Brand",
+      "formula_text": "PL Retail Price / NB Leader Price \u00d7 100",
+      "benchmark": "Economy: 60\u201370; Mid: 75\u201385; Premium: 90\u2013105",
+      "notes": "Premium tier can trade above NB price",
+      "source": "06-private-label-and-own-brand-strategy.md"
+    },
+    {
+      "name": "Consumer Blind Panel Score",
+      "formula_text": "% rating PL equal or better than NB",
+      "benchmark": "Minimum threshold: 70% for launch approval",
+      "notes": "Below 60% = reformulate before launch",
+      "source": "06-private-label-and-own-brand-strategy.md"
+    },
+    {
+      "name": "Own-Brand Repeat Purchase Rate",
+      "formula_text": "Repeat Buyers (13wk) / Trial Buyers \u00d7 100",
+      "benchmark": "Strong: >55%; Average: 40\u201355%; Weak: <40%",
+      "notes": "Key indicator of quality satisfaction",
+      "source": "06-private-label-and-own-brand-strategy.md"
+    },
+    {
+      "name": "Co-Pack COGS as % of Retail",
+      "formula_text": "Total Co-Pack COGS / Total PL Revenue \u00d7 100",
+      "benchmark": "Economy: 55\u201362%; Mid: 45\u201355%; Premium: 35\u201345%",
+      "notes": "Higher COGS tolerance for premium tier",
+      "source": "06-private-label-and-own-brand-strategy.md"
+    },
+    {
+      "name": "PL Revenue per Own-Brand SKU",
+      "formula_text": "Total PL Revenue / Total PL SKU Count",
+      "benchmark": "Benchmark: >$50K/SKU/year for sustainable ranging",
+      "notes": "Low performers reviewed for delist at 26 weeks",
+      "source": "06-private-label-and-own-brand-strategy.md"
+    },
+    {
+      "name": "NPD Time to Shelf",
+      "formula_text": "Days from brief approval to first store delivery",
+      "benchmark": "Food: 9\u201314 months; Non-food: 6\u201310 months",
+      "notes": "Fashion: 2\u20136 weeks (Zara model)",
+      "source": "06-private-label-and-own-brand-strategy.md"
+    },
+    {
+      "name": "On-Time In-Full (OTIF)",
+      "formula_text": "(Orders on-time AND complete) / Total orders \u00d7 100",
+      "benchmark": "95%+ (Tier-1 retailer); 90%+ (mid-market)",
+      "notes": "Walmart chargeback threshold: <98.5%",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Perfect Order Rate",
+      "formula_text": "(Orders on-time \u00d7 in-full \u00d7 undamaged \u00d7 correct documentation) / Total orders",
+      "benchmark": "90\u201396%",
+      "notes": "Composite of 4 sub-metrics",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Days Inventory Outstanding (DIO)",
+      "formula_text": "(Average Inventory / COGS) \u00d7 365",
+      "benchmark": "Grocery: 14\u201330 days; Apparel: 60\u2013120 days",
+      "notes": "Lower = faster inventory conversion",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Lead Time (average)",
+      "formula_text": "Sum of all component lead times",
+      "benchmark": "Domestic: 5\u201315 days; Import: 30\u201390 days",
+      "notes": "Target: reduce by 20% over 3 years",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Safety Stock",
+      "formula_text": "Z \u00d7 \u03c3_LT \u00d7 D_avg",
+      "benchmark": "2\u20134 weeks for import; 1\u20132 weeks for domestic",
+      "notes": "See Section 7.1 for formula detail",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Fill Rate",
+      "formula_text": "Units shipped on first shipment / Units ordered \u00d7 100",
+      "benchmark": "95\u201399% (varies by category)",
+      "notes": "Service-level proxy",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Return Rate",
+      "formula_text": "Units returned / Units sold \u00d7 100",
+      "benchmark": "Apparel: 20\u201330%; Electronics: 8\u201315%; Grocery: <2%",
+      "notes": "eCommerce: 2\u20133\u00d7 higher than in-store",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Reverse Logistics Cost",
+      "formula_text": "Total returns processing cost / Units returned",
+      "benchmark": "$15\u2013$30 per unit (US general merchandise, NRF 2024)",
+      "notes": "Includes receiving, processing, disposition",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Last-Mile Cost per Delivery",
+      "formula_text": "Total last-mile cost / Total deliveries",
+      "benchmark": "$5\u2013$9 (2-day parcel); $8\u2013$20 (same-day)",
+      "notes": "41\u201353% of total supply chain cost",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Cold Chain Compliance Rate",
+      "formula_text": "Shipments with no temp excursion / Total cold chain shipments \u00d7 100",
+      "benchmark": "99%+ (pharma); 97\u201399% (grocery)",
+      "notes": "Excursions trigger QA hold protocol",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Dock-to-Stock Time",
+      "formula_text": "Receipt timestamp to WMS inventory available",
+      "benchmark": "4\u20138 hours (with ASN); 8\u201324 hours (no ASN)",
+      "notes": "ASN compliance directly drives speed",
+      "source": "07-supply-chain-and-logistics.md"
+    },
+    {
+      "name": "Days of Supply",
+      "formula_text": "On-Hand Units / Avg Daily Sales",
+      "benchmark": "Grocery: 7\u201314 days; Apparel: 45\u201390 days",
+      "notes": "Lower is better; varies by category",
+      "source": "08-inventory-management-and-demand-forecasting.md"
+    },
+    {
+      "name": "Fill Rate (Case)",
+      "formula_text": "Cases Shipped / Cases Ordered \u00d7 100",
+      "benchmark": "Grocery: 97\u201399%; GM: 94\u201397%",
+      "notes": "Supplier SLA metric",
+      "source": "08-inventory-management-and-demand-forecasting.md"
+    },
+    {
+      "name": "Stock-to-Sales Ratio",
+      "formula_text": "BOP Inventory / Net Sales",
+      "benchmark": "1.2\u20131.8x typical; varies heavily by format",
+      "notes": "Track month-over-month vs. plan",
+      "source": "08-inventory-management-and-demand-forecasting.md"
+    },
+    {
+      "name": "Sell-Through Rate",
+      "formula_text": "Units Sold / (Opening + Received) \u00d7 100",
+      "benchmark": "Apparel in-season: 70\u201385%; Seasonal hard goods: 80\u201390%",
+      "notes": "Below 50% signals overbuying",
+      "source": "08-inventory-management-and-demand-forecasting.md"
+    },
+    {
+      "name": "MAPE",
+      "formula_text": "Mean of",
+      "benchmark": "A\u2212F",
+      "notes": "/A \u00d7 100`",
+      "source": "08-inventory-management-and-demand-forecasting.md"
+    },
+    {
+      "name": "WMAPE",
+      "formula_text": "\u03a3",
+      "benchmark": "A\u2212F",
+      "notes": "/ \u03a3A \u00d7 100`",
+      "source": "08-inventory-management-and-demand-forecasting.md"
+    },
+    {
+      "name": "Forecast Bias",
+      "formula_text": "Mean of (F\u2212A)",
+      "benchmark": "Target: ~0; Acceptable: \u00b13\u20135%",
+      "notes": "Persistent bias should trigger model review",
+      "source": "08-inventory-management-and-demand-forecasting.md"
+    },
+    {
+      "name": "OOS Rate",
+      "formula_text": "OOS events / Total store-SKU observations \u00d7 100",
+      "benchmark": "Global average: 7\u20138%; Best-in-class: <3%",
+      "notes": "Benchmark separately by in-store vs. DC cause",
+      "source": "08-inventory-management-and-demand-forecasting.md"
+    },
+    {
+      "name": "Sales Per Square Foot (SPSF)",
+      "formula_text": "Net Sales / Selling Area (sq ft)",
+      "benchmark": "$300\u2013$600 general merchandise; $1,500\u2013$5,500 specialty luxury",
+      "notes": "Measure trailing 12 months",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Occupancy Cost Ratio",
+      "formula_text": "Total Occupancy Cost / Net Sales",
+      "benchmark": "8\u201312% specialty; 3\u20135% grocery; 15\u201320% luxury",
+      "notes": "Includes base rent + CAM + taxes",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Four-Wall EBITDA",
+      "formula_text": "Store Revenue \u2212 COGS \u2212 Labor \u2212 Occupancy \u2212 Store OpEx",
+      "benchmark": "Target \u226510% for viability",
+      "notes": "Excludes corporate allocations",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Trade Area Market Share",
+      "formula_text": "Store Sales / Total Category TAM in Trade Area",
+      "benchmark": "15\u201330% for dominant formats",
+      "notes": "Measured by geodemographic modeling",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Endcap Productivity",
+      "formula_text": "Endcap Sales / Total Category Sales",
+      "benchmark": "10\u201315% sales from 3\u20135% of space",
+      "notes": "Premium CPG measure",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Cannibalization Rate",
+      "formula_text": "Decline in Nearby Stores / New Store Sales",
+      "benchmark": "Acceptable up to 15\u201320%",
+      "notes": "Net revenue must be positive",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Store Payback Period",
+      "formula_text": "Total Build Investment / Annual Four-Wall EBITDA",
+      "benchmark": "\u22644 years for new formats",
+      "notes": "5\u20138 years for full-size anchors",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Natural Breakpoint (Leases)",
+      "formula_text": "Base Rent / Percentage Rent Rate",
+      "benchmark": "Varies by lease",
+      "notes": "Trigger for percentage rent",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Fixture Endcap Fill Rate",
+      "formula_text": "Endcap Units Filled / Endcap Capacity",
+      "benchmark": "Minimum 75% to maintain effectiveness",
+      "notes": "Below 75% \u2192 40% productivity loss",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Fitting Room Conversion",
+      "formula_text": "Purchases from Fitting Room Visitors / Fitting Room Visitors",
+      "benchmark": "40\u201367% depending on format",
+      "notes": "Nordstrom ~67%; industry avg ~45%",
+      "source": "09-store-design-and-real-estate.md"
+    },
+    {
+      "name": "Store Contribution Margin",
+      "formula_text": "(Gross Margin \u2212 Controllable Direct Costs) / Net Sales",
+      "benchmark": "10\u201315% grocery; 15\u201322% specialty",
+      "notes": "Excludes rent and allocated overhead",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "Labor Cost %",
+      "formula_text": "Total Labor Cost / Net Sales",
+      "benchmark": "9\u201312% mass; 13\u201316% specialty; 14\u201318% grocery",
+      "notes": "Includes wages, benefits, payroll taxes",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "Sales per Labor Hour (SPLH)",
+      "formula_text": "Net Sales / Total Paid Labor Hours",
+      "benchmark": "$650\u2013$750 grocery; $900\u2013$1,100 mass; $200\u2013$350 specialty apparel",
+      "notes": "Benchmark varies by wage level",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "Shrinkage %",
+      "formula_text": "(Book Inv \u2212 Physical Inv) / Net Sales \u00d7 100",
+      "benchmark": "1.0\u20131.5% target; >2.0% requires LP investigation",
+      "notes": "NRF benchmark 1.44% U.S. average (2024)",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "Annualized Turnover Rate",
+      "formula_text": "Total Separations / Avg Headcount \u00d7 100",
+      "benchmark": "Best-in-class: <30%; Industry avg: 58\u201365%",
+      "notes": "Hourly associates; managers 20\u201330%",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "Cost per Hire",
+      "formula_text": "Total Recruiting + Onboarding Cost / Total Hires",
+      "benchmark": "$3,500\u2013$7,500 hourly; $15,000\u2013$30,000 manager",
+      "notes": "Includes productivity ramp",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "In-Stock Rate",
+      "formula_text": "% SKUs available on shelf / Total planogrammed SKUs",
+      "benchmark": "Target \u2265 97.5%; <95% triggers priority replenishment",
+      "notes": "Measured via cycle counting or RFID",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "Conversion Rate",
+      "formula_text": "Transaction Count / Store Footfall",
+      "benchmark": "20\u201335% specialty; 45\u201365% grocery",
+      "notes": "Requires footfall counter technology",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "OSHA Recordable Incident Rate",
+      "formula_text": "(Recordable Incidents \u00d7 200,000) / Total Hours Worked",
+      "benchmark": "<2.5 retail industry avg (BLS, 2024)",
+      "notes": "Lower is better",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "Mystery Shop Score",
+      "formula_text": "Weighted audit score 0\u2013100",
+      "benchmark": ">80% = pass; >90% = excellent",
+      "notes": "Varies by scoring methodology",
+      "source": "10-store-operations-and-workforce-management.md"
+    },
+    {
+      "name": "Cart Abandonment Rate",
+      "formula_text": "(1 - Orders/Cart Initiations) \u00d7 100",
+      "benchmark": "70.19%",
+      "notes": "Best-in-class: <60% (Baymard, 2024)",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "Average Order Value (AOV)",
+      "formula_text": "Revenue / Number of Orders",
+      "benchmark": "$85\u2013$120 (fashion)",
+      "notes": "Category-dependent; electronics $150\u2013$300",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "Revenue Per Visitor (RPV)",
+      "formula_text": "Revenue / Total Sessions",
+      "benchmark": "$1.50\u2013$3.50",
+      "notes": "Composite of CVR \u00d7 AOV",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "Bounce Rate",
+      "formula_text": "Single-page Sessions / All Sessions \u00d7 100",
+      "benchmark": "40\u201355%",
+      "notes": "<35% is strong for commerce",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "Page Load Time",
+      "formula_text": "Time to LCP (Largest Contentful Paint)",
+      "benchmark": "2.5\u20134.0s average",
+      "notes": "Target: <2.5s; each 1s = 7% CVR impact",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "Mobile Share of Revenue",
+      "formula_text": "Mobile Revenue / Total Revenue \u00d7 100",
+      "benchmark": "43% global (2024)",
+      "notes": "India/SEA: 60\u201370% mobile",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "Search Conversion Rate",
+      "formula_text": "Purchases from Search / Search Sessions \u00d7 100",
+      "benchmark": "3\u20135%",
+      "notes": "Zero results rate target: <5%",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "BNPL Adoption Rate",
+      "formula_text": "BNPL Transactions / Total Transactions \u00d7 100",
+      "benchmark": "8\u201312% overall",
+      "notes": "Fashion/furniture: 15\u201325%",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "Email Recovery Rate",
+      "formula_text": "Orders from Abandonment Email / Abandonment Emails Sent \u00d7 100",
+      "benchmark": "4\u20138%",
+      "notes": "3-email series outperforms 1-email by 69%",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "Return Rate (fashion)",
+      "formula_text": "Returns / Orders \u00d7 100",
+      "benchmark": "25\u201335%",
+      "notes": "Free returns policy increases CVR 18%",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "LTV:CAC Ratio",
+      "formula_text": "Customer Lifetime Value / Customer Acquisition Cost",
+      "benchmark": "2:1\u20133:1",
+      "notes": "Sustainable D2C requires \u22653:1",
+      "source": "11-ecommerce-and-digital-commerce.md"
+    },
+    {
+      "name": "BOPIS Fulfillment Rate",
+      "formula_text": "(Orders Fulfilled \u00f7 Orders Placed) \u00d7 100",
+      "benchmark": "> 98% acceptable; > 99.5% best-in-class",
+      "notes": "Failures driven by inventory inaccuracy; each failure costs ~$12\u201318 in CS + lost goodwill",
+      "source": "12-omnichannel-and-unified-commerce.md"
+    },
+    {
+      "name": "BOPIS Ready Notification Time",
+      "formula_text": "Time from order placement to \"ready for pickup\" notification",
+      "benchmark": "< 2 hours for same-day; < 30 min for standard in-stock items",
+      "notes": "Associates often batched by zone \u2014 reduces per-pick time 25%",
+      "source": "12-omnichannel-and-unified-commerce.md"
+    },
+    {
+      "name": "Ship-from-Store Unit Cost",
+      "formula_text": "Pick + pack + label + carrier cost per unit",
+      "benchmark": "$4\u20138 for items < 1 lb.; $8\u201315 for bulky items",
+      "notes": "Must be < DC fulfillment cost + carrier differential",
+      "source": "12-omnichannel-and-unified-commerce.md"
+    },
+    {
+      "name": "ATP Commitment Failure Rate",
+      "formula_text": "(Cancelled orders due to inventory unavailability \u00f7 Total orders placed) \u00d7 100",
+      "benchmark": "< 1.5% best-in-class; 4\u20136% is industry average",
+      "notes": "Driven directly by inventory accuracy at fulfillment nodes",
+      "source": "12-omnichannel-and-unified-commerce.md"
+    },
+    {
+      "name": "Omnichannel Customer Spend Premium",
+      "formula_text": "Omnichannel customer AOV \u00f7 Single-channel customer AOV",
+      "benchmark": "10\u201330% higher for omnichannel customers",
+      "notes": "HBR (2017): each additional channel used correlates with higher spend",
+      "source": "12-omnichannel-and-unified-commerce.md"
+    },
+    {
+      "name": "Cross-Channel Return Rate",
+      "formula_text": "Returns processed via different channel than purchase",
+      "benchmark": "Varies; 25\u201340% of online returns completed in-store for retailers with BORIS",
+      "notes": "Higher in-store return rate = lower net return cost (no outbound shipping)",
+      "source": "12-omnichannel-and-unified-commerce.md"
+    },
+    {
+      "name": "CDP Match Rate",
+      "formula_text": "(Customer events matched to known profile \u00f7 Total customer events) \u00d7 100",
+      "benchmark": "> 60% is considered functional; > 75% is strong",
+      "notes": "Low match rates indicate weak loyalty enrollment or fragmented identity",
+      "source": "12-omnichannel-and-unified-commerce.md"
+    },
+    {
+      "name": "Store Fulfillment Labor %",
+      "formula_text": "Fulfillment labor hours \u00f7 Total store labor hours",
+      "benchmark": "10\u201320% for stores with moderate digital volume; 25\u201335% for high-density BOPIS/SFS stores",
+      "notes": "Benchmark depends on digital penetration rate in trade area",
+      "source": "12-omnichannel-and-unified-commerce.md"
+    },
+    {
+      "name": "Live Commerce Conversion Rate",
+      "formula_text": "Orders / Unique Stream Viewers \u00d7 100",
+      "benchmark": "4\u20138% (China); 1\u20133% (West)",
+      "notes": "Live Commerce",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Social Commerce AOV",
+      "formula_text": "Average order value from social channel",
+      "benchmark": "$32\u201345 (TikTok Shop US)",
+      "notes": "Social Commerce",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Dark Store Orders/Hour",
+      "formula_text": "Daily orders / Operating hours / Store count",
+      "benchmark": "40\u201370 (profitable); <25 (loss-making)",
+      "notes": "Q-Commerce",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Subscription Churn Rate",
+      "formula_text": "Cancelled subscribers / Total subscribers \u00d7 100` (monthly)",
+      "benchmark": "5\u20138% (replenishment); 8\u201315% (box)",
+      "notes": "Subscription",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Chatbot Deflection Rate",
+      "formula_text": "Queries resolved by bot / Total queries \u00d7 100",
+      "benchmark": "70\u201385% (Tier 1 use cases)",
+      "notes": "Conversational",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Resale Take Rate",
+      "formula_text": "Platform fee / Total resale transaction value \u00d7 100",
+      "benchmark": "8\u201320% (apparel); 5\u201312% (luxury)",
+      "notes": "Resale",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Membership Spend Multiple",
+      "formula_text": "Member annual spend / Non-member annual spend",
+      "benchmark": "2x\u20132.5x (Walmart+, Prime)",
+      "notes": "Membership",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Smart Cart Basket Uplift",
+      "formula_text": "(Smart cart AOV \u2212 Standard AOV) / Standard AOV \u00d7 100",
+      "benchmark": "8\u201315%",
+      "notes": "Phygital",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Live Commerce Peak Concurrent Viewers",
+      "formula_text": "Unique simultaneous viewers at peak",
+      "benchmark": "1M+ (China KOL); 10\u201350K (US brand)",
+      "notes": "Live Commerce",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Q-Commerce Delivery SLA Adherence",
+      "formula_text": "Orders delivered within promised window / Total orders",
+      "benchmark": ">92% target; <85% at-risk",
+      "notes": "Q-Commerce",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Subscription LTV Multiple",
+      "formula_text": "Subscriber LTV / One-time buyer LTV",
+      "benchmark": "3\u20135x",
+      "notes": "Subscription",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "CPO Margin Premium vs. Unbranded Secondhand",
+      "formula_text": "(CPO ASP \u2212 Unbranded ASP) / Unbranded ASP \u00d7 100",
+      "benchmark": "25\u201340%",
+      "notes": "Resale/CPO",
+      "source": "13-emerging-commerce-models.md"
+    },
+    {
+      "name": "Programme Enrolment Rate",
+      "formula_text": "Enrolled Members / Total Active Customers",
+      "benchmark": "55\u201375% (grocery), 40\u201360% (specialty)",
+      "notes": ">75% is best-in-class; below 40% indicates enrolment friction",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Loyalty Transaction Penetration",
+      "formula_text": "Loyalty-Linked Transactions / Total Transactions",
+      "benchmark": "60\u201380% (grocery), 45\u201365% (mass)",
+      "notes": "Kroger: 96%; Target: ~75%",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Redemption Rate",
+      "formula_text": "Points Redeemed / Points Issued (same period)",
+      "benchmark": "60\u201375% (mature programme)",
+      "notes": "<50% may indicate redemption friction or member disengagement",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Breakage Rate",
+      "formula_text": "Points Expired or Forfeited / Total Points Issued",
+      "benchmark": "15\u201330% (grocery), 25\u201340% (coalition)",
+      "notes": "Higher breakage = lower liability but lower member engagement",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Programme Cost as % of GMV",
+      "formula_text": "Net Redemption Cost + Operational Cost / Total GMV",
+      "benchmark": "0.5\u20131.5% (well-designed)",
+      "notes": ">2% signals over-generous earn rate or insufficient breakage",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "CLV Ratio (Member vs. Non-Member)",
+      "formula_text": "Avg Member CLV / Avg Non-Member CLV",
+      "benchmark": "2.0\u20133.5x",
+      "notes": "Starbucks Rewards members spend 3.5x more than non-members",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Email Open Rate (Personalised)",
+      "formula_text": "Unique Opens / Emails Delivered",
+      "benchmark": "22\u201328% (personalised), 15\u201319% (broadcast)",
+      "notes": "Triggered emails achieve 35\u201355% open rates",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Influencer ROAS",
+      "formula_text": "Revenue Attributed / Influencer Cost",
+      "benchmark": "3\u20138x (macro), 8\u201315x (micro)",
+      "notes": "Micro-influencer ROAS typically 2\u20133x higher than macro",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Affiliate Revenue Contribution",
+      "formula_text": "Affiliate-Attributed Revenue / Total Revenue",
+      "benchmark": "12\u201320% (mature e-com programme)",
+      "notes": "Fashion: 20\u201325%; grocery: <5%",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "CPA (Customer Acquisition Cost)",
+      "formula_text": "Total Acquisition Spend / New Customers Acquired",
+      "benchmark": "$25\u201350 (mass retail digital); $80\u2013150 (specialty)",
+      "notes": "Loyalty acquisition CPA: 40\u201360% lower than paid digital",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Attribution ROAS (Incremental)",
+      "formula_text": "Incremental Revenue (Holdout-Measured) / Campaign Cost",
+      "benchmark": "2\u20135x (true incremental)",
+      "notes": "Last-click ROAS typically 40\u2013100% inflated vs. true incremental",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "RMN CPM (Onsite Sponsored)",
+      "formula_text": "Impressions \u00d7 CPM Rate",
+      "benchmark": "$15\u201325 onsite; $5\u201310 offsite",
+      "notes": "5\u20138x premium over open-web CPM",
+      "source": "14-retail-marketing-and-loyalty-programs.md"
+    },
+    {
+      "name": "Return on Ad Spend (ROAS)",
+      "formula_text": "Revenue Attributed / Ad Spend",
+      "benchmark": "3\u20136x on-site sponsored; 2\u20134x off-site",
+      "notes": "Varies by attribution window; use 7-day last-click for comparability",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Incremental ROAS (iROAS)",
+      "formula_text": "Incremental Revenue / Ad Spend",
+      "benchmark": "40\u201365% lower than raw ROAS (GroupM, 2024)",
+      "notes": "True measure of advertising causality; requires holdout testing",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Cost Per Click (CPC)",
+      "formula_text": "Total Spend / Total Clicks",
+      "benchmark": "$0.40\u2013$5.00 (Amazon); $0.30\u2013$1.50 (Instacart)",
+      "notes": "Category and keyword competitiveness drive variance",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Click-Through Rate (CTR)",
+      "formula_text": "Clicks / Impressions",
+      "benchmark": "0.5\u20131.5% sponsored products; 0.05\u20130.3% display",
+      "notes": "Benchmark varies significantly by format and placement",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Conversion Rate (CVR)",
+      "formula_text": "Purchases / Clicks",
+      "benchmark": "10\u201320% sponsored products; 5\u201310% sponsored brands",
+      "notes": "Higher on retailer sites than standard e-commerce (purchase intent)",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Cost Per Acquisition (CPA)",
+      "formula_text": "Ad Spend / New Customers Acquired",
+      "benchmark": "$8\u201335 grocery; $15\u201360 general merchandise",
+      "notes": "Varies by category and new-vs-existing customer mix",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "New-to-Brand Rate (NTB%)",
+      "formula_text": "New Brand Buyers / Total Buyers",
+      "benchmark": "20\u201340% target for competitive campaigns",
+      "notes": "Key efficiency metric for growth-stage brands",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Media Revenue as % of Net Sales",
+      "formula_text": "Media Revenue / Net Sales",
+      "benchmark": "0.5\u20131.5% grocery; 3\u20135% Amazon",
+      "notes": "Higher = stronger data asset and scale",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Share of Voice (SOV)",
+      "formula_text": "Brand Sponsored Impressions / Total Category Impressions",
+      "benchmark": "15\u201325% SOV target for category leader",
+      "notes": "Direct correlation to organic rank improvement",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Ad Fill Rate",
+      "formula_text": "Impressions Served / Impressions Available",
+      "benchmark": "60\u201380% for mature RMNs",
+      "notes": "Low fill rate = revenue leakage from unsold inventory",
+      "source": "15-retail-media-networks.md"
+    },
+    {
+      "name": "Inventory Accuracy (DC)",
+      "formula_text": "(Correct Bin Locations / Total Bin Locations) \u00d7 100",
+      "benchmark": ">99.5% (WMS-managed DC)",
+      "notes": "<97% indicates WMS or process failure",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "Order Fill Rate (OMS)",
+      "formula_text": "(Orders Fulfilled Complete / Total Orders) \u00d7 100",
+      "benchmark": ">97% omnichannel",
+      "notes": "Sub-95% indicates ATP accuracy issues",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "ASN Compliance Rate",
+      "formula_text": "(ASNs Received On-Time and Accurate / Total ASNs) \u00d7 100",
+      "benchmark": ">99% (Walmart/Target standard)",
+      "notes": "Non-compliance triggers chargebacks of 1\u20133%",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "PIM Content Completeness",
+      "formula_text": "(Attributes Filled / Required Attributes) \u00d7 100 per SKU",
+      "benchmark": ">90% for published SKUs",
+      "notes": "Sub-80% correlates with conversion decline",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "ERP Period Close Time",
+      "formula_text": "Days from month-end to closed financials",
+      "benchmark": "<3 days (cloud ERP best practice)",
+      "notes": ">10 days indicates manual reconciliation dependency",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "BOPIS Ready-For-Pickup Time",
+      "formula_text": "Minutes from order placement to associate pick confirmation",
+      "benchmark": "<30 min (Target standard: ~8 min average)",
+      "notes": ">60 min generates customer cancellations",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "EDI Transaction Error Rate",
+      "formula_text": "(Failed EDI Transactions / Total EDI Transactions) \u00d7 100",
+      "benchmark": "<0.5%",
+      "notes": ">2% triggers vendor compliance review",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "API Availability (iPaaS)",
+      "formula_text": "(Uptime Minutes / Total Minutes) \u00d7 100",
+      "benchmark": ">99.95% SLA for commerce-critical APIs",
+      "notes": "Downtime directly correlates with lost orders",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "System Integration Latency",
+      "formula_text": "Time for an event in System A to update System B",
+      "benchmark": "<60 seconds (event-driven target)",
+      "notes": ">5 min indicates batch integration bottleneck",
+      "source": "16-retail-technology-and-core-systems.md"
+    },
+    {
+      "name": "Inventory Record Accuracy (IRA)",
+      "formula_text": "Physical Count / System Count \u00d7 100%",
+      "benchmark": "Pre-RFID: 65\u201375%; Post-RFID: 93\u201399%",
+      "notes": "RFID",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "RFID Tag Read Rate",
+      "formula_text": "Tags Successfully Read / Total Tags Present \u00d7 100%",
+      "benchmark": "Minimum acceptable: 96%; Best-in-class: 99.5%",
+      "notes": "RFID",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "Out-of-Stock Rate",
+      "formula_text": "SKUs OOS / Total SKUs \u00d7 100%",
+      "benchmark": "Grocery avg: 8\u201310%; with CV monitoring: 5\u20137%",
+      "notes": "Computer Vision",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "Shelf Compliance Rate",
+      "formula_text": "Compliant Facings / Total Planned Facings \u00d7 100%",
+      "benchmark": "Target: >95%; Avg without scanning: 85\u201388%",
+      "notes": "Computer Vision / Robots",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "Picks Per Hour (PPH)",
+      "formula_text": "Total Units Picked / Labor Hours Worked",
+      "benchmark": "Manual: 50\u201375 PPH; G2P Robot: 300\u2013400 PPH",
+      "notes": "Warehouse Robotics",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "Order Assembly Time",
+      "formula_text": "Time from Order Release to Pack Completion",
+      "benchmark": "Manual DC: 60\u2013120 min; Ocado CFC: <5 min",
+      "notes": "Warehouse Robotics",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "Autonomous Store Transaction Time",
+      "formula_text": "Time from Store Entry to Exit",
+      "benchmark": "Staffed convenience: 4\u20135 min; Amazon Go: <90 sec",
+      "notes": "Autonomous Store",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "AR Try-On Conversion Lift",
+      "formula_text": "AR User CVR / Non-AR User CVR",
+      "benchmark": "Benchmark: 1.5\u20132.5\u00d7 lift (IKEA: 11\u00d7)",
+      "notes": "AR/VR",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "Blockchain Trace Time",
+      "formula_text": "Time to trace product from store to origin",
+      "benchmark": "Manual: 6+ days; Blockchain: <10 seconds",
+      "notes": "Blockchain",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "ESL Price Update Time",
+      "formula_text": "Time to push price change to all shelf labels",
+      "benchmark": "Paper: 3\u20135 days; ESL: <10 minutes per store",
+      "notes": "IoT / ESL",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "Edge Processing Latency",
+      "formula_text": "Time from sensor event to decision output",
+      "benchmark": "Cloud: 200\u2013800ms; Edge: <50ms",
+      "notes": "Edge Computing",
+      "source": "17-emerging-technology-in-retail.md"
+    },
+    {
+      "name": "Forecast WMAPE",
+      "formula_text": "Sum(",
+      "benchmark": "Actual \u2212 Forecast",
+      "notes": ") / Sum(Actual) \u00d7 100`",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "Recommendation Attachment Rate",
+      "formula_text": "Transactions with \u22651 recommended item / Total transactions \u00d7 100",
+      "benchmark": "10\u201318% mid-tier; 30\u201335% Amazon",
+      "notes": "Digital channel primary measure",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "Churn Recall (at 30% intervention rate)",
+      "formula_text": "Churners correctly identified / Total churners \u00d7 100",
+      "benchmark": "55\u201370% recall at 30% flag rate",
+      "notes": "Balance with false positive rate",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "Fraud Detection Precision",
+      "formula_text": "True fraud flags / Total fraud flags \u00d7 100",
+      "benchmark": "> 85% precision; > 90% recall",
+      "notes": "Trade-off varies by fraud type",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "Semantic Search Null Rate",
+      "formula_text": "Queries returning zero results / Total queries \u00d7 100",
+      "benchmark": "< 2% best-in-class; < 5% acceptable",
+      "notes": "Direct conversion impact",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "CLV Prediction Accuracy (RMSE)",
+      "formula_text": "\u221a(Mean((Predicted CLV \u2212 Actual CLV)\u00b2))",
+      "benchmark": "RMSE < 25% of mean CLV",
+      "notes": "Varies by customer tenure",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "Price Elasticity (category average)",
+      "formula_text": "% \u0394Quantity / % \u0394Price",
+      "benchmark": "-0.5 to -2.5 typical range",
+      "notes": "Grocery staples: -0.4 to -0.8",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "AI Content Generation Conversion Lift",
+      "formula_text": "(AI content conversion \u2212 baseline) / baseline \u00d7 100",
+      "benchmark": "8\u201315% above human-written",
+      "notes": "A/B tested; varies by category",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "Route Optimization Savings",
+      "formula_text": "(Baseline delivery cost \u2212 AI-optimized cost) / Baseline cost \u00d7 100",
+      "benchmark": "10\u201318% cost reduction",
+      "notes": "Depends on route density",
+      "source": "19-ai-ml-use-cases-in-retail.md"
+    },
+    {
+      "name": "NPS \u2014 Grocery",
+      "formula_text": "% Promoters \u2212 % Detractors",
+      "benchmark": "+35 to +50 (good); above +60 (best-in-class)",
+      "notes": "Bain & Company, 2024",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "NPS \u2014 Specialty Retail",
+      "formula_text": "% Promoters \u2212 % Detractors",
+      "benchmark": "+45 to +60 (good); above +70 (best-in-class)",
+      "notes": "Satmetrix, 2024",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "CSAT \u2014 In-Store",
+      "formula_text": "(Satisfied + Very Satisfied) / Total \u00d7 100",
+      "benchmark": "78\u201385% (grocery); 72\u201380% (mass)",
+      "notes": "Forrester CX Index, 2024",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "CSAT \u2014 E-Commerce Delivery",
+      "formula_text": "(Satisfied + Very Satisfied) / Total \u00d7 100",
+      "benchmark": "80\u201387% (standard); 90%+ (premium)",
+      "notes": "Forrester CX Index, 2024",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Conversion Rate \u2014 In-Store",
+      "formula_text": "Transactions / Footfall \u00d7 100",
+      "benchmark": "85\u201395% (grocery); 20\u201335% (fashion)",
+      "notes": "Sensormatic, 2024",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Survey Response Rate \u2014 Email",
+      "formula_text": "Completions / Delivered \u00d7 100",
+      "benchmark": "15\u201325% (post-purchase); 5\u201312% (general)",
+      "notes": "Industry average",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Mystery Shop Score Target",
+      "formula_text": "Weighted rubric",
+      "benchmark": "80%+ pass threshold (most formats)",
+      "notes": "MSPA, 2023",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Heat Map Dwell \u2014 Purchase Correlation",
+      "formula_text": "Dwell >90 sec = 3\u00d7 conversion uplift",
+      "benchmark": "Category-specific",
+      "notes": "Ipsos Retail Study, 2022",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Eye Tracking \u2014 First Fixation (target)",
+      "formula_text": "Time to first gaze on featured item",
+      "benchmark": "<2 seconds (strong); >4 seconds (weak)",
+      "notes": "POPAI, 2023",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Panel Penetration Growth Target",
+      "formula_text": "Buying HHs (Y2) \u2212 Buying HHs (Y1) / Total HHs",
+      "benchmark": "+0.5\u20132pp YoY (growing brand)",
+      "notes": "Kantar, 2024",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Social Sentiment \u2014 Positive Ratio",
+      "formula_text": "Positive mentions / (Positive + Negative)",
+      "benchmark": ">70% (healthy brand)",
+      "notes": "Brandwatch Benchmarks, 2024",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Promotional Lift Factor",
+      "formula_text": "Promoted Sales Velocity / Baseline Sales Velocity",
+      "benchmark": "1.5\u20133.0\u00d7 (effective promotion)",
+      "notes": "Circana Promotion Benchmarks, 2024",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Concept Test \u2014 Purchase Intent Threshold",
+      "formula_text": "Top-2-box intent score",
+      "benchmark": "\u226560% among target segment to advance",
+      "notes": "Industry gate standard",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "A/B Test Statistical Power Target",
+      "formula_text": "Design requirement",
+      "benchmark": "\u226580% power at p<0.05",
+      "notes": "Standard experimental design",
+      "source": "20-customer-research-and-insights.md"
+    },
+    {
+      "name": "Net Returns Cost",
+      "formula_text": "(Processing Cost + Refund \u2212 Recovery) / Returns Volume",
+      "benchmark": "$6\u2013$15 per return (apparel); $10\u2013$25 (electronics)",
+      "notes": "Recovery value varies dramatically by disposition path",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Customer Satisfaction Score (CSAT)",
+      "formula_text": "(Positive Responses / Total Responses) \u00d7 100",
+      "benchmark": "\u2265 80% contact center; \u2265 85% in-store service desk",
+      "notes": "Top-quartile: > 88%",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "First Contact Resolution (FCR)",
+      "formula_text": "(Contacts Resolved First Contact / Total Contacts) \u00d7 100",
+      "benchmark": "70\u201375% retail average; > 80% best-in-class",
+      "notes": "Most predictive of CSAT improvement",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Average Handle Time (AHT)",
+      "formula_text": "(Talk + Hold + ACW) / Interactions",
+      "benchmark": "4\u20136 min voice; 7\u201310 min chat",
+      "notes": "Lower is not always better \u2014 optimise for FCR",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Contact Rate",
+      "formula_text": "(Total Contacts / Orders Shipped) \u00d7 100",
+      "benchmark": "< 8% best-in-class; 10\u201315% average",
+      "notes": "Proxy for operational quality",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Bot Containment Rate",
+      "formula_text": "(Bot-Resolved Sessions / Total Bot Sessions) \u00d7 100",
+      "benchmark": "60\u201375% routine inquiries",
+      "notes": "< 50% signals chatbot design failure",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Extended Warranty Attachment Rate",
+      "formula_text": "(Protection Plans Sold / Eligible Units Sold) \u00d7 100",
+      "benchmark": "20\u201330% average; 35\u201345% best-in-class (electronics)",
+      "notes": "Key profitability lever in CE retail",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Returns Fraud Rate",
+      "formula_text": "(Fraudulent Return Value / Total Returns Value) \u00d7 100",
+      "benchmark": "~10% US average; best-in-class: < 3%",
+      "notes": "NRF estimates $101.9B annually (NRF, 2023)",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "WISMO Contact Rate",
+      "formula_text": "(Order Status Contacts / Orders Shipped) \u00d7 100",
+      "benchmark": "< 5% best-in-class; 15\u201325% industry average",
+      "notes": "Proactive tracking comms reduce to < 5%",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Article Deflection Rate",
+      "formula_text": "(KB Sessions Resolved Without Contact / Total KB Sessions) \u00d7 100",
+      "benchmark": "> 60% best-in-class",
+      "notes": "< 40% signals knowledge base content gap",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Desk Dwell Time",
+      "formula_text": "Elapsed time from queue join to resolution at in-store service desk",
+      "benchmark": "< 5 min routine returns; < 10 min complaints",
+      "notes": "Visible metric \u2014 long queues affect whole-store NPS",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Service Recovery Retention Rate",
+      "formula_text": "Recovered complainants retained at 12 months",
+      "benchmark": "> 70% indicates effective recovery program",
+      "notes": "Benchmark against non-complainant retention rate",
+      "source": "21-post-purchase-and-customer-service.md"
+    },
+    {
+      "name": "Operating Margin",
+      "formula_text": "Operating Income / Net Sales \u00d7 100",
+      "benchmark": "Grocery: 2\u20135%; Specialty: 10\u201318%; Mass: 4\u20138%",
+      "notes": "Below 3% signals structural cost problem",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "EBITDA Margin",
+      "formula_text": "EBITDA / Net Sales \u00d7 100",
+      "benchmark": "Grocery: 4\u20138%; Specialty: 12\u201320%; E-Comm: 2\u20138%",
+      "notes": "Primary metric for valuation comparisons",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "Same-Store Sales Growth",
+      "formula_text": "(Current Comp Sales - Prior Comp Sales) / Prior Comp Sales \u00d7 100",
+      "benchmark": "Target: +2\u20134%/year; Positive = value creation",
+      "notes": "Below 0% for 2+ quarters triggers strategic review",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "Gross Margin Return on Inventory (GMROI)",
+      "formula_text": "Gross Margin $ / Average Inventory at Cost",
+      "benchmark": "> 3.2x grocery; > 2.0x general merch",
+      "notes": "Combines margin and turns into single productivity metric",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "Days Payable Outstanding (DPO)",
+      "formula_text": "(Avg Payables / COGS) \u00d7 365",
+      "benchmark": "Large retailers: 45\u201390 days; SME: 25\u201345 days",
+      "notes": "Higher = supplier-funded working capital",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "Cash Conversion Cycle",
+      "formula_text": "DIO + DSO - DPO",
+      "benchmark": "Best-in-class: 0 to -10 days",
+      "notes": "Negative = supplier-funded model",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "Customer Acquisition Cost (CAC)",
+      "formula_text": "Total Acquisition Spend / New Customers Acquired",
+      "benchmark": "E-comm: $30\u2013$100; Physical: $5\u2013$20",
+      "notes": "Channel-specific CAC more actionable than blended",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "CAC Payback Period",
+      "formula_text": "CAC / (Monthly GP per Customer)",
+      "benchmark": "Healthy: < 12 months; Concerning: > 18 months",
+      "notes": "Subscription models target < 6 months",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "Customer Lifetime Value (CLV)",
+      "formula_text": "AOV \u00d7 Purchase Frequency \u00d7 GM% \u00d7 Avg Lifespan",
+      "benchmark": "Fashion: $150\u2013$400; Grocery: $500\u2013$2,000",
+      "notes": "Discount at cost of capital for DCF accuracy",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "Contribution Margin by Channel",
+      "formula_text": "Channel Gross Profit - Direct Channel Costs",
+      "benchmark": "Store: 20\u201335%; E-comm: 12\u201322%; Marketplace: 15\u201325%",
+      "notes": "Must be positive before allocating overhead",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "Return on Invested Capital (ROIC)",
+      "formula_text": "NOPAT / Invested Capital \u00d7 100",
+      "benchmark": "Strong: > 15%; Value-creating: > WACC (7\u201310%)",
+      "notes": "Costco ~29%; Macy's ~4\u20136%",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "EV/EBITDA",
+      "formula_text": "Enterprise Value / EBITDA",
+      "benchmark": "Grocery: 5\u20138x; Specialty: 10\u201314x; Luxury: 15\u201325x",
+      "notes": "Primary M&A and public market multiple",
+      "source": "22-finance-and-unit-economics.md"
+    },
+    {
+      "name": "On-Time Delivery (OTD)",
+      "formula_text": "Shipments on time \u00f7 Total shipments \u00d7 100",
+      "benchmark": "\u2265 97% (best-in-class); 90\u201395% (average)",
+      "notes": "On-time = within \u00b11 day of MABD",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "OTIF",
+      "formula_text": "PO lines meeting both on-time AND in-full \u00f7 Total PO lines \u00d7 100",
+      "benchmark": "\u2265 98.5% (Walmart threshold); 95%+ general benchmark",
+      "notes": "Walmart charges 3% chargeback below threshold",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "Vendor Scorecard Composite",
+      "formula_text": "Weighted average of KPI scores",
+      "benchmark": "\u2265 95% Preferred; 88\u201394% Approved; < 88% Probation",
+      "notes": "Weights vary by retailer and category",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "Chargeback Rate",
+      "formula_text": "Total chargebacks \u00f7 Total invoice value \u00d7 100",
+      "benchmark": "< 0.5% (well-managed supplier); > 2% (at risk)",
+      "notes": "> 3% typically triggers formal supplier review",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "Supplier Diversity Spend %",
+      "formula_text": "Diverse supplier spend \u00f7 Total addressable spend \u00d7 100",
+      "benchmark": "10\u201325% goal (Fortune 500); median ~12%",
+      "notes": "NMSDC/WBENC certification required",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "Dead Net Price",
+      "formula_text": "Invoice price \u2212 all trade term deductions",
+      "benchmark": "Context-specific; 3\u20138% below invoice typical",
+      "notes": "Key input for accurate category margin calculation",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "VMI In-Stock Rate",
+      "formula_text": "SKUs in-stock \u00f7 Total ranged SKUs \u00d7 100",
+      "benchmark": "\u2265 98% (VMI program); 94\u201396% (non-VMI)",
+      "notes": "2\u20134% improvement typical from VMI implementation",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "Supplier Risk Score",
+      "formula_text": "Composite of financial + geographic + operational risk",
+      "benchmark": "< 30 = Low risk; 30\u201360 = Medium; > 60 = High",
+      "notes": "Assessed annually for Tier 1 suppliers",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "Audit CAP Closure Rate",
+      "formula_text": "CAP items closed on time \u00f7 Total CAP items \u00d7 100",
+      "benchmark": "\u2265 90% within agreed timeline",
+      "notes": "Critical findings: 100% closure required within 30 days",
+      "source": "23-vendor-and-supplier-management.md"
+    },
+    {
+      "name": "Blended Card Acceptance Rate",
+      "formula_text": "Total Card Fees / Total Card Sales \u00d7 100",
+      "benchmark": "Best-in-class: 1.6\u20131.9%; Average: 2.0\u20132.4%",
+      "notes": "Includes interchange, assessment, processor, gateway",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "Interchange Rate",
+      "formula_text": "Interchange Fees / Card Sales \u00d7 100",
+      "benchmark": "Credit: 1.5\u20132.5%; Debit (PIN): 0.21\u20130.24 flat",
+      "notes": "Largest component of card cost",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "Payment Processing Cost as % of Revenue",
+      "formula_text": "Total Payment Costs / Net Sales \u00d7 100",
+      "benchmark": "Physical retail: 1.0\u20131.5%; E-commerce: 2.0\u20133.0%",
+      "notes": "Higher online due to CNP fraud and returns",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "Fraud Loss Rate",
+      "formula_text": "Fraud Losses / Net Sales \u00d7 100",
+      "benchmark": "Best-in-class: 0.05\u20130.15%; Average: 0.3\u20130.8%",
+      "notes": "E-commerce 5\u201310x higher than physical",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "False Positive Rate",
+      "formula_text": "Legitimate Transactions Declined / Total Transactions \u00d7 100",
+      "benchmark": "Rule-based: 2\u20135%; ML-based: 0.1\u20130.5%",
+      "notes": "Each false positive = lost sale",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "Return Fraud Rate",
+      "formula_text": "Fraudulent Returns / Total Returns \u00d7 100",
+      "benchmark": "Industry average: 13.7% of returns",
+      "notes": "NRF 2023",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "BNPL Penetration",
+      "formula_text": "BNPL Sales / Total Sales \u00d7 100",
+      "benchmark": "Fashion e-commerce: 8\u201315%; Electronics: 5\u201310%",
+      "notes": "Higher in high-AOV categories",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "BNPL MDR",
+      "formula_text": "Fixed % of transaction",
+      "benchmark": "Afterpay: 4\u20136%; Klarna: 3.29\u20135.99%; Affirm: 5\u20138%",
+      "notes": "2\u20133x higher than credit card interchange",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "Gift Card Breakage Rate",
+      "formula_text": "Unredeemed Balances / Total Gift Card Sales \u00d7 100",
+      "benchmark": "Specialty: 6\u201310%; General merch: 8\u201312%",
+      "notes": "Recognised as revenue under ASC 606",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "PLCC Penetration",
+      "formula_text": "PLCC Sales / Total Sales \u00d7 100",
+      "benchmark": "Target: ~25%; Kohl's: ~60%; Nordstrom: ~35%",
+      "notes": "Higher penetration = more programme income",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "Chargeback Win Rate",
+      "formula_text": "Won Representments / Total Representments \u00d7 100",
+      "benchmark": "Average: 40\u201360%; Best-in-class: 65\u201375%",
+      "notes": "Improves with evidence quality",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "Cross-Border Payment Premium",
+      "formula_text": "Cross-Border Cost - Domestic Cost",
+      "benchmark": "1.5\u20133.5% additional vs. domestic",
+      "notes": "FX spread + cross-border assessment fees",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "3DS Authentication Rate",
+      "formula_text": "3DS-Authenticated Transactions / Total CNP \u00d7 100",
+      "benchmark": "EU (mandatory): 95%+; US: 20\u201340%",
+      "notes": "Higher = lower chargeback liability",
+      "source": "24-payments-fraud-and-financial-services.md"
+    },
+    {
+      "name": "Gross Margin",
+      "formula_text": "Gross Profit / Net Sales \u00d7 100",
+      "benchmark": "25\u201330%",
+      "notes": "45\u201360%",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Net Margin",
+      "formula_text": "Net Income / Net Sales \u00d7 100",
+      "benchmark": "1\u20133%",
+      "notes": "5\u201312%",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Shrink Rate",
+      "formula_text": "Shrink / Net Sales \u00d7 100",
+      "benchmark": "2.5\u20133.5%",
+      "notes": "1.5\u20132.5%",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Sales per Sq Ft",
+      "formula_text": "Net Sales / Selling Area (sq ft)",
+      "benchmark": "$500\u2013600",
+      "notes": "$300\u2013600",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Food Cost %",
+      "formula_text": "Food Cost / Revenue \u00d7 100",
+      "benchmark": "N/A",
+      "notes": "N/A",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Labour Cost %",
+      "formula_text": "Labour Cost / Revenue \u00d7 100",
+      "benchmark": "12\u201316%",
+      "notes": "15\u201320%",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Average Transaction Value",
+      "formula_text": "Net Sales / Transactions",
+      "benchmark": "$35\u201375",
+      "notes": "$50\u2013200",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Customer Visit Frequency",
+      "formula_text": "Visits per customer per year",
+      "benchmark": "75\u2013100",
+      "notes": "4\u20138",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "ESP Attachment Rate",
+      "formula_text": "ESP Units Sold / Eligible Transactions \u00d7 100",
+      "benchmark": "N/A",
+      "notes": "N/A",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Drive-Through Speed of Service",
+      "formula_text": "Seconds per car",
+      "benchmark": "N/A",
+      "notes": "N/A",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "Franchise Royalty Rate",
+      "formula_text": "% of gross sales",
+      "benchmark": "N/A",
+      "notes": "N/A",
+      "source": "25-retail-verticals-deep-dive.md"
+    },
+    {
+      "name": "AUV (QSR)",
+      "formula_text": "$500K\u2013$8.7M",
+      "benchmark": "N/A",
+      "notes": "",
+      "source": "26-franchising-and-wholesale-b2b-retail.md"
+    },
+    {
+      "name": "Royalty Rate",
+      "formula_text": "4\u201315% of gross sales",
+      "benchmark": "N/A",
+      "notes": "",
+      "source": "26-franchising-and-wholesale-b2b-retail.md"
+    },
+    {
+      "name": "Total Fee Burden",
+      "formula_text": "8\u201315% of gross sales",
+      "benchmark": "N/A",
+      "notes": "",
+      "source": "26-franchising-and-wholesale-b2b-retail.md"
+    },
+    {
+      "name": "Franchisee Operating Margin",
+      "formula_text": "10\u201320%",
+      "benchmark": "N/A",
+      "notes": "",
+      "source": "26-franchising-and-wholesale-b2b-retail.md"
+    },
+    {
+      "name": "Franchise Closure Rate (3-year)",
+      "formula_text": "<5% (healthy system)",
+      "benchmark": "N/A",
+      "notes": "",
+      "source": "26-franchising-and-wholesale-b2b-retail.md"
+    },
+    {
+      "name": "Franchisee Satisfaction Score",
+      "formula_text": "3.8+/5.0 (FBR benchmark)",
+      "benchmark": "N/A",
+      "notes": "",
+      "source": "26-franchising-and-wholesale-b2b-retail.md"
+    },
+    {
+      "name": "International Revenue Mix",
+      "formula_text": ">30%",
+      "benchmark": "15\u201330%",
+      "notes": "<15%",
+      "source": "27-international-retail-and-localization.md"
+    },
+    {
+      "name": "New Market Payback Period",
+      "formula_text": "<3 years",
+      "benchmark": "3\u20135 years",
+      "notes": ">5 years",
+      "source": "27-international-retail-and-localization.md"
+    },
+    {
+      "name": "Landed Cost Margin",
+      "formula_text": ">40%",
+      "benchmark": "30\u201340%",
+      "notes": "<30%",
+      "source": "27-international-retail-and-localization.md"
+    },
+    {
+      "name": "Delivery Refusal Rate (DDP)",
+      "formula_text": "<3%",
+      "benchmark": "3\u20137%",
+      "notes": ">7%",
+      "source": "27-international-retail-and-localization.md"
+    },
+    {
+      "name": "FX Hedge Ratio",
+      "formula_text": "60\u201380%",
+      "benchmark": "40\u201360%",
+      "notes": "<40%",
+      "source": "27-international-retail-and-localization.md"
+    },
+    {
+      "name": "Local Payment Method Coverage",
+      "formula_text": "Top 5 methods",
+      "benchmark": "Top 3 methods",
+      "notes": "Top 1\u20132 methods",
+      "source": "27-international-retail-and-localization.md"
+    },
+    {
+      "name": "Assortment Localisation Rate",
+      "formula_text": "30\u201340%",
+      "benchmark": "15\u201330%",
+      "notes": "<15%",
+      "source": "27-international-retail-and-localization.md"
+    },
+    {
+      "name": "Market Entry Success Rate (5-year)",
+      "formula_text": ">60%",
+      "benchmark": "40\u201360%",
+      "notes": "<40%",
+      "source": "27-international-retail-and-localization.md"
+    },
+    {
+      "name": "Scope 1+2 Emissions Reduction (vs. 2015 base)",
+      "formula_text": ">50% reduction",
+      "benchmark": "20\u201335% reduction",
+      "notes": "<10% reduction",
+      "source": "28-regulatory-compliance-and-sustainability.md"
+    },
+    {
+      "name": "Renewable Energy %",
+      "formula_text": ">80%",
+      "benchmark": "30\u201350%",
+      "notes": "<20%",
+      "source": "28-regulatory-compliance-and-sustainability.md"
+    },
+    {
+      "name": "Food Waste Diversion Rate",
+      "formula_text": ">75%",
+      "benchmark": "50\u201360%",
+      "notes": "<40%",
+      "source": "28-regulatory-compliance-and-sustainability.md"
+    },
+    {
+      "name": "Supplier Audit Coverage (Tier 1)",
+      "formula_text": "100%",
+      "benchmark": "70\u201385%",
+      "notes": "<50%",
+      "source": "28-regulatory-compliance-and-sustainability.md"
+    },
+    {
+      "name": "Recycled Packaging Content %",
+      "formula_text": ">50%",
+      "benchmark": "25\u201335%",
+      "notes": "<15%",
+      "source": "28-regulatory-compliance-and-sustainability.md"
+    },
+    {
+      "name": "Hourly Worker Voluntary Turnover",
+      "formula_text": "<50%",
+      "benchmark": "60\u201380%",
+      "notes": ">100%",
+      "source": "28-regulatory-compliance-and-sustainability.md"
+    },
+    {
+      "name": "WCAG 2.1 AA Compliance Score",
+      "formula_text": ">90/100",
+      "benchmark": "65\u201380/100",
+      "notes": "<50/100",
+      "source": "28-regulatory-compliance-and-sustainability.md"
+    },
+    {
+      "name": "Data Breach Incidents (material)",
+      "formula_text": "0 per year",
+      "benchmark": "0\u20131 per year",
+      "notes": ">1 per year",
+      "source": "28-regulatory-compliance-and-sustainability.md"
+    },
+    {
+      "name": "Inventory Turnover",
+      "formula_text": "Costco: 12x; Zara: 4x",
+      "benchmark": "Grocery: 15x; Fashion: 3x",
+      "notes": "<2x (overstock risk)",
+      "source": "29-competitive-landscape-and-industry-frameworks.md"
+    },
+    {
+      "name": "E-commerce Penetration",
+      "formula_text": "Amazon: 100%; ASOS: 100%",
+      "benchmark": "Top 250 average: 18.5%",
+      "notes": "<5% (digital laggard)",
+      "source": "29-competitive-landscape-and-industry-frameworks.md"
+    },
+    {
+      "name": "Private Label Share",
+      "formula_text": "Costco: 30%; Lidl: 80%",
+      "benchmark": "Grocery: 20\u201325%; Fashion: 30\u201340%",
+      "notes": "<10% (margin opportunity)",
+      "source": "29-competitive-landscape-and-industry-frameworks.md"
+    },
+    {
+      "name": "Customer Retention Rate",
+      "formula_text": "Costco: 92.7%; Amazon Prime: 93%",
+      "benchmark": "Retail average: 60\u201370%",
+      "notes": "<50% (loyalty crisis)",
+      "source": "29-competitive-landscape-and-industry-frameworks.md"
+    },
+    {
+      "name": "WMAPE (Forecast Accuracy)",
+      "formula_text": "<10% (best-in-class)",
+      "benchmark": "Grocery: 15\u201320%; Fashion: 25\u201335%",
+      "notes": ">40% (significant overstock/stockout)",
+      "source": "29-competitive-landscape-and-industry-frameworks.md"
+    },
+    {
+      "name": "Retail Media Revenue as % of Total Revenue",
+      "formula_text": "Retail Media Revenue / Total Revenue \u00d7 100",
+      "benchmark": "Amazon: 8.2%; Kroger: 0.9%; Target: 1.4%",
+      "notes": "Target for mid-size retailers: 1\u20133% within 5 years",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Membership Renewal Rate",
+      "formula_text": "Renewing Members / Total Members at Period Start \u00d7 100",
+      "benchmark": "Costco: 92.7%; Amazon Prime: 93%; Walmart+: ~85%",
+      "notes": "Below 80% indicates insufficient membership value",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "AI Personalisation Revenue Uplift",
+      "formula_text": "(Revenue with Personalisation / Revenue without Personalisation) - 1",
+      "benchmark": "McKinsey benchmark: 10\u201315% uplift",
+      "notes": "Requires A/B testing to measure accurately",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "MFC Picking Cost per Order",
+      "formula_text": "Total MFC Operating Cost / Orders Processed",
+      "benchmark": "Manual: $8\u2013$12; MFC: $3\u2013$5; Best-in-class (Ocado): $2\u2013$3",
+      "notes": "Break-even volume: 2,000\u20133,000 orders/day",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Supply Chain Resilience Score",
+      "formula_text": "Composite of: Supplier Diversification + Safety Stock Coverage + Digital Visibility + Recovery Time",
+      "benchmark": "No universal benchmark; internal improvement tracking",
+      "notes": "COVID-19 demonstrated cost of low resilience",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Circular Economy Revenue",
+      "formula_text": "(Resale + Rental + Repair Revenue) / Total Revenue \u00d7 100",
+      "benchmark": "IKEA: ~3%; Patagonia: ~5%; Industry average: <1%",
+      "notes": "Growing at 15% CAGR (ThredUp, 2024)",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Digital Supply Chain Visibility",
+      "formula_text": "Nodes with Real-Time Tracking / Total Supply Chain Nodes \u00d7 100",
+      "benchmark": "Best-in-class: 95%+; Industry average: 40\u201360%",
+      "notes": "Walmart: 90%+ via RFID and supplier portal",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Associate AI Tool Adoption Rate",
+      "formula_text": "Associates Using AI Tools Daily / Total Associates \u00d7 100",
+      "benchmark": "Walmart Ask Sam: 95%+ of US store associates",
+      "notes": "Below 50% indicates adoption barriers",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Autonomous Store Labour Cost Reduction",
+      "formula_text": "(Traditional Labour Cost - Autonomous Labour Cost) / Traditional Labour Cost \u00d7 100",
+      "benchmark": "Amazon Go: 60\u201380% reduction vs. conventional convenience",
+      "notes": "Applicable only to small-format, high-traffic locations",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Nearshoring Cost Premium",
+      "formula_text": "(Nearshore Unit Cost - Offshore Unit Cost) / Offshore Unit Cost \u00d7 100",
+      "benchmark": "Mexico vs. China: 20\u201330% premium",
+      "notes": "Offset by lead time reduction and tariff avoidance",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Platform Take Rate",
+      "formula_text": "Platform Revenue (Fees + Services + Advertising) / Total Platform GMV \u00d7 100",
+      "benchmark": "Amazon: 30\u201335%; Walmart Marketplace: 15\u201320%; Target Plus: 10\u201315%",
+      "notes": "Higher take rate = more services offered to sellers",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Subscription Retention Rate",
+      "formula_text": "Subscribers at End of Period / Subscribers at Start of Period \u00d7 100",
+      "benchmark": "Replenishment (Chewy Autoship): 85\u201390%; Curation boxes: 60\u201370%",
+      "notes": "Below 70% indicates insufficient subscription value",
+      "source": "30-retail-strategy-and-future-trends.md"
+    },
+    {
+      "name": "Average Retail Data Breach Cost",
+      "formula_text": "Total Breach Cost / Number of Incidents",
+      "benchmark": "$3.28M average; $4.45M for PII breaches (IBM, 2024)",
+      "notes": "Target 2013: $292M; Home Depot 2014: $340M",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "Breach Dwell Time",
+      "formula_text": "Date of Detection - Date of Initial Compromise",
+      "benchmark": "Industry average: 197 days; Best-in-class: <30 days (Verizon DBIR, 2024)",
+      "notes": "Longer dwell time = more data compromised",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "POS Downtime Cost",
+      "formula_text": "Annual Revenue / 365 / 24 \u00d7 Downtime Hours",
+      "benchmark": "$50K\u2013$500K per hour for mid-size retailers",
+      "notes": "Walmart: ~$1.8M per minute",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "Recall Cost per Unit",
+      "formula_text": "Total Recall Cost / Units Recalled",
+      "benchmark": "$0.50\u2013$2.00 per unit (direct costs only)",
+      "notes": "Total cost including brand damage: 3\u20135x direct cost",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "Crisis Recovery Timeline",
+      "formula_text": "Months to return to pre-crisis revenue levels",
+      "benchmark": "Well-managed: 12\u201318 months; Poorly managed: 36\u201360 months",
+      "notes": "J&J Tylenol: 12 months; Chipotle: 36 months",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "Cyber Insurance Coverage Ratio",
+      "formula_text": "Cyber Insurance Limit / Estimated Maximum Breach Cost",
+      "benchmark": "Target: 34% ($100M limit / $292M cost) \u2014 insufficient",
+      "notes": "Recommended: 80%+ coverage ratio",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "BCP Test Frequency",
+      "formula_text": "Number of BCP Tests per Year",
+      "benchmark": "Best practice: 2+ tests per year (ISO 22301)",
+      "notes": "Untested BCPs fail in real crises",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "Safety Stock Coverage",
+      "formula_text": "Safety Stock Units / Average Daily Demand",
+      "benchmark": "7\u201314 days (lean); 30\u201345 days (resilient)",
+      "notes": "Costco: 30\u201345 days for top 200 SKUs",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "Supply Chain Single-Source Dependency",
+      "formula_text": "Single-Source SKUs / Total SKUs \u00d7 100",
+      "benchmark": "Best practice: <20% single-source",
+      "notes": "Pre-COVID industry average: 65% China-sourced",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "Ransomware Recovery Cost",
+      "formula_text": "Total Cost of Ransomware Incident",
+      "benchmark": "Average: $3.6M (Sophos, 2024); Range: $500K\u2013$50M+",
+      "notes": "Includes downtime, remediation, ransom (if paid)",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "E-Commerce Fraud Rate",
+      "formula_text": "Fraud Losses / Total E-Commerce Revenue \u00d7 100",
+      "benchmark": "Industry average: 0.9%; Best-in-class: <0.3% (MRC, 2024)",
+      "notes": "CNP fraud: 65% of total card fraud",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    },
+    {
+      "name": "Crisis Communication Response Time",
+      "formula_text": "Time from crisis detection to first public statement",
+      "benchmark": "Best practice: <1 hour; Industry average: 4\u20138 hours",
+      "notes": "Golden hour: <1 hour response = 70% containment rate",
+      "source": "31-crisis-and-risk-management-in-retail.md"
+    }
+  ]
+}

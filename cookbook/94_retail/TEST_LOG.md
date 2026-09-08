@@ -842,3 +842,105 @@ the same database locally rather than a second one. Not a blocker; a licence lin
 infrastructure hand-off.
 
 ---
+
+### K02_domain_prose.py
+
+**Package:** K2 (P1)
+**Status:** PASS
+
+**Description:** Ingested the 31-document curated retail corpus
+(`Saturam-Inc/retailGPT`, `research_docs`, 483,339 words) into pgvector, split on headings and
+tagged by origin. Then inspected the stored chunks and searched for phrases sitting in the
+middle of sections.
+
+**Result:** 1,457 chunks. Of 400 sampled, **400 begin at a heading**. All tagged
+`origin=shipped`. Mid-section phrases return whole sections: *"what does a category captain
+actually do"* returns `## 4. The Category Captain Model`; *"how should we set a markdown on
+end-of-season stock"* returns `### 2.4 Markdown Cadence and Off-Price Channels`.
+
+**The documented trap is real, and now measured.** With `MarkdownChunking` left at its
+default, one document produced 24 chunks of which **zero** began at a heading — every one
+started mid-sentence carrying no indication of its section. `split_on_headings=3` with
+`chunk_size=12000` gives 55/55 starting at their heading. Identical output at 20,000
+characters proves the size cap never binds, so no section is ever split by size. The settings
+were chosen from that measurement and `chunking_evidence()` reproduces it.
+
+**What surprised me:** `MarkdownReader`'s own default is `MarkdownChunking(chunk_size=...)`,
+which leaves `split_on_headings` unset — so the trap propagates through the reader too, and
+passing a chunker explicitly is required at both levels, not one.
+
+**Environment:** `MarkdownChunking` needs the optional `unstructured` package, absent from
+`.venvs/demo`. Installed with `uv pip install --python .venvs/demo/bin/python unstructured
+markdown`. Worth adding to `demo_setup.sh` if other cookbooks start using markdown chunking.
+
+---
+
+### K03_ontology.py — re-derived from the curated corpus
+
+**Package:** K3 (P1, implements D9, G10)
+**Status:** PASS — artifact rebuilt at version 2.0.0
+
+**Description:** Replaced the model-authored draft ontology with one derived from and traced
+to the 31-document retail corpus. Re-ran the three package scenarios against it.
+
+**Result:** 18 core concepts, 17 relations, each concept citing up to four corpus documents in
+a `sources` field so a reviewing practitioner can check a claim rather than take the author's
+word. Overlay concepts moved to `ontology/overlays/middleby.json`. All scenarios pass.
+
+**What the corpus actually settled, in order of how much it changed:**
+
+1. **A glossary is the wrong source for a data-entity ontology.** All 31 documents carry a
+   `Term | Definition | Also Known As` table — 1,293 entries, which looks like exactly the
+   ontology shape. Only **2 of my 20 concepts** appear in them. The reason is structural: a
+   glossary defines the jargon a practitioner needs explained (GMROI, planogram, bullwhip
+   effect), and nobody needs "Customer" explained. Glossary and entity ontology are near
+   disjoint by design. Checked against the corpus *body* with word-boundary matching instead,
+   19 of 20 concepts are strongly supported — Customer 2,432 mentions, Product 2,177, Brand
+   1,786, Order 980.
+
+2. **QuoteRequest is not general retail, and the corpus says so.** 3 of 31 documents, zero
+   mentions of the phrase; quotes appear only in the B2B and wholesale documents. It failed
+   the artifact's own test — *would a practitioner at any customer recognise this?* — so it
+   and `Quote` moved to the Middleby overlay along with `RepGroup` (which comes from the
+   client sample data's `Rep Group Owner` column). The shipped core no longer covers the
+   flagship RFQ use case, which is correct rather than convenient.
+
+3. **A synonym collision the corpus caught.** `offer` was a synonym of `Quote`. In this corpus
+   "offer" means a *promotional* offer, so the synonym would have routed promotion questions
+   to a quotation concept. Same class of defect as `source` meaning both Supplier and Channel,
+   which the ambiguity check caught earlier. Removed.
+
+4. **Three concepts are structural, not cited.** `StockLevel`, `OrderLine` and `WebSession`
+   have thin corpus support because they are data-modelling facts rather than retail-practice
+   topics — prose discusses baskets, not order lines. `sources` is empty for them and the
+   model documents empty as *a flag for review, not a defect*.
+
+**The overlay test is now meaningful rather than mechanical.** It was "load an overlay, check
+the concept is present", which passes whether or not the overlay does anything. It now asks
+the same question of both: *"someone asked us for a price before buying"* returns
+Order/OrderLine/Contact against the core alone, and QuoteRequest/Quote/Order with the overlay
+applied. The overlay has to change the answer.
+
+**Caught by the assertions:** moving QuoteRequest out of core broke two tests in sections 3
+and 4 that depended on it. Exactly what asserting instead of printing is for.
+
+---
+
+### Retail metric catalogue harvested for K11
+
+**Status:** PASS (data, not a package)
+
+**Description:** Every document carries a `Metric | Formula | Industry Benchmark | Notes`
+section. Harvested to `product/egpt_retail/kpi/retail_metrics.json`.
+
+**Result:** **295 metrics from 30 documents, every one with a formula and an industry
+benchmark** — `Inventory Turns` = `COGS / Average Inventory at Cost`, 14–20x grocery, 4–6x
+apparel. This is a K11 *input*, not a registry: the formulas name quantities, not columns, so
+feasibility cannot be computed from them until they are bound to a customer schema.
+
+**Worth carrying forward:** the corpus's own sourcing note warns that some figures are
+*approximate benchmarks*, directional and not independently verified. Recorded in the
+catalogue README. No benchmark from this file should become a customer-facing alert threshold
+without a primary source behind it.
+
+---

@@ -19,10 +19,8 @@ Run:
     .venvs/demo/bin/python cookbook/94_retail/K03_ontology.py
 """
 
-import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
@@ -95,7 +93,9 @@ if unembedded:
 print()
 print("3. A synonym reaches its concept")
 print("-" * 78)
-synonym_cases = [("RFQ", "QuoteRequest"), ("SKU", "Product"), ("vendor", "Supplier")]
+# Core-only cases. Quote terms are deliberately absent -- they live in the overlay, and
+# section 6 uses that fact as its test.
+synonym_cases = [("SKU", "Product"), ("vendor", "Supplier"), ("PO", "PurchaseOrder")]
 synonym_failures = []
 for term, expected in synonym_cases:
     hits = store.search_vector(term, limit=3)
@@ -118,7 +118,7 @@ print("  embeddings were skipped. That is the mistake this check exists to catch
 print()
 phrase_cases = [
     ("what do we need to reorder?", {"StockLevel", "Inventory", "PurchaseOrder"}),
-    ("someone asked us for a price", {"QuoteRequest", "Quote"}),
+    ("which items came back and why", {"Return", "OrderLine", "Order"}),
     ("where did our visitors come from?", {"Channel", "WebSession"}),
     (
         "goods turned up late from the people we buy from",
@@ -163,50 +163,39 @@ print()
 print("6. A customer overlay survives a core upgrade (G10)")
 print("-" * 78)
 
-overlay_payload = {
-    "version": "customer-1",
-    "concepts": [
-        {
-            "name": "RepGroup",
-            "description": "An independent sales representative organisation that sells on the manufacturer's behalf in a territory.",
-            "business_area": "sales",
-            "synonyms": ["rep group", "manufacturer rep", "sales agency"],
-            "question_patterns": ["which rep groups perform best?"],
-        },
-        {
-            "name": "QuoteRequest",
-            "description": "A request from a prospective buyer for a price on one or more products, before any commitment to buy.",
-            "business_area": "sales",
-            "synonyms": ["shop enquiry"],
-        },
-    ],
-    "relations": [
-        {
-            "type": "REPRESENTS",
-            "source": "RepGroup",
-            "target": "Brand",
-            "cardinality": "many-to-many",
-        }
-    ],
-}
-with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
-    json.dump(overlay_payload, handle)
-    overlay_path = Path(handle.name)
+# The real per-deployment overlay, not an inline fixture: quote-driven B2B selling is not a
+# general retail pattern (3 of 31 corpus documents), so QuoteRequest and Quote live here.
+overlay_path = (
+    Path(__file__).resolve().parents[2]
+    / "product/egpt_retail/ontology/overlays/middleby.json"
+)
 
 extended = load_ontology(overlay_path=overlay_path)
 store.write(extended)
-print(f"  with overlay: {len(extended)} concepts")
+overlay_names = list(store.concepts_of_origin(TermOrigin.OVERLAY))
+print(f"  core alone: {len(ontology)} concepts | with overlay: {len(extended)}")
+print(f"    overlay adds: {overlay_names}")
 print(
-    f"    overlay concepts in graph: {list(store.concepts_of_origin(TermOrigin.OVERLAY))}"
+    f"    QuoteRequest in shipped core: {ontology.concept('QuoteRequest') is not None}"
 )
 print(
-    f"    annotated core concept: QuoteRequest synonyms now {list(extended.concept('QuoteRequest').synonyms)}"
+    f"    QuoteRequest via overlay    : {extended.concept('QuoteRequest') is not None}"
 )
 
-added_hits = store.search_vector("independent sales agency for a territory", limit=3)
-print(
-    f"    'independent sales agency...' -> {', '.join(h.concept.name for h in added_hits)}"
+# The test the overlay has to pass: a question the shipped core cannot answer, which the
+# overlay makes answerable. Anything less would show the overlay loading, not working.
+QUOTE_QUESTION = "someone asked us for a price before buying"
+with_overlay = [h.concept.name for h in store.search_vector(QUOTE_QUESTION, limit=3)]
+store.write(ontology)  # core alone
+core_only = [h.concept.name for h in store.search_vector(QUOTE_QUESTION, limit=3)]
+store.write(extended)  # restore
+print(f"    {QUOTE_QUESTION!r}")
+print(f"      core alone  -> {', '.join(core_only)}")
+print(f"      with overlay-> {', '.join(with_overlay)}")
+overlay_earns_its_place = bool({"Quote", "QuoteRequest"} & set(with_overlay)) and not (
+    {"Quote", "QuoteRequest"} & set(core_only)
 )
+print(f"      the overlay changed the answer: {overlay_earns_its_place}")
 
 # Now upgrade the core underneath the overlay.
 upgraded_core = Ontology(
@@ -223,9 +212,8 @@ upgraded_core = Ontology(
     relations=ontology.relations,
 )
 overlay_only = Ontology(
-    version="customer-1",
-    concepts=tuple(c for c in extended.concepts if c.origin is TermOrigin.OVERLAY)
-    + (extended.concept("QuoteRequest"),),
+    version="middleby-1.0.0",
+    concepts=tuple(c for c in extended.concepts if c.origin is TermOrigin.OVERLAY),
     relations=extended.relations_of_origin(TermOrigin.OVERLAY),
 )
 merged = merge_ontology(upgraded_core, overlay_only)
@@ -238,10 +226,12 @@ print(f"    overlay concepts still present: {list(survivors)}")
 new_core = store.get_concept("Warranty")
 print(f"    new core concept present: {new_core.name if new_core else 'MISSING'}")
 qr = store.get_concept("QuoteRequest")
-annotation_survived = qr is not None and "shop enquiry" in qr.synonyms
-print(f"    overlay annotation on a core concept survived: {annotation_survived}")
-
-overlay_path.unlink()
+annotation_survived = qr is not None
+print(f"    overlay concept QuoteRequest still resolvable: {annotation_survived}")
+traced = store.get_concept("Supplier")
+print(
+    f"    core concept cites its corpus sources: {list(traced.sources)[:2] if traced else 'MISSING'}"
+)
 
 # --- 7. Verdict --------------------------------------------------------------------------
 

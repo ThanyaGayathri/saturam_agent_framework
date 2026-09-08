@@ -1,0 +1,108 @@
+{
+  "version": "middleby-1.0.0",
+  "_comment": [
+    "Per-deployment overlay for Middleby. NOT shipped: retail.json is the shipped",
+    "artifact, this is deployment configuration (D3, one deployment per customer).",
+    "",
+    "QuoteRequest and Quote live here rather than in the core because the retail corpus",
+    "confines quotes to B2B and wholesale contexts -- 3 of 31 documents, zero mentions of",
+    "'quote request'. They are real for a quote-driven B2B equipment business and are not",
+    "a general retail pattern, which is exactly what an overlay is for.",
+    "",
+    "RepGroup comes from the client sample data, which carries a 'Rep Group Owner' column",
+    "on every contact and quote row."
+  ],
+  "concepts": [
+    {
+      "name": "QuoteRequest",
+      "description": "A request from a prospective buyer for a price on one or more products, before any commitment to buy.",
+      "business_area": "sales",
+      "synonyms": [
+        "RFQ",
+        "request for quote",
+        "enquiry",
+        "quote request",
+        "price request"
+      ],
+      "question_patterns": [
+        "how many quote requests came in?",
+        "which products get the most enquiries?"
+      ]
+    },
+    {
+      "name": "Quote",
+      "description": "A priced response to a quote request, which may or may not convert into an order.",
+      "business_area": "sales",
+      "synonyms": [
+        "quotation",
+        "priced offer to a buyer"
+      ],
+      "question_patterns": [
+        "what is our quote conversion rate?",
+        "how many quotes turned into orders?"
+      ]
+    },
+    {
+      "name": "RepGroup",
+      "description": "An independent sales representative organisation that sells on the manufacturer's behalf within a territory, and owns the customer relationship for quotes it raises.",
+      "business_area": "sales",
+      "synonyms": [
+        "rep group",
+        "manufacturer rep",
+        "sales agency",
+        "rep agency"
+      ],
+      "question_patterns": [
+        "which rep groups bring in the most quote requests?",
+        "how does this rep agency perform?"
+      ],
+      "sources": [
+        "client sample data: hubspot Rep Group Owner"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "type": "RAISED_BY",
+      "source": "QuoteRequest",
+      "target": "Contact",
+      "cardinality": "many-to-one",
+      "description": "Who asked for the price."
+    },
+    {
+      "type": "REQUESTS",
+      "source": "QuoteRequest",
+      "target": "Product",
+      "cardinality": "many-to-many",
+      "description": "What a price was asked for."
+    },
+    {
+      "type": "ANSWERS",
+      "source": "Quote",
+      "target": "QuoteRequest",
+      "cardinality": "many-to-one",
+      "description": "A quote is the priced response to a request."
+    },
+    {
+      "type": "CONVERTS_TO",
+      "source": "Quote",
+      "target": "Order",
+      "cardinality": "one-to-one",
+      "description": "The conversion step the RFQ funnel measures."
+    },
+    {
+      "type": "MANAGED_BY",
+      "source": "QuoteRequest",
+      "target": "RepGroup",
+      "cardinality": "many-to-one",
+      "description": "The rep group that owns the quote request."
+    },
+    {
+      "type": "REPRESENTS",
+      "source": "RepGroup",
+      "target": "Brand",
+      "cardinality": "many-to-many",
+      "description": "The brands a rep group carries."
+    }
+  ]
+}

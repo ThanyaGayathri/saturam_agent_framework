@@ -65,6 +65,7 @@ def _concept_from_node(node: Any) -> Concept:
         business_area=node["business_area"],
         synonyms=tuple(node.get("synonyms") or ()),
         question_patterns=tuple(node.get("question_patterns") or ()),
+        sources=tuple(node.get("sources") or ()),
         origin=TermOrigin(node.get("origin", "core")),
     )
 
@@ -135,6 +136,7 @@ class OntologyStore:
                 "business_area": concept.business_area,
                 "synonyms": list(concept.synonyms),
                 "question_patterns": list(concept.question_patterns),
+                "sources": list(concept.sources),
                 "lexical_text": concept.lexical_text,
                 "origin": concept.origin.value,
                 "version": ontology.version,
@@ -166,6 +168,7 @@ class OntologyStore:
                     c.business_area = row.business_area,
                     c.synonyms = row.synonyms,
                     c.question_patterns = row.question_patterns,
+                    c.sources = row.sources,
                     c.lexical_text = row.lexical_text,
                     c.origin = row.origin,
                     c.version = row.version,

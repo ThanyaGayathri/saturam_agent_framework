@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "_comment": [
     "The shipped retail ontology (D9). Layer 2 of docs/plan/domain-knowledge-layers.md.",
     "",
@@ -29,6 +29,12 @@
       "question_patterns": [
         "who are our biggest customers?",
         "which accounts buy the most?"
+      ],
+      "sources": [
+        "26-franchising-and-wholesale-b2b-retail.md",
+        "21-post-purchase-and-customer-service.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "19-ai-ml-use-cases-in-retail.md"
       ]
     },
     {
@@ -44,6 +50,12 @@
       "question_patterns": [
         "how do our segments differ?",
         "which customer group spends most?"
+      ],
+      "sources": [
+        "15-retail-media-networks.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "18-retail-analytics-and-data-infrastructure.md",
+        "04-category-management.md"
       ]
     },
     {
@@ -59,6 +71,12 @@
       "question_patterns": [
         "who requested this quote?",
         "which people are we talking to?"
+      ],
+      "sources": [
+        "21-post-purchase-and-customer-service.md",
+        "07-supply-chain-and-logistics.md",
+        "08-inventory-management-and-demand-forecasting.md",
+        "25-retail-verticals-deep-dive.md"
       ]
     },
     {
@@ -75,6 +93,12 @@
       "question_patterns": [
         "which items sell best?",
         "what is this model's margin?"
+      ],
+      "sources": [
+        "19-ai-ml-use-cases-in-retail.md",
+        "28-regulatory-compliance-and-sustainability.md",
+        "30-retail-strategy-and-future-trends.md",
+        "03-merchandising-and-visual-merchandising.md"
       ]
     },
     {
@@ -91,6 +115,12 @@
       "question_patterns": [
         "which categories are growing?",
         "how does this range perform?"
+      ],
+      "sources": [
+        "04-category-management.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "06-private-label-and-own-brand-strategy.md",
+        "19-ai-ml-use-cases-in-retail.md"
       ]
     },
     {
@@ -106,6 +136,12 @@
       "question_patterns": [
         "which brands drive the most demand?",
         "how is this make performing?"
+      ],
+      "sources": [
+        "06-private-label-and-own-brand-strategy.md",
+        "15-retail-media-networks.md",
+        "25-retail-verticals-deep-dive.md",
+        "26-franchising-and-wholesale-b2b-retail.md"
       ]
     },
     {
@@ -121,6 +157,12 @@
       "question_patterns": [
         "how much do we have?",
         "what is our stock position?"
+      ],
+      "sources": [
+        "08-inventory-management-and-demand-forecasting.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "25-retail-verticals-deep-dive.md",
+        "29-competitive-landscape-and-industry-frameworks.md"
       ]
     },
     {
@@ -137,6 +179,12 @@
         "what needs reordering?",
         "which products are overstocked?",
         "what is running low?"
+      ],
+      "sources": [
+        "08-inventory-management-and-demand-forecasting.md",
+        "04-category-management.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "12-omnichannel-and-unified-commerce.md"
       ]
     },
     {
@@ -153,6 +201,12 @@
       "question_patterns": [
         "which sites hold this?",
         "how does this branch compare?"
+      ],
+      "sources": [
+        "09-store-design-and-real-estate.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "17-emerging-technology-in-retail.md"
       ]
     },
     {
@@ -167,6 +221,12 @@
       "question_patterns": [
         "which suppliers are reliable?",
         "who do we buy this from?"
+      ],
+      "sources": [
+        "23-vendor-and-supplier-management.md",
+        "16-retail-technology-and-core-systems.md",
+        "28-regulatory-compliance-and-sustainability.md",
+        "07-supply-chain-and-logistics.md"
       ]
     },
     {
@@ -181,6 +241,12 @@
       "question_patterns": [
         "what have we got on order?",
         "which POs are outstanding?"
+      ],
+      "sources": [
+        "16-retail-technology-and-core-systems.md",
+        "31-crisis-and-risk-management-in-retail.md",
+        "23-vendor-and-supplier-management.md",
+        "08-inventory-management-and-demand-forecasting.md"
       ]
     },
     {
@@ -196,6 +262,12 @@
       "question_patterns": [
         "did it arrive on time?",
         "what is late from suppliers?"
+      ],
+      "sources": [
+        "07-supply-chain-and-logistics.md",
+        "21-post-purchase-and-customer-service.md",
+        "25-retail-verticals-deep-dive.md",
+        "12-omnichannel-and-unified-commerce.md"
       ]
     },
     {
@@ -211,6 +283,12 @@
       "question_patterns": [
         "how many orders did we take?",
         "what is the average order value?"
+      ],
+      "sources": [
+        "24-payments-fraud-and-financial-services.md",
+        "13-emerging-commerce-models.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "14-retail-marketing-and-loyalty-programs.md"
       ]
     },
     {
@@ -225,37 +303,12 @@
       "question_patterns": [
         "what was in that order?",
         "how many units of this were sold?"
-      ]
-    },
-    {
-      "name": "QuoteRequest",
-      "description": "A request from a prospective buyer for a price on one or more products, before any commitment to buy.",
-      "business_area": "sales",
-      "synonyms": [
-        "RFQ",
-        "request for quote",
-        "enquiry",
-        "quote request",
-        "price request"
       ],
-      "question_patterns": [
-        "how many quote requests came in?",
-        "which products get the most enquiries?"
-      ]
-    },
-    {
-      "name": "Quote",
-      "description": "A priced response to a quote request, which may or may not convert into an order.",
-      "business_area": "sales",
-      "synonyms": [
-        "quotation",
-        "proposal",
-        "estimate",
-        "offer"
-      ],
-      "question_patterns": [
-        "what is our quote conversion rate?",
-        "how many quotes turned into orders?"
+      "sources": [
+        "18-retail-analytics-and-data-infrastructure.md",
+        "22-finance-and-unit-economics.md",
+        "23-vendor-and-supplier-management.md",
+        "12-omnichannel-and-unified-commerce.md"
       ]
     },
     {
@@ -271,6 +324,12 @@
       "question_patterns": [
         "what is being returned and why?",
         "which products come back most?"
+      ],
+      "sources": [
+        "21-post-purchase-and-customer-service.md",
+        "19-ai-ml-use-cases-in-retail.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "24-payments-fraud-and-financial-services.md"
       ]
     },
     {
@@ -286,6 +345,12 @@
       "question_patterns": [
         "did the campaign work?",
         "which promotions drove sales?"
+      ],
+      "sources": [
+        "05-pricing-strategy-and-promotions.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "15-retail-media-networks.md",
+        "18-retail-analytics-and-data-infrastructure.md"
       ]
     },
     {
@@ -301,6 +366,12 @@
       "question_patterns": [
         "where do our customers come from?",
         "which channel converts best?"
+      ],
+      "sources": [
+        "12-omnichannel-and-unified-commerce.md",
+        "13-emerging-commerce-models.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "22-finance-and-unit-economics.md"
       ]
     },
     {
@@ -316,6 +387,12 @@
       "question_patterns": [
         "how many people visited?",
         "what do visitors look at before enquiring?"
+      ],
+      "sources": [
+        "20-customer-research-and-insights.md",
+        "11-ecommerce-and-digital-commerce.md",
+        "19-ai-ml-use-cases-in-retail.md",
+        "14-retail-marketing-and-loyalty-programs.md"
       ]
     }
   ],
@@ -396,34 +473,6 @@
       "target": "Product",
       "cardinality": "many-to-one",
       "description": "What was bought on that line."
-    },
-    {
-      "type": "RAISED_BY",
-      "source": "QuoteRequest",
-      "target": "Contact",
-      "cardinality": "many-to-one",
-      "description": "Who asked for the price."
-    },
-    {
-      "type": "REQUESTS",
-      "source": "QuoteRequest",
-      "target": "Product",
-      "cardinality": "many-to-many",
-      "description": "What a price was asked for."
-    },
-    {
-      "type": "ANSWERS",
-      "source": "Quote",
-      "target": "QuoteRequest",
-      "cardinality": "many-to-one",
-      "description": "A quote is the priced response to a request."
-    },
-    {
-      "type": "CONVERTS_TO",
-      "source": "Quote",
-      "target": "Order",
-      "cardinality": "one-to-one",
-      "description": "The conversion step the RFQ funnel measures."
     },
     {
       "type": "PLACED_ON",
