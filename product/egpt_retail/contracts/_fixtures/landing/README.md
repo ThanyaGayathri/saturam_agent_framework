@@ -31,7 +31,8 @@ case the script knows about in advance.
   watermark) collapses the duplicate, resolves `c_501`'s earlier defect, and settles the tie.
 - `raw/session_replay/dt=2026-09-01/session_replay-20260901T020000Z.ndjson` — two sessions,
   one with no login identity and one with no submit identity, both legitimately null rather
-  than dirty.
+  than dirty. Each row's `last_updated_at` is later than its `session_start_at` — the
+  watermark (`last_updated_at`) moves independently of when the session began.
 
 Every row across all three sources also carries `identity_key: null` — reserved on every
 shape but not yet populated anywhere, since the shared hashed identity (`LANDING_CONTRACT.md`

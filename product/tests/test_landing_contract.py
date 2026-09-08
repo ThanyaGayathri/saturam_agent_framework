@@ -11,7 +11,9 @@ provide.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -106,6 +108,43 @@ def test_landing_schemas_is_immutable():
     """Finding #8: the "frozen at import time" claim is now a runtime guarantee."""
     with pytest.raises(TypeError):
         LANDING_SCHEMAS["evil"] = None  # type: ignore[index]
+
+
+def test_session_replay_watermark_is_last_updated_not_session_start():
+    """Post-merge Lane R finding: `session_start_at` never moves once a session begins, so
+    using it as the watermark means a re-pull carrying corrected click counts ties forever
+    and the tie-break silently discards the correction. `last_updated_at` is the watermark
+    instead -- `session_start_at` stays required, just no longer structural."""
+    schema = LANDING_SCHEMAS["session_replay.session"]
+    assert schema.watermark_column == "last_updated_at"
+    assert "session_start_at" in schema.required_columns
+    assert "session_start_at" not in schema.key_columns
+
+
+def test_validate_row_lets_a_corrected_session_replay_row_win_on_last_updated_at():
+    """The concrete case the schema change fixes: two pulls of the same session, same
+    `session_start_at` (it never moves), later `last_updated_at` carries corrected counts.
+    Last-write-wins by watermark must pick the later one."""
+    first_pull = {
+        "session_id": "sess_1",
+        "session_start_at": "2026-09-01T08:00:00Z",
+        "last_updated_at": "2026-09-01T08:05:00Z",
+        "rage_click_count": 0,
+        "dead_click_count": 0,
+        "script_error_count": 0,
+        "session_url": "https://shop.example.com/quote",
+        "identity_at_login": None,
+        "identity_at_submit": None,
+        "identity_key": None,
+    }
+    second_pull = {
+        **first_pull,
+        "last_updated_at": "2026-09-01T08:20:00Z",
+        "rage_click_count": 3,
+    }
+    assert validate_row("session_replay.session", first_pull) == ()
+    assert validate_row("session_replay.session", second_pull) == ()
+    assert second_pull["last_updated_at"] > first_pull["last_updated_at"]
 
 
 # --- validate_row: the three Major findings, plus the blank-string Minor -------------------
@@ -450,3 +489,31 @@ def test_parse_landing_path_round_trips_landing_path():
     assert parts.source is SourceName.SESSION_REPLAY
     assert parts.dt == date(2026, 9, 1)
     assert parts.ingested_at == ingested_at
+
+
+# --- packaging: the landing fixtures must ship in a non-editable install -------------------
+
+
+def test_landing_fixtures_are_covered_by_package_data_glob():
+    """Lane R finding (post-merge, from building R4 against this contract): pyproject.toml's
+    package-data only listed `contracts/_fixtures/*.json`, which does not match
+    `contracts/_fixtures/landing/raw/**/*.ndjson` -- a non-editable install of `egpt-retail`
+    would ship the landing contract without the fixtures that demonstrate it. Invisible in
+    an editable checkout, which is where all the development happens."""
+    product_root = Path(__file__).resolve().parents[1]
+    package_root = product_root / "egpt_retail"
+    fixture_files = sorted(
+        (package_root / "contracts" / "_fixtures" / "landing" / "raw").rglob("*.ndjson")
+    )
+    assert fixture_files, "fixture files must exist to test coverage against"
+
+    pyproject_text = (product_root / "pyproject.toml").read_text()
+    match = re.search(r"egpt_retail\s*=\s*\[(.*?)\]", pyproject_text, re.DOTALL)
+    assert match, "package-data's egpt_retail glob list not found in pyproject.toml"
+    globs = re.findall(r'"([^"]+)"', match.group(1))
+
+    for fixture_file in fixture_files:
+        relative = fixture_file.relative_to(package_root)
+        assert any(relative.match(glob) for glob in globs), (
+            f"{relative} is not covered by any package-data glob in pyproject.toml"
+        )

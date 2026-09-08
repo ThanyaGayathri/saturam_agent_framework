@@ -75,6 +75,7 @@ egpt_retail = [
   "py.typed",
   "ontology/*.json",
   "contracts/_fixtures/*.json",
+  "contracts/_fixtures/landing/raw/*/*/*.ndjson",
   "skills/*.md",
   "api/openapi/*.yaml",
   "api/openapi/*.json",

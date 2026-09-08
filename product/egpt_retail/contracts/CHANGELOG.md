@@ -140,6 +140,33 @@ exact input against that commit returns one defect, not two.
 
 `product/tests/test_landing_contract.py` grew to 41 tests.
 
+### 1.1.0 — 2026-09-08 — session_replay's watermark, and a follow-up PR
+
+PR #190 merged at the round-1 commit before the round-2 and round-3 fixes above were pushed
+to it — both rounds are real (reproduced, tested, pushed), but landed in `main` through this
+follow-up PR instead, once the original was already closed. Recorded here rather than
+silently folded into the entries above, since those entries' commit SHAs no longer match
+what merged them.
+
+One more finding arrived after the merge, from Lane R having built R4 against this contract
+(#193, not yet merged): **breaking**, hence the version bump.
+
+| Change | Why | Cost to Lane R |
+|---|---|---|
+| `session_replay.session`'s watermark is `last_updated_at`, not `session_start_at` | `session_start_at` never moves once a session begins. A re-pull carrying corrected click counts for the same session would tie on it forever, and the tie-break (earliest-pulled wins) would silently discard every correction — the contract's own re-run rule producing a real data-loss bug, not a loader bug. `last_updated_at` moves when the record does, the same property `last_modified_at` already gives the three CRM streams. | `session_start_at` stays a required column, just no longer structural — R4's existing SQL keeps reading it, only the dedup's `ORDER BY`/comparison column changes. |
+
+Also fixed, additive: `product/pyproject.toml`'s `package-data` only listed
+`contracts/_fixtures/*.json`, which does not match
+`contracts/_fixtures/landing/raw/**/*.ndjson` — a non-editable install of `egpt-retail`
+shipped the landing contract without the fixtures that demonstrate it, invisible in the
+editable checkout where all development happens. Added
+`contracts/_fixtures/landing/raw/*/*/*.ndjson`, and a test
+(`test_landing_fixtures_are_covered_by_package_data_glob`) that fails if a future fixture
+file isn't covered by some glob, mirroring the shape of R4's own `test_r4_sql_assets.py`
+coverage check.
+
+`product/tests/test_landing_contract.py` grew to 44 tests.
+
 ## KPI formula shape
 
 ### Patch — 2026-09-07 — correctness fixes from automated review (two rounds)

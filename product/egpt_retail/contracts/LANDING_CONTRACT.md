@@ -60,7 +60,7 @@ shapes are `1.0.0` of `egpt_retail.contracts.landing.LANDING_SCHEMAS` and share 
 | `crm.contact` | one row per contact, as of its last change | `record_type`, `object_id` | `last_modified_at` | + `email`, `brand`, `identity_key`\* |
 | `crm.deal` | one row per deal, as of its last change | `record_type`, `object_id` | `last_modified_at` | + `stage`, `brand`, `quote_request_source_url`\* |
 | `crm.deal_stage_history` | one row per deal stage transition | `record_type`, `object_id` | `last_modified_at` | + `deal_id`, `stage`, `entered_at` |
-| `session_replay.session` | one row per session | `session_id` | `session_start_at` | + `rage_click_count`, `dead_click_count`, `script_error_count`, `session_url`, `identity_at_login`\*, `identity_at_submit`\*, `identity_key`\* |
+| `session_replay.session` | one row per session | `session_id` | `last_updated_at` | + `session_start_at`, `rage_click_count`, `dead_click_count`, `script_error_count`, `session_url`, `identity_at_login`\*, `identity_at_submit`\*, `identity_key`\* |
 
 \* nullable — present on every row, but a `null` value is not a reported defect. See below.
 
@@ -70,8 +70,16 @@ populated, nothing joins a row in one to a row in the other, and a reader must n
 matching `session_id` means the same browsing session.
 
 Incremental pulls are by the watermark column: event date for analytics, last-modified for
-CRM, session start for session replay — matching the connector hand-off table in
+CRM, last-updated for session replay — matching the connector hand-off table in
 `docs/plan/build-plan.md`.
+
+**`session_replay.session`'s watermark is `last_updated_at`, not `session_start_at`.**
+`session_start_at` never moves once a session begins, so a re-pull carrying corrected click
+counts for the same session would tie on it forever, and the re-run rule's tie-break
+(earliest-pulled wins) would silently discard every correction. `last_updated_at` moves when
+the record does, the same property `last_modified_at` gives the three CRM streams — the
+watermark's job is always "did this version change", not "when did this entity begin".
+`session_start_at` stays a required column; it is simply no longer structural.
 
 Every watermark value must be UTC, with the literal `Z` suffix — never naive, never a
 non-UTC offset. The re-run rule below compares two watermark values lexically, not by

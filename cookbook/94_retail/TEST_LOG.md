@@ -1075,3 +1075,47 @@ re-run end to end, unchanged output -- `total_defects` stays exactly 2, no fixtu
 this round. `./scripts/format.sh` and `./scripts/validate.sh` clean on every touched file.
 
 ---
+
+### Review round 4 (post-merge) — session_replay's watermark, a packaging gap, and a follow-up PR
+
+**Package:** C1
+**Status:** PASS — one real, breaking finding fixed (1.1.0); one packaging gap fixed;
+rounds 2 and 3 above carried forward into `main` via a follow-up PR
+
+**Description:** PR #190 merged at the round-1 commit (`b7f7a459`) before rounds 2 and 3
+above were pushed to it, so those fixes never reached `main` through that PR — they landed
+through this follow-up PR instead, cherry-picked onto a fresh branch off `main` and verified
+again end to end (41 tests, cookbook, real-MinIO roundtrip, all unchanged from when they
+were first fixed).
+
+One new finding arrived on the merged PR after the fact, from Lane R having built R4
+against this contract in PR #193 (still open, not yet merged):
+
+1. **`session_replay.session`'s watermark cannot detect a correction (breaking).**
+   `session_start_at` never moves for a session, so a re-pull with corrected click counts
+   ties on it forever and the tie-break (earliest-pulled wins) silently discards the
+   correction — the contract's own re-run rule producing real data loss, not a loader bug.
+   The other four streams don't have this problem (analytics is immutable; the three CRM
+   streams carry `last_modified_at`, which moves). Fixed by making `last_updated_at` the
+   watermark instead, `session_start_at` staying required but no longer structural.
+   `CONTRACT_VERSION` bumped to `1.1.0` -- the one breaking change, scoped to this stream
+   only. Pinned by `test_session_replay_watermark_is_last_updated_not_session_start` and
+   `test_validate_row_lets_a_corrected_session_replay_row_win_on_last_updated_at`.
+2. **Fixtures not covered by `package-data` (additive).** `product/pyproject.toml` globbed
+   `contracts/_fixtures/*.json`, which doesn't match
+   `contracts/_fixtures/landing/raw/**/*.ndjson` -- a non-editable install shipped the
+   contract without its demonstration fixtures. Added
+   `contracts/_fixtures/landing/raw/*/*/*.ndjson` and a coverage test,
+   `test_landing_fixtures_are_covered_by_package_data_glob`, mirroring R4's own
+   `test_r4_sql_assets.py` shape.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 44
+passed. `C01_landing_contract.py` unchanged output (`total_defects` still exactly 2).
+`C01_minio_roundtrip.sh` re-run against real MinIO -- unaffected, since it doesn't touch
+session replay's re-run behaviour. `./scripts/format.sh` and `./scripts/validate.sh` clean
+on every touched file.
+
+**Not changed:** whether R4's own SQL needs updating for the new watermark column --
+that's Lane R's call in PR #193, flagged in this PR's description rather than assumed here.
+
+---

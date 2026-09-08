@@ -36,7 +36,7 @@ __all__ = [
 
 #: Bumped on any breaking change, per the change protocol in
 #: ``product/egpt_retail/contracts/CHANGELOG.md``. Additive changes do not bump it.
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 #: ``strftime``/``strptime`` shape for the timestamp embedded in a landed filename.
 #: Compact and colon-free on purpose -- a raw ISO timestamp survives every object store and
@@ -203,10 +203,11 @@ def _schemas() -> Tuple[LandingSchema, ...]:
             source=SourceName.SESSION_REPLAY,
             grain="one row per session",
             key_columns=("session_id",),
-            watermark_column="session_start_at",
+            watermark_column="last_updated_at",
             required_columns=(
                 "session_id",
                 "session_start_at",
+                "last_updated_at",
                 "rage_click_count",
                 "dead_click_count",
                 "script_error_count",
@@ -219,7 +220,11 @@ def _schemas() -> Tuple[LandingSchema, ...]:
             # CRM's null brand, an unset identity here is not dirty data, it is the truth.
             # This stream's `session_id` is its own tool's session, a different namespace
             # from analytics.event's `session_id` -- nothing joins the two until identity_key
-            # is populated.
+            # is populated. The watermark is `last_updated_at`, not `session_start_at`:
+            # `session_start_at` never moves once a session begins, so a re-pull carrying
+            # corrected click counts would tie on it forever and the tie-break would discard
+            # the correction. `last_updated_at` moves when the record does, matching what
+            # `last_modified_at` gives the CRM streams (1.1.0, additive to this stream only).
             nullable_columns=frozenset(
                 {"identity_at_login", "identity_at_submit", "identity_key"}
             ),
