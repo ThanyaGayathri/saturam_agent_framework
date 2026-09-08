@@ -842,3 +842,103 @@ target the bucket root (`local/$BUCKET`, not `local/$BUCKET/raw`) and let `mc` a
 itself.
 
 ---
+
+### Review round 1 — all three scripts re-run
+
+**Package:** C1
+**Status:** PASS — after fixing 13 findings from automated review on PR #190
+
+**Description:** An automated review (two independent reviewers plus an auditor pass that
+reproduced every finding against the worktree at `45d4802`) raised 3 Major, 9 Minor and 1
+Nit finding. Every one was reproduced before being fixed; none was taken on faith.
+
+**Reproduced and fixed, `landing.py`:**
+
+1. **Naive-datetime silent mis-shift (Major)** — `landing_path()`'s
+   `ingested_at.astimezone(timezone.utc)` on a naive value assumes the *process's local
+   timezone*, not UTC. Reproduced: the same instant, built naive under `TZ=Asia/Kolkata` as
+   `datetime.utcnow()` would, produced a filename 5.5 hours off. `landing_path` now refuses a
+   naive `ingested_at` outright. Pinned by
+   `test_landing_path_rejects_naive_datetime` and
+   `test_landing_path_is_stable_across_input_timezones` (the latter proves the same instant
+   in two different tzinfos now produces the identical path).
+2. **Non-scalar key values pass clean, crash the caller's dedup (Major)** — a list/dict in a
+   key column returned zero defects from `validate_row`, then raised `TypeError: unhashable
+   type` in the cookbook's own `(record_type, object_id)`-keyed dedup. `validate_row` now
+   flags a non-scalar key column as a defect. Pinned by
+   `test_validate_row_rejects_non_scalar_key_value`.
+3. **A non-object JSON row crashes instead of being reported (Major)** — NDJSON permits a
+   bare string, list or number per line; neither `validate_row` nor `resolve_stream_id`
+   checked for it, so each raised an unhandled `AttributeError`/`TypeError`. Both now check
+   `isinstance(row, Mapping)` first — `validate_row` returns a defect tuple (it never raises
+   on malformed input), `resolve_stream_id` raises a clean `ValueError` (consistent with its
+   existing refusal of an unknown `record_type`, which was already exception-based). Pinned
+   by `test_validate_row_rejects_non_mapping_row` and
+   `test_resolve_stream_id_rejects_non_mapping_row`.
+4. **Key+watermark column double-reported when null (Minor)** — `analytics.event.occurred_at`
+   is both; a null value produced two defects for one problem. The watermark check now skips
+   its own null report when the key-column loop already covered it, but still checks
+   parseability unconditionally. Pinned by
+   `test_validate_row_does_not_double_report_key_and_watermark_column` and
+   `test_validate_row_still_checks_watermark_parseability_when_also_a_key` (the second exists
+   specifically so the first fix couldn't be over-applied into swallowing a real parse
+   failure).
+5. **`parse_landing_path` leaked a raw stdlib message for a calendar-invalid date (Minor)** —
+   `dt=2026-13-40` matches the regex, then `date.fromisoformat` raised its own `ValueError`
+   text instead of this function's consistent wrapper. All three fallible calls now share one
+   `try`/`except`. Pinned by the `dt=2026-13-40` case in the parametrized
+   `test_parse_landing_path_rejects_adversarial_input`.
+6. **Empty string not treated as dirty (Minor)** — only literal `null` triggered the
+   known-dirty report; `brand: ""` passed clean, which is exactly the "silently coerced" case
+   `LANDING_CONTRACT.md` says the contract refuses to let through. A new `_is_blank` helper
+   treats a whitespace-only string the same as `null`. Pinned by
+   `test_validate_row_treats_blank_string_like_null`.
+7. **`LandingSchema.__post_init__`'s four guards were unexercised anywhere in the repo
+   (Minor)** — correct, but disabling any one of them produced byte-identical cookbook
+   output, because nothing ever constructed a broken schema. Closed with direct unit tests,
+   one per guard, in the new `product/tests/test_landing_contract.py`.
+8. **`LANDING_SCHEMAS` documented as frozen, actually a mutable `dict` (Minor)** — now wrapped
+   in `types.MappingProxyType`, so the claim is enforced, not just written down. Pinned by
+   `test_landing_schemas_is_immutable`.
+
+**Reproduced and fixed, the cookbook and fixtures:**
+
+9. **Dedup tie-break untested (Minor)** — `>` vs `>=` on the last-write-wins comparison
+   produced identical output, because the fixtures' only two ties (`c_500`, `d_900`) were
+   byte-identical across both pulls. Added `h_9002`, a `deal_stage_history` row present in
+   both CRM pulls with the *same* `last_modified_at` but a different `stage`
+   (`quote_requested` vs. `quote_sent`), and asserted on which one survives dedup
+   (first-processed, since the comparison is strictly `>`). Documented as an intentional,
+   if non-obvious, tie-break in `LANDING_CONTRACT.md`'s re-run section.
+10. **`total_defects` never asserted; the "missing outright" branch unexercised (Minor)** —
+    added `d_901`, a `deal` row missing `quote_request_source_url` entirely (the exact column
+    the review named), which exercises `validate_row`'s "missing required column" branch
+    separately from `c_501`'s "present but null" branch. `total_defects == 2` is now asserted,
+    not just printed.
+11. **`parse_landing_path`'s round-trip check never adversarially exercised (Minor)** —
+    closed by `test_parse_landing_path_rejects_adversarial_input` (mismatched source,
+    traversal, wrong extension, malformed timestamp, calendar-invalid date, uppercase source,
+    unknown source) and `test_parse_landing_path_round_trips_landing_path`.
+12. **MinIO round trip checked object names, not bytes (Minor)** — `mc ls -r` proves the keys
+    round-tripped but not the content. `C01_minio_roundtrip.sh` now computes a sha256
+    manifest of every uploaded file and every downloaded file and diffs them before handing
+    off to the Python re-verification; a lossy or truncating round trip now fails the script
+    instead of passing silently.
+13. **Redundant re-read of the two CRM fixture files (Nit)** — the discovery loop now keeps
+    every file's parsed rows in `rows_by_path`, and part 2 reuses them instead of calling
+    `load_ndjson` again.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 28
+passed. `C01_landing_contract.py` — same shape as before (5/10/2 row counts, now 10 CRM rows
+across two files after the new fixture rows, `crm` 10 → 6 after dedup, 2 asserted defects
+instead of 1), plus the new tie-break section. `C01_minio_roundtrip.sh` re-run end to end
+against real MinIO — checksums match, Python re-verification against the downloaded copy
+reproduces the local-disk run exactly. `./scripts/format.sh` and `./scripts/validate.sh`
+clean on every touched file.
+
+**Not changed:** the tie-break's actual outcome (first-processed pull wins on an exact
+watermark tie) — the review flagged the *absence of a test*, not the behaviour itself, and
+the behaviour is defensible as written (a genuine tie means the source system didn't
+timestamp the change, which this contract can't resolve on the loader's behalf).
+
+---

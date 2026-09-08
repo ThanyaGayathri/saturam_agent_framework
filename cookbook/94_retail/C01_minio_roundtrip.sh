@@ -32,6 +32,24 @@ run_mc() {
   docker run --rm --add-host=host.docker.internal:host-gateway --entrypoint sh "$@"
 }
 
+# sha256sum is the GNU-coreutils name (CI's Ubuntu runners); shasum -a 256 is what macOS
+# ships instead. Portable across both rather than picking one and breaking the other.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# "<sha256>  <path relative to root>" per file, sorted -- a manifest that can be diffed.
+manifest() {
+  local root="$1"
+  find "$root" -type f -name '*.ndjson' | sort | while read -r f; do
+    printf '%s  %s\n' "$(sha256_of "$f")" "${f#"$root"/}"
+  done
+}
+
 echo "Landing contract -- C1 / D4, round-tripped through MinIO"
 echo "=============================================================================="
 
@@ -76,6 +94,21 @@ run_mc -v "$DOWNLOAD_DIR:/download" minio/mc -c "
   mc alias set local $ENDPOINT minioadmin minioadmin &&
   mc cp --recursive local/$BUCKET/raw /download
 "
+
+echo
+echo "-- verifying byte-for-byte fidelity: sha256 of every uploaded file vs. every downloaded one --"
+# 'mc ls' above proves the object names round-tripped; it lists names, not content. This is
+# the check that a lossy or truncating round trip -- which would still leave names, and even
+# most rows, matching -- cannot pass silently.
+SRC_MANIFEST="$(manifest "$FIXTURES_DIR/raw")"
+DST_MANIFEST="$(manifest "$DOWNLOAD_DIR/raw")"
+if [ "$SRC_MANIFEST" != "$DST_MANIFEST" ]; then
+  echo "Checksum mismatch between uploaded and downloaded fixtures:" >&2
+  diff <(echo "$SRC_MANIFEST") <(echo "$DST_MANIFEST") >&2 || true
+  exit 1
+fi
+file_count="$(echo "$SRC_MANIFEST" | wc -l | tr -d ' ')"
+echo "  all $file_count file(s) match sha256 exactly, upload vs. download"
 
 echo
 echo "-- re-running C01_landing_contract.py's own verification against the round-tripped copy --"

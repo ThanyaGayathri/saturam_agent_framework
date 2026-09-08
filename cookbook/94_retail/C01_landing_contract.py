@@ -71,12 +71,14 @@ files = sorted((FIXTURES_ROOT / "raw").rglob("*.ndjson"))
 assert files, f"no fixture files found under {FIXTURES_ROOT / 'raw'}"
 
 rows_by_source: dict[SourceName, int] = {source: 0 for source in SourceName}
+rows_by_path: dict[Path, list[dict]] = {}
 total_defects = 0
 
 for path in files:
     rel = path.relative_to(FIXTURES_ROOT)
     parts = parse_landing_path(str(rel))
     rows = load_ndjson(path)
+    rows_by_path[path] = rows
     print(f"  {rel}  ({parts.source.value}, dt={parts.dt}, {len(rows)} rows)")
 
     for row in rows:
@@ -95,6 +97,12 @@ for source in SourceName:
 assert all(rows_by_source[source] for source in SourceName), (
     "every source must produce at least one row"
 )
+# Two distinct violations, deliberately: c_501's null brand (present, blank) and d_901's
+# missing quote_request_source_url (absent entirely) exercise validate_row's two different
+# "not filled in" branches. Asserted on exact count, not just printed, so a validation
+# branch silently going dead (e.g. the "missing required column" check) fails this script
+# rather than shipping unnoticed with identical-looking stdout.
+assert total_defects == 2, f"expected exactly 2 row-level defects, got {total_defects}"
 print()
 print(
     f"Loader used only egpt_retail.contracts.landing -- no source-specific code -- "
@@ -109,8 +117,9 @@ crm_dir = FIXTURES_ROOT / "raw" / "crm" / "dt=2026-09-01"
 first_path = crm_dir / "crm-20260901T020000Z.ndjson"
 second_path = crm_dir / "crm-20260901T060000Z.ndjson"
 
-first_rows = load_ndjson(first_path)
-second_rows = load_ndjson(second_path)
+# Already read once during discovery above -- reused rather than re-parsed off disk.
+first_rows = rows_by_path[first_path]
+second_rows = rows_by_path[second_path]
 print(f"  first pull:  {len(first_rows)} rows ({first_path.name})")
 print(
     f"  second pull: {len(second_rows)} rows ({second_path.name}), same dt= partition, "
@@ -143,6 +152,35 @@ print(
 )
 assert defects_before and not defects_after, (
     "the later pull should have resolved the earlier defect"
+)
+
+print()
+print(
+    "-- a genuine tie: h_9002 lands with the SAME watermark in both pulls, content changed --"
+)
+h9002_first = next(row for row in first_rows if row["object_id"] == "h_9002")
+h9002_second = next(row for row in second_rows if row["object_id"] == "h_9002")
+assert h9002_first["last_modified_at"] == h9002_second["last_modified_at"], (
+    "fixture setup: this row exists to test an exact watermark tie"
+)
+assert h9002_first["stage"] != h9002_second["stage"], (
+    "fixture setup: the tie must carry genuinely different content, or a loosened tie-break "
+    "(`>=` instead of `>`) would pass unnoticed -- see review finding #9"
+)
+h9002_after = latest[("deal_stage_history", "h_9002")]
+print(f"  first pull:  stage={h9002_first['stage']!r}  ({first_path.name})")
+print(
+    f"  second pull: stage={h9002_second['stage']!r}  ({second_path.name}), same watermark"
+)
+print(f"  kept after dedup: stage={h9002_after['stage']!r}")
+# The dedup rule above is `>`, strictly greater -- so on an exact watermark tie, whichever
+# row was folded into `latest` *first* stays, and `first_rows + second_rows` puts the first
+# pull first. This is the intentional, if slightly non-obvious, tie-break this asserts on;
+# a watermark tie in real data means the source system didn't actually timestamp the change,
+# which is a data-quality question for Lane C, not something this contract can resolve for it.
+assert h9002_after["stage"] == h9002_first["stage"], (
+    "on an exact watermark tie, the first-processed pull must win -- deterministic, not "
+    "the newer file, since neither watermark claims to be newer"
 )
 
 print()

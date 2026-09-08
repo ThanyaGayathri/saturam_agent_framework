@@ -37,6 +37,34 @@ files (one per source) plus a second, overlapping CRM pull: loads all three sour
 source-specific code, surfaces the one deliberately-dirty row instead of dropping it, and the
 dedup rule collapses a duplicate and resolves that row's earlier defect from the later pull.
 
+### Patch — 2026-09-08 — correctness fixes from automated review, round 1
+
+Not a shape change; no field or public signature moved, so `CONTRACT_VERSION` stays `1.0.0`.
+Thirteen findings (3 Major, 9 Minor, 1 Nit) from automated review on PR #190, all reproduced
+against real code before being fixed. Full list in `TEST_LOG.md`'s "Review round 1" entry;
+the three that were behavioral rather than test-coverage gaps:
+
+| Fix | Was |
+|---|---|
+| `landing_path()` refuses a timezone-naive `ingested_at` | `astimezone(timezone.utc)` on a naive value silently assumed the process's *local* timezone rather than UTC — the common `datetime.utcnow()` idiom would corrupt the embedded timestamp on any non-UTC host, with no error |
+| `validate_row` flags a non-scalar key column | A list or dict in a key column passed with zero defects, then crashed the caller's own last-write-wins dedup with an unhandled `TypeError` on grouping by key |
+| `validate_row` and `resolve_stream_id` both check `isinstance(row, Mapping)` first | NDJSON permits a bare string, list or number per line; both functions previously assumed an object and raised an unhandled `AttributeError`/`TypeError` instead of a reported defect (`validate_row`) or a clean, intentional `ValueError` (`resolve_stream_id`) |
+
+Also fixed: a key+watermark column (`analytics.event.occurred_at`) double-reporting one null
+value as two defects; `LANDING_SCHEMAS` was documented as frozen but was a mutable `dict`
+(now `MappingProxyType`); only literal `null`, not an empty string, tripped the known-dirty
+report; `parse_landing_path` leaked a raw stdlib message for a calendar-invalid date instead
+of its own consistent wrapper.
+
+Added `product/tests/test_landing_contract.py` (28 tests) — `LandingSchema.__post_init__`'s
+four construction-time guards were correct but unexercised anywhere in the repository before
+this; adversarial `parse_landing_path` inputs (traversal, mismatched source, calendar-invalid
+date, wrong extension) likewise. The cookbook fixtures gained two rows (`d_901`, missing
+`quote_request_source_url` outright; `h_9002`, a genuine same-watermark tie with different
+content across the two CRM pulls) so `C01_landing_contract.py` exercises and asserts on
+branches its previous fixtures happened not to touch. `C01_minio_roundtrip.sh` now diffs a
+sha256 manifest of uploaded vs. downloaded files, rather than relying on object names alone.
+
 ## KPI formula shape
 
 ### Patch — 2026-09-07 — correctness fixes from automated review (two rounds)

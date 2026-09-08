@@ -99,6 +99,15 @@ and either copy is correct. This is also what makes C2's connector verify step t
 warehouse: pulling the same window twice must add no duplicate rows, and pulling an
 overlapping window must add only the new rows, once the standard dedup pass runs.
 
+**On an exact watermark tie with genuinely different content**, the rule as stated ("greatest
+watermark wins") doesn't pick a side — a strict "greater than" comparison keeps whichever row
+a loader folds in first. That is a real, if rare, case: it means the source system did not
+actually timestamp the change that produced the second row, which is a data-quality gap in
+the source, not something this contract can resolve on the loader's behalf. Lane R's
+reference dedup (demonstrated in `C01_landing_contract.py`) processes files in the order they
+are discovered — oldest `ingested_at` first — so the earliest-pulled version of a tied row
+wins, deterministically.
+
 ## Scope
 
 This contract governs **Stage 0 Raw only** — the file a connector writes, and nothing past
