@@ -53,6 +53,30 @@ class RetailSettings(BrandedSettings):
         description="Control-plane Postgres, SQLAlchemy form with the psycopg driver (EGPT_RETAIL_DB_URL). "
         "The memory vector store uses the same database in phase zero.",
     )
+    retail_db_direct_url: Optional[str] = Field(
+        default=None,
+        description="A connection that bypasses any pooler, for the consolidator's session-scoped advisory "
+        "lock (EGPT_RETAIL_DB_DIRECT_URL). Through a transaction-mode pooler the session ends with the "
+        "first transaction and the lock evaporates. Defaults to retail_db_url.",
+    )
+    retail_auth_jwks_file: Optional[str] = Field(
+        default=None,
+        description="Path to a JWKS file of RS256 public keys (EGPT_RETAIL_AUTH_JWKS_FILE). Setting it turns "
+        "on JWT authorization: locally an offline key pair, on AKS the identity provider's keys.",
+    )
+    retail_auth_audience: Optional[str] = Field(
+        default=None,
+        description="Expected `aud` claim when authorization is on (EGPT_RETAIL_AUTH_AUDIENCE). Unset skips "
+        "audience verification -- refused by build_agent_os whenever a JWKS file is configured, unless "
+        "retail_auth_skip_audience_check is set.",
+    )
+    retail_auth_skip_audience_check: bool = Field(
+        default=False,
+        description="Escape hatch for local use only: lets authorization run with no EGPT_RETAIL_AUTH_AUDIENCE, "
+        "accepting any `aud` claim (EGPT_RETAIL_AUTH_SKIP_AUDIENCE_CHECK). Never set this against a shared "
+        "identity provider -- with Entra, every RS256 token the JWKS can verify would be accepted regardless of "
+        "which application it was issued for.",
+    )
     retail_warehouse_db_url: Optional[str] = Field(
         default=None,
         description="The separate warehouse database for landing, silver and gold (EGPT_RETAIL_WAREHOUSE_DB_URL). "
@@ -85,3 +109,11 @@ class RetailSettings(BrandedSettings):
     @property
     def scheduler_enabled(self) -> bool:
         return self.retail_role == "pipelines"
+
+    @property
+    def authorization_enabled(self) -> bool:
+        return bool(self.retail_auth_jwks_file)
+
+    @property
+    def db_direct_url(self) -> str:
+        return self.retail_db_direct_url or self.retail_db_url

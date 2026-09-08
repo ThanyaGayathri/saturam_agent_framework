@@ -1,0 +1,6 @@
+apiVersion: v2
+name: egpt
+description: Enterprise GPT retail runtime -- api, pipelines, consolidator, and the migrate hook Job.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

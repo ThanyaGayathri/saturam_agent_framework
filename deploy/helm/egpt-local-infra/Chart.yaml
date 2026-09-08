@@ -1,0 +1,6 @@
+apiVersion: v2
+name: egpt-local-infra
+description: Local stand-ins for the managed services Enterprise GPT runs on. Never installed on AKS.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

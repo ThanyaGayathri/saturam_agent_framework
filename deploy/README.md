@@ -5,10 +5,17 @@ stack; R2 adds the Helm charts and the local cluster.
 
 ```
 deploy/
-├── Dockerfile            one image, four entrypoints: api · pipelines · consolidator · migrate
-├── compose.yaml          the local stack R1 verifies against (Postgres only by default)
-└── postgres/init/        first-boot SQL: creates the warehouse database (D5)
+├── Dockerfile                 one image, four entrypoints: api · pipelines · consolidator · migrate
+├── compose.yaml               the local stack R1 verifies against (Postgres only by default)
+├── postgres/init/             first-boot SQL: creates the warehouse database (D5)
+├── kind/cluster.yaml          the local verification cluster (R2)
+├── helm/egpt-local-infra/     Postgres+pgvector, PgBouncer, Neo4j x2, Redis, MinIO -- installed first, never on AKS
+├── helm/egpt/                 the application chart; values.yaml Azure-shaped, values.local.yaml runs on kind
+└── AKS_CUTOVER.md             the checklist for the day the cluster exists
 ```
+
+Phase zero has no AKS. The chart is built for it and proven on kind; `helm/egpt/README.md`
+carries the ledger of which values paths have executed and which never have.
 
 ## Build and run locally
 
@@ -43,7 +50,7 @@ chat; `AZURE_EMBEDDER_OPENAI_API_KEY`, `AZURE_EMBEDDER_OPENAI_ENDPOINT`, `AZURE_
 for the memory embedder. None is needed for `/config` or for a consolidator tick with nothing to
 do; all are needed the moment a model is called or a memory row is written.
 
-## Two things that are not obvious
+## Three things that are not obvious
 
 - The consolidator's advisory lock is session-scoped, taken on a **dedicated connection direct to
   Postgres**. Through a transaction-mode pooler (PgBouncer) the session ends with the first
@@ -51,6 +58,11 @@ do; all are needed the moment a model is called or a memory row is written.
   psycopg3's prepared statements need `prepare_threshold=None` under transaction mode anyway.
 - `terminationGracePeriodSeconds` for the consolidator must exceed the worker's `stop_timeout`
   (30s), or Kubernetes kills a pass mid-way.
+
+- Authorization is on exactly when `EGPT_RETAIL_AUTH_JWKS_FILE` is set. Locally that file comes
+  from `python -m egpt_retail.app.devauth keygen <dir>` (an offline RS256 key pair; `mint` issues
+  tokens) mounted through a ConfigMap; on AKS it is the identity provider's JWKS. RS256 needs
+  `cryptography`, which `egpt[os]` does not bring — the product declares it.
 
 Do not name a file here `*.config.*` — the repository `.gitignore` carries a blanket `*.config*`
 pattern and the file is silently untracked.

@@ -28,6 +28,11 @@ dependencies = [
   # stack and no provider SDK, and the dev venv only has `openai` through egpt[dev]. Found by
   # the first container run -- AzureOpenAI() raised ImportError inside the image and nowhere else.
   "openai",
+  # RS256 verification. The framework declares bare `PyJWT`, which verifies HS256 only; with a
+  # JWKS of RSA keys every key fails to parse ("RS256 requires 'cryptography'") and the
+  # validator starts with zero keys. Present in the dev venv transitively, absent in the image.
+  # Found by the first kind install (R2). Any RS256 deployment of egpt[os] needs this.
+  "cryptography>=41.0",
   "psycopg[binary]",
   "sqlalchemy",
   "pgvector",

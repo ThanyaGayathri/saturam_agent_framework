@@ -1,0 +1,11 @@
+Enterprise GPT ({{ .Release.Name }}) is installed.
+
+  api          {{ .Values.api.replicas }} replica(s)   -> http://{{ .Release.Name }}-api:{{ .Values.api.port }}   (/health open, /config needs config:read)
+  pipelines    {{ .Values.pipelines.replicas }} replica(s)   scheduler poller on
+  consolidator 1 replica, by construction; a second instance exits 3
+  migrate      ran as a pre-install hook: kubectl logs job/{{ .Release.Name }}-migrate
+
+Authorization: {{ if .Values.auth.enabled }}ON (JWKS mounted; audience {{ .Values.auth.audience }}){{ else }}OFF{{ end }}
+Secrets:       {{ .Values.secrets.provider }}{{ if eq .Values.secrets.provider "keyVault" }}  (NEVER EXECUTED -- see README.md){{ end }}
+
+Values paths that have never run anywhere are listed in deploy/helm/egpt/README.md.
