@@ -253,8 +253,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
 
             # Default to last 30 days when no dates supplied
             if start_date is None and end_date is None:
-                from datetime import timedelta
-                from datetime import timezone as tz
+                from datetime import timedelta, timezone as tz
 
                 end_date = datetime.now(tz.utc)
                 start_date = end_date - timedelta(days=30)

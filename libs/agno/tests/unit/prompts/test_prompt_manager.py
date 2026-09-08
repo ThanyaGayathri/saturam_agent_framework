@@ -31,8 +31,8 @@ import pytest
 from egpt.exceptions import PromptResolutionError
 from egpt.prompts.managed import ManagedPrompt
 from egpt.prompts.manager import (
-    _MAX_CACHE_ENTRIES,
     PromptManager,
+    _MAX_CACHE_ENTRIES,
     _reset_default_manager,
     _reset_langfuse_client,
     _set_prompt_on_span,

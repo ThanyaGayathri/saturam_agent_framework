@@ -2108,8 +2108,7 @@ class AsyncPostgresDb(AsyncBaseDb):
 
             async with self.async_session_factory() as sess:
                 async with sess.begin():
-                    from sqlalchemy import case as sa_case
-                    from sqlalchemy import literal_column
+                    from sqlalchemy import case as sa_case, literal_column
 
                     raw_input = func.coalesce(
                         func.nullif(spans_table.c.attributes["llm.token_count.prompt"].astext, ""),

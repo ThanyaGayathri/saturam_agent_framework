@@ -56,7 +56,7 @@ an item everybody agrees is important and nobody owns.
 | X-1 | **`Registry.get_function` has no duplicate-name warning** | The tool lookup twenty lines above it in the same file does warn. Executors resolve by `__name__`, first match wins, silently. Lane K ships a check for its own registry; the framework fix is a separate PR |
 | X-2 | **Two pre-existing mypy errors** in `libs/agno/egpt/integrations/knowledge/` | `validate.sh` fails locally and passes in CI, which runs without the optional deps that pull them in. So "I ran validate.sh" is not currently a claim anyone can make on a dev machine — it quietly undermines item 5 of the definition of done for everyone |
 | X-3 | **Neo4j Enterprise licence** | D11 and the Azure alignment assume two databases in one cluster. Local development is community edition, which supports one. K3 works either way because the ontology has its own label; K5 will share one database locally |
-| X-4 | **`format.sh` reformats ~107 unrelated files** | Pre-existing import-sort drift across `cookbook/` and `libs/`. Anyone running it gets that noise in their diff, and the review skill says it does not belong in a PR |
+| X-4 | **`format.sh` reformats ~107 unrelated files** | Pre-existing import-sort drift across `cookbook/` and `libs/`. Anyone running it gets that noise in their diff, and the review skill says it does not belong in a PR. **It bit Lane K's P1 branch**: twelve framework files landed via one broad `ruff --fix libs/agno` and were only caught by a branch-scoped diff. Fix the drift on `main` once, or every branch pays |
 
 ---
 

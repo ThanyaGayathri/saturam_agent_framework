@@ -584,9 +584,8 @@ class TestTheOutOfDiffReadSitesUseTheServingModel:
         Deciding off `agent.model` shapes the schema for the wrong tier -- exactly what
         `recompute_response_format` exists to prevent, one function over.
         """
-        from pydantic import BaseModel
-
         from egpt.agent._response import model_should_return_structured_output
+        from pydantic import BaseModel
 
         class Out(BaseModel):
             x: int

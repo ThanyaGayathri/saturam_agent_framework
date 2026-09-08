@@ -15,9 +15,9 @@ from typing import Any, Optional
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.metrics import ProviderMode
 from egpt.os.routers.evals.utils import _served_model
 from egpt.providers import set_default_model_provider
+from egpt.metrics import ProviderMode
 from tests.unit.providers.test_dual_mode_e2e import RecordingModel, _RecordingProvider
 
 

@@ -38,6 +38,7 @@ from egpt.db.schemas.memory import (
     SemanticRelation,
 )
 from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, memory_tier_table_attr
+
 from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
 PREVIOUS_VERSION = "2.7.0"

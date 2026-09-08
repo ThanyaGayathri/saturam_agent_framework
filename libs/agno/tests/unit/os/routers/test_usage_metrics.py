@@ -26,6 +26,7 @@ from egpt.os.routers.metrics.schemas import UsageBreakdown, UsageMetricsResponse
 from egpt.os.settings import EgptServingSettings
 from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
 
+
 # ---------------------------------------------------------------------------
 # Schema tests
 # ---------------------------------------------------------------------------

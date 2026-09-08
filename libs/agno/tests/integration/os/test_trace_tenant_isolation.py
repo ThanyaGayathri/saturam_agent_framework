@@ -29,6 +29,7 @@ from egpt.os.settings import EgptServingSettings
 from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
 from egpt.tracing.schemas import Trace
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

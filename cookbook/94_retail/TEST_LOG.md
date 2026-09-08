@@ -1308,3 +1308,25 @@ target (X-5); the api-contract check needs `openapi_spec_validator` (X-6); Lane 
 fixture (R-7); the two mypy errors in `libs/agno/egpt/integrations/knowledge/` (X-2).
 
 ---
+
+### Verification pass, addendum — the pass contaminated `libs/` and then caught itself
+
+**Status:** FIXED
+
+The DoD #7 check ("nothing in `libs/` but the two intended files") was run as `git diff HEAD`
+and printed empty, which I read as clean. It was empty because the drift was already
+*committed*. Run across the whole branch — `git diff origin/main..HEAD -- libs/` — it showed
+**14 files**. Twelve were 1–3 line import-reorder diffs in framework files and tests I never
+opened: the same `format.sh` import-sort drift reverted in P0 (X-4), reintroduced by one
+broad `ruff --select I --fix libs/agno` during K1 and swept up by `git add -A libs/agno`.
+
+Restored all twelve to `origin/main` in a dedicated revert commit rather than rewriting
+history, so the mistake and its correction are both on the record. `libs/` now carries
+exactly `memory/startup.py` and `os/middleware/fixed_tenant.py`.
+
+**Two lessons, both about the check rather than the drift.** Compare against `origin/main`,
+never `HEAD` — a branch-scoped claim needs a branch-scoped diff. And never point a fixer at
+`libs/agno` as a directory; name the files. X-4 is not a curiosity about other people's
+diffs; it bit this branch.
+
+---
