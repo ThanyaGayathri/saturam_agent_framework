@@ -422,6 +422,14 @@ None of the five blocked authoring; all five are places the template could be on
 more explicit. That is the second half of K14's evidence: the template holds, and here is
 exactly where it leaked.
 
+**Round-1 review fix (PR #187):** the null-path "did not invent a join" check was lexical
+(`"product_id" in explanation` and `"no" not in explanation`) and nearly impossible to fail --
+`"...on product_id, though this is not in the graph."` passes it, because `"not"` contains the
+substring `"no"`. Reproduced against that exact sentence (see the PR comment reply). Replaced
+with a structural check: `caveats == []` plus none of the fixture's actual join-column tokens
+(`product_id`, `customer_id`, `order_id`) appearing anywhere in `explanation`. Still NOT RUN
+against the live model for the same reason as above; the check is stronger whenever it is.
+
 ---
 
 ### validate.sh — the two "pre-existing mypy errors" do not reproduce

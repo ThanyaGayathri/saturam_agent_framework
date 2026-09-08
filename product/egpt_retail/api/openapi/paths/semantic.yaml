@@ -65,7 +65,7 @@
                     - {name: product_reviews, schema: silver, row_count: 5031}
                   snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
               with_proposed:
-                summary: "`include_proposed=true` -- the proposed `web_sessions` table appears, labelled."
+                summary: "`include_proposed=true` -- the proposed `web_sessions` table appears (unmarked at this list level; see CHANGELOG.md)."
                 value:
                   tables:
                     - {name: orders, schema: silver, row_count: 12480}
@@ -632,9 +632,12 @@ x-egpt-parameters:
     required: false
     schema: {type: boolean, default: false}
     description: |
-      Return rows still awaiting review, labelled `status: proposed`. Defaults to false on
-      every read. Setting it true requires the `semantic:read_proposed` scope; without it the
-      response is 403, not a silently filtered 200.
+      Return rows still awaiting review. Defaults to false on every read. Setting it true
+      requires the `semantic:read_proposed` scope; without it the response is 403, not a
+      silently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`
+      mark a proposed row `status: proposed`; the list endpoints this parameter also gates
+      (`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return
+      proposed rows unmarked -- a known gap, see CHANGELOG.md.
 
 x-egpt-responses:
   InsufficientScope:

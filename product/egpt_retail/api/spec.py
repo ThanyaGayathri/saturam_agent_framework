@@ -246,3 +246,10 @@ def bundle_matches_committed(
     if fresh != committed:
         return False, f"{bundle_path} is stale; run ./scripts/gen_api_models.sh"
     return True, None
+
+
+async def abundle_matches_committed(
+    spec_path: Path = SPEC_PATH, bundle_path: Path = BUNDLE_PATH
+) -> Tuple[bool, Optional[str]]:
+    """Async variant. The bundling and file read happen off the event loop."""
+    return await asyncio.to_thread(bundle_matches_committed, spec_path, bundle_path)

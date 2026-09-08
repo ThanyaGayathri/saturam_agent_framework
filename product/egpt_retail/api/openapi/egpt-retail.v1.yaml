@@ -42,7 +42,9 @@ info:
 
 servers:
   - url: http://127.0.0.1:7777
-    description: Local EgptOS (R1) or the phase-zero stub server.
+    description: Local EgptOS (R1).
+  - url: http://127.0.0.1:7778
+    description: The phase-zero stub server (`api/stub/server.py`'s default port, chosen so it does not collide with R1).
 
 tags:
   - name: configure

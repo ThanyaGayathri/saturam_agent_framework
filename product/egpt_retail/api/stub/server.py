@@ -48,6 +48,7 @@ from fastapi.routing import APIRoute
 from pydantic import TypeAdapter, ValidationError
 
 from egpt_retail.api import models as generated_models
+from egpt_retail.api.models import _generated as generated_models_module
 from egpt_retail.api.spec import BUNDLE_PATH, load_bundle
 from egpt_retail.contracts.fixture_builder import CONTRACT_FIXTURE_PATH
 from egpt_retail.contracts.semantic import SemanticReadError
@@ -161,12 +162,21 @@ def _no_content_status(operation: Mapping[str, Any]) -> Optional[int]:
 
 
 def _model_for(schema: Optional[Mapping[str, Any]]) -> Any:
-    """The generated model a response schema names, or ``None`` for an inline shape."""
+    """The generated model a response schema names, or ``None`` for an inline shape.
+
+    Resolved against ``_generated`` itself, not the ``egpt_retail.api.models`` package --
+    that package's ``__init__.py`` re-exports classes through a hand-written import list, so
+    a schema added to the YAML and regenerated gains a class in ``_generated.py`` before
+    anyone remembers to add it to the re-export list. Looking it up there would return
+    ``None`` for that class and silently skip both the live ``response_model`` and
+    ``_validate_served_example`` for every operation using it -- exactly the drift this
+    defense-in-depth exists to catch.
+    """
     if not schema:
         return None
     ref = schema.get("$ref")
     if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
-        return getattr(generated_models, ref.rsplit("/", 1)[-1], None)
+        return getattr(generated_models_module, ref.rsplit("/", 1)[-1], None)
     if schema.get("type") == "array":
         item = _model_for(schema.get("items"))
         return List[item] if item is not None else None  # type: ignore[valid-type]
@@ -220,6 +230,25 @@ async def _json_body(request: Request) -> Any:
     try:
         return json.loads(raw)
     except ValueError:
+        return None
+
+
+def _activation_level(body: Any) -> Optional[int]:
+    """``level`` from an ``activateUseCase`` body, coerced through the generated model's own
+    field type rather than hand-typed, so a JSON-legal but non-``int`` encoding of the same
+    value (``3.0``, ``"3"``) cannot slip past the G11 gate below by failing a bare
+    ``isinstance(level, int)`` check. Validates only the ``level`` value itself -- not the
+    whole request against :class:`ActivationRequest` -- because an unrelated malformed field
+    (a bogus ``autonomy``) would otherwise fail the full-body validation and be treated the
+    same as "no level", which would widen the bypass this closes rather than shut it. A
+    value the field type rejects is treated as no level (an admin gate can only widen who is
+    let through, never narrow it further than the schema already does)."""
+    if not isinstance(body, dict) or "level" not in body:
+        return None
+    level_type = generated_models.ActivationRequest.model_fields["level"].annotation
+    try:
+        return TypeAdapter(level_type).validate_python(body["level"])
+    except ValidationError:
         return None
 
 
@@ -501,9 +530,9 @@ def _mount(
                 return _forbid([READ_PROPOSED_SCOPE])
             if operation_id == "activateUseCase":
                 body = await _json_body(request)
-                level = body.get("level") if isinstance(body, dict) else None
+                level = _activation_level(body)
                 if (
-                    isinstance(level, int)
+                    level is not None
                     and level >= _ACTIVATE_ADMIN_LEVEL
                     and _ACTIVATE_SCOPE not in granted
                 ):

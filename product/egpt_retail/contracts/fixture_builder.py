@@ -44,6 +44,7 @@ __all__ = [
     "write_contract_fixture",
     "awrite_contract_fixture",
     "fixture_matches_committed",
+    "afixture_matches_committed",
 ]
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "_fixtures"
@@ -341,8 +342,13 @@ def build_contract_fixture(
             "synonyms": list(synonyms),
             "question_patterns": _QUESTION_PATTERNS.get(concept, []),
             "sql_filter": _SQL_FILTERS.get(concept, ""),
-            "personal_data_fields": ["email"] if concept == "Customer" else [],
-            "compliance_tags": ["pii"] if concept == "Customer" else [],
+            # `customers.email` is a proposed column (not yet confirmed, see _TABLES above)
+            # -- naming it here on the always-accepted `Customer` concept would leak an
+            # unreviewed column through a default (accepted-only) read, exactly what "nothing
+            # unconfirmed leaks into an answer" (contracts/semantic.py) exists to prevent.
+            # Revisit once the column itself is accepted.
+            "personal_data_fields": [],
+            "compliance_tags": [],
             "metrics": metrics.get(concept, []),
             "business_area": area,
         }
@@ -405,3 +411,10 @@ def fixture_matches_committed(
     if path.read_text(encoding="utf-8") != _dump(build_contract_fixture()):
         return False, f"{path} is stale; run ./scripts/gen_api_models.sh"
     return True, None
+
+
+async def afixture_matches_committed(
+    path: Path = CONTRACT_FIXTURE_PATH,
+) -> Tuple[bool, str | None]:
+    """Async variant. The file read and rebuild happen off the event loop."""
+    return await asyncio.to_thread(fixture_matches_committed, path)

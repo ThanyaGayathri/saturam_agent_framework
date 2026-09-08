@@ -344,6 +344,45 @@ def test_activation_level_three_needs_admin_scope(gated_client, bundle):
     )
 
 
+@pytest.mark.parametrize("level", [3, 3.0, "3", 5.0, "5"])
+def test_activation_level_gate_survives_non_int_encodings(gated_client, level):
+    """Regression: the G11 gate used to compare `isinstance(level, int)`, so a JSON-legal
+    float (`3.0`) or numeric string (`"3"`) skipped it entirely -- verified live on this
+    branch before the fix. Every encoding of the same value must be gated alike."""
+    writer = bearer("use-cases:write")
+    denied = gated_client.post(
+        "/use-cases/uc_0002/activate", json={"level": level}, headers=writer
+    )
+    assert denied.status_code == 403, (
+        f"level={level!r} ({type(level).__name__}) must be gated the same as level=3 (int)"
+    )
+
+
+def test_activation_level_gate_not_defeated_by_an_unrelated_bad_field(gated_client):
+    """Regression: validating the whole body against `ActivationRequest` (rather than just
+    the `level` value) fails closed on an unrelated malformed field -- e.g. a bogus
+    `autonomy` -- which resolves to "no level" and would have reopened the bypass this gate
+    exists to close."""
+    writer = bearer("use-cases:write")
+    denied = gated_client.post(
+        "/use-cases/uc_0002/activate",
+        json={"level": 3, "autonomy": "not-a-real-autonomy"},
+        headers=writer,
+    )
+    assert denied.status_code == 403
+
+
+def test_activation_level_gate_ignores_an_unparsable_level(gated_client):
+    """A `level` the schema cannot coerce to int (e.g. a non-numeric string) is treated as
+    no level, the same as an omitted one -- an admin gate can only widen who is let
+    through, never narrow it further than the schema already does."""
+    writer = bearer("use-cases:write")
+    allowed = gated_client.post(
+        "/use-cases/uc_0002/activate", json={"level": "not-a-number"}, headers=writer
+    )
+    assert allowed.status_code == 200
+
+
 def test_scope_check_requires_every_scope_not_just_one(tmp_path):
     """Regression: `set(required_scopes) <= granted` is an AND across every declared
     scope. No shipped operation currently declares more than one, so nothing in the real
@@ -435,3 +474,96 @@ def test_served_example_is_validated_against_its_generated_model(tmp_path):
     response = TestClient(app).get("/broken")
     assert response.status_code == 500
     assert response.json()["code"] == "example_schema_drift"
+
+
+def test_servers_list_names_the_stub_s_actual_port():
+    """Regression: `servers` named only 7777 (the real EgptOS/R1 port) and its description
+    claimed it also covered "the phase-zero stub server", but the stub's own default
+    (`create_app`/`serve`'s `port: int = 7778`, `__main__.py`'s `EGPT_STUB_PORT` default) is
+    7778 -- a different port, deliberately, so it does not collide with R1. Any generated
+    client or "Try it out" against the old document defaulted to the wrong port for the
+    stub."""
+    import inspect
+
+    from egpt_retail.api.stub.server import serve
+
+    stub_default_port = inspect.signature(serve).parameters["port"].default
+    server_urls = {entry["url"] for entry in _BUNDLE["servers"]}
+    assert f"http://127.0.0.1:{stub_default_port}" in server_urls
+
+
+def test_bundle_matches_committed_has_an_async_twin():
+    """CLAUDE.md: every public I/O-bound method needs both sync and async variants.
+    Regression: `bundle_matches_committed` had no `abundle_matches_committed`, unlike every
+    sibling in this module (`bundle`/`abundle`, `load_bundle`/`aload_bundle`,
+    `write_bundle`/`awrite_bundle`)."""
+    import asyncio
+
+    from egpt_retail.api.spec import abundle_matches_committed, bundle_matches_committed
+
+    assert asyncio.run(abundle_matches_committed()) == bundle_matches_committed()
+
+
+def test_fixture_matches_committed_has_an_async_twin():
+    """Same regression as `bundle_matches_committed`, for its sibling in fixture_builder.py.
+    `fixture_matches_committed` is even in `__all__`, unlike its now-added async twin's
+    absence before this fix."""
+    import asyncio
+
+    from egpt_retail.contracts.fixture_builder import (
+        afixture_matches_committed,
+        fixture_matches_committed,
+    )
+
+    assert asyncio.run(afixture_matches_committed()) == fixture_matches_committed()
+
+
+def test_model_for_resolves_through_generated_module_not_the_reexport_list(monkeypatch):
+    """Regression: `_model_for` used to resolve a schema's model via
+    `egpt_retail.api.models`, whose `__init__.py` re-exports classes through a hand-written
+    import list rather than deriving it from `_generated.py`. A schema that gains a class in
+    `_generated.py` before someone remembers to add it to that list must still resolve --
+    simulated here by removing the name from the re-export namespace, which is exactly what
+    an incomplete `__init__.py` looks like."""
+    from egpt_retail.api import models as generated_models
+
+    assert hasattr(generated_models, "ActivationRequest")
+    monkeypatch.delattr(generated_models, "ActivationRequest")
+    resolved = stub_server._model_for(
+        {"$ref": "#/components/schemas/ActivationRequest"}
+    )
+    assert resolved is not None
+    assert resolved.__name__ == "ActivationRequest"
+
+
+def test_concept_personal_data_fields_never_names_a_column_still_proposed():
+    """Regression: `Customer.personal_data_fields` named `email` unconditionally even
+    though `customers.email` is a deliberately proposed column (fixture_builder.py's
+    `_TABLES["customers"]`), so a default (accepted-only) read of
+    `/semantic/concepts/Customer` leaked the existence of an unreviewed personal-data
+    column -- exactly what "nothing unconfirmed leaks into an answer"
+    (contracts/semantic.py) exists to prevent. Checked for every concept and every table,
+    not just Customer/email, since the invariant is general: an accepted concept must never
+    name a column that is itself still proposed."""
+    from egpt_retail.contracts.fixture_builder import build_contract_fixture
+
+    fixture = build_contract_fixture()
+    proposed_columns = {
+        (table["name"], column["name"])
+        for table in fixture["tables"]
+        for column in table["columns"]
+        if column.get("status") == "proposed"
+    }
+    for concept in fixture["concepts"]:
+        if concept.get("status") == "proposed":
+            continue
+        for field in concept["personal_data_fields"]:
+            named = {
+                (table["name"], field)
+                for table in fixture["tables"]
+                if field in {c["name"] for c in table["columns"]}
+            }
+            assert not (named & proposed_columns), (
+                f"accepted concept {concept['name']!r} names column {field!r}, which is "
+                "still proposed on at least one table"
+            )

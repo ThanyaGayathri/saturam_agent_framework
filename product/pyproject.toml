@@ -33,8 +33,17 @@ dependencies = [
 [project.optional-dependencies]
 # Everything needed to regenerate and check the API contract, plus the test runner.
 # Never installed into the runtime image.
+#
+# datamodel-code-generator, black and isort are pinned exactly: check_api_contract.py's
+# check 4 regenerates api/models/_generated.py and fails unless it is byte-identical to the
+# committed file, and datamodel-code-generator formats its output with whichever black/isort
+# are installed. Left unpinned, the next release of any of the three can turn CI red on a PR
+# that never touched the contract. Bump all three together, then run
+# ./scripts/gen_api_models.sh and commit the regenerated file in the same change.
 dev = [
-  "datamodel-code-generator>=0.26",
+  "datamodel-code-generator==0.76.2",
+  "black==26.5.1",
+  "isort==8.0.1",
   "openapi-spec-validator>=0.7",
   "build",
   "pytest",
