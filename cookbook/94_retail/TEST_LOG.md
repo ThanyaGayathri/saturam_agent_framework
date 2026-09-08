@@ -944,3 +944,57 @@ catalogue README. No benchmark from this file should become a customer-facing al
 without a primary source behind it.
 
 ---
+
+### load-knowledge entrypoint, and the embedder correction
+
+**Package:** K2 / K3 deployment path
+**Status:** PASS — and it corrected a wrong choice in both
+
+**Description:** Added `egpt-retail load-knowledge`, the deploy-time counterpart to `migrate`:
+ontology into Neo4j, prose into pgvector, idempotent, intended as a Helm
+`post-install,post-upgrade` hook. Vendored the 31-document corpus into the package. Then
+checked which embedder the memory layer had already decided on, and aligned to it.
+
+**The correction, which is the substance of this entry.** K2 and K3 were using a bare
+`SentenceTransformerEmbedder()` — `all-MiniLM-L6-v2` at 384 dimensions, the library default.
+That is **not** the decision. `egpt.memory.embedding.MODE_DEFAULTS`, straight from SM-R4's
+`DECISION.md`, sets:
+
+| Mode | Backend / model | Dimensions |
+|---|---|---|
+| A `local` | `sentence_transformer` / `BAAI/bge-base-en-v1.5` | 768 |
+| B `frontier` | `azure_openai` / `text-embedding-3-large` | 1024 |
+
+Mode A is offline-capable, which ADR 0003 A.3c makes a hard constraint for air-gapped
+deployments. `bge-base` was measured significantly ahead of a 384-dimension model
+(Holm p=0.002). Mode B's 1024 is a constraint rather than a preference: the full 3072 exceeds
+pgvector's 2000-dimension limit and 1024 tested as a statistical tie.
+
+Knowledge now resolves through `resolve_memory_embedder` rather than making a second choice,
+so prose, ontology and memory share one vector space. Three different embedders behind K10's
+single retrieval entry point would have been three spaces nobody could reason about together —
+and it fails silently, as worse retrieval rather than an error.
+
+**Retrieval measurably improved at 768**, which is the SM-R4 evidence reproducing on this
+corpus: `SKU` to Product went 0.671 to **0.857**, `vendor` to Supplier 0.796 to **0.827**.
+
+**The dimension guard fired for real, on my own data.** `CREATE VECTOR INDEX IF NOT EXISTS`
+does nothing when an index of that name exists, whatever width it was built at — so a model swap
+leaves the old index and every write embeds at a width it cannot serve. Nothing errors.
+The loader now reads the existing index width and refuses:
+
+> The ontology vector index exists at 384 dimensions and the configured embedder produces 768.
+> Every stored vector came from the previous model and is not comparable with the new one.
+> Re-run with --rebuild-indexes to drop the index and re-embed.
+
+Exit 1 without the flag; with it, 21 concepts re-embedded at 768 and 31 documents ingested.
+
+**What surprised me:** I predicted this failure in the abstract when reviewing Azure
+portability, then walked straight into it an hour later with my own store. Predicting a
+failure is not the same as being guarded against it — the guard is.
+
+**Deliberately not done:** the Helm `post-install,post-upgrade` Job that calls this. The chart
+is Lane R's (R2, merged in #189) and adding a hook to someone else's chart without asking is
+how two lanes end up with two conflicting jobs. Flagged for them; the entrypoint is ready.
+
+---

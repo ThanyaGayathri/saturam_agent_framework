@@ -25,13 +25,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 
-from egpt.integrations.knowledge.embedder.sentence_transformer import (  # noqa: E402
-    SentenceTransformerEmbedder,
-)
+from egpt.metrics import ProviderMode  # noqa: E402
 from egpt_retail.contracts.vocabulary import (  # noqa: E402
     TermOrigin,
     load_vocabulary_set,
 )
+from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
 from egpt_retail.ontology.model import (  # noqa: E402
     Concept,
     Ontology,
@@ -67,14 +66,17 @@ print("  business areas:", ", ".join(sorted({c.business_area for c in ontology})
 
 # --- 2. Write, embed, index --------------------------------------------------------------
 
-embedder = SentenceTransformerEmbedder()
+# The embedder is not a fresh choice: it resolves through the same SM-R4 decision the memory
+# layer uses, so prose, ontology and memory share one vector space rather than three.
+resolved = resolve_knowledge_embedder(mode=ProviderMode.LOCAL)
+print(f"  embedder: {resolved}")
 driver = GraphDatabase.driver(URI, auth=AUTH)
-store = OntologyStore(driver=driver, embedder=embedder)
+store = OntologyStore(driver=driver, embedder=resolved.embedder)
 
 print()
 print("2. Written to Neo4j under its own label")
 print("-" * 78)
-store.ensure_indexes()
+store.ensure_indexes(rebuild_on_dimension_change=True)
 written = store.write(ontology)
 print(f"  concepts written: {written}")
 print(f"  stored version:   {store.stored_version()}")

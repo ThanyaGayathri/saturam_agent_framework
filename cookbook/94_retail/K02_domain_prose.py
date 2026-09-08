@@ -26,15 +26,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 
 import psycopg  # noqa: E402
-from egpt.integrations.knowledge.embedder.sentence_transformer import (  # noqa: E402
-    SentenceTransformerEmbedder,
-)
 from egpt.integrations.knowledge.reader.markdown_reader import (
     MarkdownReader,  # noqa: E402
 )
 from egpt.knowledge.knowledge import Knowledge  # noqa: E402
+from egpt.metrics import ProviderMode  # noqa: E402
 from egpt.vectordb.pgvector import PgVector  # noqa: E402
 from egpt.vectordb.search import SearchType  # noqa: E402
+from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
 from egpt_retail.knowledge.prose import (  # noqa: E402
     ORIGIN_SHIPPED,
     build_chunker,
@@ -43,11 +42,16 @@ from egpt_retail.knowledge.prose import (  # noqa: E402
     read_corpus,
 )
 
-CORPUS = Path(os.environ.get("EGPT_RETAIL_CORPUS", "")).expanduser()
+CORPUS = Path(
+    os.environ.get(
+        "EGPT_RETAIL_CORPUS",
+        Path(__file__).resolve().parents[2] / "product/egpt_retail/knowledge/corpus",
+    )
+).expanduser()
 DB_URL = os.environ.get(
     "EGPT_RETAIL_DB_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"
 )
-TABLE = "egpt_retail_domain_prose"
+TABLE = os.environ.get("EGPT_RETAIL_KNOWLEDGE_TABLE", "egpt_retail_domain_prose_bge")
 
 if not CORPUS.is_dir():
     raise SystemExit(
@@ -98,12 +102,15 @@ print(
     f"  documents: {len(documents)} (table of contents excluded as navigation, not prose)"
 )
 
+resolved = resolve_knowledge_embedder(mode=ProviderMode.LOCAL)
+print(f"  embedder: {resolved}")
+
 knowledge = Knowledge(
     vector_db=PgVector(
         table_name=TABLE,
         db_url=DB_URL,
         search_type=SearchType.hybrid,
-        embedder=SentenceTransformerEmbedder(),
+        embedder=resolved.embedder,
     ),
 )
 

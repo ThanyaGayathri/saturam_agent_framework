@@ -99,15 +99,62 @@ class OntologyStore:
             f"FOR (c:{CONCEPT_LABEL}) ON EACH [c.name, c.lexical_text]",
         ]
 
-    def ensure_indexes(self) -> None:
-        """Create the three indexes if they are absent. Idempotent."""
+    def index_dimensions(self) -> Optional[int]:
+        """The width the existing vector index was built at, or ``None`` if there is none."""
+        with self._driver.session(database=self._database) as session:
+            record = session.run(
+                "SHOW VECTOR INDEXES YIELD name, options "
+                "WHERE name = $name RETURN options AS options",
+                name=_VECTOR_INDEX,
+            ).single()
+        if record is None:
+            return None
+        config = (record["options"] or {}).get("indexConfig", {})
+        value = config.get("vector.dimensions")
+        return int(value) if value is not None else None
+
+    async def aindex_dimensions(self) -> Optional[int]:
+        """Async variant."""
+        return await asyncio.to_thread(self.index_dimensions)
+
+    def ensure_indexes(self, *, rebuild_on_dimension_change: bool = False) -> None:
+        """Create the three indexes if they are absent. Idempotent.
+
+        **Refuses a silent dimension mismatch.** ``CREATE VECTOR INDEX IF NOT EXISTS`` does
+        nothing when an index of that name already exists, whatever width it was built at. So
+        moving a deployment from Mode A (768) to Mode B (1024) against an existing store leaves
+        the old index in place, and every subsequent write embeds at a width the index cannot
+        serve. Nothing errors; retrieval just gets worse, which is the hardest kind of failure
+        to attribute later.
+
+        Pass ``rebuild_on_dimension_change`` to drop and recreate. That discards the index, not
+        the concepts -- but every stored vector was produced by the old model, so a re-write
+        must follow, which is what the loader entrypoint does.
+        """
+        wanted = int(getattr(self._embedder, "dimensions", 384))
+        existing = self.index_dimensions()
+        if existing is not None and existing != wanted:
+            if not rebuild_on_dimension_change:
+                raise RuntimeError(
+                    f"vector index {_VECTOR_INDEX!r} exists at {existing} dimensions but the "
+                    f"configured embedder produces {wanted}. Re-run with "
+                    "rebuild_on_dimension_change=True to drop and rebuild it, and re-write the "
+                    "ontology afterwards -- the stored vectors came from the previous model and "
+                    "are not comparable with the new one."
+                )
+            with self._driver.session(database=self._database) as session:
+                session.run(f"DROP INDEX {_VECTOR_INDEX} IF EXISTS")
         with self._driver.session(database=self._database) as session:
             for statement in self._index_statements():
                 session.run(statement)
 
-    async def aensure_indexes(self) -> None:
+    async def aensure_indexes(
+        self, *, rebuild_on_dimension_change: bool = False
+    ) -> None:
         """Async variant."""
-        await asyncio.to_thread(self.ensure_indexes)
+        await asyncio.to_thread(
+            self.ensure_indexes, rebuild_on_dimension_change=rebuild_on_dimension_change
+        )
 
     # --- writes ------------------------------------------------------------------------
 

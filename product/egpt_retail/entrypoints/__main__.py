@@ -12,7 +12,7 @@ from typing import List, Optional
 
 __all__ = ["build_parser", "main"]
 
-COMMANDS = ("api", "pipelines", "consolidator", "migrate")
+COMMANDS = ("api", "pipelines", "consolidator", "migrate", "load-knowledge")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,6 +51,22 @@ def build_parser() -> argparse.ArgumentParser:
         "migrate",
         help="Run control-plane schema migrations to the latest version and exit.",
     )
+
+    load = sub.add_parser(
+        "load-knowledge",
+        help="Load the shipped retail ontology and prose, then exit.",
+    )
+    load.add_argument(
+        "--ontology-only", action="store_true", help="Skip the prose ingest."
+    )
+    load.add_argument(
+        "--prose-only", action="store_true", help="Skip the ontology write."
+    )
+    load.add_argument(
+        "--rebuild-indexes",
+        action="store_true",
+        help="Drop and rebuild a vector index whose width no longer matches the embedder.",
+    )
     return parser
 
 
@@ -72,6 +88,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         from egpt_retail.entrypoints.migrate import main as run_migrate
 
         return run_migrate()
+    if args.command == "load-knowledge":
+        from egpt_retail.entrypoints.load_knowledge import main as run_load
+
+        argv_load = []
+        if args.ontology_only:
+            argv_load.append("--ontology-only")
+        if args.prose_only:
+            argv_load.append("--prose-only")
+        if args.rebuild_indexes:
+            argv_load.append("--rebuild-indexes")
+        return run_load(argv_load)
     raise SystemExit(
         f"unknown command {args.command!r}"
     )  # pragma: no cover -- argparse refuses first
