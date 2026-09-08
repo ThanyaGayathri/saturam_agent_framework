@@ -11,6 +11,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `K11_kpi_formula_shape.py` | K11 | The KPI formula shape against nineteen real formulas: what fits, what has to be rewritten, and that feasibility is a set difference. |
 | `K00_executor_registry.py` | — | The executor naming convention: the silent collision it prevents, and the check that enforces it. |
 | `K01_memory_scope_convention.py` | K1 | The memory scope convention against the real `Scope`: write scopes, read scopes, and the isolation matrix. |
+| `K03_ontology.py` | K3 | The shipped retail ontology: synonyms and plain language reaching concepts by meaning, and an overlay surviving a core upgrade. Needs Neo4j. |
 | `K05_semantic_read_api.py` | K5 | The semantic read API stub: unloaded behaviour, proposal visibility, join paths, and the seam to feasibility. |
 | `K14_skill_template.py` | K14 | The skill template, by running an agent written against it: closed sets agree, output conforms, refusal is schema-shaped. |
 | `K14_join_path_explainer.py` | K14 (second half) | The template's other half: an agent Lane R wrote from the template alone. Verdict mirrors a deterministic input, twice; a null path invents nothing; a missing input refuses as `unknown`. |

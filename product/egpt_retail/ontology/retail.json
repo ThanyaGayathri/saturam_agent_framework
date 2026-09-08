@@ -1,0 +1,471 @@
+{
+  "version": "1.0.0",
+  "_comment": [
+    "The shipped retail ontology (D9). Layer 2 of docs/plan/domain-knowledge-layers.md.",
+    "",
+    "Types and concepts only, never instances. A concept describes what a Quote IS; no quote",
+    "row ever enters the graph.",
+    "",
+    "Built by us, once, and judged by a retail practitioner reading it. The test to apply",
+    "before adding a concept: would a retail practitioner at any customer recognise this",
+    "without being told which business we built it for? A concept true of only one",
+    "deployment belongs in that deployment's overlay, not here.",
+    "",
+    "business_area must be a term in vocabularies.json. Synonyms are the words people",
+    "actually use; question_patterns are how they ask. Both are embedded with the concept,",
+    "which is what makes a question reach it without naming it."
+  ],
+  "concepts": [
+    {
+      "name": "Customer",
+      "description": "A person or organisation that buys, or has bought, from the business.",
+      "business_area": "customer",
+      "synonyms": [
+        "buyer",
+        "client",
+        "account",
+        "purchaser"
+      ],
+      "question_patterns": [
+        "who are our biggest customers?",
+        "which accounts buy the most?"
+      ]
+    },
+    {
+      "name": "CustomerSegment",
+      "description": "A defined grouping of customers that behave similarly or are treated similarly for analysis and targeting.",
+      "business_area": "customer",
+      "synonyms": [
+        "segment",
+        "cohort",
+        "customer group",
+        "audience"
+      ],
+      "question_patterns": [
+        "how do our segments differ?",
+        "which customer group spends most?"
+      ]
+    },
+    {
+      "name": "Contact",
+      "description": "A named individual at a customer organisation, who may enquire, request a quote or place an order.",
+      "business_area": "customer",
+      "synonyms": [
+        "lead",
+        "prospect",
+        "person",
+        "enquirer"
+      ],
+      "question_patterns": [
+        "who requested this quote?",
+        "which people are we talking to?"
+      ]
+    },
+    {
+      "name": "Product",
+      "description": "An individual item offered for sale, identified by a stock keeping unit.",
+      "business_area": "product",
+      "synonyms": [
+        "item",
+        "SKU",
+        "article",
+        "model",
+        "part"
+      ],
+      "question_patterns": [
+        "which items sell best?",
+        "what is this model's margin?"
+      ]
+    },
+    {
+      "name": "ProductCategory",
+      "description": "A grouping of products in the merchandising hierarchy, such as a department, range or product line.",
+      "business_area": "product",
+      "synonyms": [
+        "category",
+        "department",
+        "product line",
+        "range",
+        "class"
+      ],
+      "question_patterns": [
+        "which categories are growing?",
+        "how does this range perform?"
+      ]
+    },
+    {
+      "name": "Brand",
+      "description": "The manufacturer brand a product is sold under. A business may carry many brands, and customers often shop by brand rather than by category.",
+      "business_area": "product",
+      "synonyms": [
+        "make",
+        "manufacturer",
+        "label",
+        "marque"
+      ],
+      "question_patterns": [
+        "which brands drive the most demand?",
+        "how is this make performing?"
+      ]
+    },
+    {
+      "name": "Inventory",
+      "description": "The quantity of a product physically held at a location, together with the thresholds that govern replenishment.",
+      "business_area": "inventory",
+      "synonyms": [
+        "stock",
+        "stock on hand",
+        "quantity on hand",
+        "holding"
+      ],
+      "question_patterns": [
+        "how much do we have?",
+        "what is our stock position?"
+      ]
+    },
+    {
+      "name": "StockLevel",
+      "description": "A band describing how much of a product is on hand relative to its reorder point, used to decide what to reorder and what is overstocked.",
+      "business_area": "inventory",
+      "synonyms": [
+        "stock status",
+        "inventory level",
+        "stock band",
+        "availability"
+      ],
+      "question_patterns": [
+        "what needs reordering?",
+        "which products are overstocked?",
+        "what is running low?"
+      ]
+    },
+    {
+      "name": "Location",
+      "description": "A physical place where inventory is held or from which sales are made, such as a store, warehouse, branch or region.",
+      "business_area": "inventory",
+      "synonyms": [
+        "site",
+        "store",
+        "warehouse",
+        "branch",
+        "depot"
+      ],
+      "question_patterns": [
+        "which sites hold this?",
+        "how does this branch compare?"
+      ]
+    },
+    {
+      "name": "Supplier",
+      "description": "An organisation that supplies products to the business, whose reliability and lead time affect availability.",
+      "business_area": "supply_chain",
+      "synonyms": [
+        "vendor",
+        "supply partner",
+        "supplying company"
+      ],
+      "question_patterns": [
+        "which suppliers are reliable?",
+        "who do we buy this from?"
+      ]
+    },
+    {
+      "name": "PurchaseOrder",
+      "description": "An order the business places on a supplier to replenish stock.",
+      "business_area": "supply_chain",
+      "synonyms": [
+        "PO",
+        "replenishment order",
+        "inbound order"
+      ],
+      "question_patterns": [
+        "what have we got on order?",
+        "which POs are outstanding?"
+      ]
+    },
+    {
+      "name": "Delivery",
+      "description": "A consignment received from a supplier against a purchase order, recording what arrived and when relative to what was promised.",
+      "business_area": "supply_chain",
+      "synonyms": [
+        "shipment",
+        "receipt",
+        "goods receipt",
+        "inbound"
+      ],
+      "question_patterns": [
+        "did it arrive on time?",
+        "what is late from suppliers?"
+      ]
+    },
+    {
+      "name": "Order",
+      "description": "A confirmed purchase by a customer, covering one or more products at agreed prices.",
+      "business_area": "sales",
+      "synonyms": [
+        "sales order",
+        "transaction",
+        "purchase",
+        "basket"
+      ],
+      "question_patterns": [
+        "how many orders did we take?",
+        "what is the average order value?"
+      ]
+    },
+    {
+      "name": "OrderLine",
+      "description": "One product line within an order, carrying the quantity and the price at which that product was sold.",
+      "business_area": "sales",
+      "synonyms": [
+        "line item",
+        "order item",
+        "order line item"
+      ],
+      "question_patterns": [
+        "what was in that order?",
+        "how many units of this were sold?"
+      ]
+    },
+    {
+      "name": "QuoteRequest",
+      "description": "A request from a prospective buyer for a price on one or more products, before any commitment to buy.",
+      "business_area": "sales",
+      "synonyms": [
+        "RFQ",
+        "request for quote",
+        "enquiry",
+        "quote request",
+        "price request"
+      ],
+      "question_patterns": [
+        "how many quote requests came in?",
+        "which products get the most enquiries?"
+      ]
+    },
+    {
+      "name": "Quote",
+      "description": "A priced response to a quote request, which may or may not convert into an order.",
+      "business_area": "sales",
+      "synonyms": [
+        "quotation",
+        "proposal",
+        "estimate",
+        "offer"
+      ],
+      "question_patterns": [
+        "what is our quote conversion rate?",
+        "how many quotes turned into orders?"
+      ]
+    },
+    {
+      "name": "Return",
+      "description": "Goods sent back by a customer after purchase, with the reason recorded.",
+      "business_area": "sales",
+      "synonyms": [
+        "RMA",
+        "return authorisation",
+        "refund",
+        "sent back"
+      ],
+      "question_patterns": [
+        "what is being returned and why?",
+        "which products come back most?"
+      ]
+    },
+    {
+      "name": "Campaign",
+      "description": "A marketing activity run over a period to drive demand, with a budget and a measurable outcome.",
+      "business_area": "marketing",
+      "synonyms": [
+        "promotion",
+        "marketing campaign",
+        "activity",
+        "offer period"
+      ],
+      "question_patterns": [
+        "did the campaign work?",
+        "which promotions drove sales?"
+      ]
+    },
+    {
+      "name": "Channel",
+      "description": "A route to market or a source of traffic, such as the web store, a rep group, a marketplace or paid search.",
+      "business_area": "marketing",
+      "synonyms": [
+        "sales channel",
+        "traffic source",
+        "medium",
+        "route to market"
+      ],
+      "question_patterns": [
+        "where do our customers come from?",
+        "which channel converts best?"
+      ]
+    },
+    {
+      "name": "WebSession",
+      "description": "A single visit to the web store by one person, covering the pages viewed and the actions taken during that visit.",
+      "business_area": "marketing",
+      "synonyms": [
+        "session",
+        "visit",
+        "site visit",
+        "browsing session"
+      ],
+      "question_patterns": [
+        "how many people visited?",
+        "what do visitors look at before enquiring?"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "type": "BELONGS_TO",
+      "source": "Product",
+      "target": "ProductCategory",
+      "cardinality": "many-to-one",
+      "description": "Every product sits in one category of the merchandising hierarchy."
+    },
+    {
+      "type": "HAS_BRAND",
+      "source": "Product",
+      "target": "Brand",
+      "cardinality": "many-to-one",
+      "description": "The manufacturer brand a product is sold under."
+    },
+    {
+      "type": "SUPPLIED_BY",
+      "source": "Product",
+      "target": "Supplier",
+      "cardinality": "many-to-many",
+      "description": "Who the business buys a product from. More than one supplier is dual sourcing."
+    },
+    {
+      "type": "STOCKS",
+      "source": "Inventory",
+      "target": "Product",
+      "cardinality": "many-to-one",
+      "description": "Inventory records are held per product."
+    },
+    {
+      "type": "HELD_AT",
+      "source": "Inventory",
+      "target": "Location",
+      "cardinality": "many-to-one",
+      "description": "Where the stock physically is."
+    },
+    {
+      "type": "HAS_STOCK_LEVEL",
+      "source": "Inventory",
+      "target": "StockLevel",
+      "cardinality": "many-to-one",
+      "description": "The band an inventory record currently falls into."
+    },
+    {
+      "type": "BELONGS_TO_SEGMENT",
+      "source": "Customer",
+      "target": "CustomerSegment",
+      "cardinality": "many-to-many",
+      "description": "Segment membership, which may change over time."
+    },
+    {
+      "type": "WORKS_FOR",
+      "source": "Contact",
+      "target": "Customer",
+      "cardinality": "many-to-one",
+      "description": "The organisation a named individual belongs to."
+    },
+    {
+      "type": "PLACED_BY",
+      "source": "Order",
+      "target": "Customer",
+      "cardinality": "many-to-one",
+      "description": "Who bought."
+    },
+    {
+      "type": "CONTAINS",
+      "source": "Order",
+      "target": "OrderLine",
+      "cardinality": "one-to-many",
+      "description": "An order is made up of lines."
+    },
+    {
+      "type": "REFERENCES",
+      "source": "OrderLine",
+      "target": "Product",
+      "cardinality": "many-to-one",
+      "description": "What was bought on that line."
+    },
+    {
+      "type": "RAISED_BY",
+      "source": "QuoteRequest",
+      "target": "Contact",
+      "cardinality": "many-to-one",
+      "description": "Who asked for the price."
+    },
+    {
+      "type": "REQUESTS",
+      "source": "QuoteRequest",
+      "target": "Product",
+      "cardinality": "many-to-many",
+      "description": "What a price was asked for."
+    },
+    {
+      "type": "ANSWERS",
+      "source": "Quote",
+      "target": "QuoteRequest",
+      "cardinality": "many-to-one",
+      "description": "A quote is the priced response to a request."
+    },
+    {
+      "type": "CONVERTS_TO",
+      "source": "Quote",
+      "target": "Order",
+      "cardinality": "one-to-one",
+      "description": "The conversion step the RFQ funnel measures."
+    },
+    {
+      "type": "PLACED_ON",
+      "source": "PurchaseOrder",
+      "target": "Supplier",
+      "cardinality": "many-to-one",
+      "description": "Who the replenishment order went to."
+    },
+    {
+      "type": "FULFILS",
+      "source": "Delivery",
+      "target": "PurchaseOrder",
+      "cardinality": "many-to-one",
+      "description": "What arrived against what was ordered."
+    },
+    {
+      "type": "RETURNS",
+      "source": "Return",
+      "target": "OrderLine",
+      "cardinality": "many-to-one",
+      "description": "Which sold line came back."
+    },
+    {
+      "type": "ATTRIBUTED_TO",
+      "source": "WebSession",
+      "target": "Channel",
+      "cardinality": "many-to-one",
+      "description": "Where the visit came from."
+    },
+    {
+      "type": "USES",
+      "source": "Campaign",
+      "target": "Channel",
+      "cardinality": "many-to-many",
+      "description": "The routes a campaign runs through."
+    },
+    {
+      "type": "VIEWED",
+      "source": "WebSession",
+      "target": "Product",
+      "cardinality": "many-to-many",
+      "description": "What a visitor looked at, which is the top of the enquiry funnel."
+    }
+  ]
+}

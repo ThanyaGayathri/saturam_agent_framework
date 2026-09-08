@@ -776,5 +776,69 @@ what else is in `build/` — and reproduced-then-reverted to confirm. Separately
 subprocess's `check=True` + `capture_output=True` combination hid setuptools' own error text on
 failure; the wrapper now prints `stdout`/`stderr` before re-raising, verified against a forced
 build failure.
+### K03_ontology.py
+
+**Package:** K3 (P1, implements D9, G10)
+**Status:** PASS
+
+**Description:** Authored the shipped retail ontology as a versioned artifact, wrote it to
+Neo4j under its own label with every node embedded, built the three indexes, and ran the
+package's three scenarios: a synonym that is not a node name, a plain-language phrase naming
+no node at all, and an overlay surviving a core upgrade.
+
+**Result:** 20 concepts, 21 relations, 81 synonyms, six business areas. All three scenarios
+pass.
+
+- Synonyms reach their concept: `RFQ` to QuoteRequest (0.698), `SKU` to Product (0.671),
+  `vendor` to Supplier (0.796).
+- Plain language reaches a sensible concept by meaning, naming no node: *"what do we need to
+  reorder?"* to PurchaseOrder/StockLevel/Inventory, *"goods turned up late from the people we
+  buy from"* to Delivery (0.756)/Supplier/PurchaseOrder.
+- The overlay adds RepGroup, annotates core QuoteRequest with `shop enquiry`, and both
+  survive an upgrade of the core from 1.0.0 to 1.1.0 that adds a Warranty concept.
+
+**Mutation-tested the claim the package exists for.** Changed `embedding_text` to return the
+concept name alone -- the mistake the plan names as usual -- and re-ran. `RFQ` reached
+**Channel**, `SKU` reached **Location**, and two of the four plain-language phrases missed
+entirely. Exit 1. Reverted, exit 0. So the check genuinely detects a skipped embedding rather
+than passing on any ontology that happens to be present.
+
+**What surprised me, in order:**
+
+1. **My own artifact had an ambiguous synonym, and the check caught it before Neo4j did.**
+   `source` was a synonym of both Supplier and Channel. `synonym_index()` refuses a term
+   claimed by two concepts, because a term that means two things routes questions to whichever
+   was written first. Changed to `supply partner` and `traffic source`. This is precisely what
+   the practitioner review in D9 is for, and it found something on a twenty-concept ontology
+   written carefully in one sitting.
+
+2. **An overlay is a fragment, not an ontology, and my first design could not express one.**
+   The dangling-relation check sat in `__post_init__`, so a customer overlay adding a RepGroup
+   that `REPRESENTS` a core Brand was refused at construction -- the single most obvious
+   overlay shape there is. Moved completeness to an explicit `validate_relations()`, called on
+   the merged result and again in `OntologyStore.write`. The write path is where it actually
+   matters: a `MERGE` on a missing endpoint does not fail, it silently invents an empty
+   concept with no description and no embedding.
+
+3. **The lexical and vector legs disagree usefully.** For `stock band`, vector gives
+   StockLevel/Inventory/Product and lexical gives StockLevel/Inventory/PurchaseOrder. Neither
+   is wrong; they are answering different questions, which is the argument for K10 fusing them
+   rather than picking one.
+
+**Environment:** needs a Neo4j. I started a dedicated one rather than writing into the
+existing `smg1-neo4j` container, which has been up three weeks and holds seven
+Episode/Fact nodes belonging to someone else's memory testing. Ports 7688/7475 were already
+taken, so it runs on **bolt 7701 / http 7700**:
+
+    docker run -d --name egpt-retail-neo4j -p 7701:7687 -p 7700:7474 \
+      -e NEO4J_AUTH=neo4j/egptretail neo4j:5
+
+Needs `.venvs/demo` for `sentence_transformers`; embeddings are local, so no API key.
+
+**Worth flagging:** the local Neo4j is **community edition**, which supports one user database.
+D11 and the Azure alignment assume two databases in one cluster, which needs Enterprise. K3
+works either way because the ontology has its own label, but K5 will put the semantic layer in
+the same database locally rather than a second one. Not a blocker; a licence line for the
+infrastructure hand-off.
 
 ---

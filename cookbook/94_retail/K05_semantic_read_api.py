@@ -251,7 +251,9 @@ print(f"  {kpi.identifier}: {verdict.verdict.value} -- {verdict.rationale}")
 # said.
 without_brand_traffic: Dict[str, Any] = dict(FIXTURE)
 fixture_tables = cast(List[Dict[str, Any]], FIXTURE["tables"])
-without_brand_traffic["tables"] = [t for t in fixture_tables if t["name"] != "brand_traffic"]
+without_brand_traffic["tables"] = [
+    t for t in fixture_tables if t["name"] != "brand_traffic"
+]
 missing_table_reader = StubSemanticRead.from_payload(without_brand_traffic)
 blocked = assess_feasibility(kpi, available_tables(missing_table_reader))
 print(f"  with brand_traffic dropped: {blocked.verdict.value} -- {blocked.rationale}")
