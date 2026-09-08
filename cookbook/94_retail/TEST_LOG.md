@@ -928,7 +928,7 @@ Nit finding. Every one was reproduced before being fixed; none was taken on fait
     every file's parsed rows in `rows_by_path`, and part 2 reuses them instead of calling
     `load_ndjson` again.
 
-**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 28
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 30
 passed. `C01_landing_contract.py` — same shape as before (5/10/2 row counts, now 10 CRM rows
 across two files after the new fixture rows, `crm` 10 → 6 after dedup, 2 asserted defects
 instead of 1), plus the new tie-break section. `C01_minio_roundtrip.sh` re-run end to end
@@ -940,5 +940,87 @@ clean on every touched file.
 watermark tie) — the review flagged the *absence of a test*, not the behaviour itself, and
 the behaviour is defensible as written (a genuine tie means the source system didn't
 timestamp the change, which this contract can't resolve on the loader's behalf).
+
+---
+
+### Review round 2 — correctness fixes, coverage, and contract-vs-plan gaps
+
+**Package:** C1
+**Status:** PASS — after fixing 9 findings (2 High, 3 Medium, 4 Minor/Nit) from a second
+automated review pass on PR #190
+
+**Description:** Round 1 closed 13 findings against the code as written. This pass checked
+the contract against `docs/plan/delivery-plan.md` and `build-plan.md` directly, not just
+against itself, plus follow-up coverage gaps from the round-1 fixes. Every finding was
+reproduced before being fixed.
+
+**Reproduced and fixed, `landing.py` and `LANDING_CONTRACT.md`:**
+
+1. **`brand` missing from `crm.deal` (High)** — C3's own verify step is "deals with empty or
+   free-text brand", but `crm.deal` had no `brand` column; that verification could not run
+   against this contract as written, and RFQ funnel attribution needs brand at deal grain
+   since one contact can request quotes across more than one brand. `brand` is now a
+   required column on `crm.deal`, documented as authoritative there (`crm.contact`'s `brand`
+   reflects the contact's own record, not the per-quote-request brand). Pinned by
+   `test_validate_row_requires_brand_on_deal`.
+2. **Watermarks accepted naive and non-UTC-offset timestamps (High)** — the dedup rule
+   compares watermarks lexically (`C01_landing_contract.py`), and
+   `"2026-09-01T09:00:00+02:00" > "2026-09-01T07:30:00Z"` is true as strings but false as
+   instants. `_parses_as_timestamp` now requires a literal `Z` suffix, closing the row-level
+   counterpart to round 1's naive-`ingested_at` fix. Pinned by
+   `test_validate_row_rejects_naive_watermark_timestamp` and
+   `test_validate_row_rejects_non_utc_offset_watermark_timestamp`.
+3. **Key-column type check looser than its own comment (Minor)** — `isinstance(value, (str,
+   int, float, bool))` let a `bool`/`int`/`float` key value pass clean, contradicting "every
+   current key column is string-typed." Narrowed to `isinstance(value, str)`. Pinned by
+   `test_validate_row_rejects_non_string_key_value`.
+4. **Key+watermark double-report guard covered blank but not non-scalar (Minor)** — a
+   `list`/`dict` value in a combined key+watermark column (`analytics.event.occurred_at`)
+   still produced two defects for one root cause. The guard now also covers "already flagged
+   non-string by the key-column loop". Pinned by
+   `test_validate_row_does_not_double_report_non_scalar_key_and_watermark_column`.
+5. **Analytics `brand`/`product_id` non-nullable (Medium)** — every analytics event required
+   both, making a homepage `page_view` a false defect. Now nullable, required only for the
+   named RFQ-funnel events. Pinned by `test_validate_row_suppresses_defect_for_nullable_column`.
+6. **No `identity_key` column anywhere (Medium)** — the plan's one shared-identity blocker
+   had no reserved column, and raw email landed with no acknowledgement of the gap. Added a
+   required-but-nullable `identity_key` to `analytics.event`, `crm.contact` and
+   `session_replay.session`; `LANDING_CONTRACT.md` now states explicitly that raw email lands
+   in the clear in 1.0.0 as a known privacy gap pending the plan's privacy sign-off.
+7. **`quote_request_source_url` required on every deal (Low)** — a renewal or upsell deal
+   has no referring URL and would false-defect. Made nullable on `crm.deal`, with the
+   conditional-on-`stage` requirement documented as a per-row rule for R4.
+
+**Reproduced and fixed, tests and fixtures:**
+
+8. **Coverage gaps from round 1's fixes (Minor)** — `test_validate_row_rejects_non_scalar_
+   key_value` only covered `list`, not `dict` (now parametrized over both); the "missing
+   required column" and `nullable_columns` runtime-suppression branches each had no dedicated
+   unit test (only cookbook coverage). Closed by
+   `test_validate_row_reports_missing_required_column` and
+   `test_validate_row_suppresses_defect_for_nullable_column`.
+9. **Fixtures README stale (Nit)** — round 1 added `d_901` and `h_9002` to the CRM fixtures
+   but never updated the README describing them. Brought back in sync, including the new
+   homepage `page_view` row and every row's new `identity_key: null`.
+
+Also fixed, not from this review but caught while touching the same file:
+`deploy/compose.yaml`'s MinIO image pinned to a release tag instead of `:latest`, matching
+every other image in the file.
+
+Two gaps recorded rather than fixed, per each finding's own "not a blocker, document it"
+recommendation, in `LANDING_CONTRACT.md`'s new "Known gaps in 1.0.0" section: no dataset
+segment in the storage path (breaking to add, and nothing has landed against the convention
+yet), and no deletion/tombstone semantics.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 40
+passed. `C01_landing_contract.py` — analytics 5 → 6 rows (new homepage `page_view`), CRM
+fixture rows gained `brand` (deals) and `identity_key` (contacts); `total_defects` stays
+exactly 2, unchanged — the new required columns were added with values that keep the
+existing fixtures conforming rather than introducing new defects. `./scripts/format.sh` and
+`./scripts/validate.sh` clean on every touched file.
+
+**Not changed:** whether `crm.contact` should drop `brand` entirely now that `crm.deal`
+carries the authoritative one — kept on both and documented which is which, since removing
+it would be a guess about what the real CRM models without evidence either way.
 
 ---

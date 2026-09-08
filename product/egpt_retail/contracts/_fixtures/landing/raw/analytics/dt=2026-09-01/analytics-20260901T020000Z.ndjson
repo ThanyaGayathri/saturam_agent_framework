@@ -1,5 +1,6 @@
-{"event_name": "product_view", "occurred_at": "2026-09-01T08:12:03Z", "user_id": "u_1001", "session_id": "s_2001", "brand": "Blodgett", "product_id": "p_55"}
-{"event_name": "add_to_cart", "occurred_at": "2026-09-01T08:14:11Z", "user_id": "u_1001", "session_id": "s_2001", "brand": "Blodgett", "product_id": "p_55"}
-{"event_name": "form_start", "occurred_at": "2026-09-01T08:15:40Z", "user_id": "u_1001", "session_id": "s_2001", "brand": "Blodgett", "product_id": "p_55"}
-{"event_name": "submit", "occurred_at": "2026-09-01T08:16:02Z", "user_id": "u_1001", "session_id": "s_2001", "brand": "Blodgett", "product_id": "p_55"}
-{"event_name": "product_view", "occurred_at": "2026-09-01T09:02:17Z", "user_id": "u_1042", "session_id": "s_2002", "brand": "Follett", "product_id": "p_71"}
+{"event_name": "page_view", "occurred_at": "2026-09-01T08:10:00Z", "user_id": "u_1001", "session_id": "s_2001", "brand": null, "product_id": null, "identity_key": null}
+{"event_name": "product_view", "occurred_at": "2026-09-01T08:12:03Z", "user_id": "u_1001", "session_id": "s_2001", "brand": "Blodgett", "product_id": "p_55", "identity_key": null}
+{"event_name": "add_to_cart", "occurred_at": "2026-09-01T08:14:11Z", "user_id": "u_1001", "session_id": "s_2001", "brand": "Blodgett", "product_id": "p_55", "identity_key": null}
+{"event_name": "form_start", "occurred_at": "2026-09-01T08:15:40Z", "user_id": "u_1001", "session_id": "s_2001", "brand": "Blodgett", "product_id": "p_55", "identity_key": null}
+{"event_name": "submit", "occurred_at": "2026-09-01T08:16:02Z", "user_id": "u_1001", "session_id": "s_2001", "brand": "Blodgett", "product_id": "p_55", "identity_key": null}
+{"event_name": "product_view", "occurred_at": "2026-09-01T09:02:17Z", "user_id": "u_1042", "session_id": "s_2002", "brand": "Follett", "product_id": "p_71", "identity_key": null}

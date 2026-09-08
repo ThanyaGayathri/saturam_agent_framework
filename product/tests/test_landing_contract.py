@@ -119,21 +119,41 @@ def test_validate_row_rejects_non_mapping_row():
         assert "not a JSON object" in defects[0]
 
 
-def test_validate_row_rejects_non_scalar_key_value():
+@pytest.mark.parametrize("bad_value", [["c_500", "dup"], {"nested": "dict"}])
+def test_validate_row_rejects_non_scalar_key_value(bad_value):
     """Finding #2: a list/dict key value is reported instead of passing clean and later
     crashing a caller's dedup (which groups rows by a tuple of key values)."""
     row = {
         "record_type": "contact",
-        "object_id": ["c_500", "dup"],
+        "object_id": bad_value,
         "last_modified_at": "2026-09-01T07:00:00Z",
         "email": "a@example.com",
         "brand": "Blodgett",
+        "identity_key": None,
     }
     defects = validate_row("crm.contact", row)
-    assert any("not a scalar value" in d for d in defects)
+    assert any("must be a string" in d for d in defects)
     # And the reported value really would be unhashable, confirming the finding's premise.
     with pytest.raises(TypeError):
-        hash(row["object_id"])
+        hash(bad_value)
+
+
+@pytest.mark.parametrize("bad_value", [True, 12345, 3.14])
+def test_validate_row_rejects_non_string_key_value(bad_value):
+    """Round-2 finding: `isinstance(value, (str, int, float, bool))` was looser than the
+    code comment claimed ("every current key column is string-typed") -- a bool, int or
+    float key value passed clean. These remain hashable, so this isn't a crash risk like the
+    list/dict case above; it's a data-shape gap against the contract's own stated intent."""
+    row = {
+        "record_type": "contact",
+        "object_id": bad_value,
+        "last_modified_at": "2026-09-01T07:00:00Z",
+        "email": "a@example.com",
+        "brand": "Blodgett",
+        "identity_key": None,
+    }
+    defects = validate_row("crm.contact", row)
+    assert any("must be a string" in d for d in defects)
 
 
 def test_validate_row_treats_blank_string_like_null():
@@ -144,6 +164,7 @@ def test_validate_row_treats_blank_string_like_null():
         "last_modified_at": "2026-09-01T07:00:00Z",
         "email": "a@example.com",
         "brand": "   ",
+        "identity_key": None,
     }
     defects = validate_row("crm.contact", row)
     assert any("brand" in d and "null or blank" in d for d in defects)
@@ -159,6 +180,7 @@ def test_validate_row_rejects_blank_key_value():
         "last_modified_at": "2026-09-01T07:00:00Z",
         "email": "a@example.com",
         "brand": "Blodgett",
+        "identity_key": None,
     }
     defects = validate_row("crm.contact", row)
     assert any("object_id" in d and "missing or null" in d for d in defects)
@@ -174,6 +196,7 @@ def test_validate_row_does_not_double_report_blank_key_and_watermark_column():
         "occurred_at": "   ",
         "brand": "Blodgett",
         "product_id": "p_1",
+        "identity_key": None,
     }
     defects = validate_row("analytics.event", row)
     occurred_at_defects = [d for d in defects if "occurred_at" in d]
@@ -189,10 +212,30 @@ def test_validate_row_does_not_double_report_key_and_watermark_column():
         "occurred_at": None,
         "brand": "Blodgett",
         "product_id": "p_1",
+        "identity_key": None,
     }
     defects = validate_row("analytics.event", row)
     occurred_at_defects = [d for d in defects if "occurred_at" in d]
     assert len(occurred_at_defects) == 1
+
+
+def test_validate_row_does_not_double_report_non_scalar_key_and_watermark_column():
+    """Round-2 finding: the double-report guard above only special-cased blank, not the
+    non-scalar case the key-column loop also flags -- a list/dict value in a combined
+    key+watermark column still produced two defects for one root cause."""
+    row = {
+        "user_id": "u_1",
+        "session_id": "s_1",
+        "event_name": "product_view",
+        "occurred_at": ["x"],
+        "brand": "Blodgett",
+        "product_id": "p_1",
+        "identity_key": None,
+    }
+    defects = validate_row("analytics.event", row)
+    occurred_at_defects = [d for d in defects if "occurred_at" in d]
+    assert len(occurred_at_defects) == 1
+    assert "must be a string" in occurred_at_defects[0]
 
 
 def test_validate_row_still_checks_watermark_parseability_when_also_a_key():
@@ -205,9 +248,42 @@ def test_validate_row_still_checks_watermark_parseability_when_also_a_key():
         "occurred_at": "not-a-timestamp",
         "brand": "Blodgett",
         "product_id": "p_1",
+        "identity_key": None,
     }
     defects = validate_row("analytics.event", row)
-    assert any("not a parseable ISO-8601 timestamp" in d for d in defects)
+    assert any("not a parseable UTC ISO-8601 timestamp" in d for d in defects)
+
+
+def test_validate_row_rejects_naive_watermark_timestamp():
+    """Round-2 [high] finding: a naive timestamp sorts lexically wrong against a UTC one,
+    silently breaking last-write-wins ordering -- the row-watermark counterpart to the naive
+    `ingested_at` fix already applied to `landing_path`."""
+    row = {
+        "record_type": "contact",
+        "object_id": "c_1",
+        "last_modified_at": "2026-09-01T07:00:00",  # no trailing Z
+        "email": "a@example.com",
+        "brand": "Blodgett",
+        "identity_key": None,
+    }
+    defects = validate_row("crm.contact", row)
+    assert any("last_modified_at" in d and "UTC ISO-8601" in d for d in defects)
+
+
+def test_validate_row_rejects_non_utc_offset_watermark_timestamp():
+    """Same finding: a non-UTC offset is a real instant but sorts lexically wrong against a
+    `Z`-suffixed one -- `"09:00:00+02:00" > "07:30:00Z"` as strings even though 09:00+02:00
+    is 07:00Z, chronologically earlier."""
+    row = {
+        "record_type": "contact",
+        "object_id": "c_1",
+        "last_modified_at": "2026-09-01T09:00:00+02:00",
+        "email": "a@example.com",
+        "brand": "Blodgett",
+        "identity_key": None,
+    }
+    defects = validate_row("crm.contact", row)
+    assert any("last_modified_at" in d and "UTC ISO-8601" in d for d in defects)
 
 
 def test_validate_row_accepts_a_conforming_row():
@@ -217,8 +293,60 @@ def test_validate_row_accepts_a_conforming_row():
         "last_modified_at": "2026-09-01T07:00:00Z",
         "email": "a@example.com",
         "brand": "Blodgett",
+        "identity_key": None,
     }
     assert validate_row("crm.contact", row) == ()
+
+
+def test_validate_row_reports_missing_required_column():
+    """Round-2 finding: the "missing entirely" branch (`column not in row`) had no
+    dedicated unit test -- only exercised indirectly via the cookbook's `d_901` fixture."""
+    row = {
+        "record_type": "deal",
+        "object_id": "d_1",
+        "last_modified_at": "2026-09-01T07:00:00Z",
+        "stage": "quote_requested",
+        "brand": "Blodgett",
+        # quote_request_source_url omitted entirely
+    }
+    defects = validate_row("crm.deal", row)
+    assert any(
+        "quote_request_source_url" in d and "missing required column" in d
+        for d in defects
+    )
+
+
+def test_validate_row_requires_brand_on_deal():
+    """Round-2 [high] finding: the plan's C3 verify step queries "deals with empty or
+    free-text brand", so `brand` must be a required column on `crm.deal`, not only on
+    `crm.contact` -- a contact can request quotes across more than one brand."""
+    row = {
+        "record_type": "deal",
+        "object_id": "d_1",
+        "last_modified_at": "2026-09-01T07:00:00Z",
+        "stage": "quote_requested",
+        "quote_request_source_url": "https://shop.example.com/p/1",
+        # brand omitted entirely
+    }
+    defects = validate_row("crm.deal", row)
+    assert any("brand" in d and "missing required column" in d for d in defects)
+
+
+def test_validate_row_suppresses_defect_for_nullable_column():
+    """Round-2 finding: `nullable_columns`'s runtime suppression effect in `validate_row`
+    had no dedicated unit test -- only `LandingSchema.__post_init__`'s construction-time
+    guards were pinned. A non-product-scoped analytics event (a homepage page_view) has no
+    brand or product -- that's not dirty data, so it must not be reported."""
+    row = {
+        "user_id": "u_1",
+        "session_id": "s_1",
+        "event_name": "page_view",
+        "occurred_at": "2026-09-01T08:00:00Z",
+        "brand": None,
+        "product_id": None,
+        "identity_key": None,
+    }
+    assert validate_row("analytics.event", row) == ()
 
 
 # --- resolve_stream_id: the Major finding's other unguarded path ---------------------------

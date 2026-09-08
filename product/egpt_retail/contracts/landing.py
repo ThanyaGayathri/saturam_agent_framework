@@ -136,7 +136,14 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "occurred_at",
                 "brand",
                 "product_id",
+                "identity_key",
             ),
+            # brand/product_id are null on an event that isn't product-scoped (a homepage
+            # page_view or a search) -- required only for the RFQ funnel events named in
+            # LANDING_CONTRACT.md, a per-row rule R4 enforces. identity_key is reserved on
+            # every shape but null everywhere until the shared hashed identity (the plan's one
+            # privacy-gated blocker) ships.
+            nullable_columns=frozenset({"brand", "product_id", "identity_key"}),
         ),
         LandingSchema(
             stream_id="crm.contact",
@@ -150,7 +157,12 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "last_modified_at",
                 "email",
                 "brand",
+                "identity_key",
             ),
+            # brand here is the contact's own CRM record, not authoritative for RFQ-funnel
+            # attribution -- see crm.deal, where brand is required because a single contact
+            # can request quotes across more than one brand, a deal-level fact.
+            nullable_columns=frozenset({"identity_key"}),
         ),
         LandingSchema(
             stream_id="crm.deal",
@@ -163,8 +175,13 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "object_id",
                 "last_modified_at",
                 "stage",
+                "brand",
                 "quote_request_source_url",
             ),
+            # brand is authoritative here (see crm.contact above). quote_request_source_url
+            # is null on a deal that isn't a quote request (a renewal, an upsell) -- required
+            # only when `stage` marks the deal as one, a per-row rule R4 enforces.
+            nullable_columns=frozenset({"quote_request_source_url"}),
         ),
         LandingSchema(
             stream_id="crm.deal_stage_history",
@@ -196,10 +213,16 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "session_url",
                 "identity_at_login",
                 "identity_at_submit",
+                "identity_key",
             ),
             # A session may end before login, or be abandoned before submission -- unlike
             # CRM's null brand, an unset identity here is not dirty data, it is the truth.
-            nullable_columns=frozenset({"identity_at_login", "identity_at_submit"}),
+            # This stream's `session_id` is its own tool's session, a different namespace
+            # from analytics.event's `session_id` -- nothing joins the two until identity_key
+            # is populated.
+            nullable_columns=frozenset(
+                {"identity_at_login", "identity_at_submit", "identity_key"}
+            ),
         ),
     )
 
@@ -254,10 +277,20 @@ def resolve_stream_id(source: SourceName, row: Mapping[str, object]) -> str:
 
 
 def _parses_as_timestamp(value: object) -> bool:
-    if not isinstance(value, str):
+    """A UTC ISO-8601 timestamp, with the literal ``Z`` suffix -- never naive, never a
+    non-UTC offset.
+
+    The dedup rule (``LANDING_CONTRACT.md``'s re-run behaviour) compares two watermark
+    values lexically, not by parsing them: ``"2026-09-01T09:00:00+02:00" >
+    "2026-09-01T07:30:00Z"`` is true as strings but false as instants (09:00+02:00 is
+    07:00Z, earlier than 07:30Z). Lexical order only equals chronological order once every
+    watermark shares the same fixed-width UTC ``Z`` suffix -- the same rule already enforced
+    for ``ingested_at`` in :func:`landing_path`.
+    """
+    if not isinstance(value, str) or not value.endswith("Z"):
         return False
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError:
         return False
     return True
@@ -284,10 +317,10 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
     (session replay's identity fields) are told apart.
 
     ``row`` is untrusted input -- one parsed JSON line -- so this never raises on a
-    malformed shape (not an object; a key column holding a list or dict rather than a
-    scalar). Both are reported as defects rather than left to crash whatever reads the
-    result, which for the key-column case is this contract's own downstream dedup: a list
-    or dict is unhashable, and grouping by key is exactly what a caller does with it next.
+    malformed shape (not an object; a key column holding anything other than a string).
+    Both are reported as defects rather than left to crash whatever reads the result, which
+    for the key-column case is this contract's own downstream dedup: a list or dict is
+    unhashable, and grouping by key is exactly what a caller does with it next.
     """
     schema = landing_schema(stream_id)
     if not isinstance(row, Mapping):
@@ -308,27 +341,29 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
         value = row.get(column)
         if _is_blank(value):
             defects.append(f"key column {column!r} is missing or null")
-        elif not isinstance(value, (str, int, float, bool)):
-            # A key column must be a scalar: every current key column is string-typed, and
-            # this contract's own dedup groups rows by a tuple of key values, which requires
-            # each to be hashable. A list or dict is legal NDJSON and illegal here.
+        elif not isinstance(value, str):
+            # Every current key column is string-typed. A list or dict is also unhashable,
+            # which would otherwise crash this contract's own downstream dedup (grouping by
+            # a tuple of key values); a bool, int or float is hashable but still the wrong
+            # shape for a key this contract expects to be a string.
             defects.append(
-                f"key column {column!r} is not a scalar value: {type(value).__name__}"
+                f"key column {column!r} must be a string, not {type(value).__name__}"
             )
 
     watermark = row.get(schema.watermark_column)
-    watermark_already_reported = _is_blank(watermark) and (
-        schema.watermark_column in schema.key_columns
+    watermark_is_key = schema.watermark_column in schema.key_columns
+    watermark_already_reported = watermark_is_key and (
+        _is_blank(watermark) or not isinstance(watermark, str)
     )
     if _is_blank(watermark):
         if not watermark_already_reported:
             defects.append(
                 f"watermark column {schema.watermark_column!r} is missing or null"
             )
-    elif not _parses_as_timestamp(watermark):
+    elif not watermark_already_reported and not _parses_as_timestamp(watermark):
         defects.append(
-            f"watermark column {schema.watermark_column!r} is not a parseable ISO-8601 "
-            f"timestamp: {watermark!r}"
+            f"watermark column {schema.watermark_column!r} is not a parseable UTC "
+            f"ISO-8601 timestamp: {watermark!r}"
         )
 
     return tuple(defects)

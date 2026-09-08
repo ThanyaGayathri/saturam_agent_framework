@@ -56,7 +56,7 @@ value as two defects; `LANDING_SCHEMAS` was documented as frozen but was a mutab
 report; `parse_landing_path` leaked a raw stdlib message for a calendar-invalid date instead
 of its own consistent wrapper.
 
-Added `product/tests/test_landing_contract.py` (28 tests) — `LandingSchema.__post_init__`'s
+Added `product/tests/test_landing_contract.py` (30 tests) — `LandingSchema.__post_init__`'s
 four construction-time guards were correct but unexercised anywhere in the repository before
 this; adversarial `parse_landing_path` inputs (traversal, mismatched source, calendar-invalid
 date, wrong extension) likewise. The cookbook fixtures gained two rows (`d_901`, missing
@@ -64,6 +64,57 @@ date, wrong extension) likewise. The cookbook fixtures gained two rows (`d_901`,
 content across the two CRM pulls) so `C01_landing_contract.py` exercises and asserts on
 branches its previous fixtures happened not to touch. `C01_minio_roundtrip.sh` now diffs a
 sha256 manifest of uploaded vs. downloaded files, rather than relying on object names alone.
+
+### Patch — 2026-09-08 — round-2 review: correctness fixes, coverage, and contract-vs-plan gaps
+
+Not a breaking change — this contract is still `C → R`, an unreviewed proposal, so a
+correction to the proposal is announced under change-protocol rule 1 rather than
+version-bumped as a change to an agreed shape. `CONTRACT_VERSION` stays `1.0.0`.
+
+Two findings from a deeper pass that checked the contract against
+`docs/plan/delivery-plan.md`/`build-plan.md` directly, not just against itself:
+
+| Fix | Was |
+|---|---|
+| `brand` is a required column on `crm.deal`, not only `crm.contact` | C3's own verify step reads "deals with empty or free-text brand", but `crm.deal` had no `brand` column at all — that verification could not be run against this contract as written. `crm.deal`'s `brand` is now authoritative for RFQ-funnel attribution, since a single contact can request quotes across more than one brand. |
+| Watermark timestamps must be UTC with a literal `Z` suffix | `validate_row` accepted a naive or non-UTC-offset timestamp. The dedup rule compares watermarks lexically, and `"09:00:00+02:00" > "07:30:00Z"` is true as strings but false as instants — the same class of bug round 1 fixed for `ingested_at` in `landing_path`, now closed for the row-level watermark too. |
+
+Also fixed, all Minor/Nit, reproduced before being fixed: the key-column type check now
+requires a string (a `bool`/`int`/`float` key value previously passed clean, contradicting
+the code's own comment); the key+watermark double-report guard now also covers a non-scalar
+value, not just a blank one; `test_validate_row_rejects_non_scalar_key_value` now covers
+`dict` alongside `list`; the "missing required column" and `nullable_columns` runtime-
+suppression branches each gained a dedicated unit test instead of only cookbook coverage.
+
+Three gaps recorded rather than fixed, per each finding's own "not a blocker, document it"
+recommendation:
+
+- **No dataset segment in the storage path** (medium) — breaking, and nothing has landed
+  against this convention yet, so redesigning it now is premature. Recorded as a known 1.0.0
+  limitation in `LANDING_CONTRACT.md`.
+- **`analytics.event`'s `brand`/`product_id` are now nullable**, required only for the named
+  RFQ-funnel events — they were non-nullable, which made a homepage `page_view` a false
+  defect.
+- **`identity_key` reserved, null everywhere.** Added as a required-but-nullable column to
+  `analytics.event`, `crm.contact` and `session_replay.session` — one per connector — so
+  C2–C4 do not each invent their own identity column. It stays null until the plan's shared
+  hashed identity ships (gated on privacy sign-off, per `build-plan.md`). Also recorded
+  explicitly: raw email continues to land in the clear in 1.0.0, a known privacy gap, not a
+  decision. `crm.deal`'s `quote_request_source_url` is now nullable too, since a deal that
+  is not a quote request has no referring URL — the conditional requirement is a per-row
+  rule for R4, not something this contract's `validate_row` encodes.
+- **No deletion or merge semantics** (low) — last-write-wins can add and replace a row,
+  never remove one. Recorded as a known 1.0.0 gap in `LANDING_CONTRACT.md`.
+
+Fixture and doc updates to match: `identity_key: null` added to every row across all three
+sources; `brand` added to the CRM deal fixture rows; a homepage `page_view` (null
+`brand`/`product_id`) added to the analytics fixture to demonstrate the nullable fix;
+`deploy/compose.yaml`'s MinIO image pinned to a release tag instead of `:latest`; the
+fixtures README brought back in sync with the fixture files (round 1 had left it describing
+an earlier, smaller version of the CRM fixtures).
+
+`product/tests/test_landing_contract.py` grew to 40 tests. Full list in `TEST_LOG.md`'s
+"Review round 2" entry.
 
 ## KPI formula shape
 
