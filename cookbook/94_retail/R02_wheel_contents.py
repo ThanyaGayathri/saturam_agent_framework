@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory() as tmp:
     print("   wheel:", wheel.name, f"({wheel.stat().st_size // 1024} KB)")
     print(
         "   libs/agno/build left behind:",
-        (REPO_ROOT / "libs" / "agno" / "build").exists(),
+        (REPO_ROOT / "libs/agno/build").exists(),
     )
 
     print()

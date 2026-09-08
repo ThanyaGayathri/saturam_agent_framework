@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import List
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FRAMEWORK = REPO_ROOT / "libs" / "agno"
+FRAMEWORK = REPO_ROOT / "libs/agno"
 FORBIDDEN = ("egpt_retail", "product/", "frontend/", "deploy/", "cookbook/")
 
 
