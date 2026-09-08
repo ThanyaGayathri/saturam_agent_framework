@@ -3,6 +3,40 @@
 One place per contract, appended to, with the date, the reason and who agreed. Rule 5 of
 the change protocol in `docs/plan/delivery-plan.md`.
 
+## Landing contract and storage layout
+
+### 1.0.0 — 2026-09-08 — initial, verified against fixture files
+
+Agreed by: Lane C. **Not yet reviewed by Lane R** — this contract is `C → R`, so it is a
+proposal until Lane R has read it.
+
+The shape as the delivery plan asks for it: storage path convention with a date partition,
+file format, what one row represents, key columns, the watermark column, and the behaviour
+when a window is pulled twice — all per source, for analytics, CRM and session replay. Full
+text in `LANDING_CONTRACT.md`; the typed half is `egpt_retail.contracts.landing`.
+
+Two decisions made in the writing, not handed down by the plan:
+
+| Decision | Why |
+|---|---|
+| **NDJSON, not CSV or Parquet** | The verify step is to hand-write one conforming file per source. Parquet fails that outright; CSV fights analytics' named, optional params. |
+| **Raw is immutable; re-run writes a new file, never overwrites** | The data platform section already calls Stage 0 "untouched... replayable" and Stage 1 "append-only" — this is that made literal at the storage layer. De-duplication (last write wins by watermark) is downstream, in R4, not in this contract. |
+
+**CRM lands three record shapes in one file**, distinguished by `record_type` — the source's
+"one row per what" doesn't reduce to a single grain, so this is a documented clause rather
+than an implicit assumption a loader would have to discover.
+
+**Known-dirty fields stay required, not optional.** CRM's `brand` and
+`quote_request_source_url` are inconsistent at the source today; they are not moved out of
+`required_columns` to accommodate that. A null value is a reported defect, matching C3's own
+evidence bar ("a count of records failing each rule, reported rather than dropped"), not a
+silently accepted gap in the contract.
+
+Verified by `cookbook/94_retail/C01_landing_contract.py` against three hand-written fixture
+files (one per source) plus a second, overlapping CRM pull: loads all three sources with zero
+source-specific code, surfaces the one deliberately-dirty row instead of dropping it, and the
+dedup rule collapses a duplicate and resolves that row's earlier defect from the later pull.
+
 ## KPI formula shape
 
 ### Patch — 2026-09-07 — correctness fixes from automated review (two rounds)

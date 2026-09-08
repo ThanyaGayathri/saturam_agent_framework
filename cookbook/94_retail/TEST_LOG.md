@@ -778,3 +778,67 @@ failure; the wrapper now prints `stdout`/`stderr` before re-raising, verified ag
 build failure.
 
 ---
+
+## Lane C — phase zero
+
+### C01_landing_contract.py
+
+**Package:** C1 (P0, landing contract and storage layout — implements D4)
+**Status:** PASS
+
+**Description:** Ran the loader half of the verify step by hand: discovered the three
+hand-written fixture files under `product/egpt_retail/contracts/_fixtures/landing/` (one per
+source — analytics, CRM, session replay), parsed each path with
+`egpt_retail.contracts.landing.parse_landing_path`, and validated every row with
+`validate_row`. The script imports nothing but that module and the standard library, so
+"loads all three without asking a question" is checkable rather than asserted. Second half:
+wrote a second, overlapping CRM pull (a byte-identical duplicate row and one row with a
+corrected, previously-null `brand` and an advanced watermark) and ran the last-write-wins
+dedup rule the contract specifies.
+
+**Result:** All three sources loaded — 5 analytics rows, 7 CRM rows across two files (3
+contact/deal/deal-stage-history shapes), 2 session-replay rows. One row-level defect
+surfaced: CRM contact `c_501` landed with `brand: null`, the known-dirty case the contract
+names explicitly — reported, not dropped, matching C3's own evidence bar. After the dedup
+pass over both CRM files (7 raw rows → 4 deduplicated, grouped by `(record_type,
+object_id)`, kept by greatest `last_modified_at`), the duplicate `d_900`/`c_500` rows
+collapsed to one each and `c_501`'s later pull (`brand: "Follett"`) resolved the earlier
+defect — `validate_row` returns no defects for it post-dedup.
+
+**What this proves that the prose alone doesn't:** the contract's re-run clause ("raw is
+immutable; a re-pulled window lands a new file; de-duplication is downstream by key columns,
+last write wins by watermark") is not just asserted — the second half of the script builds
+both files, keeps them both on disk unmutated, and shows the reduction actually produces the
+row count and values the clause claims.
+
+---
+
+### C01_minio_roundtrip.sh
+
+**Package:** C1 (P0, landing contract and storage layout — implements D4)
+**Status:** PASS
+
+**Description:** The delivery plan's verify step says "upload it"; the fixture-file run above
+proves the contract's path/format/schema logic but stands in object storage with a local
+directory. This script closes that gap: started MinIO via `deploy/compose.yaml --profile
+full` (new `minio` service, reusing the `egpt-landing` bucket name already reserved for it in
+R2's kind-cluster local-infra chart), used the official `minio/mc` image to upload the four
+fixture files to `egpt-landing`, listed the bucket, downloaded everything back to a fresh
+directory, then re-ran `C01_landing_contract.py` unmodified (via its new
+`EGPT_LANDING_FIXTURES_ROOT` override) against the round-tripped copy.
+
+**Result:** All four objects landed at exactly the paths `landing_path()` specifies —
+`raw/{source}/dt=2026-09-01/{source}-{ingested_at}.ndjson` — confirmed by `mc ls -r` before
+download. The re-run against the downloaded copy reproduced every result from the local-disk
+run identically: same 5/7/2 row counts, the same `c_501` `brand: null` defect surfaced (not
+silently dropped by the round trip), and the same last-write-wins dedup outcome (7 → 4 rows,
+`c_501` resolved to `"Follett"` with no remaining defects).
+
+**One thing worth recording:** `mc cp --recursive SRC DST` includes `SRC`'s own directory
+name in the destination keys — `mc cp --recursive /fixtures/raw local/bucket/raw` lands at
+`bucket/raw/raw/...`, not `bucket/raw/...`. Confirmed by hand against a throwaway MinIO
+container before writing the script, rather than guessed: the fix in the final script is to
+target the bucket root (`local/$BUCKET`, not `local/$BUCKET/raw`) and let `mc` append `raw/`
+itself.
+
+---

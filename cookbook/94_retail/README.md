@@ -1,13 +1,16 @@
 # 94 · Retail (Enterprise GPT)
 
-Runnable checks for the Lane K contracts in `product/egpt_retail/contracts/` and Lane R's API
-contract in `product/egpt_retail/api/`. One folder, one `TEST_LOG.md`, entries tagged by package.
+Runnable checks for the Lane K and Lane C contracts in `product/egpt_retail/contracts/` and
+Lane R's API contract in `product/egpt_retail/api/`. One folder, one `TEST_LOG.md`, entries
+tagged by package.
 
 These are product examples, not framework examples. They import from `product/`, which is
 outside the published `egpt` wheel, so each script puts `product/` on `sys.path` itself.
 
 | Script | Package | What it proves |
 |---|---|---|
+| `C01_landing_contract.py` | C1 | The landing contract, by playing Lane R's loader against three hand-written fixture files: loads all three sources with no source-specific code, reports a known-dirty row instead of dropping it, and the re-run dedup rule collapses a duplicate and resolves that row's defect. |
+| `C01_minio_roundtrip.sh` | C1 (object storage) | The same fixtures, uploaded to and downloaded back from a real MinIO bucket, then re-verified with `C01_landing_contract.py` unmodified -- proves the verify step's "upload it" against actual object storage, not just local disk. |
 | `K11_kpi_formula_shape.py` | K11 | The KPI formula shape against nineteen real formulas: what fits, what has to be rewritten, and that feasibility is a set difference. |
 | `K00_executor_registry.py` | — | The executor naming convention: the silent collision it prevents, and the check that enforces it. |
 | `K01_memory_scope_convention.py` | K1 | The memory scope convention against the real `Scope`: write scopes, read scopes, and the isolation matrix. |
@@ -26,6 +29,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 Run:
 
 ```bash
+.venv/bin/python cookbook/94_retail/C01_landing_contract.py
 .venv/bin/python cookbook/94_retail/K11_kpi_formula_shape.py
 ```
 
@@ -53,6 +57,14 @@ bash cookbook/94_retail/R02_cluster_evidence.sh
 .venv/bin/python cookbook/94_retail/R02_wheel_contents.py
 ```
 
+`C01_minio_roundtrip.sh` needs Docker (it starts `deploy/compose.yaml`'s `minio` service
+itself, under the `full` profile, and tears nothing down when it's done -- `docker compose -f
+deploy/compose.yaml --profile full down -v` cleans it up):
+
+```bash
+bash cookbook/94_retail/C01_minio_roundtrip.sh
+```
+
 To run the stub as a server -- for the prototype screen, or to check `R03_stub_server.py`
 over a real socket with `EGPT_STUB_URL=http://127.0.0.1:7778`:
 
@@ -60,7 +72,8 @@ over a real socket with `EGPT_STUB_URL=http://127.0.0.1:7778`:
 .venv/bin/python -m egpt_retail.api.stub
 ```
 
-K11 needs no services. Its corpus is vendored at
+C01 and K11 need no services. C01's fixtures are hand-written at
+`product/egpt_retail/contracts/_fixtures/landing/`; K11's corpus is vendored at
 `product/egpt_retail/contracts/_fixtures/poc_kpis.json`.
 
 K14 (both halves) calls a model, so it needs credentials:

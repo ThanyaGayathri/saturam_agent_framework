@@ -1,0 +1,4 @@
+{"record_type": "contact", "object_id": "c_500", "last_modified_at": "2026-09-01T07:00:00Z", "email": "buyer@example.com", "brand": "Blodgett"}
+{"record_type": "contact", "object_id": "c_501", "last_modified_at": "2026-09-01T07:05:00Z", "email": "prospect@example.com", "brand": null}
+{"record_type": "deal", "object_id": "d_900", "last_modified_at": "2026-09-01T07:10:00Z", "stage": "quote_requested", "quote_request_source_url": "https://shop.example.com/p/55"}
+{"record_type": "deal_stage_history", "object_id": "h_9001", "last_modified_at": "2026-09-01T07:11:00Z", "deal_id": "d_900", "stage": "quote_requested", "entered_at": "2026-09-01T07:11:00Z"}
