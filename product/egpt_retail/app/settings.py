@@ -81,11 +81,14 @@ class RetailSettings(BrandedSettings):
         "supports one; the two-database split D11 assumes needs Enterprise.",
     )
     retail_provider_mode: ProviderMode = Field(
-        default=ProviderMode.LOCAL,
-        description="Which embedder family the knowledge layers use (EGPT_RETAIL_PROVIDER_MODE). "
-        "'local' is SM-R4's offline-capable default, bge-base-en-v1.5 at 768; 'frontier' is Azure "
-        "text-embedding-3-large truncated to 1024. Memory and knowledge read the same decision, so "
-        "one deployment does not end up with two vector spaces.",
+        default=ProviderMode.FRONTIER,
+        description="Which embedder family memory AND the knowledge layers use "
+        "(EGPT_RETAIL_PROVIDER_MODE). One setting for both, so a deployment never holds two vector "
+        "spaces. Default is 'frontier' -- Azure text-embedding-3-large at 1024 -- because that is what "
+        "the deployment runs; a laptop with no Azure embedding deployment sets 'local' explicitly "
+        "(bge-base-en-v1.5 at 768, offline-capable per ADR 0003 A.3c). The default is the production "
+        "truth on purpose: running the wrong mode should fail loudly at the first embed, not work "
+        "silently on a different model.",
     )
     retail_corpus_path: Optional[str] = Field(
         default=None,

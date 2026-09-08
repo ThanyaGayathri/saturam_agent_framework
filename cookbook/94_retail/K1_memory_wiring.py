@@ -29,12 +29,60 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 from egpt.memory.startup import MemoryNotWired, assert_memory_wired  # noqa: E402
 from egpt.memory.types import Scope  # noqa: E402
 from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware  # noqa: E402
-
 from egpt_retail.app.components import build_memory_provider  # noqa: E402
 from egpt_retail.app.settings import RetailSettings  # noqa: E402
-from egpt_retail.memory.scopes import SYSTEM_USER_ID, build_consolidation_scopes  # noqa: E402
+from egpt_retail.memory.scopes import (  # noqa: E402
+    SYSTEM_USER_ID,
+    build_consolidation_scopes,
+)
 
 SLUG = os.environ.get("EGPT_RETAIL_CUSTOMER_SLUG", "middleby")
+os.environ.setdefault("EGPT_RETAIL_PROVIDER_MODE", "local")
+
+
+def _store_and_exit() -> int:
+    """Process A. Writes two facts, flushes the provider, exits. Never reads."""
+    from egpt.agent import Agent
+    from egpt.integrations.models.azure import AzureOpenAI
+    from egpt.run.base import RunContext
+
+    settings = RetailSettings(retail_customer_slug=SLUG)
+    provider = build_memory_provider(settings)
+    if provider is None:
+        return 2
+    agent = Agent(
+        id="k1_recall_probe",
+        name="k1_recall_probe",
+        model=AzureOpenAI(id=os.environ["AZURE_OPENAI_DEPLOYMENT"]),
+        memory_provider=provider,
+        instructions="Acknowledge in one short sentence.",
+    )
+    agent.run(
+        "Remember this: our warehouse in Rotterdam is the one that handles all EU returns.",
+        run_context=RunContext(
+            run_id="k1-run-1", tenant_id=SLUG, user_id="alice", session_id="k1-conv-1"
+        ),
+        user_id="alice",
+        session_id="k1-conv-1",
+    )
+    # A scheduled run writes as the scheduler identity, with no person (MEMORY_SCOPE.md).
+    agent.run(
+        "Remember this: the nightly refresh on 2026-09-08 loaded 310 quote requests.",
+        run_context=RunContext(
+            run_id="k1-run-nightly",
+            tenant_id=SLUG,
+            user_id=SYSTEM_USER_ID,
+            session_id="nightly-1",
+        ),
+        user_id=SYSTEM_USER_ID,
+        session_id="nightly-1",
+    )
+    provider.close()  # flush the background writeback before the process ends
+    return 0
+
+
+if "--store" in sys.argv:
+    raise SystemExit(_store_and_exit())
 
 print("K1 -- memory scope and wiring")
 print("=" * 78)
@@ -46,6 +94,8 @@ print("1. The per-tenant memory builder is no longer orphaned")
 print("-" * 78)
 settings = RetailSettings(retail_customer_slug=SLUG)
 provider = build_memory_provider(settings)
+if provider is not None:
+    provider.close()  # section 1 only needed to prove it builds; 2b builds its own
 print(f"  slug {SLUG!r} -> provider: {type(provider).__name__ if provider else None}")
 print(
     f"  provider mode (shared with the knowledge layers): {settings.retail_provider_mode.value}"
@@ -103,53 +153,82 @@ except MemoryNotWired as exc:
     print("  UNEXPECTED refusal on a correct deployment:", exc)
 print(f"  a correctly configured deployment starts: {passes}")
 
-# --- 2b. Scenario 1: tell it something, start a new conversation, ask it back -------------
+# --- 2b. Scenario 1, done properly: store in ONE process, recall in ANOTHER ------------
+#
+# The first version of this ran both conversations in one process on one Agent object, with
+# ``enable_user_memories=True`` -- a soon-deprecated in-process path. It "recalled" Rotterdam
+# and proved nothing: the memory store could have been empty and the answer identical. The
+# only recall that demonstrates the provider is one across a process boundary, with the
+# writer gone and the store queried directly for what it holds.
 
 print()
-print("2b. Recall across conversations")
+print("2b. Recall across a PROCESS boundary, and the scope the store actually holds")
 print("-" * 78)
 recalled = False
+alice_rows = scheduler_rows = 0
 if provider is None or not os.environ.get("AZURE_OPENAI_API_KEY"):
     print("  SKIPPED: needs a memory provider and AZURE_OPENAI_API_KEY")
 else:
+    import subprocess
+
+    import psycopg
+
+    # Process A: store, flush, exit. Two conversations -- Alice's, and one written the way a
+    # scheduled run writes, as the framework's scheduler identity (MEMORY_SCOPE.md).
+    stored = subprocess.run(
+        [sys.executable, __file__, "--store"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "EGPT_RETAIL_PROVIDER_MODE": "local"},
+    )
+    if stored.returncode != 0:
+        print("  storing process FAILED:", stored.stderr[-400:])
+    else:
+        print("  process A stored two facts and exited; this process never saw them")
+
+    # Process B (this one): a fresh provider and agent, no shared object with A.
     from egpt.agent import Agent
     from egpt.integrations.models.azure import AzureOpenAI
     from egpt.run.base import RunContext
 
-    # One agent, reused across both conversations. Never construct an agent per turn.
+    fresh = build_memory_provider(settings)
     agent = Agent(
         id="k1_recall_probe",
         name="k1_recall_probe",
         model=AzureOpenAI(id=os.environ["AZURE_OPENAI_DEPLOYMENT"]),
-        memory_provider=provider,
-        instructions="Answer in one short sentence. Use what you remember about the user.",
-        enable_user_memories=True,
-    )
-    FACT = "Our warehouse in Rotterdam is the one that handles all EU returns."
-    first = RunContext(
-        run_id="k1-run-1", tenant_id=SLUG, user_id="alice", session_id="k1-conv-1"
-    )
-    agent.run(
-        f"Remember this: {FACT}",
-        run_context=first,
-        user_id="alice",
-        session_id="k1-conv-1",
-    )
-
-    second = RunContext(
-        run_id="k1-run-2", tenant_id=SLUG, user_id="alice", session_id="k1-conv-2"
+        memory_provider=fresh,
+        instructions="Answer in one short sentence, using what you remember about this user.",
     )
     answer = agent.run(
         "Which warehouse handles our EU returns?",
-        run_context=second,
+        run_context=RunContext(
+            run_id="k1-run-2", tenant_id=SLUG, user_id="alice", session_id="k1-conv-2"
+        ),
         user_id="alice",
         session_id="k1-conv-2",
     )
     text = str(answer.content)
     recalled = "rotterdam" in text.lower()
-    print(f"  conversation 1 stored: {FACT!r}")
-    print(f"  conversation 2 asked back, answered: {text[:96]!r}")
-    print(f"  recalled across a session boundary: {recalled}")
+    print(f"  process B asked cold, answered: {text[:90]!r}")
+    print(f"  recalled across the process boundary: {recalled}")
+    fresh.close()
+
+    # What the store holds, by scope. This is scenario 3's evidence: a scheduled run's rows
+    # carry the scheduler identity as user_id, exactly as the convention says.
+    raw = settings.retail_db_url.replace("postgresql+psycopg://", "postgresql://")
+    with psycopg.connect(raw) as conn:
+        rows = conn.execute(
+            "select coalesce(agent_id,'*'), coalesce(user_id,'*'), count(*) "
+            "from ai.memory_vectors where tenant_id=%s group by 1,2 order by 2",
+            (SLUG,),
+        ).fetchall()
+    print("  scopes in memory_vectors for this tenant:")
+    for agent_id, user_id, n in rows:
+        print(f"    {SLUG}/{agent_id}/{user_id}  x{n}")
+        if user_id == "alice":
+            alice_rows += n
+        if user_id == SYSTEM_USER_ID:
+            scheduler_rows += n
 
 # --- 3. The middleware stamps the tenant, and never overrides a real one -----------------
 
@@ -233,11 +312,21 @@ if not never_overrides:
     )
 if not system_writes_as_scheduler:
     failures.append("scheduled runs do not write under the scheduler identity")
-if provider is not None and os.environ.get("AZURE_OPENAI_API_KEY") and not recalled:
-    failures.append(
-        "a fact stored in one conversation was not recalled in the next -- the wiring is "
-        "present but memory is not actually working"
-    )
+if provider is not None and os.environ.get("AZURE_OPENAI_API_KEY"):
+    if not recalled:
+        failures.append(
+            "a fact stored by another process was not recalled -- the wiring is present but "
+            "memory is not actually working"
+        )
+    if alice_rows == 0:
+        failures.append(
+            "the store holds no rows under alice's scope, so any recall was in-process"
+        )
+    if scheduler_rows == 0:
+        failures.append(
+            f"the store holds no rows under {SYSTEM_USER_ID!r}, so the scheduled-run scope "
+            "was never exercised"
+        )
 
 if failures:
     print("K1 does NOT hold:")

@@ -24,6 +24,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
+# A laptop has no Azure embedding deployment; the production default is frontier.
+os.environ.setdefault("EGPT_RETAIL_PROVIDER_MODE", "local")
 
 from egpt.metrics import ProviderMode  # noqa: E402
 from egpt_retail.contracts.vocabulary import (  # noqa: E402

@@ -1244,3 +1244,67 @@ more than another pass by the author — which is the same lesson the ontology's
 collisions taught, arriving from the opposite direction.
 
 ---
+
+### P1 verification pass — three defects in K1, and one invalid piece of evidence
+
+**Packages:** K1, K2, K3 (all of Lane K's P1)
+**Status:** PASS — after fixes; 155 product tests, 8 Lane K and 5 Lane R cookbooks green
+
+**Description:** Verified P1 against the definition of done rather than from memory: sync/async
+audit over every public def, framework purity, `validate.sh`, `pytest product`, and every
+cookbook in the folder including Lane R's. Then fixed what that found.
+
+**Lane R had added a `product` target to `validate.sh`** — K-4 resolves itself — and it
+failed. Two failures were environmental (X-5, X-6). Two were mine, and pulling on them found
+three defects in K1 and one piece of evidence that did not prove what it claimed.
+
+**Defect 1 — importing the app opened a database.** `build_memory_provider_for` connects to
+pgvector and provisions schema on construction, and `app/main.py` calls the factory at module
+import. So `import egpt_retail.app.main` opened Postgres, and Lane R's pure-construction test
+broke. Fixed by moving the provider and `assert_memory_wired` into an EgptOS lifespan. That is
+not a workaround — it is what G1 literally asks for. *Fail at startup* means when the server
+boots, not when a test imports a module.
+
+**Defect 2 — the tenant middleware was in the wrong position, and only a real request could
+show it.** `jwt.py:1111` does `request.state.claims = payload`: a replace, not a merge.
+Starlette runs the last-added middleware first. Installed after `get_app()`, mine was
+outermost — it injected the tenant claim, then auth ran and overwrote the dict. Every
+authenticated request lost the tenant, which is exactly the Entra deployment shape (JWTs with
+no tenant claim). The K1 cookbook tests the middleware by calling `dispatch` directly, so it
+could never see this. Now installed on a `base_app` that EgptOS builds on, so auth sits
+outside it. Two tests pin the order: one with a replacing fake auth that also proves the
+wrong order fails, one through the real EgptOS stack with `TestClient`.
+
+**Defect 3 — `str(None)`.** With no slug, the factory would have stamped a tenant literally
+named `"None"` — a partition nobody meant to create. The middleware now installs only when a
+slug exists; an unconfigured deployment is refused by the lifespan instead, with the message
+naming the missing slug.
+
+**The invalid evidence.** K1's recall test ran both conversations in one process on one
+`Agent` object with `enable_user_memories=True`, a soon-deprecated in-process path. It
+"recalled" Rotterdam and proved nothing: the store could have been empty and the answer
+identical. The store *had* written — 12 rows under `middleby/k1_recall_probe/alice` — but the
+test could not tell provider recall from in-process recall. Rewritten: process A stores two
+facts and flushes with `provider.close()`; process B, with a fresh provider and agent, asks
+cold. **Result: "Your Rotterdam warehouse handles all EU returns."** And `memory_vectors`
+queried directly: `middleby/k1_recall_probe/alice ×16`, `middleby/k1_recall_probe/__scheduler__ ×2`.
+Scenario 3 — what scope a scheduled run writes under — now has real rows, written the way a
+scheduled run writes, rather than a scope builder returning the right string.
+
+**Also closed:** `aload_knowledge` (an I/O function with no async twin, missed by my own
+audit heuristic); `product/tests/test_k1_memory_wiring.py`, ten tests, so `validate.sh
+product` guards K1 from here; and `retail_provider_mode` now defaults to `frontier` — the
+deployment's truth — with local set explicitly, which makes Lane R's original test correct as
+written rather than mine.
+
+**What surprised me:** the middleware bug. Every test I had written for it passed, because
+every test called the middleware in isolation. The failure only exists in composition with
+auth, and only on authenticated requests, and only because of one assignment on one line of
+a file I had not read. It would have shipped. Testing the *stack* rather than the *unit* is
+the difference, and it is now the pattern for anything that touches a request.
+
+**Pre-existing, recorded, not mine:** `mypy product` fails on numpy's stubs under a py39
+target (X-5); the api-contract check needs `openapi_spec_validator` (X-6); Lane R's stale
+fixture (R-7); the two mypy errors in `libs/agno/egpt/integrations/knowledge/` (X-2).
+
+---

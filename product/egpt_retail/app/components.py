@@ -81,10 +81,12 @@ def build_memory_provider(settings: RetailSettings) -> Optional[MemoryProvider]:
 
 
 def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAgent]:
-    """The registered agents. Pure construction; nothing here calls a model."""
-    memory_provider = build_memory_provider(settings)
+    """The registered agents. Pure construction; nothing here calls a model or a database.
+
+    No memory provider is attached here -- see ``factory.memory_lifespan_for``. Building one
+    opens a database connection, and this runs at import.
+    """
     synonym_proposer = Agent(
-        memory_provider=memory_provider,
         id=SYNONYM_PROPOSER_ID,
         name=SYNONYM_PROPOSER_ID,
         description="Proposes synonyms and question patterns for one business concept (Lane K, K14).",

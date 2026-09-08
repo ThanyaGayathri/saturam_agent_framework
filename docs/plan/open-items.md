@@ -12,10 +12,10 @@ an item everybody agrees is important and nobody owns.
 
 | # | Item | Why it matters | Since |
 |---|---|---|---|
-| K-1 | **`include_proposed` defaults to `False`** on every semantic read API method | Raised in P0 as an open question and implemented that way under a stated assumption. The enrichment review screen is the one caller that will need `True`. If the default is wrong, Lane R builds against it first | 7 Sep |
+| ~~K-1~~ | ~~**`include_proposed` defaults to `False`**~~ **Decided 8 Sep: proposed rows are visible only after review.** Every read returns accepted rows unless a caller asks for `include_proposed=True`; the enrichment review screen is that caller. Matches what was built in P0 under a stated assumption — no code change | closed 8 Sep |
 | ~~K-2~~ | ~~**Practitioner review of the shipped ontology**~~ **Provisionally closed 8 Sep**, on the Fable-model review recorded in `TEST_LOG.md`, which found three defects, six missing concepts and a wrong cardinality. **Caveat, recorded so the decision stays informed:** that reviewer is the same system as the author, so it is a rigorous self-review rather than an outside one — it cannot catch a wrong idea both passes share. A retail practitioner reading the 27 concepts remains worth ~15 minutes before K8 maps customer tables onto them | closed 8 Sep |
 | ~~K-3~~ | ~~**Consolidation scope: should it carry `agent_id`?**~~ **Decided: yes, keep it.** Reads drop `agent_id` anyway (`_managers.py`), so facts are shared on read either way; keeping it on the write bounds each consolidation pass and preserves attribution, and costs nothing on recall. Lane R's implementation already does this — no change | closed 8 Sep |
-| K-4 | **Does `format.sh` / `validate.sh` extend to cover `product/`?** | Neither covers it today (zero references). Lane K has been running ruff and mypy on it by hand. Arguably R2 scaffolding, arguably whoever notices | 7 Sep |
+| ~~K-4~~ | ~~**Does `format.sh` / `validate.sh` extend to cover `product/`?**~~ **Resolved by Lane R** — R2 added a `product` target to `validate.sh` (ruff, mypy, api contract, pytest). Found while verifying P1. It surfaced two environmental gaps, X-5 and X-6 below | closed 8 Sep |
 
 ---
 
@@ -51,6 +51,8 @@ an item everybody agrees is important and nobody owns.
 | # | Item | Why it matters |
 |---|---|---|
 | X-0 | **Inherit the parent heading into child prose chunks** (K2 follow-up, Lane K) | Heading-only shells are now dropped, which removed a useful signpost: `## 2. Gross Margin Analysis` used to win the gross-margin query; without it a case study outranks `### 2.1 Gross Margin by Category`. Prefixing each `###` chunk with its `##` path keeps the signal without the empty chunk |
+| X-5 | **`validate.sh product` mypy fails on numpy's stubs**, not on our code | `numpy/__init__.pyi:737: Type statement is only supported in Python 3.12` — the product mypy step runs with the framework's `py39` target against stubs that need 3.12. Config, not code. `mypy product/egpt_retail` under the dev interpreter is clean |
+| X-6 | **`validate.sh product` api-contract check needs `openapi_spec_validator`** | `ModuleNotFoundError` in `.venv`. A dev dependency missing from `dev_setup.sh`. Lane R's step; Lane K just hit it first |
 | X-1 | **`Registry.get_function` has no duplicate-name warning** | The tool lookup twenty lines above it in the same file does warn. Executors resolve by `__name__`, first match wins, silently. Lane K ships a check for its own registry; the framework fix is a separate PR |
 | X-2 | **Two pre-existing mypy errors** in `libs/agno/egpt/integrations/knowledge/` | `validate.sh` fails locally and passes in CI, which runs without the optional deps that pull them in. So "I ran validate.sh" is not currently a claim anyone can make on a dev machine — it quietly undermines item 5 of the definition of done for everyone |
 | X-3 | **Neo4j Enterprise licence** | D11 and the Azure alignment assume two databases in one cluster. Local development is community edition, which supports one. K3 works either way because the ontology has its own label; K5 will share one database locally |
@@ -68,6 +70,7 @@ an item everybody agrees is important and nobody owns.
 | Knowledge uses the memory subsystem's embedder decision rather than making a second one — Mode A `bge-base-en-v1.5` at 768, Mode B Azure `text-embedding-3-large` at 1024 | `knowledge/embedding.py` |
 | `operations` added to the shipped `business_area` vocabulary — an employee had no home in the original six | `ontology/vocabularies.json` 1.1.0 |
 | One executor, one name: an I/O executor is `async def` under the same name, not a sync/async pair | `contracts/EXECUTOR_REGISTRY.md` |
+| Semantic reads return accepted rows only; `include_proposed=True` is for the review screen and nothing else (K-1) | `contracts/semantic.py` |
 | The consolidation scope carries `agent_id` — one pass per agent partition (K-3) | `memory/scopes.py`, `open-items.md` |
 | Memory and the knowledge layers read one `retail_provider_mode`. It was hardcoded to FRONTIER in memory and configurable in knowledge, which would have given one deployment two vector spaces | `memory/config.py` |
 | A vector index is not built when `CREATE` returns — Neo4j populates it asynchronously and a query against a partial index answers confidently and wrongly. Every ontology write blocks until ONLINE | `ontology/store.py` `await_indexes` |

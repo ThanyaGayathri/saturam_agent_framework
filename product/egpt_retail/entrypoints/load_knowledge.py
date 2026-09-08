@@ -4,6 +4,9 @@ The deploy-time counterpart to ``migrate``. That one brings the control-plane *s
 current version; this one brings the shipped *content* to it: the retail ontology into Neo4j
 and the curated retail prose into pgvector.
 
+Locally, set ``EGPT_RETAIL_PROVIDER_MODE=local``: the default is the deployment's Mode B, and
+a laptop has no Azure embedding deployment to serve it.
+
 Deployed as a Helm ``post-install,post-upgrade`` hook Job, not a ``pre-`` one: it writes
 through the application's own code paths and needs the schema migration to have finished
 first. Never an initContainer — with N replicas that is N concurrent loads of the same content.
@@ -32,7 +35,7 @@ from egpt_retail.knowledge.prose import build_chunker, ingest_corpus, read_corpu
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
 from egpt_retail.ontology.store import OntologyStore
 
-__all__ = ["load_knowledge", "main", "resolve_corpus_path"]
+__all__ = ["aload_knowledge", "load_knowledge", "main", "resolve_corpus_path"]
 
 log = logging.getLogger("egpt_retail.load_knowledge")
 
@@ -77,6 +80,29 @@ def load_knowledge(
     if prose:
         report.extend(_load_prose(settings, embedder, knowledge=knowledge))
     return report
+
+
+async def aload_knowledge(
+    settings: Optional[RetailSettings] = None,
+    *,
+    ontology: bool = True,
+    prose: bool = True,
+    rebuild_indexes: bool = False,
+    driver: Any = None,
+    knowledge: Any = None,
+) -> List[str]:
+    """Async variant. The load is blocking I/O against two stores, run off the event loop."""
+    import asyncio
+
+    return await asyncio.to_thread(
+        load_knowledge,
+        settings,
+        ontology=ontology,
+        prose=prose,
+        rebuild_indexes=rebuild_indexes,
+        driver=driver,
+        knowledge=knowledge,
+    )
 
 
 def _load_ontology(
