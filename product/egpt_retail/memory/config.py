@@ -5,7 +5,13 @@ one cookbook (``47_per_tenant_memory_config.py``) uses a ``dsn`` key that is nev
 The working shape is ``13_vector_substrate_pgvector.py``: ``backend`` and **``db_url``**.
 
 * ``provider="co_located"`` -- the adapter registered in ``memory/adapters/co_located.py``.
-* ``mode=ProviderMode.FRONTIER`` -- Mode B. Mode A (``LOCAL``) refuses every online embedder
+* ``mode`` comes from ``settings.retail_provider_mode`` (K1). It was hardcoded to Mode B, which
+  was right for the Azure deployment and wrong as a constant: the knowledge layers read the same
+  setting, and a hardcoded mode here meant memory could embed at Mode B's 1024 while prose and
+  the ontology embedded at Mode A's 768. Three vector spaces behind one retrieval entry point,
+  failing silently as worse answers. One setting, both subsystems.
+
+* Mode B is the deployment's choice. Mode A (``LOCAL``) refuses every online embedder
   (``memory/embedding.py:331``, ``OFFLINE_CAPABLE``), and the deployment embeds through an Azure
   OpenAI deployment. Mode B's default embedder is ``azure_openai`` / ``text-embedding-3-large`` at
   1024 dimensions (``embedding.py:353``), configured through ``AZURE_EMBEDDER_*`` and consulted only
@@ -21,7 +27,6 @@ The working shape is ``13_vector_substrate_pgvector.py``: ``backend`` and **``db
 from __future__ import annotations
 
 from egpt.memory.config import MemoryConfigResolver, MemoryProviderConfig
-from egpt.providers.model_provider import ProviderMode
 
 from egpt_retail.app.settings import RetailSettings
 
@@ -36,7 +41,7 @@ def build_memory_config(settings: RetailSettings) -> MemoryProviderConfig:
     """The one config every tenant resolves to in phase zero. Pure construction."""
     return MemoryProviderConfig(
         provider="co_located",
-        mode=ProviderMode.FRONTIER,
+        mode=settings.retail_provider_mode,
         vector={
             "backend": "pgvector",
             "db_url": settings.retail_db_url,

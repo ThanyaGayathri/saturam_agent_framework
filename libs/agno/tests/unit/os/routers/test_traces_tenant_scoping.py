@@ -23,7 +23,6 @@ from egpt.os.routers.traces.traces import (
 from egpt.os.settings import EgptServingSettings
 from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

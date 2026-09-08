@@ -14,7 +14,7 @@ an item everybody agrees is important and nobody owns.
 |---|---|---|---|
 | K-1 | **`include_proposed` defaults to `False`** on every semantic read API method | Raised in P0 as an open question and implemented that way under a stated assumption. The enrichment review screen is the one caller that will need `True`. If the default is wrong, Lane R builds against it first | 7 Sep |
 | K-2 | **Practitioner review of the shipped ontology** — 27 concepts, ~15 minute read. A critical self-review by the author is done (see `TEST_LOG.md`, 8 Sep) and found four synonym collisions and a wrong cardinality across three passes; that is the case *for* an outside read, not a substitute for it | The one thing in Lane K that cannot be self-certified. Layer 2 is *"judged by a retail practitioner reading it"*. Three later packages (K8, K9, K10) take it as given, so a wrong concept propagates silently. Each concept now cites its corpus documents, so review is checking claims rather than judging phrasing | 8 Sep |
-| K-3 | **Consolidation scope: should it carry `agent_id`?** | Lane R raised it in `memory/scopes.py` and marked it Lane K's call — one consolidation pass per agent partition, or one per tenant. Needs settling before K1 is written | 8 Sep |
+| ~~K-3~~ | ~~**Consolidation scope: should it carry `agent_id`?**~~ **Decided: yes, keep it.** Reads drop `agent_id` anyway (`_managers.py`), so facts are shared on read either way; keeping it on the write bounds each consolidation pass and preserves attribution, and costs nothing on recall. Lane R's implementation already does this — no change | closed 8 Sep |
 | K-4 | **Does `format.sh` / `validate.sh` extend to cover `product/`?** | Neither covers it today (zero references). Lane K has been running ruff and mypy on it by hand. Arguably R2 scaffolding, arguably whoever notices | 7 Sep |
 
 ---
@@ -26,8 +26,9 @@ an item everybody agrees is important and nobody owns.
 | R-1 | **Sign off the KPI formula shape** — v1.0.0, v2.0.0 (breaking), v2.0.1 | A `K → R` contract. Lane R materialises from it at R5. Five changes and their costs are itemised in `product/egpt_retail/contracts/CHANGELOG.md` | 7 Sep |
 | R-2 | **Review the semantic read API** v1.0.0, including K-1 above | The other `K → R` contract. Preflight, playground and spec screen all build against it | 7 Sep |
 | R-3 | **Co-sign the executor registry convention**, including *one executor, one name* | A joint convention. The naming rule only works if both lanes follow it — the namespace is flat and a collision resolves silently to whoever registered first | 7 Sep |
-| R-4 | **Confirm K14's second half is done** | A merged commit on #187 reads "K14 second half". If Lane R wrote a conforming agent from the template without needing to ask, the package closes. If they had to ask, the template is incomplete and Lane K fixes it now rather than at P4 | 8 Sep |
+| ~~R-4~~ | ~~**Confirm K14's second half is done**~~ **Closed: done, and it earned its keep.** Lane R wrote `join_path_explainer` from the template alone and logged five questions instead of asking. All five were real gaps; all five are fixed in `SKILL_TEMPLATE.md` | closed 8 Sep |
 | R-5 | **Helm hook Job calling `egpt-retail load-knowledge`** | The entrypoint exists and is idempotent; nothing calls it at deploy time, so a fresh cluster comes up with no ontology and no prose. Wants a `post-install,post-upgrade` hook beside the existing migrate hook. Left to Lane R because the chart is theirs | 8 Sep |
+| R-7 | **`R03_build_contract_fixture` fails on a stale committed fixture** | Asks for `./scripts/gen_api_models.sh`. Verified pre-existing — fails with Lane K's changes stashed. Their fixture and their generator, so left alone rather than regenerated across a lane boundary | 8 Sep |
 | R-6 | **`demo_setup.sh` should install `unstructured`** | `MarkdownChunking` needs it and `.venvs/demo` does not have it. Installed by hand to run K2; the next person hits the same wall | 8 Sep |
 
 ---
@@ -67,5 +68,7 @@ an item everybody agrees is important and nobody owns.
 | Knowledge uses the memory subsystem's embedder decision rather than making a second one — Mode A `bge-base-en-v1.5` at 768, Mode B Azure `text-embedding-3-large` at 1024 | `knowledge/embedding.py` |
 | `operations` added to the shipped `business_area` vocabulary — an employee had no home in the original six | `ontology/vocabularies.json` 1.1.0 |
 | One executor, one name: an I/O executor is `async def` under the same name, not a sync/async pair | `contracts/EXECUTOR_REGISTRY.md` |
+| The consolidation scope carries `agent_id` — one pass per agent partition (K-3) | `memory/scopes.py`, `open-items.md` |
+| Memory and the knowledge layers read one `retail_provider_mode`. It was hardcoded to FRONTIER in memory and configurable in knowledge, which would have given one deployment two vector spaces | `memory/config.py` |
 | A vector index is not built when `CREATE` returns — Neo4j populates it asynchronously and a query against a partial index answers confidently and wrongly. Every ontology write blocks until ONLINE | `ontology/store.py` `await_indexes` |
 | `Store` is a first-class concept and `Location` its generalisation; `QuoteRequest`-era language is out of core `Contact` | `ontology/retail.json` 2.2.0 |

@@ -33,7 +33,6 @@ from egpt.tools.toolkit import Toolkit
 
 from .conftest import StubModelWithToolCall
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -2392,7 +2392,8 @@ class PostgresDb(BaseDb):
                 # COALESCE across both llm.* and gen_ai.* attribute families,
                 # NULLIF empty strings, then regex-guard non-numeric values
                 # before CAST to avoid bigint parse errors from malformed spans.
-                from sqlalchemy import case as sa_case, literal_column
+                from sqlalchemy import case as sa_case
+                from sqlalchemy import literal_column
 
                 raw_input = func.coalesce(
                     func.nullif(spans_table.c.attributes["llm.token_count.prompt"].astext, ""),

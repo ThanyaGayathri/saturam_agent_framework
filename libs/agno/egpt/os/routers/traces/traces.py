@@ -7,7 +7,6 @@ from fastapi.routing import APIRouter
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.os.auth import get_auth_token_from_request, get_authentication_dependency
 from egpt.os.middleware.user_scope import resolve_db_and_scope
-from egpt.os.tenancy import current_tenant_id, require_tenant_id
 from egpt.os.routers.traces.schemas import (
     TRACE_FILTER_SCHEMA,
     FilterSchemaResponse,
@@ -28,6 +27,7 @@ from egpt.os.schema import (
     ValidationErrorResponse,
 )
 from egpt.os.settings import EgptServingSettings
+from egpt.os.tenancy import current_tenant_id, require_tenant_id
 from egpt.os.utils import timestamp_to_datetime
 from egpt.remote.base import RemoteDb
 from egpt.utils.log import log_error

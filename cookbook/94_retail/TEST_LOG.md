@@ -1143,3 +1143,104 @@ signpost that won the gross-margin query; without it a case-study chunk outranks
 each child chunk rather than delete the signpost. Logged as a follow-up, not done.
 
 ---
+
+### K1_memory_wiring.py
+
+**Package:** K1 (P1, implements G1, G2)
+**Status:** PASS
+
+**Description:** Wired memory end to end and ran the package's three scenarios: recall across
+a session boundary, startup with the customer identifier removed, and the scope a scheduled
+run writes under.
+
+**Result:** All pass, including the one that matters most — **a fact stored in one
+conversation was recalled in the next.** Told the agent *"Our warehouse in Rotterdam is the
+one that handles all EU returns"* in session `k1-conv-1`; asked *"Which warehouse handles our
+EU returns?"* in `k1-conv-2` and got *"Your Rotterdam warehouse handles all EU returns."*
+That is G1 closed in fact rather than in wiring.
+
+**What K1 actually had to fix, in three parts:**
+
+1. **The per-tenant builder was orphaned.** `build_memory_provider_for` existed and only the
+   consolidator called it; no agent had a provider. `build_agents` now attaches one.
+2. **A provider alone is silent.** `_agent_memory_scope` returns `None` when
+   `run_context.tenant_id` is unset, so an agent with a provider and no tenant is exactly as
+   memoryless as one without. `FixedTenantMiddleware` stamps the configured customer slug.
+3. **Stamping the attribute is not enough**, and this is the part that would have looked
+   finished and not worked. `build_run_context_for_request` never reads
+   `request.state.tenant_id`; it calls `resolve_tenant_id` over `request.state.claims`. A
+   middleware writing only the attribute leaves every `RunContext` at `tenant_id=None` and
+   fixes nothing on the path that matters. The middleware injects the claim, so the run path
+   keeps using the one security-reviewed resolver instead of gaining a second way to arrive
+   at a tenant.
+
+**Mutation-tested exactly that.** Changed the middleware to stamp the attribute and skip the
+claim — the plausible half-fix — and the cookbook failed with *"the middleware did not stamp
+the claim the run path reads"*, exit 1. Restored, exit 0.
+
+**A worse failure than `None`, found while reading the resolver.** `resolve_tenant_id` falls
+back to the verified `user_id` when no claim is present. So without a configured slug a
+single-customer deployment does not merely lose memory — it silently partitions into **one
+tenant per person**, and the shared memory the deployment exists to accumulate never
+accumulates. The middleware never overrides a real claim, only fills an absent one, so it
+cannot cause the cross-tenant version of this.
+
+**A misalignment K1 also had to close.** `build_memory_config` hardcoded
+`mode=ProviderMode.FRONTIER` while the knowledge layers read `retail_provider_mode`, which
+defaults to `LOCAL`. Memory would have embedded at Mode B's 1024 while prose and the ontology
+embedded at Mode A's 768 — three vector spaces behind K10's single retrieval entry point,
+failing silently as worse answers. Both now read one setting.
+
+**Deliberate design note on the startup check.** `assert_memory_wired` reports every fault at
+once rather than the first, so a misconfigured deployment is fixed in one pass instead of one
+restart per fault; verified with a three-fault deployment. It also distinguishes *"this
+deployment has no configured tenant"* from *"it has one and it is unset"* via a sentinel,
+because `tenant_id=None` alone made the refusal name the symptom — an agent with no provider —
+rather than the cause, the missing customer slug.
+
+**Two things I broke and fixed while doing this.** I assumed `build_agents` returned wrappers
+with an `.agent` attribute; it returns agents directly, and the factory raised
+`AttributeError` on every start until corrected — caught by running Lane R's cookbooks, not
+mine. And `R01_local_stack` then failed legitimately: it configures no customer slug, so the
+new check refused to build. That is the check working, not a defect, but it is a real
+consequence of K1 for a cookbook written before memory was wired, so R01 now sets a slug the
+way a real deployment does. Running the *other lane's* cookbooks is what surfaced both.
+
+**Pre-existing, not mine:** `R03_build_contract_fixture` fails on a stale committed fixture
+and asks for `./scripts/gen_api_models.sh`. Verified it fails identically with my changes
+stashed. Lane R's asset and generator; left alone and raised as R-7.
+
+---
+
+### K14 second half — closed, with five template fixes
+
+**Package:** K14
+**Status:** PASS — the template held, and leaked in five places
+
+**Description:** Lane R wrote `join_path_explainer` from `SKILL_TEMPLATE.md` alone and
+recorded five questions rather than asking them. That is the evidence K14 asked for: a
+conforming agent produced from the template without a conversation. All five were real gaps
+and all five are now fixed in the template.
+
+1. **The enum-versus-vocabulary rule was stated only for two named fields.** Generalised: a
+   set that can vary by customer is a vocabulary and is rendered; one that enumerates outcomes
+   of a computation stays an enum and is written out.
+2. **`writes: nothing` was undocumented as a normal value.** It is the normal value for an
+   explanation agent, and Lane R writes three.
+3. **"You propose" reads oddly for an explainer.** Generalised the rule's first sentence to
+   cover both proposing and explaining, and added the instruction Lane R had to guess: copy
+   the four verbatim even where one reads oddly, because reviewing seven prompts against each
+   other only works if the same four sentences appear in all seven.
+4. **No place to name the executor an agent's output is checked against.** Added
+   `checked_against` to the header. Lane R had invented the right thing —
+   `verdict_for_path()` beside the schema — with nowhere to declare it.
+5. **"Shipped ontology" was ambiguous about product fixtures.** Clarified: the line is
+   ownership, not vocabulary. Anything we ship is fair game; anything read from a customer's
+   warehouse is not.
+
+**What surprised me:** every one of the five is a sentence I would have written if asked, and
+none of them occurred to me while writing the template. Handing it to someone else was worth
+more than another pass by the author — which is the same lesson the ontology's four synonym
+collisions taught, arriving from the opposite direction.
+
+---

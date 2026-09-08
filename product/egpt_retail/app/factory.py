@@ -10,8 +10,10 @@ incomplete (``EGPT_RETAIL_ROLE=pipelines`` with no token raises from here, not f
 
 from __future__ import annotations
 
+from egpt.memory.startup import assert_memory_wired
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
+from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware
 
 from egpt_retail.app.components import build_agents, build_registry, build_workflows
 from egpt_retail.app.db import build_control_plane_db
@@ -42,6 +44,8 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
             "any application. Set EGPT_RETAIL_AUTH_AUDIENCE, or EGPT_RETAIL_AUTH_SKIP_AUDIENCE_CHECK=true if "
             "this deployment genuinely has no audience to check."
         )
+    # G1, both halves. A provider with no tenant is as silent as no provider: memory hooks
+    # take an early return when `run_context.tenant_id` is None, and nothing reports it.
     db = build_control_plane_db(settings)
     # JWT authorization is on exactly when a JWKS file is configured (R2). Locally that is an
     # offline RS256 key pair mounted from a ConfigMap; on AKS it is the identity provider's keys.
@@ -59,12 +63,20 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
         if settings.authorization_enabled
         else None
     )
-    return EgptOS(
+    agents = build_agents(settings, db)
+    # Refuse to start rather than run memoryless. Every problem at once, so a misconfigured
+    # deployment is fixed in one pass instead of one restart per fault.
+    assert_memory_wired(
+        agents,
+        tenant_id=settings.retail_customer_slug,
+    )
+
+    os_app = EgptOS(
         id=OS_ID,
         name="Enterprise GPT",
         description="Retail intelligence on EgptOS. Phase zero: one registered agent, no workflows.",
         db=db,
-        agents=build_agents(settings, db),
+        agents=agents,
         workflows=build_workflows(settings, db),
         registry=build_registry(),
         authorization=settings.authorization_enabled,
@@ -73,3 +85,10 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
         scheduler_base_url=settings.retail_scheduler_base_url,
         internal_service_token=settings.retail_internal_service_token,
     )
+
+    # After the auth middleware, so a verified tenant claim is already present and is left
+    # alone. This is a floor for the single-tenant deployment, never an override.
+    os_app.get_app().add_middleware(
+        FixedTenantMiddleware, tenant_id=str(settings.retail_customer_slug)
+    )
+    return os_app

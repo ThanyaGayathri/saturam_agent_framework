@@ -47,6 +47,12 @@ output_schema: dotted path to the pydantic model this agent must return
 owner:        the lane that maintains this prompt
 ```
 
+`checked_against` is optional and names the deterministic function this agent's output must
+agree with — `egpt_retail.skills.join_path_explainer.verdict_for_path`, say. Where one exists,
+a cookbook asserts the model's answer equals the executor's rather than judging it by eye, and
+that assertion is what keeps "the model explains, the executor decides" true in fact and not
+only in the prompt. Omit it for an agent that proposes rather than explains.
+
 `model_tier` is a real decision, not a formality. Under G6: explanation and spec extraction
 run on the small tier; enrichment and suggestion run on the frontier tier, because they are
 rare and quality-critical. If you cannot say why your agent is on the tier it is on, it is
@@ -99,10 +105,18 @@ in the workflow. Every phase after the first says what it may use from the phase
 The non-negotiables, stated as prohibitions. Copy the four below verbatim into every skill,
 then add any specific to your agent.
 
+Copy them **even where a sentence reads oddly for your agent** — an explainer is not proposing
+anything, and the first rule still applies to it. Reviewing seven prompts against each other is
+only possible if the same four sentences appear in all seven; a rule quietly reworded per agent
+is a rule nobody can check. If one is genuinely wrong for a whole class of agent, change it here
+rather than in your copy.
+
 ```
-- You propose. You never write to the graph, the registry or the warehouse. Your output is
-  a proposal that a person accepts or rejects (D10, G5). If your output reaches the graph
-  without a human decision, that is a defect in the pipeline, not a licence for you.
+- You produce output for a person or a calling executor to act on. You never write to the
+  graph, the registry or the warehouse yourself. Where your output is a proposal, a person
+  accepts or rejects it (D10, G5); where it is an explanation, the executor that called you
+  decides what to do with it. If your output reaches the graph without a human decision,
+  that is a defect in the pipeline, not a licence for you.
 - You never decide what is permitted, supported, feasible or safe. Those are set
   differences and deterministic checks computed elsewhere, and your view of them is not
   consulted.
@@ -134,9 +148,12 @@ list is correct exactly until the first customer extends the ontology, and then 
 silently short and the agent never proposes the term the customer added.
 `Vocabulary.render_for_prompt()` and `.describe()` produce the two forms this section needs.
 
-Sets that genuinely cannot vary by customer — `result_shape`, `feasibility` — stay as Python
-enums and are mirrored in the vocabulary, with `enums_match_vocabulary()` checking the two
-have not drifted.
+**The rule in general, since it is not only about those two fields.** A set that *can* vary
+by customer is a vocabulary: render it. A set that *cannot* — because it enumerates outcomes
+of a computation rather than facts about a business — stays a Python enum and is written out
+in this table. A join lookup has three outcomes; a set difference has three verdicts; no
+customer adds a fourth. `result_shape` and `feasibility` are the shipped examples, and they
+are mirrored in the vocabulary with `enums_match_vocabulary()` checking the two agree.
 
 | Field | Type | Values |
 |---|---|---|
@@ -170,9 +187,14 @@ so a worked example built from one customer's brands, product names or contacts 
 their data in an artifact the next customer receives. It would also teach the model that
 customer's vocabulary as if it were retail's.
 
-Use concepts and terms the shipped ontology defines. If the example needs a value the
-ontology does not have, that is a signal the ontology is missing something, not a licence to
-borrow one from a harvest.
+Use concepts and terms the shipped ontology defines. **Product fixtures count** — the API
+contract fixture and the vendored retail corpus are shipped assets, so table names drawn from
+them are fine even though `orders` and `customers` are not themselves ontology concepts. The
+line is ownership, not vocabulary: anything we ship is fair game, anything read from a
+customer's warehouse is not.
+
+If the example needs a value none of those have, that is a signal the ontology is missing
+something, not a licence to borrow one from a harvest.
 
 The example is the highest-leverage part of the prompt and the part most often skipped or
 filled with `foo`.
