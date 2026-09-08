@@ -334,8 +334,20 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
             continue
         if column not in row:
             defects.append(f"missing required column {column!r}")
-        elif _is_blank(row[column]) and column not in schema.nullable_columns:
-            defects.append(f"required column {column!r} is null or blank")
+        elif _is_blank(row[column]):
+            if column not in schema.nullable_columns:
+                defects.append(f"required column {column!r} is null or blank")
+        elif not isinstance(row[column], (str, int, float, bool)):
+            # Unlike a key column, a required column may legitimately be numeric (session
+            # replay's click counts) or boolean, so this checks scalar-ness, not string-ness.
+            # A list or dict is neither missing nor blank, so without this it would pass
+            # `validate_row` clean -- the exact completeness gap the key-column check above
+            # already closes for key columns. Only reached for a non-blank value, since a
+            # nullable column's `None` must not be reported as a defect here.
+            defects.append(
+                f"required column {column!r} is not a scalar value: "
+                f"{type(row[column]).__name__}"
+            )
 
     for column in schema.key_columns:
         value = row.get(column)

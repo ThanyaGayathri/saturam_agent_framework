@@ -893,7 +893,7 @@ Nit finding. Every one was reproduced before being fixed; none was taken on fait
    `LANDING_CONTRACT.md` says the contract refuses to let through. A new `_is_blank` helper
    treats a whitespace-only string the same as `null`. Pinned by
    `test_validate_row_treats_blank_string_like_null`.
-7. **`LandingSchema.__post_init__`'s four guards were unexercised anywhere in the repo
+7. **`LandingSchema.__post_init__`'s six guards were unexercised anywhere in the repo
    (Minor)** — correct, but disabling any one of them produced byte-identical cookbook
    output, because nothing ever constructed a broken schema. Closed with direct unit tests,
    one per guard, in the new `product/tests/test_landing_contract.py`.
@@ -1022,5 +1022,56 @@ existing fixtures conforming rather than introducing new defects. `./scripts/for
 **Not changed:** whether `crm.contact` should drop `brand` entirely now that `crm.deal`
 carries the authoritative one — kept on both and documented which is which, since removing
 it would be a guess about what the real CRM models without evidence either way.
+
+---
+
+### Review round 3 — a real gap in round 2's own fix, plus doc/robustness nits
+
+**Package:** C1
+**Status:** PASS — after fixing 1 real finding and 3 nits from a review of round 2's fix
+(`f6580c34`) on PR #190
+
+**Description:** A review of the round-2 commit itself, not the original code. Every
+finding was reproduced against `f6580c34` before being fixed or, in one case, ruled out.
+
+**Reproduced and fixed:**
+
+1. **Non-scalar value in a non-key required column passed clean (Minor)** — round 2's fix
+   for finding #6 (blank/empty-string columns) added `_is_blank` to the required-columns
+   loop but never added the type check the key-column loop already has. Reproduced:
+   `validate_row("crm.contact", {..., "brand": ["Blodgett", "Follett"], ...})` returned
+   `()`. `validate_row` now also flags a list/dict in a non-key required column, checking
+   `isinstance(value, (str, int, float, bool))` rather than `isinstance(value, str)` --
+   unlike a key, a required column may legitimately be numeric (session replay's click
+   counts). Pinned by `test_validate_row_rejects_non_scalar_required_column_value`. First
+   attempt at this fix broke `test_validate_row_accepts_a_conforming_row` and
+   `test_validate_row_suppresses_defect_for_nullable_column`: the new check ran even on a
+   nullable column's `None`, which is not an `isinstance` of any of those four types. Fixed
+   by restructuring so the type check is only reached for a non-blank value.
+2. **`LandingSchema.__post_init__` guard count said "four", is six (Nit)** — corrected in
+   both `TEST_LOG.md` (this file, the round-1 entry) and `CHANGELOG.md`.
+3. **`C01_minio_roundtrip.sh`'s manifest loop not NUL-delimited (Nit)** — `find ... | sort |
+   while read -r f` would corrupt on a filename with a newline. Not exploitable against
+   today's fixed fixture filenames; fixed anyway with `-print0` / `sort -z` / `read -d ''`
+   for whoever copies the pattern later.
+
+**Investigated, not reproduced:**
+
+4. **Claimed double-report for a non-scalar key+watermark value.** The finding said
+   `watermark_already_reported` only guarded `None`, not the non-scalar case, for a column
+   that is both a key and the watermark (`analytics.event.occurred_at`). Reproducing the
+   exact input (`occurred_at: ["not", "a", "scalar"]`) against `f6580c34` returns exactly
+   one defect, not two -- round 2's fix (`_is_blank(watermark) or not isinstance(watermark,
+   str)`) already covers this. No change made; replied on the thread with the reproduction.
+
+**Also fixed, not from this review but caught while touching the same test file:** the
+adversarial `uppercase source` case in `test_parse_landing_path_rejects_adversarial_input`
+now notes it pins the `SourceName` enum layer, not `_PATH_RE`'s own case restriction, since
+the regex's `[a-z_]+` already excludes uppercase.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 41
+passed. `C01_landing_contract.py` and `C01_minio_roundtrip.sh` (against real MinIO)
+re-run end to end, unchanged output -- `total_defects` stays exactly 2, no fixture touched
+this round. `./scripts/format.sh` and `./scripts/validate.sh` clean on every touched file.
 
 ---

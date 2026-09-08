@@ -316,6 +316,22 @@ def test_validate_row_reports_missing_required_column():
     )
 
 
+def test_validate_row_rejects_non_scalar_required_column_value():
+    """Round-3 finding: the required-columns loop checked "missing" and "blank" but never
+    "wrong shape" the way the key-column loop does -- a list/dict in a non-key required
+    column (e.g. `brand`) was neither missing nor blank, so it passed clean."""
+    row = {
+        "record_type": "contact",
+        "object_id": "c_1",
+        "last_modified_at": "2026-09-01T07:00:00Z",
+        "email": "a@example.com",
+        "brand": ["Blodgett", "Follett"],
+        "identity_key": None,
+    }
+    defects = validate_row("crm.contact", row)
+    assert any("brand" in d and "not a scalar value" in d for d in defects)
+
+
 def test_validate_row_requires_brand_on_deal():
     """Round-2 [high] finding: the plan's C3 verify step queries "deals with empty or
     free-text brand", so `brand` must be a required column on `crm.deal`, not only on
@@ -410,7 +426,10 @@ def test_landing_path_is_stable_across_input_timezones():
     [
         "raw/crm/dt=2026-09-01/analytics-20260901T060000Z.ndjson",  # mismatched source
         "raw/../../etc/passwd",  # traversal
-        "raw/CRM/dt=2026-09-01/CRM-20260901T060000Z.ndjson",  # uppercase source
+        # uppercase source: `_PATH_RE`'s `[a-z_]+` already excludes this, but even if it
+        # didn't, `SourceName("CRM")` would still refuse it -- this case pins that second,
+        # independent layer, not the regex's own case restriction.
+        "raw/CRM/dt=2026-09-01/CRM-20260901T060000Z.ndjson",
         "raw/quantum/dt=2026-09-01/quantum-20260901T060000Z.ndjson",  # unknown source
         "raw/crm/dt=2026-09-01/crm-20260901T060000Z.csv",  # wrong extension
         "raw/crm/dt=2026-09-01/crm-2026-09-01T06:00:00Z.ndjson",  # malformed timestamp

@@ -57,7 +57,7 @@ report; `parse_landing_path` leaked a raw stdlib message for a calendar-invalid 
 of its own consistent wrapper.
 
 Added `product/tests/test_landing_contract.py` (30 tests) — `LandingSchema.__post_init__`'s
-four construction-time guards were correct but unexercised anywhere in the repository before
+six construction-time guards were correct but unexercised anywhere in the repository before
 this; adversarial `parse_landing_path` inputs (traversal, mismatched source, calendar-invalid
 date, wrong extension) likewise. The cookbook fixtures gained two rows (`d_901`, missing
 `quote_request_source_url` outright; `h_9002`, a genuine same-watermark tie with different
@@ -115,6 +115,30 @@ an earlier, smaller version of the CRM fixtures).
 
 `product/tests/test_landing_contract.py` grew to 40 tests. Full list in `TEST_LOG.md`'s
 "Review round 2" entry.
+
+### Patch — 2026-09-08 — round-3 review: a real completeness gap round 2 introduced
+
+Not a shape change; `CONTRACT_VERSION` stays `1.0.0`. One real finding from a review of
+round 2's own fix, plus three doc/robustness nits reproduced and closed alongside it.
+
+| Fix | Was |
+|---|---|
+| `validate_row` flags a non-scalar value in a non-key required column | Round 2's `_is_blank` check covered "missing" and "blank" but not "wrong shape" the way the key-column loop does. A list or dict in, e.g., `brand` was neither missing nor blank, so it passed `validate_row` clean -- the same completeness gap the key-column fix closed for keys, left open for every other required column. |
+
+Also fixed: `LandingSchema.__post_init__`'s guard count corrected from "four" to "six" (the
+method has six `raise` sites; the round-1 test file already added six matching tests, the
+prose just undercounted) in both `TEST_LOG.md` and this file; `C01_minio_roundtrip.sh`'s
+manifest loop is now NUL-delimited (`find -print0` / `sort -z` / `read -d ''`), a
+robustness fix with no behavioral difference against today's fixed fixture filenames; the
+adversarial `uppercase source` test case now notes it pins the `SourceName` enum layer, not
+`_PATH_RE`'s own case restriction, since the regex already excludes it.
+
+One finding investigated and not reproduced: a claimed double-report for a non-scalar value
+on a combined key+watermark column. `f6580c34`'s `watermark_already_reported` already
+covers this (`_is_blank(watermark) or not isinstance(watermark, str)`); reproducing the
+exact input against that commit returns one defect, not two.
+
+`product/tests/test_landing_contract.py` grew to 41 tests.
 
 ## KPI formula shape
 
