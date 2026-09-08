@@ -23,9 +23,12 @@ answer came from (the gap report's resolution for customer documents).
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from egpt.knowledge.chunking.strategy import ChunkingStrategy
 
 __all__ = [
     "CHUNK_SIZE",
@@ -34,8 +37,10 @@ __all__ = [
     "SPLIT_ON_HEADINGS",
     "CorpusDocument",
     "IngestionReport",
+    "BodiedChunking",
     "aingest_corpus",
     "build_chunker",
+    "has_body",
     "chunking_evidence",
     "ingest_corpus",
     "read_corpus",
@@ -97,19 +102,54 @@ class IngestionReport:
         return f"{self.documents} {self.origin} document(s) ingested"
 
 
+_HEADING_LINE = re.compile(r"^\s*#{1,6}\s+.*$", re.MULTILINE)
+
+
+def has_body(content: str) -> bool:
+    """Whether a chunk says anything beyond its own heading.
+
+    A heading-level split produces one chunk per heading, and an ``##`` section whose text is
+    entirely in the ``###`` subsections beneath it comes out as a bare title. On the retail
+    corpus that was 410 of 1,457 chunks -- twenty-eight percent -- each embedded, each matching
+    on its title alone, each returning nothing a reader can use. *"who are our repeat buyers"*
+    was answered by the chunk ``## 12. Key Metrics and Benchmarks`` and nothing else.
+    """
+    return bool(_HEADING_LINE.sub("", content).strip())
+
+
+class BodiedChunking(ChunkingStrategy):
+    """A chunking strategy that drops chunks with no body.
+
+    Wraps the heading-split strategy rather than subclassing it, so the filter is one small
+    thing with one reason to change and the heading split stays the library's.
+    """
+
+    def __init__(self, inner: ChunkingStrategy) -> None:
+        self.inner = inner
+        self.dropped = 0
+
+    def chunk(self, document: Any) -> List[Any]:
+        chunks = self.inner.chunk(document)
+        kept = [chunk for chunk in chunks if has_body(chunk.content)]
+        self.dropped += len(chunks) - len(kept)
+        return kept
+
+
 def build_chunker(
     split_on_headings: int = SPLIT_ON_HEADINGS,
     chunk_size: int = CHUNK_SIZE,
-) -> Any:
-    """The chunking strategy, with the heading split passed explicitly.
+) -> ChunkingStrategy:
+    """The chunking strategy: heading split passed explicitly, shells dropped.
 
-    Imported lazily because ``MarkdownChunking`` requires the optional ``unstructured``
+    ``MarkdownChunking`` is imported lazily because it requires the optional ``unstructured``
     package; a module-level import would make this whole module unimportable wherever that
     dependency is absent, including in a checker that only wants the constants above.
     """
     from egpt.knowledge.chunking.markdown import MarkdownChunking
 
-    return MarkdownChunking(split_on_headings=split_on_headings, chunk_size=chunk_size)
+    return BodiedChunking(
+        MarkdownChunking(split_on_headings=split_on_headings, chunk_size=chunk_size)
+    )
 
 
 def read_corpus(
@@ -228,6 +268,7 @@ def chunking_evidence(text: str, name: str = "sample") -> List[Dict[str, Any]]:
         ),
     ]:
         chunks = MarkdownChunking(**kwargs).chunk(document)  # type: ignore[arg-type]
+        shells = sum(1 for c in chunks if not has_body(c.content))
         sizes = [len(chunk.content) for chunk in chunks]
         rows.append(
             {
@@ -237,6 +278,7 @@ def chunking_evidence(text: str, name: str = "sample") -> List[Dict[str, Any]]:
                     1 for c in chunks if c.content.lstrip().startswith("#")
                 ),
                 "largest": max(sizes) if sizes else 0,
+                "shells": shells,
             }
         )
     return rows

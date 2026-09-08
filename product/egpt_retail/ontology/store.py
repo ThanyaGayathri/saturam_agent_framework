@@ -158,6 +158,49 @@ class OntologyStore:
         with self._driver.session(database=self._database) as session:
             for statement in self._index_statements():
                 session.run(statement)
+        self.await_indexes()
+
+    def await_indexes(self, timeout_seconds: float = 120.0) -> None:
+        """Block until every ontology index is ONLINE.
+
+        Neo4j builds a vector index **asynchronously**: ``CREATE VECTOR INDEX`` returns at
+        once and population continues in the background. A query issued before population
+        finishes does not fail -- it searches whatever fraction has been indexed and returns
+        a confident, wrong answer. Found the hard way: seconds after a rebuild, *"how much did
+        that promo lift sales"* ranked Order and OrderLine above Promotion; minutes later,
+        Promotion was top by a clear margin. Nothing in between had changed but the index.
+
+        So a rebuild is not finished when the statement returns; it is finished when the index
+        says ONLINE, and this is what the loader waits on before it reports success.
+        """
+        import time
+
+        deadline = time.monotonic() + timeout_seconds
+        with self._driver.session(database=self._database) as session:
+            while True:
+                rows = session.run(
+                    "SHOW INDEXES YIELD name, state, populationPercent "
+                    "WHERE name IN $names RETURN name, state, populationPercent",
+                    names=[_VECTOR_INDEX, _FULLTEXT_INDEX],
+                ).data()
+                pending = [r for r in rows if r["state"] != "ONLINE"]
+                if not pending:
+                    return
+                if time.monotonic() > deadline:
+                    detail = ", ".join(
+                        f"{r['name']}={r['state']}@{r['populationPercent']:.0f}%"
+                        for r in pending
+                    )
+                    raise RuntimeError(
+                        f"ontology indexes not ONLINE after {timeout_seconds:.0f}s: {detail}. "
+                        "Queries against a populating index return silently wrong results, "
+                        "so the load is not reported complete."
+                    )
+                time.sleep(0.25)
+
+    async def aawait_indexes(self, timeout_seconds: float = 120.0) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.await_indexes, timeout_seconds)
 
     async def aensure_indexes(
         self, *, rebuild_on_dimension_change: bool = False
@@ -254,6 +297,9 @@ class OntologyStore:
                     cardinality=relation.cardinality,
                     origin=relation.origin.value,
                 )
+        # New vectors go into the index asynchronously too. Do not report the write done
+        # until the index has caught up, or the first queries answer from a partial one.
+        self.await_indexes()
         return len(rows)
 
     async def awrite(self, ontology: Ontology, *, replace_existing: bool = True) -> int:

@@ -1072,3 +1072,74 @@ description. Adding *"reduced to clear"* and a matching question pattern fixed i
 retrievability depends on the words in it, not on the concept being correct.
 
 ---
+
+### K2 and K3 reviewed together, practitioner lens — three defects, one of them new
+
+**Packages:** K2, K3 (artifact 2.2.0)
+**Status:** PASS — after fixes
+
+**Description:** Read the whole ontology fresh, inspected graph structure, sampled stored
+chunks, and ran ten questions a retail practitioner would actually ask — none of which the
+artifact had been written around — against both layers. Then fixed what that found.
+
+**Two defects the review surfaced before the practitioner lens even applied:**
+
+1. **The K03 cookbook left a fake concept in the live ontology.** *"what is the return rate
+   on electronics"* answered `Return, Warranty`. There is no Warranty in the artifact — it is
+   the core-upgrade test fixture, and the cookbook never restored the store afterwards. Anyone
+   running the cookbook after the loader had a phantom concept in their deployment. The
+   cookbook now writes the real artifact back and asserts Warranty is gone.
+
+2. **28% of K2's chunks were heading-only shells.** 410 of 1,457 were an `##` title whose text
+   lived entirely in the `###`s beneath. Each was embedded and could match on its title alone.
+   `BodiedChunking` now drops any chunk with no body: 1,457 became 1,049. On the sample
+   document the library default has 0 shells and the heading split has 13 — the default's
+   chunks are not empty, they are fragments starting mid-sentence; shells are the price of
+   the heading split, now paid and removed.
+
+**The practitioner test, before and after** (ontology top-2):
+
+| question | before | after |
+|---|---|---|
+| which stores are underperforming | Order, PurchaseOrder | **Store**, Order |
+| what is our shrink | Inventory, Assortment | **Shrinkage**, Markdown |
+| return rate on electronics | Return, *Warranty* | Return, **Refund** |
+| how much did that promo lift sales | Promotion, Campaign | Promotion, Campaign |
+
+**Content changes, all corpus-cited:** added `Store` (retail says store; `Location` is a
+data-modeller's word and *"which stores are underperforming"* had missed entirely), `Shrinkage`
+(a top-three store-ops concern with a whole corpus section and no concept), `Refund` (Return
+had a `refund` synonym but nothing linked a return back to its payment). Fixed `Product
+HAS_PRICE Price` from one-to-one to one-to-many — zone, channel and time pricing make
+one-to-one wrong for any real retailer. Stripped `promotion` from Campaign's synonyms.
+De-B2B'd core `Contact`, which still said *"request a quote"* after quotes moved to the
+overlay. Removed editorialising from `Employee` and `Brand` — an ontology should define, not
+opine. Core is now 27 concepts, 31 relations; 30 with the overlay.
+
+**A fourth collision class, now tooled.** `promotion` was a synonym on Campaign while a
+Promotion *concept* existed. The synonym check could not see it: the other concept never lists
+its own name as a synonym. `synonym_index()` now reserves every concept's name (written and
+spaced forms) and refuses a synonym that equals one. Verified against the deliberate
+Promotion/Campaign case. That makes four real ambiguities caught across three passes —
+`source`, `offer`, `range`, `promotion` — the strongest argument that a fifth pass by the
+author is not the answer, and K-2 in `open-items.md` stays open.
+
+**What surprised me most, and it is the most important line in this entry.** The first
+post-fix run showed two *regressions*: *"promo lift"* fell to Order/OrderLine and *"gross
+margin"* lost Markdown. Minutes later, with nothing changed, Promotion was top at 0.794 and
+Markdown top at 0.763. The difference was the vector index: **Neo4j populates it
+asynchronously, and a query against a half-built index does not fail — it returns a confident
+answer from whatever fraction is indexed.** On 30 nodes the window is under a second, which
+is exactly why it was never seen before. `OntologyStore.write()` and `ensure_indexes()` now
+block on `SHOW INDEXES` until ONLINE; verified that the very first query after a rebuild is
+correct. The loader was reporting success before the store could answer correctly.
+
+**Two of my own claims in the review were wrong, corrected here.** The `## 12. Key Metrics`
+chunk that answered *"repeat buyers"* is not a shell — it has a 1,900-character body holding a
+repeat-purchase-rate metric, so it is a fair answer. And dropping shells has a real cost I
+had not weighed: `## 2. Gross Margin Analysis` was a shell, and while it existed it was a
+signpost that won the gross-margin query; without it a case-study chunk outranks
+`### 2.1 Gross Margin by Category`. The better design is to *inherit* the parent heading into
+each child chunk rather than delete the signpost. Logged as a follow-up, not done.
+
+---

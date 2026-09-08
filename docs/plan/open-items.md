@@ -13,7 +13,7 @@ an item everybody agrees is important and nobody owns.
 | # | Item | Why it matters | Since |
 |---|---|---|---|
 | K-1 | **`include_proposed` defaults to `False`** on every semantic read API method | Raised in P0 as an open question and implemented that way under a stated assumption. The enrichment review screen is the one caller that will need `True`. If the default is wrong, Lane R builds against it first | 7 Sep |
-| K-2 | **Practitioner review of the shipped ontology** — 24 concepts, ~15 minute read | The one thing in Lane K that cannot be self-certified. Layer 2 is *"judged by a retail practitioner reading it"*. Three later packages (K8, K9, K10) take it as given, so a wrong concept propagates silently. Each concept now cites its corpus documents, so review is checking claims rather than judging phrasing | 8 Sep |
+| K-2 | **Practitioner review of the shipped ontology** — 27 concepts, ~15 minute read. A critical self-review by the author is done (see `TEST_LOG.md`, 8 Sep) and found four synonym collisions and a wrong cardinality across three passes; that is the case *for* an outside read, not a substitute for it | The one thing in Lane K that cannot be self-certified. Layer 2 is *"judged by a retail practitioner reading it"*. Three later packages (K8, K9, K10) take it as given, so a wrong concept propagates silently. Each concept now cites its corpus documents, so review is checking claims rather than judging phrasing | 8 Sep |
 | K-3 | **Consolidation scope: should it carry `agent_id`?** | Lane R raised it in `memory/scopes.py` and marked it Lane K's call — one consolidation pass per agent partition, or one per tenant. Needs settling before K1 is written | 8 Sep |
 | K-4 | **Does `format.sh` / `validate.sh` extend to cover `product/`?** | Neither covers it today (zero references). Lane K has been running ruff and mypy on it by hand. Arguably R2 scaffolding, arguably whoever notices | 7 Sep |
 
@@ -49,6 +49,7 @@ an item everybody agrees is important and nobody owns.
 
 | # | Item | Why it matters |
 |---|---|---|
+| X-0 | **Inherit the parent heading into child prose chunks** (K2 follow-up, Lane K) | Heading-only shells are now dropped, which removed a useful signpost: `## 2. Gross Margin Analysis` used to win the gross-margin query; without it a case study outranks `### 2.1 Gross Margin by Category`. Prefixing each `###` chunk with its `##` path keeps the signal without the empty chunk |
 | X-1 | **`Registry.get_function` has no duplicate-name warning** | The tool lookup twenty lines above it in the same file does warn. Executors resolve by `__name__`, first match wins, silently. Lane K ships a check for its own registry; the framework fix is a separate PR |
 | X-2 | **Two pre-existing mypy errors** in `libs/agno/egpt/integrations/knowledge/` | `validate.sh` fails locally and passes in CI, which runs without the optional deps that pull them in. So "I ran validate.sh" is not currently a claim anyone can make on a dev machine — it quietly undermines item 5 of the definition of done for everyone |
 | X-3 | **Neo4j Enterprise licence** | D11 and the Azure alignment assume two databases in one cluster. Local development is community edition, which supports one. K3 works either way because the ontology has its own label; K5 will share one database locally |
@@ -66,3 +67,5 @@ an item everybody agrees is important and nobody owns.
 | Knowledge uses the memory subsystem's embedder decision rather than making a second one — Mode A `bge-base-en-v1.5` at 768, Mode B Azure `text-embedding-3-large` at 1024 | `knowledge/embedding.py` |
 | `operations` added to the shipped `business_area` vocabulary — an employee had no home in the original six | `ontology/vocabularies.json` 1.1.0 |
 | One executor, one name: an I/O executor is `async def` under the same name, not a sync/async pair | `contracts/EXECUTOR_REGISTRY.md` |
+| A vector index is not built when `CREATE` returns — Neo4j populates it asynchronously and a query against a partial index answers confidently and wrongly. Every ontology write blocks until ONLINE | `ontology/store.py` `await_indexes` |
+| `Store` is a first-class concept and `Location` its generalisation; `QuoteRequest`-era language is out of core `Contact` | `ontology/retail.json` 2.2.0 |

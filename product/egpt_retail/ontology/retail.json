@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.2.0",
   "_comment": [
     "The shipped retail ontology (D9). Layer 2 of docs/plan/domain-knowledge-layers.md.",
     "",
@@ -60,7 +60,7 @@
     },
     {
       "name": "Contact",
-      "description": "A named individual at a customer organisation, who may enquire, request a quote or place an order.",
+      "description": "A named individual associated with a customer, who enquires, buys, or is someone the business is in touch with.",
       "business_area": "customer",
       "synonyms": [
         "lead",
@@ -69,8 +69,8 @@
         "enquirer"
       ],
       "question_patterns": [
-        "who requested this quote?",
-        "which people are we talking to?"
+        "who enquired about this?",
+        "which people are we in touch with?"
       ],
       "sources": [
         "21-post-purchase-and-customer-service.md",
@@ -124,7 +124,7 @@
     },
     {
       "name": "Brand",
-      "description": "The manufacturer brand a product is sold under. A business may carry many brands, and customers often shop by brand rather than by category.",
+      "description": "The manufacturer brand a product is sold under. A business may carry many brands.",
       "business_area": "product",
       "synonyms": [
         "make",
@@ -188,18 +188,18 @@
     },
     {
       "name": "Location",
-      "description": "A physical place where inventory is held or from which sales are made, such as a store, warehouse, branch or region.",
+      "description": "A physical place the business operates from: a store, warehouse, depot or region. The generalisation a store is one kind of.",
       "business_area": "inventory",
       "synonyms": [
         "site",
-        "store",
         "warehouse",
-        "branch",
-        "depot"
+        "depot",
+        "region",
+        "premises"
       ],
       "question_patterns": [
         "which sites hold this?",
-        "how does this branch compare?"
+        "how does this region compare?"
       ],
       "sources": [
         "09-store-design-and-real-estate.md",
@@ -317,8 +317,8 @@
       "synonyms": [
         "RMA",
         "return authorisation",
-        "refund",
-        "sent back"
+        "sent back",
+        "returned goods"
       ],
       "question_patterns": [
         "what is being returned and why?",
@@ -336,14 +336,13 @@
       "description": "A marketing activity run over a period to drive demand, with a budget and a measurable outcome.",
       "business_area": "marketing",
       "synonyms": [
-        "promotion",
         "marketing campaign",
         "activity",
         "offer period"
       ],
       "question_patterns": [
         "did the campaign work?",
-        "which promotions drove sales?"
+        "which campaigns drove sales?"
       ],
       "sources": [
         "05-pricing-strategy-and-promotions.md",
@@ -396,7 +395,7 @@
     },
     {
       "name": "Price",
-      "description": "The amount a product is offered for sale at, before any temporary reduction. The reference against which markdowns and promotions are measured.",
+      "description": "The amount a product is offered for sale at, before any temporary reduction. A product carries many prices -- by store, by channel and over time -- and each is the reference against which markdowns and promotions are measured.",
       "business_area": "product",
       "synonyms": [
         "selling price",
@@ -503,7 +502,7 @@
     },
     {
       "name": "Employee",
-      "description": "A person who works for the retailer, whose scheduled hours and tasks drive the largest controllable cost line in a physical store.",
+      "description": "A person employed by the retailer, working in a store, warehouse or office.",
       "business_area": "operations",
       "synonyms": [
         "associate",
@@ -520,6 +519,71 @@
         "12-omnichannel-and-unified-commerce.md",
         "30-retail-strategy-and-future-trends.md",
         "31-crisis-and-risk-management-in-retail.md"
+      ]
+    },
+    {
+      "name": "Store",
+      "description": "A single physical retail outlet trading under the business's banner, with its own trading hours, staff, inventory and profit and loss.",
+      "business_area": "operations",
+      "synonyms": [
+        "shop",
+        "outlet",
+        "branch",
+        "retail store",
+        "physical store"
+      ],
+      "question_patterns": [
+        "which stores are underperforming?",
+        "how is this shop trading?",
+        "sales by store"
+      ],
+      "sources": [
+        "09-store-design-and-real-estate.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "10-store-operations-and-workforce-management.md"
+      ]
+    },
+    {
+      "name": "Shrinkage",
+      "description": "The difference between recorded book inventory and the physical count, attributable to external theft, employee theft, vendor fraud and administrative error.",
+      "business_area": "inventory",
+      "synonyms": [
+        "shrink",
+        "stock loss",
+        "inventory shrink",
+        "inventory shrinkage",
+        "retail shrink"
+      ],
+      "question_patterns": [
+        "what is our shrink?",
+        "where is stock going missing?"
+      ],
+      "sources": [
+        "10-store-operations-and-workforce-management.md",
+        "25-retail-verticals-deep-dive.md",
+        "01-retail-fundamentals-and-terminology.md",
+        "17-emerging-technology-in-retail.md"
+      ]
+    },
+    {
+      "name": "Refund",
+      "description": "Money returned to a customer against a return, reversing some or all of the original payment.",
+      "business_area": "sales",
+      "synonyms": [
+        "money back",
+        "reimbursement",
+        "credit back"
+      ],
+      "question_patterns": [
+        "how much did we refund?",
+        "which refunds are outstanding?"
+      ],
+      "sources": [
+        "21-post-purchase-and-customer-service.md",
+        "31-crisis-and-risk-management-in-retail.md",
+        "28-regulatory-compliance-and-sustainability.md",
+        "24-payments-fraud-and-financial-services.md"
       ]
     }
   ],
@@ -647,22 +711,22 @@
       "type": "HAS_PRICE",
       "source": "Product",
       "target": "Price",
-      "cardinality": "one-to-one",
-      "description": "What a product currently sells for."
+      "cardinality": "one-to-many",
+      "description": "A product's prices, by store, channel and period."
     },
     {
       "type": "REDUCES",
       "source": "Markdown",
       "target": "Price",
       "cardinality": "many-to-one",
-      "description": "A markdown permanently lowers the selling price."
+      "description": "A markdown permanently lowers a price."
     },
     {
-      "type": "DISCOUNTS",
+      "type": "REDUCES",
       "source": "Promotion",
-      "target": "Product",
+      "target": "Price",
       "cardinality": "many-to-many",
-      "description": "What a promotion temporarily reduces the price of."
+      "description": "A promotion temporarily lowers a price. Same verb as a markdown, because both act on price; the difference is duration."
     },
     {
       "type": "INCLUDES",
@@ -698,6 +762,48 @@
       "target": "Campaign",
       "cardinality": "many-to-one",
       "description": "The marketing activity a promotion runs under."
+    },
+    {
+      "type": "IS_A",
+      "source": "Store",
+      "target": "Location",
+      "cardinality": "many-to-one",
+      "description": "A store is one kind of location."
+    },
+    {
+      "type": "PLACED_AT",
+      "source": "Order",
+      "target": "Store",
+      "cardinality": "many-to-one",
+      "description": "Where an in-store order was taken. Absent for online orders."
+    },
+    {
+      "type": "MEASURED_AT",
+      "source": "Shrinkage",
+      "target": "Store",
+      "cardinality": "many-to-one",
+      "description": "Shrink is counted per store."
+    },
+    {
+      "type": "AGAINST",
+      "source": "Shrinkage",
+      "target": "Inventory",
+      "cardinality": "many-to-one",
+      "description": "The stock the loss is measured against."
+    },
+    {
+      "type": "REVERSES",
+      "source": "Refund",
+      "target": "Payment",
+      "cardinality": "many-to-one",
+      "description": "The payment a refund gives back."
+    },
+    {
+      "type": "FOR",
+      "source": "Refund",
+      "target": "Return",
+      "cardinality": "many-to-one",
+      "description": "The return a refund settles."
     }
   ]
 }

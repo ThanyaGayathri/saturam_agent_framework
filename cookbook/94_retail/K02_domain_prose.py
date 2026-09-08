@@ -72,11 +72,13 @@ print("1. The chunking decision, measured on one document")
 print("-" * 78)
 print(f"  {sample.name}  ({len(sample.read_text()):,} chars)")
 print()
-print(f"  {'setting':<26}{'chunks':>8}{'start at heading':>19}{'largest':>10}")
+print(
+    f"  {'setting':<26}{'chunks':>8}{'start at heading':>19}{'largest':>10}{'shells':>8}"
+)
 rows = chunking_evidence(sample.read_text(), name=sample.stem)
 for row in rows:
     print(
-        f"  {row['setting']:<26}{row['chunks']:>8}{row['start_at_heading']:>19}{row['largest']:>10}"
+        f"  {row['setting']:<26}{row['chunks']:>8}{row['start_at_heading']:>19}{row['largest']:>10}{row['shells']:>8}"
     )
 default_row = rows[0]
 chosen_row = rows[2]
@@ -93,6 +95,9 @@ print(
 )
 print(
     f"  raising the cap to 20k changes nothing ({wide_row['chunks']} chunks), so no section is split by size."
+)
+print(
+    f"  {chosen_row['shells']} of those {chosen_row['chunks']} are heading-only shells, dropped before ingest."
 )
 
 # --- 2. Ingest the corpus ----------------------------------------------------------------

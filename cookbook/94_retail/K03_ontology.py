@@ -253,6 +253,16 @@ if not annotation_survived:
 if store.stored_version() != "1.1.0":
     failures.append(f"stored version is {store.stored_version()}, expected 1.1.0")
 
+# Put the real ontology back. The upgrade scenario wrote a fictional 1.1.0 core carrying a
+# Warranty concept to prove the overlay survives; left in place, that fiction is what the
+# deployment serves -- it was found answering "return rate on electronics" with Warranty.
+store.write(extended)
+restored = store.stored_version()
+print()
+print(f"  restored the real ontology: version {restored}, {store.count()} concepts")
+if store.get_concept("Warranty") is not None:
+    failures.append("the test fixture Warranty is still in the store after restore")
+
 driver.close()
 
 if failures:

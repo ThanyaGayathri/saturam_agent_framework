@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import (
@@ -197,13 +198,36 @@ class Ontology:
     def synonym_index(self) -> Mapping[str, str]:
         """Every synonym mapped to the concept it names, lower-cased.
 
-        A synonym claimed by two concepts is a defect the practitioner review should catch, so
-        this raises rather than silently letting the later one win.
+        Two kinds of ambiguity are refused, because both route a question to whichever concept
+        was written first and neither fails loudly on its own:
+
+        * a synonym claimed by **two concepts** -- ``source`` meaning both Supplier and Channel;
+        * a synonym on one concept that is **another concept's name** -- ``promotion`` listed
+          under Campaign while a Promotion concept exists. The first check cannot see this one,
+          because the other concept never lists its own name as a synonym. It was found by a
+          practitioner-style read, not by the tooling, which is why it is tooling now.
+
+        Names are matched in both their written form and their spaced form, so ``ProductCategory``
+        reserves ``product category`` as well.
         """
+        reserved: Dict[str, str] = {}
+        for concept in self.concepts:
+            reserved[concept.name.lower()] = concept.name
+            reserved[re.sub(r"(?<!^)(?=[A-Z])", " ", concept.name).lower()] = (
+                concept.name
+            )
+
         index: Dict[str, str] = {}
         for concept in self.concepts:
             for synonym in concept.synonyms:
                 key = synonym.lower()
+                owner = reserved.get(key)
+                if owner is not None and owner != concept.name:
+                    raise ValueError(
+                        f"synonym {synonym!r} on {concept.name!r} is the name of concept "
+                        f"{owner!r}. A question using that word would reach {concept.name!r} "
+                        f"instead of {owner!r}; drop the synonym or merge the concepts."
+                    )
                 if key in index and index[key] != concept.name:
                     raise ValueError(
                         f"synonym {synonym!r} is claimed by both {index[key]!r} and "
