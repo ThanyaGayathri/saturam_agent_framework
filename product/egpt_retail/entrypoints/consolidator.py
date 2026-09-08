@@ -23,6 +23,11 @@ lock on a **dedicated session held for the process lifetime** turns "pin to one 
 chart comment into a refusal: the second instance logs who holds the lock and exits 3. The session
 is opened directly to Postgres, bypassing any pool -- through a transaction-mode pooler the session
 would end with the first transaction and the lock would silently evaporate.
+
+**Loop mode reports tick errors only in the log, never in the exit code.** ``--once`` maps an
+exhausted-retries outcome to ``EXIT_TICK_ERRORS``, but in loop mode ``ConsolidationWorker._loop``
+logs and continues and the process exits 0 on SIGTERM regardless of how many ticks failed, so a
+health signal for the long-running deployment has to come from the log, not from the exit code.
 """
 
 from __future__ import annotations
@@ -78,6 +83,7 @@ class _AdvisoryLock:
         self._dsn = dsn
         self._key = key
         self._conn: Optional[Any] = None
+        self._held = False
 
     def acquire(self) -> bool:
         import psycopg
@@ -86,13 +92,18 @@ class _AdvisoryLock:
         with self._conn.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (self._key,))
             row = cur.fetchone()
-        return bool(row and row[0])
+        self._held = bool(row and row[0])
+        return self._held
 
     def release(self) -> None:
         if self._conn is not None:
             try:
-                with self._conn.cursor() as cur:
-                    cur.execute("SELECT pg_advisory_unlock(hashtext(%s))", (self._key,))
+                if self._held:
+                    with self._conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT pg_advisory_unlock(hashtext(%s))", (self._key,)
+                        )
+                    self._held = False
             finally:
                 self._conn.close()
                 self._conn = None
@@ -157,31 +168,34 @@ async def amain(once: bool = False, poll_interval: Optional[float] = None) -> in
         provider = build_memory_provider_for(
             build_memory_resolver(settings), tenant_id=slug
         )
-        worker = ConsolidationWorker(
-            provider,
-            consolidation_scope_source(settings, MEMORY_WRITING_AGENT_IDS),
-            poll_interval=interval,
-            max_passes_per_scope=settings.retail_consolidation_max_passes,
-        )
-        if once:
-            started = time.monotonic()
-            outcomes: List[ConsolidationOutcome] = list(await worker.run_once())
-            log.info(summarise(outcomes, time.monotonic() - started))
-            for outcome in outcomes:
-                if outcome.error is not None:
-                    log.error(
-                        "consolidator: scope %s failed after retries: %s",
-                        outcome.scope.key(),
-                        outcome.error,
-                    )
-            log.info(
-                "consolidator: exiting %d",
-                EXIT_TICK_ERRORS if any(o.error for o in outcomes) else 0,
+        try:
+            worker = ConsolidationWorker(
+                provider,
+                consolidation_scope_source(settings, MEMORY_WRITING_AGENT_IDS),
+                poll_interval=interval,
+                max_passes_per_scope=settings.retail_consolidation_max_passes,
             )
-            return EXIT_TICK_ERRORS if any(o.error for o in outcomes) else 0
-        await _run_loop(worker)
-        log.info("consolidator: exiting 0")
-        return 0
+            if once:
+                started = time.monotonic()
+                outcomes: List[ConsolidationOutcome] = list(await worker.run_once())
+                log.info(summarise(outcomes, time.monotonic() - started))
+                for outcome in outcomes:
+                    if outcome.error is not None:
+                        log.error(
+                            "consolidator: scope %s failed after retries: %s",
+                            outcome.scope.key(),
+                            outcome.error,
+                        )
+                log.info(
+                    "consolidator: exiting %d",
+                    EXIT_TICK_ERRORS if any(o.error for o in outcomes) else 0,
+                )
+                return EXIT_TICK_ERRORS if any(o.error for o in outcomes) else 0
+            await _run_loop(worker)
+            log.info("consolidator: exiting 0")
+            return 0
+        finally:
+            await provider.aclose()
     finally:
         lock.release()
 

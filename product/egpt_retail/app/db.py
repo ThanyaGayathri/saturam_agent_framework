@@ -8,11 +8,18 @@ one that gets used by accident.
 
 from __future__ import annotations
 
+import re
+
 from egpt.integrations.db.postgres import PostgresDb
 
 from egpt_retail.app.settings import RetailSettings
 
 __all__ = ["CONTROL_PLANE_DB_ID", "build_control_plane_db", "psycopg_dsn"]
+
+#: Matches any SQLAlchemy ``postgresql+<driver>://`` scheme -- not just ``+psycopg`` -- so a DSN
+#: written for a different driver (``+psycopg2``, ``+asyncpg``) still reaches ``psycopg.connect``
+#: as plain libpq instead of failing there, opaquely, only once the consolidator starts.
+_SQLALCHEMY_DRIVER_SCHEME = re.compile(r"^postgresql\+\w+://")
 
 #: The id ``/config`` reports for the control-plane database, and the ``db_id`` on every
 #: registered component. Stable so run history and memory partitions do not move.
@@ -25,11 +32,13 @@ def build_control_plane_db(settings: RetailSettings) -> PostgresDb:
 
 
 def psycopg_dsn(sqlalchemy_url: str) -> str:
-    """The plain libpq form of a ``postgresql+psycopg://`` URL, for a raw psycopg connection.
+    """The plain libpq form of a ``postgresql+<driver>://`` URL, for a raw psycopg connection.
 
     The consolidator's advisory lock needs a dedicated session that bypasses any pool, so it opens
-    its own connection rather than borrowing SQLAlchemy's.
+    its own connection rather than borrowing SQLAlchemy's. Strips *any* SQLAlchemy driver suffix,
+    not just ``+psycopg``: a DSN configured with ``+psycopg2`` or ``+asyncpg`` still starts fine
+    under ``PostgresDb`` (the ``api``/``migrate`` roles never see this function), so leaving the
+    suffix in would only surface as an opaque libpq scheme error from the consolidator, later and
+    unrelated-looking.
     """
-    if sqlalchemy_url.startswith("postgresql+psycopg://"):
-        return "postgresql://" + sqlalchemy_url[len("postgresql+psycopg://") :]
-    return sqlalchemy_url
+    return _SQLALCHEMY_DRIVER_SCHEME.sub("postgresql://", sqlalchemy_url, count=1)
