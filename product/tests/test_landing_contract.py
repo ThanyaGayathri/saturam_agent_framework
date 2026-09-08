@@ -149,6 +149,37 @@ def test_validate_row_treats_blank_string_like_null():
     assert any("brand" in d and "null or blank" in d for d in defects)
 
 
+def test_validate_row_rejects_blank_key_value():
+    """Round-2 finding: the key-column loop only checked `is None`, so a whitespace-only
+    key value passed clean even though `_is_blank` already caught this for non-key required
+    columns -- and a key value is the one thing the docstring calls unconditional."""
+    row = {
+        "record_type": "contact",
+        "object_id": "   ",
+        "last_modified_at": "2026-09-01T07:00:00Z",
+        "email": "a@example.com",
+        "brand": "Blodgett",
+    }
+    defects = validate_row("crm.contact", row)
+    assert any("object_id" in d and "missing or null" in d for d in defects)
+
+
+def test_validate_row_does_not_double_report_blank_key_and_watermark_column():
+    """A blank (not just null) value in a combined key+watermark column must not double-
+    report either -- the same guard that covers `None` has to cover `_is_blank`."""
+    row = {
+        "user_id": "u_1",
+        "session_id": "s_1",
+        "event_name": "product_view",
+        "occurred_at": "   ",
+        "brand": "Blodgett",
+        "product_id": "p_1",
+    }
+    defects = validate_row("analytics.event", row)
+    occurred_at_defects = [d for d in defects if "occurred_at" in d]
+    assert len(occurred_at_defects) == 1
+
+
 def test_validate_row_does_not_double_report_key_and_watermark_column():
     """Finding #4: analytics.event's occurred_at is both a key and the watermark."""
     row = {

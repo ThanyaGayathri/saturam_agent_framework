@@ -306,7 +306,7 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
 
     for column in schema.key_columns:
         value = row.get(column)
-        if value is None:
+        if _is_blank(value):
             defects.append(f"key column {column!r} is missing or null")
         elif not isinstance(value, (str, int, float, bool)):
             # A key column must be a scalar: every current key column is string-typed, and
@@ -317,10 +317,10 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
             )
 
     watermark = row.get(schema.watermark_column)
-    watermark_already_reported = (
-        watermark is None and schema.watermark_column in schema.key_columns
+    watermark_already_reported = _is_blank(watermark) and (
+        schema.watermark_column in schema.key_columns
     )
-    if watermark is None:
+    if _is_blank(watermark):
         if not watermark_already_reported:
             defects.append(
                 f"watermark column {schema.watermark_column!r} is missing or null"
