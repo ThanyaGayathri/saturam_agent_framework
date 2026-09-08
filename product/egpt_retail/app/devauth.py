@@ -7,7 +7,8 @@ produces the same code path with a scope claim we control. This is stronger evid
 login flow, because the scopes on the token are explicit.
 
 Nothing here is used in production. ``AKS_CUTOVER.md`` replaces the mounted file with the
-identity provider's JWKS URL.
+identity provider's JWKS *document*, re-applied on rotation -- the framework has no JWKS URL
+option (``AuthorizationConfig.jwks_file`` only), which is a named Lane R framework item.
 
 Claims follow the middleware's defaults: ``sub``, ``scopes`` (a list), ``aud``, ``exp``.
 """

@@ -43,7 +43,12 @@ auth:
   jwks: ""
   audience: "api://egpt-retail"
   # G11: app roles -> scope sets, configured at token issuance. The mapping is in the API contract
-  # (x-egpt-roles); it is repeated nowhere else on purpose.
+  # (x-egpt-roles); it is repeated nowhere else on purpose. "Configured at token issuance" assumes
+  # the identity provider emits a `scopes` list claim -- the middleware reads nothing else, and
+  # `AuthorizationConfig` has no `scopes_claim` option. Entra does not: app roles arrive as
+  # `roles`, delegated permissions as `scp` (a space-delimited string). A configurable
+  # `scopes_claim` plus a roles/scp-to-scopes expansion (or a product-side claim mapper) is a
+  # named Lane R framework item, alongside the JWKS-URL gap above -- see AKS_CUTOVER.md §1.
 
 model:
   azureDeployment: gpt-5.4

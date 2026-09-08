@@ -15,6 +15,12 @@ spec:
   selector: {matchLabels: {app: {{ .Release.Name }}-consolidator}}
   template:
     metadata:
+      # See deployment-api.yaml: envFrom is read once, at container start, so this checksum is
+      # what makes a values-only change to the env ConfigMap or Secret roll the pod. No jwks
+      # checksum -- the consolidator has no auth surface and never mounts the JWKS ConfigMap.
+      annotations:
+        checksum/env: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secrets: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
       labels: {{- include "egpt.labels" . | nindent 8 }}
         app: {{ .Release.Name }}-consolidator
         role: consolidator
@@ -27,3 +33,4 @@ spec:
           args: ["consolidator"]
           {{- include "egpt.envFrom" . | nindent 10 }}
           resources: {{- toYaml .Values.consolidator.resources | nindent 12 }}
+          securityContext: {{- include "egpt.securityContext" . | nindent 12 }}

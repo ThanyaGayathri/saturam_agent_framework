@@ -34,11 +34,25 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
             "no token, EgptOS mints one per process, and two pipelines pods behind one Service reject each "
             "other's callbacks. Inject a shared token."
         )
+    if (
+        settings.authorization_enabled
+        and not settings.retail_auth_audience
+        and not settings.retail_auth_skip_audience_check
+    ):
+        raise RuntimeError(
+            "EGPT_RETAIL_AUTH_JWKS_FILE is set but EGPT_RETAIL_AUTH_AUDIENCE is not. verify_audience would be "
+            "silently disabled and any RS256 token signed by the configured JWKS accepted regardless of its "
+            "`aud` claim -- with a shared identity provider (Entra), that is every token the tenant issues to "
+            "any application. Set EGPT_RETAIL_AUTH_AUDIENCE, or EGPT_RETAIL_AUTH_SKIP_AUDIENCE_CHECK=true if "
+            "this deployment genuinely has no audience to check."
+        )
     db = build_control_plane_db(settings)
     # JWT authorization is on exactly when a JWKS file is configured (R2). Locally that is an
     # offline RS256 key pair mounted from a ConfigMap; on AKS it is the identity provider's keys.
     # The scopes claim is the framework's default, `scopes`, a list. /health stays open by design
-    # (DEFAULT_EXCLUDED_ROUTE_PATHS); /config requires config:read.
+    # (DEFAULT_EXCLUDED_ROUTE_PATHS); /config requires config:read. The audience check above
+    # guarantees verify_audience is true here whenever authorization is on, unless the escape
+    # hatch was set -- in which case bool(None) is correctly false.
     authorization_config = (
         AuthorizationConfig(
             jwks_file=settings.retail_auth_jwks_file,

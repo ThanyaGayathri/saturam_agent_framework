@@ -24,6 +24,7 @@ helm upgrade --install egpt deploy/helm/egpt -f deploy/helm/egpt/values.local.ya
 | `secrets.provider: keyVault` + `secrets.keyVault.*` | **NEVER** | — | first run on AKS day (`AKS_CUTOVER.md` §3) |
 | `auth.enabled` + `auth.jwks` (offline RS256 from `devauth`) | **yes** | kind: 200 / 403 / 401 / open `/health` | same key, Entra's JWKS document |
 | `auth.jwks` holding Entra's document, `aud` from an Entra token | **NEVER** | — | `AKS_CUTOVER.md` §4. No JWKS URL option exists in the framework (`AuthorizationConfig.jwks_file` only); rotation means re-applying the file — a named Lane R framework item |
+| App roles → `x-egpt-roles` scope sets on an Entra token | **NEVER** | — | `AKS_CUTOVER.md` §1. Entra emits `roles`/`scp`, never a `scopes` list, and `AuthorizationConfig` has no `scopes_claim` option — every route would 403 on AKS day until the framework gains one (or a product-side claim mapper) — a named Lane R framework item, alongside the JWKS-URL gap |
 | `database.url` through PgBouncer, session mode | **yes** | kind, local infra chart | Flexible Server behind PgBouncer |
 | `database.warehouseUrl` | created only | kind | own Flexible Server; nothing reads it until R4 |
 | `neo4j.*` two databases in one instance | **NEVER** — two Community instances stand in | kind | Enterprise licence required |

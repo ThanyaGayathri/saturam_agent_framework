@@ -678,6 +678,41 @@ needs `prepare_threshold=None` and would let the lock evaporate. Every Azure val
 listed as **NEVER** executed in `deploy/helm/egpt/README.md`; `deploy/AKS_CUTOVER.md` is the
 day they run.
 
+**Re-run after the review response (same kind cluster, fourth run):** review found that a
+`helm upgrade` changing only the JWKS/env/secrets values never rolled the pods (`envFrom` and a
+mounted ConfigMap are read once, at container start) -- reproduced live: rotating `auth.jwks` via
+`--set-file` left both api pods at their original age and the same `kid`. Pod-template
+`checksum/env` / `checksum/secrets` / `checksum/jwks` annotations fixed it; re-verified live: an
+identical re-apply left the pods untouched, a changed JWKS rolled both. All four scenarios above
+were re-run against the fixed chart, unchanged, and passed.
+
+The script itself gained `NAMESPACE`, `VALUES_FILE`, `SKIP_INFRA`, `TOKEN_GRANTED`/
+`TOKEN_UNGRANTED` overrides so it is what actually re-runs on AKS, not a re-run-by-hand
+substitute -- `AKS_CUTOVER.md` §4 said "unchanged" while the script hardcoded the kind path
+(installed `egpt-local-infra`, which that document says not to; used the `default` namespace
+while §3 installs into `egpt`). Exercised on kind with `SKIP_INFRA=1` and pre-minted
+`TOKEN_GRANTED`/`TOKEN_UNGRANTED` (standing in for Entra tokens) to prove the AKS-shaped path,
+not only the default one -- same PASS. The `helm uninstall` on a `failed` release is now guarded
+to `kind-*` contexts only; this branch could not be exercised against a real non-kind context
+(none exists here) and is verified by reading, not by running.
+
+The chart also gained a `PodDisruptionBudget` (api; pipelines only above one replica) and a
+`securityContext` (`runAsNonRoot`, `runAsUser: 10001`, `allowPrivilegeEscalation: false`,
+`readOnlyRootFilesystem: true`, all capabilities dropped) on every container, api/pipelines/
+consolidator/migrate. `readOnlyRootFilesystem` was the one part with real risk of breaking
+something at runtime rather than at render time, so it was verified the same way as the rest of
+this package: applied through the real chart, not asserted, and all four scenarios above re-run
+against it -- api, pipelines and the migrate hook all started clean and served/completed
+normally with a read-only root filesystem.
+
+Separately, `product/egpt_retail/app/main.py`'s `build_agent_os` now refuses to start when a JWKS
+file is configured with no audience (previously: silent `verify_audience=False`, any RS256 token
+the JWKS could verify accepted regardless of `aud`) unless `EGPT_RETAIL_AUTH_SKIP_AUDIENCE_CHECK`
+is set; `_helpers.tpl`'s `egpt.authGuard` gained the matching `helm template` failure. Both
+verified: `helm template --set auth.enabled=true` (no jwks, no audience) still fails on the jwks
+check first, as before; `--set auth.audience=""` with a jwks value now fails on the new audience
+check. This package's four scenarios (which always set an audience) are unaffected.
+
 ---
 
 ### R02_wheel_contents.py
@@ -711,5 +746,16 @@ The egpt wheel carries only egpt/ and its dist-info. The framework stays publish
    of `packages.find include = ["egpt*"]`; the check exists for the day someone adds a
    `package-dir`, a `MANIFEST.in`, or moves retail code under `libs/`. A guard on a property you
    have costs one CI step; discovering it gone costs a release.
+
+**Correction, review response:** point 1 above overstated what the original `build_wheel()` did.
+It only removed `build/` when `build/` had **not** already existed before the run
+(`had_build_dir`) — the normal case (CI's own earlier `python -m build`, a previous cookbook run)
+left it skipped, which is exactly the scenario the cleanup exists for. Reproduced live: pre-create
+`libs/agno/build/`, run `build_wheel()`, `build/lib/egpt` was still there afterward. Fixed to
+remove `build/lib` unconditionally — it is always this invocation's own artifact regardless of
+what else is in `build/` — and reproduced-then-reverted to confirm. Separately, the build
+subprocess's `check=True` + `capture_output=True` combination hid setuptools' own error text on
+failure; the wrapper now prints `stdout`/`stderr` before re-raising, verified against a forced
+build failure.
 
 ---

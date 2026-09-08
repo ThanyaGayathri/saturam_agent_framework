@@ -17,15 +17,35 @@
 #   bash cookbook/94_retail/R02_cluster_evidence.sh
 #
 # Environment:
-#   KUBE_CONTEXT   default kind-egpt. On AKS day, the AKS context (and mint tokens from Entra).
-#   AUTH_DIR       default a temp dir; where devauth writes private.pem and jwks.json.
+#   KUBE_CONTEXT       default kind-egpt. On AKS day, the AKS context.
+#   NAMESPACE          default "default" (where kind installs land). AKS_CUTOVER.md §3 installs
+#                      into "egpt" -- pass NAMESPACE=egpt there, or every command below targets
+#                      the wrong namespace and the in-cluster http://egpt-api:7777 never resolves.
+#   VALUES_FILE        default deploy/helm/egpt/values.local.yaml. On AKS: values.azure.yaml --
+#                      values.local.yaml would replace Entra's JWKS with an offline key, the
+#                      keyVault secrets provider with the plain Secret, and pullPolicy with Never.
+#   SKIP_INFRA         unset by default (installs deploy/helm/egpt-local-infra, step 1). Set to
+#                      skip it: AKS_CUTOVER.md says explicitly not to install it -- Postgres,
+#                      Redis etc. are the managed Azure services already provisioned.
+#   TOKEN_GRANTED,
+#   TOKEN_UNGRANTED    unset by default (step 2 mints both offline via devauth against a fresh
+#                      key pair, and step 3 mounts that pair's JWKS). Set both to mint from Entra
+#                      instead and skip devauth and the --set-file auth.jwks flag -- values.azure.yaml
+#                      already carries Entra's JWKS from the initial install (AKS_CUTOVER.md §3).
+#   AUTH_DIR           default a temp dir; where devauth writes private.pem and jwks.json. Unused
+#                      when TOKEN_GRANTED/TOKEN_UNGRANTED are both set.
 
 set -u
 cd "$(dirname "$0")/../.."
 PY=${PY:-.venv/bin/python}
 CTX=${KUBE_CONTEXT:-kind-egpt}
-K="kubectl --context $CTX"
+NAMESPACE=${NAMESPACE:-default}
+VALUES_FILE=${VALUES_FILE:-deploy/helm/egpt/values.local.yaml}
+K="kubectl --context $CTX -n $NAMESPACE"
+H="helm --kube-context $CTX --namespace $NAMESPACE"
 AUTH_DIR=${AUTH_DIR:-$(mktemp -d)}
+TOKEN_GRANTED=${TOKEN_GRANTED:-}
+TOKEN_UNGRANTED=${TOKEN_UNGRANTED:-}
 AUD="api://egpt-retail"
 FAIL=()
 step() { echo; echo "################ $1 ################"; }
@@ -35,22 +55,45 @@ step "0. cluster"
 $K get nodes -o wide | sed 's/^/   /'
 
 step "1. infrastructure chart first (the migrate hook needs Postgres)"
-helm --kube-context "$CTX" upgrade --install egpt-infra deploy/helm/egpt-local-infra --wait --timeout 300s 2>&1 | tail -2 | sed 's/^/   /'
-$K get pods -l 'app in (egpt-postgres,egpt-pgbouncer)' -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,STATUS:.status.phase | sed 's/^/   /'
+if [ -n "${SKIP_INFRA:-}" ]; then
+  echo "   SKIP_INFRA set; assuming the managed services (Flexible Server, Cache for Redis, ...) already exist"
+else
+  $H upgrade --install egpt-infra deploy/helm/egpt-local-infra --create-namespace --wait --timeout 300s 2>&1 | tail -2 | sed 's/^/   /'
+  $K get pods -l 'app in (egpt-postgres,egpt-pgbouncer)' -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,STATUS:.status.phase | sed 's/^/   /'
+fi
 
 step "2. offline identity: RS256 key pair + JWKS"
-$PY -m egpt_retail.app.devauth keygen "$AUTH_DIR" | sed 's/^/   /'
-TOKEN_GRANTED=$($PY -m egpt_retail.app.devauth mint "$AUTH_DIR/private.pem" --sub alice --scope config:read --aud "$AUD")
-TOKEN_UNGRANTED=$($PY -m egpt_retail.app.devauth mint "$AUTH_DIR/private.pem" --sub bob --scope agents:read --aud "$AUD")
-echo "   alice: scopes=[config:read]   bob: scopes=[agents:read]"
+if [ -n "$TOKEN_GRANTED" ] && [ -n "$TOKEN_UNGRANTED" ]; then
+  echo "   TOKEN_GRANTED/TOKEN_UNGRANTED provided; skipping devauth (tokens minted from Entra on AKS)"
+else
+  $PY -m egpt_retail.app.devauth keygen "$AUTH_DIR" | sed 's/^/   /'
+  TOKEN_GRANTED=$($PY -m egpt_retail.app.devauth mint "$AUTH_DIR/private.pem" --sub alice --scope config:read --aud "$AUD")
+  TOKEN_UNGRANTED=$($PY -m egpt_retail.app.devauth mint "$AUTH_DIR/private.pem" --sub bob --scope agents:read --aud "$AUD")
+  echo "   alice: scopes=[config:read]   bob: scopes=[agents:read]"
+fi
 
 step "3. application chart (pre-install hook runs migrate first)"
-if helm --kube-context "$CTX" status egpt 2>/dev/null | grep -q "STATUS: failed"; then
-  echo "   previous release is failed; uninstalling so the install path runs clean"
-  helm --kube-context "$CTX" uninstall egpt >/dev/null 2>&1
+if $H status egpt 2>/dev/null | grep -q "STATUS: failed"; then
+  case "$CTX" in
+    kind-*)
+      echo "   previous release is failed; uninstalling so the install path runs clean"
+      $H uninstall egpt >/dev/null 2>&1
+      ;;
+    *)
+      echo "   previous release is failed on non-kind context '$CTX'; not auto-uninstalling."
+      FAIL+=("release egpt is failed on $CTX/$NAMESPACE -- investigate by hand ('helm status egpt --kube-context $CTX -n $NAMESPACE') before re-running")
+      ;;
+  esac
 fi
-helm --kube-context "$CTX" upgrade --install egpt deploy/helm/egpt -f deploy/helm/egpt/values.local.yaml \
-  --set-file auth.jwks="$AUTH_DIR/jwks.json" --wait --timeout 300s 2>&1 | tail -2 | sed 's/^/   /'
+JWKS_ARG=""
+if [ -f "$AUTH_DIR/jwks.json" ]; then
+  # A single `--flag=value` word, not `--set-file "value"` as two: an array is the usual way to
+  # keep an optional argument out of a command line, but bash 3.2 (macOS's /bin/bash) treats
+  # expanding an empty array under `set -u` as an unbound-variable error, aborting the run.
+  JWKS_ARG="--set-file=auth.jwks=$AUTH_DIR/jwks.json"
+fi
+$H upgrade --install egpt deploy/helm/egpt -f "$VALUES_FILE" --create-namespace \
+  $JWKS_ARG --wait --timeout 300s 2>&1 | tail -2 | sed 's/^/   /'
 echo "   --- migrate hook Job log (tail)"
 $K logs job/egpt-migrate 2>&1 | tail -4 | sed 's/^/   /'
 echo "   --- all pods"

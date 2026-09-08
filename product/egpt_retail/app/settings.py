@@ -67,7 +67,15 @@ class RetailSettings(BrandedSettings):
     retail_auth_audience: Optional[str] = Field(
         default=None,
         description="Expected `aud` claim when authorization is on (EGPT_RETAIL_AUTH_AUDIENCE). Unset skips "
-        "audience verification.",
+        "audience verification -- refused by build_agent_os whenever a JWKS file is configured, unless "
+        "retail_auth_skip_audience_check is set.",
+    )
+    retail_auth_skip_audience_check: bool = Field(
+        default=False,
+        description="Escape hatch for local use only: lets authorization run with no EGPT_RETAIL_AUTH_AUDIENCE, "
+        "accepting any `aud` claim (EGPT_RETAIL_AUTH_SKIP_AUDIENCE_CHECK). Never set this against a shared "
+        "identity provider -- with Entra, every RS256 token the JWKS can verify would be accepted regardless of "
+        "which application it was issued for.",
     )
     retail_warehouse_db_url: Optional[str] = Field(
         default=None,

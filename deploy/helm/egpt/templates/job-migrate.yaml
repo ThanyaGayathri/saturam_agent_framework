@@ -31,3 +31,4 @@ spec:
           env:
             - name: EGPT_RETAIL_DB_URL
               value: {{ .Values.database.directUrl | default .Values.database.url | quote }}
+          securityContext: {{- include "egpt.securityContext" . | nindent 12 }}

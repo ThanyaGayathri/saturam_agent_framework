@@ -30,11 +30,32 @@ envFrom:
 {{- end }}
 
 {{/*
+Every workload runs the same image as USER 10001 (deploy/Dockerfile) already; declaring it here
+costs nothing and is what an AKS policy add-on (Azure Policy / Pod Security admission) will ask
+for on day one. Shared by api, pipelines, consolidator and the migrate hook Job.
+*/}}
+{{- define "egpt.securityContext" -}}
+runAsNonRoot: true
+runAsUser: 10001
+allowPrivilegeEscalation: false
+readOnlyRootFilesystem: true
+capabilities: {drop: ["ALL"]}
+{{- end }}
+
+{{/*
 Auth on means a JWKS document is present. The framework reads a file only; a URL key would be a
 placeholder the pods cannot honour -- they would mount a ConfigMap that never rendered.
+
+An empty auth.audience is caught here too: the product's build_agent_os makes the same refusal
+at runtime (EGPT_RETAIL_AUTH_AUDIENCE unset with a JWKS file configured silently disables
+verify_audience, so every RS256 token the JWKS can verify would be accepted regardless of `aud`)
+-- this guard is belt-and-braces so a values file with the mistake never reaches the pod.
 */}}
 {{- define "egpt.authGuard" -}}
 {{- if and .Values.auth.enabled (not .Values.auth.jwks) -}}
 {{- fail "auth.enabled is true but auth.jwks is empty. Pass the JWKS document: --set-file auth.jwks=<jwks.json> (devauth keygen locally; Entra's discovery/v2.0/keys document on AKS)." -}}
+{{- end -}}
+{{- if and .Values.auth.enabled (not .Values.auth.audience) -}}
+{{- fail "auth.enabled is true but auth.audience is empty. Every RS256 token signed by the configured JWKS would be accepted regardless of its `aud` claim. Set auth.audience." -}}
 {{- end -}}
 {{- end -}}

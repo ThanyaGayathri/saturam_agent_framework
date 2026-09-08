@@ -10,6 +10,17 @@ spec:
   selector: {matchLabels: {app: {{ .Release.Name }}-api}}
   template:
     metadata:
+      # A `helm upgrade` that only changes the ConfigMap or Secret patches those objects but
+      # gives Kubernetes no reason to restart a pod that already loaded the old environment --
+      # `envFrom` and a mounted ConfigMap are read once, at container start. These checksums
+      # change the pod template itself so the rollout follows the values change (see
+      # AKS_CUTOVER.md's key-rotation step, which depends on this).
+      annotations:
+        checksum/env: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secrets: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.auth.enabled }}
+        checksum/jwks: {{ .Values.auth.jwks | sha256sum }}
+        {{- end }}
       labels: {{- include "egpt.labels" . | nindent 8 }}
         app: {{ .Release.Name }}-api
         role: api
@@ -33,6 +44,7 @@ spec:
             periodSeconds: 10
             initialDelaySeconds: 10
           resources: {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext: {{- include "egpt.securityContext" . | nindent 12 }}
           {{- if .Values.auth.enabled }}
           volumeMounts:
             - {name: jwks, mountPath: /etc/egpt/jwks, readOnly: true}
@@ -51,3 +63,16 @@ metadata:
 spec:
   selector: {app: {{ .Release.Name }}-api}
   ports: [{port: {{ .Values.api.port }}, targetPort: http, name: http}]
+---
+# api.replicas: 2 exists so the pod-kill scenario serves through -- a PodDisruptionBudget is what
+# keeps that true against a *voluntary* disruption too (an AKS node-image upgrade, `kubectl
+# drain`), which a pod-kill test does not exercise. Without it, both replicas can be evicted for
+# the same drain at once and the Service goes to zero endpoints.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app: {{ .Release.Name }}-api}}

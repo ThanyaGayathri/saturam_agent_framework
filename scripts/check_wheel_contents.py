@@ -50,25 +50,38 @@ def build_wheel(out_dir: Path) -> Path:
     setuptools writes an intermediate `build/lib/egpt/` into the source tree even when `--outdir`
     points elsewhere, and mypy then reports `Duplicate module named "egpt"` on every validate.sh
     run until someone deletes it. Found the first time R02_wheel_contents.py ran before validate.
+
+    `build/lib` is removed unconditionally, not only when `build/` did not already exist: this
+    invocation writes `build/lib/egpt` regardless of prior state, so gating the cleanup on
+    whether `build/` pre-existed skipped cleanup in exactly the case it was meant to handle --
+    a `build/` directory already there (CI's own build step, an earlier cookbook run) is the
+    normal case, not the exception, and left the stale module behind every time.
     """
-    stale_build = FRAMEWORK / "build"
-    had_build_dir = stale_build.exists()
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "build",
-            "--wheel",
-            "--outdir",
-            str(out_dir),
-            str(FRAMEWORK),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    if not had_build_dir:
-        shutil.rmtree(stale_build, ignore_errors=True)
+    stale_lib = FRAMEWORK / "build" / "lib"
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "build",
+                "--wheel",
+                "--outdir",
+                str(out_dir),
+                str(FRAMEWORK),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        # capture_output hides setuptools' own error from the console; check=True's
+        # CalledProcessError carries only the command line, which is useless for diagnosing a
+        # build failure. Print what the build actually said before re-raising.
+        sys.stderr.write(e.stdout or "")
+        sys.stderr.write(e.stderr or "")
+        raise
+    finally:
+        shutil.rmtree(stale_lib, ignore_errors=True)
     wheels = sorted(out_dir.glob("egpt-*.whl"))
     if not wheels:
         raise SystemExit(f"no egpt wheel produced in {out_dir}")

@@ -23,7 +23,11 @@ concurrency:
   # automatic push run on main -- they'd otherwise collide on the same
   # ci-refs/heads/main group.
   group: ci-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  # PR runs only: cancelling an in-progress push run on `main` is not safe here. dorny/paths-filter
+  # on a push compares only the commits in that push (`github.event.before`), so a push A (Python
+  # change) cancelled by a fast-following push B (docs-only) would mean A's Python changes never
+  # ran on main -- B's filter output covers only B's own commits and reports `python: false`.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # The heavy jobs share one gate, repeated verbatim on each because job-level `if` cannot read
 # workflow `env` and YAML anchors are not supported here:
@@ -365,6 +369,63 @@ jobs:
           source ../../.venv/bin/activate
           lint-imports
 
+  helm-lint:
+    # `deploy` is live code -- the two Helm charts -- and until this job existed a PR touching
+    # only deploy/** produced no check at all: `python` came out false, every heavy job (which
+    # is the only place a chart was ever rendered) skipped, and ci-success went green having
+    # looked at nothing. `frontend` is unused for the same reason the README states (no frontend
+    # code yet); `deploy` is not.
+    name: helm-lint
+    needs: changes
+    if: (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')) && needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.3
+
+      - name: helm lint both charts
+        run: |
+          set -e
+          helm lint deploy/helm/egpt-local-infra
+          helm lint deploy/helm/egpt
+
+      - name: helm template values.local.yaml (stub JWKS)
+        run: |
+          set -e
+          echo '{"keys":[]}' > /tmp/stub-jwks.json
+          helm template egpt deploy/helm/egpt -f deploy/helm/egpt/values.local.yaml \
+            --set-file auth.jwks=/tmp/stub-jwks.json > /dev/null
+
+      - name: helm template secrets.provider=keyVault
+        run: |
+          set -e
+          helm template egpt deploy/helm/egpt --set secrets.provider=keyVault > /dev/null
+
+      - name: helm template auth.enabled without jwks/audience -- expect failure
+        run: |
+          set -e
+          if helm template egpt deploy/helm/egpt --set auth.enabled=true > /tmp/out.log 2>&1; then
+            echo "expected helm template to fail: auth.enabled=true with no auth.jwks"
+            cat /tmp/out.log
+            exit 1
+          fi
+          grep -q "auth.jwks is empty" /tmp/out.log
+
+      - name: helm template consolidator.replicaCount -- expect failure
+        run: |
+          set -e
+          if helm template egpt deploy/helm/egpt --set consolidator.replicaCount=2 > /tmp/out.log 2>&1; then
+            echo "expected helm template to fail: consolidator.replicaCount is not a setting"
+            cat /tmp/out.log
+            exit 1
+          fi
+          grep -q "is not a setting" /tmp/out.log
+
   unit-drivers-absent:
     # A unit test that needs an optional driver must gate on it (pytest.importorskip) so it
     # SKIPS where the driver is absent. `test-and-build` structurally cannot catch a missed
@@ -471,6 +532,7 @@ jobs:
       - test-and-build
       - unit-drivers-absent
       - import-linter
+      - helm-lint
     # always() is intentional: without it, this job is skipped when an upstream
     # job fails, and GitHub branch protection treats "skipped" as "passed".
     # The shell checks below enforce the real result.
@@ -486,34 +548,53 @@ jobs:
           exit 1
 
       - name: Require all jobs
-        # When nothing under the Python paths changed, the heavy jobs are legitimately skipped and
-        # this check passes on `changes` alone. Any other `skipped` -- or any failure -- fails.
+        # `python` and `deploy` gate two independent groups of jobs (Python's heavy suite; the
+        # chart's helm-lint), so each is checked -- and tolerated as skipped-by-design -- on its
+        # own path filter rather than one early exit deciding for both. A PR that touches only
+        # deploy/** must still get helm-lint's result checked here, not waved through because
+        # python == 'false'.
         run: |
           if [[ "${{ needs.changes.result }}" != "success" ]]; then
             echo "changes failed: ${{ needs.changes.result }}"
             exit 1
           fi
-          if [[ "${{ needs.changes.outputs.python }}" != "true" ]]; then
-            echo "No Python-relevant paths changed; heavy jobs skipped by design."
-            exit 0
+
+          failed=0
+
+          if [[ "${{ needs.changes.outputs.python }}" == "true" ]]; then
+            if [[ "${{ needs.validate.result }}" != "success" ]]; then
+              echo "validate failed: ${{ needs.validate.result }}"
+              failed=1
+            fi
+            if [[ "${{ needs.validate-egpt-infra.result }}" != "success" ]]; then
+              echo "validate-egpt-infra failed: ${{ needs.validate-egpt-infra.result }}"
+              failed=1
+            fi
+            if [[ "${{ needs.test-and-build.result }}" != "success" ]]; then
+              echo "test-and-build failed: ${{ needs.test-and-build.result }}"
+              failed=1
+            fi
+            if [[ "${{ needs.unit-drivers-absent.result }}" != "success" ]]; then
+              echo "unit-drivers-absent failed: ${{ needs.unit-drivers-absent.result }}"
+              failed=1
+            fi
+            if [[ "${{ needs.import-linter.result }}" != "success" ]]; then
+              echo "import-linter failed: ${{ needs.import-linter.result }}"
+              failed=1
+            fi
+          else
+            echo "No Python-relevant paths changed; Python jobs skipped by design."
           fi
-          if [[ "${{ needs.validate.result }}" != "success" ]]; then
-            echo "validate failed: ${{ needs.validate.result }}"
-            exit 1
+
+          if [[ "${{ needs.changes.outputs.deploy }}" == "true" ]]; then
+            if [[ "${{ needs.helm-lint.result }}" != "success" ]]; then
+              echo "helm-lint failed: ${{ needs.helm-lint.result }}"
+              failed=1
+            fi
+          else
+            echo "No deploy-relevant paths changed; helm-lint skipped by design."
           fi
-          if [[ "${{ needs.validate-egpt-infra.result }}" != "success" ]]; then
-            echo "validate-egpt-infra failed: ${{ needs.validate-egpt-infra.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.test-and-build.result }}" != "success" ]]; then
-            echo "test-and-build failed: ${{ needs.test-and-build.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.unit-drivers-absent.result }}" != "success" ]]; then
-            echo "unit-drivers-absent failed: ${{ needs.unit-drivers-absent.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.import-linter.result }}" != "success" ]]; then
-            echo "import-linter failed: ${{ needs.import-linter.result }}"
+
+          if [[ "$failed" == "1" ]]; then
             exit 1
           fi

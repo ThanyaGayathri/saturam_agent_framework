@@ -14,6 +14,7 @@ import pytest
 from jwt import PyJWK
 
 from egpt_retail.app.devauth import generate_rsa_jwks, mint_token, write_dev_jwks
+from egpt_retail.app.main import build_agent_os
 from egpt_retail.app.settings import RetailSettings
 
 
@@ -55,6 +56,27 @@ def test_auth_is_on_exactly_when_a_jwks_file_is_configured(monkeypatch):
         s.authorization_enabled is True
         and s.retail_auth_audience == "api://egpt-retail"
     )
+
+
+def test_a_jwks_file_without_an_audience_refuses_to_build(monkeypatch):
+    """verify_audience must never be silently False while a JWKS file makes auth mandatory --
+    review finding: an unset EGPT_RETAIL_AUTH_AUDIENCE would otherwise accept any `aud` claim
+    from any token the JWKS can verify."""
+    monkeypatch.setenv("EGPT_RETAIL_AUTH_JWKS_FILE", "/etc/egpt/jwks/jwks.json")
+    monkeypatch.delenv("EGPT_RETAIL_AUTH_AUDIENCE", raising=False)
+    monkeypatch.delenv("EGPT_RETAIL_AUTH_SKIP_AUDIENCE_CHECK", raising=False)
+    with pytest.raises(RuntimeError, match="EGPT_RETAIL_AUTH_AUDIENCE"):
+        build_agent_os(RetailSettings())
+
+
+def test_skip_audience_check_escape_hatch_allows_no_audience(monkeypatch):
+    monkeypatch.setenv("EGPT_RETAIL_AUTH_JWKS_FILE", "/etc/egpt/jwks/jwks.json")
+    monkeypatch.delenv("EGPT_RETAIL_AUTH_AUDIENCE", raising=False)
+    monkeypatch.setenv("EGPT_RETAIL_AUTH_SKIP_AUDIENCE_CHECK", "true")
+    # Does not raise the audience RuntimeError; PostgresDb is pure construction (no connection),
+    # so this exercises build_agent_os end to end without a database.
+    os = build_agent_os(RetailSettings())
+    assert os is not None
 
 
 def test_direct_db_url_defaults_to_the_pooled_one(monkeypatch):
