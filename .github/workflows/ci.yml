@@ -42,6 +42,15 @@ jobs:
     name: changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # dorny/paths-filter calls the GitHub REST API to list a PR's changed files, which needs
+    # pull-requests: read on GITHUB_TOKEN. The repo's ambient default token permissions don't
+    # cover that scope, so without this block the API call 403s ("Resource not accessible by
+    # integration"), the job fails, and every downstream job gets skipped. A job-level
+    # `permissions:` block replaces the ambient default entirely, so contents: read has to be
+    # listed too -- it's what the checkout step below needs.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       python: ${{ steps.filter.outputs.python }}
       frontend: ${{ steps.filter.outputs.frontend }}
