@@ -1,0 +1,36 @@
+{{- include "egpt.consolidatorGuard" . }}
+# One per customer. `replicas: 1` is hardcoded with no value behind it, and `Recreate` matters:
+# the default RollingUpdate briefly runs two consolidators on every upgrade. The entrypoint's
+# advisory lock is what turns "one" into a refusal; this is the chart making the mistake hard.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-consolidator
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+    app: {{ .Release.Name }}-consolidator
+    role: consolidator
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: {{ .Release.Name }}-consolidator}}
+  template:
+    metadata:
+      # See deployment-api.yaml: envFrom is read once, at container start, so this checksum is
+      # what makes a values-only change to the env ConfigMap or Secret roll the pod. No jwks
+      # checksum -- the consolidator has no auth surface and never mounts the JWKS ConfigMap.
+      annotations:
+        checksum/env: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secrets: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels: {{- include "egpt.labels" . | nindent 8 }}
+        app: {{ .Release.Name }}-consolidator
+        role: consolidator
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.consolidator.terminationGracePeriodSeconds }}
+      containers:
+        - name: consolidator
+          image: {{ include "egpt.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["consolidator"]
+          {{- include "egpt.envFrom" . | nindent 10 }}
+          resources: {{- toYaml .Values.consolidator.resources | nindent 12 }}
+          securityContext: {{- include "egpt.securityContext" . | nindent 12 }}

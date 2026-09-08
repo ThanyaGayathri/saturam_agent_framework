@@ -1,0 +1,633 @@
+# Configure. Derived from configure-workspace.js (internalSources, llmModels, cloudProfile,
+# externalIntegrations), business-areas.js and processes.js.
+
+/configure/sources:
+  get:
+    tags: [configure]
+    operationId: listSources
+    summary: Internal sources.
+    x-egpt-scopes: [config:read]
+    responses:
+      "200":
+        description: Sources.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/configure.yaml#/InternalSource'
+            examples:
+              default:
+                summary: The one source most deployments have -- the warehouse.
+                value:
+                  - id: src_warehouse
+                    source_type: postgres
+                    name: Warehouse (silver + gold)
+                    host: egpt-warehouse.internal
+                    port: 5432
+                    database_name: egpt_warehouse
+                    schema: silver
+                    auth_method: username_password
+                    username: egpt_reader
+                    ssl_mode: require
+                    permission_level: read_only
+                    has_credentials: true
+                    last_harvest_id: hv_20260907_0200
+                    created_at: "2026-09-01T10:00:00Z"
+              empty:
+                summary: "`ConfigureDatabaseEmpty` -- nothing connected yet."
+                value: []
+  post:
+    tags: [configure]
+    operationId: createSource
+    summary: Connect an internal source.
+    x-egpt-scopes: [configure:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/configure.yaml#/InternalSourceWrite'
+          examples:
+            default:
+              value:
+                source_type: postgres
+                name: Warehouse (silver + gold)
+                host: egpt-warehouse.internal
+                port: 5432
+                database_name: egpt_warehouse
+                schema: silver
+                auth_method: username_password
+                username: egpt_reader
+                password: "********"
+                ssl_mode: require
+                permission_level: read_only
+    responses:
+      "201":
+        description: Created. Credentials are stored, never echoed.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/InternalSource'
+            examples:
+              default:
+                value:
+                  id: src_warehouse
+                  source_type: postgres
+                  name: Warehouse (silver + gold)
+                  host: egpt-warehouse.internal
+                  port: 5432
+                  database_name: egpt_warehouse
+                  schema: silver
+                  auth_method: username_password
+                  username: egpt_reader
+                  ssl_mode: require
+                  permission_level: read_only
+                  has_credentials: true
+                  last_harvest_id: null
+                  created_at: "2026-09-07T10:00:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/configure/sources/{source_id}:
+  get:
+    tags: [configure]
+    operationId: getSource
+    summary: One source.
+    x-egpt-scopes: [config:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/sourceId'
+    responses:
+      "200":
+        description: The source.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/InternalSource'
+            examples:
+              default:
+                value:
+                  id: src_warehouse
+                  source_type: postgres
+                  name: Warehouse (silver + gold)
+                  host: egpt-warehouse.internal
+                  port: 5432
+                  database_name: egpt_warehouse
+                  schema: silver
+                  auth_method: username_password
+                  username: egpt_reader
+                  ssl_mode: require
+                  permission_level: read_only
+                  has_credentials: true
+                  last_harvest_id: hv_20260907_0200
+                  created_at: "2026-09-01T10:00:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  patch:
+    tags: [configure]
+    operationId: updateSource
+    summary: Update a source. Omitted fields are unchanged.
+    x-egpt-scopes: [configure:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/sourceId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/configure.yaml#/InternalSourcePatch'
+          examples:
+            default:
+              value: {source_type: postgres, name: Warehouse, host: egpt-warehouse.internal, database_name: egpt_warehouse, auth_method: username_password, password: "********"}
+    responses:
+      "200":
+        description: Updated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/InternalSource'
+            examples:
+              default:
+                value:
+                  id: src_warehouse
+                  source_type: postgres
+                  name: Warehouse
+                  host: egpt-warehouse.internal
+                  port: 5432
+                  database_name: egpt_warehouse
+                  schema: silver
+                  auth_method: username_password
+                  username: egpt_reader
+                  ssl_mode: require
+                  permission_level: read_only
+                  has_credentials: true
+                  last_harvest_id: hv_20260907_0200
+                  created_at: "2026-09-01T10:00:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [configure]
+    operationId: deleteSource
+    summary: Disconnect a source.
+    x-egpt-scopes: [configure:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/sourceId'
+    responses:
+      "204":
+        description: Deleted.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/configure/sources/{source_id}/test:
+  post:
+    tags: [configure]
+    operationId: testSource
+    summary: Try the connection with the stored credentials.
+    x-egpt-scopes: [configure:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/sourceId'
+    responses:
+      "200":
+        description: "The outcome. A failure is a 200 with `ok: false` -- the request succeeded, the connection did not."
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ok, detail, tested_at]
+              properties:
+                ok: {type: boolean}
+                detail: {type: string}
+                tested_at:
+                  $ref: '../schemas/common.yaml#/Timestamp'
+            examples:
+              ok:
+                value: {ok: true, detail: "Connected as egpt_reader; 7 tables visible in schema silver.", tested_at: "2026-09-07T10:01:00Z"}
+              failed:
+                value: {ok: false, detail: "Authentication failed for user egpt_reader.", tested_at: "2026-09-07T10:01:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/configure/models:
+  get:
+    tags: [configure]
+    operationId: listModels
+    summary: Configured models, one per routing tier.
+    x-egpt-scopes: [config:read]
+    responses:
+      "200":
+        description: Models.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/configure.yaml#/LlmModel'
+            examples:
+              default:
+                value:
+                  - {id: mdl_small, provider_id: azure_openai, model_id: gpt-5-mini, tier: small, base_url: "https://retail-ai.openai.azure.com/", is_default: true, has_api_key: true}
+                  - {id: mdl_frontier, provider_id: azure_openai, model_id: gpt-5.5, tier: frontier, base_url: "https://retail-ai.openai.azure.com/", is_default: false, has_api_key: true}
+              empty:
+                summary: "`ConfigureModelEmpty`."
+                value: []
+  post:
+    tags: [configure]
+    operationId: createModel
+    summary: Add a model.
+    x-egpt-scopes: [configure:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/configure.yaml#/LlmModelWrite'
+          examples:
+            default:
+              value: {provider_id: azure_openai, model_id: gpt-5.5, tier: frontier, base_url: "https://retail-ai.openai.azure.com/", api_key: "********", is_default: false}
+    responses:
+      "201":
+        description: Created.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/LlmModel'
+            examples:
+              default:
+                value: {id: mdl_frontier, provider_id: azure_openai, model_id: gpt-5.5, tier: frontier, base_url: "https://retail-ai.openai.azure.com/", is_default: false, has_api_key: true}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/configure/models/{model_id}:
+  patch:
+    tags: [configure]
+    operationId: updateModel
+    summary: Update a model.
+    x-egpt-scopes: [configure:write]
+    parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema: {type: string}
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/configure.yaml#/LlmModelWrite'
+          examples:
+            default:
+              value: {provider_id: azure_openai, model_id: gpt-5.5, tier: frontier, is_default: true}
+    responses:
+      "200":
+        description: Updated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/LlmModel'
+            examples:
+              default:
+                value: {id: mdl_frontier, provider_id: azure_openai, model_id: gpt-5.5, tier: frontier, base_url: "https://retail-ai.openai.azure.com/", is_default: true, has_api_key: true}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [configure]
+    operationId: deleteModel
+    summary: Remove a model.
+    x-egpt-scopes: [configure:write]
+    parameters:
+      - name: model_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "204":
+        description: Deleted.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/configure/integrations:
+  get:
+    tags: [configure]
+    operationId: listIntegrations
+    summary: Connector integrations.
+    x-egpt-scopes: [config:read]
+    responses:
+      "200":
+        description: Integrations.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/configure.yaml#/ExternalIntegration'
+            examples:
+              default:
+                value:
+                  - {id: int_analytics, provider_id: analytics, name: Web analytics, integration_type: analytics, environment: production, sync_frequency: daily, data_scope: sessions and events, status: active, auth_type: api_key, base_url: "", api_version: "", connection_status: connected, last_sync_at: "2026-09-07T02:10:00Z", last_error: "", has_credentials: true}
+                  - {id: int_crm, provider_id: crm, name: CRM, integration_type: crm, environment: production, sync_frequency: daily, data_scope: "contacts, deals, quotes", status: active, auth_type: oauth, base_url: "", api_version: "", connection_status: connected, last_sync_at: "2026-09-07T02:12:00Z", last_error: "", has_credentials: true}
+                  - {id: int_replay, provider_id: session_replay, name: Session replay, integration_type: session_replay, environment: production, sync_frequency: daily, data_scope: sessions, status: inactive, auth_type: api_key, base_url: "", api_version: "", connection_status: untested, last_sync_at: null, last_error: "", has_credentials: false}
+              empty:
+                value: []
+  post:
+    tags: [configure]
+    operationId: createIntegration
+    summary: Add an integration.
+    x-egpt-scopes: [configure:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/configure.yaml#/ExternalIntegrationWrite'
+          examples:
+            default:
+              value: {provider_id: session_replay, name: Session replay, integration_type: session_replay, environment: production, sync_frequency: daily, auth_type: api_key, api_key: "********"}
+    responses:
+      "201":
+        description: Created.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/ExternalIntegration'
+            examples:
+              default:
+                value: {id: int_replay, provider_id: session_replay, name: Session replay, integration_type: session_replay, environment: production, sync_frequency: daily, data_scope: "", status: active, auth_type: api_key, base_url: "", api_version: "", connection_status: untested, last_sync_at: null, last_error: "", has_credentials: true}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/configure/integrations/{integration_id}:
+  patch:
+    tags: [configure]
+    operationId: updateIntegration
+    summary: Update an integration.
+    x-egpt-scopes: [configure:write]
+    parameters:
+      - name: integration_id
+        in: path
+        required: true
+        schema: {type: string}
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/configure.yaml#/ExternalIntegrationPatch'
+          examples:
+            default:
+              value: {provider_id: session_replay, name: Session replay, environment: production, sync_frequency: hourly, auth_type: api_key, status: active}
+    responses:
+      "200":
+        description: Updated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/ExternalIntegration'
+            examples:
+              default:
+                value: {id: int_replay, provider_id: session_replay, name: Session replay, integration_type: session_replay, environment: production, sync_frequency: hourly, data_scope: "", status: active, auth_type: api_key, base_url: "", api_version: "", connection_status: untested, last_sync_at: null, last_error: "", has_credentials: true}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [configure]
+    operationId: deleteIntegration
+    summary: Remove an integration.
+    x-egpt-scopes: [configure:write]
+    parameters:
+      - name: integration_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "204":
+        description: Deleted.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/configure/cloud:
+  get:
+    tags: [configure]
+    operationId: getCloudProfile
+    summary: Where this deployment runs.
+    x-egpt-scopes: [config:read]
+    responses:
+      "200":
+        description: The profile.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/CloudProfile'
+            examples:
+              default:
+                value: {provider: azure, region: westeurope, environment: production, summary_public: "Single-tenant deployment in the customer's Azure tenancy."}
+              local:
+                summary: A local kind cluster, as R2 verifies it.
+                value: {provider: local, region: kind, environment: development, summary_public: "Local verification cluster."}
+  put:
+    tags: [configure]
+    operationId: setCloudProfile
+    summary: Set the profile.
+    x-egpt-scopes: [configure:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/configure.yaml#/CloudProfile'
+          examples:
+            default:
+              value: {provider: azure, region: westeurope, environment: production, summary_public: ""}
+    responses:
+      "200":
+        description: Set.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/CloudProfile'
+            examples:
+              default:
+                value: {provider: azure, region: westeurope, environment: production, summary_public: ""}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/business-areas:
+  get:
+    tags: [configure]
+    operationId: getBusinessAreas
+    summary: The business hierarchy, with which areas the connected data supports.
+    x-egpt-scopes: [config:read]
+    parameters:
+      - name: supported
+        in: query
+        required: false
+        schema: {type: boolean}
+        description: When true, only areas with at least one confirmed mapping (K9).
+    responses:
+      "200":
+        description: The hierarchy.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/BusinessAreaHierarchy'
+            examples:
+              default:
+                summary: The shipped vocabulary, with subject areas from the retail hierarchy.
+                value:
+                  vocabulary_version: "1.0.0"
+                  areas:
+                    - {id: customer, label: Customer, subject_areas: [Customer Satisfaction, Returns Management, Contact Centre], description: Who the customers are and how they behave., supported: true, origin: core}
+                    - {id: product, label: Product, subject_areas: [Assortment Planning, Category Performance, Markdown Optimisation], description: "What is sold, and how each product performs.", supported: true, origin: core}
+                    - {id: inventory, label: Inventory, subject_areas: [Stock Health, Replenishment, Shrinkage & Loss], description: "What is on hand, what is short, what is overstocked.", supported: true, origin: core}
+                    - {id: supply_chain, label: Supply Chain, subject_areas: [Supplier Management, Delivery Management], description: "Suppliers, lead times, fulfilment reliability.", supported: true, origin: core}
+                    - {id: marketing, label: Marketing, subject_areas: [Traffic Sources, Promotions], description: "Reach, engagement and campaign performance.", supported: false, origin: core}
+                    - {id: sales, label: Sales, subject_areas: [Revenue, Conversion, Order Fulfillment], description: "Revenue, conversion and pipeline.", supported: true, origin: core}
+                    - {id: store_ops, label: Store Ops, subject_areas: [Labor & Staffing, Foot Traffic, Task Compliance], description: In-store operations., supported: false, origin: overlay}
+              unsupported_only_ontology:
+                summary: Before any source is connected -- every area exists, none is supported.
+                value:
+                  vocabulary_version: "1.0.0"
+                  areas:
+                    - {id: customer, label: Customer, subject_areas: [], description: Who the customers are and how they behave., supported: false, origin: core}
+                    - {id: product, label: Product, subject_areas: [], description: "What is sold, and how each product performs.", supported: false, origin: core}
+                    - {id: inventory, label: Inventory, subject_areas: [], description: "What is on hand, what is short, what is overstocked.", supported: false, origin: core}
+                    - {id: supply_chain, label: Supply Chain, subject_areas: [], description: "Suppliers, lead times, fulfilment reliability.", supported: false, origin: core}
+                    - {id: marketing, label: Marketing, subject_areas: [], description: "Reach, engagement and campaign performance.", supported: false, origin: core}
+                    - {id: sales, label: Sales, subject_areas: [], description: "Revenue, conversion and pipeline.", supported: false, origin: core}
+  put:
+    tags: [configure]
+    operationId: setBusinessAreas
+    summary: Apply the customer's overlay to the hierarchy.
+    x-egpt-scopes: [configure:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/configure.yaml#/BusinessAreaHierarchyWrite'
+          examples:
+            default:
+              value:
+                areas:
+                  - {id: store_ops, label: Store Ops, subject_areas: [Labor & Staffing, Foot Traffic, Task Compliance], description: In-store operations.}
+    responses:
+      "200":
+        description: The hierarchy after the overlay.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/BusinessAreaHierarchy'
+            examples:
+              default:
+                value:
+                  vocabulary_version: "1.0.0"
+                  areas:
+                    - {id: customer, label: Customer, subject_areas: [], description: Who the customers are and how they behave., supported: false, origin: core}
+                    - {id: product, label: Product, subject_areas: [], description: "What is sold, and how each product performs.", supported: false, origin: core}
+                    - {id: inventory, label: Inventory, subject_areas: [], description: "What is on hand, what is short, what is overstocked.", supported: false, origin: core}
+                    - {id: supply_chain, label: Supply Chain, subject_areas: [], description: "Suppliers, lead times, fulfilment reliability.", supported: false, origin: core}
+                    - {id: marketing, label: Marketing, subject_areas: [], description: "Reach, engagement and campaign performance.", supported: false, origin: core}
+                    - {id: sales, label: Sales, subject_areas: [], description: "Revenue, conversion and pipeline.", supported: false, origin: core}
+                    - {id: store_ops, label: Store Ops, subject_areas: [Labor & Staffing, Foot Traffic, Task Compliance], description: In-store operations., supported: false, origin: overlay}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "409":
+        description: The overlay tried to remove or redefine a core area (G10). Raise it as a proposal instead.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              conflict:
+                value: {detail: "overlay redefines core term 'inventory' in 'business_area'. An overlay may add and annotate, never redefine (G10) -- raise it as a proposal.", code: overlay_conflict}
+
+/processes:
+  get:
+    tags: [configure]
+    operationId: listProcesses
+    summary: Operational processes by business area. Read-only in 1.0.0.
+    x-egpt-scopes: [config:read]
+    parameters:
+      - name: business_area
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/common.yaml#/BusinessAreaId'
+    responses:
+      "200":
+        description: Processes.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/configure.yaml#/Process'
+            examples:
+              default:
+                value:
+                  - {id: inv_1, name: Demand Forecasting Run, business_area_id: inventory, subject_area: Stock Health, description: "Generate SKU-level demand forecasts using sales history, seasonality and external signals to inform replenishment.", impact: "Reduce forecast error 20-35%; cut overstock and stockouts.", icon_key: PackageCheck, linked_kpi_ids: [stocklevel__days_of_stock], linked_use_case_ids: []}
+                  - {id: inv_5, name: Safety Stock Review, business_area_id: inventory, subject_area: Replenishment, description: Recalibrate safety stock parameters by SKU and location based on demand variability and supplier lead-time risk., impact: "Right-size safety buffers; cut excess stock 15-25%.", icon_key: PackageCheck, linked_kpi_ids: [stocklevel__stockout_risk_count, stocklevel__overstock_count], linked_use_case_ids: []}
+                  - {id: sc_1, name: Supplier OTIF & Fill Rate Review, business_area_id: supply_chain, subject_area: Supplier Management, description: "Score suppliers on on-time-in-full, lead-time variance and fill accuracy.", impact: "Improve inbound reliability 15-25%.", icon_key: ClipboardCheck, linked_kpi_ids: [supplier__on_time_rate_30d, supplier__fill_rate], linked_use_case_ids: []}
+              empty:
+                value: []
+
+/processes/{process_id}:
+  get:
+    tags: [configure]
+    operationId: getProcess
+    summary: One process.
+    x-egpt-scopes: [config:read]
+    parameters:
+      - name: process_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The process.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/configure.yaml#/Process'
+            examples:
+              default:
+                value: {id: inv_1, name: Demand Forecasting Run, business_area_id: inventory, subject_area: Stock Health, description: "Generate SKU-level demand forecasts using sales history, seasonality and external signals to inform replenishment.", impact: "Reduce forecast error 20-35%; cut overstock and stockouts.", icon_key: PackageCheck, linked_kpi_ids: [stocklevel__days_of_stock], linked_use_case_ids: []}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+x-egpt-parameters:
+  sourceId:
+    name: source_id
+    in: path
+    required: true
+    schema: {type: string}
+
+x-egpt-responses:
+  InsufficientScope:
+    description: The token lacks a scope this operation requires.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          insufficient_scope:
+            value: {detail: "Insufficient permissions. Required scopes: configure:write.", code: insufficient_scope}
+  NotFound:
+    description: No such resource.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          not_found:
+            value: {detail: "Not found.", code: not_found}

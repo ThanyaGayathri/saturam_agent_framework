@@ -1,0 +1,159 @@
+# Dashboards: a named set of KPI references with layout, filters, a refresh schedule and a
+# visibility rule. Reads go to gold and nothing else -- never silver, never a live aggregation.
+
+ChartKind:
+  type: string
+  enum: [number, line, bar, table]
+
+TilePosition:
+  type: object
+  required: [x, y, w, h]
+  properties:
+    x: {type: integer, minimum: 0}
+    y: {type: integer, minimum: 0}
+    w: {type: integer, minimum: 1}
+    h: {type: integer, minimum: 1}
+
+Tile:
+  type: object
+  required: [id, kpi_identifier, chart, position]
+  properties:
+    id: {type: string}
+    kpi_identifier: {type: string}
+    title: {type: string, default: ""}
+    chart:
+      $ref: './dashboards.yaml#/ChartKind'
+    position:
+      $ref: './dashboards.yaml#/TilePosition'
+    grain_value:
+      type: [string, "null"]
+      description: For a KPI at a non-overall grain, which row -- a supplier id, a location -- this tile shows. Null shows the top-N as a table.
+
+TileWrite:
+  type: object
+  required: [kpi_identifier, chart, position]
+  properties:
+    kpi_identifier: {type: string}
+    title: {type: string}
+    chart:
+      $ref: './dashboards.yaml#/ChartKind'
+    position:
+      $ref: './dashboards.yaml#/TilePosition'
+    grain_value: {type: [string, "null"]}
+
+DashboardFilter:
+  type: object
+  required: [field, value]
+  properties:
+    field:
+      $ref: './dashboards.yaml#/DashboardFilterField'
+    value: {type: string}
+
+RefreshSchedule:
+  type: string
+  enum: [nightly, hourly, manual]
+  description: "`nightly` follows gold; anything more frequent is capped by how often gold materialises (D7)."
+
+Visibility:
+  type: string
+  enum: [private, team, everyone]
+
+Dashboard:
+  type: object
+  required: [id, name, tiles, filters, refresh_schedule, visibility, owner, created_at, updated_at]
+  properties:
+    id: {type: string}
+    name: {type: string}
+    description: {type: string, default: ""}
+    tiles:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/Tile'
+    filters:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/DashboardFilter'
+    refresh_schedule:
+      $ref: './dashboards.yaml#/RefreshSchedule'
+    visibility:
+      $ref: './dashboards.yaml#/Visibility'
+    owner: {type: string}
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+    updated_at:
+      $ref: './common.yaml#/Timestamp'
+
+DashboardWrite:
+  type: object
+  required: [name]
+  properties:
+    name: {type: string}
+    description: {type: string}
+    tiles:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/TileWrite'
+    filters:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/DashboardFilter'
+    refresh_schedule:
+      $ref: './dashboards.yaml#/RefreshSchedule'
+    visibility:
+      $ref: './dashboards.yaml#/Visibility'
+
+SeriesPoint:
+  type: object
+  required: [at, value]
+  properties:
+    at:
+      $ref: './common.yaml#/Timestamp'
+    value: {type: [number, "null"]}
+
+TileData:
+  type: object
+  description: One tile's values from gold, with the stamp every gold row carries so a stale number is distinguishable from a wrong one.
+  required: [tile_id, kpi_identifier, status, computed_at]
+  properties:
+    tile_id: {type: string}
+    kpi_identifier: {type: string}
+    status:
+      $ref: './kpis.yaml#/KpiHealthStatus'
+    value: {type: [number, "null"]}
+    unit: {type: string, default: ""}
+    delta:
+      type: [number, "null"]
+      description: Change against the previous period at the same grain.
+    series:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/SeriesPoint'
+    rows:
+      type: array
+      items: {type: object, additionalProperties: true}
+      description: For a `rowset` KPI or a table chart.
+    as_of:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    computed_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    provenance_ref: {type: [string, "null"]}
+
+DashboardData:
+  type: object
+  required: [dashboard_id, tiles, read_at]
+  properties:
+    dashboard_id: {type: string}
+    tiles:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/TileData'
+    read_at:
+      $ref: './common.yaml#/Timestamp'
+
+DashboardFilterField:
+  type: string
+  enum: [business_area, time_window]

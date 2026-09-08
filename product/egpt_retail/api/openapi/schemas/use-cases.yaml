@@ -1,0 +1,453 @@
+# Use cases: the catalog, the builder draft, R9's spec / gap check / plan, preflight,
+# activation and runs. Derived from use-cases-catalog.js and use-case-draft.js -- the second
+# of which is hardcoded model output, not storage, and maps to endpoints rather than a resource.
+
+UseCaseStatus:
+  type: string
+  enum: [template, draft, activated, paused, retired]
+
+UseCaseSource:
+  type: string
+  enum: [template, user]
+  description: Whether the entry shipped with the product as a template or the customer authored it.
+
+Autonomy:
+  type: string
+  enum: [copilot, autopilot]
+  description: "`copilot` surfaces decision cards for a person; `autopilot` executes within guardrails."
+
+UseCase:
+  type: object
+  description: |
+    A use case is three artifacts -- a stored workflow component, the skill prompts its agent
+    steps carry, and a spec record holding what the author asked for. This is the catalog view
+    over all three. `level` is the autonomy level the activation screen shows; activating at
+    three or above needs the admin role (G11).
+  required: [id, title, description, business_area, status, source, level, autonomy, version, updated_at]
+  properties:
+    id: {type: string}
+    title: {type: string}
+    description: {type: string}
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+    subject_area: {type: string, default: ""}
+    tier:
+      oneOf:
+        - $ref: './kpis.yaml#/KpiLevel'
+        - type: "null"
+    status:
+      $ref: './use-cases.yaml#/UseCaseStatus'
+    source:
+      $ref: './use-cases.yaml#/UseCaseSource'
+    level:
+      type: integer
+      minimum: 1
+      maximum: 5
+    autonomy:
+      $ref: './use-cases.yaml#/Autonomy'
+    tags:
+      type: array
+      items: {type: string}
+    sample_question: {type: string, default: ""}
+    supporting_questions:
+      type: array
+      items: {type: string}
+    process_id: {type: [string, "null"]}
+    linked_kpi_ids:
+      type: array
+      items: {type: string}
+    workflow_component_id:
+      type: [string, "null"]
+      description: The framework component (`/components`) holding the compiled workflow, once one exists.
+    version:
+      type: integer
+      description: Bumped on publish. Runs and golden sets are attributed to a version (R15).
+    gallery_order: {type: [integer, "null"]}
+    last_run:
+      oneOf:
+        - $ref: './use-cases.yaml#/UseCaseRunSummary'
+        - type: "null"
+    updated_at:
+      $ref: './common.yaml#/Timestamp'
+
+UseCaseWrite:
+  type: object
+  required: [title, description, business_area]
+  properties:
+    title: {type: string}
+    description: {type: string}
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+    subject_area: {type: string}
+    tags:
+      type: array
+      items: {type: string}
+    sample_question: {type: string}
+    supporting_questions:
+      type: array
+      items: {type: string}
+    process_id: {type: [string, "null"]}
+    linked_kpi_ids:
+      type: array
+      items: {type: string}
+    autonomy:
+      $ref: './use-cases.yaml#/Autonomy'
+    level:
+      type: integer
+      minimum: 1
+      maximum: 5
+    template_id:
+      type: [string, "null"]
+      description: When creating from a template, the template's id; the draft is prefilled from it.
+
+UseCaseDraft:
+  type: object
+  description: |
+    The builder's working state, steps one to nine. Persisted as a whole because the wizard
+    reads and writes it as a whole. Steps four and five (`plan_items`, `tasks`) are deliberately
+    absent: they are derived views served by `GET /use-cases/{id}/plan` over the compiled
+    workflow, never authored here -- a plan authored in parallel with the workflow is the
+    failure the build plan names.
+  required: [version, step1, step2, step3, step8]
+  properties:
+    version: {type: integer}
+    step1:
+      $ref: './use-cases.yaml#/DraftStep1'
+    step2:
+      $ref: './use-cases.yaml#/DraftStep2'
+    step3:
+      $ref: './use-cases.yaml#/DraftStep3'
+    step6:
+      $ref: './use-cases.yaml#/DraftStep6'
+    step7:
+      $ref: './use-cases.yaml#/DraftStep7'
+    step8:
+      $ref: './use-cases.yaml#/DraftStep8'
+    step9:
+      $ref: './use-cases.yaml#/DraftStep9'
+    updated_at:
+      $ref: './common.yaml#/Timestamp'
+
+SpecEntity:
+  type: object
+  required: [concept, role]
+  properties:
+    concept:
+      type: string
+      description: A concept name from the semantic layer. Closed set, rendered from `GET /semantic/concepts`.
+    role:
+      $ref: './use-cases.yaml#/SpecEntityRole'
+
+Spec:
+  type: object
+  description: |
+    What the author asked for, extracted by the spec-extraction agent (R9, Lane R's first
+    skill). Every closed-set value comes from the semantic layer and the vocabulary; an entity
+    the deployment does not have cannot appear here, it appears in `notes` instead.
+  required: [use_case_id, question, business_area, entities, kpi_identifiers, grain, notes, extracted_by]
+  properties:
+    use_case_id: {type: string}
+    question: {type: string}
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+    entities:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/SpecEntity'
+    kpi_identifiers:
+      type: array
+      items: {type: string}
+    grain:
+      $ref: './kpis.yaml#/Grain'
+    time_window:
+      oneOf:
+        - $ref: './kpis.yaml#/TimeWindow'
+        - type: "null"
+    delivery:
+      $ref: './monitoring.yaml#/DeliveryChannel'
+    notes:
+      type: string
+      description: Empty on a clean extraction; otherwise what the question asked for that the deployment cannot express.
+    extracted_by:
+      $ref: './common.yaml#/SkillRef'
+    semantic_snapshot: {type: string}
+
+GapKind:
+  type: string
+  enum: [missing_table, blocked_kpi, partial_kpi, unknown_concept, no_join_path, unsupported_area]
+
+Gap:
+  type: object
+  required: [kind, subject, detail]
+  properties:
+    kind:
+      $ref: './use-cases.yaml#/GapKind'
+    subject: {type: string}
+    detail:
+      type: string
+      description: What to connect or confirm to close the gap. Written for the customer.
+
+GapCheck:
+  type: object
+  description: A deterministic check of the spec against the semantic layer and the KPI registry. Set differences and join-path lookups; no model is consulted.
+  required: [use_case_id, feasible, gaps, semantic_snapshot, checked_at]
+  properties:
+    use_case_id: {type: string}
+    feasible: {type: boolean}
+    gaps:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/Gap'
+    semantic_snapshot: {type: string}
+    checked_at:
+      $ref: './common.yaml#/Timestamp'
+
+PlanStepKind:
+  type: string
+  enum: [executor, agent]
+
+PlanStep:
+  type: object
+  description: One step of the compiled workflow. `ref` is an executor name from the registry or a skill identifier -- the same strings the stored workflow holds.
+  required: [index, kind, ref, name, description]
+  properties:
+    index: {type: integer}
+    kind:
+      $ref: './use-cases.yaml#/PlanStepKind'
+    ref: {type: string}
+    name: {type: string}
+    description: {type: string}
+    inputs:
+      type: array
+      items: {type: string}
+    outputs:
+      type: array
+      items: {type: string}
+    permits_or_blocks:
+      type: boolean
+      description: True for the executors that can stop the run -- preflight, guard, feasibility. Always false for an agent step, by the alignment rules.
+    model_tier:
+      oneOf:
+        - $ref: './configure.yaml#/ModelTier'
+        - type: "null"
+    estimated_seconds: {type: [integer, "null"]}
+
+Plan:
+  type: object
+  description: A view over the compiled workflow, never authored separately. Steps four and five of the prototype's wizard render this.
+  required: [use_case_id, version, steps, compiled_at]
+  properties:
+    use_case_id: {type: string}
+    version: {type: integer}
+    workflow_component_id: {type: [string, "null"]}
+    steps:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/PlanStep'
+    compiled_at:
+      $ref: './common.yaml#/Timestamp'
+
+PreflightCheck:
+  type: object
+  required: [name, passed, reason]
+  properties:
+    name: {type: string}
+    passed: {type: boolean}
+    reason: {type: string}
+
+PreflightResult:
+  type: object
+  description: Whether the use case may run now. A deterministic executor's answer; if it blocks, the reason is one a person can act on.
+  required: [use_case_id, allowed, checks, checked_at]
+  properties:
+    use_case_id: {type: string}
+    allowed: {type: boolean}
+    checks:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/PreflightCheck'
+    blocked_by:
+      type: array
+      items: {type: string}
+      description: Names of the checks that failed.
+    checked_at:
+      $ref: './common.yaml#/Timestamp'
+
+ActivationRequest:
+  type: object
+  properties:
+    level:
+      type: integer
+      minimum: 1
+      maximum: 5
+    autonomy:
+      $ref: './use-cases.yaml#/Autonomy'
+    schedule:
+      $ref: './use-cases.yaml#/ScheduleCadence'
+
+RunStatus:
+  type: string
+  enum: [queued, running, succeeded, failed, blocked, cancelled]
+
+RunTrigger:
+  type: string
+  enum: [schedule, manual, activation]
+
+UseCaseRunSummary:
+  type: object
+  required: [id, status, started_at]
+  properties:
+    id: {type: string}
+    status:
+      $ref: './use-cases.yaml#/RunStatus'
+    started_at:
+      $ref: './common.yaml#/Timestamp'
+    finished_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+
+UseCaseRun:
+  type: object
+  description: One run, keyed by use case and version (G12), holding its status, output reference and provenance reference. What "why did last Tuesday's run say that" hits.
+  required: [id, use_case_id, use_case_version, status, trigger, started_at]
+  properties:
+    id: {type: string}
+    use_case_id: {type: string}
+    use_case_version: {type: integer}
+    status:
+      $ref: './use-cases.yaml#/RunStatus'
+    trigger:
+      $ref: './use-cases.yaml#/RunTrigger'
+    started_at:
+      $ref: './common.yaml#/Timestamp'
+    finished_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    framework_run_id:
+      type: [string, "null"]
+      description: The framework's run id, for the session and run-history endpoints.
+    output_ref:
+      type: [string, "null"]
+      description: Where the delivered answer lives -- a report id, or a knowledge document id once ingested (G12).
+    provenance_ref:
+      type: [string, "null"]
+      description: "`GET /runs/{run_id}/provenance`."
+    summary: {type: string, default: ""}
+    blocked_reason: {type: [string, "null"]}
+    cost:
+      $ref: './use-cases.yaml#/RunCost'
+
+UseCaseSuggestion:
+  type: object
+  description: A use case proposed from the connected data and the catalog (K13). Shares inputs and output discipline with KPI suggestion.
+  required: [title, description, business_area, rationale, derived_from_tables, kpi_identifiers, confidence]
+  properties:
+    title: {type: string}
+    description: {type: string}
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+    rationale: {type: string}
+    derived_from_tables:
+      type: array
+      items: {type: string}
+      minItems: 1
+    kpi_identifiers:
+      type: array
+      items: {type: string}
+    confidence:
+      $ref: './common.yaml#/Confidence'
+    template_id: {type: [string, "null"]}
+
+UseCaseSuggestionList:
+  type: object
+  required: [suggestions, notes]
+  properties:
+    suggestions:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/UseCaseSuggestion'
+    notes: {type: string}
+    semantic_snapshot: {type: string}
+
+SpecEntityRole:
+  type: string
+  enum: [subject, filter, measure, group_by]
+
+ScheduleCadence:
+  type: string
+  enum: [once, daily, weekly, monthly]
+
+DraftViewMode:
+  type: string
+  enum: [flow, list]
+
+DraftStep1:
+  type: object
+  required: [title, description, category]
+  properties:
+    title: {type: string}
+    description: {type: string}
+    category:
+      $ref: './common.yaml#/BusinessAreaId'
+    tags: {type: string}
+    autonomy:
+      $ref: './use-cases.yaml#/Autonomy'
+
+DraftStep2:
+  type: object
+  required: [primary_question]
+  properties:
+    primary_question: {type: string}
+    supporting_questions:
+      type: array
+      items: {type: string}
+
+DraftStep3:
+  type: object
+  description: Data scope. Every id here is a configured source, a knowledge collection or a semantic table -- validated on save, so the plan cannot reference something that does not exist.
+  properties:
+    confirmed_source_ids:
+      type: array
+      items: {type: string}
+    confirmed_knowledge_ids:
+      type: array
+      items: {type: string}
+    semantic_tables:
+      type: array
+      items: {type: string}
+
+DraftStep6:
+  type: object
+  properties:
+    view_mode:
+      $ref: './use-cases.yaml#/DraftViewMode'
+
+DraftStep7:
+  type: object
+  properties:
+    acknowledged: {type: boolean}
+
+DraftStep8:
+  type: object
+  required: [schedule]
+  properties:
+    schedule:
+      $ref: './use-cases.yaml#/ScheduleCadence'
+    guardrail_amount: {type: [number, "null"]}
+    delivery:
+      $ref: './monitoring.yaml#/DeliveryChannel'
+    recipient: {type: string}
+
+DraftStep9:
+  type: object
+  properties:
+    execution_done: {type: boolean}
+
+RunCost:
+  type: object
+  properties:
+    model_tier: {type: string}
+    input_tokens: {type: integer}
+    output_tokens: {type: integer}

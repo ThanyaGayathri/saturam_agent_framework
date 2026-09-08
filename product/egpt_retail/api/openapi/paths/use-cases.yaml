@@ -1,0 +1,829 @@
+# Use cases. Derived from use-cases-catalog.js (the catalog) and use-case-draft.js (which is
+# hardcoded model output and maps to R9's spec, gap check and plan rather than to storage).
+#
+# Definitions themselves are versioned framework components (`/components`); this fragment is
+# the retail view over them plus the builder's working state.
+
+/use-cases:
+  get:
+    tags: [use-cases]
+    operationId: listUseCases
+    summary: The catalog -- templates, drafts and activated use cases.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/use-cases.yaml#/UseCaseStatus'
+      - name: source
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/use-cases.yaml#/UseCaseSource'
+      - name: business_area
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/common.yaml#/BusinessAreaId'
+      - name: q
+        in: query
+        required: false
+        schema: {type: string}
+        description: Free-text search over title, description and tags. Every token must match.
+    responses:
+      "200":
+        description: Use cases.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/UseCase'
+            examples:
+              default:
+                summary: "`UseCaseGallery` -- one shipped template, one activated, one draft."
+                value:
+                  - id: uc_tpl_rfq
+                    title: RFQ and Quote Pipeline
+                    description: Explain where quote requests are lost between request, quote and deal, and which brands and regions drive it.
+                    business_area: sales
+                    subject_area: Conversion
+                    tier: operational
+                    status: template
+                    source: template
+                    level: 1
+                    autonomy: copilot
+                    tags: [rfq, quotes, funnel]
+                    sample_question: Where are we losing quote requests before they become deals?
+                    supporting_questions: ["Which brands convert worst from quote to deal?", "Has quote turnaround time changed this quarter?"]
+                    process_id: null
+                    linked_kpi_ids: []
+                    workflow_component_id: null
+                    version: 1
+                    gallery_order: 1
+                    last_run: null
+                    updated_at: "2026-09-01T00:00:00Z"
+                  - id: uc_0001
+                    title: RFQ funnel -- weekly
+                    description: The RFQ template, activated for the sales team.
+                    business_area: sales
+                    subject_area: Conversion
+                    tier: operational
+                    status: activated
+                    source: user
+                    level: 1
+                    autonomy: copilot
+                    tags: [rfq]
+                    sample_question: Where are we losing quote requests before they become deals?
+                    supporting_questions: []
+                    process_id: null
+                    linked_kpi_ids: [kpi_0002]
+                    workflow_component_id: cmp_wf_0001
+                    version: 3
+                    gallery_order: null
+                    last_run: {id: run_0042, status: succeeded, started_at: "2026-09-07T05:00:00Z", finished_at: "2026-09-07T05:01:12Z"}
+                    updated_at: "2026-09-06T14:00:00Z"
+                  - id: uc_0002
+                    title: Supplier reliability watch
+                    description: ""
+                    business_area: supply_chain
+                    subject_area: ""
+                    tier: null
+                    status: draft
+                    source: user
+                    level: 2
+                    autonomy: copilot
+                    tags: []
+                    sample_question: Which suppliers are slipping on on-time delivery?
+                    supporting_questions: []
+                    process_id: sc_1
+                    linked_kpi_ids: []
+                    workflow_component_id: null
+                    version: 0
+                    gallery_order: null
+                    last_run: null
+                    updated_at: "2026-09-07T09:40:00Z"
+              empty:
+                summary: "`UseCasesEmpty`."
+                value: []
+  post:
+    tags: [use-cases]
+    operationId: createUseCase
+    summary: Start a use case, from a template or from scratch.
+    x-egpt-scopes: [use-cases:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/UseCaseWrite'
+          examples:
+            from_template:
+              value: {title: RFQ funnel -- weekly, description: "The RFQ template, activated for the sales team.", business_area: sales, template_id: uc_tpl_rfq, autonomy: copilot, level: 1}
+            from_scratch:
+              value: {title: Supplier reliability watch, description: "", business_area: supply_chain, sample_question: "Which suppliers are slipping on on-time delivery?", process_id: sc_1}
+    responses:
+      "201":
+        description: Created as a draft.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCase'
+            examples:
+              default:
+                value:
+                  id: uc_0002
+                  title: Supplier reliability watch
+                  description: ""
+                  business_area: supply_chain
+                  subject_area: ""
+                  tier: null
+                  status: draft
+                  source: user
+                  level: 1
+                  autonomy: copilot
+                  tags: []
+                  sample_question: Which suppliers are slipping on on-time delivery?
+                  supporting_questions: []
+                  process_id: sc_1
+                  linked_kpi_ids: []
+                  workflow_component_id: null
+                  version: 0
+                  gallery_order: null
+                  last_run: null
+                  updated_at: "2026-09-07T09:40:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/use-cases/suggestions:
+  get:
+    tags: [use-cases]
+    operationId: listUseCaseSuggestions
+    summary: Use cases proposed from the connected data (K13).
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - name: business_area
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/common.yaml#/BusinessAreaId'
+    responses:
+      "200":
+        description: Suggestions, each traceable to the tables that make it feasible.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCaseSuggestionList'
+            examples:
+              default:
+                value:
+                  suggestions:
+                    - title: Supplier lead-time drift
+                      description: Flag suppliers whose actual lead time has diverged from expected over the last quarter.
+                      business_area: supply_chain
+                      rationale: supplier_deliveries holds expected_date and actual_date per delivery, and supplier__avg_lead_time_days is ready.
+                      derived_from_tables: [supplier_deliveries]
+                      kpi_identifiers: [supplier__on_time_rate_30d]
+                      confidence: high
+                      template_id: null
+                  notes: ""
+                  semantic_snapshot: "r3-contract.1"
+              refusal:
+                value:
+                  suggestions: []
+                  notes: "No harvested table maps to a concept in business_area 'marketing'."
+                  semantic_snapshot: "r3-contract.1"
+
+/use-cases/{use_case_id}:
+  get:
+    tags: [use-cases]
+    operationId: getUseCase
+    summary: One use case.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: The use case.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCase'
+            examples:
+              default:
+                value:
+                  id: uc_0001
+                  title: RFQ funnel -- weekly
+                  description: The RFQ template, activated for the sales team.
+                  business_area: sales
+                  subject_area: Conversion
+                  tier: operational
+                  status: activated
+                  source: user
+                  level: 1
+                  autonomy: copilot
+                  tags: [rfq]
+                  sample_question: Where are we losing quote requests before they become deals?
+                  supporting_questions: []
+                  process_id: null
+                  linked_kpi_ids: [kpi_0002]
+                  workflow_component_id: cmp_wf_0001
+                  version: 3
+                  gallery_order: null
+                  last_run: {id: run_0042, status: succeeded, started_at: "2026-09-07T05:00:00Z", finished_at: "2026-09-07T05:01:12Z"}
+                  updated_at: "2026-09-06T14:00:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  patch:
+    tags: [use-cases]
+    operationId: updateUseCase
+    summary: Edit the catalog fields.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/UseCaseWrite'
+          examples:
+            default:
+              value: {title: RFQ funnel -- weekly, description: "The RFQ template, activated for the sales team.", business_area: sales, tags: [rfq, sales]}
+    responses:
+      "200":
+        description: Updated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCase'
+            examples:
+              default:
+                value:
+                  id: uc_0001
+                  title: RFQ funnel -- weekly
+                  description: The RFQ template, activated for the sales team.
+                  business_area: sales
+                  subject_area: Conversion
+                  tier: operational
+                  status: activated
+                  source: user
+                  level: 1
+                  autonomy: copilot
+                  tags: [rfq, sales]
+                  sample_question: Where are we losing quote requests before they become deals?
+                  supporting_questions: []
+                  process_id: null
+                  linked_kpi_ids: [kpi_0002]
+                  workflow_component_id: cmp_wf_0001
+                  version: 3
+                  gallery_order: null
+                  last_run: {id: run_0042, status: succeeded, started_at: "2026-09-07T05:00:00Z", finished_at: "2026-09-07T05:01:12Z"}
+                  updated_at: "2026-09-07T10:20:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [use-cases]
+    operationId: deleteUseCase
+    summary: Retire a use case. Its runs and provenance are kept.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "204":
+        description: Retired.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/use-cases/{use_case_id}/draft:
+  get:
+    tags: [use-cases]
+    operationId: getUseCaseDraft
+    summary: The builder's working state.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: The draft.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCaseDraft'
+            examples:
+              default:
+                value:
+                  version: 2
+                  step1: {title: Supplier reliability watch, description: Which suppliers are slipping and where to dual-source., category: supply_chain, tags: "suppliers, otif", autonomy: copilot}
+                  step2: {primary_question: "Which suppliers are slipping on on-time delivery?", supporting_questions: ["Which of them supply products with fewer than 14 days of stock?"]}
+                  step3: {confirmed_source_ids: [src_warehouse], confirmed_knowledge_ids: [kb_supplier_lead_time_rules], semantic_tables: [supplier_deliveries, inventory, products]}
+                  step6: {view_mode: flow}
+                  step7: {acknowledged: false}
+                  step8: {schedule: weekly, guardrail_amount: null, delivery: in_app, recipient: ""}
+                  step9: {execution_done: false}
+                  updated_at: "2026-09-07T09:45:00Z"
+              new:
+                summary: A draft just created -- the wizard's step one.
+                value:
+                  version: 2
+                  step1: {title: "", description: "", category: supply_chain, tags: "", autonomy: copilot}
+                  step2: {primary_question: "", supporting_questions: []}
+                  step3: {confirmed_source_ids: [], confirmed_knowledge_ids: [], semantic_tables: []}
+                  step6: {view_mode: flow}
+                  step7: {acknowledged: false}
+                  step8: {schedule: once, guardrail_amount: null, delivery: in_app, recipient: ""}
+                  step9: {execution_done: false}
+                  updated_at: "2026-09-07T09:40:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  put:
+    tags: [use-cases]
+    operationId: saveUseCaseDraft
+    summary: Save the working state. Ids in step three are validated against what exists.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/UseCaseDraft'
+          examples:
+            default:
+              value:
+                version: 2
+                step1: {title: Supplier reliability watch, description: Which suppliers are slipping and where to dual-source., category: supply_chain, tags: "suppliers, otif", autonomy: copilot}
+                step2: {primary_question: "Which suppliers are slipping on on-time delivery?", supporting_questions: []}
+                step3: {confirmed_source_ids: [src_warehouse], confirmed_knowledge_ids: [], semantic_tables: [supplier_deliveries]}
+                step8: {schedule: weekly}
+    responses:
+      "200":
+        description: Saved.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCaseDraft'
+            examples:
+              default:
+                value:
+                  version: 2
+                  step1: {title: Supplier reliability watch, description: Which suppliers are slipping and where to dual-source., category: supply_chain, tags: "suppliers, otif", autonomy: copilot}
+                  step2: {primary_question: "Which suppliers are slipping on on-time delivery?", supporting_questions: []}
+                  step3: {confirmed_source_ids: [src_warehouse], confirmed_knowledge_ids: [], semantic_tables: [supplier_deliveries]}
+                  step6: {view_mode: flow}
+                  step7: {acknowledged: false}
+                  step8: {schedule: weekly, guardrail_amount: null, delivery: in_app, recipient: ""}
+                  step9: {execution_done: false}
+                  updated_at: "2026-09-07T09:50:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "422":
+        description: Step three names something that does not exist.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              invalid:
+                value: {detail: "step3.semantic_tables: 'shipments' is not a table the semantic layer exposes.", code: unknown_reference}
+
+/use-cases/{use_case_id}/spec:
+  get:
+    tags: [use-cases]
+    operationId: getUseCaseSpec
+    summary: The last extracted spec.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: The spec.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Spec'
+            examples:
+              default:
+                value:
+                  use_case_id: uc_0002
+                  question: Which suppliers are slipping on on-time delivery?
+                  business_area: supply_chain
+                  entities: [{concept: Supplier, role: subject}, {concept: Supplier, role: group_by}]
+                  kpi_identifiers: [supplier__on_time_rate_30d]
+                  grain: supplier
+                  time_window: {length: 30, unit: day}
+                  delivery: in_app
+                  notes: ""
+                  extracted_by: {identifier: spec_extraction, version: "0.1.0"}
+                  semantic_snapshot: "r3-contract.1"
+      "404":
+        description: No spec has been extracted yet, or no such use case.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No spec extracted for uc_0002 yet. POST to extract one.", code: not_found}
+  post:
+    tags: [use-cases]
+    operationId: extractUseCaseSpec
+    summary: Extract the spec from the draft's questions.
+    description: Runs the spec-extraction agent (small tier). Values are drawn from the semantic layer's closed sets; anything the deployment cannot express lands in `notes`, never in a coined value.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: The extracted spec.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Spec'
+            examples:
+              default:
+                value:
+                  use_case_id: uc_0002
+                  question: Which suppliers are slipping on on-time delivery?
+                  business_area: supply_chain
+                  entities: [{concept: Supplier, role: subject}, {concept: Supplier, role: group_by}]
+                  kpi_identifiers: [supplier__on_time_rate_30d]
+                  grain: supplier
+                  time_window: {length: 30, unit: day}
+                  delivery: in_app
+                  notes: ""
+                  extracted_by: {identifier: spec_extraction, version: "0.1.0"}
+                  semantic_snapshot: "r3-contract.1"
+              partial:
+                summary: The question asked for something the deployment has no concept for. Said so, in the schema.
+                value:
+                  use_case_id: uc_0002
+                  question: Which suppliers are slipping, and which carriers are to blame?
+                  business_area: supply_chain
+                  entities: [{concept: Supplier, role: subject}]
+                  kpi_identifiers: [supplier__on_time_rate_30d]
+                  grain: supplier
+                  time_window: {length: 30, unit: day}
+                  delivery: in_app
+                  notes: "'carriers' matches no concept in this deployment's semantic layer; that part of the question was not extracted."
+                  extracted_by: {identifier: spec_extraction, version: "0.1.0"}
+                  semantic_snapshot: "r3-contract.1"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/use-cases/{use_case_id}/gaps:
+  get:
+    tags: [use-cases]
+    operationId: getUseCaseGaps
+    summary: What the spec needs that the connected data lacks.
+    description: Deterministic. Set differences against the semantic layer and the registry, and join-path lookups. Feasible means every gap list is empty.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: The gap check.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/GapCheck'
+            examples:
+              feasible:
+                value: {use_case_id: uc_0002, feasible: true, gaps: [], semantic_snapshot: "r3-contract.1", checked_at: "2026-09-07T09:52:00Z"}
+              gaps:
+                value:
+                  use_case_id: uc_0003
+                  feasible: false
+                  gaps:
+                    - {kind: partial_kpi, subject: product__avg_rating, detail: "Missing from the semantic snapshot: web_sessions. Connect the web analytics source to close this."}
+                    - {kind: no_join_path, subject: "product_reviews -> supplier_deliveries", detail: "The semantic layer holds no join between product_reviews and supplier_deliveries. A mapping proposal from the next harvest may add one."}
+                  semantic_snapshot: "r3-contract.1"
+                  checked_at: "2026-09-07T09:52:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/use-cases/{use_case_id}/plan:
+  get:
+    tags: [use-cases]
+    operationId: getUseCasePlan
+    summary: The compiled workflow, as steps four and five of the builder render it.
+    description: A view, never authored. Each step is an executor from the registry or an agent carrying a skill; the strings here are the ones the stored workflow holds.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: The plan.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Plan'
+            examples:
+              default:
+                summary: The RFQ chain (D12) -- explain-only, one model step.
+                value:
+                  use_case_id: uc_0001
+                  version: 3
+                  workflow_component_id: cmp_wf_0001
+                  steps:
+                    - {index: 1, kind: executor, ref: check_preflight, name: Preflight, description: Confirm every KPI the spec names is ready and every table it reads is exposed., inputs: [spec], outputs: [preflight_result], permits_or_blocks: true, model_tier: null, estimated_seconds: 1}
+                    - {index: 2, kind: executor, ref: read_gold, name: Read the funnel KPIs from gold, description: Read quote_requests_by_brand and quote_to_deal_rate at brand grain for the bound as-of date., inputs: [spec, as_of], outputs: [rows, freshness], permits_or_blocks: false, model_tier: null, estimated_seconds: 2}
+                    - {index: 3, kind: executor, ref: sample_rows, name: Sample supporting rows, description: Pull a bounded sample through the SQL guard for the explanation to cite., inputs: [rows], outputs: [samples], permits_or_blocks: true, model_tier: null, estimated_seconds: 2}
+                    - {index: 4, kind: agent, ref: funnel_explanation, name: Explain the funnel, description: One model step. Explains the numbers; never decides anything., inputs: [rows, samples, freshness], outputs: [explanation], permits_or_blocks: false, model_tier: small, estimated_seconds: 12}
+                    - {index: 5, kind: executor, ref: record_provenance, name: Record provenance, description: Write the provenance record for this run., inputs: [rows, samples, freshness, explanation], outputs: [provenance_ref], permits_or_blocks: false, model_tier: null, estimated_seconds: 1}
+                    - {index: 6, kind: executor, ref: deliver_in_app, name: Deliver, description: Post the answer in-app with an email pointer (D13)., inputs: [explanation, provenance_ref], outputs: [output_ref], permits_or_blocks: false, model_tier: null, estimated_seconds: 1}
+                  compiled_at: "2026-09-06T14:00:00Z"
+      "404":
+        description: No plan yet -- the use case has no compiled workflow -- or no such use case.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "uc_0002 has no compiled workflow yet. Complete the draft and run the gap check first.", code: not_found}
+
+/use-cases/{use_case_id}/preflight:
+  post:
+    tags: [use-cases]
+    operationId: runUseCasePreflight
+    summary: May this use case run now?
+    description: The deterministic executor the activation and run buttons call. A block names its reason.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: "The result. A block is a 200 with `allowed: false`."
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/PreflightResult'
+            examples:
+              allowed:
+                value:
+                  use_case_id: uc_0001
+                  allowed: true
+                  checks:
+                    - {name: kpis_ready, passed: true, reason: "supplier__on_time_rate_30d: ready."}
+                    - {name: tables_exposed, passed: true, reason: All tables the spec reads are exposed by the semantic layer.}
+                    - {name: gold_fresh, passed: true, reason: "Gold as of 2026-09-06T23:59:59Z, within the 36h freshness bound."}
+                    - {name: guard_role, passed: true, reason: Warehouse role egpt_reader is read-only.}
+                  blocked_by: []
+                  checked_at: "2026-09-07T05:00:00Z"
+              blocked:
+                summary: A referenced KPI is blocked. Preflight blocks and names it.
+                value:
+                  use_case_id: uc_0003
+                  allowed: false
+                  checks:
+                    - {name: kpis_ready, passed: false, reason: "product__avg_rating: partial -- missing from the semantic snapshot: web_sessions."}
+                    - {name: tables_exposed, passed: true, reason: All tables the spec reads are exposed by the semantic layer.}
+                    - {name: gold_fresh, passed: true, reason: "Gold as of 2026-09-06T23:59:59Z, within the 36h freshness bound."}
+                    - {name: guard_role, passed: true, reason: Warehouse role egpt_reader is read-only.}
+                  blocked_by: [kpis_ready]
+                  checked_at: "2026-09-07T09:55:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/use-cases/{use_case_id}/activate:
+  post:
+    tags: [use-cases]
+    operationId: activateUseCase
+    summary: Publish the compiled workflow and start its schedule.
+    description: Runs preflight first and refuses on a block. Level three and above requires `use-cases:activate`, which only the admin role holds (G11) -- separation of duties at activation is enforced by role, as the activation screen shows.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/ActivationRequest'
+          examples:
+            default:
+              value: {level: 1, autonomy: copilot, schedule: weekly}
+    responses:
+      "200":
+        description: Activated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCase'
+            examples:
+              default:
+                value:
+                  id: uc_0002
+                  title: Supplier reliability watch
+                  description: Which suppliers are slipping and where to dual-source.
+                  business_area: supply_chain
+                  subject_area: Supplier Management
+                  tier: operational
+                  status: activated
+                  source: user
+                  level: 1
+                  autonomy: copilot
+                  tags: [suppliers, otif]
+                  sample_question: Which suppliers are slipping on on-time delivery?
+                  supporting_questions: []
+                  process_id: sc_1
+                  linked_kpi_ids: [kpi_0002]
+                  workflow_component_id: cmp_wf_0002
+                  version: 1
+                  gallery_order: null
+                  last_run: null
+                  updated_at: "2026-09-07T10:00:00Z"
+      "403":
+        description: The token lacks `use-cases:write`, or the level asked for needs `use-cases:activate`.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              level:
+                value: {detail: "Activating at level 3 requires the admin role (scope use-cases:activate).", code: insufficient_scope}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "409":
+        description: Preflight blocked. The body is the preflight result so the screen can show why.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/PreflightResult'
+            examples:
+              conflict:
+                value:
+                  use_case_id: uc_0003
+                  allowed: false
+                  checks:
+                    - {name: kpis_ready, passed: false, reason: "product__avg_rating: partial -- missing from the semantic snapshot: web_sessions."}
+                  blocked_by: [kpis_ready]
+                  checked_at: "2026-09-07T09:55:00Z"
+
+/use-cases/{use_case_id}/pause:
+  post:
+    tags: [use-cases]
+    operationId: pauseUseCase
+    summary: Pause the schedule without retiring the use case.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "200":
+        description: Paused.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCase'
+            examples:
+              default:
+                value:
+                  id: uc_0001
+                  title: RFQ funnel -- weekly
+                  description: The RFQ template, activated for the sales team.
+                  business_area: sales
+                  subject_area: Conversion
+                  tier: operational
+                  status: paused
+                  source: user
+                  level: 1
+                  autonomy: copilot
+                  tags: [rfq]
+                  sample_question: Where are we losing quote requests before they become deals?
+                  supporting_questions: []
+                  process_id: null
+                  linked_kpi_ids: [kpi_0002]
+                  workflow_component_id: cmp_wf_0001
+                  version: 3
+                  gallery_order: null
+                  last_run: {id: run_0042, status: succeeded, started_at: "2026-09-07T05:00:00Z", finished_at: "2026-09-07T05:01:12Z"}
+                  updated_at: "2026-09-07T10:30:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/use-cases/{use_case_id}/runs:
+  get:
+    tags: [use-cases]
+    operationId: listUseCaseRuns
+    summary: Run history, newest first.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/use-cases.yaml#/RunStatus'
+    responses:
+      "200":
+        description: Runs.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/UseCaseRun'
+            examples:
+              default:
+                value:
+                  - {id: run_0042, use_case_id: uc_0001, use_case_version: 3, status: succeeded, trigger: schedule, started_at: "2026-09-07T05:00:00Z", finished_at: "2026-09-07T05:01:12Z", framework_run_id: fr_9a1c, output_ref: rp_0007, provenance_ref: run_0042, summary: "Quote-to-deal conversion fell to 18% (from 23%); the drop is concentrated in two brands.", blocked_reason: null, cost: {model_tier: small, input_tokens: 4120, output_tokens: 610}}
+                  - {id: run_0041, use_case_id: uc_0001, use_case_version: 3, status: blocked, trigger: schedule, started_at: "2026-08-31T05:00:00Z", finished_at: "2026-08-31T05:00:01Z", framework_run_id: null, output_ref: null, provenance_ref: null, summary: "", blocked_reason: "gold_fresh: gold as of 2026-08-29T23:59:59Z is outside the 36h freshness bound.", cost: {model_tier: none, input_tokens: 0, output_tokens: 0}}
+              empty:
+                value: []
+  post:
+    tags: [use-cases]
+    operationId: triggerUseCaseRun
+    summary: Run now, outside the schedule.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    responses:
+      "202":
+        description: Queued. Poll the run.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCaseRun'
+            examples:
+              default:
+                value: {id: run_0043, use_case_id: uc_0001, use_case_version: 3, status: queued, trigger: manual, started_at: "2026-09-07T10:35:00Z", finished_at: null, framework_run_id: null, output_ref: null, provenance_ref: null, summary: "", blocked_reason: null}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "409":
+        description: Preflight blocked.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/PreflightResult'
+            examples:
+              conflict:
+                value: {use_case_id: uc_0003, allowed: false, checks: [{name: kpis_ready, passed: false, reason: "product__avg_rating: partial -- missing from the semantic snapshot: web_sessions."}], blocked_by: [kpis_ready], checked_at: "2026-09-07T10:35:00Z"}
+
+/use-cases/{use_case_id}/runs/{run_id}:
+  get:
+    tags: [use-cases]
+    operationId: getUseCaseRun
+    summary: One run.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: run_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The run.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/UseCaseRun'
+            examples:
+              default:
+                value: {id: run_0042, use_case_id: uc_0001, use_case_version: 3, status: succeeded, trigger: schedule, started_at: "2026-09-07T05:00:00Z", finished_at: "2026-09-07T05:01:12Z", framework_run_id: fr_9a1c, output_ref: rp_0007, provenance_ref: run_0042, summary: "Quote-to-deal conversion fell to 18% (from 23%); the drop is concentrated in two brands.", blocked_reason: null, cost: {model_tier: small, input_tokens: 4120, output_tokens: 610}}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+x-egpt-parameters:
+  useCaseId:
+    name: use_case_id
+    in: path
+    required: true
+    schema: {type: string}
+
+x-egpt-responses:
+  InsufficientScope:
+    description: The token lacks a scope this operation requires.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          insufficient_scope:
+            value: {detail: "Insufficient permissions. Required scopes: use-cases:write.", code: insufficient_scope}
+  NotFound:
+    description: No such use case.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          not_found:
+            value: {detail: "No use case 'uc_9999'.", code: not_found}

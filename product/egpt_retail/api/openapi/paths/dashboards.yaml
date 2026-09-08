@@ -1,0 +1,232 @@
+# Dashboards (R13). Charting is interface work; this is storage plus gold reads.
+
+/dashboards:
+  get:
+    tags: [dashboards]
+    operationId: listDashboards
+    summary: Dashboards visible to the caller.
+    x-egpt-scopes: [dashboards:read]
+    responses:
+      "200":
+        description: Dashboards.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/dashboards.yaml#/Dashboard'
+            examples:
+              default:
+                value:
+                  - id: dsh_supply
+                    name: Supply chain
+                    description: Supplier reliability at a glance.
+                    tiles:
+                      - {id: tl_1, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null}
+                      - {id: tl_2, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate by supplier, chart: table, position: {x: 3, y: 0, w: 9, h: 4}, grain_value: null}
+                      - {id: tl_3, kpi_identifier: stocklevel__stockout_risk_count, title: SKUs at stockout risk, chart: line, position: {x: 0, y: 2, w: 3, h: 2}, grain_value: low}
+                    filters: [{field: business_area, value: supply_chain}]
+                    refresh_schedule: nightly
+                    visibility: team
+                    owner: analyst@example.test
+                    created_at: "2026-09-03T09:00:00Z"
+                    updated_at: "2026-09-06T17:00:00Z"
+              empty:
+                value: []
+  post:
+    tags: [dashboards]
+    operationId: createDashboard
+    summary: Create a dashboard from selected KPIs.
+    description: Every `kpi_identifier` must exist and be `ready`; a blocked KPI cannot be tiled, because there would be nothing in gold to read.
+    x-egpt-scopes: [dashboards:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dashboards.yaml#/DashboardWrite'
+          examples:
+            default:
+              value:
+                name: Supply chain
+                description: Supplier reliability at a glance.
+                tiles:
+                  - {kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}}
+                filters: [{field: business_area, value: supply_chain}]
+                refresh_schedule: nightly
+                visibility: team
+    responses:
+      "201":
+        description: Created.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/Dashboard'
+            examples:
+              default:
+                value:
+                  id: dsh_supply
+                  name: Supply chain
+                  description: Supplier reliability at a glance.
+                  tiles:
+                    - {id: tl_1, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null}
+                  filters: [{field: business_area, value: supply_chain}]
+                  refresh_schedule: nightly
+                  visibility: team
+                  owner: analyst@example.test
+                  created_at: "2026-09-07T11:00:00Z"
+                  updated_at: "2026-09-07T11:00:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "422":
+        description: A tile references a KPI that is not ready.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              invalid:
+                value: {detail: "product__avg_rating is partial (missing: web_sessions) and cannot be tiled.", code: kpi_not_ready}
+
+/dashboards/{dashboard_id}:
+  get:
+    tags: [dashboards]
+    operationId: getDashboard
+    summary: One dashboard's definition.
+    x-egpt-scopes: [dashboards:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+    responses:
+      "200":
+        description: The dashboard.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/Dashboard'
+            examples:
+              default:
+                value:
+                  id: dsh_supply
+                  name: Supply chain
+                  description: Supplier reliability at a glance.
+                  tiles:
+                    - {id: tl_1, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null}
+                    - {id: tl_2, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate by supplier, chart: table, position: {x: 3, y: 0, w: 9, h: 4}, grain_value: null}
+                  filters: [{field: business_area, value: supply_chain}]
+                  refresh_schedule: nightly
+                  visibility: team
+                  owner: analyst@example.test
+                  created_at: "2026-09-03T09:00:00Z"
+                  updated_at: "2026-09-06T17:00:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  patch:
+    tags: [dashboards]
+    operationId: updateDashboard
+    summary: Edit a dashboard. `tiles`, when present, replaces the whole set.
+    x-egpt-scopes: [dashboards:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dashboards.yaml#/DashboardWrite'
+          examples:
+            default:
+              value: {name: Supply chain, visibility: everyone}
+    responses:
+      "200":
+        description: Updated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/Dashboard'
+            examples:
+              default:
+                value:
+                  id: dsh_supply
+                  name: Supply chain
+                  description: Supplier reliability at a glance.
+                  tiles:
+                    - {id: tl_1, kpi_identifier: supplier__on_time_rate_30d, title: On-time rate (30d), chart: number, position: {x: 0, y: 0, w: 3, h: 2}, grain_value: null}
+                  filters: [{field: business_area, value: supply_chain}]
+                  refresh_schedule: nightly
+                  visibility: everyone
+                  owner: analyst@example.test
+                  created_at: "2026-09-03T09:00:00Z"
+                  updated_at: "2026-09-07T11:05:00Z"
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [dashboards]
+    operationId: deleteDashboard
+    summary: Delete a dashboard.
+    x-egpt-scopes: [dashboards:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+    responses:
+      "204":
+        description: Deleted.
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/dashboards/{dashboard_id}/data:
+  get:
+    tags: [dashboards]
+    operationId: getDashboardData
+    summary: Every tile's values, from gold.
+    description: One read per dashboard, not one per tile, which is what keeps a four-tile dashboard from issuing four warehouse scans on every open. Each tile carries the computation stamp its gold rows hold.
+    x-egpt-scopes: [dashboards:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/dashboardId'
+    responses:
+      "200":
+        description: The data.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/DashboardData'
+            examples:
+              default:
+                value:
+                  dashboard_id: dsh_supply
+                  tiles:
+                    - {tile_id: tl_1, kpi_identifier: supplier__on_time_rate_30d, status: fresh, value: 0.91, unit: "%", delta: -0.04, series: [{at: "2026-08-31T00:00:00Z", value: 0.95}, {at: "2026-09-07T00:00:00Z", value: 0.91}], rows: [], as_of: "2026-09-06T23:59:59Z", computed_at: "2026-09-07T02:20:00Z", provenance_ref: run_gold_20260907}
+                    - {tile_id: tl_2, kpi_identifier: supplier__on_time_rate_30d, status: fresh, value: null, unit: "%", delta: null, series: [], rows: [{supplier_id: sup_014, value: 0.71}, {supplier_id: sup_003, value: 0.88}, {supplier_id: sup_021, value: 0.97}], as_of: "2026-09-06T23:59:59Z", computed_at: "2026-09-07T02:20:00Z", provenance_ref: run_gold_20260907}
+                    - {tile_id: tl_3, kpi_identifier: stocklevel__stockout_risk_count, status: failed, value: null, unit: Count, delta: null, series: [], rows: [], as_of: "2026-09-05T23:59:59Z", computed_at: "2026-09-06T02:20:00Z", provenance_ref: run_gold_20260906}
+                  read_at: "2026-09-07T11:10:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+x-egpt-parameters:
+  dashboardId:
+    name: dashboard_id
+    in: path
+    required: true
+    schema: {type: string}
+
+x-egpt-responses:
+  InsufficientScope:
+    description: The token lacks a scope this operation requires.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          insufficient_scope:
+            value: {detail: "Insufficient permissions. Required scopes: dashboards:write.", code: insufficient_scope}
+  NotFound:
+    description: No such dashboard.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          not_found:
+            value: {detail: "No dashboard 'dsh_9999'.", code: not_found}

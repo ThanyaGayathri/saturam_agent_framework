@@ -1,0 +1,99 @@
+# The local stack R1's verification runs against. Postgres is the only service the default
+# profile starts; Neo4j and Redis sit behind `--profile full` for the phases that need them.
+#
+#     egpt up -f deploy/compose.yaml            # or: docker compose -f deploy/compose.yaml up --build
+#     docker compose -f deploy/compose.yaml --profile full up
+#
+# Host port 5532 for Postgres is deliberate: every cookbook and the integration CI use it.
+# The `migrate` service runs once; `api` waits for it to complete, so a fresh stack comes up
+# with the schema in place the same way a fresh namespace does under the Helm hook Job (R2).
+# On a clean database it does real work (creates the memory-tier tables and stamps versions);
+# every later run skips.
+
+name: egpt-retail
+
+services:
+  postgres:
+    image: agnohq/pgvector:18
+    environment:
+      POSTGRES_DB: ai
+      POSTGRES_USER: ai
+      POSTGRES_PASSWORD: ai
+      PGDATA: /var/lib/postgresql
+    ports:
+      - "5532:5432"
+    volumes:
+      - egpt-pg:/var/lib/postgresql
+      # Creates the separate warehouse database (D5) on first start.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai -d ai"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: egpt-retail:dev
+    command: ["migrate"]
+    environment:
+      EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/ai
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: egpt-retail:dev
+    command: ["api"]
+    environment:
+      EGPT_RETAIL_ROLE: api
+      EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/ai
+      EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/egpt_warehouse
+      EGPT_RETAIL_CUSTOMER_SLUG: ${EGPT_RETAIL_CUSTOMER_SLUG:-}
+      EGPT_AGENT_OS_HOST: 0.0.0.0
+      EGPT_AGENT_OS_PORT: "7777"
+    ports:
+      # Host port is configurable: a developer often has a local EgptOS on 7777 already.
+      - "${EGPT_RETAIL_API_PORT:-7777}:7777"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7777/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  consolidator:
+    image: egpt-retail:dev
+    command: ["consolidator"]
+    environment:
+      EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/ai
+      EGPT_RETAIL_CUSTOMER_SLUG: ${EGPT_RETAIL_CUSTOMER_SLUG:-}
+      EGPT_RETAIL_CONSOLIDATION_POLL_INTERVAL: "300"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # One per customer: the entrypoint holds a Postgres advisory lock and a second instance exits 3.
+    deploy:
+      replicas: 1
+
+  neo4j:
+    profiles: ["full"]
+    image: neo4j:5
+    environment:
+      NEO4J_AUTH: neo4j/password
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+
+  redis:
+    profiles: ["full"]
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  egpt-pg:

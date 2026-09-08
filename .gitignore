@@ -43,6 +43,14 @@ wip
 # ignore dist dir
 dist
 
+# Frontend (phase five) and deployment scratch. Note the blanket `*.config*` pattern above:
+# no file under deploy/ may be named `*.config.*` or it is silently untracked.
+node_modules/
+frontend/dist/
+frontend/.vite/
+deploy/local/
+kubeconfig*
+
 # ignore virtualenvs
 .venv*
 .perfenv*

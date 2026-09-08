@@ -1,0 +1,73 @@
+# The same image and app, with the scheduler poller. Scheduled workflow runs execute here so
+# nightly gold (R5) never contends with interactive traffic on the api pods.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-pipelines
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+    app: {{ .Release.Name }}-pipelines
+    role: pipelines
+spec:
+  replicas: {{ .Values.pipelines.replicas }}
+  selector: {matchLabels: {app: {{ .Release.Name }}-pipelines}}
+  template:
+    metadata:
+      # See deployment-api.yaml: envFrom and a mounted ConfigMap are read once, at container
+      # start, so these checksums are what makes a values-only change roll the pods.
+      annotations:
+        checksum/env: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secrets: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if .Values.auth.enabled }}
+        checksum/jwks: {{ .Values.auth.jwks | sha256sum }}
+        {{- end }}
+      labels: {{- include "egpt.labels" . | nindent 8 }}
+        app: {{ .Release.Name }}-pipelines
+        role: pipelines
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      containers:
+        - name: pipelines
+          image: {{ include "egpt.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["pipelines"]
+          env:
+            - {name: EGPT_RETAIL_ROLE, value: pipelines}
+          {{- include "egpt.envFrom" . | nindent 10 }}
+          ports: [{containerPort: {{ .Values.api.port }}, name: http}]
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 3
+          resources: {{- toYaml .Values.pipelines.resources | nindent 12 }}
+          securityContext: {{- include "egpt.securityContext" . | nindent 12 }}
+          {{- if .Values.auth.enabled }}
+          volumeMounts:
+            - {name: jwks, mountPath: /etc/egpt/jwks, readOnly: true}
+          {{- end }}
+      {{- if .Values.auth.enabled }}
+      volumes:
+        - name: jwks
+          configMap: {name: {{ .Release.Name }}-jwks}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-pipelines
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+spec:
+  selector: {app: {{ .Release.Name }}-pipelines}
+  ports: [{port: {{ .Values.api.port }}, targetPort: http, name: http}]
+{{- if gt (int .Values.pipelines.replicas) 1 }}
+---
+# Same reasoning as the api chart's PodDisruptionBudget. Only rendered above one replica: at
+# replicas: 1 (the default) a PDB with minAvailable: 1 would block the only pod from ever being
+# voluntarily evicted, which is worse than having none.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-pipelines
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app: {{ .Release.Name }}-pipelines}}
+{{- end }}

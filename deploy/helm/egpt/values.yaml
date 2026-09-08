@@ -1,0 +1,98 @@
+# Azure-shaped defaults. Every key here exists so that moving to AKS is a values-file change,
+# not a chart change. Keys marked NEVER EXECUTED have not run anywhere yet; README.md carries
+# the ledger and AKS_CUTOVER.md the day-of checklist. values.local.yaml is the overlay that
+# actually runs, on kind.
+
+image:
+  repository: egpt-retail
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# The customer's tenant id (D3). Stamped by K1's middleware in P1; read by the consolidator now.
+customerSlug: ""
+
+database:
+  # Through the pooler. On AKS: Azure Database for PostgreSQL Flexible Server behind PgBouncer.
+  url: postgresql+psycopg://ai:ai@egpt-pgbouncer:5432/ai
+  # Bypasses the pooler, for the consolidator's session-scoped advisory lock.
+  directUrl: postgresql+psycopg://ai:ai@egpt-postgres:5432/ai
+  # The separate warehouse (D5). On AKS: its own Flexible Server. NEVER EXECUTED beyond creation.
+  warehouseUrl: postgresql+psycopg://ai:ai@egpt-postgres:5432/egpt_warehouse
+
+secrets:
+  # kubernetes: a plain Secret rendered from `values` below (local).
+  # keyVault:   Azure Key Vault through the Secrets Store CSI driver. NEVER EXECUTED.
+  provider: kubernetes
+  keyVault:
+    name: ""
+    tenantId: ""
+    clientId: ""                         # workload identity
+  values:
+    internalServiceToken: "change-me-shared-across-pipelines-replicas"
+    azureOpenAIApiKey: ""
+    azureEmbedderApiKey: ""
+
+auth:
+  enabled: false
+  # The JWKS document (RS256 public keys) as a string; mounted as a file. The framework's
+  # AuthorizationConfig reads a file only -- there is no JWKS URL option, which is a named Lane R
+  # framework item. Locally: --set-file auth.jwks=jwks.json from `egpt_retail.app.devauth keygen`.
+  # On AKS: the same flag with Entra's document,
+  # https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys, re-applied on key rotation.
+  # Rendering fails if auth is enabled without it (see _helpers.tpl).
+  jwks: ""
+  audience: "api://egpt-retail"
+  # G11: app roles -> scope sets, configured at token issuance. The mapping is in the API contract
+  # (x-egpt-roles); it is repeated nowhere else on purpose. "Configured at token issuance" assumes
+  # the identity provider emits a `scopes` list claim -- the middleware reads nothing else, and
+  # `AuthorizationConfig` has no `scopes_claim` option. Entra does not: app roles arrive as
+  # `roles`, delegated permissions as `scp` (a space-delimited string). A configurable
+  # `scopes_claim` plus a roles/scp-to-scopes expansion (or a product-side claim mapper) is a
+  # named Lane R framework item, alongside the JWKS-URL gap above -- see AKS_CUTOVER.md §1.
+
+model:
+  azureDeployment: gpt-5.4
+  azureEndpoint: ""                      # https://<resource>.openai.azure.com/
+  embedderDeployment: text-embedding-3-large
+
+api:
+  replicas: 2
+  port: 7777
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  terminationGracePeriodSeconds: 45       # above the 30s cancel-persist drain
+
+pipelines:
+  replicas: 1                            # safe to scale (FOR UPDATE SKIP LOCKED); every replica
+                                         # must share secrets.values.internalServiceToken
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+consolidator:
+  # No replica count here, on purpose. deployment-consolidator.yaml hardcodes replicas: 1 and
+  # _helpers.tpl refuses to render if anyone adds one. The entrypoint's advisory lock is what
+  # actually enforces one-per-customer; the chart only makes the mistake hard.
+  pollInterval: 300
+  terminationGracePeriodSeconds: 45       # above the worker's 30s stop_timeout
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+migrate:
+  backoffLimit: 2
+
+storage:
+  provider: minio                        # adls on AKS. NEVER EXECUTED: nothing reads it until R4.
+  endpoint: http://egpt-minio:9000
+  container: egpt-landing
+
+neo4j:
+  # Two databases in one Enterprise instance is the target. UNVERIFIED without a licence.
+  memoryUri: bolt://egpt-neo4j-memory:7687
+  ontologyUri: bolt://egpt-neo4j-ontology:7687
+  databases: {memory: neo4j, ontology: neo4j}
+
+redis:
+  host: egpt-redis

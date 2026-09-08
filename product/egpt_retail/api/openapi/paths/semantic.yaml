@@ -1,0 +1,660 @@
+# The semantic read API over HTTP, plus harvests and the propose-then-confirm review.
+#
+# Seven read operations, one per SemanticRead method. Two contract decisions Lane R is
+# making here rather than inheriting:
+#
+#   1. `include_proposed=true` requires the `semantic:read_proposed` scope. In-process it is a
+#      deliberate act by our own code; over HTTP it is an attacker-controlled query parameter
+#      returning unreviewed synonyms. The stub enforces it in phase zero by reading the JWT
+#      claim itself; registering the scope in the framework's scope map is a phase-five cost.
+#   2. Join path: 200 with a path, 200 with `path: null` (no path -- an answer), 503 (cannot
+#      answer -- not an answer). Never 404 for "no path".
+#
+# Example payloads come from `contracts/_fixtures/r3_contract.json`, derived from the shipped
+# ontology -- product nouns, never a customer's harvest.
+
+/semantic/snapshot:
+  get:
+    tags: [semantic]
+    operationId: getSemanticSnapshot
+    summary: Which semantic version this deployment answers from.
+    x-egpt-scopes: [semantic:read]
+    responses:
+      "200":
+        description: The current snapshot.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/Snapshot'
+            examples:
+              default:
+                value:
+                  version: "r3-contract.1"
+                  harvested_at: "2026-09-07T02:00:00Z"
+                  source: warehouse
+      "503":
+        $ref: '#/x-egpt-responses/SemanticUnavailable'
+
+/semantic/tables:
+  get:
+    tags: [semantic]
+    operationId: listSemanticTables
+    summary: Every table the semantic layer exposes.
+    description: Also the allow-list R6's SQL guard restricts statements to, so a table absent here is a table no model can reach.
+    x-egpt-scopes: [semantic:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/includeProposed'
+    responses:
+      "200":
+        description: Table references.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/TableList'
+            examples:
+              default:
+                summary: Accepted tables only (the default).
+                value:
+                  tables:
+                    - {name: orders, schema: silver, row_count: 12480}
+                    - {name: order_items, schema: silver, row_count: 41255}
+                    - {name: customers, schema: silver, row_count: 3120}
+                    - {name: products, schema: silver, row_count: 860}
+                    - {name: inventory, schema: silver, row_count: 860}
+                    - {name: supplier_deliveries, schema: silver, row_count: 2210}
+                    - {name: product_reviews, schema: silver, row_count: 5031}
+                  snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
+              with_proposed:
+                summary: "`include_proposed=true` -- the proposed `web_sessions` table appears (unmarked at this list level; see CHANGELOG.md)."
+                value:
+                  tables:
+                    - {name: orders, schema: silver, row_count: 12480}
+                    - {name: order_items, schema: silver, row_count: 41255}
+                    - {name: customers, schema: silver, row_count: 3120}
+                    - {name: products, schema: silver, row_count: 860}
+                    - {name: inventory, schema: silver, row_count: 860}
+                    - {name: supplier_deliveries, schema: silver, row_count: 2210}
+                    - {name: product_reviews, schema: silver, row_count: 5031}
+                    - {name: web_sessions, schema: silver, row_count: null}
+                  snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
+              empty:
+                summary: No source connected yet. An answer, distinct from an unavailable reader.
+                value:
+                  tables: []
+                  snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "503":
+        $ref: '#/x-egpt-responses/SemanticUnavailable'
+
+/semantic/tables/{table_name}:
+  get:
+    tags: [semantic]
+    operationId: getSemanticTable
+    summary: One table with its columns.
+    description: A proposed column nested inside an accepted table is filtered out unless `include_proposed=true`, so a caller that did not ask for proposals cannot receive one inside something it did ask for.
+    x-egpt-scopes: [semantic:read]
+    parameters:
+      - name: table_name
+        in: path
+        required: true
+        schema: {type: string}
+      - $ref: '#/x-egpt-parameters/includeProposed'
+    responses:
+      "200":
+        description: The table.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/Table'
+            examples:
+              default:
+                value:
+                  ref: {name: orders, schema: silver, row_count: 12480}
+                  description: One row per order placed.
+                  concepts: [Order]
+                  status: accepted
+                  columns:
+                    - {name: order_id, data_type: text, nullable: false, is_key: true, is_personal_data: false, description: "", sampled_values: [], status: accepted}
+                    - {name: customer_id, data_type: text, nullable: false, is_key: false, is_personal_data: false, description: "", sampled_values: [], status: accepted}
+                    - {name: order_date, data_type: date, nullable: false, is_key: false, is_personal_data: false, description: "", sampled_values: ["2026-08-30", "2026-09-01"], status: accepted}
+                    - {name: total_amount, data_type: numeric, nullable: true, is_key: false, is_personal_data: false, description: "", sampled_values: [], status: accepted}
+                    - {name: channel, data_type: text, nullable: true, is_key: false, is_personal_data: false, description: "", sampled_values: [web, store], status: accepted}
+      "404":
+        description: The semantic layer does not expose a table of that name.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No table named 'shipments' in the semantic layer.", code: not_found}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "503":
+        $ref: '#/x-egpt-responses/SemanticUnavailable'
+
+/semantic/concepts:
+  get:
+    tags: [semantic]
+    operationId: listSemanticConcepts
+    summary: Every concept name, for rendering a closed set into a prompt.
+    x-egpt-scopes: [semantic:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/includeProposed'
+    responses:
+      "200":
+        description: Concept names.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/ConceptList'
+            examples:
+              default:
+                value:
+                  concepts: [Customer, CustomerSegment, Order, Product, ProductCategory, StockLevel, Supplier]
+                  snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "503":
+        $ref: '#/x-egpt-responses/SemanticUnavailable'
+
+/semantic/concepts/{concept_name}:
+  get:
+    tags: [semantic]
+    operationId: getSemanticConcept
+    summary: What a concept means, and how to turn it into rows.
+    x-egpt-scopes: [semantic:read]
+    parameters:
+      - name: concept_name
+        in: path
+        required: true
+        schema: {type: string}
+      - $ref: '#/x-egpt-parameters/includeProposed'
+    responses:
+      "200":
+        description: The concept.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/Concept'
+            examples:
+              default:
+                value:
+                  name: StockLevel
+                  description: A band describing how much of a product is on hand relative to its reorder point. Used to decide what to reorder and what is overstocked.
+                  synonyms: [inventory level, stock position]
+                  question_patterns: ["what needs reordering?", "which products are overstocked?"]
+                  sql_filter: "i.stock_level = {stock_level_name}"
+                  personal_data_fields: []
+                  compliance_tags: []
+                  metrics: [stocklevel__days_of_stock, stocklevel__stockout_risk_count, stocklevel__overstock_count, stocklevel__reorder_urgency_list]
+                  business_area: inventory
+                  status: accepted
+      "404":
+        description: This deployment has no such concept.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No concept named 'Warehouse' in this deployment.", code: not_found}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "503":
+        $ref: '#/x-egpt-responses/SemanticUnavailable'
+
+/semantic/business-areas:
+  get:
+    tags: [semantic]
+    operationId: listSemanticBusinessAreas
+    summary: Areas this deployment supports, derived from confirmed mappings.
+    x-egpt-scopes: [semantic:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/includeProposed'
+    responses:
+      "200":
+        description: Supported areas.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/BusinessAreaList'
+            examples:
+              default:
+                value:
+                  business_areas: [customer, inventory, product, sales, supply_chain]
+                  snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
+              empty:
+                summary: No source connected yet -- the ontology is not empty, nothing is mapped to it.
+                value:
+                  business_areas: []
+                  snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "503":
+        $ref: '#/x-egpt-responses/SemanticUnavailable'
+
+/semantic/join-path:
+  get:
+    tags: [semantic]
+    operationId: findSemanticJoinPath
+    summary: How two tables connect, or that they do not.
+    x-egpt-scopes: [semantic:read]
+    parameters:
+      - name: from
+        in: query
+        required: true
+        schema: {type: string}
+      - name: to
+        in: query
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: "A path, or `path: null` when the graph holds none. Both are answers."
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/JoinPathResponse'
+            examples:
+              found:
+                summary: Three hops, via orders and order_items.
+                value:
+                  path:
+                    from_table: customers
+                    to_table: products
+                    hops: 3
+                    intermediate_tables: [orders, order_items]
+                    edges:
+                      - {left_table: customers, right_table: orders, "on": "customers.customer_id = orders.customer_id", cardinality: one-to-many}
+                      - {left_table: orders, right_table: order_items, "on": "orders.order_id = order_items.order_id", cardinality: one-to-many}
+                      - {left_table: order_items, right_table: products, "on": "order_items.product_id = products.product_id", cardinality: many-to-one}
+                  snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
+              no_path:
+                summary: The graph holds no path. This is an answer, and the one preflight acts on.
+                value:
+                  path: null
+                  snapshot: {version: "r3-contract.1", harvested_at: "2026-09-07T02:00:00Z", source: warehouse}
+      "400":
+        description: An endpoint is not a table the semantic layer exposes. Reported as a bad request, not as "no path", because "no path from a table I have never heard of" would be a misleading way to report a typo.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              bad_request:
+                value: {detail: "find_join_path: 'shipments' is not a table the semantic layer exposes. Known tables: customers, inventory, order_items, orders, product_reviews, products, supplier_deliveries.", code: unknown_table}
+      "503":
+        $ref: '#/x-egpt-responses/SemanticUnavailable'
+
+/semantic/harvests:
+  post:
+    tags: [semantic]
+    operationId: startSemanticHarvest
+    summary: Run the metadata harvest against a configured source.
+    description: Deterministic -- tables, columns, types, keys, row counts, sampled values (K4). The enrichment agents run afterwards and queue proposals; nothing they produce reaches the graph without a decision.
+    x-egpt-scopes: [semantic:harvest]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/semantic.yaml#/HarvestRequest'
+          examples:
+            default:
+              value: {source_id: src_warehouse}
+    responses:
+      "202":
+        description: Accepted. Poll the harvest for completion.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/Harvest'
+            examples:
+              default:
+                value:
+                  id: hv_20260907_0200
+                  status: queued
+                  source_id: src_warehouse
+                  started_at: "2026-09-07T02:00:00Z"
+                  finished_at: null
+                  snapshot_version: null
+                  proposals_created: 0
+                  error: null
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+  get:
+    tags: [semantic]
+    operationId: listSemanticHarvests
+    summary: Harvest history, newest first.
+    x-egpt-scopes: [semantic:read]
+    responses:
+      "200":
+        description: Harvests.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/semantic.yaml#/Harvest'
+            examples:
+              default:
+                value:
+                  - {id: hv_20260907_0200, status: succeeded, source_id: src_warehouse, started_at: "2026-09-07T02:00:00Z", finished_at: "2026-09-07T02:04:12Z", snapshot_version: "r3-contract.1", proposals_created: 41, error: null}
+              empty:
+                value: []
+
+/semantic/harvests/{harvest_id}:
+  get:
+    tags: [semantic]
+    operationId: getSemanticHarvest
+    summary: One harvest.
+    x-egpt-scopes: [semantic:read]
+    parameters:
+      - name: harvest_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The harvest.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/Harvest'
+            examples:
+              default:
+                value: {id: hv_20260907_0200, status: succeeded, source_id: src_warehouse, started_at: "2026-09-07T02:00:00Z", finished_at: "2026-09-07T02:04:12Z", snapshot_version: "r3-contract.1", proposals_created: 41, error: null}
+      "404":
+        description: No such harvest.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No harvest 'hv_missing'.", code: not_found}
+
+/semantic/proposals:
+  get:
+    tags: [semantic]
+    operationId: listSemanticProposals
+    summary: Enrichment proposals awaiting or past review.
+    description: The review screen's read (D10). This is the one caller expected to see unreviewed content, and it needs `semantic:read_proposed`.
+    x-egpt-scopes: [semantic:read_proposed]
+    parameters:
+      - name: decision
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/semantic.yaml#/ProposalDecision'
+      - name: concept
+        in: query
+        required: false
+        schema: {type: string}
+      - name: harvest_id
+        in: query
+        required: false
+        schema: {type: string}
+    responses:
+      "200":
+        description: Proposals.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/ProposalList'
+            examples:
+              default:
+                value:
+                  proposals:
+                    - id: prop_0001
+                      kind: synonym
+                      target: {concept: StockLevel, table: null, column: null}
+                      value: stock position
+                      rationale: The description defines the concept as a band of how much is on hand, which is what a stock position states.
+                      confidence: high
+                      decision: proposed
+                      proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
+                      proposed_at: "2026-09-07T02:03:40Z"
+                      decided_by: null
+                      decided_at: null
+                      harvest_id: hv_20260907_0200
+                    - id: prop_0002
+                      kind: question_pattern
+                      target: {concept: StockLevel, table: null, column: null}
+                      value: "what needs reordering?"
+                      rationale: The description names deciding what to reorder as the concept's purpose.
+                      confidence: high
+                      decision: proposed
+                      proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
+                      proposed_at: "2026-09-07T02:03:40Z"
+                      decided_by: null
+                      decided_at: null
+                      harvest_id: hv_20260907_0200
+                    - id: prop_0003
+                      kind: personal_data
+                      target: {concept: Customer, table: customers, column: email}
+                      value: "true"
+                      rationale: The column name and sampled values are email addresses.
+                      confidence: high
+                      decision: accepted
+                      proposed_by: {identifier: enrichment_proposer, version: "0.1.0"}
+                      proposed_at: "2026-09-07T02:03:41Z"
+                      decided_by: analyst@example.test
+                      decided_at: "2026-09-07T09:12:00Z"
+                      harvest_id: hv_20260907_0200
+                  counts: {proposed: 2, accepted: 1, rejected: 0}
+              empty:
+                value:
+                  proposals: []
+                  counts: {proposed: 0, accepted: 0, rejected: 0}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/semantic/proposals/{proposal_id}/accept:
+  post:
+    tags: [semantic]
+    operationId: acceptSemanticProposal
+    summary: Accept one proposal. This is the human decision that lets it reach the graph.
+    x-egpt-scopes: [semantic:review]
+    parameters:
+      - name: proposal_id
+        in: path
+        required: true
+        schema: {type: string}
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/semantic.yaml#/ProposalDecisionRequest'
+          examples:
+            default:
+              value: {note: "Matches how the buying team talks."}
+    responses:
+      "200":
+        description: The proposal, now accepted.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/Proposal'
+            examples:
+              default:
+                value:
+                  id: prop_0001
+                  kind: synonym
+                  target: {concept: StockLevel, table: null, column: null}
+                  value: stock position
+                  rationale: The description defines the concept as a band of how much is on hand, which is what a stock position states.
+                  confidence: high
+                  decision: accepted
+                  proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
+                  proposed_at: "2026-09-07T02:03:40Z"
+                  decided_by: analyst@example.test
+                  decided_at: "2026-09-07T09:15:22Z"
+                  harvest_id: hv_20260907_0200
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "409":
+        description: Already decided. A decision is not silently overwritten.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              conflict:
+                value: {detail: "Proposal prop_0003 was accepted on 2026-09-07T09:12:00Z by analyst@example.test.", code: already_decided}
+
+/semantic/proposals/{proposal_id}/reject:
+  post:
+    tags: [semantic]
+    operationId: rejectSemanticProposal
+    summary: Reject one proposal.
+    x-egpt-scopes: [semantic:review]
+    parameters:
+      - name: proposal_id
+        in: path
+        required: true
+        schema: {type: string}
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/semantic.yaml#/ProposalDecisionRequest'
+          examples:
+            default:
+              value: {note: "Different concept: this is about sales rate, not quantity."}
+    responses:
+      "200":
+        description: The proposal, now rejected.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/Proposal'
+            examples:
+              default:
+                value:
+                  id: prop_0002
+                  kind: question_pattern
+                  target: {concept: StockLevel, table: null, column: null}
+                  value: "what needs reordering?"
+                  rationale: The description names deciding what to reorder as the concept's purpose.
+                  confidence: high
+                  decision: rejected
+                  proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
+                  proposed_at: "2026-09-07T02:03:40Z"
+                  decided_by: analyst@example.test
+                  decided_at: "2026-09-07T09:16:05Z"
+                  harvest_id: hv_20260907_0200
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "409":
+        description: Already decided.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              conflict:
+                value: {detail: "Proposal prop_0003 was accepted on 2026-09-07T09:12:00Z by analyst@example.test.", code: already_decided}
+
+/semantic/proposals/accept:
+  post:
+    tags: [semantic]
+    operationId: acceptSemanticProposalsBulk
+    summary: Accept many proposals in one decision.
+    description: A harvest produces hundreds of proposals; a gate per proposal is the obvious tool and the wrong one (G5). Every id in the request is decided or none is.
+    x-egpt-scopes: [semantic:review]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/semantic.yaml#/BulkProposalDecisionRequest'
+          examples:
+            default:
+              value: {ids: [prop_0001, prop_0002], note: "Reviewed the StockLevel batch."}
+    responses:
+      "200":
+        description: The decided proposals.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/semantic.yaml#/ProposalList'
+            examples:
+              default:
+                value:
+                  proposals:
+                    - id: prop_0001
+                      kind: synonym
+                      target: {concept: StockLevel, table: null, column: null}
+                      value: stock position
+                      rationale: The description defines the concept as a band of how much is on hand, which is what a stock position states.
+                      confidence: high
+                      decision: accepted
+                      proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
+                      proposed_at: "2026-09-07T02:03:40Z"
+                      decided_by: analyst@example.test
+                      decided_at: "2026-09-07T09:20:00Z"
+                      harvest_id: hv_20260907_0200
+                    - id: prop_0002
+                      kind: question_pattern
+                      target: {concept: StockLevel, table: null, column: null}
+                      value: "what needs reordering?"
+                      rationale: The description names deciding what to reorder as the concept's purpose.
+                      confidence: high
+                      decision: accepted
+                      proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
+                      proposed_at: "2026-09-07T02:03:40Z"
+                      decided_by: analyst@example.test
+                      decided_at: "2026-09-07T09:20:00Z"
+                      harvest_id: hv_20260907_0200
+                  counts: {proposed: 0, accepted: 2, rejected: 0}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "409":
+        description: At least one id was already decided; nothing was changed.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              conflict:
+                value: {detail: "prop_0003 was already decided. No proposal in this request was changed.", code: already_decided}
+
+# Reusable pieces local to this fragment. The bundler inlines them.
+x-egpt-parameters:
+  includeProposed:
+    name: include_proposed
+    in: query
+    required: false
+    schema: {type: boolean, default: false}
+    description: |
+      Return rows still awaiting review. Defaults to false on every read. Setting it true
+      requires the `semantic:read_proposed` scope; without it the response is 403, not a
+      silently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`
+      mark a proposed row `status: proposed`; the list endpoints this parameter also gates
+      (`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return
+      proposed rows unmarked -- a known gap, see CHANGELOG.md.
+
+x-egpt-responses:
+  InsufficientScope:
+    description: The token lacks a scope this operation requires.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          insufficient_scope:
+            value: {detail: "Insufficient permissions. Required scopes: semantic:read_proposed.", code: insufficient_scope}
+  SemanticUnavailable:
+    description: The reader could not answer. Distinct from every empty result above -- an empty list is an answer; this is not.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          semantic_unavailable:
+            value: {detail: "The semantic read stub has no fixture loaded. Load one with StubSemanticRead.from_fixture(path), or point the caller at the graph-backed reader once K5 lands.", code: semantic_unavailable}

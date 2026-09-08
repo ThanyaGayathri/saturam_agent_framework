@@ -1,0 +1,31 @@
+# Local stand-ins, one per managed Azure service. On AKS none of this is installed: the
+# application chart's values point at the managed endpoints instead (see AKS_CUTOVER.md).
+postgres:
+  image: agnohq/pgvector:18
+  user: ai
+  password: ai
+  database: ai
+  warehouseDatabase: egpt_warehouse        # D5: a separate database for landing / silver / gold
+pgbouncer:
+  enabled: true
+  image: edoburu/pgbouncer:latest
+  poolMode: session                        # not transaction: psycopg3 prepared statements and the
+                                           # consolidator's advisory lock both need a stable session
+  maxClientConn: 200
+  defaultPoolSize: 20
+neo4j:
+  enabled: true
+  image: neo4j:5-community
+  password: password
+  # Two DATABASES (memory + semantic layer; domain ontology) is a Neo4j Enterprise feature.
+  # Locally: two Community instances. UNVERIFIED as one Enterprise instance until a licence exists.
+  instances: [memory, ontology]
+redis:
+  enabled: true
+  image: redis:7-alpine
+minio:
+  enabled: true
+  image: minio/minio:latest
+  rootUser: minioadmin
+  rootPassword: minioadmin
+  bucket: egpt-landing                     # the raw drop zone (D4); Lane C's landing contract is path-shaped

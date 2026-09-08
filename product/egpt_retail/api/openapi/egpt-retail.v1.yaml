@@ -1,0 +1,100 @@
+openapi: 3.1.0
+info:
+  title: Enterprise GPT API
+  version: 1.0.0
+  summary: Every endpoint the Enterprise GPT screens call.
+  description: |
+    The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.
+    Written in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is
+    published as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated
+    from it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared
+    examples so a screen can be pointed at the contract before any of it is implemented.
+
+    **Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam
+    (`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a
+    literal mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).
+
+    **What this contract does not re-specify.** Chat, run streaming and session history are
+    already served by the framework and must not be duplicated here:
+
+    | Need | Framework endpoint |
+    |---|---|
+    | Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |
+    | Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |
+    | Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |
+    | Use case definitions as versioned components | `/components` |
+    | Health and configuration | `GET /health`, `GET /config` |
+
+    This document adds only what those lack: the retail resources, the delivery fields on a
+    schedule, and the provenance record every answer writes.
+
+    **Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding
+    it later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.
+
+    **Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's
+    `SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind
+    them in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing
+    a caller.
+  x-egpt-contract:
+    owner: Lane R
+    reviewed_by: Lane K
+    changelog: CHANGELOG.md
+
+servers:
+  - url: http://127.0.0.1:7777
+    description: Local EgptOS (R1).
+  - url: http://127.0.0.1:7778
+    description: The phase-zero stub server (`api/stub/server.py`'s default port, chosen so it does not collide with R1).
+
+tags:
+  - name: configure
+    description: Sources, models, integrations, cloud profile, business hierarchy, processes.
+  - name: kpis
+    description: KPI discovery, catalog, feasibility and health.
+  - name: use-cases
+    description: Use cases, the builder draft, spec, gap check, plan, preflight, activation, runs.
+  - name: playground
+    description: The delta the playground needs beyond framework chat and sessions.
+  - name: dashboards
+    description: Dashboard storage and gold reads.
+  - name: monitoring
+    description: Alert definitions, alert events, schedule delivery, execution health, quality.
+  - name: semantic
+    description: The semantic read API over HTTP, harvests, and the propose-then-confirm review.
+
+security:
+  - bearerAuth: []
+
+x-egpt-path-fragments:
+  - paths/configure.yaml
+  - paths/kpis.yaml
+  - paths/use-cases.yaml
+  - paths/playground.yaml
+  - paths/dashboards.yaml
+  - paths/monitoring.yaml
+  - paths/semantic.yaml
+
+# G11 -- three roles, mapped to scope sets at token issuance. The framework enforces scopes;
+# roles are a deployment's mapping onto them and are documented here so both sides agree.
+x-egpt-roles:
+  viewer:
+    description: Reads dashboards, results and the catalog.
+    scopes: [config:read, agents:read, sessions:read, kpis:read, use-cases:read, dashboards:read, monitoring:read, semantic:read, reports:write, playground:write]
+  analyst:
+    description: Viewer, plus authors use cases and KPIs and runs the playground.
+    scopes: [kpis:write, use-cases:write, dashboards:write, alerts:write, semantic:read_proposed, semantic:review]
+  admin:
+    description: Analyst, plus activates use cases at level three and above and manages sources.
+    scopes: [configure:write, use-cases:activate, semantic:harvest, schedules:write]
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        A JWT issued by the identity provider (Entra ID in the target deployment; an offline
+        RS256 key pair against a mounted JWKS file in local verification). The `scope` claim
+        carries the space-separated scope strings; `x-egpt-scopes` on each operation names
+        what it requires.

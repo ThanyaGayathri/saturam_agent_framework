@@ -1,0 +1,300 @@
+# The semantic read API over HTTP. Every shape here is the JSON mirror of a dataclass in
+# egpt_retail/contracts/semantic.py (v1.0.0). Changing one without the other is a contract
+# change under the protocol: both lanes agree, and CHANGELOG.md records it.
+
+ProposalStatus:
+  type: string
+  enum: [accepted, proposed]
+  description: |
+    Whether a row has been through review. Only `accepted` rows reach the graph (D10, G5).
+    A `proposed` row is returned only to a caller that passed `include_proposed=true`, and it
+    arrives labelled, so there is no way to receive an unreviewed synonym and mistake it for
+    a confirmed one.
+
+Snapshot:
+  type: object
+  description: Which semantic version a read was answered from. On every response.
+  required: [version, harvested_at, source]
+  properties:
+    version: {type: string}
+    harvested_at: {type: string}
+    source: {type: string, default: warehouse}
+
+Column:
+  type: object
+  required: [name, data_type]
+  properties:
+    name: {type: string}
+    data_type: {type: string}
+    nullable: {type: boolean, default: true}
+    is_key: {type: boolean, default: false}
+    is_personal_data:
+      type: boolean
+      default: false
+      description: Set by enrichment and confirmed by a person. Drives the compliance tags a provenance record carries.
+    description: {type: string, default: ""}
+    sampled_values:
+      type: array
+      items: {type: string}
+      description: Values the harvest actually saw. Bounded; never the whole column.
+    status:
+      $ref: './semantic.yaml#/ProposalStatus'
+
+TableRef:
+  type: object
+  description: A table's identity without its columns. What listing returns.
+  required: [name, schema]
+  properties:
+    name: {type: string}
+    schema: {type: string, default: silver}
+    row_count: {type: [integer, "null"]}
+
+Table:
+  type: object
+  required: [ref, columns]
+  properties:
+    ref:
+      $ref: './semantic.yaml#/TableRef'
+    columns:
+      type: array
+      items:
+        $ref: './semantic.yaml#/Column'
+    description: {type: string, default: ""}
+    concepts:
+      type: array
+      items: {type: string}
+      description: Ontology concepts this table is an instance of, once mapping is confirmed (K8).
+    status:
+      $ref: './semantic.yaml#/ProposalStatus'
+
+Concept:
+  type: object
+  description: What a concept means, and how to turn it into rows. Every field arrived through a proposal a person accepted.
+  required: [name, description]
+  properties:
+    name: {type: string}
+    description: {type: string}
+    synonyms:
+      type: array
+      items: {type: string}
+    question_patterns:
+      type: array
+      items: {type: string}
+    sql_filter:
+      type: string
+      default: ""
+      description: The SQL boolean fragment that scopes this concept. Interpolated as a PREDICATE parameter in a KPI formula. Never built from user input.
+    personal_data_fields:
+      type: array
+      items: {type: string}
+    compliance_tags:
+      type: array
+      items: {type: string}
+    metrics:
+      type: array
+      items: {type: string}
+      description: KPI identifiers reachable from this concept.
+    business_area:
+      type: [string, "null"]
+    status:
+      $ref: './semantic.yaml#/ProposalStatus'
+
+JoinEdge:
+  type: object
+  required: [left_table, right_table, "on"]
+  properties:
+    left_table: {type: string}
+    right_table: {type: string}
+    "on":
+      type: string
+      description: The join predicate, exactly as it would appear after `ON`.
+    cardinality: {type: string, default: many-to-one}
+
+JoinPath:
+  type: object
+  required: [from_table, to_table, edges, hops, intermediate_tables]
+  properties:
+    from_table: {type: string}
+    to_table: {type: string}
+    edges:
+      type: array
+      items:
+        $ref: './semantic.yaml#/JoinEdge'
+    hops: {type: integer}
+    intermediate_tables:
+      type: array
+      items: {type: string}
+      description: Tables traversed that are neither endpoint. A preflight check needs these.
+
+JoinPathResponse:
+  type: object
+  description: |
+    Three outcomes, never a guess. `path` present: the tables connect. `path` null with HTTP
+    200: the graph holds no path, which is an answer and the one a preflight check acts on.
+    HTTP 503: the reader could not answer, which is not an answer. **Not 404 for "no path"**
+    -- every HTTP client collapses 404 into "empty", which is exactly the collapse the
+    contract exists to prevent.
+  required: [path, snapshot]
+  properties:
+    path:
+      oneOf:
+        - $ref: './semantic.yaml#/JoinPath'
+        - type: "null"
+    snapshot:
+      $ref: './semantic.yaml#/Snapshot'
+
+TableList:
+  type: object
+  required: [tables, snapshot]
+  properties:
+    tables:
+      type: array
+      items:
+        $ref: './semantic.yaml#/TableRef'
+    snapshot:
+      $ref: './semantic.yaml#/Snapshot'
+
+ConceptList:
+  type: object
+  required: [concepts, snapshot]
+  properties:
+    concepts:
+      type: array
+      items: {type: string}
+    snapshot:
+      $ref: './semantic.yaml#/Snapshot'
+
+BusinessAreaList:
+  type: object
+  description: Areas this deployment supports, derived from confirmed mappings (K9). Empty means no source has been connected, never that the ontology is empty.
+  required: [business_areas, snapshot]
+  properties:
+    business_areas:
+      type: array
+      items: {type: string}
+    snapshot:
+      $ref: './semantic.yaml#/Snapshot'
+
+Harvest:
+  type: object
+  description: One run of the deterministic metadata harvest (K4). No model is involved.
+  required: [id, status, started_at]
+  properties:
+    id: {type: string}
+    status:
+      $ref: './semantic.yaml#/HarvestStatus'
+    source_id:
+      type: string
+      description: The configured internal source that was harvested.
+    started_at:
+      $ref: './common.yaml#/Timestamp'
+    finished_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    snapshot_version:
+      type: [string, "null"]
+      description: The semantic snapshot this harvest produced, once it succeeded.
+    proposals_created:
+      type: integer
+      description: How many enrichment proposals the run queued for review.
+    error:
+      type: [string, "null"]
+
+HarvestRequest:
+  type: object
+  required: [source_id]
+  properties:
+    source_id: {type: string}
+
+ProposalKind:
+  type: string
+  enum: [synonym, question_pattern, sql_filter, personal_data, compliance_tag, concept_mapping, kpi_candidate]
+  description: What an enrichment proposal proposes. Each kind is emitted by an agent under the K14 template and confirmed by a person (D10).
+
+ProposalDecision:
+  type: string
+  enum: [proposed, accepted, rejected]
+
+Proposal:
+  type: object
+  description: |
+    One enrichment proposal awaiting or past review. An agent proposed it; a person decides.
+    Nothing here reaches the graph until `decision` is `accepted` (D10, G5). `proposed_by`
+    names the skill and version, so a bad batch is attributable to the prompt edit that
+    caused it (G13).
+  required: [id, kind, target, value, rationale, confidence, decision, proposed_by, proposed_at]
+  properties:
+    id: {type: string}
+    kind:
+      $ref: './semantic.yaml#/ProposalKind'
+    target:
+      $ref: './semantic.yaml#/ProposalTarget'
+    value: {type: string}
+    rationale:
+      type: string
+      description: One sentence naming the input it derives from. A proposal with no traceable source was invented, not derived.
+    confidence:
+      $ref: './common.yaml#/Confidence'
+    decision:
+      $ref: './semantic.yaml#/ProposalDecision'
+    proposed_by:
+      $ref: './common.yaml#/SkillRef'
+    proposed_at:
+      $ref: './common.yaml#/Timestamp'
+    decided_by: {type: [string, "null"]}
+    decided_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    harvest_id: {type: [string, "null"]}
+
+ProposalList:
+  type: object
+  required: [proposals]
+  properties:
+    proposals:
+      type: array
+      items:
+        $ref: './semantic.yaml#/Proposal'
+    counts:
+      $ref: './semantic.yaml#/ProposalCounts'
+
+ProposalDecisionRequest:
+  type: object
+  properties:
+    note:
+      type: string
+      description: Optional reviewer note, kept with the decision.
+
+BulkProposalDecisionRequest:
+  type: object
+  description: A single source harvest produces hundreds of proposals; nobody clicks through them one gate at a time (G5).
+  required: [ids]
+  properties:
+    ids:
+      type: array
+      items: {type: string}
+      minItems: 1
+    note: {type: string}
+
+HarvestStatus:
+  type: string
+  enum: [queued, running, succeeded, failed]
+
+ProposalTarget:
+  type: object
+  description: What a proposal attaches to.
+  required: [concept]
+  properties:
+    concept: {type: string}
+    table: {type: [string, "null"]}
+    column: {type: [string, "null"]}
+
+ProposalCounts:
+  type: object
+  description: Totals by decision, so the review screen can show its badge without a second call.
+  properties:
+    proposed: {type: integer}
+    accepted: {type: integer}
+    rejected: {type: integer}

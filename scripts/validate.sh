@@ -4,8 +4,8 @@
 #
 #    EGPT Validate
 #
-#    ruff check + mypy for egpt and egptctl, ruff + pattern + import check
-#    for cookbook, brand audit for the repo. Exits non-zero if anything fails —
+#    ruff check + mypy for egpt, egptctl and product, ruff + pattern + import check
+#    for cookbook, the API contract check, brand audit for the repo. Exits non-zero if anything fails —
 #    safe to gate on.
 #    egpt-infra is not part of the dev venv; it validates in its own CI job.
 #
@@ -75,6 +75,15 @@ target "cookbook"
 run_step "ruff check" ruff check "${REPO_ROOT}/cookbook"
 run_step "pattern check" python3 "${REPO_ROOT}/cookbook/scripts/check_cookbook_pattern.py" --base-dir "${REPO_ROOT}/cookbook/00_quickstart"
 run_step "import check" python3 "${REPO_ROOT}/cookbook/scripts/check_cookbook_imports.py" --base-dir "${REPO_ROOT}/cookbook" --lib-root "${REPO_ROOT}/libs/agno"
+
+target "product"
+run_step "ruff check" ruff check "${REPO_ROOT}/product"
+# MYPYPATH: egpt is installed editable through an import-hook finder that mypy cannot follow,
+# so the framework's source tree is named explicitly. Without it every `egpt.*` import in
+# product/ is "import-not-found" and nothing behind it is checked.
+run_step "mypy" env MYPYPATH="${REPO_ROOT}/libs/agno" mypy "${REPO_ROOT}/product/egpt_retail" --config-file "${REPO_ROOT}/product/pyproject.toml"
+run_step "api contract" python3 "${REPO_ROOT}/scripts/check_api_contract.py"
+run_step "pytest" python3 -m pytest "${REPO_ROOT}/product/tests"
 
 target "repo"
 run_step "brand audit" python3 "${REPO_ROOT}/scripts/brand_audit.py"

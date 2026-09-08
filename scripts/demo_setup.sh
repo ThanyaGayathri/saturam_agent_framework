@@ -15,6 +15,7 @@ CURR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${CURR_DIR}")"
 AGNO_DIR="${REPO_ROOT}/libs/agno"
 EGPTCTL_DIR="${REPO_ROOT}/libs/egptctl"
+PRODUCT_DIR="${REPO_ROOT}/product"
 VENV_DIR="${REPO_ROOT}/.venvs/demo"
 
 # Colors
@@ -58,11 +59,12 @@ echo -e "    ${DIM}Creating Python 3.12 venv...${NC}"
 echo -e "    ${DIM}> uv venv ${VENV_DIR} --python 3.12${NC}"
 uv venv "${VENV_DIR}" --python 3.12 --quiet
 
-# Install the separately distributed CLI and core library together for demos.
+# Install the separately distributed CLI, the core library and the retail product together
+# for demos. cookbook/94_retail/ imports from product/.
 echo ""
-echo -e "    ${DIM}Installing egptctl and egpt[demo] in editable mode...${NC}"
-echo -e "    ${DIM}> uv pip install -e libs/egptctl -e libs/agno[demo]${NC}"
-VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}" -e "${AGNO_DIR}[demo]" --quiet
+echo -e "    ${DIM}Installing egptctl, egpt[demo] and egpt-retail in editable mode...${NC}"
+echo -e "    ${DIM}> uv pip install -e libs/egptctl -e libs/agno[demo] -e product${NC}"
+VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}" -e "${AGNO_DIR}[demo]" -e "${PRODUCT_DIR}" --quiet
 
 # Copy activation command to clipboard
 ACTIVATE_CMD="source .venvs/demo/bin/activate"

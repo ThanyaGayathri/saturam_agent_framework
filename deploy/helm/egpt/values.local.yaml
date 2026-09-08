@@ -1,0 +1,27 @@
+# The overlay that runs on kind. Everything Azure stays a placeholder; everything the four R2
+# scenarios need is real. Apply with:
+#   helm upgrade --install egpt deploy/helm/egpt -f deploy/helm/egpt/values.local.yaml \
+#     --set auth.enabled=true --set-file auth.jwks=<dir>/jwks.json
+image:
+  pullPolicy: Never                      # kind load docker-image egpt-retail:dev --name egpt
+customerSlug: acme
+secrets:
+  provider: kubernetes
+  values:
+    internalServiceToken: "local-shared-token"
+auth:
+  enabled: true
+  audience: "api://egpt-retail"
+api:
+  replicas: 2                            # the pod-kill scenario needs a second replica to serve through
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 768Mi}
+pipelines:
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 768Mi}
+consolidator:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 300m, memory: 512Mi}

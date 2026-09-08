@@ -1,0 +1,494 @@
+# The playground delta beyond framework chat and sessions.
+
+/playground/prompts:
+  get:
+    tags: [playground]
+    operationId: listSavedPrompts
+    summary: Prompts the user saved.
+    x-egpt-scopes: [playground:write]
+    responses:
+      "200":
+        description: Saved prompts, most recent first.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/playground.yaml#/SavedPrompt'
+            examples:
+              default:
+                value:
+                  - {id: sp_0002, text: "Which suppliers are slipping on on-time delivery?", label: Supplier watch, saved_at: "2026-09-06T16:00:00Z", last_used_at: "2026-09-07T09:00:00Z", usage_count: 3}
+                  - {id: sp_0001, text: "Where are we losing quote requests before they become deals?", label: "", saved_at: "2026-09-02T11:00:00Z", last_used_at: null, usage_count: 0}
+              empty:
+                value: []
+  post:
+    tags: [playground]
+    operationId: createSavedPrompt
+    summary: Save a prompt. Saving the same text twice returns the existing one.
+    x-egpt-scopes: [playground:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/playground.yaml#/SavedPromptWrite'
+          examples:
+            default:
+              value: {text: "Which suppliers are slipping on on-time delivery?", label: Supplier watch}
+    responses:
+      "201":
+        description: Saved.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/SavedPrompt'
+            examples:
+              default:
+                value: {id: sp_0002, text: "Which suppliers are slipping on on-time delivery?", label: Supplier watch, saved_at: "2026-09-06T16:00:00Z", last_used_at: null, usage_count: 0}
+
+/playground/prompts/{prompt_id}:
+  patch:
+    tags: [playground]
+    operationId: updateSavedPrompt
+    summary: Edit a saved prompt's text or label.
+    x-egpt-scopes: [playground:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/promptId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/playground.yaml#/SavedPromptWrite'
+          examples:
+            default:
+              value: {text: "Which suppliers are slipping on on-time delivery this month?", label: Supplier watch}
+    responses:
+      "200":
+        description: Updated.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/SavedPrompt'
+            examples:
+              default:
+                value: {id: sp_0002, text: "Which suppliers are slipping on on-time delivery this month?", label: Supplier watch, saved_at: "2026-09-06T16:00:00Z", last_used_at: "2026-09-07T09:00:00Z", usage_count: 3}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [playground]
+    operationId: deleteSavedPrompt
+    summary: Remove a saved prompt.
+    x-egpt-scopes: [playground:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/promptId'
+    responses:
+      "204":
+        description: Deleted.
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/playground/prompts/{prompt_id}/used:
+  post:
+    tags: [playground]
+    operationId: markSavedPromptUsed
+    summary: Record that the prompt was sent.
+    x-egpt-scopes: [playground:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/promptId'
+    responses:
+      "200":
+        description: Updated counters.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/SavedPrompt'
+            examples:
+              default:
+                value: {id: sp_0002, text: "Which suppliers are slipping on on-time delivery?", label: Supplier watch, saved_at: "2026-09-06T16:00:00Z", last_used_at: "2026-09-07T10:40:00Z", usage_count: 4}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/playground/filters:
+  get:
+    tags: [playground]
+    operationId: getChatFilters
+    summary: The user's date window.
+    x-egpt-scopes: [playground:write]
+    responses:
+      "200":
+        description: The filters.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/ChatFilters'
+            examples:
+              preset:
+                value: {period: week, from_date: null, to_date: null}
+              custom:
+                value: {period: custom, from_date: "2026-07-01", to_date: "2026-09-07"}
+  put:
+    tags: [playground]
+    operationId: setChatFilters
+    summary: Set the date window. A custom range is capped at 730 days.
+    x-egpt-scopes: [playground:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/playground.yaml#/ChatFilters'
+          examples:
+            default:
+              value: {period: custom, from_date: "2026-07-01", to_date: "2026-09-07"}
+    responses:
+      "200":
+        description: Set.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/ChatFilters'
+            examples:
+              default:
+                value: {period: custom, from_date: "2026-07-01", to_date: "2026-09-07"}
+      "422":
+        description: The range is invalid or too long.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              invalid:
+                value: {detail: "Custom range is limited to 730 days.", code: invalid_range}
+
+/playground/preferences:
+  get:
+    tags: [playground]
+    operationId: getPlaygroundPreferences
+    summary: Answer format preference.
+    x-egpt-scopes: [playground:write]
+    responses:
+      "200":
+        description: Preferences.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/PlaygroundPreferences'
+            examples:
+              default:
+                value: {mode: full}
+  put:
+    tags: [playground]
+    operationId: setPlaygroundPreferences
+    summary: Set the answer format.
+    x-egpt-scopes: [playground:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/playground.yaml#/PlaygroundPreferences'
+          examples:
+            default:
+              value: {mode: brief}
+    responses:
+      "200":
+        description: Set.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/PlaygroundPreferences'
+            examples:
+              default:
+                value: {mode: brief}
+
+/reports:
+  get:
+    tags: [playground]
+    operationId: listReports
+    summary: The user's reports and which is active.
+    x-egpt-scopes: [reports:write]
+    responses:
+      "200":
+        description: Reports.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/ReportList'
+            examples:
+              default:
+                value:
+                  active_report_id: rp_0007
+                  reports:
+                    - id: rp_0007
+                      title: Supplier review -- September
+                      items:
+                        - {id: it_0001, block: {id: blk_a1, kind: finding, title: On-time rate fell to 91%, value: "91%", change: "-4pp"}, source_question: "Which suppliers are slipping on on-time delivery?", run_id: run_0042, use_case_id: uc_0001, pinned_at: "2026-09-07T09:05:00Z"}
+                      created_at: "2026-09-01T08:00:00Z"
+                      updated_at: "2026-09-07T09:05:00Z"
+              empty:
+                summary: A fresh user. One empty report exists so the pin action has a target.
+                value:
+                  active_report_id: rp_0001
+                  reports:
+                    - {id: rp_0001, title: My first report, items: [], created_at: "2026-09-07T10:00:00Z", updated_at: "2026-09-07T10:00:00Z"}
+  post:
+    tags: [playground]
+    operationId: createReport
+    summary: Create a report, active by default.
+    x-egpt-scopes: [reports:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/playground.yaml#/ReportWrite'
+          examples:
+            default:
+              value: {title: Supplier review -- September, make_active: true}
+    responses:
+      "201":
+        description: Created.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/Report'
+            examples:
+              default:
+                value: {id: rp_0007, title: Supplier review -- September, items: [], created_at: "2026-09-07T10:45:00Z", updated_at: "2026-09-07T10:45:00Z"}
+
+/reports/active:
+  put:
+    tags: [playground]
+    operationId: setActiveReport
+    summary: Choose which report the pin action targets.
+    x-egpt-scopes: [reports:write]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/playground.yaml#/ActiveReportWrite'
+          examples:
+            default:
+              value: {report_id: rp_0007}
+    responses:
+      "200":
+        description: Set.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/ReportList'
+            examples:
+              default:
+                value:
+                  active_report_id: rp_0007
+                  reports:
+                    - {id: rp_0007, title: Supplier review -- September, items: [], created_at: "2026-09-07T10:45:00Z", updated_at: "2026-09-07T10:45:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/reports/{report_id}:
+  get:
+    tags: [playground]
+    operationId: getReport
+    summary: One report.
+    x-egpt-scopes: [reports:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/reportId'
+    responses:
+      "200":
+        description: The report.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/Report'
+            examples:
+              default:
+                value:
+                  id: rp_0007
+                  title: Supplier review -- September
+                  items:
+                    - {id: it_0001, block: {id: blk_a1, kind: finding, title: On-time rate fell to 91%, value: "91%", change: "-4pp"}, source_question: "Which suppliers are slipping on on-time delivery?", run_id: run_0042, use_case_id: uc_0001, pinned_at: "2026-09-07T09:05:00Z"}
+                  created_at: "2026-09-01T08:00:00Z"
+                  updated_at: "2026-09-07T09:05:00Z"
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  patch:
+    tags: [playground]
+    operationId: renameReport
+    summary: Rename a report.
+    x-egpt-scopes: [reports:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/reportId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/playground.yaml#/ReportWrite'
+          examples:
+            default:
+              value: {title: Supplier review -- Q3}
+    responses:
+      "200":
+        description: Renamed.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/Report'
+            examples:
+              default:
+                value: {id: rp_0007, title: Supplier review -- Q3, items: [], created_at: "2026-09-01T08:00:00Z", updated_at: "2026-09-07T10:50:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+  delete:
+    tags: [playground]
+    operationId: deleteReport
+    summary: Delete a report. Deleting the last one leaves an empty one in its place.
+    x-egpt-scopes: [reports:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/reportId'
+    responses:
+      "204":
+        description: Deleted.
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/reports/{report_id}/blocks:
+  post:
+    tags: [playground]
+    operationId: pinBlockToReport
+    summary: Pin an answer block. Pinning a block already in the report is a no-op.
+    x-egpt-scopes: [reports:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/reportId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/playground.yaml#/ReportBlockWrite'
+          examples:
+            default:
+              value: {block: {id: blk_a1, kind: finding, title: On-time rate fell to 91%, value: "91%", change: "-4pp"}, source_question: "Which suppliers are slipping on on-time delivery?", run_id: run_0042, use_case_id: uc_0001}
+    responses:
+      "201":
+        description: Pinned.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/playground.yaml#/ReportItem'
+            examples:
+              default:
+                value: {id: it_0001, block: {id: blk_a1, kind: finding, title: On-time rate fell to 91%, value: "91%", change: "-4pp"}, source_question: "Which suppliers are slipping on on-time delivery?", run_id: run_0042, use_case_id: uc_0001, pinned_at: "2026-09-07T09:05:00Z"}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/reports/{report_id}/blocks/{block_id}:
+  delete:
+    tags: [playground]
+    operationId: unpinBlockFromReport
+    summary: Remove a pinned block.
+    x-egpt-scopes: [reports:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/reportId'
+      - name: block_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "204":
+        description: Removed.
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+
+/runs/{run_id}/provenance:
+  get:
+    tags: [playground]
+    operationId: getRunProvenance
+    summary: Where every number in an answer came from.
+    description: The record every answer writes. The playground's citation panel renders it; it is also the only tool for debugging across the lane boundary. R7 implements it; the shape is fixed here.
+    x-egpt-scopes: [sessions:read]
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The provenance record.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Provenance'
+            examples:
+              default:
+                value:
+                  run_id: run_0042
+                  use_case_id: uc_0001
+                  produced_at: "2026-09-07T05:01:12Z"
+                  semantic_snapshot: "r3-contract.1"
+                  vocabulary_version: "1.0.0"
+                  skill: {identifier: funnel_explanation, version: "0.1.0"}
+                  model_tier: small
+                  datasets_read:
+                    - {schema: gold, table: kpi_supplier__on_time_rate_30d, as_of: "2026-09-06T23:59:59Z"}
+                    - {schema: silver, table: supplier_deliveries, as_of: "2026-09-06T23:59:59Z"}
+                  sql_executed:
+                    - {statement: "SELECT supplier_id, value FROM gold.kpi_supplier__on_time_rate_30d WHERE as_of = '2026-09-06'", row_count: 47, duration_ms: 12, guard: allowed}
+                    - {statement: "SELECT supplier_id, expected_date, actual_date, status FROM silver.supplier_deliveries WHERE actual_date >= '2026-08-07' LIMIT 50", row_count: 50, duration_ms: 31, guard: allowed}
+                  rows_sampled:
+                    - {table: supplier_deliveries, rows: [{supplier_id: sup_014, expected_date: "2026-08-20", actual_date: "2026-08-24", status: late}]}
+                  freshness:
+                    - {table: supplier_deliveries, as_of: "2026-09-06T23:59:59Z", computed_at: "2026-09-07T02:20:00Z"}
+                  retrieval_hits:
+                    - {source: ontology, id: Supplier, score: 0.91, origin: shipped}
+                    - {source: prose, id: doc_supplier_lead_time_rules, score: 0.78, origin: customer}
+              no_model:
+                summary: A run with no model step at all -- the executors-only workflow R7 verifies with.
+                value:
+                  run_id: run_0050
+                  use_case_id: null
+                  produced_at: "2026-09-07T11:00:00Z"
+                  semantic_snapshot: "r3-contract.1"
+                  vocabulary_version: "1.0.0"
+                  model_tier: none
+                  datasets_read: [{schema: gold, table: kpi_supplier__on_time_rate_30d, as_of: "2026-09-06T23:59:59Z"}]
+                  sql_executed: [{statement: "SELECT supplier_id, value FROM gold.kpi_supplier__on_time_rate_30d WHERE as_of = '2026-09-06'", row_count: 47, duration_ms: 9, guard: allowed}]
+                  rows_sampled: []
+                  freshness: [{table: kpi_supplier__on_time_rate_30d, as_of: "2026-09-06T23:59:59Z", computed_at: "2026-09-07T02:20:00Z"}]
+                  retrieval_hits: []
+      "404":
+        description: No such run, or the run wrote no provenance -- which is a defect, and the message says so.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No provenance record for run_9999. Every answer writes one; a run without one is a defect, not a missing feature.", code: not_found}
+
+x-egpt-parameters:
+  promptId:
+    name: prompt_id
+    in: path
+    required: true
+    schema: {type: string}
+  reportId:
+    name: report_id
+    in: path
+    required: true
+    schema: {type: string}
+
+x-egpt-responses:
+  NotFound:
+    description: No such resource.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          not_found:
+            value: {detail: "Not found.", code: not_found}

@@ -1,0 +1,297 @@
+# KPI discovery, catalog, feasibility and health. The definition half mirrors
+# egpt_retail/contracts/kpi.py (v2.0.0); the presentation half comes from kpi-registry.js.
+
+Grain:
+  type: string
+  description: A term from the deployment's `grain` vocabulary (shipped ontology plus overlay). A string validated at runtime, not an enum -- see CHANGELOG 2.0.0 of the KPI formula shape.
+  examples: [overall, product, supplier, location, time_period]
+
+ResultShape:
+  type: string
+  enum: [scalar, rowset]
+  description: Mirrors `egpt_retail.contracts.kpi.ResultShape`. A `rowset` cannot be alerted on or trended.
+
+Dialect:
+  type: string
+  enum: [postgres, sqlite]
+
+ParameterKind:
+  type: string
+  enum: [predicate, scalar]
+  description: "`predicate` is an interpolated SQL fragment from an accepted proposal; `scalar` is a driver-bound value. Never interchangeable."
+
+KpiParameter:
+  type: object
+  required: [name, kind]
+  properties:
+    name: {type: string}
+    kind:
+      $ref: './kpis.yaml#/ParameterKind'
+    description: {type: string, default: ""}
+
+TimeWindow:
+  type: object
+  description: A declared lookback relative to the run's as-of date. Never written into the SQL, so yesterday's number can be recomputed.
+  required: [length, unit]
+  properties:
+    length: {type: integer, minimum: 1}
+    unit:
+      $ref: './kpis.yaml#/TimeWindowUnit'
+
+KpiLevel:
+  type: string
+  enum: [strategic, operational, tactical]
+
+Kpi:
+  type: object
+  description: |
+    One KPI, as the registry holds it (K11) and the discovery screen renders it. The formula
+    fields are the contract shape; the presentation fields are what the registry screen shows.
+    `feasibility` is embedded so the list renders its ready/partial/blocked badges without a
+    call per row -- it is still a set difference, computed on read, never stored.
+  required: [id, identifier, name, description, business_area, grain, result_shape, source_tables, source, active, feasibility]
+  properties:
+    id: {type: string}
+    identifier:
+      type: string
+      description: "`<concept>__<name>`, stable across edits. What provenance and gold rows reference."
+    name: {type: string}
+    description: {type: string}
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+    subject_area: {type: string, default: ""}
+    concept: {type: [string, "null"]}
+    grain:
+      $ref: './kpis.yaml#/Grain'
+    result_shape:
+      $ref: './kpis.yaml#/ResultShape'
+    dialect:
+      $ref: './kpis.yaml#/Dialect'
+    sql:
+      type: string
+      description: The formula with `{named}` placeholders. Returned only to callers holding `kpis:write`; a viewer sees the field absent.
+    source_tables:
+      type: array
+      items: {type: string}
+    parameters:
+      type: array
+      items:
+        $ref: './kpis.yaml#/KpiParameter'
+    time_window:
+      oneOf:
+        - $ref: './kpis.yaml#/TimeWindow'
+        - type: "null"
+    validated_against_snapshot: {type: [string, "null"]}
+    level:
+      oneOf:
+        - $ref: './kpis.yaml#/KpiLevel'
+        - type: "null"
+    unit: {type: string, default: ""}
+    industry_benchmark: {type: string, default: ""}
+    active: {type: boolean}
+    source:
+      $ref: './kpis.yaml#/KpiOrigin'
+    dataset_ids:
+      type: array
+      items: {type: string}
+    process_ids:
+      type: array
+      items: {type: string}
+    feasibility:
+      $ref: './common.yaml#/Feasibility'
+    updated_at:
+      $ref: './common.yaml#/Timestamp'
+
+KpiWrite:
+  type: object
+  description: Authoring a KPI. The formula is validated at construction (declared parameters match placeholders, source tables cover the formula) and refused with 422 naming the defect.
+  required: [name, description, business_area, grain, sql, source_tables]
+  properties:
+    identifier: {type: string}
+    name: {type: string}
+    description: {type: string}
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+    subject_area: {type: string}
+    concept: {type: [string, "null"]}
+    grain:
+      $ref: './kpis.yaml#/Grain'
+    result_shape:
+      $ref: './kpis.yaml#/ResultShape'
+    dialect:
+      $ref: './kpis.yaml#/Dialect'
+    sql: {type: string}
+    source_tables:
+      type: array
+      items: {type: string}
+    parameters:
+      type: array
+      items:
+        $ref: './kpis.yaml#/KpiParameter'
+    time_window:
+      oneOf:
+        - $ref: './kpis.yaml#/TimeWindow'
+        - type: "null"
+    level:
+      oneOf:
+        - $ref: './kpis.yaml#/KpiLevel'
+        - type: "null"
+    unit: {type: string}
+    industry_benchmark: {type: string}
+    active: {type: boolean}
+    dataset_ids:
+      type: array
+      items: {type: string}
+    process_ids:
+      type: array
+      items: {type: string}
+
+KpiSuggestion:
+  type: object
+  description: A candidate KPI proposed by the K12 agent. Typed for direct rendering; every closed-set value from the deployment's vocabulary; traceable to named tables or it was invented.
+  required: [identifier, name, description, business_area, grain, result_shape, rationale, derived_from_tables, confidence]
+  properties:
+    identifier: {type: string}
+    name: {type: string}
+    description: {type: string}
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+    concept: {type: [string, "null"]}
+    grain:
+      $ref: './kpis.yaml#/Grain'
+    result_shape:
+      $ref: './kpis.yaml#/ResultShape'
+    rationale:
+      type: string
+      description: One sentence naming the tables or concepts it derives from.
+    derived_from_tables:
+      type: array
+      items: {type: string}
+      minItems: 1
+    confidence:
+      $ref: './common.yaml#/Confidence'
+    proposed_sql: {type: [string, "null"]}
+    feasibility:
+      $ref: './common.yaml#/Feasibility'
+    proposed_by:
+      $ref: './common.yaml#/SkillRef'
+
+KpiSuggestionList:
+  type: object
+  required: [suggestions, notes]
+  properties:
+    suggestions:
+      type: array
+      items:
+        $ref: './kpis.yaml#/KpiSuggestion'
+    notes:
+      type: string
+      description: Empty on a clean run; otherwise what was missing (the skill template's refusal shape).
+    semantic_snapshot: {type: string}
+
+KpiHealthStatus:
+  type: string
+  enum: [fresh, stale, never_computed, failed, not_scheduled]
+
+KpiHealth:
+  type: object
+  description: Freshness from gold (R5). Every gold row is stamped with source and computation time; this is that stamp surfaced.
+  required: [kpi_id, status]
+  properties:
+    kpi_id: {type: string}
+    identifier: {type: string}
+    status:
+      $ref: './kpis.yaml#/KpiHealthStatus'
+    last_computed_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    as_of:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+      description: The bound as-of date the last materialisation computed against.
+    staleness_hours: {type: [number, "null"]}
+    last_run_id: {type: [string, "null"]}
+    last_error: {type: [string, "null"]}
+
+KpiSource:
+  type: object
+  description: A user-added dataset in the KPI gallery (kpi-sources.js). More than a connection -- it carries the business context that turns rows into metrics.
+  required: [id, name, description, business_areas]
+  properties:
+    id: {type: string}
+    name: {type: string}
+    description: {type: string}
+    source_id:
+      type: [string, "null"]
+      description: The configured internal source it comes from, if known.
+    table: {type: [string, "null"]}
+    business_areas:
+      type: array
+      items:
+        $ref: './common.yaml#/BusinessAreaId'
+    attributes:
+      type: array
+      items: {type: string}
+    linked_kpi_ids:
+      type: array
+      items: {type: string}
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+
+KpiSourceWrite:
+  type: object
+  required: [name, description]
+  properties:
+    name: {type: string}
+    description: {type: string}
+    source_id: {type: [string, "null"]}
+    table: {type: [string, "null"]}
+    business_areas:
+      type: array
+      items:
+        $ref: './common.yaml#/BusinessAreaId'
+    attributes:
+      type: array
+      items: {type: string}
+    linked_kpi_ids:
+      type: array
+      items: {type: string}
+
+KpiImportRequest:
+  type: object
+  description: The CSV import panel. One row per KPI; columns match `KpiWrite` field names. Rows that fail construction are reported, not silently dropped.
+  required: [csv]
+  properties:
+    csv: {type: string}
+    dry_run: {type: boolean, default: false}
+
+KpiImportResult:
+  type: object
+  required: [imported, rejected]
+  properties:
+    imported:
+      type: array
+      items: {type: string}
+      description: Identifiers created.
+    rejected:
+      type: array
+      items:
+        $ref: './kpis.yaml#/KpiImportRejection'
+
+TimeWindowUnit:
+  type: string
+  enum: [day, week, month, quarter, year]
+
+KpiOrigin:
+  type: string
+  enum: [shipped, customer]
+  description: Whether the KPI shipped with the product or the customer authored it.
+
+KpiImportRejection:
+  type: object
+  required: [row, reason]
+  properties:
+    row: {type: integer}
+    reason: {type: string}

@@ -1,0 +1,179 @@
+# Schemas shared by more than one contract area.
+
+Error:
+  type: object
+  description: |
+    The error body every non-2xx response carries. `detail` is written for the person who
+    sees it, never a stack trace. `code` is a stable machine token so a screen can branch on
+    it without parsing prose.
+  required: [detail]
+  properties:
+    detail:
+      type: string
+    code:
+      type: string
+      description: Stable token, e.g. `insufficient_scope`, `preflight_blocked`, `semantic_unavailable`.
+
+Timestamp:
+  type: string
+  format: date-time
+  description: RFC 3339, always UTC.
+
+BusinessAreaId:
+  type: string
+  description: |
+    A business area identifier. In 1.0.0 this is the shipped `business_area` vocabulary
+    (`egpt_retail/ontology/vocabularies.json`) plus whatever a customer overlay adds, so it is
+    a string validated at runtime against the deployment's vocabulary, not an enum.
+  examples: [inventory, sales, supply_chain]
+
+Provenance:
+  type: object
+  description: |
+    The record every answer writes (alignment rule: "every answer writes a provenance
+    record"). Its shape is fixed here in phase zero so that R7 implements it rather than
+    designs it, and so the citation panel in the playground renders one thing. Holds what was
+    read, what was executed, what was sampled, how fresh each input was, what retrieval
+    returned, and which model tier answered.
+  required: [run_id, produced_at, semantic_snapshot, datasets_read, sql_executed, model_tier]
+  properties:
+    run_id:
+      type: string
+    use_case_id:
+      type: [string, "null"]
+    produced_at:
+      $ref: './common.yaml#/Timestamp'
+    semantic_snapshot:
+      type: string
+      description: The semantic snapshot version every read in this run was answered from.
+    vocabulary_version:
+      type: string
+      description: The shipped vocabulary version closed-set values were validated against.
+    skill:
+      $ref: './common.yaml#/SkillRef'
+    model_tier:
+      $ref: './common.yaml#/ProvenanceModelTier'
+    datasets_read:
+      type: array
+      items:
+        $ref: './common.yaml#/DatasetRead'
+    sql_executed:
+      type: array
+      items:
+        $ref: './common.yaml#/SqlExecution'
+    rows_sampled:
+      type: array
+      items:
+        $ref: './common.yaml#/RowSample'
+    freshness:
+      type: array
+      items:
+        $ref: './common.yaml#/FreshnessStamp'
+    retrieval_hits:
+      type: array
+      items:
+        $ref: './common.yaml#/RetrievalHit'
+
+FeasibilityVerdict:
+  type: string
+  enum: [ready, partial, blocked]
+  description: The result of a set difference, never an opinion. Mirrors `egpt_retail.contracts.kpi.FeasibilityVerdict`.
+
+Feasibility:
+  type: object
+  required: [kpi_id, verdict, missing_tables, rationale]
+  properties:
+    kpi_id: {type: string}
+    verdict:
+      $ref: './common.yaml#/FeasibilityVerdict'
+    missing_tables:
+      type: array
+      items: {type: string}
+    rationale:
+      type: string
+      description: One sentence a customer can act on, naming the missing tables.
+    semantic_snapshot:
+      type: string
+
+Confidence:
+  type: string
+  enum: [high, medium, low]
+  description: How strongly the evidence supports a proposal or suggestion. Not a probability; a reviewer reads it to decide what to look at first.
+
+SkillRef:
+  type: object
+  description: Which skill, at which version, produced something. Every prompt edit bumps the version, so a score drop is attributable (G13).
+  required: [identifier, version]
+  properties:
+    identifier: {type: string}
+    version: {type: string}
+
+ProvenanceModelTier:
+  type: string
+  enum: [none, small, frontier]
+  description: "`none` when the run had no model step at all."
+
+GuardDecision:
+  type: string
+  enum: [allowed, refused]
+  description: What R6's SQL guard decided. A refused statement never reached the database.
+
+DatasetRead:
+  type: object
+  required: [table]
+  properties:
+    schema: {type: string, default: silver}
+    table: {type: string}
+    as_of:
+      $ref: './common.yaml#/Timestamp'
+
+SqlExecution:
+  type: object
+  required: [statement]
+  properties:
+    statement: {type: string}
+    row_count: {type: integer}
+    duration_ms: {type: integer}
+    guard:
+      $ref: './common.yaml#/GuardDecision'
+
+RowSample:
+  type: object
+  required: [table, rows]
+  properties:
+    table: {type: string}
+    rows:
+      type: array
+      items: {type: object, additionalProperties: true}
+
+FreshnessStamp:
+  type: object
+  description: The stamp every gold row carries, surfaced. Without it a stale answer is indistinguishable from a wrong one.
+  required: [table, as_of]
+  properties:
+    table: {type: string}
+    as_of:
+      $ref: './common.yaml#/Timestamp'
+    computed_at:
+      $ref: './common.yaml#/Timestamp'
+
+RetrievalSource:
+  type: string
+  enum: [memory, prose, ontology, semantic]
+  description: The four legs the unified retrieval fans out across (K10).
+
+ContentOrigin:
+  type: string
+  enum: [shipped, customer]
+  description: Whether a document shipped with the product or is the customer's own (G17).
+
+RetrievalHit:
+  type: object
+  required: [source, id, score]
+  properties:
+    source:
+      $ref: './common.yaml#/RetrievalSource'
+    id: {type: string}
+    score: {type: number}
+    origin:
+      $ref: './common.yaml#/ContentOrigin'

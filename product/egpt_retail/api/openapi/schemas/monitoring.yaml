@@ -1,0 +1,294 @@
+# Monitoring: alert definitions and alert events (split -- see CHANGELOG 1.0.0), schedule
+# delivery, execution health and the quality assessment (D14: two separate questions).
+
+DeliveryChannel:
+  type: string
+  enum: [in_app, email, slack]
+  description: Results are delivered in-app with an email pointer (D13). `email` and `slack` are pointers to the in-app result, never the result itself, so provenance stays attached.
+
+Severity:
+  type: string
+  enum: [critical, warning, info]
+
+Operator:
+  type: string
+  enum: [gt, gte, lt, lte, eq, delta_gt, delta_lt]
+  description: "`delta_*` compares the change against the previous period at the same grain."
+
+Recipient:
+  type: object
+  required: [channel]
+  properties:
+    channel:
+      $ref: './monitoring.yaml#/DeliveryChannel'
+    address:
+      type: string
+      default: ""
+      description: An email address or a Slack channel. Empty for `in_app`.
+
+AlertDefinition:
+  type: object
+  description: |
+    A rule over a `scalar` KPI (R12): KPI, operator, threshold, scope, severity, recipient.
+    Evaluated by a deterministic executor after every gold materialisation. A `rowset` KPI
+    cannot be alerted on and is refused with 422.
+  required: [id, name, kpi_identifier, operator, threshold, severity, recipients, enabled, created_at]
+  properties:
+    id: {type: string}
+    name: {type: string}
+    kpi_identifier: {type: string}
+    operator:
+      $ref: './monitoring.yaml#/Operator'
+    threshold: {type: number}
+    window:
+      oneOf:
+        - $ref: './kpis.yaml#/TimeWindow'
+        - type: "null"
+      description: How long the condition must hold before firing. Null fires on the first breach.
+    scope:
+      $ref: './monitoring.yaml#/AlertScope'
+    severity:
+      $ref: './monitoring.yaml#/Severity'
+    recipients:
+      type: array
+      items:
+        $ref: './monitoring.yaml#/Recipient'
+    recommended_actions:
+      type: array
+      items: {type: string}
+      description: Authored with the rule, rendered on every event it fires. Not generated.
+    enabled: {type: boolean}
+    use_case_id:
+      type: [string, "null"]
+      description: The use case a fired event links to, if any.
+    process_id: {type: [string, "null"]}
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+    last_evaluated_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    last_fired_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+
+AlertDefinitionWrite:
+  type: object
+  required: [name, kpi_identifier, operator, threshold, severity]
+  properties:
+    name: {type: string}
+    kpi_identifier: {type: string}
+    operator:
+      $ref: './monitoring.yaml#/Operator'
+    threshold: {type: number}
+    window:
+      oneOf:
+        - $ref: './kpis.yaml#/TimeWindow'
+        - type: "null"
+    scope:
+      $ref: './monitoring.yaml#/AlertScope'
+    severity:
+      $ref: './monitoring.yaml#/Severity'
+    recipients:
+      type: array
+      items:
+        $ref: './monitoring.yaml#/Recipient'
+    recommended_actions:
+      type: array
+      items: {type: string}
+    enabled: {type: boolean}
+    use_case_id: {type: [string, "null"]}
+    process_id: {type: [string, "null"]}
+
+AlertEventStatus:
+  type: string
+  enum: [new, acknowledged, snoozed, resolved]
+
+AlertEvent:
+  type: object
+  description: One firing of a definition. What the inbox, the bell and the monitor page show. Mutating it never touches the definition.
+  required: [id, alert_id, severity, status, title, summary, fired_at, kpi]
+  properties:
+    id: {type: string}
+    alert_id: {type: string}
+    alert_name: {type: string}
+    severity:
+      $ref: './monitoring.yaml#/Severity'
+    status:
+      $ref: './monitoring.yaml#/AlertEventStatus'
+    title: {type: string}
+    summary: {type: string}
+    business_area_id:
+      $ref: './common.yaml#/BusinessAreaId'
+    process_id: {type: [string, "null"]}
+    use_case_id: {type: [string, "null"]}
+    kpi:
+      $ref: './monitoring.yaml#/AlertEventKpi'
+    rule:
+      type: string
+      description: The definition rendered as a sentence, frozen at firing time.
+    recommended_actions:
+      type: array
+      items: {type: string}
+    fired_at:
+      $ref: './common.yaml#/Timestamp'
+    acknowledged_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    resolved_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    snooze_until:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    run_id:
+      type: [string, "null"]
+      description: The evaluation run that fired it.
+    provenance_ref: {type: [string, "null"]}
+
+SnoozeRequest:
+  type: object
+  required: [until]
+  properties:
+    until:
+      $ref: './common.yaml#/Timestamp'
+
+ScheduleDelivery:
+  type: object
+  description: The delivery fields a framework `/schedules` row lacks. Everything else about a scheduled run -- cadence, pause, history -- is the framework's.
+  required: [schedule_id, channel, recipient]
+  properties:
+    schedule_id: {type: string}
+    channel:
+      $ref: './monitoring.yaml#/DeliveryChannel'
+    recipient: {type: string, default: ""}
+    label: {type: string, default: ""}
+
+ScheduleDeliveryWrite:
+  type: object
+  required: [channel]
+  properties:
+    channel:
+      $ref: './monitoring.yaml#/DeliveryChannel'
+    recipient: {type: string}
+    label: {type: string}
+
+UseCaseExecutionHealth:
+  type: object
+  description: Execution health, from persisted run history. Free -- nothing here needs an assessment pass.
+  required: [use_case_id, title, version, last_run_status, runs_7d, failures_7d, silent, gates_waiting]
+  properties:
+    use_case_id: {type: string}
+    title: {type: string}
+    version: {type: integer}
+    last_run_status:
+      oneOf:
+        - $ref: './use-cases.yaml#/RunStatus'
+        - type: "null"
+    last_run_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    runs_7d: {type: integer}
+    failures_7d: {type: integer}
+    silent:
+      type: boolean
+      description: The schedule should have fired and did not.
+    gates_waiting:
+      type: integer
+      description: Approval gates waiting on a person longer than their threshold.
+    cost_7d:
+      $ref: './monitoring.yaml#/ExecutionCost'
+
+ExecutionHealth:
+  type: object
+  required: [as_of, use_cases]
+  properties:
+    as_of:
+      $ref: './common.yaml#/Timestamp'
+    use_cases:
+      type: array
+      items:
+        $ref: './monitoring.yaml#/UseCaseExecutionHealth'
+
+QualityVerdict:
+  type: string
+  enum: [healthy, degraded, unknown]
+
+UseCaseQuality:
+  type: object
+  description: Is it still right -- the assessment pass over output quality and input drift (R14), separate from whether it ran. A use case that runs green while answering worse is what this catches.
+  required: [use_case_id, version, verdict, assessed_at]
+  properties:
+    use_case_id: {type: string}
+    version: {type: integer}
+    verdict:
+      $ref: './monitoring.yaml#/QualityVerdict'
+    golden_pass_rate:
+      type: [number, "null"]
+      description: Share of the golden questions (R15) that passed on this version.
+    drift_score:
+      type: [number, "null"]
+      description: Input distribution drift against the version's rehearsal baseline. 0 is none.
+    assessed_at:
+      $ref: './common.yaml#/Timestamp'
+    notes: {type: string, default: ""}
+
+QualityAssessment:
+  type: object
+  required: [as_of, use_cases]
+  properties:
+    as_of:
+      $ref: './common.yaml#/Timestamp'
+    use_cases:
+      type: array
+      items:
+        $ref: './monitoring.yaml#/UseCaseQuality'
+
+SilentSchedule:
+  type: object
+  required: [schedule_id, expected_at]
+  properties:
+    schedule_id: {type: string}
+    use_case_id: {type: [string, "null"]}
+    name: {type: string}
+    expected_at:
+      $ref: './common.yaml#/Timestamp'
+    last_fired_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+
+AlertScope:
+  type: object
+  description: Which rows of a non-overall KPI the rule applies to.
+  properties:
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+    grain_value: {type: [string, "null"]}
+
+AlertEventKpi:
+  type: object
+  description: The KPI reading that fired the event, frozen at firing time.
+  required: [identifier, name, value]
+  properties:
+    identifier: {type: string}
+    name: {type: string}
+    value: {type: number}
+    delta: {type: [number, "null"]}
+    unit: {type: string, default: ""}
+    as_of:
+      $ref: './common.yaml#/Timestamp'
+
+ExecutionCost:
+  type: object
+  properties:
+    input_tokens: {type: integer}
+    output_tokens: {type: integer}
+    drift_pct:
+      type: [number, "null"]
+      description: Change against the prior 7 days.

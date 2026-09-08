@@ -8,13 +8,35 @@ Instructions for Claude Code when working on this codebase.
 
 ```
 .
-├── libs/agno/egpt/          # Core framework code
+├── libs/agno/egpt/          # The framework. Ships as `pip install egpt`. No retail nouns.
+├── product/                 # The Enterprise GPT retail product. Never in the egpt wheel.
+├── frontend/                # The React interface (phase five; README only until then)
+├── deploy/                  # Dockerfile, compose, Helm charts, kind config, AKS cutover
 ├── cookbook/                # Examples, patterns and test cases (organized by topic)
 ├── scripts/                 # Development and build scripts
 ├── specs/                   # Design documents (symlinked, private)
-├── docs/                    # Documentation (symlinked, private)
+├── docs/                    # Documentation (symlinked, private; docs/plan/ is tracked)
 └── .cursorrules             # Coding patterns and conventions
 ```
+
+### Framework or product
+
+One repository, one visible line. `libs/agno/egpt/` is the published wheel and the root
+import-linter governs; `product/egpt_retail/` is the retail product, imports `egpt` freely, and
+is where retail nouns belong. The packaging boundary enforces it: the wheel is built from
+`libs/agno/` with `packages.find include = ["egpt*"]`, so a root-level `product/` or `frontend/`
+cannot reach it, and CI's wheel-contents check fails if that ever changes.
+
+Four packages are genuine framework fixes and go in `libs/agno/egpt/` because every deployment
+inherits them: **K1** memory scope and wiring, **K10** unified retrieval, **R6** the SQL guard,
+**R7** the provenance record. Everything else retail — ontology, prose, enrichment prompts,
+semantic layer, KPI content, silver and gold, workflows, skills, dashboards, alerts, monitoring —
+is `product/`. When in doubt: would a non-retail deployment want it? If not, it is product.
+
+`product/` is its own distribution (`egpt-retail`, `product/pyproject.toml`), installed
+editable by `dev_setup.sh` and `demo_setup.sh`, formatted at 88 columns, and covered by
+`format.sh` and `validate.sh` (ruff, mypy with `MYPYPATH=libs/agno`, the API contract check).
+See `docs/plan/delivery-plan.md`, "Where the code lives".
 
 ---
 
@@ -144,6 +166,11 @@ Format:
 | Context provider contract + local providers | `libs/agno/egpt/context/` (`ContextProvider`/`ContextBackend`, `fs/`, `workspace/`, `wiki/provider.py`) |
 | Context connectors | `libs/agno/egpt/integrations/context/` (calendar, database, gdrive, gmail, google, mcp, slack, web, and wiki's git/Notion backends) |
 | Tests | `libs/agno/tests/` |
+| Retail product | `product/egpt_retail/` (`app/` assembly, `api/` contract + stub, `contracts/`, `executors/`, `memory/`, `ontology/`, `skills/`, `entrypoints/`) |
+| Retail product tests | `product/tests/` — contract tests and DB-free entrypoint tests |
+| Retail cookbooks + evidence | `cookbook/94_retail/` — one folder, one `TEST_LOG.md`, entries tagged by package (K*, R*) |
+| Deployment | `deploy/` — `Dockerfile`, `compose.yaml`, `helm/egpt-local-infra/`, `helm/egpt/`, `kind/`, `AKS_CUTOVER.md` |
+| Frontend | `frontend/` — arrives in phase five; README only |
 
 ---
 
@@ -212,7 +239,10 @@ source .venv/bin/activate
 ./scripts/validate.sh
 ```
 
-Both scripts must pass with no errors before code review.
+Both scripts must pass with no errors before code review. Both cover `product/` as well as
+the framework; `validate.sh`'s product target also runs the API contract check
+(`scripts/check_api_contract.py`), so a contract edit without `./scripts/gen_api_models.sh`
+fails here rather than in review.
 
 **PR Title Format:**
 

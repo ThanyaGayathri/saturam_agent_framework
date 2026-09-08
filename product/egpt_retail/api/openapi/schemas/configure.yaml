@@ -1,0 +1,319 @@
+# Configure: sources, models, integrations, cloud profile, business hierarchy, processes.
+# Derived from configure-workspace.js, business-areas.js and processes.js in the prototype.
+#
+# Secrets are write-only. A create or update may carry `password` / `api_key` /
+# `client_secret`; a read never returns them, only `has_credentials`. The prototype stores
+# them in localStorage in the clear, which is the one part of its shape that must not survive.
+
+SourceType:
+  type: string
+  enum: [postgres, snowflake, sap_s4hana, salesforce, mysql, bigquery, other]
+
+AuthMethod:
+  type: string
+  enum: [username_password, oauth, api_key]
+
+PermissionLevel:
+  type: string
+  enum: [read_only, read_write]
+  description: The database role the source is connected with. `read_only` is the floor R6's guard sits on; a `read_write` source is never exposed to a model.
+
+InternalSource:
+  type: object
+  description: A warehouse or system-of-record connection. Under D4 connectors land raw files in storage and the warehouse is loaded from there, so most deployments have exactly one `postgres` source pointed at the warehouse.
+  required: [id, source_type, name, host, database_name, auth_method, permission_level, has_credentials]
+  properties:
+    id: {type: string}
+    source_type:
+      $ref: './configure.yaml#/SourceType'
+    name: {type: string}
+    host: {type: string}
+    port: {type: [integer, "null"]}
+    database_name: {type: string}
+    schema: {type: string, default: ""}
+    auth_method:
+      $ref: './configure.yaml#/AuthMethod'
+    username: {type: string, default: ""}
+    ssl_mode: {type: string, default: require}
+    permission_level:
+      $ref: './configure.yaml#/PermissionLevel'
+    has_credentials: {type: boolean}
+    last_harvest_id: {type: [string, "null"]}
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+
+InternalSourceWrite:
+  type: object
+  required: [source_type, name, host, database_name, auth_method]
+  properties:
+    source_type:
+      $ref: './configure.yaml#/SourceType'
+    name: {type: string}
+    host: {type: string}
+    port: {type: [integer, "null"]}
+    database_name: {type: string}
+    schema: {type: string}
+    auth_method:
+      $ref: './configure.yaml#/AuthMethod'
+    username: {type: string}
+    password: {type: string, writeOnly: true}
+    api_key: {type: string, writeOnly: true}
+    ssl_mode: {type: string}
+    permission_level:
+      $ref: './configure.yaml#/PermissionLevel'
+
+InternalSourcePatch:
+  type: object
+  description: A partial update. Every field optional; omitted fields are unchanged. Same shape as `InternalSourceWrite`.
+  properties:
+    source_type:
+      $ref: './configure.yaml#/SourceType'
+    name: {type: string}
+    host: {type: string}
+    port: {type: [integer, "null"]}
+    database_name: {type: string}
+    schema: {type: string}
+    auth_method:
+      $ref: './configure.yaml#/AuthMethod'
+    username: {type: string}
+    password: {type: string, writeOnly: true}
+    api_key: {type: string, writeOnly: true}
+    ssl_mode: {type: string}
+    permission_level:
+      $ref: './configure.yaml#/PermissionLevel'
+
+ModelProvider:
+  type: string
+  enum: [openai, anthropic, azure_openai, bedrock, google]
+
+ModelTier:
+  type: string
+  enum: [small, frontier]
+  description: Which R8 routing tier this deployment binds the model to. Two deployments, composed through the escalation provider (G6).
+
+LlmModel:
+  type: object
+  required: [id, provider_id, model_id, tier, is_default, has_api_key]
+  properties:
+    id: {type: string}
+    provider_id:
+      $ref: './configure.yaml#/ModelProvider'
+    model_id: {type: string}
+    tier:
+      $ref: './configure.yaml#/ModelTier'
+    base_url: {type: string, default: ""}
+    is_default: {type: boolean}
+    has_api_key: {type: boolean}
+
+LlmModelWrite:
+  type: object
+  required: [provider_id, model_id, tier]
+  properties:
+    provider_id:
+      $ref: './configure.yaml#/ModelProvider'
+    model_id: {type: string}
+    tier:
+      $ref: './configure.yaml#/ModelTier'
+    base_url: {type: string}
+    api_key: {type: string, writeOnly: true}
+    is_default: {type: boolean}
+
+IntegrationStatus:
+  type: string
+  enum: [active, inactive]
+
+ConnectionStatus:
+  type: string
+  enum: [untested, connected, failed]
+
+SyncFrequency:
+  type: string
+  enum: [hourly, daily, weekly, manual]
+
+ExternalIntegration:
+  type: object
+  description: A connector source (Lane C). Its data lands in object storage against the landing contract; this record is how the interface shows it.
+  required: [id, provider_id, name, environment, sync_frequency, status, auth_type, connection_status]
+  properties:
+    id: {type: string}
+    provider_id: {type: string}
+    name: {type: string}
+    integration_type: {type: string, default: ""}
+    environment:
+      $ref: './configure.yaml#/IntegrationEnvironment'
+    sync_frequency:
+      $ref: './configure.yaml#/SyncFrequency'
+    data_scope: {type: string, default: ""}
+    status:
+      $ref: './configure.yaml#/IntegrationStatus'
+    auth_type:
+      $ref: './configure.yaml#/IntegrationAuthType'
+    base_url: {type: string, default: ""}
+    api_version: {type: string, default: ""}
+    connection_status:
+      $ref: './configure.yaml#/ConnectionStatus'
+    last_sync_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    last_error: {type: string, default: ""}
+    has_credentials: {type: boolean, default: false}
+
+ExternalIntegrationWrite:
+  type: object
+  required: [provider_id, name, environment, sync_frequency, auth_type]
+  properties:
+    provider_id: {type: string}
+    name: {type: string}
+    integration_type: {type: string}
+    environment:
+      $ref: './configure.yaml#/IntegrationEnvironment'
+    sync_frequency:
+      $ref: './configure.yaml#/SyncFrequency'
+    data_scope: {type: string}
+    status:
+      $ref: './configure.yaml#/IntegrationStatus'
+    auth_type:
+      $ref: './configure.yaml#/IntegrationAuthType'
+    client_id: {type: string}
+    client_secret: {type: string, writeOnly: true}
+    api_key: {type: string, writeOnly: true}
+    api_secret: {type: string, writeOnly: true}
+    base_url: {type: string}
+    api_version: {type: string}
+    webhook_url: {type: string}
+    webhook_secret: {type: string, writeOnly: true}
+
+ExternalIntegrationPatch:
+  type: object
+  description: A partial update. Every field optional; omitted fields are unchanged. Same shape as `ExternalIntegrationWrite`.
+  properties:
+    provider_id: {type: string}
+    name: {type: string}
+    integration_type: {type: string}
+    environment:
+      $ref: './configure.yaml#/IntegrationEnvironment'
+    sync_frequency:
+      $ref: './configure.yaml#/SyncFrequency'
+    data_scope: {type: string}
+    status:
+      $ref: './configure.yaml#/IntegrationStatus'
+    auth_type:
+      $ref: './configure.yaml#/IntegrationAuthType'
+    client_id: {type: string}
+    client_secret: {type: string, writeOnly: true}
+    api_key: {type: string, writeOnly: true}
+    api_secret: {type: string, writeOnly: true}
+    base_url: {type: string}
+    api_version: {type: string}
+    webhook_url: {type: string}
+    webhook_secret: {type: string, writeOnly: true}
+
+CloudProfile:
+  type: object
+  description: Where this deployment runs. Read-mostly; under D3 it is one customer's tenancy and the value is set at deploy time.
+  required: [provider, region, environment]
+  properties:
+    provider:
+      $ref: './configure.yaml#/CloudProvider'
+    region: {type: string}
+    environment:
+      $ref: './configure.yaml#/DeploymentEnvironment'
+    summary_public: {type: string, default: ""}
+
+BusinessArea:
+  type: object
+  description: |
+    One node of the business hierarchy. `id` is a term from the deployment's `business_area`
+    vocabulary (shipped ontology plus overlay, D9/G10). `supported` is derived from confirmed
+    mappings (K9), never asserted.
+  required: [id, label, subject_areas, supported]
+  properties:
+    id:
+      $ref: './common.yaml#/BusinessAreaId'
+    label: {type: string}
+    subject_areas:
+      type: array
+      items: {type: string}
+    description: {type: string, default: ""}
+    supported: {type: boolean}
+    origin:
+      $ref: './configure.yaml#/TermOrigin'
+
+BusinessAreaHierarchy:
+  type: object
+  required: [vocabulary_version, areas]
+  properties:
+    vocabulary_version: {type: string}
+    areas:
+      type: array
+      items:
+        $ref: './configure.yaml#/BusinessArea'
+
+BusinessAreaHierarchyWrite:
+  type: object
+  description: An overlay may add areas and annotate them. It may not remove or redefine a core area (G10); a request that tries is refused with 409.
+  required: [areas]
+  properties:
+    areas:
+      type: array
+      items:
+        $ref: './configure.yaml#/BusinessAreaWrite'
+
+Process:
+  type: object
+  description: A named operational process within a business area. Read-only in 1.0.0 (see CHANGELOG).
+  required: [id, name, business_area_id, subject_area, description]
+  properties:
+    id: {type: string}
+    name: {type: string}
+    business_area_id:
+      $ref: './common.yaml#/BusinessAreaId'
+    subject_area: {type: string}
+    description: {type: string}
+    impact: {type: string, default: ""}
+    icon_key:
+      $ref: './configure.yaml#/ProcessIconKey'
+    linked_kpi_ids:
+      type: array
+      items: {type: string}
+    linked_use_case_ids:
+      type: array
+      items: {type: string}
+
+IntegrationEnvironment:
+  type: string
+  enum: [production, sandbox]
+
+IntegrationAuthType:
+  type: string
+  enum: [api_key, oauth, basic, webhook]
+
+CloudProvider:
+  type: string
+  enum: [azure, gcp, aws, local]
+
+DeploymentEnvironment:
+  type: string
+  enum: [production, staging, development]
+
+TermOrigin:
+  type: string
+  enum: [core, overlay]
+  description: Whether the shipped ontology or the customer's overlay contributed a term (G10). Mirrors `egpt_retail.contracts.vocabulary.TermOrigin`.
+
+BusinessAreaWrite:
+  type: object
+  required: [id, label]
+  properties:
+    id:
+      $ref: './common.yaml#/BusinessAreaId'
+    label: {type: string}
+    subject_areas:
+      type: array
+      items: {type: string}
+    description: {type: string}
+
+ProcessIconKey:
+  type: string
+  enum: [PackageCheck, ClipboardCheck, Repeat, Tag, Store]
