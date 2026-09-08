@@ -3,6 +3,68 @@
 One place per contract, appended to, with the date, the reason and who agreed. Rule 5 of
 the change protocol in `docs/plan/delivery-plan.md`.
 
+## Landing contract and storage layout
+
+### 1.0.0 — 2026-09-08 — initial, verified against fixture files
+
+Agreed by: Lane C. **Not yet reviewed by Lane R** — this contract is `C → R`, so it is a
+proposal until Lane R has read it.
+
+The shape as the delivery plan asks for it: storage path convention with a date partition,
+file format, what one row represents, key columns, the watermark column, and the behaviour
+when a window is pulled twice — all per source, for analytics, CRM and session replay. Full
+text in `LANDING_CONTRACT.md`; the typed half is `egpt_retail.contracts.landing`.
+
+Two decisions made in the writing, not handed down by the plan:
+
+| Decision | Why |
+|---|---|
+| **NDJSON, not CSV or Parquet** | The verify step is to hand-write one conforming file per source. Parquet fails that outright; CSV fights analytics' named, optional params. |
+| **Raw is immutable; re-run writes a new file, never overwrites** | The data platform section already calls Stage 0 "untouched... replayable" and Stage 1 "append-only" — this is that made literal at the storage layer. De-duplication (last write wins by watermark) is downstream, in R4, not in this contract. |
+
+**CRM lands three record shapes in one file**, distinguished by `record_type` — the source's
+"one row per what" doesn't reduce to a single grain, so this is a documented clause rather
+than an implicit assumption a loader would have to discover.
+
+**Known-dirty fields stay required, not optional.** CRM's `brand` and
+`quote_request_source_url` are inconsistent at the source today; they are not moved out of
+`required_columns` to accommodate that. A null value is a reported defect, matching C3's own
+evidence bar ("a count of records failing each rule, reported rather than dropped"), not a
+silently accepted gap in the contract.
+
+Verified by `cookbook/94_retail/C01_landing_contract.py` against three hand-written fixture
+files (one per source) plus a second, overlapping CRM pull: loads all three sources with zero
+source-specific code, surfaces the one deliberately-dirty row instead of dropping it, and the
+dedup rule collapses a duplicate and resolves that row's earlier defect from the later pull.
+
+### Patch — 2026-09-08 — correctness fixes from automated review, round 1
+
+Not a shape change; no field or public signature moved, so `CONTRACT_VERSION` stays `1.0.0`.
+Thirteen findings (3 Major, 9 Minor, 1 Nit) from automated review on PR #190, all reproduced
+against real code before being fixed. Full list in `TEST_LOG.md`'s "Review round 1" entry;
+the three that were behavioral rather than test-coverage gaps:
+
+| Fix | Was |
+|---|---|
+| `landing_path()` refuses a timezone-naive `ingested_at` | `astimezone(timezone.utc)` on a naive value silently assumed the process's *local* timezone rather than UTC — the common `datetime.utcnow()` idiom would corrupt the embedded timestamp on any non-UTC host, with no error |
+| `validate_row` flags a non-scalar key column | A list or dict in a key column passed with zero defects, then crashed the caller's own last-write-wins dedup with an unhandled `TypeError` on grouping by key |
+| `validate_row` and `resolve_stream_id` both check `isinstance(row, Mapping)` first | NDJSON permits a bare string, list or number per line; both functions previously assumed an object and raised an unhandled `AttributeError`/`TypeError` instead of a reported defect (`validate_row`) or a clean, intentional `ValueError` (`resolve_stream_id`) |
+
+Also fixed: a key+watermark column (`analytics.event.occurred_at`) double-reporting one null
+value as two defects; `LANDING_SCHEMAS` was documented as frozen but was a mutable `dict`
+(now `MappingProxyType`); only literal `null`, not an empty string, tripped the known-dirty
+report; `parse_landing_path` leaked a raw stdlib message for a calendar-invalid date instead
+of its own consistent wrapper.
+
+Added `product/tests/test_landing_contract.py` (28 tests) — `LandingSchema.__post_init__`'s
+four construction-time guards were correct but unexercised anywhere in the repository before
+this; adversarial `parse_landing_path` inputs (traversal, mismatched source, calendar-invalid
+date, wrong extension) likewise. The cookbook fixtures gained two rows (`d_901`, missing
+`quote_request_source_url` outright; `h_9002`, a genuine same-watermark tie with different
+content across the two CRM pulls) so `C01_landing_contract.py` exercises and asserts on
+branches its previous fixtures happened not to touch. `C01_minio_roundtrip.sh` now diffs a
+sha256 manifest of uploaded vs. downloaded files, rather than relying on object names alone.
+
 ## KPI formula shape
 
 ### Patch — 2026-09-07 — correctness fixes from automated review (two rounds)

@@ -1,0 +1,2 @@
+{"session_id": "sess_300", "session_start_at": "2026-09-01T08:10:00Z", "rage_click_count": 0, "dead_click_count": 1, "script_error_count": 0, "session_url": "https://shop.example.com/quote", "identity_at_login": null, "identity_at_submit": "buyer@example.com"}
+{"session_id": "sess_301", "session_start_at": "2026-09-01T09:00:00Z", "rage_click_count": 2, "dead_click_count": 0, "script_error_count": 1, "session_url": "https://shop.example.com/catalog", "identity_at_login": "prospect@example.com", "identity_at_submit": null}
