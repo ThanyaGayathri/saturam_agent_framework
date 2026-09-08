@@ -1100,7 +1100,8 @@ against this contract in PR #193 (still open, not yet merged):
    watermark instead, `session_start_at` staying required but no longer structural.
    `CONTRACT_VERSION` bumped to `1.1.0` -- the one breaking change, scoped to this stream
    only. Pinned by `test_session_replay_watermark_is_last_updated_not_session_start` and
-   `test_validate_row_lets_a_corrected_session_replay_row_win_on_last_updated_at`.
+   `test_validate_row_accepts_both_pulls_of_a_corrected_session_replay_row` (renamed in
+   review round 5 below -- its original name overclaimed what it tested).
 2. **Fixtures not covered by `package-data` (additive).** `product/pyproject.toml` globbed
    `contracts/_fixtures/*.json`, which doesn't match
    `contracts/_fixtures/landing/raw/**/*.ndjson` -- a non-editable install shipped the
@@ -1117,5 +1118,85 @@ on every touched file.
 
 **Not changed:** whether R4's own SQL needs updating for the new watermark column --
 that's Lane R's call in PR #193, flagged in this PR's description rather than assumed here.
+
+---
+
+### Review round 5 — PR #194's own automated review: format-checking gap, version-compat gap, coverage
+
+**Package:** C1
+**Status:** PASS — two real gaps in the 1.1.0 change fixed, one test renamed for an
+overclaim, five coverage/doc gaps closed
+
+**Description:** PR #194 (this follow-up) received two independent round-1 automated
+reviews, both posted under the same reviewer, 3 Major + 6 Minor + 3 Nit total (one Minor
+duplicated across both reviews). All three Majors were about the 1.1.0 change itself, not
+rounds 1-3:
+
+1. **`session_start_at` silently lost timestamp format-checking (major).** It was
+   format-checked before 1.1.0 because it was the watermark; after the switch to
+   `last_updated_at`, nothing else format-checked it, since `_parses_as_timestamp` only ever
+   ran on `schema.watermark_column`. Reproduced:
+   `validate_row("session_replay.session", {..., "session_start_at": "not-a-real-timestamp",
+   ...})` returned `()` at the review's head commit. Fixed with a new
+   `LandingSchema.timestamp_columns` field -- required columns, other than the watermark,
+   that must still parse as a timestamp. Applied to `session_replay.session.session_start_at`
+   and, since the same latent gap existed there too (never having been the watermark),
+   `crm.deal_stage_history.entered_at`. Pinned by
+   `test_validate_row_rejects_malformed_non_watermark_timestamp_column`, parametrized over
+   both columns.
+2. **The headline test never exercised dedup (major).** The reviewer traced
+   `test_validate_row_lets_a_corrected_session_replay_row_win_on_last_updated_at` and found
+   it only called `validate_row` twice and compared two Python string literals -- no
+   winner-selection code runs anywhere in the repo for `session_replay` (the cookbook's dedup
+   hardcodes `last_modified_at` and never loads `session_replay`). Confirmed by reverting the
+   schema to its pre-1.1.0 shape: the test still passed unmodified. Not fixed by building a
+   dedup implementation here -- that is Lane R's R4 (#193), the actual consumer of
+   `schema.watermark_column`. Fixed by renaming the test to
+   `test_validate_row_accepts_both_pulls_of_a_corrected_session_replay_row` and narrowing its
+   docstring to what it actually pins (both pulls validate cleanly; the corrected pull's
+   watermark sorts later), rather than claiming a dedup demonstration.
+3. **No version-aware handling for pre-1.1.0 landed data (major).** A row landed under the
+   pre-1.1.0 shape (has `session_start_at`, genuinely lacks `last_updated_at`, since that
+   column didn't exist yet) reported the identical generic "watermark missing" defect as
+   truly malformed 1.1.0 data -- re-validating PR #190's already-landed rows post-merge would
+   flag every one of them. Fixed with a new `LandingSchema.superseded_watermark_column`
+   field: when the current watermark is blank but the named superseded column is present and
+   well-formed, `validate_row` reports a distinct "may predate the switch" message instead of
+   the generic one. `session_replay.session` names `session_start_at` as its superseded
+   watermark. Pinned by
+   `test_validate_row_distinguishes_pre_1_1_0_session_replay_row_from_malformed` (the new
+   message fires) and `test_validate_row_reports_generic_missing_watermark_when_no_superseded_value`
+   (the generic message still fires when the old column is also absent, so nothing is
+   silently suppressed).
+
+Six Minor/Nit findings also closed: `CHANGELOG.md`'s round-2 and round-3 entries reworded to
+stop claiming a version-exempt "proposal" carve-out `validate_row` doesn't implement; an
+"Agreed by: Lane R" line added to the `1.1.0` entry per the changelog's own Rule 5;
+`LANDING_CONTRACT.md`'s stale "CRM shapes are 1.0.0" mention reworded to not name a version;
+new tests for `crm.deal.brand` rejecting an explicit `null` (only "missing entirely" was
+tested), `crm.deal.quote_request_source_url` accepting an explicit `null` (only "missing
+entirely" was tested, in the opposite direction), `identity_key`'s required-ness on
+`analytics.event`, the non-scalar-required-column check on a `session_replay` column
+(`rage_click_count`, matching the check's own motivating comment), and the lexical mis-sort
+fact (not just "a defect is reported") behind the naive/non-UTC watermark rejection tests.
+New construction-time guards on `LandingSchema.__post_init__` (`timestamp_columns` and
+`superseded_watermark_column` must reference real required columns; a watermark can't also
+be its own superseded column or its own timestamp_columns entry) got the same dedicated-test
+treatment as the six pre-existing guards, per this file's founding principle.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 57
+passed (was 44). `python -m pytest product/tests/` (full product suite) -- 201 passed, 7
+skipped, no regressions. `C01_landing_contract.py` re-run end to end, output unchanged
+(`total_defects` still exactly 2; the two new schema fields are additive validation, not new
+fixture data, so nothing in the existing fixtures trips either new check).
+`./scripts/format.sh` and `./scripts/validate.sh` run; `format.sh`'s known behavior of
+reformatting ~100+ unrelated cookbook/framework files (import-sort churn, not touched by
+this PR) was reverted before committing, keeping only the four files this round actually
+changed.
+
+**Not changed:** no real last-write-wins dedup implementation for `session_replay` was
+built in this PR -- see finding 2 above. `C01_minio_roundtrip.sh` was not re-run against a
+live MinIO container in this environment (no MinIO available); the change is schema-level
+only and does not touch path parsing or the roundtrip script.
 
 ---

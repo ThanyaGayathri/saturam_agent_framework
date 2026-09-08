@@ -104,6 +104,58 @@ def test_schema_rejects_nullable_column_not_required():
         )
 
 
+def test_schema_rejects_timestamp_column_not_required():
+    with pytest.raises(ValueError, match="timestamp_columns"):
+        LandingSchema(
+            stream_id="x",
+            source=SourceName.ANALYTICS,
+            grain="x",
+            key_columns=("a",),
+            watermark_column="a",
+            required_columns=("a",),
+            timestamp_columns=frozenset({"b"}),
+        )
+
+
+def test_schema_rejects_watermark_in_timestamp_columns():
+    with pytest.raises(ValueError, match="already format-checked"):
+        LandingSchema(
+            stream_id="x",
+            source=SourceName.ANALYTICS,
+            grain="x",
+            key_columns=("a",),
+            watermark_column="a",
+            required_columns=("a", "b"),
+            timestamp_columns=frozenset({"a"}),
+        )
+
+
+def test_schema_rejects_superseded_watermark_equal_to_watermark():
+    with pytest.raises(ValueError, match="must differ from watermark_column"):
+        LandingSchema(
+            stream_id="x",
+            source=SourceName.ANALYTICS,
+            grain="x",
+            key_columns=("a",),
+            watermark_column="a",
+            required_columns=("a",),
+            superseded_watermark_column="a",
+        )
+
+
+def test_schema_rejects_superseded_watermark_not_required():
+    with pytest.raises(ValueError, match="not listed in required_columns"):
+        LandingSchema(
+            stream_id="x",
+            source=SourceName.ANALYTICS,
+            grain="x",
+            key_columns=("a",),
+            watermark_column="a",
+            required_columns=("a",),
+            superseded_watermark_column="b",
+        )
+
+
 def test_landing_schemas_is_immutable():
     """Finding #8: the "frozen at import time" claim is now a runtime guarantee."""
     with pytest.raises(TypeError):
@@ -121,10 +173,22 @@ def test_session_replay_watermark_is_last_updated_not_session_start():
     assert "session_start_at" not in schema.key_columns
 
 
-def test_validate_row_lets_a_corrected_session_replay_row_win_on_last_updated_at():
-    """The concrete case the schema change fixes: two pulls of the same session, same
-    `session_start_at` (it never moves), later `last_updated_at` carries corrected counts.
-    Last-write-wins by watermark must pick the later one."""
+def test_validate_row_accepts_both_pulls_of_a_corrected_session_replay_row():
+    """Schema-level pin for the case the watermark change fixes, not a dedup demonstration.
+
+    Round-1 review [major]: naming this test "...wins on last_updated_at" overclaimed --
+    it only ever called `validate_row` and compared two Python string literals, never any
+    winner-selection logic. No last-write-wins implementation exists for `session_replay`
+    anywhere in this repo (the cookbook's dedup hardcodes `last_modified_at` and never
+    touches `session_replay`); that end-to-end demonstration belongs to Lane R's dedup
+    consumer (#193, R4), which is what actually reads `schema.watermark_column`.
+
+    What this test does pin, and what a dedup implementation built against this contract can
+    rely on: two pulls of the same session with the same `session_start_at` (it never moves)
+    and different `last_updated_at` both validate cleanly, and the corrected pull's
+    `last_updated_at` sorts later -- the two preconditions last-write-wins-by-watermark needs
+    to work at all once it exists.
+    """
     first_pull = {
         "session_id": "sess_1",
         "session_start_at": "2026-09-01T08:00:00Z",
@@ -145,6 +209,102 @@ def test_validate_row_lets_a_corrected_session_replay_row_win_on_last_updated_at
     assert validate_row("session_replay.session", first_pull) == ()
     assert validate_row("session_replay.session", second_pull) == ()
     assert second_pull["last_updated_at"] > first_pull["last_updated_at"]
+
+
+@pytest.mark.parametrize(
+    "stream_id, row, timestamp_column",
+    [
+        (
+            "session_replay.session",
+            {
+                "session_id": "sess_1",
+                "session_start_at": "not-a-real-timestamp",
+                "last_updated_at": "2026-09-01T08:05:00Z",
+                "rage_click_count": 0,
+                "dead_click_count": 0,
+                "script_error_count": 0,
+                "session_url": "https://shop.example.com/quote",
+                "identity_at_login": None,
+                "identity_at_submit": None,
+                "identity_key": None,
+            },
+            "session_start_at",
+        ),
+        (
+            "crm.deal_stage_history",
+            {
+                "record_type": "deal_stage_history",
+                "object_id": "h_1",
+                "last_modified_at": "2026-09-01T07:00:00Z",
+                "deal_id": "d_1",
+                "stage": "quote_requested",
+                "entered_at": "not-a-real-timestamp",
+            },
+            "entered_at",
+        ),
+    ],
+)
+def test_validate_row_rejects_malformed_non_watermark_timestamp_column(
+    stream_id, row, timestamp_column
+):
+    """Round-1 review [major]: a required column stops being format-checked the moment it
+    stops being the watermark -- `_parses_as_timestamp` was only ever called on
+    `schema.watermark_column`. Before this PR, `session_start_at` was the watermark and so
+    was checked; after the 1.1.0 switch to `last_updated_at` it silently lost that check.
+    `LandingSchema.timestamp_columns` restores it for any required column still known to
+    hold a timestamp, watermark or not."""
+    defects = validate_row(stream_id, row)
+    assert any(
+        timestamp_column in d and "not a parseable UTC ISO-8601 timestamp" in d
+        for d in defects
+    )
+
+
+def test_validate_row_distinguishes_pre_1_1_0_session_replay_row_from_malformed():
+    """Round-1 review [major]: re-validating a row landed under the pre-1.1.0 contract (has
+    `session_start_at`, genuinely lacks `last_updated_at` since that column didn't exist yet)
+    reported the same generic defect as truly malformed 1.1.0 data -- indistinguishable.
+    `LandingSchema.superseded_watermark_column` lets `validate_row` tell them apart: a blank
+    current watermark alongside a well-formed old one reads as "predates the switch," not
+    "malformed."""
+    pre_1_1_0_row = {
+        "session_id": "sess_1",
+        "session_start_at": "2026-09-01T08:00:00Z",
+        # no last_updated_at at all -- this column didn't exist before 1.1.0
+        "rage_click_count": 0,
+        "dead_click_count": 0,
+        "script_error_count": 0,
+        "session_url": "https://shop.example.com/quote",
+        "identity_at_login": None,
+        "identity_at_submit": None,
+        "identity_key": None,
+    }
+    defects = validate_row("session_replay.session", pre_1_1_0_row)
+    assert any(
+        "last_updated_at" in d and "may predate the switch" in d for d in defects
+    )
+    assert not any("is missing or null" in d for d in defects)
+
+
+def test_validate_row_reports_generic_missing_watermark_when_no_superseded_value():
+    """The distinguishing message from the test above must not fire when the old watermark
+    is *also* missing or malformed -- that really is just a missing watermark, not a
+    recognizable pre-1.1.0 shape."""
+    truly_malformed_row = {
+        "session_id": "sess_1",
+        "session_start_at": None,
+        "rage_click_count": 0,
+        "dead_click_count": 0,
+        "script_error_count": 0,
+        "session_url": "https://shop.example.com/quote",
+        "identity_at_login": None,
+        "identity_at_submit": None,
+        "identity_key": None,
+    }
+    defects = validate_row("session_replay.session", truly_malformed_row)
+    assert any(
+        d == "watermark column 'last_updated_at' is missing or null" for d in defects
+    )
 
 
 # --- validate_row: the three Major findings, plus the blank-string Minor -------------------
@@ -325,6 +485,20 @@ def test_validate_row_rejects_non_utc_offset_watermark_timestamp():
     assert any("last_modified_at" in d and "UTC ISO-8601" in d for d in defects)
 
 
+def test_non_utc_offset_timestamp_sorts_lexically_wrong_against_a_z_suffixed_one():
+    """Round-1 review [nit]: the two tests above pin that a defect is reported, but not the
+    actual lexical-mis-sort fact that motivates the fix. This demonstrates it directly: a
+    `+02:00` timestamp can be chronologically earlier than a `Z` one yet string-sort later,
+    which is exactly what would silently corrupt last-write-wins ordering if `validate_row`
+    accepted both formats side by side."""
+    earlier_non_utc = "2026-09-01T09:00:00+02:00"  # = 2026-09-01T07:00:00Z
+    later_utc = "2026-09-01T07:30:00Z"
+    assert earlier_non_utc > later_utc  # wrong as strings
+    assert datetime.fromisoformat(earlier_non_utc) < datetime.fromisoformat(
+        later_utc.removesuffix("Z") + "+00:00"
+    )  # correct as instants
+
+
 def test_validate_row_accepts_a_conforming_row():
     row = {
         "record_type": "contact",
@@ -371,6 +545,27 @@ def test_validate_row_rejects_non_scalar_required_column_value():
     assert any("brand" in d and "not a scalar value" in d for d in defects)
 
 
+def test_validate_row_rejects_non_scalar_required_column_value_on_session_replay():
+    """Round-1 review [nit]: the check above is shared across every stream, but the
+    motivating comment in `validate_row` cites session replay's click counts specifically
+    ("a required column may legitimately be numeric") -- only `crm.contact.brand` was ever
+    tested for this branch. Pinning it on the comment's own example."""
+    row = {
+        "session_id": "sess_1",
+        "session_start_at": "2026-09-01T08:00:00Z",
+        "last_updated_at": "2026-09-01T08:05:00Z",
+        "rage_click_count": [1, 2, 3],
+        "dead_click_count": 0,
+        "script_error_count": 0,
+        "session_url": "https://shop.example.com/quote",
+        "identity_at_login": None,
+        "identity_at_submit": None,
+        "identity_key": None,
+    }
+    defects = validate_row("session_replay.session", row)
+    assert any("rage_click_count" in d and "not a scalar value" in d for d in defects)
+
+
 def test_validate_row_requires_brand_on_deal():
     """Round-2 [high] finding: the plan's C3 verify step queries "deals with empty or
     free-text brand", so `brand` must be a required column on `crm.deal`, not only on
@@ -385,6 +580,42 @@ def test_validate_row_requires_brand_on_deal():
     }
     defects = validate_row("crm.deal", row)
     assert any("brand" in d and "missing required column" in d for d in defects)
+
+
+def test_validate_row_rejects_null_brand_on_deal():
+    """Round-1 review [minor]: the test above only proves `brand` rejects being *missing*
+    entirely -- a different code path from `_is_blank`. Nothing proved a present-but-`None`
+    `brand` on `crm.deal` is also rejected; `brand` is deliberately absent from
+    `nullable_columns`, but nothing pinned that. Reproduced: adding `"brand"` to
+    `crm.deal`'s `nullable_columns` would silently defeat the round-2 fix and still pass
+    every other existing test."""
+    row = {
+        "record_type": "deal",
+        "object_id": "d_1",
+        "last_modified_at": "2026-09-01T07:00:00Z",
+        "stage": "quote_requested",
+        "quote_request_source_url": "https://shop.example.com/p/1",
+        "brand": None,
+    }
+    defects = validate_row("crm.deal", row)
+    assert any("brand" in d and "null or blank" in d for d in defects)
+
+
+def test_validate_row_accepts_null_quote_request_source_url_on_deal():
+    """Round-1 review [minor]: `quote_request_source_url`'s nullable-suppression was only
+    ever exercised via "column entirely absent" (`test_validate_row_reports_missing_...`
+    with the column omitted) -- a different code path from an explicit `null`. Reproduced:
+    reverting `crm.deal`'s `nullable_columns` to `frozenset()` still passed every existing
+    test, since none of them ever set this field to `None` rather than omitting it."""
+    row = {
+        "record_type": "deal",
+        "object_id": "d_1",
+        "last_modified_at": "2026-09-01T07:00:00Z",
+        "stage": "renewal",
+        "brand": "Blodgett",
+        "quote_request_source_url": None,
+    }
+    assert validate_row("crm.deal", row) == ()
 
 
 def test_validate_row_suppresses_defect_for_nullable_column():
@@ -402,6 +633,27 @@ def test_validate_row_suppresses_defect_for_nullable_column():
         "identity_key": None,
     }
     assert validate_row("analytics.event", row) == ()
+
+
+def test_validate_row_reports_missing_identity_key():
+    """Round-1 review [minor]: `identity_key` being *required* (not just nullable) was
+    untested on any of the three schemas that carry it -- the only guard against silently
+    dropping it from `required_columns` was `LandingSchema.__post_init__`'s construction-time
+    "nullable_columns subset of required_columns" check, which a fixture happening to still
+    include the field would never trip. Reproduced: removing `identity_key` from both
+    `required_columns` and `nullable_columns` on all three schemas left every existing test
+    passing."""
+    row = {
+        "user_id": "u_1",
+        "session_id": "s_1",
+        "event_name": "product_view",
+        "occurred_at": "2026-09-01T08:00:00Z",
+        "brand": "Blodgett",
+        "product_id": "p_1",
+        # identity_key omitted entirely
+    }
+    defects = validate_row("analytics.event", row)
+    assert any("identity_key" in d and "missing required column" in d for d in defects)
 
 
 # --- resolve_stream_id: the Major finding's other unguarded path ---------------------------

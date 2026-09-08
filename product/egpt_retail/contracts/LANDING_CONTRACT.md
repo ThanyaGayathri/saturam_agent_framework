@@ -51,7 +51,7 @@ conforming file per source — a text editor has to be enough.
 Analytics and session replay each land one shape. **CRM lands three**, multiplexed into the
 same file and distinguished by a `record_type` field — CRM's own resolution of "one row per
 what": the source's *what* is a CRM change event, not a single flat grain. All three CRM
-shapes are `1.0.0` of `egpt_retail.contracts.landing.LANDING_SCHEMAS` and share one
+shapes are entries in `egpt_retail.contracts.landing.LANDING_SCHEMAS` and share one
 `dt=` partition and one file per pull.
 
 | Stream | Grain | Key columns | Watermark | Required columns |
@@ -79,7 +79,18 @@ counts for the same session would tie on it forever, and the re-run rule's tie-b
 (earliest-pulled wins) would silently discard every correction. `last_updated_at` moves when
 the record does, the same property `last_modified_at` gives the three CRM streams — the
 watermark's job is always "did this version change", not "when did this entity begin".
-`session_start_at` stays a required column; it is simply no longer structural.
+`session_start_at` stays a required column; it is simply no longer structural. It is still
+format-checked as a timestamp, the same as before the switch — `LandingSchema.timestamp_columns`
+carries that check forward for any required column that stops being the watermark but is still
+a timestamp (`crm.deal_stage_history.entered_at` gets the same treatment, since it was never
+structural to begin with).
+
+A row landed under the pre-1.1.0 shape (has `session_start_at`, genuinely lacks
+`last_updated_at`, since that column did not exist yet) is reported distinctly from malformed
+1.1.0 data — `validate_row` says the row "may predate the switch" rather than the generic
+missing-watermark defect, so re-validating already-landed pre-1.1.0 data does not read as a
+fresh wave of corruption. `LandingSchema.superseded_watermark_column` is the general mechanism;
+`session_replay.session` is its only user today.
 
 Every watermark value must be UTC, with the literal `Z` suffix — never naive, never a
 non-UTC offset. The re-run rule below compares two watermark values lexically, not by

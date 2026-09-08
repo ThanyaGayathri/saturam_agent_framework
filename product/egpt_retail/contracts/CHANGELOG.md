@@ -67,9 +67,14 @@ sha256 manifest of uploaded vs. downloaded files, rather than relying on object 
 
 ### Patch — 2026-09-08 — round-2 review: correctness fixes, coverage, and contract-vs-plan gaps
 
-Not a breaking change — this contract is still `C → R`, an unreviewed proposal, so a
-correction to the proposal is announced under change-protocol rule 1 rather than
-version-bumped as a change to an agreed shape. `CONTRACT_VERSION` stays `1.0.0`.
+`CONTRACT_VERSION` stays `1.0.0` here — not because adding `brand` and `identity_key` as
+required columns is non-breaking under `validate_row`'s own semantics (a row missing a
+required column entirely is flagged regardless of nullability, so it is breaking by that
+rule), but because this contract is still `C → R`, an unreviewed proposal: a correction to a
+proposal is announced under change-protocol rule 1 rather than version-bumped as a change to
+an agreed shape. That distinction never mattered in practice — these commits never reached
+`main` under a released `1.0.0` label (PR #190 closed before round 2 was pushed); this PR
+folds rounds 2-4 into a single correct `1.0.0 → 1.1.0` transition below.
 
 Two findings from a deeper pass that checked the contract against
 `docs/plan/delivery-plan.md`/`build-plan.md` directly, not just against itself:
@@ -118,8 +123,12 @@ an earlier, smaller version of the CRM fixtures).
 
 ### Patch — 2026-09-08 — round-3 review: a real completeness gap round 2 introduced
 
-Not a shape change; `CONTRACT_VERSION` stays `1.0.0`. One real finding from a review of
-round 2's own fix, plus three doc/robustness nits reproduced and closed alongside it.
+`CONTRACT_VERSION` stays `1.0.0` here for the same reason as round 2 above: tightening
+`validate_row` to flag a non-scalar value in a required column can fail a row that previously
+passed, which is breaking by `validate_row`'s own rule, not exempt from it — but this contract
+is still an unreviewed `C → R` proposal, and (as above) no released `1.0.0` label was ever
+live against it. One real finding from a review of round 2's own fix, plus three
+doc/robustness nits reproduced and closed alongside it.
 
 | Fix | Was |
 |---|---|
@@ -141,6 +150,9 @@ exact input against that commit returns one defect, not two.
 `product/tests/test_landing_contract.py` grew to 41 tests.
 
 ### 1.1.0 — 2026-09-08 — session_replay's watermark, and a follow-up PR
+
+Agreed by: Lane R — this is Lane R's own finding, from building R4 against this contract, and
+R4 (#193) is the consumer whose dedup `ORDER BY` this change reaches.
 
 PR #190 merged at the round-1 commit before the round-2 and round-3 fixes above were pushed
 to it — both rounds are real (reproduced, tested, pushed), but landed in `main` through this
@@ -166,6 +178,32 @@ file isn't covered by some glob, mirroring the shape of R4's own `test_r4_sql_as
 coverage check.
 
 `product/tests/test_landing_contract.py` grew to 44 tests.
+
+### Patch — 2026-09-09 — round-4 review: format-checking gap, version-compat gap, coverage
+
+Not a shape change; `CONTRACT_VERSION` stays `1.1.0`. Two real gaps in the 1.1.0 change
+itself, plus documentation and coverage fixes, from an automated review of this follow-up PR.
+
+| Fix | Was |
+|---|---|
+| `LandingSchema.timestamp_columns` restores format-checking for a required column that stops being the watermark | `_parses_as_timestamp` only ever ran on `schema.watermark_column`. `session_start_at` was format-checked before 1.1.0 (it was the watermark) and silently stopped being checked after — a garbage string in it passed `validate_row` clean. `crm.deal_stage_history.entered_at` had the same latent gap, never having been the watermark at all. Both are now in `timestamp_columns`. |
+| `LandingSchema.superseded_watermark_column` distinguishes a pre-1.1.0 landed row from malformed 1.1.0 data | A row landed under the pre-1.1.0 shape (has `session_start_at`, genuinely lacks `last_updated_at`) reported the identical generic "watermark missing" defect as truly corrupt data — re-validating PR #190's already-landed rows post-merge would have flagged every one of them. `session_replay.session` now names `session_start_at` as its superseded watermark; a blank current watermark alongside a well-formed old one gets a distinct "may predate the switch" message. |
+
+Also fixed: the round-2 and round-3 entries above reworded to stop claiming a version-exempt
+"proposal" carve-out that `validate_row` itself does not implement (see each entry); this
+entry's own "Agreed by" line added to the `1.1.0` entry above, per this file's Rule 5; the
+headline `session_replay` test renamed and its docstring narrowed from claiming a dedup
+demonstration it never performed (`validate_row` calls and a string comparison, not any
+winner-selection code) to what it actually pins — real dedup coverage is Lane R's R4 (#193),
+the actual consumer of `schema.watermark_column`. Coverage gaps closed: `crm.deal.brand`
+rejecting an explicit `null` (previously only "missing entirely" was tested), `crm.deal
+.quote_request_source_url` accepting an explicit `null` (previously only "missing entirely"
+for the opposite direction), `identity_key`'s required-ness on `analytics.event`, and the
+non-scalar required-column check on a `session_replay` column (`rage_click_count`), matching
+the check's own motivating comment. `LANDING_CONTRACT.md`'s stale "CRM shapes are 1.0.0"
+mention (superseded by the 1.1.0 bump) reworded to not name a version at all.
+
+`product/tests/test_landing_contract.py` grew to 57 tests.
 
 ## KPI formula shape
 

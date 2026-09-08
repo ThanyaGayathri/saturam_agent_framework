@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from enum import Enum
 from types import MappingProxyType
-from typing import FrozenSet, Mapping, Tuple
+from typing import FrozenSet, Mapping, Optional, Tuple
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -86,6 +86,18 @@ class LandingSchema:
     #: the source system's data is known-dirty today (see ``LANDING_CONTRACT.md``). Never a
     #: key or the watermark column: those are structural, not business, fields.
     nullable_columns: FrozenSet[str] = field(default_factory=frozenset)
+    #: Required columns, other than the watermark column, whose value must also parse as a
+    #: UTC ISO-8601 timestamp. The watermark column is always format-checked regardless of
+    #: this set; this is for a *different* timestamp column that still needs the same check
+    #: now that it is no longer structural (e.g. session replay's ``session_start_at``, which
+    #: lost format-checking when ``last_updated_at`` became the watermark in its place).
+    timestamp_columns: FrozenSet[str] = field(default_factory=frozenset)
+    #: The watermark column this schema used before its most recent breaking change, if any.
+    #: Lets :func:`validate_row` tell "this row genuinely predates the switch" apart from
+    #: "this row is malformed" when the *current* watermark is absent: a row with a blank
+    #: ``watermark_column`` but a well-formed ``superseded_watermark_column`` is reported
+    #: distinctly, rather than folded into the generic missing-watermark defect.
+    superseded_watermark_column: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.stream_id:
@@ -116,6 +128,28 @@ class LandingSchema:
                 f"{self.stream_id}: nullable_columns {sorted(unknown_nullable)} are not "
                 "required_columns"
             )
+        unknown_timestamp = self.timestamp_columns - set(self.required_columns)
+        if unknown_timestamp:
+            raise ValueError(
+                f"{self.stream_id}: timestamp_columns {sorted(unknown_timestamp)} are not "
+                "required_columns"
+            )
+        if self.watermark_column in self.timestamp_columns:
+            raise ValueError(
+                f"{self.stream_id}: timestamp_columns must not include watermark_column "
+                f"{self.watermark_column!r} -- it is already format-checked unconditionally"
+            )
+        if self.superseded_watermark_column is not None:
+            if self.superseded_watermark_column == self.watermark_column:
+                raise ValueError(
+                    f"{self.stream_id}: superseded_watermark_column must differ from "
+                    "watermark_column"
+                )
+            if self.superseded_watermark_column not in self.required_columns:
+                raise ValueError(
+                    f"{self.stream_id}: superseded_watermark_column "
+                    f"{self.superseded_watermark_column!r} is not listed in required_columns"
+                )
 
 
 def _schemas() -> Tuple[LandingSchema, ...]:
@@ -197,6 +231,10 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "stage",
                 "entered_at",
             ),
+            # entered_at isn't the watermark (last_modified_at is), but it's still a
+            # timestamp -- without this it would pass validate_row clean regardless of shape,
+            # the same gap this PR closes for session_replay.session's session_start_at.
+            timestamp_columns=frozenset({"entered_at"}),
         ),
         LandingSchema(
             stream_id="session_replay.session",
@@ -228,6 +266,14 @@ def _schemas() -> Tuple[LandingSchema, ...]:
             nullable_columns=frozenset(
                 {"identity_at_login", "identity_at_submit", "identity_key"}
             ),
+            # session_start_at stopped being the watermark in 1.1.0 but is still required and
+            # still a timestamp -- without this it would pass validate_row clean regardless of
+            # shape, since only the watermark column is format-checked unconditionally.
+            timestamp_columns=frozenset({"session_start_at"}),
+            # A row with a blank last_updated_at but a well-formed session_start_at is more
+            # likely a pre-1.1.0 landed row (session_start_at was the watermark then) than
+            # malformed 1.1.0 data -- see validate_row's use of this.
+            superseded_watermark_column="session_start_at",
         ),
     )
 
@@ -339,10 +385,13 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
             continue
         if column not in row:
             defects.append(f"missing required column {column!r}")
-        elif _is_blank(row[column]):
+            continue
+        value = row[column]
+        if _is_blank(value):
             if column not in schema.nullable_columns:
                 defects.append(f"required column {column!r} is null or blank")
-        elif not isinstance(row[column], (str, int, float, bool)):
+            continue
+        if not isinstance(value, (str, int, float, bool)):
             # Unlike a key column, a required column may legitimately be numeric (session
             # replay's click counts) or boolean, so this checks scalar-ness, not string-ness.
             # A list or dict is neither missing nor blank, so without this it would pass
@@ -351,7 +400,17 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
             # nullable column's `None` must not be reported as a defect here.
             defects.append(
                 f"required column {column!r} is not a scalar value: "
-                f"{type(row[column]).__name__}"
+                f"{type(value).__name__}"
+            )
+            continue
+        if column in schema.timestamp_columns and not _parses_as_timestamp(value):
+            # A required column can lose format-checking silently if it used to be the
+            # watermark (the only column checked unconditionally, below) and stopped being
+            # one -- schema.timestamp_columns is how a schema re-declares "still a timestamp,
+            # still check it" for exactly that case.
+            defects.append(
+                f"required column {column!r} is not a parseable UTC ISO-8601 timestamp: "
+                f"{value!r}"
             )
 
     for column in schema.key_columns:
@@ -374,9 +433,24 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
     )
     if _is_blank(watermark):
         if not watermark_already_reported:
-            defects.append(
-                f"watermark column {schema.watermark_column!r} is missing or null"
-            )
+            superseded = schema.superseded_watermark_column
+            superseded_value = row.get(superseded) if superseded else None
+            if superseded is not None and _parses_as_timestamp(superseded_value):
+                # A blank current watermark alongside a well-formed old one reads as "this
+                # row predates the watermark switch," not "this row is malformed" -- distinct
+                # from the generic message so a caller re-validating already-landed data
+                # (from before this schema's most recent breaking change) can tell the two
+                # apart instead of flagging every historical row as a fresh defect.
+                defects.append(
+                    f"watermark column {schema.watermark_column!r} is missing, but "
+                    f"{superseded!r} is present and well-formed -- this row may predate the "
+                    f"switch to {schema.watermark_column!r} as the watermark rather than "
+                    "being malformed"
+                )
+            else:
+                defects.append(
+                    f"watermark column {schema.watermark_column!r} is missing or null"
+                )
     elif not watermark_already_reported and not _parses_as_timestamp(watermark):
         defects.append(
             f"watermark column {schema.watermark_column!r} is not a parseable UTC "
