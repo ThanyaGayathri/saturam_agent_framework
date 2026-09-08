@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "_comment": [
     "Shipped retail vocabularies (D9). Delivered with every deployment; customers extend",
     "them with an overlay rather than forking them (G10).",
@@ -80,6 +80,10 @@
       {
         "value": "sales",
         "description": "Revenue, conversion and pipeline."
+      },
+      {
+        "value": "operations",
+        "description": "Running the stores and the workforce: staffing, tasks, shrink and execution."
       }
     ],
     "result_shape": [

@@ -1032,3 +1032,43 @@ design rather than measurement, and the doubled count looked exactly like it bei
 claim and the evidence arrived in the wrong order.
 
 ---
+
+### K03_ontology.py — six concepts added from the corpus
+
+**Package:** K3, artifact version 2.1.0
+**Status:** PASS
+
+**Description:** The ontology was thin. Measured which entity types the corpus discusses
+heavily and the ontology lacked, then added the six clearest, grounded in corpus definitions
+with source citations.
+
+**The measurement:** `Price` appeared in all 31 documents with 1,496 mentions and had no
+concept. `Payment` 27 documents, `Assortment` 27, `Promotion` 26, `Markdown` 20, `Employee`
+17. Core goes from 18 to 24 concepts and 17 to 25 relations; with the Middleby overlay the
+graph holds 27 concepts and 31 relations.
+
+**Result:** all six reach their concept by meaning, on questions naming none of them —
+*"how do people pay us?"* to Payment (0.808), *"how many staff are on the roster?"* to Employee
+(0.802), *"what is on deal this week?"* to Promotion (0.805), *"what did we reduce to clear the
+old season?"* to Markdown (0.787), *"is our range too wide?"* to Assortment (0.777).
+
+**Two things the additions forced:**
+
+1. **A new business area.** `Employee` had no home in the shipped six — customer, product,
+   inventory, supply_chain, marketing, sales. The corpus has a whole document on store
+   operations and workforce, so `operations` was added to the vocabulary (1.1.0). Worth noting
+   the vocabulary being extensible is exactly what made this a data change rather than a code
+   change, which is what moving off Python enums bought.
+
+2. **A third synonym collision, caught again.** `range` was claimed by both `ProductCategory`
+   and the new `Assortment`. In retail, range means assortment, so it was removed from
+   ProductCategory. That check has now caught three real ambiguities — `source`, `offer`,
+   `range` — each of which would have silently routed questions to whichever concept was
+   written first. It is the highest-yield check in the package.
+
+**Also corrected:** `Markdown` initially missed *"what did we knock down to clear it?"*,
+returning Inventory and Order. Its synonyms and question patterns were thin relative to its
+description. Adding *"reduced to clear"* and a matching question pattern fixed it. A concept's
+retrievability depends on the words in it, not on the concept being correct.
+
+---

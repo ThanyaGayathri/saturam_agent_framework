@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "_comment": [
     "The shipped retail ontology (D9). Layer 2 of docs/plan/domain-knowledge-layers.md.",
     "",
@@ -109,7 +109,6 @@
         "category",
         "department",
         "product line",
-        "range",
         "class"
       ],
       "question_patterns": [
@@ -394,6 +393,134 @@
         "19-ai-ml-use-cases-in-retail.md",
         "14-retail-marketing-and-loyalty-programs.md"
       ]
+    },
+    {
+      "name": "Price",
+      "description": "The amount a product is offered for sale at, before any temporary reduction. The reference against which markdowns and promotions are measured.",
+      "business_area": "product",
+      "synonyms": [
+        "selling price",
+        "retail price",
+        "ticket price",
+        "list price"
+      ],
+      "question_patterns": [
+        "what are we charging for this?",
+        "how have our prices moved?"
+      ],
+      "sources": [
+        "05-pricing-strategy-and-promotions.md",
+        "25-retail-verticals-deep-dive.md",
+        "06-private-label-and-own-brand-strategy.md",
+        "27-international-retail-and-localization.md"
+      ]
+    },
+    {
+      "name": "Markdown",
+      "description": "A permanent reduction in a product's retail selling price below its original ticket price, applied to clear slow-moving or end-of-season inventory, and distinguished from a temporary promotional discount.",
+      "business_area": "sales",
+      "synonyms": [
+        "mark-down",
+        "price reduction",
+        "clearance discount",
+        "clearance",
+        "reduced to clear"
+      ],
+      "question_patterns": [
+        "what have we marked down?",
+        "what did we reduce to clear it?",
+        "how much margin did clearance cost us?"
+      ],
+      "sources": [
+        "05-pricing-strategy-and-promotions.md",
+        "25-retail-verticals-deep-dive.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "01-retail-fundamentals-and-terminology.md"
+      ]
+    },
+    {
+      "name": "Promotion",
+      "description": "A temporary price reduction or offer mechanic on a product, run for a defined period to generate incremental purchase occasions. Distinct from a markdown, which is permanent, and from a campaign, which is the marketing activity around it.",
+      "business_area": "marketing",
+      "synonyms": [
+        "temporary price reduction",
+        "TPR",
+        "price promotion",
+        "deal",
+        "offer"
+      ],
+      "question_patterns": [
+        "which promotions actually worked?",
+        "what is on deal this week?"
+      ],
+      "sources": [
+        "05-pricing-strategy-and-promotions.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "18-retail-analytics-and-data-infrastructure.md",
+        "19-ai-ml-use-cases-in-retail.md"
+      ]
+    },
+    {
+      "name": "Assortment",
+      "description": "The set of products a retailer carries, at a given location or across the business, described by how many categories it spans and how deep it goes within each.",
+      "business_area": "product",
+      "synonyms": [
+        "range",
+        "product offering",
+        "selection",
+        "merchandise mix"
+      ],
+      "question_patterns": [
+        "what do we carry?",
+        "is our range too wide?"
+      ],
+      "sources": [
+        "03-merchandising-and-visual-merchandising.md",
+        "04-category-management.md",
+        "19-ai-ml-use-cases-in-retail.md",
+        "09-store-design-and-real-estate.md"
+      ]
+    },
+    {
+      "name": "Payment",
+      "description": "A settlement of money against an order, by whatever tender the customer used, together with its authorisation and capture state.",
+      "business_area": "sales",
+      "synonyms": [
+        "tender",
+        "settlement",
+        "transaction payment"
+      ],
+      "question_patterns": [
+        "how do our customers pay?",
+        "which payments failed?"
+      ],
+      "sources": [
+        "24-payments-fraud-and-financial-services.md",
+        "31-crisis-and-risk-management-in-retail.md",
+        "11-ecommerce-and-digital-commerce.md",
+        "27-international-retail-and-localization.md"
+      ]
+    },
+    {
+      "name": "Employee",
+      "description": "A person who works for the retailer, whose scheduled hours and tasks drive the largest controllable cost line in a physical store.",
+      "business_area": "operations",
+      "synonyms": [
+        "associate",
+        "staff member",
+        "colleague",
+        "team member"
+      ],
+      "question_patterns": [
+        "how many staff do we have on?",
+        "what is our labour cost?"
+      ],
+      "sources": [
+        "10-store-operations-and-workforce-management.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "30-retail-strategy-and-future-trends.md",
+        "31-crisis-and-risk-management-in-retail.md"
+      ]
     }
   ],
   "relations": [
@@ -515,6 +642,62 @@
       "target": "Product",
       "cardinality": "many-to-many",
       "description": "What a visitor looked at, which is the top of the enquiry funnel."
+    },
+    {
+      "type": "HAS_PRICE",
+      "source": "Product",
+      "target": "Price",
+      "cardinality": "one-to-one",
+      "description": "What a product currently sells for."
+    },
+    {
+      "type": "REDUCES",
+      "source": "Markdown",
+      "target": "Price",
+      "cardinality": "many-to-one",
+      "description": "A markdown permanently lowers the selling price."
+    },
+    {
+      "type": "DISCOUNTS",
+      "source": "Promotion",
+      "target": "Product",
+      "cardinality": "many-to-many",
+      "description": "What a promotion temporarily reduces the price of."
+    },
+    {
+      "type": "INCLUDES",
+      "source": "Assortment",
+      "target": "Product",
+      "cardinality": "many-to-many",
+      "description": "Which products the range carries."
+    },
+    {
+      "type": "CARRIED_AT",
+      "source": "Assortment",
+      "target": "Location",
+      "cardinality": "many-to-many",
+      "description": "Assortment varies by site."
+    },
+    {
+      "type": "SETTLES",
+      "source": "Payment",
+      "target": "Order",
+      "cardinality": "many-to-one",
+      "description": "The money against the order."
+    },
+    {
+      "type": "WORKS_AT",
+      "source": "Employee",
+      "target": "Location",
+      "cardinality": "many-to-one",
+      "description": "Where a person is rostered."
+    },
+    {
+      "type": "PROMOTED_BY",
+      "source": "Promotion",
+      "target": "Campaign",
+      "cardinality": "many-to-one",
+      "description": "The marketing activity a promotion runs under."
     }
   ]
 }
