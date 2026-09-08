@@ -8,11 +8,12 @@ the env-prefix trap above all.
 from __future__ import annotations
 
 import pytest
-from egpt.memory.types import Scope
+from egpt.memory.consolidation.worker import ConsolidationOutcome
+from egpt.memory.types import ConsolidationReport, Scope
 from egpt.providers.model_provider import ProviderMode
 
 from egpt_retail.app.db import psycopg_dsn
-from egpt_retail.app.main import build_agent_os
+from egpt_retail.app.factory import build_agent_os
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.entrypoints.__main__ import build_parser
 from egpt_retail.entrypoints.consolidator import summarise
@@ -88,6 +89,22 @@ def test_dsn_conversion_for_the_advisory_lock():
     assert psycopg_dsn("postgresql://x") == "postgresql://x"
 
 
+def test_dsn_conversion_strips_any_sqlalchemy_driver_suffix():
+    """Not just ``+psycopg`` -- a DSN written for a different driver must still reach
+
+    ``psycopg.connect`` as plain libpq, or only the consolidator fails, opaquely, after the
+    settings already looked correct everywhere else.
+    """
+    assert (
+        psycopg_dsn("postgresql+psycopg2://ai:ai@localhost:5532/ai")
+        == "postgresql://ai:ai@localhost:5532/ai"
+    )
+    assert (
+        psycopg_dsn("postgresql+asyncpg://ai:ai@localhost:5532/ai")
+        == "postgresql://ai:ai@localhost:5532/ai"
+    )
+
+
 def test_dispatch_knows_four_commands():
     parser = build_parser()
     assert parser.parse_args(["api"]).command == "api"
@@ -103,4 +120,23 @@ def test_summary_line_distinguishes_no_work_from_work():
     assert (
         summarise([], 0.01)
         == "consolidator: tick complete -- 0 scope(s) checked, 0 with work, 0 pass(es), 0 error(s) in 0.01s"
+    )
+
+    scope_a = Scope(
+        tenant_id="acme", agent_id="synonym_proposer", user_id="__scheduler__"
+    )
+    scope_b = Scope(tenant_id="acme", agent_id="other", user_id="__scheduler__")
+    outcomes = [
+        ConsolidationOutcome(
+            scope=scope_a,
+            reports=[
+                ConsolidationReport(scope=scope_a, episodic_scanned=3),
+                ConsolidationReport(scope=scope_a),
+            ],
+        ),
+        ConsolidationOutcome(scope=scope_b, error=RuntimeError("x")),
+    ]
+    assert (
+        summarise(outcomes, 0.05)
+        == "consolidator: tick complete -- 2 scope(s) checked, 1 with work, 2 pass(es), 1 error(s) in 0.05s"
     )

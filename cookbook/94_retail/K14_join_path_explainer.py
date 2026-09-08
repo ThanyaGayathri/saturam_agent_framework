@@ -174,9 +174,17 @@ null_ok = (
     and null_result.route == []
     and null_result.hops == 0
 )
-invented = (
-    "product_id" in null_result.explanation.lower()
-    and "no" not in null_result.explanation.lower()
+# Structural, not lexical: the near-miss this check exists for is exactly "product_id"
+# dressed up in a sentence that also contains "not" (which contains the substring "no"),
+# e.g. "...on product_id, though this is not in the graph." -- a check gated on the
+# presence of the bare substring "no" cannot fail on it. `caveats` is checked too: a
+# caveat about cardinality or an intermediate table implies a route that was never there
+# to have one. The tokens are the join columns this fixture's edges actually use
+# (fixture_builder._JOIN_EDGES); none of them has any business appearing in an explanation
+# of why *no* path exists.
+_JOIN_COLUMN_TOKENS = ("product_id", "customer_id", "order_id")
+invented = null_result.caveats != [] or any(
+    token in null_result.explanation.lower() for token in _JOIN_COLUMN_TOKENS
 )
 print("   ", "OK " if null_ok else "FAIL", "not_joinable, empty route, zero hops")
 print(

@@ -56,3 +56,22 @@ skill and version, semantic snapshot and vocabulary version.
 - The stub serves examples, not behaviour: it does not persist a POST. A screen that needs
   to see its own write come back should use the `example` selector to render the populated
   state.
+- **`include_proposed=true` does not label proposed rows at the list level.** `TableRef`
+  (`listSemanticTables`, inherited from Lane K's dataclass) and the bare-string
+  `ConceptList.concepts` (`listSemanticConcepts`) have no `status` field, so a proposed row
+  is distinguishable from an accepted one only by having appeared under
+  `include_proposed=true`, not by any marker on the row itself. `GET /semantic/tables/{name}`
+  and `GET /semantic/concepts/{name}` do label it (`Table.status` / `Concept.status`). Fixing
+  the list shapes needs a change to Lane K's `TableRef` dataclass and a `ConceptList` item
+  shape, both out of R3's scope; tracked for Lane K to pick up. Round-1 review, PR #187.
+
+## 1.0.1 — 2026-09-08 — fixture: an accepted concept must not name an unreviewed column
+
+`Customer.personal_data_fields` and `.compliance_tags` named `email`/`pii` unconditionally,
+even though `customers.email` is a deliberately **proposed** column in the same fixture
+(invisible unless `include_proposed=true`). A default, accepted-only read of
+`/semantic/concepts/Customer` therefore leaked the existence of an unreviewed personal-data
+column through an accepted concept — exactly what "nothing unconfirmed leaks into an answer"
+(`contracts/semantic.py`) exists to prevent. Fixed by leaving both lists empty until the
+column itself is accepted; the column's own proposed-and-personal-data demonstration is
+unchanged. Round-1 review, PR #187.

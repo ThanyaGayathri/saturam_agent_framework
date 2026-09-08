@@ -83,6 +83,7 @@ run_step "ruff check" ruff check "${REPO_ROOT}/product"
 # product/ is "import-not-found" and nothing behind it is checked.
 run_step "mypy" env MYPYPATH="${REPO_ROOT}/libs/agno" mypy "${REPO_ROOT}/product/egpt_retail" --config-file "${REPO_ROOT}/product/pyproject.toml"
 run_step "api contract" python3 "${REPO_ROOT}/scripts/check_api_contract.py"
+run_step "pytest" python3 -m pytest "${REPO_ROOT}/product/tests"
 
 target "repo"
 run_step "brand audit" python3 "${REPO_ROOT}/scripts/brand_audit.py"

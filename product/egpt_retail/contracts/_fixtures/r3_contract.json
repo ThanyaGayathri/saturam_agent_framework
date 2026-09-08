@@ -302,12 +302,8 @@
       ],
       "question_patterns": [],
       "sql_filter": "",
-      "personal_data_fields": [
-        "email"
-      ],
-      "compliance_tags": [
-        "pii"
-      ],
+      "personal_data_fields": [],
+      "compliance_tags": [],
       "metrics": [],
       "business_area": "customer"
     },

@@ -422,6 +422,14 @@ None of the five blocked authoring; all five are places the template could be on
 more explicit. That is the second half of K14's evidence: the template holds, and here is
 exactly where it leaked.
 
+**Round-1 review fix (PR #187):** the null-path "did not invent a join" check was lexical
+(`"product_id" in explanation` and `"no" not in explanation`) and nearly impossible to fail --
+`"...on product_id, though this is not in the graph."` passes it, because `"not"` contains the
+substring `"no"`. Reproduced against that exact sentence (see the PR comment reply). Replaced
+with a structural check: `caveats == []` plus none of the fixture's actual join-column tokens
+(`product_id`, `customer_id`, `order_id`) appearing anywhere in `explanation`. Still NOT RUN
+against the live model for the same reason as above; the check is stronger whenever it is.
+
 ---
 
 ### validate.sh — the two "pre-existing mypy errors" do not reproduce
@@ -536,7 +544,9 @@ the two requests; the evidence was taken from port 7780 after the finding below.
 ### R01_consolidator_no_work.py
 
 **Package:** R1 (P0, the memory consolidator entrypoint) · touches G1, G2
-**Status:** PASS
+**Status:** PASS — re-run after fixing 3 findings from automated review on PR #188 (spurious
+advisory-unlock on a refused lock, the memory provider's engine never being closed, and
+`psycopg_dsn` only stripping the `+psycopg` suffix)
 
 **Description:** The package's evidence line — "the consolidator logs a clean no-work exit
 rather than an error" — with both shapes it can take, plus the single-instance refusal:
@@ -544,6 +554,15 @@ slug unset (no provider built, nothing but a log line); slug set to `acme` again
 Postgres, which builds the vector-only Mode B provider (pgvector table self-provisioned, no
 Neo4j, no embedder key) and runs one tick; and a second instance while this script holds the
 customer's advisory lock.
+
+**Re-verified for PR #188's fixes.** This script's own assertions never covered engine
+cleanup, so the leak the review found would have passed silently here too. Checked
+separately, against the same live Postgres: before the fix, running `main(once=True)` three
+times in one process (this script's exact pattern) left 5 open server-side connections
+(`pg_stat_activity`, still-running process) against a baseline of 1; after wrapping the
+provider in `try/finally: await provider.aclose()`, three runs left the baseline unchanged at
+1. This script's own three exit codes (0, 0, 3) and log lines were unaffected by any of the
+three fixes and still match the **Result** below exactly.
 
 **Result:**
 

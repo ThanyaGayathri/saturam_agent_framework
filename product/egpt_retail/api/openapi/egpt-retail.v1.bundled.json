@@ -14,7 +14,11 @@
   "servers": [
     {
       "url": "http://127.0.0.1:7777",
-      "description": "Local EgptOS (R1) or the phase-zero stub server."
+      "description": "Local EgptOS (R1)."
+    },
+    {
+      "url": "http://127.0.0.1:7778",
+      "description": "The phase-zero stub server (`api/stub/server.py`'s default port, chosen so it does not collide with R1)."
     }
   ],
   "tags": [
@@ -12832,7 +12836,7 @@
               "type": "boolean",
               "default": false
             },
-            "description": "Return rows still awaiting review, labelled `status: proposed`. Defaults to false on\nevery read. Setting it true requires the `semantic:read_proposed` scope; without it the\nresponse is 403, not a silently filtered 200.\n"
+            "description": "Return rows still awaiting review. Defaults to false on every read. Setting it true\nrequires the `semantic:read_proposed` scope; without it the response is 403, not a\nsilently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`\nmark a proposed row `status: proposed`; the list endpoints this parameter also gates\n(`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return\nproposed rows unmarked -- a known gap, see CHANGELOG.md.\n"
           }
         ],
         "responses": {
@@ -12892,7 +12896,7 @@
                     }
                   },
                   "with_proposed": {
-                    "summary": "`include_proposed=true` -- the proposed `web_sessions` table appears, labelled.",
+                    "summary": "`include_proposed=true` -- the proposed `web_sessions` table appears (unmarked at this list level; see CHANGELOG.md).",
                     "value": {
                       "tables": [
                         {
@@ -13025,7 +13029,7 @@
               "type": "boolean",
               "default": false
             },
-            "description": "Return rows still awaiting review, labelled `status: proposed`. Defaults to false on\nevery read. Setting it true requires the `semantic:read_proposed` scope; without it the\nresponse is 403, not a silently filtered 200.\n"
+            "description": "Return rows still awaiting review. Defaults to false on every read. Setting it true\nrequires the `semantic:read_proposed` scope; without it the response is 403, not a\nsilently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`\nmark a proposed row `status: proposed`; the list endpoints this parameter also gates\n(`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return\nproposed rows unmarked -- a known gap, see CHANGELOG.md.\n"
           }
         ],
         "responses": {
@@ -13189,7 +13193,7 @@
               "type": "boolean",
               "default": false
             },
-            "description": "Return rows still awaiting review, labelled `status: proposed`. Defaults to false on\nevery read. Setting it true requires the `semantic:read_proposed` scope; without it the\nresponse is 403, not a silently filtered 200.\n"
+            "description": "Return rows still awaiting review. Defaults to false on every read. Setting it true\nrequires the `semantic:read_proposed` scope; without it the response is 403, not a\nsilently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`\nmark a proposed row `status: proposed`; the list endpoints this parameter also gates\n(`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return\nproposed rows unmarked -- a known gap, see CHANGELOG.md.\n"
           }
         ],
         "responses": {
@@ -13289,7 +13293,7 @@
               "type": "boolean",
               "default": false
             },
-            "description": "Return rows still awaiting review, labelled `status: proposed`. Defaults to false on\nevery read. Setting it true requires the `semantic:read_proposed` scope; without it the\nresponse is 403, not a silently filtered 200.\n"
+            "description": "Return rows still awaiting review. Defaults to false on every read. Setting it true\nrequires the `semantic:read_proposed` scope; without it the response is 403, not a\nsilently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`\nmark a proposed row `status: proposed`; the list endpoints this parameter also gates\n(`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return\nproposed rows unmarked -- a known gap, see CHANGELOG.md.\n"
           }
         ],
         "responses": {
@@ -13406,7 +13410,7 @@
               "type": "boolean",
               "default": false
             },
-            "description": "Return rows still awaiting review, labelled `status: proposed`. Defaults to false on\nevery read. Setting it true requires the `semantic:read_proposed` scope; without it the\nresponse is 403, not a silently filtered 200.\n"
+            "description": "Return rows still awaiting review. Defaults to false on every read. Setting it true\nrequires the `semantic:read_proposed` scope; without it the response is 403, not a\nsilently filtered 200. `GET /semantic/tables/{name}` and `GET /semantic/concepts/{name}`\nmark a proposed row `status: proposed`; the list endpoints this parameter also gates\n(`listSemanticTables`, `listSemanticConcepts`, `listSemanticBusinessAreas`) return\nproposed rows unmarked -- a known gap, see CHANGELOG.md.\n"
           }
         ],
         "responses": {

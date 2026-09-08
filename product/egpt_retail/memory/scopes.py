@@ -24,7 +24,6 @@ means, and R1's evidence requires that it means "nothing to consolidate", not an
 
 from __future__ import annotations
 
-import asyncio
 from typing import Callable, List, Sequence
 
 from egpt.memory.types import Scope
@@ -34,7 +33,6 @@ from egpt_retail.app.settings import RetailSettings
 __all__ = [
     "SYSTEM_USER_ID",
     "build_consolidation_scopes",
-    "abuild_consolidation_scopes",
     "consolidation_scope_source",
 ]
 
@@ -60,13 +58,6 @@ def build_consolidation_scopes(
         Scope(tenant_id=slug, agent_id=agent_id, user_id=SYSTEM_USER_ID)
         for agent_id in agent_ids
     ]
-
-
-async def abuild_consolidation_scopes(
-    settings: RetailSettings, agent_ids: Sequence[str]
-) -> List[Scope]:
-    """Async variant. Pure today; kept so the P1 query-backed version has a home that awaits."""
-    return await asyncio.to_thread(build_consolidation_scopes, settings, agent_ids)
 
 
 def consolidation_scope_source(

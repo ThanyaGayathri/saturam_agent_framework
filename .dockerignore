@@ -24,6 +24,3 @@ libs/egptctl
 product/tests
 deploy
 frontend
-*.md
-!product/README.md
-!product/egpt_retail/**/*.md

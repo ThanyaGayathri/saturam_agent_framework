@@ -14,7 +14,7 @@ import pytest
 from jwt import PyJWK
 
 from egpt_retail.app.devauth import generate_rsa_jwks, mint_token, write_dev_jwks
-from egpt_retail.app.main import build_agent_os
+from egpt_retail.app.factory import build_agent_os
 from egpt_retail.app.settings import RetailSettings
 
 
