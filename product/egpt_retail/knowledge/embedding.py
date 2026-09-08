@@ -57,6 +57,12 @@ class KnowledgeEmbedder:
     dimensions: int
     mode: ProviderMode
     model_id: str
+    #: ``<model>|d<dim>|<metric>|<rev>``, minted by the memory pipeline and stamped on every
+    #: vector this deployment writes. It is what a re-embedding migration cuts over on: without
+    #: it, a vector produced by the previous model is indistinguishable from a fresh one, and
+    #: the store degrades quietly instead of triggering a migration. Knowledge stamps the same
+    #: tag as memory so one migration can reason about both.
+    embedding_version: str
 
     def __str__(self) -> str:
         return f"{self.model_id} @ {self.dimensions}d (mode {self.mode.value})"
@@ -82,6 +88,7 @@ def resolve_knowledge_embedder(
         dimensions=resolved.dimensions,
         mode=mode,
         model_id=str(getattr(resolved.embedder, "id", MODE_DEFAULTS[mode]["id"])),
+        embedding_version=resolved.embedding_version,
     )
 
 

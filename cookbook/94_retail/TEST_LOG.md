@@ -998,3 +998,37 @@ is Lane R's (R2, merged in #189) and adding a hook to someone else's chart witho
 how two lanes end up with two conflicting jobs. Flagged for them; the entrypoint is ready.
 
 ---
+
+### Embedding alignment completed: version tag, and two counting bugs
+
+**Status:** PASS
+
+**Description:** Checked what the memory decision fixes beyond the model, and closed the rest
+of the gap.
+
+**Result:** The decision also fixes **cosine** as the metric and an **`embedding_version`** tag
+of the form `<model>|d<dim>|<metric>|<rev>`, stamped on every stored vector, which is what a
+re-embedding migration cuts over on. PgVector already defaults to cosine, so that half was
+aligned by accident. The tag was not stamped at all. Both stores now carry
+`BAAI/bge-base-en-v1.5|d768|cos|v1`, identical to memory's, and the loader compares the tag as
+well as the width — two models can share a dimension and still produce vectors that are not
+comparable, so width alone is necessary and not sufficient.
+
+**Two counting bugs, both found by reading output rather than by a check:**
+
+1. **The corpus README was being ingested as prose.** `read_corpus` globs `*.md` and excluded
+   only the table of contents, so the note *about* the corpus became four chunks of it. The
+   run said "32 documents" and the corpus has 31. Now excluded, and the docstring says why
+   both exclusions are the same kind of thing.
+
+2. **The chunk count doubled to 2,914.** Not a loader defect: the cookbook and the
+   `load-knowledge` entrypoint had the same default table name, so they were two writers of
+   the same rows. Verified the loader is idempotent with itself — 1,457 after one run and
+   1,457 after two, in an isolated table — and gave the cookbook its own table.
+
+**What surprised me:** I wrote "idempotent, running it twice changes nothing" in the
+entrypoint docstring before testing it. It happened to be true, but I had asserted it from
+design rather than measurement, and the doubled count looked exactly like it being false. The
+claim and the evidence arrived in the wrong order.
+
+---

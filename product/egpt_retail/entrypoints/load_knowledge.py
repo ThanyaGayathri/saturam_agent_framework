@@ -104,6 +104,7 @@ def _load_ontology(
             driver=driver,
             embedder=embedder.embedder,
             database=settings.retail_neo4j_database,
+            embedding_version=embedder.embedding_version,
         )
         overlay = (
             Path(settings.retail_ontology_overlay)
@@ -113,6 +114,19 @@ def _load_ontology(
         artifact = load_ontology(ARTIFACT_PATH, overlay_path=overlay)
         artifact.validate_relations()
 
+        # Width first, then the tag. Two models can share a dimension and still produce
+        # vectors that are not comparable, so a width match is necessary and not sufficient.
+        stored_tag = store.stored_embedding_version()
+        if (
+            stored_tag
+            and stored_tag != embedder.embedding_version
+            and not rebuild_indexes
+        ):
+            raise SystemExit(
+                f"The stored ontology was embedded as {stored_tag!r} and this deployment is "
+                f"configured for {embedder.embedding_version!r}. The vectors are not comparable. "
+                "Re-run with --rebuild-indexes to re-embed."
+            )
         existing = store.index_dimensions()
         if (
             existing is not None
@@ -131,7 +145,8 @@ def _load_ontology(
         lines = [
             f"ontology: {written} concepts at version {artifact.version}"
             + (f", overlay {overlay.name}" if overlay else ", no overlay"),
-            f"ontology: vector index at {store.index_dimensions()} dimensions",
+            f"ontology: vector index at {store.index_dimensions()} dimensions, "
+            f"stamped {store.stored_embedding_version()}",
         ]
         missing = store.concepts_without_embedding()
         if missing:
@@ -154,7 +169,7 @@ def _load_prose(
             f"No corpus at {corpus}. Set EGPT_RETAIL_CORPUS_PATH, or check the package ships "
             "product/egpt_retail/knowledge/corpus."
         )
-    documents = read_corpus(corpus)
+    documents = read_corpus(corpus, embedding_version=embedder.embedding_version)
     if not documents:
         raise SystemExit(f"{corpus} holds no markdown documents.")
 

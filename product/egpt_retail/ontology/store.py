@@ -79,10 +79,21 @@ class OntologyStore:
     this module is only that the dimensions match the index.
     """
 
-    def __init__(self, driver: Any, embedder: Any, database: str = "neo4j") -> None:
+    def __init__(
+        self,
+        driver: Any,
+        embedder: Any,
+        database: str = "neo4j",
+        embedding_version: str = "",
+    ) -> None:
         self._driver = driver
         self._embedder = embedder
         self._database = database
+        #: Stamped on every concept, matching what memory stamps on every memory vector. A
+        #: re-embedding migration keys on this; an empty tag means the caller did not resolve
+        #: through ``resolve_knowledge_embedder`` and the store cannot say what produced its
+        #: vectors.
+        self._embedding_version = embedding_version
 
     # --- schema ------------------------------------------------------------------------
 
@@ -187,6 +198,7 @@ class OntologyStore:
                 "lexical_text": concept.lexical_text,
                 "origin": concept.origin.value,
                 "version": ontology.version,
+                "embedding_version": self._embedding_version,
                 "embedding": vector,
             }
             for concept, vector in zip(concepts, vectors)
@@ -219,6 +231,7 @@ class OntologyStore:
                     c.lexical_text = row.lexical_text,
                     c.origin = row.origin,
                     c.version = row.version,
+                    c.embedding_version = row.embedding_version,
                     c.embedding = row.embedding
                 """,
                 rows=rows,
@@ -370,6 +383,24 @@ class OntologyStore:
     async def aconcepts_of_origin(self, origin: TermOrigin) -> Tuple[str, ...]:
         """Async variant."""
         return await asyncio.to_thread(self.concepts_of_origin, origin)
+
+    def stored_embedding_version(self) -> Optional[str]:
+        """The embedding tag on the stored concepts, or ``None`` if nothing is stored.
+
+        Compared against the configured tag before a write. A width match is necessary but not
+        sufficient: two models can share a dimension and produce vectors that are not
+        comparable, and the tag is what distinguishes them.
+        """
+        with self._driver.session(database=self._database) as session:
+            record = session.run(
+                f"MATCH (c:{CONCEPT_LABEL}) WHERE c.embedding_version IS NOT NULL "
+                "RETURN c.embedding_version AS v LIMIT 1"
+            ).single()
+            return record["v"] if record else None
+
+    async def astored_embedding_version(self) -> Optional[str]:
+        """Async variant."""
+        return await asyncio.to_thread(self.stored_embedding_version)
 
     def stored_version(self) -> Optional[str]:
         """The ontology version currently in the graph."""

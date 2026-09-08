@@ -51,7 +51,10 @@ CORPUS = Path(
 DB_URL = os.environ.get(
     "EGPT_RETAIL_DB_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"
 )
-TABLE = os.environ.get("EGPT_RETAIL_KNOWLEDGE_TABLE", "egpt_retail_domain_prose_bge")
+# Its own table, not the deployment's. The cookbook and the load-knowledge entrypoint both
+# write prose; pointed at one table they are two writers of the same rows, and the chunk count
+# doubles without either being wrong.
+TABLE = os.environ.get("EGPT_RETAIL_COOKBOOK_TABLE", "egpt_retail_prose_cookbook")
 
 if not CORPUS.is_dir():
     raise SystemExit(

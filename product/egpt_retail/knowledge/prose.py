@@ -65,6 +65,9 @@ class CorpusDocument:
     #: Stable identifier, used as the content name so a re-ingest upserts rather than duplicates.
     name: str
     origin: str = ORIGIN_SHIPPED
+    #: The embedding tag every chunk carries, matching what memory stamps. See
+    #: ``egpt_retail.knowledge.embedding``.
+    embedding_version: str = ""
 
     @property
     def metadata(self) -> Dict[str, str]:
@@ -74,7 +77,12 @@ class CorpusDocument:
         from our shipped prose or from the customer's own document, which is a different
         statement about how much to trust it.
         """
-        return {"origin": self.origin, "document": self.name, "layer": "domain_prose"}
+        return {
+            "origin": self.origin,
+            "document": self.name,
+            "layer": "domain_prose",
+            "embedding_version": self.embedding_version,
+        }
 
 
 @dataclass(frozen=True)
@@ -107,17 +115,25 @@ def build_chunker(
 def read_corpus(
     directory: Path,
     origin: str = ORIGIN_SHIPPED,
-    exclude: Sequence[str] = ("00-table-of-contents.md",),
+    exclude: Sequence[str] = ("00-table-of-contents.md", "README.md"),
+    embedding_version: str = "",
 ) -> List[CorpusDocument]:
     """Every markdown document in a directory, in name order.
 
-    The table of contents is excluded by default. It is navigation rather than prose -- a list
-    of links whose chunks would retrieve as a wall of anchors with no substance behind them,
-    competing with the sections they point at.
+    Two files are excluded by default and both are exclusions of the same kind: they sit in the
+    directory but are not the corpus. The table of contents is navigation, a list of links whose
+    chunks retrieve as a wall of anchors competing with the sections they point at. ``README.md``
+    is our note *about* the corpus -- it was ingested once, silently, and turned 31 documents
+    into 32 before the count was read carefully.
     """
     excluded = set(exclude)
     return [
-        CorpusDocument(path=path, name=path.stem, origin=origin)
+        CorpusDocument(
+            path=path,
+            name=path.stem,
+            origin=origin,
+            embedding_version=embedding_version,
+        )
         for path in sorted(Path(directory).glob("*.md"))
         if path.name not in excluded
     ]
