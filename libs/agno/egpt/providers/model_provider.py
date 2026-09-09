@@ -297,6 +297,14 @@ class ModelResolveResult:
     escalated_from: Optional[str] = None  # provider_key we escalated away from
     reason: Optional[str] = None
     gateway: Optional[str] = None
+    # The actual escalation depth of *this* resolution -- ``escalated_request.escalation_level``
+    # from the request that was actually served, not the pre-call request's level. Additive
+    # (defaults to ``None``, "unknown/not stated"): a provider that does not populate it costs
+    # nothing, and a caller stamping the run record can fall back to deriving one hop from the
+    # pre-call request the way it always did. Exists so a future multi-hop composition (a second
+    # escalation tier) reports the depth it actually reached rather than always "+1" from
+    # whatever the first call's request carried -- see ``_stamp_escalation`` in `agent/_run.py`.
+    escalation_level: Optional[int] = None
 
 
 class ModelProviderConfigError(ValueError):
