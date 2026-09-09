@@ -2173,3 +2173,68 @@ question that found gap 1 in the P2 verification; "what happens when the input i
 the one I should have asked next and did not. Both go on the list for every write path.
 
 ---
+
+---
+
+### PR #196 review round 2 — the round-1 fix, one schema over; and the tests it was missing
+
+**Status:** PASS — 266 unit tests, 20/20 live regression tests, cookbook sweep 17/17
+
+Two reviews landed after the round-1 push (a re-review and a parallel fresh pass), sixteen
+findings between them. Nine were one defect seen from different angles.
+
+**The headline: the round-1 fix was schema-blind.** The prune matched every `SemanticTable`,
+not the harvested schema's. A *non-empty* harvest of a second or mistyped schema sailed past
+the empty-harvest guard and pruned every other schema's tables and reviewed edges — the
+round-1 wipe again, one schema over. `SnapshotStore.versions()` had the same blindness, so
+harvesting `gold` after `silver` would have diffed gold against silver and reported every
+silver table removed. Fixed at every point: the guard, both prunes and the orphan cleanup
+are bound to `harvest.schema` and run inside the write transaction (which also closes the
+TOCTOU the review noted); `versions(schema)` filters; `refresh_semantic_layer` threads the
+schema through. A schema that is genuinely gone is removed with the new `drop_schema()`,
+by name, on purpose — the refusal message points there.
+
+Live test: a synthetic `livetest_gold.crm_contact` (the same bare name silver has, on
+purpose) harvested into the graph leaves silver's tables and 3/1/1 reviewed edges exactly as
+they were; the bare name is then refused as ambiguous; `drop_schema` removes it and the count
+returns. DB-free test with a recording fake driver: both prunes bind `schema` and use it in
+the pattern, and the guard counts only the harvested schema.
+
+**"The retry fix has zero test coverage" — measured, and right.** Reverting `apply_accepted`
+to raise-on-first-failure left every unit test green. Four DB-free tests now pin it against a
+recording connection: one failure does not stop the batch, the failure is recorded and the
+success stamped, a later successful retry clears the error, kinds with no graph target are
+left alone. Mutation-checked: reverting the `try/except` fails three of them.
+
+**K07's fixture could not exercise the collapse it was written for.** `itertools.combinations`
+guarantees distinct pairs, so two joins over one pair — the round-1 finding — was
+structurally impossible in the cookbook's data. Two of the eight joins now share a pair with
+different predicates and are both accepted; the cookbook asserts two edges between that pair.
+
+**`include_proposed` overlaid enrichments only.** Pending mappings now appear on
+`Table.concepts` when asked. Pending joins are *not* traversed by `find_join_path`, and the
+docstring says why: that method has no `include_proposed` in the contract on purpose — a path
+through an unreviewed join is a query plan nobody approved, and a planner cannot be handed
+one. A review screen lists pending joins from the `ProposalStore`.
+
+**Minors, each done:** guard inside the transaction; dead `if True:` removed; ambiguous
+bare name tested live; `write_join` / `write_authoritative_source` resolve-and-write in one
+`execute_write`; the reverse ordering case (snapshot fails after the graph write) pinned live
+— the graph is one ahead, the next run corrects; a reused explicit `--version` now diffs
+against what its row held *before* the overwrite, since with a constant version there is no
+other row to diff against (the review's suggested "second-newest" does not exist in that
+case); every graph write stamps `applied_by_proposal` so the audit trail reaches the artifact.
+Per-proposal commits kept, with the reason in the docstring.
+
+**CI protection — partially closed, and it needs a decision.** The live suite is now 20
+tests, gated exactly as `integration.yml` gates its own. But that job has no `pull_request`
+trigger, installs `libs/agno` only, and its pgvector service has no warehouse database; and
+`ci.yml`'s product job sets no live-DB variables. Wiring is filed as R-9 because both
+workflows are Lane R's. The DB-free tests above are what CI *does* gate today: the retry
+control flow, the guard, the schema binding on every prune, `canonical_join`, and the closed
+sets. The graph-side proofs still run only where there is a graph.
+
+**Surprising:** "one schema over" is a pattern, not a one-off. Every predicate I write over a
+shared store now gets the question "shared with what?" before "does it match?".
+
+---

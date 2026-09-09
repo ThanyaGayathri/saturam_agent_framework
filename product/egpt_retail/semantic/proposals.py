@@ -626,6 +626,11 @@ class ProposalStore:
         A write that fails is recorded on the proposal and does not stop the run. It stays
         accepted, so the next run retries it -- a mapping onto a concept that enrichment has
         not yet landed will succeed once it has.
+
+        One commit per proposal, deliberately. A crash mid-run then leaves every proposal
+        before it recorded as applied and every one after it untouched, with nothing in
+        between; batching would trade that for one round trip fewer per row, which does not
+        matter at review-queue sizes.
         """
         applied: List[str] = []
         failed: List[Refusal] = []
@@ -662,15 +667,19 @@ class ProposalStore:
     def _apply_one(store: Any, proposal: Proposal) -> None:
         """Dispatch one accepted proposal to the graph write its kind implies."""
         built = validate_payload(proposal.kind, proposal.payload)
+        # Every write carries the proposal that produced it, so the audit trail reaches the
+        # artifact and not only the row: a node or edge can say which accepted proposal put
+        # its current values there, and a later revision overwrites that stamp with its own.
+        stamp = proposal.identifier
         if proposal.kind is ProposalKind.ENRICHMENT:
-            store.write_concept(built)
+            store.write_concept(built, proposal_id=stamp)
         elif proposal.kind is ProposalKind.MAPPING:
             table, concept = built
-            store.link_table_to_concept(table, concept)
+            store.link_table_to_concept(table, concept, proposal_id=stamp)
         elif proposal.kind is ProposalKind.JOIN:
-            store.write_join(built)
+            store.write_join(built, proposal_id=stamp)
         elif proposal.kind is ProposalKind.AUTHORITATIVE_SOURCE:
-            store.write_authoritative_source(built)
+            store.write_authoritative_source(built, proposal_id=stamp)
 
     # --- internals ----------------------------------------------------------------------
 

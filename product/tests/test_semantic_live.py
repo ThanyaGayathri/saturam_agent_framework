@@ -302,3 +302,224 @@ class TestRefreshOrdering:
         finally:
             warehouse.close()
         assert "livetest.broken" not in snapshots.versions()
+
+
+class TestSchemaIsolation:
+    """Round 2's headline: one graph, two schemas, and a harvest of one must not touch the
+    other. Uses a synthetic second schema so nothing depends on the warehouse having one."""
+
+    GOLD = "livetest_gold"
+
+    def _gold(self) -> Harvest:
+        from egpt_retail.semantic.harvest import HarvestedColumn, HarvestedTable
+
+        return Harvest(
+            schema=self.GOLD,
+            tables=(
+                HarvestedTable(
+                    schema=self.GOLD,
+                    name="crm_contact",  # the same bare name silver has, on purpose
+                    columns=(HarvestedColumn("contact_id", "integer", False, True),),
+                    row_count=0,
+                ),
+            ),
+            source="livetest",
+        )
+
+    def test_a_second_schema_leaves_the_first_intact(
+        self, graph: SemanticGraphStore, driver: Any
+    ) -> None:
+        graph.write_concept(Concept(name="LivetestIsolated", description="x"))
+        graph.write_join(
+            JoinEdge(
+                "crm_contact",
+                "crm_deal",
+                f"crm_contact.{MARKER}_iso = crm_deal.{MARKER}_iso",
+            )
+        )
+        graph.write_authoritative_source(
+            AuthoritativeSource(concept="LivetestIsolated", table="silver.crm_contact")
+        )
+        silver_tables = _table_count(driver)
+        edges = _edges(driver)
+        try:
+            written = graph.write_harvest(
+                self._gold(), snapshot_version="livetest.gold"
+            )
+            assert written == 1
+            assert _table_count(driver) == silver_tables + 1
+            assert _edges(driver) == edges
+            # And the other way: re-harvesting silver leaves gold alone.
+            with driver.session() as s:
+                gold_before = s.run(
+                    "MATCH (t:SemanticTable {schema: $s}) RETURN count(t) AS n",
+                    s=self.GOLD,
+                ).single()["n"]
+            assert gold_before == 1
+        finally:
+            removed = graph.drop_schema(self.GOLD)
+        assert removed == 1
+        assert _table_count(driver) == silver_tables
+
+    def test_a_bare_name_held_in_two_schemas_is_refused(
+        self, graph: SemanticGraphStore
+    ) -> None:
+        graph.write_harvest(self._gold(), snapshot_version="livetest.gold")
+        try:
+            with pytest.raises(SemanticReadError, match="more than one schema"):
+                graph.get_table("crm_contact")
+            assert graph.get_table("silver.crm_contact") is not None
+            assert graph.get_table(f"{self.GOLD}.crm_contact") is not None
+        finally:
+            graph.drop_schema(self.GOLD)
+
+    def test_an_empty_harvest_of_an_unheld_schema_writes_nothing_and_removes_nothing(
+        self, graph: SemanticGraphStore, driver: Any
+    ) -> None:
+        before = _table_count(driver)
+        assert (
+            graph.write_harvest(
+                Harvest(schema="livetest_never", tables=()), snapshot_version="v"
+            )
+            == 0
+        )
+        assert _table_count(driver) == before
+
+
+class TestRefreshEdges:
+    def test_a_reused_version_still_diffs_against_the_run_before(
+        self, control_plane: Any, driver: Any
+    ) -> None:
+        """Round 2 minor: a constant --version made every re-run report no drift."""
+        psycopg = pytest.importorskip("psycopg")
+        warehouse = psycopg.connect(WAREHOUSE)
+        warehouse.autocommit = True
+        try:
+            refresh_semantic_layer(
+                version="livetest.same",
+                warehouse=warehouse,
+                control_plane=control_plane,
+                driver=driver,
+            )
+            with warehouse.cursor() as cur:
+                cur.execute(
+                    "ALTER TABLE silver.crm_deal ADD COLUMN IF NOT EXISTS livetest_col text"
+                )
+            try:
+                again = refresh_semantic_layer(
+                    version="livetest.same",
+                    warehouse=warehouse,
+                    control_plane=control_plane,
+                    driver=driver,
+                )
+            finally:
+                with warehouse.cursor() as cur:
+                    cur.execute(
+                        "ALTER TABLE silver.crm_deal DROP COLUMN IF EXISTS livetest_col"
+                    )
+                refresh_semantic_layer(
+                    version="livetest.restore",
+                    warehouse=warehouse,
+                    control_plane=control_plane,
+                    driver=driver,
+                )
+        finally:
+            warehouse.close()
+        # The only stored version was the one being replaced, so the diff is against what
+        # that row held before the overwrite -- there is no other row to diff against.
+        assert again.previous_version == "livetest.same"
+        assert (
+            again.diff is not None
+            and "crm_deal.livetest_col" in again.diff.added_columns
+        )
+
+    def test_previous_is_scoped_to_the_schema(self, control_plane: Any) -> None:
+        """Round 2 major: harvesting gold after silver diffed gold against silver."""
+        snapshots = SnapshotStore(control_plane)
+        snapshots.ensure_schema()
+        snapshots.save(
+            Harvest(schema="livetest_a", tables=(), source="x"), "livetest.a1"
+        )
+        snapshots.save(
+            Harvest(schema="livetest_b", tables=(), source="x"), "livetest.b1"
+        )
+        assert snapshots.versions("livetest_a") == ("livetest.a1",)
+        assert snapshots.versions("livetest_b") == ("livetest.b1",)
+        assert (
+            "livetest.a1" in snapshots.versions()
+            and "livetest.b1" in snapshots.versions()
+        )
+
+    def test_a_failed_snapshot_leaves_the_graph_one_ahead_and_the_next_run_corrects(
+        self, control_plane: Any, driver: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Round 2 minor: the reverse of the graph-fails case, pinned."""
+        psycopg = pytest.importorskip("psycopg")
+        warehouse = psycopg.connect(WAREHOUSE)
+        graph = SemanticGraphStore(driver=driver)
+        snapshots = SnapshotStore(control_plane)
+
+        def _explode(self: Any, *a: Any, **k: Any) -> str:
+            raise RuntimeError("postgres is down")
+
+        try:
+            monkeypatch.setattr(SnapshotStore, "save", _explode)
+            with pytest.raises(RuntimeError, match="postgres is down"):
+                refresh_semantic_layer(
+                    version="livetest.ahead",
+                    warehouse=warehouse,
+                    control_plane=control_plane,
+                    driver=driver,
+                )
+            monkeypatch.undo()
+            assert graph.snapshot().version == "livetest.ahead"
+            assert "livetest.ahead" not in snapshots.versions("silver")
+            corrected = refresh_semantic_layer(
+                version="livetest.corrected",
+                warehouse=warehouse,
+                control_plane=control_plane,
+                driver=driver,
+            )
+        finally:
+            warehouse.close()
+        assert graph.snapshot().version == "livetest.corrected"
+        assert corrected.version in snapshots.versions("silver")
+
+
+class TestAuditTrailReachesTheGraph:
+    def test_an_applied_proposal_stamps_the_artifact(
+        self, graph: SemanticGraphStore, proposals: ProposalStore, driver: Any
+    ) -> None:
+        proposal = Proposal(
+            kind=ProposalKind.ENRICHMENT,
+            target="LivetestStamped",
+            payload={"name": "LivetestStamped", "description": "stamped"},
+            proposer=PROPOSER,
+        )
+        proposals.propose(proposal)
+        proposals.accept([proposal.identifier], "livetest_reviewer")
+        outcome = proposals.apply_accepted(graph)
+        assert proposal.identifier in outcome.applied
+        with driver.session() as s:
+            stamp = s.run(
+                "MATCH (c:SemanticConcept {name: 'LivetestStamped'}) RETURN c.applied_by_proposal AS p"
+            ).single()["p"]
+        assert stamp == proposal.identifier
+
+    def test_a_pending_mapping_shows_on_the_table_only_when_asked(
+        self, graph: SemanticGraphStore, proposals: ProposalStore, driver: Any
+    ) -> None:
+        graph.write_concept(Concept(name="LivetestMapped", description="x"))
+        reading = SemanticGraphStore(driver=driver, proposals=proposals)
+        pending = Proposal(
+            kind=ProposalKind.MAPPING,
+            target="silver.crm_deal",
+            payload={"table": "silver.crm_deal", "concept": "LivetestMapped"},
+            proposer=PROPOSER,
+        )
+        proposals.propose(pending)
+        plain = reading.get_table("crm_deal")
+        shown = reading.get_table("crm_deal", include_proposed=True)
+        assert plain is not None and shown is not None
+        assert "LivetestMapped" not in plain.concepts
+        assert "LivetestMapped" in shown.concepts

@@ -121,8 +121,14 @@ for index in range(12):
 # window would reuse pairs -- which is how this cookbook found that `write_join` merged on the
 # pair alone and silently collapsed two accepted proposals into one edge.
 PAIRS = list(itertools.combinations(TABLES, 2))
-for index in range(8):
-    left, right = PAIRS[index]
+# Eight joins: two over the SAME pair with different predicates, then six distinct pairs.
+# The same-pair two are the regression case for write_join keying on the predicate -- round
+# 2 of the PR review noticed that all-distinct pairs could never have exercised it.
+SAME_PAIR = PAIRS[0]
+join_specs = [(SAME_PAIR, f"{MARKER}_email"), (SAME_PAIR, f"{MARKER}_contact_id")] + [
+    (PAIRS[i], f"{MARKER}_{i}") for i in range(1, 7)
+]
+for (left, right), key in join_specs:
     batch.append(
         Proposal(
             kind=ProposalKind.JOIN,
@@ -130,7 +136,7 @@ for index in range(8):
             payload={
                 "left_table": left,
                 "right_table": right,
-                "on": f"{left}.{MARKER}_{index} = {right}.{MARKER}_{index}",
+                "on": f"{left}.{key} = {right}.{key}",
                 "cardinality": "many-to-one",
             },
             proposer=PROPOSER,
@@ -167,12 +173,23 @@ print(
 # --- 3. Accept twelve in one action, reject eight in another ------------------------------
 
 enrichment = [p.identifier for p in mine if p.kind is ProposalKind.ENRICHMENT]
-joins = [p.identifier for p in mine if p.kind is ProposalKind.JOIN]
+same_pair = [
+    p.identifier
+    for p in mine
+    if p.kind is ProposalKind.JOIN and p.target == f"{SAME_PAIR[0]}->{SAME_PAIR[1]}"
+]
+other_joins = [
+    p.identifier
+    for p in mine
+    if p.kind is ProposalKind.JOIN and p.identifier not in same_pair
+]
 
 # Mixed on purpose: eight enrichments and four joins accepted, four of each rejected. If the
 # split followed kind, a store that decided by kind rather than by decision would still pass.
-accepted_ids = enrichment[:8] + joins[:4]
-rejected_ids = enrichment[8:] + joins[4:]
+# Both same-pair joins are among the accepted, so the graph must end with two edges between
+# one pair of tables.
+accepted_ids = enrichment[:8] + same_pair + other_joins[:2]
+rejected_ids = enrichment[8:] + other_joins[2:]
 
 accept_outcome = proposals.accept(accepted_ids, REVIEWER, note="reviewed in one pass")
 reject_outcome = proposals.reject(
@@ -196,6 +213,15 @@ print("-" * 78)
 print(f"  proposals applied: {len(applied)}")
 print(f"  concepts in graph: {after_concepts} (accepted enrichments: 8)")
 print(f"  joins in graph:    {after_joins} (accepted joins: 4)")
+with driver.session() as session:
+    same_pair_edges = session.run(
+        "MATCH (a:SemanticTable {name: $l})-[j:JOINS_TO]->(b:SemanticTable {name: $r}) "
+        "WHERE j.on CONTAINS $marker RETURN count(j) AS n",
+        l=SAME_PAIR[0],
+        r=SAME_PAIR[1],
+        marker=MARKER,
+    ).single()["n"]
+print(f"  edges between {SAME_PAIR[0]} and {SAME_PAIR[1]}: {same_pair_edges} (two predicates)")
 print(f"  total in graph:    {after_concepts + after_joins} of {len(batch)} proposed")
 
 rejected_targets = {
@@ -412,6 +438,11 @@ if (after_concepts, after_joins) != (8, 4):
     )
 if leaked:
     failures.append(f"{leaked} rejected proposals are in the graph and must not be")
+if same_pair_edges != 2:
+    failures.append(
+        f"two accepted joins over one table pair produced {same_pair_edges} edge(s); "
+        "write_join is not keying on the predicate"
+    )
 if retry.decided:
     failures.append("an already-rejected proposal was accepted on a second try")
 if not retry.refused or retry.refused[0].current_state is not ReviewState.REJECTED:

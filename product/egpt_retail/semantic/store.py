@@ -74,9 +74,10 @@ class EmptyHarvestRefused(RuntimeError):
 
     An empty harvest is what a bad ``--schema``, a revoked grant or a warehouse outage
     mid-query all look like, and ``harvest_schema`` cannot tell them from a genuinely empty
-    schema. Writing it would prune every table -- and every reviewed edge with them -- which
-    is the wipe this store's upsert was written to prevent. So it refuses, and the operator
-    decides. A first harvest into an empty graph is allowed: there is nothing to lose.
+    schema. Writing it would prune every table of that schema -- and every reviewed edge on
+    them -- which is the wipe this store's upsert was written to prevent. So it refuses, and
+    the operator decides: a schema that is genuinely gone is removed with ``drop_schema``,
+    by name, on purpose. A first harvest of a schema the graph has never held is allowed.
     """
 
 
@@ -248,19 +249,6 @@ class SemanticGraphStore:
             for col in row["columns"]
         ]
         with self._driver.session(database=self._database) as session:
-            if not rows:
-                # `WHERE NOT x IN []` is true for every node: an empty keep-list prunes
-                # everything. Review round 1 on the P2 PR found it. Refuse unless the
-                # graph is already empty, in which case there is nothing to prune.
-                held = session.run(
-                    f"MATCH (t:{TABLE_LABEL}) RETURN count(t) AS n"
-                ).single()
-                if held and held["n"]:
-                    raise EmptyHarvestRefused(
-                        f"the harvest of {harvest.schema!r} has no tables and the graph holds "
-                        f"{held['n']}. Writing it would remove every table and every reviewed "
-                        "edge. Check the schema name and the warehouse before retrying."
-                    )
             session.execute_write(
                 self._write_harvest_tx,
                 rows,
@@ -281,59 +269,108 @@ class SemanticGraphStore:
         harvest: Harvest,
     ) -> None:
         """The whole write in one transaction, so a failure part-way leaves the graph as it
-        was rather than upserted-but-not-pruned."""
-        if True:
-            tx.run(
+        was rather than upserted-but-not-pruned, and the guard below reads inside the same
+        transaction it protects.
+
+        **Everything here is scoped to ``harvest.schema``.** One graph serves every schema
+        a deployment harvests, and a prune that matched every ``SemanticTable`` would remove
+        the other schemas' tables and reviewed edges on every run. Review round 2 on the P2
+        PR found that; it was the round-1 wipe again, one schema over.
+        """
+        schema = harvest.schema
+        if not rows:
+            # `WHERE NOT x IN []` is true for every node: an empty keep-list prunes
+            # everything in the schema. Refuse unless the graph has never held it.
+            held = tx.run(
+                f"MATCH (t:{TABLE_LABEL} {{schema: $schema}}) RETURN count(t) AS n",
+                schema=schema,
+            ).single()
+            if held and held["n"]:
+                raise EmptyHarvestRefused(
+                    f"the harvest of {schema!r} has no tables and the graph holds "
+                    f"{held['n']} for that schema. Writing it would remove every one of "
+                    "them and every reviewed edge on them. Check the schema name and the "
+                    "warehouse; to remove the schema on purpose, use drop_schema()."
+                )
+        tx.run(
+            f"""
+            UNWIND $rows AS row
+            MERGE (t:{TABLE_LABEL} {{schema: row.schema, name: row.name}})
+            SET t.row_count = row.row_count,
+                t.comment = row.comment,
+                t.snapshot_version = $version,
+                t.status = 'accepted'
+            WITH t, row
+            UNWIND row.columns AS col
+            MERGE (c:{COLUMN_LABEL} {{name: col.name}})-[:OF_TABLE]->(t)
+            SET c.data_type = col.data_type,
+                c.nullable = col.nullable,
+                c.is_key = col.is_key,
+                c.comment = col.comment,
+                c.collides_with = col.collides_with,
+                c.status = 'accepted'
+            """,
+            rows=rows,
+            version=version,
+        )
+        # Prune what the warehouse no longer has. Columns first, so a column dropped from
+        # a surviving table goes; then tables, taking their remaining columns and edges.
+        tx.run(
+            f"""
+            MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL} {{schema: $schema}})
+            WHERE NOT (t.schema + '.' + t.name + '.' + c.name) IN $keep
+            DETACH DELETE c
+            """,
+            schema=schema,
+            keep=keep_columns,
+        )
+        tx.run(
+            f"""
+            MATCH (t:{TABLE_LABEL} {{schema: $schema}})
+            WHERE NOT (t.schema + '.' + t.name) IN $keep
+            OPTIONAL MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t)
+            DETACH DELETE c, t
+            """,
+            schema=schema,
+            keep=keep_tables,
+        )
+        # A column that lost its table some other way has no meaning; do not keep it.
+        tx.run(f"MATCH (c:{COLUMN_LABEL}) WHERE NOT (c)-[:OF_TABLE]->() DELETE c")
+        # Any lingering row values from before this rule existed.
+        tx.run(f"MATCH (c:{COLUMN_LABEL}) REMOVE c.sampled_values")
+        tx.run(
+            f"MERGE (s:{_SNAPSHOT_LABEL} {{singleton: true}}) "
+            "SET s.version = $version, s.harvested_at = $harvested_at, s.source = $source",
+            version=version,
+            harvested_at=harvest.harvested_at,
+            source=harvest.source,
+        )
+
+    def drop_schema(self, schema: str) -> int:
+        """Remove one schema's tables, columns and the reviewed edges on them. Returns the
+        table count removed.
+
+        The deliberate counterpart to ``write_harvest`` refusing an empty harvest: removal
+        of a schema is an operator's decision, made by name, and never a side effect of a
+        harvest that happened to return nothing.
+        """
+        with self._driver.session(database=self._database) as session:
+            record = session.run(
                 f"""
-                UNWIND $rows AS row
-                MERGE (t:{TABLE_LABEL} {{schema: row.schema, name: row.name}})
-                SET t.row_count = row.row_count,
-                    t.comment = row.comment,
-                    t.snapshot_version = $version,
-                    t.status = 'accepted'
-                WITH t, row
-                UNWIND row.columns AS col
-                MERGE (c:{COLUMN_LABEL} {{name: col.name}})-[:OF_TABLE]->(t)
-                SET c.data_type = col.data_type,
-                    c.nullable = col.nullable,
-                    c.is_key = col.is_key,
-                    c.comment = col.comment,
-                    c.collides_with = col.collides_with,
-                    c.status = 'accepted'
-                """,
-                rows=rows,
-                version=version,
-            )
-            # Prune what the warehouse no longer has. Columns first, so a column dropped from
-            # a surviving table goes; then tables, taking their remaining columns and edges.
-            tx.run(
-                f"""
-                MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL})
-                WHERE NOT (t.schema + '.' + t.name + '.' + c.name) IN $keep
-                DETACH DELETE c
-                """,
-                keep=keep_columns,
-            )
-            tx.run(
-                f"""
-                MATCH (t:{TABLE_LABEL})
-                WHERE NOT (t.schema + '.' + t.name) IN $keep
+                MATCH (t:{TABLE_LABEL} {{schema: $schema}})
                 OPTIONAL MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t)
-                DETACH DELETE c, t
+                WITH collect(DISTINCT t) AS tables, collect(DISTINCT c) AS columns
+                FOREACH (c IN columns | DETACH DELETE c)
+                FOREACH (t IN tables | DETACH DELETE t)
+                RETURN size(tables) AS n
                 """,
-                keep=keep_tables,
-            )
-            # A column that lost its table some other way has no meaning; do not keep it.
-            tx.run(f"MATCH (c:{COLUMN_LABEL}) WHERE NOT (c)-[:OF_TABLE]->() DELETE c")
-            # Any lingering row values from before this rule existed.
-            tx.run(f"MATCH (c:{COLUMN_LABEL}) REMOVE c.sampled_values")
-            tx.run(
-                f"MERGE (s:{_SNAPSHOT_LABEL} {{singleton: true}}) "
-                "SET s.version = $version, s.harvested_at = $harvested_at, s.source = $source",
-                version=version,
-                harvested_at=harvest.harvested_at,
-                source=harvest.source,
-            )
+                schema=schema,
+            ).single()
+        return int(record["n"]) if record else 0
+
+    async def adrop_schema(self, schema: str) -> int:
+        """Async variant."""
+        return await asyncio.to_thread(self.drop_schema, schema)
 
     async def awrite_harvest(
         self, harvest: Harvest, *, snapshot_version: str = ""
@@ -343,7 +380,13 @@ class SemanticGraphStore:
             self.write_harvest, harvest, snapshot_version=snapshot_version
         )
 
-    def write_concept(self, concept: Concept, tables: Tuple[str, ...] = ()) -> None:
+    def write_concept(
+        self,
+        concept: Concept,
+        tables: Tuple[str, ...] = (),
+        *,
+        proposal_id: str = "",
+    ) -> None:
         """Write one enriched concept and the tables that instantiate it.
 
         Everything on a ``Concept`` — synonyms, the scoping filter, personal-data fields,
@@ -362,8 +405,11 @@ class SemanticGraphStore:
                     c.compliance_tags = $compliance_tags,
                     c.metrics = $metrics,
                     c.business_area = $business_area,
-                    c.status = $status
+                    c.status = $status,
+                    c.applied_by_proposal = CASE WHEN $proposal_id = ''
+                        THEN c.applied_by_proposal ELSE $proposal_id END
                 """,
+                proposal_id=proposal_id,
                 name=concept.name,
                 description=concept.description,
                 synonyms=list(concept.synonyms),
@@ -389,12 +435,20 @@ class SemanticGraphStore:
                 )
 
     async def awrite_concept(
-        self, concept: Concept, tables: Tuple[str, ...] = ()
+        self,
+        concept: Concept,
+        tables: Tuple[str, ...] = (),
+        *,
+        proposal_id: str = "",
     ) -> None:
         """Async variant."""
-        await asyncio.to_thread(self.write_concept, concept, tables)
+        await asyncio.to_thread(
+            self.write_concept, concept, tables, proposal_id=proposal_id
+        )
 
-    def link_table_to_concept(self, qualified_table: str, concept: str) -> None:
+    def link_table_to_concept(
+        self, qualified_table: str, concept: str, *, proposal_id: str = ""
+    ) -> None:
         """Record that a table is an instance of a concept, and nothing else (K8's mapping).
 
         Narrower than ``write_concept`` on purpose. A mapping proposal says only *this table
@@ -412,12 +466,15 @@ class SemanticGraphStore:
                 f"""
                 MATCH (t:{TABLE_LABEL} {{schema: $schema, name: $name}})
                 MATCH (c:{CONCEPT_LABEL} {{name: $concept}})
-                MERGE (t)-[:INSTANTIATES]->(c)
+                MERGE (t)-[m:INSTANTIATES]->(c)
+                SET m.applied_by_proposal = CASE WHEN $proposal_id = ''
+                    THEN m.applied_by_proposal ELSE $proposal_id END
                 RETURN c.name AS linked
                 """,
                 schema=schema,
                 name=name,
                 concept=concept,
+                proposal_id=proposal_id,
             ).single()
         if record is None:
             raise SemanticReadError(
@@ -425,11 +482,18 @@ class SemanticGraphStore:
                 "graph. A mapping is an edge between two things that exist."
             )
 
-    async def alink_table_to_concept(self, qualified_table: str, concept: str) -> None:
+    async def alink_table_to_concept(
+        self, qualified_table: str, concept: str, *, proposal_id: str = ""
+    ) -> None:
         """Async variant."""
-        await asyncio.to_thread(self.link_table_to_concept, qualified_table, concept)
+        await asyncio.to_thread(
+            self.link_table_to_concept,
+            qualified_table,
+            concept,
+            proposal_id=proposal_id,
+        )
 
-    def write_join(self, edge: JoinEdge) -> None:
+    def write_join(self, edge: JoinEdge, *, proposal_id: str = "") -> None:
         """Record that two tables can be joined, and how.
 
         A join edge is a claim about the data, not about the schema — a foreign key implies
@@ -449,87 +513,119 @@ class SemanticGraphStore:
         """
         edge = canonical_join(edge)
         with self._driver.session(database=self._database) as session:
-            left = self._resolve_table(session, edge.left_table)
-            right = self._resolve_table(session, edge.right_table)
-            missing = [
-                name
-                for name, found in ((edge.left_table, left), (edge.right_table, right))
-                if found is None
-            ]
-            if missing:
-                raise SemanticReadError(
-                    f"cannot record a join: {', '.join(repr(m) for m in missing)} not in the "
-                    "graph. A join is an edge between two tables that exist; a MATCH that "
-                    "found nothing would have written nothing and reported success."
-                )
-            assert left is not None and right is not None
-            record = session.run(
-                f"""
-                MATCH (a:{TABLE_LABEL} {{schema: $ls, name: $ln}})
-                MATCH (b:{TABLE_LABEL} {{schema: $rs, name: $rn}})
-                MERGE (a)-[j:JOINS_TO {{on: $on}}]->(b)
-                SET j.cardinality = $cardinality, j.status = 'accepted'
-                RETURN j.on AS written
-                """,
-                ls=left[0],
-                ln=left[1],
-                rs=right[0],
-                rn=right[1],
-                on=edge.on,
-                cardinality=edge.cardinality,
-            ).single()
+            session.execute_write(self._write_join_tx, edge, proposal_id)
+
+    def _write_join_tx(self, tx: Any, edge: JoinEdge, proposal_id: str) -> None:
+        """Resolve both ends and write, in one transaction, so a prune landing between
+        the two cannot make the write match nothing."""
+        left = self._resolve_table(tx, edge.left_table)
+        right = self._resolve_table(tx, edge.right_table)
+        missing = [
+            name
+            for name, found in ((edge.left_table, left), (edge.right_table, right))
+            if found is None
+        ]
+        if missing:
+            raise SemanticReadError(
+                f"cannot record a join: {', '.join(repr(m) for m in missing)} not in the "
+                "graph. A join is an edge between two tables that exist; a MATCH that "
+                "found nothing would have written nothing and reported success."
+            )
+        assert left is not None and right is not None
+        record = tx.run(
+            f"""
+            MATCH (a:{TABLE_LABEL} {{schema: $ls, name: $ln}})
+            MATCH (b:{TABLE_LABEL} {{schema: $rs, name: $rn}})
+            MERGE (a)-[j:JOINS_TO {{on: $on}}]->(b)
+            SET j.cardinality = $cardinality, j.status = 'accepted',
+                j.applied_by_proposal = CASE WHEN $proposal_id = ''
+                    THEN j.applied_by_proposal ELSE $proposal_id END
+            RETURN j.on AS written
+            """,
+            ls=left[0],
+            ln=left[1],
+            rs=right[0],
+            rn=right[1],
+            on=edge.on,
+            cardinality=edge.cardinality,
+            proposal_id=proposal_id,
+        ).single()
         if record is None:  # pragma: no cover -- both endpoints were just resolved
             raise SemanticReadError("the join write matched nothing after resolution")
 
-    async def awrite_join(self, edge: JoinEdge) -> None:
+    async def awrite_join(self, edge: JoinEdge, *, proposal_id: str = "") -> None:
         """Async variant."""
-        await asyncio.to_thread(self.write_join, edge)
+        await asyncio.to_thread(self.write_join, edge, proposal_id=proposal_id)
 
-    def write_authoritative_source(self, source: AuthoritativeSource) -> None:
+    def write_authoritative_source(
+        self, source: AuthoritativeSource, *, proposal_id: str = ""
+    ) -> None:
         """Record which table answers for a concept, and what it beat (G20)."""
         with self._driver.session(database=self._database) as session:
-            table = self._resolve_table(session, source.table)
-            if table is None:
-                raise SemanticReadError(
-                    f"cannot set {source.table!r} as authoritative for {source.concept!r}: "
-                    "the table is not in the graph."
-                )
-            record = session.run(
-                f"""
-                MATCH (c:{CONCEPT_LABEL} {{name: $concept}})
-                MATCH (t:{TABLE_LABEL} {{schema: $schema, name: $table}})
-                MERGE (c)-[a:AUTHORITATIVE_SOURCE]->(t)
-                SET a.alternatives = $alternatives,
-                    a.rationale = $rationale,
-                    a.status = $status
-                RETURN t.name AS written
-                """,
-                concept=source.concept,
-                schema=table[0],
-                table=table[1],
-                alternatives=list(source.alternatives),
-                rationale=source.rationale,
-                status=source.status.value,
-            ).single()
+            session.execute_write(self._write_authoritative_tx, source, proposal_id)
+
+    def _write_authoritative_tx(
+        self, tx: Any, source: AuthoritativeSource, proposal_id: str
+    ) -> None:
+        table = self._resolve_table(tx, source.table)
+        if table is None:
+            raise SemanticReadError(
+                f"cannot set {source.table!r} as authoritative for {source.concept!r}: "
+                "the table is not in the graph."
+            )
+        record = tx.run(
+            f"""
+            MATCH (c:{CONCEPT_LABEL} {{name: $concept}})
+            MATCH (t:{TABLE_LABEL} {{schema: $schema, name: $table}})
+            MERGE (c)-[a:AUTHORITATIVE_SOURCE]->(t)
+            SET a.alternatives = $alternatives,
+                a.rationale = $rationale,
+                a.status = $status,
+                a.applied_by_proposal = CASE WHEN $proposal_id = ''
+                    THEN a.applied_by_proposal ELSE $proposal_id END
+            RETURN t.name AS written
+            """,
+            concept=source.concept,
+            schema=table[0],
+            table=table[1],
+            alternatives=list(source.alternatives),
+            rationale=source.rationale,
+            status=source.status.value,
+            proposal_id=proposal_id,
+        ).single()
         if record is None:
             raise SemanticReadError(
                 f"cannot set an authoritative source for {source.concept!r}: the concept is "
                 "not in the graph. Enrichment lands first; this proposal will apply on retry."
             )
 
-    async def awrite_authoritative_source(self, source: AuthoritativeSource) -> None:
+    async def awrite_authoritative_source(
+        self, source: AuthoritativeSource, *, proposal_id: str = ""
+    ) -> None:
         """Async variant."""
-        await asyncio.to_thread(self.write_authoritative_source, source)
+        await asyncio.to_thread(
+            self.write_authoritative_source, source, proposal_id=proposal_id
+        )
 
     # --- reads: the SemanticRead contract ----------------------------------------------
 
-    def _pending_enrichments(self) -> Tuple[Any, ...]:
-        """Enrichment proposals awaiting review, or nothing when no store was given."""
+    def _pending(self, kind: ProposalKind) -> Tuple[Any, ...]:
+        """Proposals of one kind awaiting review, or nothing when no store was given.
+
+        What ``include_proposed=True`` overlays on the real store, and what it does not:
+        pending **enrichments** appear through ``get_concept`` / ``list_concepts`` /
+        ``list_business_areas``, and pending **mappings** through ``Table.concepts``. Pending
+        joins are not traversed by ``find_join_path`` -- that method has no
+        ``include_proposed`` in the contract, on purpose: a path through an unreviewed join
+        is a query plan nobody approved, and a planner cannot be handed one. A review screen
+        lists pending joins from the ``ProposalStore`` directly.
+        """
         if self._proposals is None:
             return ()
-        return self._proposals.list(
-            state=ReviewState.PENDING, kind=ProposalKind.ENRICHMENT
-        )
+        return self._proposals.list(state=ReviewState.PENDING, kind=kind)
+
+    def _pending_enrichments(self) -> Tuple[Any, ...]:
+        return self._pending(ProposalKind.ENRICHMENT)
 
     def snapshot(self) -> Snapshot:
         with self._driver.session(database=self._database) as session:
@@ -633,7 +729,20 @@ class SemanticGraphStore:
                     for c in columns
                 ),
                 description=record["comment"] or "",
-                concepts=tuple(r["name"] for r in concepts),
+                concepts=tuple(
+                    sorted(
+                        {r["name"] for r in concepts}
+                        | (
+                            {
+                                p.payload["concept"]
+                                for p in self._pending(ProposalKind.MAPPING)
+                                if p.payload.get("table", "").split(".")[-1] == bare
+                            }
+                            if include_proposed
+                            else set()
+                        )
+                    )
+                ),
             )
 
     async def aget_table(

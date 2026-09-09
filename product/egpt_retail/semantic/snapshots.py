@@ -258,17 +258,31 @@ class SnapshotStore:
         """Async variant."""
         return await asyncio.to_thread(self.save, harvest, version)
 
-    def versions(self) -> Tuple[str, ...]:
-        """Every stored version, newest first."""
+    def versions(self, schema: Optional[str] = None) -> Tuple[str, ...]:
+        """Stored versions, newest first -- for one warehouse schema when given.
+
+        One snapshot table serves every schema, so "the previous version" only means
+        something within a schema. Review round 2 on the P2 PR found the consequence of
+        forgetting that: harvesting ``gold`` after ``silver`` diffed gold against silver and
+        reported every silver table as removed.
+        """
         with self._connection.cursor() as cursor:
-            cursor.execute(
-                f"SELECT version FROM {self._schema}.harvest_snapshot ORDER BY harvested_at DESC"
-            )
+            if schema is None:
+                cursor.execute(
+                    f"SELECT version FROM {self._schema}.harvest_snapshot "
+                    "ORDER BY harvested_at DESC"
+                )
+            else:
+                cursor.execute(
+                    f"SELECT version FROM {self._schema}.harvest_snapshot "
+                    "WHERE schema_name = %s ORDER BY harvested_at DESC",
+                    (schema,),
+                )
             return tuple(row[0] for row in cursor.fetchall())
 
-    async def aversions(self) -> Tuple[str, ...]:
+    async def aversions(self, schema: Optional[str] = None) -> Tuple[str, ...]:
         """Async variant."""
-        return await asyncio.to_thread(self.versions)
+        return await asyncio.to_thread(self.versions, schema)
 
     def load(self, version: str) -> Optional[Harvest]:
         """One stored harvest, rebuilt from its payload."""

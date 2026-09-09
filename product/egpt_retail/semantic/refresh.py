@@ -22,7 +22,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import KpiDefinition
-from egpt_retail.semantic.harvest import HarvestDiff, harvest_schema
+from egpt_retail.semantic.harvest import HarvestDiff, diff_harvests, harvest_schema
 from egpt_retail.semantic.snapshots import (
     ReviewItem,
     SnapshotStore,
@@ -54,7 +54,9 @@ class RefreshReport:
             f"harvest: {self.schema} -- {self.tables} tables, {self.columns} columns",
             f"snapshot: {self.version}"
             + (
-                f" (previous {self.previous_version})"
+                " (replaced the row of the same version; drift is against what it held)"
+                if self.previous_version == self.version
+                else f" (previous {self.previous_version})"
                 if self.previous_version
                 else " (first)"
             ),
@@ -118,9 +120,14 @@ def refresh_semantic_layer(
 
         snapshots = SnapshotStore(control_plane)
         snapshots.ensure_schema()
-        known = snapshots.versions()
-        previous = known[0] if known else None
+        known = snapshots.versions(schema)
         resolved = version or _default_version()
+        # A re-run with the same explicit version replaces its row. Diffing the new row
+        # against itself would report no drift however much the schema moved, and there may
+        # be no other row at all (a cron job with a constant --version has exactly one). So
+        # the previous structure is read *before* the overwrite and diffed directly.
+        replacing = snapshots.load(resolved) if resolved in known else None
+        previous = resolved if replacing is not None else (known[0] if known else None)
 
         # Graph first, then the snapshot. A snapshot row is permanent once committed and
         # becomes `previous` for the next diff; if the graph write failed after it, the
@@ -134,11 +141,12 @@ def refresh_semantic_layer(
         tables = graph.write_harvest(harvest, snapshot_version=resolved)
 
         snapshots.save(harvest, resolved)
-        diff = (
-            snapshots.diff(previous, resolved)
-            if previous and previous != resolved
-            else None
-        )
+        if replacing is not None:
+            diff: Optional[HarvestDiff] = diff_harvests(replacing, harvest)
+        elif previous:
+            diff = snapshots.diff(previous, resolved)
+        else:
+            diff = None
 
         review = (
             kpis_needing_review(diff, kpis, new_version=resolved)
