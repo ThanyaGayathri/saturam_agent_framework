@@ -199,8 +199,12 @@ jobs:
           EGPT_ONTOLOGY_NEO4J_URI: neo4j://localhost:7691
           EGPT_RETAIL_NEO4J_URI: neo4j://localhost:7691
           EGPT_RETAIL_NEO4J_PASSWORD: smg1testpassword
-          EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@localhost:5532/ai
-          EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse
+          # test_semantic_live.py connects with raw psycopg, not through RetailSettings, and
+          # reads EGPT_RETAIL_CP_DSN / EGPT_RETAIL_WAREHOUSE_DSN (bare postgresql:// scheme) --
+          # not the EGPT_RETAIL_*_DB_URL names used by the entrypoints above. Confirmed by
+          # reading the test's own os.environ.get calls, lines 47-52.
+          EGPT_RETAIL_CP_DSN: postgresql://ai:ai@localhost:5532/ai
+          EGPT_RETAIL_WAREHOUSE_DSN: postgresql://ai:ai@localhost:5532/egpt_warehouse
         run: |
           set -e
           source .venv/bin/activate

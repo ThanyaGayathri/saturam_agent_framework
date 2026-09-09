@@ -120,6 +120,9 @@ target-version = "py310"
 # dev box with a current numpy and passed in CI only by resolving an older one. The 3.10 floor
 # is still enforced where it bites: ruff's target-version = py310 for syntax, and CI running the
 # product tests on a real 3.10 interpreter (which is what caught the tomllib import, not mypy).
+# Caveat: ruff's target-version catches syntax-shape drift (PEP 695 `type`/generic syntax,
+# `except*`), not stdlib/typing-API-availability drift (e.g. `typing.override`) -- only the
+# real-3.10 CI job catches that class, and only for the code paths it exercises.
 python_version = "3.12"
 check_untyped_defs = true
 no_implicit_optional = true

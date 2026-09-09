@@ -2855,7 +2855,7 @@ repository gates, and running the product suite on the 3.10 floor.
    in by an optional dependency CI does not install). Both identical with the branch stashed.
    Recorded because "I ran validate.sh" is only a claim worth making if the environment is the
    one the script assumes — and today, on a dev box, it is not, which is X-2's whole point.
-6. **CI's `helm-lint` job caught that the first push of this branch was missing five of its
+5. **CI's `helm-lint` job caught that the first push of this branch was missing five of its
    own files.** The commit carried the three new templates but not the ConfigMap, Secret,
    `values.yaml`, `values.local.yaml` or `AKS_CUTOVER.md` edits, so
    `.Values.warehouseMigrate.backoffLimit` was nil and the chart failed to lint — on CI, not
@@ -2865,7 +2865,7 @@ repository gates, and running the product suite on the 3.10 floor.
    from the session record, re-linted, re-rendered both ways, amended. The lesson is the one
    the chores entry already argues for R-9: a verification that ran once on a laptop is a
    claim; the job that runs on every push is the evidence.
-7. **`integration.yml`'s own framework step is red on `main`'s schedule, and has been for
+6. **`integration.yml`'s own framework step is red on `main`'s schedule, and has been for
    three days** (7–9 Sep: 132 failed / 1 645 passed on 9 Sep, in `test_per_request_isolation`,
    `test_share_sessions`, `test_tool_generated_media`, `test_output_schema_override` — no
    product test among them). The dispatch on this branch failed the same way (130 / 1 645),
@@ -2877,10 +2877,18 @@ repository gates, and running the product suite on the 3.10 floor.
 **R-9 evidence (integration run 34361850622, dispatched on this branch):** step 8
 "Provision the warehouse for the semantic live suite" — success (database created,
 `warehouse-migrate` applied); step 9 "Run the semantic layer live suite" — success,
-`product/tests/test_semantic_live.py`: **20 passed** against the job's Postgres and Neo4j.
-Step 7, the framework's own integration tests, failed as it does on `main`'s schedule
-(item 7), which is why the two product steps are `if: ${{ !cancelled() }}`.
-5. **X-6 was already closed by R2** and nobody had struck it: `dev_setup.sh` installs
+`product/tests/test_semantic_live.py`: **20 passed**. Caveat added after review: that run
+predates the fix below and connected via `test_semantic_live.py`'s own hardcoded fallback
+DSNs (`postgresql://ai:ai@localhost:5532/{ai,egpt_warehouse}`), not the step's
+`EGPT_RETAIL_DB_URL`/`EGPT_RETAIL_WAREHOUSE_DB_URL` — those two names are not what the test
+reads (it reads `EGPT_RETAIL_CP_DSN`/`EGPT_RETAIL_WAREHOUSE_DSN`), so they had no effect; the
+fallback happened to match this job's Postgres port. The 20-pass result is real, but its
+Postgres connection was coincidence, not this step's env, until the rename below. Neo4j was
+correctly wired throughout (`EGPT_ONTOLOGY_NEO4J_URI`, read directly). The step's env now
+sets the names the test actually reads, so a future dispatch's connection is intentional
+rather than coincidental. Step 7, the framework's own integration tests, failed as it does on
+`main`'s schedule (item 6), which is why the two product steps are `if: ${{ !cancelled() }}`.
+7. **X-6 was already closed by R2** and nobody had struck it: `dev_setup.sh` installs
    `product[dev]`, which carries `openapi-spec-validator`; the `.venv` has 0.9.0.
 
 **Deliberately not done:** `deploy/helm/egpt/templates/NOTES.txt` does not yet mention the
