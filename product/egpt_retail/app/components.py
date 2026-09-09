@@ -41,6 +41,9 @@ from egpt.workflow.step import Step
 from egpt.workflow.types import OnError
 
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.executors.delivery import deliver_in_app
+from egpt_retail.executors.preflight import check_preflight
+from egpt_retail.executors.provenance import record_provenance
 from egpt_retail.executors.registry import assert_registry_valid
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
 from egpt_retail.memory.config import build_memory_resolver
@@ -69,6 +72,11 @@ LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
 
 #: The agents whose memory partitions the consolidator drains. Phase zero: one.
 MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID]
+
+#: R7's three (G4). Unlike R4's six, these are not wired into a standalone registered
+#: workflow -- they exist to be composed into other packages' workflows (R10's RFQ chain,
+#: eventually), and R7's own verification is a throwaway workflow in the cookbook.
+R7_EXECUTORS = (check_preflight, record_provenance, deliver_in_app)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -147,14 +155,15 @@ def build_workflows(
 def build_registry() -> Registry:
     """The executor registry, validated before it reaches the OS.
 
-    R4's six are the first entries. The check has run here since phase zero, when the list was
-    empty; it now has something to check, which is what makes the duplicate-name refusal real
-    rather than theoretical. Every name here is also a row in
-    ``contracts/EXECUTOR_REGISTRY.md``, and ``test_r4_executors.py`` asserts the two agree so
-    the document cannot rot.
+    R4's six plus R7's three (``check_preflight``, ``record_provenance``, ``deliver_in_app``,
+    G4). The check has run here since phase zero, when the list was empty; it now has
+    something to check, which is what makes the duplicate-name refusal real rather than
+    theoretical. Every name here is also a row in ``contracts/EXECUTOR_REGISTRY.md``, and
+    ``test_r4_executors.py``/``test_r7_executors.py`` assert the two agree so the document
+    cannot rot.
     """
     registry = Registry()
-    for executor in WAREHOUSE_EXECUTORS:
+    for executor in WAREHOUSE_EXECUTORS + R7_EXECUTORS:
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)
     return registry

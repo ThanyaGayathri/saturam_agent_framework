@@ -70,9 +70,12 @@ def test_the_worked_collision_example_is_still_unused() -> None:
 
 
 def test_build_registry_registers_and_validates_them() -> None:
+    """The registry also holds R7's three (see test_r7_executors.py) -- this only pins that
+    the six warehouse names are a subset, not the whole set, so R4's own test doesn't have to
+    know about every other package that registers executors."""
     registry = build_registry()
     names = {function.__name__ for function in registry.functions}
-    assert names == {executor.__name__ for executor in WAREHOUSE_EXECUTORS}
+    assert {executor.__name__ for executor in WAREHOUSE_EXECUTORS} <= names
     assert_registry_valid(registry.functions)
 
 
