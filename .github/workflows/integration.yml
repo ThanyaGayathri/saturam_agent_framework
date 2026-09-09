@@ -165,6 +165,10 @@ jobs:
       # CI provisions the warehouse the same way a deployment does. The suite is gated on the
       # same EGPT_INTEGRATION_* variables as the framework's and cleans up after itself.
       - name: Provision the warehouse for the semantic live suite
+        # Independent of the framework integration step above, which has been red on
+        # main's schedule for days on unrelated framework tests; a skip here would
+        # hide the product suite behind a failure it has nothing to do with.
+        if: ${{ !cancelled() }}
         env:
           EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse
         run: |
@@ -182,6 +186,10 @@ jobs:
           python -m egpt_retail.entrypoints warehouse-migrate
 
       - name: Run the semantic layer live suite
+        # Independent of the framework integration step above, which has been red on
+        # main's schedule for days on unrelated framework tests; a skip here would
+        # hide the product suite behind a failure it has nothing to do with.
+        if: ${{ !cancelled() }}
         env:
           EGPT_TELEMETRY: false
           EGPT_INTEGRATION_POSTGRES: "1"
