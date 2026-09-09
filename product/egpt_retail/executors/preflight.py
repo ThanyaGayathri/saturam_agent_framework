@@ -126,23 +126,23 @@ def gold_fresh_check(
     problems: List[str] = []
     fresh: List[str] = []
     for kpi in kpis:
-        row = health.get(kpi.identifier)
-        status = row.get("status") if row else "never_computed"
+        row: Mapping[str, Any] = health.get(kpi.identifier) or {}
+        status = row.get("status") or "never_computed"
         if status == "fresh":
-            fresh.append(f"{kpi.identifier}: fresh ({row['staleness_hours']} h old).")  # type: ignore[index]
+            fresh.append(f"{kpi.identifier}: fresh ({row['staleness_hours']} h old).")
         elif status == "stale":
             problems.append(
-                f"{kpi.identifier}: stale -- last computed {row['staleness_hours']} h ago, "  # type: ignore[index]
+                f"{kpi.identifier}: stale -- last computed {row['staleness_hours']} h ago, "
                 f"bound is {bound_hours:g} h."
             )
         elif status == "failed":
             problems.append(
                 f"{kpi.identifier}: last run failed -- {row.get('last_error')}"
-            )  # type: ignore[union-attr]
+            )
         elif status == "not_scheduled":
             problems.append(
                 f"{kpi.identifier}: not materialised -- {row.get('last_error')}"
-            )  # type: ignore[union-attr]
+            )
         else:
             problems.append(f"{kpi.identifier}: never computed; no gold row exists.")
     return {

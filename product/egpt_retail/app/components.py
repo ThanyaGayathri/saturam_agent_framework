@@ -31,7 +31,7 @@ factory. Provider and tenant are two halves of one fix; either alone leaves memo
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from egpt.agent import Agent, AgentFactory, RemoteAgent
 from egpt.agent.protocol import AgentProtocol
@@ -149,8 +149,12 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
     return agents
 
 
-def _chain(executors: tuple) -> List[Step]:
-    """Steps from executors, every one ``on_error=OnError.fail`` -- see ``build_workflows``."""
+def _chain(executors: tuple) -> List[Any]:
+    """Steps from executors, every one ``on_error=OnError.fail`` -- see ``build_workflows``.
+
+    ``List[Any]`` because ``Workflow(steps=...)`` takes an invariant ``list`` of a union that
+    a ``List[Step]`` does not satisfy for mypy, though every element is a ``Step``.
+    """
     return [
         Step(
             name=executor.__name__.replace("_", "-"),

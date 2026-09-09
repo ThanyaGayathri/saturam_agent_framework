@@ -215,7 +215,7 @@ async def derive_plan(step_input: StepInput) -> StepOutput:
         )
     config = row["config"]
     executor_names = {f.__name__ for f in build_registry().functions}
-    agent_ids = {a.id for a in build_agents(settings, db)}
+    agent_ids = {a.id for a in build_agents(settings, db) if a.id}
     try:
         plan = plan_from_config(
             config,
