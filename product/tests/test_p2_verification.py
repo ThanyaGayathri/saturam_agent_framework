@@ -7,6 +7,8 @@ queue) are proved by the cookbooks against real stores.
 
 from __future__ import annotations
 
+from typing import Any, Dict
+
 import pytest
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.semantic import JoinEdge
@@ -84,7 +86,7 @@ class TestApplyOutcome:
 
 class TestRowsStayInTheWarehouse:
     def test_structural_strips_sampled_values_and_nothing_else(self) -> None:
-        payload = {
+        payload: Dict[str, Any] = {
             "schema": "silver",
             "tables": [
                 {
