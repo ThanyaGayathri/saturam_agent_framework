@@ -41,6 +41,10 @@ else:
     from fastapi.testclient import TestClient
 
     os.environ.setdefault("EGPT_RETAIL_ROLE", "api")
+    # K1 made a customer slug mandatory: without one every run carries tenant_id=None and
+    # memory silently does nothing, so the factory now refuses to build rather than start
+    # memoryless. A real deployment always has one; this cookbook needs one too.
+    os.environ.setdefault("EGPT_RETAIL_CUSTOMER_SLUG", "cookbook")
     from egpt_retail.app.main import app, settings
 
     print("  in-process; database:", settings.retail_db_url)

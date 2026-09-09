@@ -13,27 +13,34 @@ bare ``os.environ[...]`` (which raises at import and would take ``/config`` down
 model is constructed lazily -- ``AzureOpenAI`` reads ``AZURE_OPENAI_*`` in ``_get_client_params``,
 not in ``__init__``, so ``/config`` lists the agent with no key present.
 
-The agent is **not** handed a memory provider in phase zero. No OS-level path does that today
-(``memory_provider`` has no reference under ``egpt/os/``); it is ``Agent(memory_provider=...)``
-explicitly, and without a tenant on the run context the memory hooks no-op regardless
-(``agent/_managers.py:575``). Wiring memory into agents is K1. The consolidator builds its own
-provider from the same settings.
+The agent **is** handed a memory provider (K1). No OS-level path does that -- ``memory_provider``
+has no reference under ``egpt/os/`` -- so it is ``Agent(memory_provider=...)`` explicitly, built
+through ``build_memory_provider_for``, the per-tenant entry point the gap report flagged as
+orphaned. The consolidator builds its own provider from the same resolver, which is correct: it
+is a separate process and shares no object with the API.
+
+A provider alone is not enough. Without a tenant on the run context the memory hooks still no-op
+(``agent/_managers.py:575``), which is why K1 also installs ``FixedTenantMiddleware`` in the
+factory. Provider and tenant are two halves of one fix; either alone leaves memory silent.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
 
 from egpt.agent import Agent, AgentFactory, RemoteAgent
 from egpt.agent.protocol import AgentProtocol
 from egpt.integrations.db.postgres import PostgresDb
 from egpt.integrations.models.azure import AzureOpenAI
+from egpt.memory.config import build_memory_provider_for
+from egpt.memory.provider import MemoryProvider
 from egpt.registry.registry import Registry
 from egpt.workflow import RemoteWorkflow, Workflow, WorkflowFactory
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.registry import assert_registry_valid
+from egpt_retail.memory.config import build_memory_resolver
 from egpt_retail.skills.synonym_proposer import SynonymProposalSet
 
 __all__ = [
@@ -60,8 +67,25 @@ _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
 
 
+def build_memory_provider(settings: RetailSettings) -> Optional[MemoryProvider]:
+    """This deployment's memory provider, or ``None`` when no customer slug is configured.
+
+    Returns ``None`` rather than raising so the factory can report *every* startup problem at
+    once through ``assert_memory_wired``; raising here would surface the first fault and hide
+    the rest. An unset slug is still fatal -- just fatal one layer up, with company.
+    """
+    slug = (settings.retail_customer_slug or "").strip()
+    if not slug:
+        return None
+    return build_memory_provider_for(build_memory_resolver(settings), tenant_id=slug)
+
+
 def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAgent]:
-    """The registered agents. Pure construction; nothing here calls a model."""
+    """The registered agents. Pure construction; nothing here calls a model or a database.
+
+    No memory provider is attached here -- see ``factory.memory_lifespan_for``. Building one
+    opens a database connection, and this runs at import.
+    """
     synonym_proposer = Agent(
         id=SYNONYM_PROPOSER_ID,
         name=SYNONYM_PROPOSER_ID,

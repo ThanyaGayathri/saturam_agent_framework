@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
+from egpt.metrics import ProviderMode
 from egpt.settings.sources import BrandedSettings
 from pydantic import Field
 
@@ -58,6 +59,50 @@ class RetailSettings(BrandedSettings):
         description="A connection that bypasses any pooler, for the consolidator's session-scoped advisory "
         "lock (EGPT_RETAIL_DB_DIRECT_URL). Through a transaction-mode pooler the session ends with the "
         "first transaction and the lock evaporates. Defaults to retail_db_url.",
+    )
+    retail_neo4j_uri: str = Field(
+        default="neo4j://localhost:7701",
+        description="Bolt URI for the ontology graph (EGPT_RETAIL_NEO4J_URI). The shipped retail "
+        "ontology is written here under its own OntologyConcept label, outside the memory substrate "
+        "(D11). The local default is the dedicated dev container, not a shared one.",
+    )
+    retail_neo4j_user: str = Field(
+        default="neo4j",
+        description="Neo4j username (EGPT_RETAIL_NEO4J_USER).",
+    )
+    retail_neo4j_password: Optional[str] = Field(
+        default=None,
+        description="Neo4j password (EGPT_RETAIL_NEO4J_PASSWORD). Unset means the ontology loader "
+        "has nowhere to write and says so rather than starting.",
+    )
+    retail_neo4j_database: str = Field(
+        default="neo4j",
+        description="Neo4j database for the ontology (EGPT_RETAIL_NEO4J_DATABASE). Community edition "
+        "supports one; the two-database split D11 assumes needs Enterprise.",
+    )
+    retail_provider_mode: ProviderMode = Field(
+        default=ProviderMode.FRONTIER,
+        description="Which embedder family memory AND the knowledge layers use "
+        "(EGPT_RETAIL_PROVIDER_MODE). One setting for both, so a deployment never holds two vector "
+        "spaces. Default is 'frontier' -- Azure text-embedding-3-large at 1024 -- because that is what "
+        "the deployment runs; a laptop with no Azure embedding deployment sets 'local' explicitly "
+        "(bge-base-en-v1.5 at 768, offline-capable per ADR 0003 A.3c). The default is the production "
+        "truth on purpose: running the wrong mode should fail loudly at the first embed, not work "
+        "silently on a different model.",
+    )
+    retail_corpus_path: Optional[str] = Field(
+        default=None,
+        description="Directory of curated retail markdown to ingest (EGPT_RETAIL_CORPUS_PATH). "
+        "Defaults to the corpus shipped inside the package.",
+    )
+    retail_knowledge_table: str = Field(
+        default="egpt_retail_domain_prose",
+        description="pgvector table for the domain prose (EGPT_RETAIL_KNOWLEDGE_TABLE).",
+    )
+    retail_ontology_overlay: Optional[str] = Field(
+        default=None,
+        description="Path to this deployment's ontology overlay (EGPT_RETAIL_ONTOLOGY_OVERLAY). "
+        "The overlay may add and annotate; it may never redefine a shipped concept (G10).",
     )
     retail_auth_jwks_file: Optional[str] = Field(
         default=None,

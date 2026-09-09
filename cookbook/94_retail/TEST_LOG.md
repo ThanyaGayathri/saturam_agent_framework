@@ -776,6 +776,558 @@ what else is in `build/` — and reproduced-then-reverted to confirm. Separately
 subprocess's `check=True` + `capture_output=True` combination hid setuptools' own error text on
 failure; the wrapper now prints `stdout`/`stderr` before re-raising, verified against a forced
 build failure.
+### K03_ontology.py
+
+**Package:** K3 (P1, implements D9, G10)
+**Status:** PASS
+
+**Description:** Authored the shipped retail ontology as a versioned artifact, wrote it to
+Neo4j under its own label with every node embedded, built the three indexes, and ran the
+package's three scenarios: a synonym that is not a node name, a plain-language phrase naming
+no node at all, and an overlay surviving a core upgrade.
+
+**Result:** 20 concepts, 21 relations, 81 synonyms, six business areas. All three scenarios
+pass.
+
+- Synonyms reach their concept: `RFQ` to QuoteRequest (0.698), `SKU` to Product (0.671),
+  `vendor` to Supplier (0.796).
+- Plain language reaches a sensible concept by meaning, naming no node: *"what do we need to
+  reorder?"* to PurchaseOrder/StockLevel/Inventory, *"goods turned up late from the people we
+  buy from"* to Delivery (0.756)/Supplier/PurchaseOrder.
+- The overlay adds RepGroup, annotates core QuoteRequest with `shop enquiry`, and both
+  survive an upgrade of the core from 1.0.0 to 1.1.0 that adds a Warranty concept.
+
+**Mutation-tested the claim the package exists for.** Changed `embedding_text` to return the
+concept name alone -- the mistake the plan names as usual -- and re-ran. `RFQ` reached
+**Channel**, `SKU` reached **Location**, and two of the four plain-language phrases missed
+entirely. Exit 1. Reverted, exit 0. So the check genuinely detects a skipped embedding rather
+than passing on any ontology that happens to be present.
+
+**What surprised me, in order:**
+
+1. **My own artifact had an ambiguous synonym, and the check caught it before Neo4j did.**
+   `source` was a synonym of both Supplier and Channel. `synonym_index()` refuses a term
+   claimed by two concepts, because a term that means two things routes questions to whichever
+   was written first. Changed to `supply partner` and `traffic source`. This is precisely what
+   the practitioner review in D9 is for, and it found something on a twenty-concept ontology
+   written carefully in one sitting.
+
+2. **An overlay is a fragment, not an ontology, and my first design could not express one.**
+   The dangling-relation check sat in `__post_init__`, so a customer overlay adding a RepGroup
+   that `REPRESENTS` a core Brand was refused at construction -- the single most obvious
+   overlay shape there is. Moved completeness to an explicit `validate_relations()`, called on
+   the merged result and again in `OntologyStore.write`. The write path is where it actually
+   matters: a `MERGE` on a missing endpoint does not fail, it silently invents an empty
+   concept with no description and no embedding.
+
+3. **The lexical and vector legs disagree usefully.** For `stock band`, vector gives
+   StockLevel/Inventory/Product and lexical gives StockLevel/Inventory/PurchaseOrder. Neither
+   is wrong; they are answering different questions, which is the argument for K10 fusing them
+   rather than picking one.
+
+**Environment:** needs a Neo4j. I started a dedicated one rather than writing into the
+existing `smg1-neo4j` container, which has been up three weeks and holds seven
+Episode/Fact nodes belonging to someone else's memory testing. Ports 7688/7475 were already
+taken, so it runs on **bolt 7701 / http 7700**:
+
+    docker run -d --name egpt-retail-neo4j -p 7701:7687 -p 7700:7474 \
+      -e NEO4J_AUTH=neo4j/egptretail neo4j:5
+
+Needs `.venvs/demo` for `sentence_transformers`; embeddings are local, so no API key.
+
+**Worth flagging:** the local Neo4j is **community edition**, which supports one user database.
+D11 and the Azure alignment assume two databases in one cluster, which needs Enterprise. K3
+works either way because the ontology has its own label, but K5 will put the semantic layer in
+the same database locally rather than a second one. Not a blocker; a licence line for the
+infrastructure hand-off.
+
+---
+
+### K02_domain_prose.py
+
+**Package:** K2 (P1)
+**Status:** PASS
+
+**Description:** Ingested the 31-document curated retail corpus
+(`Saturam-Inc/retailGPT`, `research_docs`, 483,339 words) into pgvector, split on headings and
+tagged by origin. Then inspected the stored chunks and searched for phrases sitting in the
+middle of sections.
+
+**Result:** 1,457 chunks. Of 400 sampled, **400 begin at a heading**. All tagged
+`origin=shipped`. Mid-section phrases return whole sections: *"what does a category captain
+actually do"* returns `## 4. The Category Captain Model`; *"how should we set a markdown on
+end-of-season stock"* returns `### 2.4 Markdown Cadence and Off-Price Channels`.
+
+**The documented trap is real, and now measured.** With `MarkdownChunking` left at its
+default, one document produced 24 chunks of which **zero** began at a heading — every one
+started mid-sentence carrying no indication of its section. `split_on_headings=3` with
+`chunk_size=12000` gives 55/55 starting at their heading. Identical output at 20,000
+characters proves the size cap never binds, so no section is ever split by size. The settings
+were chosen from that measurement and `chunking_evidence()` reproduces it.
+
+**What surprised me:** `MarkdownReader`'s own default is `MarkdownChunking(chunk_size=...)`,
+which leaves `split_on_headings` unset — so the trap propagates through the reader too, and
+passing a chunker explicitly is required at both levels, not one.
+
+**Environment:** `MarkdownChunking` needs the optional `unstructured` package, absent from
+`.venvs/demo`. Installed with `uv pip install --python .venvs/demo/bin/python unstructured
+markdown`. Worth adding to `demo_setup.sh` if other cookbooks start using markdown chunking.
+
+---
+
+### K03_ontology.py — re-derived from the curated corpus
+
+**Package:** K3 (P1, implements D9, G10)
+**Status:** PASS — artifact rebuilt at version 2.0.0
+
+**Description:** Replaced the model-authored draft ontology with one derived from and traced
+to the 31-document retail corpus. Re-ran the three package scenarios against it.
+
+**Result:** 18 core concepts, 17 relations, each concept citing up to four corpus documents in
+a `sources` field so a reviewing practitioner can check a claim rather than take the author's
+word. Overlay concepts moved to `ontology/overlays/middleby.json`. All scenarios pass.
+
+**What the corpus actually settled, in order of how much it changed:**
+
+1. **A glossary is the wrong source for a data-entity ontology.** All 31 documents carry a
+   `Term | Definition | Also Known As` table — 1,293 entries, which looks like exactly the
+   ontology shape. Only **2 of my 20 concepts** appear in them. The reason is structural: a
+   glossary defines the jargon a practitioner needs explained (GMROI, planogram, bullwhip
+   effect), and nobody needs "Customer" explained. Glossary and entity ontology are near
+   disjoint by design. Checked against the corpus *body* with word-boundary matching instead,
+   19 of 20 concepts are strongly supported — Customer 2,432 mentions, Product 2,177, Brand
+   1,786, Order 980.
+
+2. **QuoteRequest is not general retail, and the corpus says so.** 3 of 31 documents, zero
+   mentions of the phrase; quotes appear only in the B2B and wholesale documents. It failed
+   the artifact's own test — *would a practitioner at any customer recognise this?* — so it
+   and `Quote` moved to the Middleby overlay along with `RepGroup` (which comes from the
+   client sample data's `Rep Group Owner` column). The shipped core no longer covers the
+   flagship RFQ use case, which is correct rather than convenient.
+
+3. **A synonym collision the corpus caught.** `offer` was a synonym of `Quote`. In this corpus
+   "offer" means a *promotional* offer, so the synonym would have routed promotion questions
+   to a quotation concept. Same class of defect as `source` meaning both Supplier and Channel,
+   which the ambiguity check caught earlier. Removed.
+
+4. **Three concepts are structural, not cited.** `StockLevel`, `OrderLine` and `WebSession`
+   have thin corpus support because they are data-modelling facts rather than retail-practice
+   topics — prose discusses baskets, not order lines. `sources` is empty for them and the
+   model documents empty as *a flag for review, not a defect*.
+
+**The overlay test is now meaningful rather than mechanical.** It was "load an overlay, check
+the concept is present", which passes whether or not the overlay does anything. It now asks
+the same question of both: *"someone asked us for a price before buying"* returns
+Order/OrderLine/Contact against the core alone, and QuoteRequest/Quote/Order with the overlay
+applied. The overlay has to change the answer.
+
+**Caught by the assertions:** moving QuoteRequest out of core broke two tests in sections 3
+and 4 that depended on it. Exactly what asserting instead of printing is for.
+
+---
+
+### Retail metric catalogue harvested for K11
+
+**Status:** PASS (data, not a package)
+
+**Description:** Every document carries a `Metric | Formula | Industry Benchmark | Notes`
+section. Harvested to `product/egpt_retail/kpi/retail_metrics.json`.
+
+**Result:** **295 metrics from 30 documents, every one with a formula and an industry
+benchmark** — `Inventory Turns` = `COGS / Average Inventory at Cost`, 14–20x grocery, 4–6x
+apparel. This is a K11 *input*, not a registry: the formulas name quantities, not columns, so
+feasibility cannot be computed from them until they are bound to a customer schema.
+
+**Worth carrying forward:** the corpus's own sourcing note warns that some figures are
+*approximate benchmarks*, directional and not independently verified. Recorded in the
+catalogue README. No benchmark from this file should become a customer-facing alert threshold
+without a primary source behind it.
+
+---
+
+### load-knowledge entrypoint, and the embedder correction
+
+**Package:** K2 / K3 deployment path
+**Status:** PASS — and it corrected a wrong choice in both
+
+**Description:** Added `egpt-retail load-knowledge`, the deploy-time counterpart to `migrate`:
+ontology into Neo4j, prose into pgvector, idempotent, intended as a Helm
+`post-install,post-upgrade` hook. Vendored the 31-document corpus into the package. Then
+checked which embedder the memory layer had already decided on, and aligned to it.
+
+**The correction, which is the substance of this entry.** K2 and K3 were using a bare
+`SentenceTransformerEmbedder()` — `all-MiniLM-L6-v2` at 384 dimensions, the library default.
+That is **not** the decision. `egpt.memory.embedding.MODE_DEFAULTS`, straight from SM-R4's
+`DECISION.md`, sets:
+
+| Mode | Backend / model | Dimensions |
+|---|---|---|
+| A `local` | `sentence_transformer` / `BAAI/bge-base-en-v1.5` | 768 |
+| B `frontier` | `azure_openai` / `text-embedding-3-large` | 1024 |
+
+Mode A is offline-capable, which ADR 0003 A.3c makes a hard constraint for air-gapped
+deployments. `bge-base` was measured significantly ahead of a 384-dimension model
+(Holm p=0.002). Mode B's 1024 is a constraint rather than a preference: the full 3072 exceeds
+pgvector's 2000-dimension limit and 1024 tested as a statistical tie.
+
+Knowledge now resolves through `resolve_memory_embedder` rather than making a second choice,
+so prose, ontology and memory share one vector space. Three different embedders behind K10's
+single retrieval entry point would have been three spaces nobody could reason about together —
+and it fails silently, as worse retrieval rather than an error.
+
+**Retrieval measurably improved at 768**, which is the SM-R4 evidence reproducing on this
+corpus: `SKU` to Product went 0.671 to **0.857**, `vendor` to Supplier 0.796 to **0.827**.
+
+**The dimension guard fired for real, on my own data.** `CREATE VECTOR INDEX IF NOT EXISTS`
+does nothing when an index of that name exists, whatever width it was built at — so a model swap
+leaves the old index and every write embeds at a width it cannot serve. Nothing errors.
+The loader now reads the existing index width and refuses:
+
+> The ontology vector index exists at 384 dimensions and the configured embedder produces 768.
+> Every stored vector came from the previous model and is not comparable with the new one.
+> Re-run with --rebuild-indexes to drop the index and re-embed.
+
+Exit 1 without the flag; with it, 21 concepts re-embedded at 768 and 31 documents ingested.
+
+**What surprised me:** I predicted this failure in the abstract when reviewing Azure
+portability, then walked straight into it an hour later with my own store. Predicting a
+failure is not the same as being guarded against it — the guard is.
+
+**Deliberately not done:** the Helm `post-install,post-upgrade` Job that calls this. The chart
+is Lane R's (R2, merged in #189) and adding a hook to someone else's chart without asking is
+how two lanes end up with two conflicting jobs. Flagged for them; the entrypoint is ready.
+
+---
+
+### Embedding alignment completed: version tag, and two counting bugs
+
+**Status:** PASS
+
+**Description:** Checked what the memory decision fixes beyond the model, and closed the rest
+of the gap.
+
+**Result:** The decision also fixes **cosine** as the metric and an **`embedding_version`** tag
+of the form `<model>|d<dim>|<metric>|<rev>`, stamped on every stored vector, which is what a
+re-embedding migration cuts over on. PgVector already defaults to cosine, so that half was
+aligned by accident. The tag was not stamped at all. Both stores now carry
+`BAAI/bge-base-en-v1.5|d768|cos|v1`, identical to memory's, and the loader compares the tag as
+well as the width — two models can share a dimension and still produce vectors that are not
+comparable, so width alone is necessary and not sufficient.
+
+**Two counting bugs, both found by reading output rather than by a check:**
+
+1. **The corpus README was being ingested as prose.** `read_corpus` globs `*.md` and excluded
+   only the table of contents, so the note *about* the corpus became four chunks of it. The
+   run said "32 documents" and the corpus has 31. Now excluded, and the docstring says why
+   both exclusions are the same kind of thing.
+
+2. **The chunk count doubled to 2,914.** Not a loader defect: the cookbook and the
+   `load-knowledge` entrypoint had the same default table name, so they were two writers of
+   the same rows. Verified the loader is idempotent with itself — 1,457 after one run and
+   1,457 after two, in an isolated table — and gave the cookbook its own table.
+
+**What surprised me:** I wrote "idempotent, running it twice changes nothing" in the
+entrypoint docstring before testing it. It happened to be true, but I had asserted it from
+design rather than measurement, and the doubled count looked exactly like it being false. The
+claim and the evidence arrived in the wrong order.
+
+---
+
+### K03_ontology.py — six concepts added from the corpus
+
+**Package:** K3, artifact version 2.1.0
+**Status:** PASS
+
+**Description:** The ontology was thin. Measured which entity types the corpus discusses
+heavily and the ontology lacked, then added the six clearest, grounded in corpus definitions
+with source citations.
+
+**The measurement:** `Price` appeared in all 31 documents with 1,496 mentions and had no
+concept. `Payment` 27 documents, `Assortment` 27, `Promotion` 26, `Markdown` 20, `Employee`
+17. Core goes from 18 to 24 concepts and 17 to 25 relations; with the Middleby overlay the
+graph holds 27 concepts and 31 relations.
+
+**Result:** all six reach their concept by meaning, on questions naming none of them —
+*"how do people pay us?"* to Payment (0.808), *"how many staff are on the roster?"* to Employee
+(0.802), *"what is on deal this week?"* to Promotion (0.805), *"what did we reduce to clear the
+old season?"* to Markdown (0.787), *"is our range too wide?"* to Assortment (0.777).
+
+**Two things the additions forced:**
+
+1. **A new business area.** `Employee` had no home in the shipped six — customer, product,
+   inventory, supply_chain, marketing, sales. The corpus has a whole document on store
+   operations and workforce, so `operations` was added to the vocabulary (1.1.0). Worth noting
+   the vocabulary being extensible is exactly what made this a data change rather than a code
+   change, which is what moving off Python enums bought.
+
+2. **A third synonym collision, caught again.** `range` was claimed by both `ProductCategory`
+   and the new `Assortment`. In retail, range means assortment, so it was removed from
+   ProductCategory. That check has now caught three real ambiguities — `source`, `offer`,
+   `range` — each of which would have silently routed questions to whichever concept was
+   written first. It is the highest-yield check in the package.
+
+**Also corrected:** `Markdown` initially missed *"what did we knock down to clear it?"*,
+returning Inventory and Order. Its synonyms and question patterns were thin relative to its
+description. Adding *"reduced to clear"* and a matching question pattern fixed it. A concept's
+retrievability depends on the words in it, not on the concept being correct.
+
+---
+
+### K2 and K3 reviewed together, practitioner lens — three defects, one of them new
+
+**Packages:** K2, K3 (artifact 2.2.0)
+**Status:** PASS — after fixes
+
+**Description:** Read the whole ontology fresh, inspected graph structure, sampled stored
+chunks, and ran ten questions a retail practitioner would actually ask — none of which the
+artifact had been written around — against both layers. Then fixed what that found.
+
+**Two defects the review surfaced before the practitioner lens even applied:**
+
+1. **The K03 cookbook left a fake concept in the live ontology.** *"what is the return rate
+   on electronics"* answered `Return, Warranty`. There is no Warranty in the artifact — it is
+   the core-upgrade test fixture, and the cookbook never restored the store afterwards. Anyone
+   running the cookbook after the loader had a phantom concept in their deployment. The
+   cookbook now writes the real artifact back and asserts Warranty is gone.
+
+2. **28% of K2's chunks were heading-only shells.** 410 of 1,457 were an `##` title whose text
+   lived entirely in the `###`s beneath. Each was embedded and could match on its title alone.
+   `BodiedChunking` now drops any chunk with no body: 1,457 became 1,049. On the sample
+   document the library default has 0 shells and the heading split has 13 — the default's
+   chunks are not empty, they are fragments starting mid-sentence; shells are the price of
+   the heading split, now paid and removed.
+
+**The practitioner test, before and after** (ontology top-2):
+
+| question | before | after |
+|---|---|---|
+| which stores are underperforming | Order, PurchaseOrder | **Store**, Order |
+| what is our shrink | Inventory, Assortment | **Shrinkage**, Markdown |
+| return rate on electronics | Return, *Warranty* | Return, **Refund** |
+| how much did that promo lift sales | Promotion, Campaign | Promotion, Campaign |
+
+**Content changes, all corpus-cited:** added `Store` (retail says store; `Location` is a
+data-modeller's word and *"which stores are underperforming"* had missed entirely), `Shrinkage`
+(a top-three store-ops concern with a whole corpus section and no concept), `Refund` (Return
+had a `refund` synonym but nothing linked a return back to its payment). Fixed `Product
+HAS_PRICE Price` from one-to-one to one-to-many — zone, channel and time pricing make
+one-to-one wrong for any real retailer. Stripped `promotion` from Campaign's synonyms.
+De-B2B'd core `Contact`, which still said *"request a quote"* after quotes moved to the
+overlay. Removed editorialising from `Employee` and `Brand` — an ontology should define, not
+opine. Core is now 27 concepts, 31 relations; 30 with the overlay.
+
+**A fourth collision class, now tooled.** `promotion` was a synonym on Campaign while a
+Promotion *concept* existed. The synonym check could not see it: the other concept never lists
+its own name as a synonym. `synonym_index()` now reserves every concept's name (written and
+spaced forms) and refuses a synonym that equals one. Verified against the deliberate
+Promotion/Campaign case. That makes four real ambiguities caught across three passes —
+`source`, `offer`, `range`, `promotion` — the strongest argument that a fifth pass by the
+author is not the answer, and K-2 in `open-items.md` stays open.
+
+**What surprised me most, and it is the most important line in this entry.** The first
+post-fix run showed two *regressions*: *"promo lift"* fell to Order/OrderLine and *"gross
+margin"* lost Markdown. Minutes later, with nothing changed, Promotion was top at 0.794 and
+Markdown top at 0.763. The difference was the vector index: **Neo4j populates it
+asynchronously, and a query against a half-built index does not fail — it returns a confident
+answer from whatever fraction is indexed.** On 30 nodes the window is under a second, which
+is exactly why it was never seen before. `OntologyStore.write()` and `ensure_indexes()` now
+block on `SHOW INDEXES` until ONLINE; verified that the very first query after a rebuild is
+correct. The loader was reporting success before the store could answer correctly.
+
+**Two of my own claims in the review were wrong, corrected here.** The `## 12. Key Metrics`
+chunk that answered *"repeat buyers"* is not a shell — it has a 1,900-character body holding a
+repeat-purchase-rate metric, so it is a fair answer. And dropping shells has a real cost I
+had not weighed: `## 2. Gross Margin Analysis` was a shell, and while it existed it was a
+signpost that won the gross-margin query; without it a case-study chunk outranks
+`### 2.1 Gross Margin by Category`. The better design is to *inherit* the parent heading into
+each child chunk rather than delete the signpost. Logged as a follow-up, not done.
+
+---
+
+### K1_memory_wiring.py
+
+**Package:** K1 (P1, implements G1, G2)
+**Status:** PASS
+
+**Description:** Wired memory end to end and ran the package's three scenarios: recall across
+a session boundary, startup with the customer identifier removed, and the scope a scheduled
+run writes under.
+
+**Result:** All pass, including the one that matters most — **a fact stored in one
+conversation was recalled in the next.** Told the agent *"Our warehouse in Rotterdam is the
+one that handles all EU returns"* in session `k1-conv-1`; asked *"Which warehouse handles our
+EU returns?"* in `k1-conv-2` and got *"Your Rotterdam warehouse handles all EU returns."*
+That is G1 closed in fact rather than in wiring.
+
+**What K1 actually had to fix, in three parts:**
+
+1. **The per-tenant builder was orphaned.** `build_memory_provider_for` existed and only the
+   consolidator called it; no agent had a provider. `build_agents` now attaches one.
+2. **A provider alone is silent.** `_agent_memory_scope` returns `None` when
+   `run_context.tenant_id` is unset, so an agent with a provider and no tenant is exactly as
+   memoryless as one without. `FixedTenantMiddleware` stamps the configured customer slug.
+3. **Stamping the attribute is not enough**, and this is the part that would have looked
+   finished and not worked. `build_run_context_for_request` never reads
+   `request.state.tenant_id`; it calls `resolve_tenant_id` over `request.state.claims`. A
+   middleware writing only the attribute leaves every `RunContext` at `tenant_id=None` and
+   fixes nothing on the path that matters. The middleware injects the claim, so the run path
+   keeps using the one security-reviewed resolver instead of gaining a second way to arrive
+   at a tenant.
+
+**Mutation-tested exactly that.** Changed the middleware to stamp the attribute and skip the
+claim — the plausible half-fix — and the cookbook failed with *"the middleware did not stamp
+the claim the run path reads"*, exit 1. Restored, exit 0.
+
+**A worse failure than `None`, found while reading the resolver.** `resolve_tenant_id` falls
+back to the verified `user_id` when no claim is present. So without a configured slug a
+single-customer deployment does not merely lose memory — it silently partitions into **one
+tenant per person**, and the shared memory the deployment exists to accumulate never
+accumulates. The middleware never overrides a real claim, only fills an absent one, so it
+cannot cause the cross-tenant version of this.
+
+**A misalignment K1 also had to close.** `build_memory_config` hardcoded
+`mode=ProviderMode.FRONTIER` while the knowledge layers read `retail_provider_mode`, which
+defaults to `LOCAL`. Memory would have embedded at Mode B's 1024 while prose and the ontology
+embedded at Mode A's 768 — three vector spaces behind K10's single retrieval entry point,
+failing silently as worse answers. Both now read one setting.
+
+**Deliberate design note on the startup check.** `assert_memory_wired` reports every fault at
+once rather than the first, so a misconfigured deployment is fixed in one pass instead of one
+restart per fault; verified with a three-fault deployment. It also distinguishes *"this
+deployment has no configured tenant"* from *"it has one and it is unset"* via a sentinel,
+because `tenant_id=None` alone made the refusal name the symptom — an agent with no provider —
+rather than the cause, the missing customer slug.
+
+**Two things I broke and fixed while doing this.** I assumed `build_agents` returned wrappers
+with an `.agent` attribute; it returns agents directly, and the factory raised
+`AttributeError` on every start until corrected — caught by running Lane R's cookbooks, not
+mine. And `R01_local_stack` then failed legitimately: it configures no customer slug, so the
+new check refused to build. That is the check working, not a defect, but it is a real
+consequence of K1 for a cookbook written before memory was wired, so R01 now sets a slug the
+way a real deployment does. Running the *other lane's* cookbooks is what surfaced both.
+
+**Pre-existing, not mine:** `R03_build_contract_fixture` fails on a stale committed fixture
+and asks for `./scripts/gen_api_models.sh`. Verified it fails identically with my changes
+stashed. Lane R's asset and generator; left alone and raised as R-7.
+
+---
+
+### K14 second half — closed, with five template fixes
+
+**Package:** K14
+**Status:** PASS — the template held, and leaked in five places
+
+**Description:** Lane R wrote `join_path_explainer` from `SKILL_TEMPLATE.md` alone and
+recorded five questions rather than asking them. That is the evidence K14 asked for: a
+conforming agent produced from the template without a conversation. All five were real gaps
+and all five are now fixed in the template.
+
+1. **The enum-versus-vocabulary rule was stated only for two named fields.** Generalised: a
+   set that can vary by customer is a vocabulary and is rendered; one that enumerates outcomes
+   of a computation stays an enum and is written out.
+2. **`writes: nothing` was undocumented as a normal value.** It is the normal value for an
+   explanation agent, and Lane R writes three.
+3. **"You propose" reads oddly for an explainer.** Generalised the rule's first sentence to
+   cover both proposing and explaining, and added the instruction Lane R had to guess: copy
+   the four verbatim even where one reads oddly, because reviewing seven prompts against each
+   other only works if the same four sentences appear in all seven.
+4. **No place to name the executor an agent's output is checked against.** Added
+   `checked_against` to the header. Lane R had invented the right thing —
+   `verdict_for_path()` beside the schema — with nowhere to declare it.
+5. **"Shipped ontology" was ambiguous about product fixtures.** Clarified: the line is
+   ownership, not vocabulary. Anything we ship is fair game; anything read from a customer's
+   warehouse is not.
+
+**What surprised me:** every one of the five is a sentence I would have written if asked, and
+none of them occurred to me while writing the template. Handing it to someone else was worth
+more than another pass by the author — which is the same lesson the ontology's four synonym
+collisions taught, arriving from the opposite direction.
+
+---
+
+### P1 verification pass — three defects in K1, and one invalid piece of evidence
+
+**Packages:** K1, K2, K3 (all of Lane K's P1)
+**Status:** PASS — after fixes; 155 product tests, 8 Lane K and 5 Lane R cookbooks green
+
+**Description:** Verified P1 against the definition of done rather than from memory: sync/async
+audit over every public def, framework purity, `validate.sh`, `pytest product`, and every
+cookbook in the folder including Lane R's. Then fixed what that found.
+
+**Lane R had added a `product` target to `validate.sh`** — K-4 resolves itself — and it
+failed. Two failures were environmental (X-5, X-6). Two were mine, and pulling on them found
+three defects in K1 and one piece of evidence that did not prove what it claimed.
+
+**Defect 1 — importing the app opened a database.** `build_memory_provider_for` connects to
+pgvector and provisions schema on construction, and `app/main.py` calls the factory at module
+import. So `import egpt_retail.app.main` opened Postgres, and Lane R's pure-construction test
+broke. Fixed by moving the provider and `assert_memory_wired` into an EgptOS lifespan. That is
+not a workaround — it is what G1 literally asks for. *Fail at startup* means when the server
+boots, not when a test imports a module.
+
+**Defect 2 — the tenant middleware was in the wrong position, and only a real request could
+show it.** `jwt.py:1111` does `request.state.claims = payload`: a replace, not a merge.
+Starlette runs the last-added middleware first. Installed after `get_app()`, mine was
+outermost — it injected the tenant claim, then auth ran and overwrote the dict. Every
+authenticated request lost the tenant, which is exactly the Entra deployment shape (JWTs with
+no tenant claim). The K1 cookbook tests the middleware by calling `dispatch` directly, so it
+could never see this. Now installed on a `base_app` that EgptOS builds on, so auth sits
+outside it. Two tests pin the order: one with a replacing fake auth that also proves the
+wrong order fails, one through the real EgptOS stack with `TestClient`.
+
+**Defect 3 — `str(None)`.** With no slug, the factory would have stamped a tenant literally
+named `"None"` — a partition nobody meant to create. The middleware now installs only when a
+slug exists; an unconfigured deployment is refused by the lifespan instead, with the message
+naming the missing slug.
+
+**The invalid evidence.** K1's recall test ran both conversations in one process on one
+`Agent` object with `enable_user_memories=True`, a soon-deprecated in-process path. It
+"recalled" Rotterdam and proved nothing: the store could have been empty and the answer
+identical. The store *had* written — 12 rows under `middleby/k1_recall_probe/alice` — but the
+test could not tell provider recall from in-process recall. Rewritten: process A stores two
+facts and flushes with `provider.close()`; process B, with a fresh provider and agent, asks
+cold. **Result: "Your Rotterdam warehouse handles all EU returns."** And `memory_vectors`
+queried directly: `middleby/k1_recall_probe/alice ×16`, `middleby/k1_recall_probe/__scheduler__ ×2`.
+Scenario 3 — what scope a scheduled run writes under — now has real rows, written the way a
+scheduled run writes, rather than a scope builder returning the right string.
+
+**Also closed:** `aload_knowledge` (an I/O function with no async twin, missed by my own
+audit heuristic); `product/tests/test_k1_memory_wiring.py`, ten tests, so `validate.sh
+product` guards K1 from here; and `retail_provider_mode` now defaults to `frontier` — the
+deployment's truth — with local set explicitly, which makes Lane R's original test correct as
+written rather than mine.
+
+**What surprised me:** the middleware bug. Every test I had written for it passed, because
+every test called the middleware in isolation. The failure only exists in composition with
+auth, and only on authenticated requests, and only because of one assignment on one line of
+a file I had not read. It would have shipped. Testing the *stack* rather than the *unit* is
+the difference, and it is now the pattern for anything that touches a request.
+
+**Pre-existing, recorded, not mine:** `mypy product` fails on numpy's stubs under a py39
+target (X-5); the api-contract check needs `openapi_spec_validator` (X-6); Lane R's stale
+fixture (R-7); the two mypy errors in `libs/agno/egpt/integrations/knowledge/` (X-2).
+
+---
+
+### Verification pass, addendum — the pass contaminated `libs/` and then caught itself
+
+**Status:** FIXED
+
+The DoD #7 check ("nothing in `libs/` but the two intended files") was run as `git diff HEAD`
+and printed empty, which I read as clean. It was empty because the drift was already
+*committed*. Run across the whole branch — `git diff origin/main..HEAD -- libs/` — it showed
+**14 files**. Twelve were 1–3 line import-reorder diffs in framework files and tests I never
+opened: the same `format.sh` import-sort drift reverted in P0 (X-4), reintroduced by one
+broad `ruff --select I --fix libs/agno` during K1 and swept up by `git add -A libs/agno`.
+
+Restored all twelve to `origin/main` in a dedicated revert commit rather than rewriting
+history, so the mistake and its correction are both on the record. `libs/` now carries
+exactly `memory/startup.py` and `os/middleware/fixed_tenant.py`.
+
+**Two lessons, both about the check rather than the drift.** Compare against `origin/main`,
+never `HEAD` — a branch-scoped claim needs a branch-scoped diff. And never point a fixer at
+`libs/agno` as a directory; name the files. X-4 is not a curiosity about other people's
+diffs; it bit this branch.
 
 ---
 

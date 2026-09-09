@@ -255,7 +255,9 @@ if not redefinition_refused:
 if "quote_request" not in extended["grain"].values:
     raise SystemExit("The overlay did not extend the grain vocabulary.")
 if incompatible_formulas != {
-    f"{f.concept}.{f.kpi_name}" for f in check_corpus(corpus) if f.severity is Severity.INCOMPATIBLE
+    f"{f.concept}.{f.kpi_name}"
+    for f in check_corpus(corpus)
+    if f.severity is Severity.INCOMPATIBLE
 }:
     raise SystemExit(
         "check_corpus(corpus) is not deterministic: a second run over the same corpus disagreed with the first."

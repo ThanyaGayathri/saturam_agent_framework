@@ -1,0 +1,809 @@
+{
+  "version": "2.2.0",
+  "_comment": [
+    "The shipped retail ontology (D9). Layer 2 of docs/plan/domain-knowledge-layers.md.",
+    "",
+    "Types and concepts only, never instances. A concept describes what a Quote IS; no quote",
+    "row ever enters the graph.",
+    "",
+    "Built by us, once, and judged by a retail practitioner reading it. The test to apply",
+    "before adding a concept: would a retail practitioner at any customer recognise this",
+    "without being told which business we built it for? A concept true of only one",
+    "deployment belongs in that deployment's overlay, not here.",
+    "",
+    "business_area must be a term in vocabularies.json. Synonyms are the words people",
+    "actually use; question_patterns are how they ask. Both are embedded with the concept,",
+    "which is what makes a question reach it without naming it."
+  ],
+  "concepts": [
+    {
+      "name": "Customer",
+      "description": "A person or organisation that buys, or has bought, from the business.",
+      "business_area": "customer",
+      "synonyms": [
+        "buyer",
+        "client",
+        "account",
+        "purchaser"
+      ],
+      "question_patterns": [
+        "who are our biggest customers?",
+        "which accounts buy the most?"
+      ],
+      "sources": [
+        "26-franchising-and-wholesale-b2b-retail.md",
+        "21-post-purchase-and-customer-service.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "19-ai-ml-use-cases-in-retail.md"
+      ]
+    },
+    {
+      "name": "CustomerSegment",
+      "description": "A defined grouping of customers that behave similarly or are treated similarly for analysis and targeting.",
+      "business_area": "customer",
+      "synonyms": [
+        "segment",
+        "cohort",
+        "customer group",
+        "audience"
+      ],
+      "question_patterns": [
+        "how do our segments differ?",
+        "which customer group spends most?"
+      ],
+      "sources": [
+        "15-retail-media-networks.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "18-retail-analytics-and-data-infrastructure.md",
+        "04-category-management.md"
+      ]
+    },
+    {
+      "name": "Contact",
+      "description": "A named individual associated with a customer, who enquires, buys, or is someone the business is in touch with.",
+      "business_area": "customer",
+      "synonyms": [
+        "lead",
+        "prospect",
+        "person",
+        "enquirer"
+      ],
+      "question_patterns": [
+        "who enquired about this?",
+        "which people are we in touch with?"
+      ],
+      "sources": [
+        "21-post-purchase-and-customer-service.md",
+        "07-supply-chain-and-logistics.md",
+        "08-inventory-management-and-demand-forecasting.md",
+        "25-retail-verticals-deep-dive.md"
+      ]
+    },
+    {
+      "name": "Product",
+      "description": "An individual item offered for sale, identified by a stock keeping unit.",
+      "business_area": "product",
+      "synonyms": [
+        "item",
+        "SKU",
+        "article",
+        "model",
+        "part"
+      ],
+      "question_patterns": [
+        "which items sell best?",
+        "what is this model's margin?"
+      ],
+      "sources": [
+        "19-ai-ml-use-cases-in-retail.md",
+        "28-regulatory-compliance-and-sustainability.md",
+        "30-retail-strategy-and-future-trends.md",
+        "03-merchandising-and-visual-merchandising.md"
+      ]
+    },
+    {
+      "name": "ProductCategory",
+      "description": "A grouping of products in the merchandising hierarchy, such as a department, range or product line.",
+      "business_area": "product",
+      "synonyms": [
+        "category",
+        "department",
+        "product line",
+        "class"
+      ],
+      "question_patterns": [
+        "which categories are growing?",
+        "how does this range perform?"
+      ],
+      "sources": [
+        "04-category-management.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "06-private-label-and-own-brand-strategy.md",
+        "19-ai-ml-use-cases-in-retail.md"
+      ]
+    },
+    {
+      "name": "Brand",
+      "description": "The manufacturer brand a product is sold under. A business may carry many brands.",
+      "business_area": "product",
+      "synonyms": [
+        "make",
+        "manufacturer",
+        "label",
+        "marque"
+      ],
+      "question_patterns": [
+        "which brands drive the most demand?",
+        "how is this make performing?"
+      ],
+      "sources": [
+        "06-private-label-and-own-brand-strategy.md",
+        "15-retail-media-networks.md",
+        "25-retail-verticals-deep-dive.md",
+        "26-franchising-and-wholesale-b2b-retail.md"
+      ]
+    },
+    {
+      "name": "Inventory",
+      "description": "The quantity of a product physically held at a location, together with the thresholds that govern replenishment.",
+      "business_area": "inventory",
+      "synonyms": [
+        "stock",
+        "stock on hand",
+        "quantity on hand",
+        "holding"
+      ],
+      "question_patterns": [
+        "how much do we have?",
+        "what is our stock position?"
+      ],
+      "sources": [
+        "08-inventory-management-and-demand-forecasting.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "25-retail-verticals-deep-dive.md",
+        "29-competitive-landscape-and-industry-frameworks.md"
+      ]
+    },
+    {
+      "name": "StockLevel",
+      "description": "A band describing how much of a product is on hand relative to its reorder point, used to decide what to reorder and what is overstocked.",
+      "business_area": "inventory",
+      "synonyms": [
+        "stock status",
+        "inventory level",
+        "stock band",
+        "availability"
+      ],
+      "question_patterns": [
+        "what needs reordering?",
+        "which products are overstocked?",
+        "what is running low?"
+      ],
+      "sources": [
+        "08-inventory-management-and-demand-forecasting.md",
+        "04-category-management.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "12-omnichannel-and-unified-commerce.md"
+      ]
+    },
+    {
+      "name": "Location",
+      "description": "A physical place the business operates from: a store, warehouse, depot or region. The generalisation a store is one kind of.",
+      "business_area": "inventory",
+      "synonyms": [
+        "site",
+        "warehouse",
+        "depot",
+        "region",
+        "premises"
+      ],
+      "question_patterns": [
+        "which sites hold this?",
+        "how does this region compare?"
+      ],
+      "sources": [
+        "09-store-design-and-real-estate.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "17-emerging-technology-in-retail.md"
+      ]
+    },
+    {
+      "name": "Supplier",
+      "description": "An organisation that supplies products to the business, whose reliability and lead time affect availability.",
+      "business_area": "supply_chain",
+      "synonyms": [
+        "vendor",
+        "supply partner",
+        "supplying company"
+      ],
+      "question_patterns": [
+        "which suppliers are reliable?",
+        "who do we buy this from?"
+      ],
+      "sources": [
+        "23-vendor-and-supplier-management.md",
+        "16-retail-technology-and-core-systems.md",
+        "28-regulatory-compliance-and-sustainability.md",
+        "07-supply-chain-and-logistics.md"
+      ]
+    },
+    {
+      "name": "PurchaseOrder",
+      "description": "An order the business places on a supplier to replenish stock.",
+      "business_area": "supply_chain",
+      "synonyms": [
+        "PO",
+        "replenishment order",
+        "inbound order"
+      ],
+      "question_patterns": [
+        "what have we got on order?",
+        "which POs are outstanding?"
+      ],
+      "sources": [
+        "16-retail-technology-and-core-systems.md",
+        "31-crisis-and-risk-management-in-retail.md",
+        "23-vendor-and-supplier-management.md",
+        "08-inventory-management-and-demand-forecasting.md"
+      ]
+    },
+    {
+      "name": "Delivery",
+      "description": "A consignment received from a supplier against a purchase order, recording what arrived and when relative to what was promised.",
+      "business_area": "supply_chain",
+      "synonyms": [
+        "shipment",
+        "receipt",
+        "goods receipt",
+        "inbound"
+      ],
+      "question_patterns": [
+        "did it arrive on time?",
+        "what is late from suppliers?"
+      ],
+      "sources": [
+        "07-supply-chain-and-logistics.md",
+        "21-post-purchase-and-customer-service.md",
+        "25-retail-verticals-deep-dive.md",
+        "12-omnichannel-and-unified-commerce.md"
+      ]
+    },
+    {
+      "name": "Order",
+      "description": "A confirmed purchase by a customer, covering one or more products at agreed prices.",
+      "business_area": "sales",
+      "synonyms": [
+        "sales order",
+        "transaction",
+        "purchase",
+        "basket"
+      ],
+      "question_patterns": [
+        "how many orders did we take?",
+        "what is the average order value?"
+      ],
+      "sources": [
+        "24-payments-fraud-and-financial-services.md",
+        "13-emerging-commerce-models.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "14-retail-marketing-and-loyalty-programs.md"
+      ]
+    },
+    {
+      "name": "OrderLine",
+      "description": "One product line within an order, carrying the quantity and the price at which that product was sold.",
+      "business_area": "sales",
+      "synonyms": [
+        "line item",
+        "order item",
+        "order line item"
+      ],
+      "question_patterns": [
+        "what was in that order?",
+        "how many units of this were sold?"
+      ],
+      "sources": [
+        "18-retail-analytics-and-data-infrastructure.md",
+        "22-finance-and-unit-economics.md",
+        "23-vendor-and-supplier-management.md",
+        "12-omnichannel-and-unified-commerce.md"
+      ]
+    },
+    {
+      "name": "Return",
+      "description": "Goods sent back by a customer after purchase, with the reason recorded.",
+      "business_area": "sales",
+      "synonyms": [
+        "RMA",
+        "return authorisation",
+        "sent back",
+        "returned goods"
+      ],
+      "question_patterns": [
+        "what is being returned and why?",
+        "which products come back most?"
+      ],
+      "sources": [
+        "21-post-purchase-and-customer-service.md",
+        "19-ai-ml-use-cases-in-retail.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "24-payments-fraud-and-financial-services.md"
+      ]
+    },
+    {
+      "name": "Campaign",
+      "description": "A marketing activity run over a period to drive demand, with a budget and a measurable outcome.",
+      "business_area": "marketing",
+      "synonyms": [
+        "marketing campaign",
+        "activity",
+        "offer period"
+      ],
+      "question_patterns": [
+        "did the campaign work?",
+        "which campaigns drove sales?"
+      ],
+      "sources": [
+        "05-pricing-strategy-and-promotions.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "15-retail-media-networks.md",
+        "18-retail-analytics-and-data-infrastructure.md"
+      ]
+    },
+    {
+      "name": "Channel",
+      "description": "A route to market or a source of traffic, such as the web store, a rep group, a marketplace or paid search.",
+      "business_area": "marketing",
+      "synonyms": [
+        "sales channel",
+        "traffic source",
+        "medium",
+        "route to market"
+      ],
+      "question_patterns": [
+        "where do our customers come from?",
+        "which channel converts best?"
+      ],
+      "sources": [
+        "12-omnichannel-and-unified-commerce.md",
+        "13-emerging-commerce-models.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "22-finance-and-unit-economics.md"
+      ]
+    },
+    {
+      "name": "WebSession",
+      "description": "A single visit to the web store by one person, covering the pages viewed and the actions taken during that visit.",
+      "business_area": "marketing",
+      "synonyms": [
+        "session",
+        "visit",
+        "site visit",
+        "browsing session"
+      ],
+      "question_patterns": [
+        "how many people visited?",
+        "what do visitors look at before enquiring?"
+      ],
+      "sources": [
+        "20-customer-research-and-insights.md",
+        "11-ecommerce-and-digital-commerce.md",
+        "19-ai-ml-use-cases-in-retail.md",
+        "14-retail-marketing-and-loyalty-programs.md"
+      ]
+    },
+    {
+      "name": "Price",
+      "description": "The amount a product is offered for sale at, before any temporary reduction. A product carries many prices -- by store, by channel and over time -- and each is the reference against which markdowns and promotions are measured.",
+      "business_area": "product",
+      "synonyms": [
+        "selling price",
+        "retail price",
+        "ticket price",
+        "list price"
+      ],
+      "question_patterns": [
+        "what are we charging for this?",
+        "how have our prices moved?"
+      ],
+      "sources": [
+        "05-pricing-strategy-and-promotions.md",
+        "25-retail-verticals-deep-dive.md",
+        "06-private-label-and-own-brand-strategy.md",
+        "27-international-retail-and-localization.md"
+      ]
+    },
+    {
+      "name": "Markdown",
+      "description": "A permanent reduction in a product's retail selling price below its original ticket price, applied to clear slow-moving or end-of-season inventory, and distinguished from a temporary promotional discount.",
+      "business_area": "sales",
+      "synonyms": [
+        "mark-down",
+        "price reduction",
+        "clearance discount",
+        "clearance",
+        "reduced to clear"
+      ],
+      "question_patterns": [
+        "what have we marked down?",
+        "what did we reduce to clear it?",
+        "how much margin did clearance cost us?"
+      ],
+      "sources": [
+        "05-pricing-strategy-and-promotions.md",
+        "25-retail-verticals-deep-dive.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "01-retail-fundamentals-and-terminology.md"
+      ]
+    },
+    {
+      "name": "Promotion",
+      "description": "A temporary price reduction or offer mechanic on a product, run for a defined period to generate incremental purchase occasions. Distinct from a markdown, which is permanent, and from a campaign, which is the marketing activity around it.",
+      "business_area": "marketing",
+      "synonyms": [
+        "temporary price reduction",
+        "TPR",
+        "price promotion",
+        "deal",
+        "offer"
+      ],
+      "question_patterns": [
+        "which promotions actually worked?",
+        "what is on deal this week?"
+      ],
+      "sources": [
+        "05-pricing-strategy-and-promotions.md",
+        "14-retail-marketing-and-loyalty-programs.md",
+        "18-retail-analytics-and-data-infrastructure.md",
+        "19-ai-ml-use-cases-in-retail.md"
+      ]
+    },
+    {
+      "name": "Assortment",
+      "description": "The set of products a retailer carries, at a given location or across the business, described by how many categories it spans and how deep it goes within each.",
+      "business_area": "product",
+      "synonyms": [
+        "range",
+        "product offering",
+        "selection",
+        "merchandise mix"
+      ],
+      "question_patterns": [
+        "what do we carry?",
+        "is our range too wide?"
+      ],
+      "sources": [
+        "03-merchandising-and-visual-merchandising.md",
+        "04-category-management.md",
+        "19-ai-ml-use-cases-in-retail.md",
+        "09-store-design-and-real-estate.md"
+      ]
+    },
+    {
+      "name": "Payment",
+      "description": "A settlement of money against an order, by whatever tender the customer used, together with its authorisation and capture state.",
+      "business_area": "sales",
+      "synonyms": [
+        "tender",
+        "settlement",
+        "transaction payment"
+      ],
+      "question_patterns": [
+        "how do our customers pay?",
+        "which payments failed?"
+      ],
+      "sources": [
+        "24-payments-fraud-and-financial-services.md",
+        "31-crisis-and-risk-management-in-retail.md",
+        "11-ecommerce-and-digital-commerce.md",
+        "27-international-retail-and-localization.md"
+      ]
+    },
+    {
+      "name": "Employee",
+      "description": "A person employed by the retailer, working in a store, warehouse or office.",
+      "business_area": "operations",
+      "synonyms": [
+        "associate",
+        "staff member",
+        "colleague",
+        "team member"
+      ],
+      "question_patterns": [
+        "how many staff do we have on?",
+        "what is our labour cost?"
+      ],
+      "sources": [
+        "10-store-operations-and-workforce-management.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "30-retail-strategy-and-future-trends.md",
+        "31-crisis-and-risk-management-in-retail.md"
+      ]
+    },
+    {
+      "name": "Store",
+      "description": "A single physical retail outlet trading under the business's banner, with its own trading hours, staff, inventory and profit and loss.",
+      "business_area": "operations",
+      "synonyms": [
+        "shop",
+        "outlet",
+        "branch",
+        "retail store",
+        "physical store"
+      ],
+      "question_patterns": [
+        "which stores are underperforming?",
+        "how is this shop trading?",
+        "sales by store"
+      ],
+      "sources": [
+        "09-store-design-and-real-estate.md",
+        "03-merchandising-and-visual-merchandising.md",
+        "12-omnichannel-and-unified-commerce.md",
+        "10-store-operations-and-workforce-management.md"
+      ]
+    },
+    {
+      "name": "Shrinkage",
+      "description": "The difference between recorded book inventory and the physical count, attributable to external theft, employee theft, vendor fraud and administrative error.",
+      "business_area": "inventory",
+      "synonyms": [
+        "shrink",
+        "stock loss",
+        "inventory shrink",
+        "inventory shrinkage",
+        "retail shrink"
+      ],
+      "question_patterns": [
+        "what is our shrink?",
+        "where is stock going missing?"
+      ],
+      "sources": [
+        "10-store-operations-and-workforce-management.md",
+        "25-retail-verticals-deep-dive.md",
+        "01-retail-fundamentals-and-terminology.md",
+        "17-emerging-technology-in-retail.md"
+      ]
+    },
+    {
+      "name": "Refund",
+      "description": "Money returned to a customer against a return, reversing some or all of the original payment.",
+      "business_area": "sales",
+      "synonyms": [
+        "money back",
+        "reimbursement",
+        "credit back"
+      ],
+      "question_patterns": [
+        "how much did we refund?",
+        "which refunds are outstanding?"
+      ],
+      "sources": [
+        "21-post-purchase-and-customer-service.md",
+        "31-crisis-and-risk-management-in-retail.md",
+        "28-regulatory-compliance-and-sustainability.md",
+        "24-payments-fraud-and-financial-services.md"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "type": "BELONGS_TO",
+      "source": "Product",
+      "target": "ProductCategory",
+      "cardinality": "many-to-one",
+      "description": "Every product sits in one category of the merchandising hierarchy."
+    },
+    {
+      "type": "HAS_BRAND",
+      "source": "Product",
+      "target": "Brand",
+      "cardinality": "many-to-one",
+      "description": "The manufacturer brand a product is sold under."
+    },
+    {
+      "type": "SUPPLIED_BY",
+      "source": "Product",
+      "target": "Supplier",
+      "cardinality": "many-to-many",
+      "description": "Who the business buys a product from. More than one supplier is dual sourcing."
+    },
+    {
+      "type": "STOCKS",
+      "source": "Inventory",
+      "target": "Product",
+      "cardinality": "many-to-one",
+      "description": "Inventory records are held per product."
+    },
+    {
+      "type": "HELD_AT",
+      "source": "Inventory",
+      "target": "Location",
+      "cardinality": "many-to-one",
+      "description": "Where the stock physically is."
+    },
+    {
+      "type": "HAS_STOCK_LEVEL",
+      "source": "Inventory",
+      "target": "StockLevel",
+      "cardinality": "many-to-one",
+      "description": "The band an inventory record currently falls into."
+    },
+    {
+      "type": "BELONGS_TO_SEGMENT",
+      "source": "Customer",
+      "target": "CustomerSegment",
+      "cardinality": "many-to-many",
+      "description": "Segment membership, which may change over time."
+    },
+    {
+      "type": "WORKS_FOR",
+      "source": "Contact",
+      "target": "Customer",
+      "cardinality": "many-to-one",
+      "description": "The organisation a named individual belongs to."
+    },
+    {
+      "type": "PLACED_BY",
+      "source": "Order",
+      "target": "Customer",
+      "cardinality": "many-to-one",
+      "description": "Who bought."
+    },
+    {
+      "type": "CONTAINS",
+      "source": "Order",
+      "target": "OrderLine",
+      "cardinality": "one-to-many",
+      "description": "An order is made up of lines."
+    },
+    {
+      "type": "REFERENCES",
+      "source": "OrderLine",
+      "target": "Product",
+      "cardinality": "many-to-one",
+      "description": "What was bought on that line."
+    },
+    {
+      "type": "PLACED_ON",
+      "source": "PurchaseOrder",
+      "target": "Supplier",
+      "cardinality": "many-to-one",
+      "description": "Who the replenishment order went to."
+    },
+    {
+      "type": "FULFILS",
+      "source": "Delivery",
+      "target": "PurchaseOrder",
+      "cardinality": "many-to-one",
+      "description": "What arrived against what was ordered."
+    },
+    {
+      "type": "RETURNS",
+      "source": "Return",
+      "target": "OrderLine",
+      "cardinality": "many-to-one",
+      "description": "Which sold line came back."
+    },
+    {
+      "type": "ATTRIBUTED_TO",
+      "source": "WebSession",
+      "target": "Channel",
+      "cardinality": "many-to-one",
+      "description": "Where the visit came from."
+    },
+    {
+      "type": "USES",
+      "source": "Campaign",
+      "target": "Channel",
+      "cardinality": "many-to-many",
+      "description": "The routes a campaign runs through."
+    },
+    {
+      "type": "VIEWED",
+      "source": "WebSession",
+      "target": "Product",
+      "cardinality": "many-to-many",
+      "description": "What a visitor looked at, which is the top of the enquiry funnel."
+    },
+    {
+      "type": "HAS_PRICE",
+      "source": "Product",
+      "target": "Price",
+      "cardinality": "one-to-many",
+      "description": "A product's prices, by store, channel and period."
+    },
+    {
+      "type": "REDUCES",
+      "source": "Markdown",
+      "target": "Price",
+      "cardinality": "many-to-one",
+      "description": "A markdown permanently lowers a price."
+    },
+    {
+      "type": "REDUCES",
+      "source": "Promotion",
+      "target": "Price",
+      "cardinality": "many-to-many",
+      "description": "A promotion temporarily lowers a price. Same verb as a markdown, because both act on price; the difference is duration."
+    },
+    {
+      "type": "INCLUDES",
+      "source": "Assortment",
+      "target": "Product",
+      "cardinality": "many-to-many",
+      "description": "Which products the range carries."
+    },
+    {
+      "type": "CARRIED_AT",
+      "source": "Assortment",
+      "target": "Location",
+      "cardinality": "many-to-many",
+      "description": "Assortment varies by site."
+    },
+    {
+      "type": "SETTLES",
+      "source": "Payment",
+      "target": "Order",
+      "cardinality": "many-to-one",
+      "description": "The money against the order."
+    },
+    {
+      "type": "WORKS_AT",
+      "source": "Employee",
+      "target": "Location",
+      "cardinality": "many-to-one",
+      "description": "Where a person is rostered."
+    },
+    {
+      "type": "PROMOTED_BY",
+      "source": "Promotion",
+      "target": "Campaign",
+      "cardinality": "many-to-one",
+      "description": "The marketing activity a promotion runs under."
+    },
+    {
+      "type": "IS_A",
+      "source": "Store",
+      "target": "Location",
+      "cardinality": "many-to-one",
+      "description": "A store is one kind of location."
+    },
+    {
+      "type": "PLACED_AT",
+      "source": "Order",
+      "target": "Store",
+      "cardinality": "many-to-one",
+      "description": "Where an in-store order was taken. Absent for online orders."
+    },
+    {
+      "type": "MEASURED_AT",
+      "source": "Shrinkage",
+      "target": "Store",
+      "cardinality": "many-to-one",
+      "description": "Shrink is counted per store."
+    },
+    {
+      "type": "AGAINST",
+      "source": "Shrinkage",
+      "target": "Inventory",
+      "cardinality": "many-to-one",
+      "description": "The stock the loss is measured against."
+    },
+    {
+      "type": "REVERSES",
+      "source": "Refund",
+      "target": "Payment",
+      "cardinality": "many-to-one",
+      "description": "The payment a refund gives back."
+    },
+    {
+      "type": "FOR",
+      "source": "Refund",
+      "target": "Return",
+      "cardinality": "many-to-one",
+      "description": "The return a refund settles."
+    }
+  ]
+}

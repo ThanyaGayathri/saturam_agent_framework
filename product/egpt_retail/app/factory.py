@@ -10,10 +10,21 @@ incomplete (``EGPT_RETAIL_ROLE=pipelines`` with no token raises from here, not f
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from typing import Any, List
+
+from egpt.memory.startup import assert_memory_wired
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
+from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware
+from fastapi import FastAPI
 
-from egpt_retail.app.components import build_agents, build_registry, build_workflows
+from egpt_retail.app.components import (
+    build_agents,
+    build_memory_provider,
+    build_registry,
+    build_workflows,
+)
 from egpt_retail.app.db import build_control_plane_db
 from egpt_retail.app.settings import RetailSettings
 
@@ -22,8 +33,42 @@ __all__ = ["OS_ID", "build_agent_os"]
 OS_ID = "egpt-retail"
 
 
+def memory_lifespan_for(settings: RetailSettings, agents: List[Any]) -> Any:
+    """The startup that wires memory, and refuses to serve if it cannot (G1).
+
+    Deliberately a *lifespan* and not part of ``build_agent_os``. ``build_memory_provider_for``
+    opens the pgvector engine and provisions its schema on construction, and ``app/main.py``
+    calls the factory at module import -- so building the provider in the factory made
+    *importing the app* open a database. That broke every test that constructs the OS without
+    Postgres, and it is not what G1 asks for. G1 asks that the deployment fail **at startup**
+    rather than serve memoryless. A lifespan is startup: the server boots, wires the provider
+    into every agent, checks every agent can use it, and refuses to come up if not. Import
+    stays pure, the same way Lane R's consolidator builds its provider lazily.
+    """
+
+    @asynccontextmanager
+    async def _lifespan(app: Any, agent_os: Any):
+        provider = build_memory_provider(settings)
+        for agent in agents:
+            if getattr(agent, "memory_provider", None) is None:
+                agent.memory_provider = provider
+        # Every fault at once, so a misconfigured deployment is fixed in one pass.
+        assert_memory_wired(agents, tenant_id=settings.retail_customer_slug)
+        try:
+            yield
+        finally:
+            if provider is not None:
+                await provider.aclose()
+
+    return _lifespan
+
+
 def build_agent_os(settings: RetailSettings) -> EgptOS:
-    """Assemble the OS from settings. Pure construction; no async twin."""
+    """Assemble the OS from settings. Pure construction; no async twin.
+
+    Pure means no database is touched here. Memory is wired in ``memory_lifespan_for``, which
+    runs when the server starts, not when this module is imported.
+    """
     if settings.scheduler_enabled and not settings.retail_internal_service_token:
         raise RuntimeError(
             "EGPT_RETAIL_ROLE=pipelines requires EGPT_RETAIL_INTERNAL_SERVICE_TOKEN. With the scheduler on and "
@@ -42,6 +87,8 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
             "any application. Set EGPT_RETAIL_AUTH_AUDIENCE, or EGPT_RETAIL_AUTH_SKIP_AUDIENCE_CHECK=true if "
             "this deployment genuinely has no audience to check."
         )
+    # G1, both halves. A provider with no tenant is as silent as no provider: memory hooks
+    # take an early return when `run_context.tenant_id` is None, and nothing reports it.
     db = build_control_plane_db(settings)
     # JWT authorization is on exactly when a JWKS file is configured (R2). Locally that is an
     # offline RS256 key pair mounted from a ConfigMap; on AKS it is the identity provider's keys.
@@ -59,12 +106,31 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
         if settings.authorization_enabled
         else None
     )
-    return EgptOS(
+    agents = build_agents(settings, db)
+
+    # The tenant middleware goes on a *base* app that EgptOS then builds on, and the reason
+    # is ordering. Starlette runs the last-added middleware first, and AuthMiddleware
+    # *replaces* request.state.claims with the decoded JWT (os/middleware/jwt.py:1111). Added
+    # after get_app(), this middleware would be outermost: it would inject the tenant claim,
+    # then auth would run and overwrite the whole claims dict, and every authenticated request
+    # -- the Entra deployment shape, whose JWTs carry no tenant claim -- would lose the tenant
+    # again. On the base app it is *inner*: auth runs first, then this fills the claim auth
+    # left absent. That is the only order in which it works, and a unit test pins it.
+    #
+    # Installed only when a slug is configured. str(None) is the string "None", and a tenant
+    # called "None" is a partition nobody meant to create; the lifespan refuses boot instead.
+    base_app = FastAPI()
+    slug = (settings.retail_customer_slug or "").strip()
+    if slug:
+        base_app.add_middleware(FixedTenantMiddleware, tenant_id=slug)
+
+    os_app = EgptOS(
         id=OS_ID,
+        base_app=base_app,
         name="Enterprise GPT",
         description="Retail intelligence on EgptOS. Phase zero: one registered agent, no workflows.",
         db=db,
-        agents=build_agents(settings, db),
+        agents=agents,
         workflows=build_workflows(settings, db),
         registry=build_registry(),
         authorization=settings.authorization_enabled,
@@ -72,4 +138,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
         scheduler=settings.scheduler_enabled,
         scheduler_base_url=settings.retail_scheduler_base_url,
         internal_service_token=settings.retail_internal_service_token,
+        lifespan=memory_lifespan_for(settings, agents),
     )
+
+    return os_app
