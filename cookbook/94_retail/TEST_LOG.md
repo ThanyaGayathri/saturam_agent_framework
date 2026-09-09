@@ -1811,3 +1811,59 @@ undifferentiated reads four rows of noise first.
   is the one place a filesystem layout could leak into a prompt.
 
 ---
+
+### K05_semantic_graph.py
+
+**Package:** K5 (P2, implements D11, G20)
+**Status:** PASS
+
+**Description:** Wrote a K4 harvest into Neo4j under the semantic layer's own labels, read it
+back through the P0 contract, added the authoritative-source decision G20 asks for, and
+promoted a derived copy into semantic memory. All of the package's scenarios.
+
+**Result:** 5 tables written and read back with a column list identical to the harvest. A
+declared join resolves in one hop; an undeclared one returns `None`; an unknown table raises.
+Two concepts promoted, and the copy rebuilds identically from the graph after being deleted.
+
+**Scenario 4 is the one the whole P0 contract existed for, so it is tested properly.** Not by
+checking both classes have the same method names — by defining one `describe(reader)` function
+that knows only the contract, running it over `SemanticGraphStore` and `StubSemanticRead`, and
+requiring the two dictionaries to be equal. Tables, concepts, areas, columns and the
+authoritative source all match. Lane R changes a construction site and nothing else.
+
+**G20 has a real case, and K4 handed it over.** `analytics_event.session_id` and
+`session_replay_session.session_id` share a name and a type, so both tables can claim to answer
+"what happened in a session". R4's DDL comment says they are **not joinable** — separate id
+spaces, no bridge. That is exactly a decision a person makes and records: the store now holds
+`WebSession -> analytics_event`, the alternative it beat, and the sentence explaining why. An
+uncontested concept returns `None`, which is a real answer rather than a missing one.
+
+**Promotion is idempotent without a delete step, and that took reading the substrate.** My
+first draft invented `provider.replace_topic()`, which does not exist. The real API is
+`write_tier`, and `pgvector/sql.py:525` upserts on `ON CONFLICT (tenant_id, id)` — so a
+**stable id derived from the concept name** makes a second promotion an overwrite. That is the
+whole guarantee, and it matters because promotion runs after every harvest: an appending
+version would accumulate one copy of the semantic layer per nightly run, and recall would
+return the same concept five times with the oldest description among them. Verified: promote,
+promote again, byte-identical; delete every row, promote once, byte-identical to the original.
+
+**What is deliberately not promoted.** The SQL scoping filter, personal-data fields and
+compliance tags stay in the graph and are read directly every time. They govern what a query
+may touch and who may see the result, and a governing value reaching an agent through a store
+that decays and consolidates is a governing value that can quietly stop governing. Asserted in
+the cookbook, not just documented.
+
+**Two mistakes worth recording:**
+
+1. **I invented a provider method.** `replace_topic` was plausible and absent. Caught by
+   reading `MemoryProvider` before building further, which is the only reason it cost minutes
+   rather than a rewrite.
+2. **`topics` is `jsonb`, not a Postgres array.** `= ANY(topics)` failed, and the `?`
+   containment operator collides with psycopg's placeholder syntax — the `??` escape does not
+   apply to this call style either. `jsonb_exists(topics, %s)` is the form that works.
+
+**Setup note:** R4 (#193) is still unmerged, so the harvest still comes from its DDL applied
+to a local `egpt_warehouse`. Nothing about K5 depends on that — it takes a `Harvest`, whatever
+produced it.
+
+---

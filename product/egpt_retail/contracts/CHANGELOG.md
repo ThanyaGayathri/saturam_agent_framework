@@ -298,6 +298,32 @@ Two fields were considered and **not** added:
 
 ## Semantic read API
 
+### 1.1.0 — 2026-09-09 — an authoritative source per concept (G20)
+
+**Additive: free under the change protocol, announced not negotiated.** Existing callers are
+unaffected; the stub implements it and every P0 caller still works.
+
+Adds `authoritative_source(concept)` and the `AuthoritativeSource` type. G20 says nothing
+declares which source answers for a concept when more than one could, and the absence is not
+neutral — two tables that can both answer leave an agent to pick one, and it sounds equally
+confident either way.
+
+The case is real and K4 found it. `analytics_event.session_id` and
+`session_replay_session.session_id` share a name and a type, so every instinct says join key.
+R4's own DDL comment says they are **not** joinable — separate id spaces, no bridge. Both
+tables can claim to answer "what happened in a session"; only a person can say which one does.
+
+Three design points, each because the alternative fails quietly:
+
+- **`alternatives` is carried, not discarded.** A provenance record has to be able to say
+  *"answered from analytics_event, not from session_replay_session"*. A decision recorded
+  without the options it beat is indistinguishable from there having been no decision.
+- **`rationale` is a sentence a person wrote or accepted.** An authoritative source a model
+  chose is precisely the failure G20 exists to prevent.
+- **`None` means uncontested, and raising means unanswerable.** Same split as
+  `find_join_path`, for the same reason.
+
+
 ### 1.0.0 — 2026-09-07 — initial, with a running stub
 
 Agreed by: Lane K. **Not yet reviewed by Lane R** — this contract is `K → R`.

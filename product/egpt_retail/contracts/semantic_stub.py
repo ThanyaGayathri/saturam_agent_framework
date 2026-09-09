@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from egpt_retail.contracts.semantic import (
+    AuthoritativeSource,
     Column,
     Concept,
     JoinEdge,
@@ -127,6 +128,7 @@ class StubSemanticRead:
     _concepts: Dict[str, Concept] = field(default_factory=dict)
     _edges: List[JoinEdge] = field(default_factory=list)
     _snapshot: Optional[Snapshot] = None
+    _authoritative: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     _loaded: bool = False
 
     # --- construction ------------------------------------------------------------------
@@ -157,6 +159,10 @@ class StubSemanticRead:
             _tables={t["name"]: _table(t) for t in payload.get("tables", ())},
             _concepts={c["name"]: _concept(c) for c in payload.get("concepts", ())},
             _edges=[_edge(e) for e in payload.get("join_edges", ())],
+            _authoritative={
+                item["concept"]: item
+                for item in payload.get("authoritative_sources", ())
+            },
             _snapshot=Snapshot(
                 version=snapshot_payload.get("version", "unversioned"),
                 harvested_at=snapshot_payload.get("harvested_at", "unknown"),
@@ -299,6 +305,26 @@ class StubSemanticRead:
         self, from_table: str, to_table: str
     ) -> Optional[JoinPath]:
         return self.find_join_path(from_table, to_table)
+
+    def authoritative_source(self, concept: str) -> Optional[AuthoritativeSource]:
+        """The fixture's recorded decision for a concept, or ``None`` if uncontested (G20)."""
+        self._require_fixture("authoritative_source")
+        payload = self._authoritative.get(concept)
+        if payload is None:
+            return None
+        return AuthoritativeSource(
+            concept=concept,
+            table=payload["table"],
+            alternatives=tuple(payload.get("alternatives", ())),
+            rationale=payload.get("rationale", ""),
+            status=ProposalStatus(payload.get("status", "accepted")),
+        )
+
+    async def aauthoritative_source(
+        self, concept: str
+    ) -> Optional[AuthoritativeSource]:
+        """Async variant."""
+        return await asyncio.to_thread(self.authoritative_source, concept)
 
     def list_business_areas(self, *, include_proposed: bool = False) -> Tuple[str, ...]:
         self._require_fixture("list_business_areas")
