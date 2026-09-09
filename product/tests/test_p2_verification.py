@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.contracts.semantic import JoinEdge
 from egpt_retail.contracts.vocabulary import load_vocabulary_set
 from egpt_retail.entrypoints.__main__ import COMMANDS, build_parser
 from egpt_retail.semantic.harvest import HarvestDiff
@@ -151,3 +152,32 @@ class TestHarvestEntrypoint:
         report = RefreshReport("v1", None, "silver", 5, 40, diff=None)
         assert not report.changed
         assert any("no previous snapshot" in line for line in report.lines())
+
+
+class TestCanonicalJoin:
+    """A join is undirected in the graph; the stored edge runs from the smaller name."""
+
+    def test_already_canonical_is_untouched(self) -> None:
+        from egpt_retail.semantic.store import canonical_join
+
+        edge = JoinEdge("a_table", "b_table", "a.x = b.x", "many-to-one")
+        assert canonical_join(edge) is edge
+
+    @pytest.mark.parametrize(
+        "given,expected",
+        [
+            ("many-to-one", "one-to-many"),
+            ("one-to-many", "many-to-one"),
+            ("one-to-one", "one-to-one"),
+            ("many-to-many", "many-to-many"),
+        ],
+    )
+    def test_a_swapped_pair_inverts_cardinality_and_keeps_the_predicate(
+        self, given: str, expected: str
+    ) -> None:
+        from egpt_retail.semantic.store import canonical_join
+
+        edge = canonical_join(JoinEdge("b_table", "a_table", "b.x = a.x", given))
+        assert (edge.left_table, edge.right_table) == ("a_table", "b_table")
+        assert edge.cardinality == expected
+        assert edge.on == "b.x = a.x"

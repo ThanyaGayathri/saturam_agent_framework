@@ -28,7 +28,7 @@ from egpt_retail.semantic.snapshots import (
     SnapshotStore,
     kpis_needing_review,
 )
-from egpt_retail.semantic.store import SemanticGraphStore
+from egpt_retail.semantic.store import EmptyHarvestRefused, SemanticGraphStore
 
 __all__ = ["RefreshReport", "arefresh_semantic_layer", "refresh_semantic_layer"]
 
@@ -108,22 +108,37 @@ def refresh_semantic_layer(
             warehouse, schema, source=_source_name(settings), sample=False
         )
 
+        if not harvest.tables:
+            raise EmptyHarvestRefused(
+                f"schema {schema!r} harvested as empty. Not snapshotting it and not writing "
+                "it: an empty harvest is what a wrong schema name, a revoked grant or an "
+                "outage look like, and recording it would make the next diff report every "
+                "table as removed."
+            )
+
         snapshots = SnapshotStore(control_plane)
         snapshots.ensure_schema()
         known = snapshots.versions()
         previous = known[0] if known else None
-        resolved = snapshots.save(harvest, version)
-        diff = (
-            snapshots.diff(previous, resolved)
-            if previous and previous != resolved
-            else None
-        )
+        resolved = version or _default_version()
 
+        # Graph first, then the snapshot. A snapshot row is permanent once committed and
+        # becomes `previous` for the next diff; if the graph write failed after it, the
+        # record would say a version existed that the graph never reflected. The other way
+        # round, a failed snapshot leaves the graph one run ahead, which the graph's own
+        # snapshot version reports and the next run corrects.
         graph = SemanticGraphStore(
             driver=driver, database=settings.retail_neo4j_database
         )
         graph.ensure_indexes()
         tables = graph.write_harvest(harvest, snapshot_version=resolved)
+
+        snapshots.save(harvest, resolved)
+        diff = (
+            snapshots.diff(previous, resolved)
+            if previous and previous != resolved
+            else None
+        )
 
         review = (
             kpis_needing_review(diff, kpis, new_version=resolved)
@@ -165,6 +180,12 @@ async def arefresh_semantic_layer(
         control_plane=control_plane,
         driver=driver,
     )
+
+
+def _default_version() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y%m%d.%H%M%S")
 
 
 def _connect(url: Optional[str], variable: str) -> Any:

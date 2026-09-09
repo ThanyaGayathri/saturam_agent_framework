@@ -402,8 +402,25 @@ class ProposalStore:
     # --- schema ------------------------------------------------------------------------
 
     def ensure_schema(self) -> None:
-        """Create the table if absent. Idempotent."""
+        """Create the table if absent. Idempotent, and safe to call from several processes.
+
+        **Deliberately self-provisioning**, not a ``MigrationManager`` migration. That
+        manager tracks the framework's own tables through a fixed ``BaseDb`` attribute map;
+        a product-owned table has no place in it, and teaching it one is a framework change
+        that would ship in the wheel for a retail need. Like the pgvector tables, this one
+        is created by the code that owns it. The cost is that schema evolution here is by
+        ``ADD COLUMN IF NOT EXISTS`` rather than a versioned migration, which is acceptable
+        while there are two tables and one owner and should be revisited if either grows.
+
+        ``CREATE TABLE IF NOT EXISTS`` is not race-safe: two callers can both see no table and
+        both try to create it, and one fails. A transaction-scoped advisory lock serialises
+        them; it is released at commit.
+        """
         with self._connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                ("egpt_retail.semantic.ddl",),
+            )
             for statement in _DDL:
                 cursor.execute(statement)
         self._connection.commit()

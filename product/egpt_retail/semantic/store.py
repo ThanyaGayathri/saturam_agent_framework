@@ -49,7 +49,9 @@ __all__ = [
     "COLUMN_LABEL",
     "CONCEPT_LABEL",
     "TABLE_LABEL",
+    "EmptyHarvestRefused",
     "SemanticGraphStore",
+    "canonical_join",
 ]
 
 TABLE_LABEL = "SemanticTable"
@@ -57,6 +59,44 @@ COLUMN_LABEL = "SemanticColumn"
 CONCEPT_LABEL = "SemanticConcept"
 
 _SNAPSHOT_LABEL = "SemanticSnapshot"
+
+#: How a cardinality reads from the other end of the edge.
+_INVERSE_CARDINALITY = {
+    "one-to-many": "many-to-one",
+    "many-to-one": "one-to-many",
+    "one-to-one": "one-to-one",
+    "many-to-many": "many-to-many",
+}
+
+
+class EmptyHarvestRefused(RuntimeError):
+    """A harvest with no tables was offered to a graph that has some.
+
+    An empty harvest is what a bad ``--schema``, a revoked grant or a warehouse outage
+    mid-query all look like, and ``harvest_schema`` cannot tell them from a genuinely empty
+    schema. Writing it would prune every table -- and every reviewed edge with them -- which
+    is the wipe this store's upsert was written to prevent. So it refuses, and the operator
+    decides. A first harvest into an empty graph is allowed: there is nothing to lose.
+    """
+
+
+def canonical_join(edge: JoinEdge) -> JoinEdge:
+    """The same join, expressed from the lexicographically smaller table.
+
+    A join is undirected in the graph -- ``find_join_path`` traverses both ways -- so two
+    proposals saying ``a->b`` and ``b->a`` with the same predicate are one join, and must
+    land on one edge. The cardinality is inverted when the pair is swapped, because
+    ``many-to-one`` is a statement about direction; the predicate text is left exactly as
+    written, since it reads the same from either end.
+    """
+    if edge.left_table <= edge.right_table:
+        return edge
+    return JoinEdge(
+        left_table=edge.right_table,
+        right_table=edge.left_table,
+        on=edge.on,
+        cardinality=_INVERSE_CARDINALITY.get(edge.cardinality, edge.cardinality),
+    )
 
 
 def _visible(include_proposed: bool) -> str:
@@ -112,6 +152,28 @@ class SemanticGraphStore:
     async def aensure_indexes(self) -> None:
         """Async variant."""
         await asyncio.to_thread(self.ensure_indexes)
+
+    def _resolve_table(self, session: Any, name: str) -> Optional[Tuple[str, str]]:
+        """``(schema, table)`` for a bare or qualified name, or ``None`` if unknown.
+
+        The contract passes bare names (``crm_contact``) and the graph keys on
+        ``(schema, name)``. A bare name that matches in two schemas is ambiguous, and
+        answering with whichever came first would report one schema's table as the other's.
+        """
+        rows = session.run(
+            f"MATCH (t:{TABLE_LABEL}) "
+            "WHERE (t.schema + '.' + t.name) = $name OR t.name = $name "
+            "RETURN t.schema AS schema, t.name AS name ORDER BY t.schema",
+            name=name,
+        ).data()
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise SemanticReadError(
+                f"{name!r} names a table in more than one schema: "
+                f"{', '.join(r['schema'] + '.' + r['name'] for r in rows)}. Qualify it."
+            )
+        return rows[0]["schema"], rows[0]["name"]
 
     # --- writes ------------------------------------------------------------------------
 
@@ -186,7 +248,42 @@ class SemanticGraphStore:
             for col in row["columns"]
         ]
         with self._driver.session(database=self._database) as session:
-            session.run(
+            if not rows:
+                # `WHERE NOT x IN []` is true for every node: an empty keep-list prunes
+                # everything. Review round 1 on the P2 PR found it. Refuse unless the
+                # graph is already empty, in which case there is nothing to prune.
+                held = session.run(
+                    f"MATCH (t:{TABLE_LABEL}) RETURN count(t) AS n"
+                ).single()
+                if held and held["n"]:
+                    raise EmptyHarvestRefused(
+                        f"the harvest of {harvest.schema!r} has no tables and the graph holds "
+                        f"{held['n']}. Writing it would remove every table and every reviewed "
+                        "edge. Check the schema name and the warehouse before retrying."
+                    )
+            session.execute_write(
+                self._write_harvest_tx,
+                rows,
+                version,
+                keep_tables,
+                keep_columns,
+                harvest,
+            )
+        return len(rows)
+
+    @staticmethod
+    def _write_harvest_tx(
+        tx: Any,
+        rows: List[Dict[str, Any]],
+        version: str,
+        keep_tables: List[str],
+        keep_columns: List[str],
+        harvest: Harvest,
+    ) -> None:
+        """The whole write in one transaction, so a failure part-way leaves the graph as it
+        was rather than upserted-but-not-pruned."""
+        if True:
+            tx.run(
                 f"""
                 UNWIND $rows AS row
                 MERGE (t:{TABLE_LABEL} {{schema: row.schema, name: row.name}})
@@ -209,7 +306,7 @@ class SemanticGraphStore:
             )
             # Prune what the warehouse no longer has. Columns first, so a column dropped from
             # a surviving table goes; then tables, taking their remaining columns and edges.
-            session.run(
+            tx.run(
                 f"""
                 MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL})
                 WHERE NOT (t.schema + '.' + t.name + '.' + c.name) IN $keep
@@ -217,7 +314,7 @@ class SemanticGraphStore:
                 """,
                 keep=keep_columns,
             )
-            session.run(
+            tx.run(
                 f"""
                 MATCH (t:{TABLE_LABEL})
                 WHERE NOT (t.schema + '.' + t.name) IN $keep
@@ -227,19 +324,16 @@ class SemanticGraphStore:
                 keep=keep_tables,
             )
             # A column that lost its table some other way has no meaning; do not keep it.
-            session.run(
-                f"MATCH (c:{COLUMN_LABEL}) WHERE NOT (c)-[:OF_TABLE]->() DELETE c"
-            )
+            tx.run(f"MATCH (c:{COLUMN_LABEL}) WHERE NOT (c)-[:OF_TABLE]->() DELETE c")
             # Any lingering row values from before this rule existed.
-            session.run(f"MATCH (c:{COLUMN_LABEL}) REMOVE c.sampled_values")
-            session.run(
+            tx.run(f"MATCH (c:{COLUMN_LABEL}) REMOVE c.sampled_values")
+            tx.run(
                 f"MERGE (s:{_SNAPSHOT_LABEL} {{singleton: true}}) "
                 "SET s.version = $version, s.harvested_at = $harvested_at, s.source = $source",
                 version=version,
                 harvested_at=harvest.harvested_at,
                 source=harvest.source,
             )
-        return len(rows)
 
     async def awrite_harvest(
         self, harvest: Harvest, *, snapshot_version: str = ""
@@ -353,19 +447,39 @@ class SemanticGraphStore:
         become one edge; K7's cookbook found exactly that by accepting four joins and getting
         three.
         """
+        edge = canonical_join(edge)
         with self._driver.session(database=self._database) as session:
-            session.run(
+            left = self._resolve_table(session, edge.left_table)
+            right = self._resolve_table(session, edge.right_table)
+            missing = [
+                name
+                for name, found in ((edge.left_table, left), (edge.right_table, right))
+                if found is None
+            ]
+            if missing:
+                raise SemanticReadError(
+                    f"cannot record a join: {', '.join(repr(m) for m in missing)} not in the "
+                    "graph. A join is an edge between two tables that exist; a MATCH that "
+                    "found nothing would have written nothing and reported success."
+                )
+            assert left is not None and right is not None
+            record = session.run(
                 f"""
-                MATCH (a:{TABLE_LABEL} {{name: $left}})
-                MATCH (b:{TABLE_LABEL} {{name: $right}})
+                MATCH (a:{TABLE_LABEL} {{schema: $ls, name: $ln}})
+                MATCH (b:{TABLE_LABEL} {{schema: $rs, name: $rn}})
                 MERGE (a)-[j:JOINS_TO {{on: $on}}]->(b)
                 SET j.cardinality = $cardinality, j.status = 'accepted'
+                RETURN j.on AS written
                 """,
-                left=edge.left_table,
-                right=edge.right_table,
+                ls=left[0],
+                ln=left[1],
+                rs=right[0],
+                rn=right[1],
                 on=edge.on,
                 cardinality=edge.cardinality,
-            )
+            ).single()
+        if record is None:  # pragma: no cover -- both endpoints were just resolved
+            raise SemanticReadError("the join write matched nothing after resolution")
 
     async def awrite_join(self, edge: JoinEdge) -> None:
         """Async variant."""
@@ -374,20 +488,33 @@ class SemanticGraphStore:
     def write_authoritative_source(self, source: AuthoritativeSource) -> None:
         """Record which table answers for a concept, and what it beat (G20)."""
         with self._driver.session(database=self._database) as session:
-            session.run(
+            table = self._resolve_table(session, source.table)
+            if table is None:
+                raise SemanticReadError(
+                    f"cannot set {source.table!r} as authoritative for {source.concept!r}: "
+                    "the table is not in the graph."
+                )
+            record = session.run(
                 f"""
                 MATCH (c:{CONCEPT_LABEL} {{name: $concept}})
-                MATCH (t:{TABLE_LABEL} {{name: $table}})
+                MATCH (t:{TABLE_LABEL} {{schema: $schema, name: $table}})
                 MERGE (c)-[a:AUTHORITATIVE_SOURCE]->(t)
                 SET a.alternatives = $alternatives,
                     a.rationale = $rationale,
                     a.status = $status
+                RETURN t.name AS written
                 """,
                 concept=source.concept,
-                table=source.table,
+                schema=table[0],
+                table=table[1],
                 alternatives=list(source.alternatives),
                 rationale=source.rationale,
                 status=source.status.value,
+            ).single()
+        if record is None:
+            raise SemanticReadError(
+                f"cannot set an authoritative source for {source.concept!r}: the concept is "
+                "not in the graph. Enrichment lands first; this proposal will apply on retry."
             )
 
     async def awrite_authoritative_source(self, source: AuthoritativeSource) -> None:
@@ -448,12 +575,17 @@ class SemanticGraphStore:
     def get_table(
         self, name: str, *, include_proposed: bool = False
     ) -> Optional[Table]:
-        bare = name.split(".")[-1]
         with self._driver.session(database=self._database) as session:
+            resolved = self._resolve_table(session, name)
+            if resolved is None:
+                return None
+            schema, bare = resolved
             record = session.run(
-                f"MATCH (n:{TABLE_LABEL} {{name: $name}}) WHERE true{_visible(include_proposed)} "
+                f"MATCH (n:{TABLE_LABEL} {{schema: $schema, name: $name}}) "
+                f"WHERE true{_visible(include_proposed)} "
                 "RETURN n.schema AS schema, n.name AS name, n.row_count AS row_count, "
                 "n.comment AS comment",
+                schema=schema,
                 name=bare,
             ).single()
             if record is None:
@@ -462,17 +594,21 @@ class SemanticGraphStore:
             # asked for a table it is entitled to see, so the filter has to reach the columns
             # too, not only the table.
             columns = session.run(
-                f"MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(:{TABLE_LABEL} {{name: $name}}) "
+                f"MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->"
+                f"(:{TABLE_LABEL} {{schema: $schema, name: $name}}) "
                 f"WHERE true{_visible(include_proposed).replace('n.', 'c.')} "
                 "RETURN c.name AS name, c.data_type AS data_type, c.nullable AS nullable, "
                 "c.is_key AS is_key, c.comment AS comment, c.sampled_values AS sampled_values, "
                 "c.collides_with AS collides_with, c.status AS status "
                 "ORDER BY c.name",
+                schema=schema,
                 name=bare,
             )
             concepts = session.run(
-                f"MATCH (:{TABLE_LABEL} {{name: $name}})-[:INSTANTIATES]->(c:{CONCEPT_LABEL}) "
+                f"MATCH (:{TABLE_LABEL} {{schema: $schema, name: $name}})"
+                f"-[:INSTANTIATES]->(c:{CONCEPT_LABEL}) "
                 "RETURN c.name AS name ORDER BY c.name",
+                schema=schema,
                 name=bare,
             )
             return Table(
@@ -572,14 +708,11 @@ class SemanticGraphStore:
         expose raises instead: "no path from a table I have never heard of" would report a typo
         as a fact about the data.
         """
-        left, right = from_table.split(".")[-1], to_table.split(".")[-1]
         with self._driver.session(database=self._database) as session:
-            for endpoint in (left, right):
-                exists = session.run(
-                    f"MATCH (t:{TABLE_LABEL} {{name: $name}}) RETURN count(t) AS n",
-                    name=endpoint,
-                ).single()
-                if not exists or exists["n"] == 0:
+            ends = []
+            for endpoint in (from_table, to_table):
+                resolved = self._resolve_table(session, endpoint)
+                if resolved is None:
                     known = session.run(
                         f"MATCH (t:{TABLE_LABEL}) RETURN t.name AS name ORDER BY name"
                     )
@@ -587,17 +720,22 @@ class SemanticGraphStore:
                         f"find_join_path: {endpoint!r} is not a table the semantic layer "
                         f"exposes. Known tables: {', '.join(r['name'] for r in known)}."
                     )
-            if left == right:
+                ends.append(resolved)
+            (ls, left), (rs, right) = ends
+            if (ls, left) == (rs, right):
                 return JoinPath(from_table=left, to_table=right, edges=())
             record = session.run(
                 f"""
-                MATCH (a:{TABLE_LABEL} {{name: $left}}), (b:{TABLE_LABEL} {{name: $right}})
+                MATCH (a:{TABLE_LABEL} {{schema: $ls, name: $left}}),
+                      (b:{TABLE_LABEL} {{schema: $rs, name: $right}})
                 MATCH path = shortestPath((a)-[:JOINS_TO*..6]-(b))
                 RETURN [r IN relationships(path) |
                         {{on: r.on, cardinality: r.cardinality,
                           left: startNode(r).name, right: endNode(r).name}}] AS hops
                 """,
+                ls=ls,
                 left=left,
+                rs=rs,
                 right=right,
             ).single()
         if record is None:

@@ -239,7 +239,8 @@ ORDER BY c.relname
 """
 
 _COLUMNS_SQL = """
-SELECT a.attname AS column_name,
+SELECT c.relname AS table_name,
+       a.attname AS column_name,
        format_type(a.atttypid, a.atttypmod) AS data_type,
        NOT a.attnotnull AS nullable,
        pg_get_expr(d.adbin, d.adrelid) AS column_default,
@@ -255,9 +256,10 @@ LEFT JOIN (
     CROSS JOIN LATERAL unnest(con.conkey) AS u(attnum)
     WHERE con.contype = 'p'
 ) k ON k.conrelid = a.attrelid AND k.attnum = a.attnum
-WHERE n.nspname = %(schema)s AND c.relname = %(table)s
+WHERE n.nspname = %(schema)s
+  AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
   AND a.attnum > 0 AND NOT a.attisdropped
-ORDER BY a.attnum
+ORDER BY c.relname, a.attnum
 """
 
 
@@ -335,9 +337,16 @@ def harvest_schema(
         cursor.execute(_TABLES_SQL, {"schema": schema})
         table_rows = [row for row in cursor.fetchall() if row[0] not in excluded]
 
+        # One catalogue query for every column in the schema, grouped here, rather than one
+        # per table. Two queries per table is fine at five tables and is 300 round trips at
+        # 150; the count(*) below stays per table because it has to.
+        cursor.execute(_COLUMNS_SQL, {"schema": schema})
+        columns_by_table: Dict[str, List[Tuple[Any, ...]]] = defaultdict(list)
+        for row in cursor.fetchall():
+            columns_by_table[row[0]].append(row[1:])
+
         for table_name, table_comment, _approx in table_rows:
-            cursor.execute(_COLUMNS_SQL, {"schema": schema, "table": table_name})
-            column_rows = cursor.fetchall()
+            column_rows = columns_by_table.get(table_name, [])
 
             # An exact count, not the planner's estimate. `pg_stat_user_tables.n_live_tup` is
             # zero until autovacuum has run, which on a freshly loaded warehouse is exactly

@@ -2118,3 +2118,58 @@ question the cookbook did not: what happens tomorrow night? That is the question
 every write path from here on.
 
 ---
+
+---
+
+### PR #196 review round 1 — one critical, three major, five minor; all nine addressed
+
+**Status:** PASS — 258 unit tests, 12/12 live regression tests, cookbook sweep 17/17
+
+**The critical one was right, and it was in the fix.** `write_harvest`'s upsert-and-prune
+built `keep_tables` from the harvest and pruned with `WHERE NOT (…) IN $keep`. Cypher's `NOT x
+IN []` is true for every node, so an *empty* harvest — a wrong `--schema`, a revoked grant, an
+outage mid-query, all of which `harvest_schema` returns as `tables=()` — pruned everything.
+The same wipe the P2 verification had just removed, reachable through a different door.
+Now: `write_harvest` raises `EmptyHarvestRefused` when the harvest is empty and the graph is
+not; `refresh_semantic_layer` refuses before touching either store, so no snapshot records a
+version the graph never held. Live test: table count unchanged after the refused write.
+
+**Both majors were the same defect twice.** `write_join` and `write_authoritative_source` ran
+`MATCH … MATCH … MERGE` with no `RETURN`, so a missing endpoint matched nothing, wrote nothing,
+and raised nothing — and `apply_accepted` then set `applied_at`, a permanent false "applied"
+with no retry. The sibling `link_table_to_concept` already did it right. Both now resolve
+their endpoints first and raise `SemanticReadError` naming what is missing, so a stuck
+proposal records `apply_error` and retries. Live test: proposal stays accepted, `applied_at`
+None, `apply_error` names the table.
+
+**The third major — no automated protection — is now `product/tests/test_semantic_live.py`.**
+Twelve tests against real Postgres and Neo4j: the empty-harvest refusal, refresh refusing
+before either store, reviewed edges surviving a re-harvest, no row values in the graph, both
+silent-no-op cases, apply recording failure, the reversed join landing on one edge, two
+predicates being two edges, schema-aware lookups, and a failed graph write leaving no
+snapshot. Gated on `EGPT_INTEGRATION_POSTGRES` / `EGPT_INTEGRATION_NEO4J` exactly as
+`integration.yml` sets them, so wiring is one line — filed as **R-9** since the workflow is
+Lane R's. Cleans up everything it writes.
+
+**Minors, each fixed:**
+- *DDL outside `MigrationManager`* — kept self-provisioning and said why in the docstring
+  (the manager's table map is framework-only; teaching it a retail table ships in the wheel);
+  made race-safe with `pg_advisory_xact_lock` around the DDL.
+- *Snapshot committed before the graph write* — reordered: graph first, then snapshot, so a
+  failed graph write leaves no permanent row to become `previous`. `write_harvest` now runs
+  in one `execute_write` transaction. Live test with a driver that raises.
+- *N+1 in the harvest* — one catalogue query per schema for columns, grouped in Python. The
+  `count(*)` stays per table because an exact count has to be.
+- *Schema-unaware lookups* — one `_resolve_table` accepting bare or qualified names, raising
+  on a bare name that matches in two schemas, used by `get_table`, `write_join`,
+  `write_authoritative_source` and `find_join_path`.
+- *Directional join key* — `canonical_join` stores every edge from the lexicographically
+  smaller table, inverting cardinality when it swaps the pair and leaving the predicate as
+  written. A reversed proposal updates the existing edge. Four DB-free tests plus one live.
+
+**Surprising:** the critical finding. I had written the prune, tested it against a real
+harvest, and never asked what it did with no harvest. "What happens tomorrow night?" was the
+question that found gap 1 in the P2 verification; "what happens when the input is empty?" is
+the one I should have asked next and did not. Both go on the list for every write path.
+
+---
