@@ -215,8 +215,26 @@ class RetailSettings(BrandedSettings):
     )
     retail_azure_deployment: str = Field(
         default="gpt-5.4",
-        description="Azure OpenAI chat deployment for the registered agents (EGPT_RETAIL_AZURE_DEPLOYMENT). "
+        description="Azure OpenAI chat deployment for the frontier tier (EGPT_RETAIL_AZURE_DEPLOYMENT). "
+        "R8's routing table binds frontier-tier agents here and escalates small-tier agents here. "
         "Credentials come from AZURE_OPENAI_* at call time, never at construction.",
+    )
+    retail_azure_small_deployment: str = Field(
+        default="gpt-5.4-mini",
+        description="Azure OpenAI chat deployment for the small tier (EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT). "
+        "Both tiers are Azure OpenAI deployments on the same code path -- the build plan defers the "
+        "in-VPC GPU pool -- so 'small' is a cheaper deployment, not a different provider. Same "
+        "credential rule as the frontier deployment.",
+    )
+    retail_small_context_window: int = Field(
+        default=128_000,
+        gt=0,
+        description="The small deployment's context window, in tokens (EGPT_RETAIL_SMALL_CONTEXT_WINDOW). "
+        "Declared here because the Mode B provider cannot state one without asking a server, and the "
+        "escalation rule `input_exceeds_context_window` never fires on an unknown window -- so without "
+        "this, a request too large for the small tier would reach it and fail there instead of escalating "
+        "before the call. Set it to the deployment's real limit; a smaller value escalates earlier, never "
+        "wrongly.",
     )
     retail_consolidation_poll_interval: float = Field(
         default=300.0,

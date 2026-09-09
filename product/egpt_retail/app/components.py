@@ -5,13 +5,17 @@ neither ``id`` nor ``name`` gets ``generate_id_from_name`` over a uuid4 -- a fre
 on every process start. The consolidator's scopes are built from the ids listed here, so an
 unstable id would silently orphan every partition the previous process wrote.
 
-**The synonym proposer is built here from Lane K's assets; no ``Agent`` exists to import.**
-``skills/synonym_proposer.py`` exports the output schema and the prompt/code drift checkers; the
-agent itself was only ever constructed inside ``cookbook/94_retail/K14_skill_template.py``. Two
-differences from that cookbook: the deployment name comes from settings with a default, never a
-bare ``os.environ[...]`` (which raises at import and would take ``/config`` down with it), and the
-model is constructed lazily -- ``AzureOpenAI`` reads ``AZURE_OPENAI_*`` in ``_get_client_params``,
-not in ``__init__``, so ``/config`` lists the agent with no key present.
+**The agents are built here from the skills' assets; no ``Agent`` exists to import.**
+``skills/synonym_proposer.py`` and ``skills/join_path_explainer.py`` export the output schema and
+the prompt/code drift checkers; the agents themselves were only ever constructed inside the K14
+cookbooks. Two differences from those cookbooks: nothing here reads a bare ``os.environ[...]``
+(which raises at import and would take ``/config`` down with it), and **no agent pins a model**.
+Each is built with ``model=None`` and handed a provider by ``routing.route_agents`` (R8, G6):
+the routing table says which tier serves it, the provider resolves the Azure deployment for
+that tier at startup and again per run, and a small-tier request the deployment cannot take
+escalates to the frontier before the call. ``AzureOpenAI`` reads ``AZURE_OPENAI_*`` in
+``_get_client_params``, not in ``__init__``, so ``/config`` still lists every agent with no key
+present. An agent with no row in the table refuses assembly, naming itself.
 
 The agent **is** handed a memory provider (K1). No OS-level path does that -- ``memory_provider``
 has no reference under ``egpt/os/`` -- so it is ``Agent(memory_provider=...)`` explicitly, built
@@ -32,7 +36,6 @@ from typing import List, Optional, Union
 from egpt.agent import Agent, AgentFactory, RemoteAgent
 from egpt.agent.protocol import AgentProtocol
 from egpt.integrations.db.postgres import PostgresDb
-from egpt.integrations.models.azure import AzureOpenAI
 from egpt.memory.config import build_memory_provider_for
 from egpt.memory.provider import MemoryProvider
 from egpt.registry.registry import Registry
@@ -48,12 +51,15 @@ from egpt_retail.executors.provenance import record_provenance
 from egpt_retail.executors.registry import assert_registry_valid
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
 from egpt_retail.memory.config import build_memory_resolver
+from egpt_retail.routing.providers import build_tier_providers, route_agents
+from egpt_retail.skills.join_path_explainer import JoinExplanation
 from egpt_retail.skills.synonym_proposer import SynonymProposalSet
 
 __all__ = [
     "RegisteredAgent",
     "RegisteredWorkflow",
     "SYNONYM_PROPOSER_ID",
+    "JOIN_PATH_EXPLAINER_ID",
     "LANDING_TO_SILVER_WORKFLOW_ID",
     "NIGHTLY_REFRESH_WORKFLOW_ID",
     "MEMORY_WRITING_AGENT_IDS",
@@ -68,6 +74,9 @@ RegisteredAgent = Union[Agent, RemoteAgent, AgentProtocol, AgentFactory]
 RegisteredWorkflow = Union[Workflow, RemoteWorkflow, WorkflowFactory]
 
 SYNONYM_PROPOSER_ID = "synonym_proposer"
+#: Lane R's agent from K14's second half. Registered here (R8) rather than living only in its
+#: cookbook, because the routing table needs one small-tier agent that really exists.
+JOIN_PATH_EXPLAINER_ID = "join_path_explainer"
 
 #: R4's pipeline, kept registered for hand runs. Stable: stored workflows reference it by id.
 LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
@@ -76,8 +85,9 @@ LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
 #: (``egpt-retail schedule-nightly``) targets this id, so it is the one that must not move.
 NIGHTLY_REFRESH_WORKFLOW_ID = "nightly-refresh"
 
-#: The agents whose memory partitions the consolidator drains. Phase zero: one.
-MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID]
+#: The agents whose memory partitions the consolidator drains. Every registered agent: the
+#: lifespan hands each one the memory provider, so each one writes a partition.
+MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID, JOIN_PATH_EXPLAINER_ID]
 
 #: R7's three (G4). Unlike R4's six, these are not wired into a standalone registered
 #: workflow -- they exist to be composed into other packages' workflows (R10's RFQ chain,
@@ -86,6 +96,7 @@ R7_EXECUTORS = (check_preflight, record_provenance, deliver_in_app)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
+_JOIN_PATH_EXPLAINER_PROMPT = _SKILLS_DIR / "join_path_explainer.md"
 
 
 def build_memory_provider(settings: RetailSettings) -> Optional[MemoryProvider]:
@@ -111,12 +122,25 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
         id=SYNONYM_PROPOSER_ID,
         name=SYNONYM_PROPOSER_ID,
         description="Proposes synonyms and question patterns for one business concept (Lane K, K14).",
-        model=AzureOpenAI(id=settings.retail_azure_deployment),
         instructions=_SYNONYM_PROPOSER_PROMPT.read_text(),
         output_schema=SynonymProposalSet,
         db=db,
     )
-    return [synonym_proposer]
+    join_path_explainer = Agent(
+        id=JOIN_PATH_EXPLAINER_ID,
+        name=JOIN_PATH_EXPLAINER_ID,
+        description=(
+            "Explains a join path the semantic layer found, or did not, without ever "
+            "disagreeing with it (Lane R, K14)."
+        ),
+        instructions=_JOIN_PATH_EXPLAINER_PROMPT.read_text(),
+        output_schema=JoinExplanation,
+        db=db,
+    )
+    agents: List[RegisteredAgent] = [synonym_proposer, join_path_explainer]
+    # R8: tier per agent, from the table; refuses an unrouted or model-pinning agent.
+    route_agents(agents, build_tier_providers(settings))
+    return agents
 
 
 def _chain(executors: tuple) -> List[Step]:

@@ -54,6 +54,8 @@ __all__ = [
     "ModelResolveResult",
     "ProviderMode",
     "aresolve_via",
+    "aresolve_via_detailed",
+    "resolve_via_detailed",
     "supports_detailed_resolve",
 ]
 
@@ -398,6 +400,44 @@ async def aresolve_via(provider: Any, request: ModelResolveRequest) -> Model:
     if isinstance(provider, AsyncModelProvider):
         return await provider.aresolve(request)
     return provider.resolve(request)  # type: ignore[no-any-return]
+
+
+def resolve_via_detailed(provider: Any, request: ModelResolveRequest) -> Tuple[Model, Optional[ModelResolveResult]]:
+    """Resolve through ``provider``, keeping the detailed result when the provider offers one.
+
+    The per-run hook needs two things from a resolution: the model to serve, and -- when the
+    provider composes tiers -- *why* that model was chosen, so an escalation can be written
+    into the run record rather than only into the log (G6). ``resolve`` discards the second;
+    ``resolve_detailed`` is optional on the Protocol. This is the one place that reconciles
+    them: a provider with a real ``resolve_detailed`` (see ``supports_detailed_resolve``) is
+    asked for the detail, and the model is read off it, so nothing resolves twice. A provider
+    with only ``resolve`` returns ``(model, None)`` -- ``None`` rather than a synthesised
+    ``ModelResolveResult``, because that dataclass requires a ``mode`` and inventing one would
+    put a fact in the run record that no provider stated.
+    """
+    if supports_detailed_resolve(provider):
+        detail: ModelResolveResult = provider.resolve_detailed(request)
+        return detail.model, detail
+    return provider.resolve(request), None
+
+
+async def aresolve_via_detailed(
+    provider: Any, request: ModelResolveRequest
+) -> Tuple[Model, Optional[ModelResolveResult]]:
+    """Async counterpart of ``resolve_via_detailed``; same preference for a provider's own async path.
+
+    Prefers ``aresolve_detailed`` when the provider defines one (every ``BaseModelProvider``
+    does, and the ones that do I/O override it), so a Mode B gateway probe stays off the event
+    loop on the detailed path exactly as ``aresolve_via`` keeps it off on the bare-model path.
+    """
+    if supports_detailed_resolve(provider):
+        adetailed = getattr(provider, "aresolve_detailed", None)
+        if adetailed is not None:
+            detail: ModelResolveResult = await adetailed(request)
+        else:
+            detail = provider.resolve_detailed(request)
+        return detail.model, detail
+    return await aresolve_via(provider, request), None
 
 
 def supports_detailed_resolve(provider: Any) -> bool:

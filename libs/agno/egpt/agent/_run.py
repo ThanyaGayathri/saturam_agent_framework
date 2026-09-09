@@ -278,12 +278,35 @@ def estimate_request_input_tokens(agent: Any, run_input: Any) -> Optional[int]:
         return None
 
 
-def _stamp_resolved_model(agent: Any, run_context: Optional[RunContext], run_response: Any, resolved: Any) -> bool:
+#: Key under which an escalation is recorded in ``RunOutput.metadata``. The same name the
+#: provider attaches to its log record (``egpt.providers.events.ESCALATION_LOG_FIELD``), so
+#: the log line and the persisted run agree on where to look. Spelled out here rather than
+#: imported so `egpt.agent` keeps no import-time edge to the provider seam.
+ESCALATION_METADATA_KEY = "egpt_escalation"
+
+
+def _stamp_resolved_model(
+    agent: Any,
+    run_context: Optional[RunContext],
+    run_response: Any,
+    resolved: Any,
+    *,
+    detail: Any = None,
+    request: Any = None,
+) -> bool:
     """Record the resolved model for this run, re-stamp attribution, and report whether it changed.
 
     `run_response.model`/`model_provider` are written before the run body is entered, so a run
     that escalates otherwise reported the *pre*-escalation model: cost dashboards under-counted
     frontier usage and the audit trail claimed an out-of-VPC request was served in-VPC.
+
+    `detail` is the provider's ``ModelResolveResult`` when it gave one (``resolve_run_model_detailed``),
+    and `request` the ``ModelResolveRequest`` it answered. When the detail says the request was
+    escalated, the fact is written into ``run_response.metadata[ESCALATION_METADATA_KEY]`` in the
+    same JSON-safe shape the provider logs (``EscalationEvent.to_dict``). ``RunOutput.metadata``
+    is persisted with the run, so this is what makes an escalation visible *in the run record*
+    (G6) rather than only in a log line that the run does not link to. Neither argument is
+    required: every pre-existing caller passes neither and gets the pre-existing behaviour.
 
     The return value is what lets the caller recompute model-dependent derivations *only* when
     the model actually moved -- a provider that returns the model already assigned is the common
@@ -341,7 +364,47 @@ def _stamp_resolved_model(agent: Any, run_context: Optional[RunContext], run_res
     if run_response is not None:
         run_response.model = getattr(resolved, "id", None)
         run_response.model_provider = getattr(resolved, "provider", None)
+        _stamp_escalation(agent, run_context, run_response, resolved, detail, request)
     return changed
+
+
+def _stamp_escalation(
+    agent: Any, run_context: Optional[RunContext], run_response: Any, resolved: Any, detail: Any, request: Any
+) -> None:
+    """Write the escalation, if there was one, into the run's metadata.
+
+    Only when `detail.escalated_from` is set: a resolution that stayed on the primary leaves no
+    key, so "was this run escalated?" is answerable by the key's presence alone. A run whose
+    output object has no `metadata` attribute (a test double, an event) is left alone.
+
+    The metadata dict is *replaced*, not mutated. ``RunOutput`` is constructed with
+    ``metadata=run_context.metadata or {}`` -- the caller's own dict when one was passed to
+    ``run(metadata=...)`` -- and that dict is also what ``_run_model_request`` forwards to the
+    provider as the request's metadata. Appending to it in place would put the escalation record
+    into the *caller's* object, and into the next re-resolve's request, where the escalation
+    rules read ``metadata``. A fresh dict on the response keeps the record where it belongs.
+    """
+    if detail is None or getattr(detail, "escalated_from", None) is None or not hasattr(run_response, "metadata"):
+        return
+    from egpt.providers.events import EscalationEvent
+
+    event = EscalationEvent(
+        reason=getattr(detail, "reason", None) or "unspecified",
+        escalated_from=detail.escalated_from,
+        # The registry key the escalation target resolved through -- the same identity the
+        # detail carries for the primary, so the two sides of the record are comparable.
+        target=getattr(detail, "provider_key", None) or getattr(resolved, "provider", None) or "unknown",
+        escalation_level=(getattr(request, "escalation_level", 0) or 0) + 1,
+        tenant_id=getattr(run_context, "tenant_id", None),
+        user_id=getattr(run_context, "user_id", None),
+        session_id=getattr(run_context, "session_id", None),
+        agent_id=getattr(agent, "id", None),
+        model_id=getattr(resolved, "id", None),
+    )
+    record = event.to_dict()
+    record["gateway"] = getattr(detail, "gateway", None)
+    existing = getattr(run_response, "metadata", None) or {}
+    run_response.metadata = {**existing, ESCALATION_METADATA_KEY: record}
 
 
 def estimate_component_tool_count(component: Any) -> int:
@@ -526,11 +589,11 @@ def apply_run_model(
     if request is None:
         return False
 
-    from egpt.agent._init import resolve_run_model
+    from egpt.agent._init import resolve_run_model_detailed
     from egpt.providers.model_provider import ModelProviderConfigError
 
     try:
-        resolved = resolve_run_model(agent, request)
+        resolved, detail = resolve_run_model_detailed(agent, request)
     except (ModelProviderConfigError, ProviderDenial):
         # Misconfiguration, or a provider that deliberately said no (budget/rate denial). Both
         # are answers rather than faults, so they reach the caller instead of being downgraded
@@ -544,7 +607,7 @@ def apply_run_model(
 
     if resolved is None:
         return False
-    return _stamp_resolved_model(agent, run_context, run_response, resolved)
+    return _stamp_resolved_model(agent, run_context, run_response, resolved, detail=detail, request=request)
 
 
 async def aapply_run_model(
@@ -576,11 +639,11 @@ async def aapply_run_model(
     if request is None:
         return False
 
-    from egpt.agent._init import aresolve_run_model
+    from egpt.agent._init import aresolve_run_model_detailed
     from egpt.providers.model_provider import ModelProviderConfigError
 
     try:
-        resolved = await aresolve_run_model(agent, request)
+        resolved, detail = await aresolve_run_model_detailed(agent, request)
     except (ModelProviderConfigError, ProviderDenial):
         # Same classification as the sync path above.
         raise
@@ -590,7 +653,7 @@ async def aapply_run_model(
 
     if resolved is None:
         return False
-    return _stamp_resolved_model(agent, run_context, run_response, resolved)
+    return _stamp_resolved_model(agent, run_context, run_response, resolved, detail=detail, request=request)
 
 
 # ---------------------------------------------------------------------------
