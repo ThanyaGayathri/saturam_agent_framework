@@ -2865,6 +2865,14 @@ repository gates, and running the product suite on the 3.10 floor.
    from the session record, re-linted, re-rendered both ways, amended. The lesson is the one
    the chores entry already argues for R-9: a verification that ran once on a laptop is a
    claim; the job that runs on every push is the evidence.
+7. **`integration.yml`'s own framework step is red on `main`'s schedule, and has been for
+   three days** (7–9 Sep: 132 failed / 1 645 passed on 9 Sep, in `test_per_request_isolation`,
+   `test_share_sessions`, `test_tool_generated_media`, `test_output_schema_override` — no
+   product test among them). The dispatch on this branch failed the same way (130 / 1 645),
+   which is how I learned that the two steps this PR adds were *skipped* rather than run:
+   GitHub skips later steps after a failure unless told otherwise. Both now carry
+   `if: ${{ !cancelled() }}`, so the semantic live suite reports on its own merits. The
+   framework failures are not this branch's and are not fixed here; they belong on `main`.
 5. **X-6 was already closed by R2** and nobody had struck it: `dev_setup.sh` installs
    `product[dev]`, which carries `openapi-spec-validator`; the `.venv` has 0.9.0.
 
