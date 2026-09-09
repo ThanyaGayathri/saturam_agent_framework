@@ -2829,3 +2829,91 @@ looked clean. It would also have been the second ranking rule in the codebase, a
 time the two disagreed nobody would have noticed.
 
 ---
+
+---
+
+### K08_proposers.py
+
+**Status:** PASS
+
+**Description:** K8 — the enrichment and mapping proposers, run against the real silver
+harvest with sampled values on. The plan's scenario: run both, read the proposals by eye and
+judge each one, query the graph before reviewing anything, and check every collision K4
+reported has a resolution.
+
+**The D10 guarantee is structural, and the cookbook proves it.** `graph before` and
+`graph after` are byte-identical — `{'concepts': 2, 'instantiates': 4, 'authoritative': 1}`
+both times — with 13 proposals sitting in the queue. Neither skill module imports a graph
+store; a unit test asserts that, so the guarantee cannot be undone by a later edit that
+"just needs a quick write".
+
+**G19: every collision resolved on both sides.** Eight column names collide across the silver
+schema; the agent resolved each on every table carrying it. The one that matters:
+
+```
+analytics_event.session_id        -> the analytics vendor's session id, explicitly in a
+                                     separate id space from session_replay_session.session_id
+session_replay_session.session_id -> the session replay system's id for the replay session
+both: not joinable
+```
+
+That is the exact trap R4's DDL comment warns about, and the agent found it from the comment
+rather than from the name — which is the only way it could have been found.
+
+**G20: two contested concepts, one authoritative each.** `QuoteRequest` → `crm_deal` (over
+`crm_deal_stage_history`), `WebSession` → `session_replay_session` (over `analytics_event`).
+
+**Judging the proposals — the baseline.** Of the 13, I judge **2 wrong and 1 arguable**:
+
+| # | Proposal | Verdict |
+|---|---|---|
+| 11 | `crm_deal_stage_history → QuoteRequest` | **Wrong.** A stage-history table is a record of transitions *about* a quote request, not an instance of one. The agent itself marked it `low` and said it "appears secondary" |
+| — | `Customer` ← `identity_at_login` / `identity_at_submit` as personal-data fields | **Wrong.** Those are session identities on a replay table; attaching them to Customer confuses a session actor with a customer record |
+| 9 | `WebSession` authoritative = `session_replay_session` | **Arguable.** Replay is typically sampled, so `analytics_event` is the broader source for "how many sessions". Exactly the judgement G20 exists to put in front of a person |
+
+**That is 2/13 clearly wrong, and it is this number that later prompt changes are measured
+against.** It is my judgement, not the user's — the baseline is theirs to confirm, and the
+numbered list in section 5 of the cookbook output is printed for exactly that.
+
+**Two defects this run found — both mine, not the agents'.**
+
+*The agent was given the wrong concept list.* The first run loaded the core ontology only, so
+`QuoteRequest` — which lives in the Middleby overlay — was not on it. The agent mapped
+`crm_deal → Order`, which is wrong, and it was the best answer available: the right word was
+not in the set it was allowed to use. **An agent constrained to a closed set can only be as
+right as the set**, and offering the wrong one produces a plausible mapping that reads as a
+model failure. Fixed by loading the overlay; the mapping became `crm_deal → QuoteRequest`.
+
+*The agent told me about the second one.* Its notes said *"No accepted synonyms from other
+concepts were provided, so synonym collision could not be checked"* — and it then proposed
+`contact` as a synonym for `Customer`, which is the name of another concept and which K3's
+synonym index refuses outright. `taken_terms` was declared as an input in the prompt and never
+passed. After passing it, the proposal disappeared and the notes read *"terms such as
+'contact', 'lead', 'prospect', and 'person' are already spoken for."* A measurable input
+change with a measurable result — which is the discipline this baseline exists to support.
+
+*Also fixed:* the agent was asked to restate `alternatives` for an authoritative source. Those
+are derivable — the alternatives to a table are the other tables mapped to the same concept —
+so they are now derived from the response and the model's own field is advisory. On the first
+run it marked a single-table concept authoritative with an empty list; that case now cannot
+reach the queue at all, because an uncontested concept has no contest to settle.
+
+**Run-to-run variation** is real and worth recording: three runs produced 12, 14 and 13
+proposals. The mappings that differed were the low-confidence ones (`crm_deal → Order` vs
+`→ Promotion` before the overlay landed); the high-confidence mappings, both authoritative
+sources and all eight collision resolutions were stable across every run. That is the right
+shape — the agent is steady where the evidence is strong and varies where it is weak — but it
+means a golden set (G13/R15) has to score the confident half separately.
+
+**Tests:** 23 DB-free in `product/tests/test_k8_proposers.py` — prompts carrying their closed
+sets in full, vocabularies rendered rather than hand-typed, a prompt missing its placeholder
+refused, unresolved collisions detected, and the structural check that neither module imports
+a graph store.
+
+**Surprising:** the model was a better reviewer of my inputs than I was. Both input defects
+were visible in its `notes` field before I noticed either — one stated outright, one implied
+by a low-confidence mapping with an apologetic rationale. The refusal channel section 8 of the
+template insists on is not just for refusals; it is where an agent tells you your pipeline is
+wrong, and it is worth reading even when the run succeeded.
+
+---

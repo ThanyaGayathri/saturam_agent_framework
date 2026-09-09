@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "_comment": [
     "Shipped retail vocabularies (D9). Delivered with every deployment; customers extend",
     "them with an overlay rather than forking them (G10).",
@@ -108,6 +108,28 @@
       {
         "value": "blocked",
         "description": "No source table the formula needs is present."
+      }
+    ],
+    "compliance_tag": [
+      {
+        "value": "pii",
+        "description": "Directly identifies a person: name, email, phone, address."
+      },
+      {
+        "value": "pseudonymous_id",
+        "description": "Identifies a person only when joined to something else -- a hashed email, a cookie or device id."
+      },
+      {
+        "value": "financial",
+        "description": "Prices, amounts, margins or terms that are commercially confidential."
+      },
+      {
+        "value": "contractual",
+        "description": "Restricted by an agreement with a supplier, partner or customer rather than by law."
+      },
+      {
+        "value": "public",
+        "description": "Nothing restricts sharing this. Stated rather than left blank, so an unreviewed field is distinguishable from a reviewed one."
       }
     ]
   }
