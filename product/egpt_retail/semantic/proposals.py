@@ -84,7 +84,9 @@ class ProposalKind(str, Enum):
     JOIN = "join"
     #: This table is the one that answers for this concept (G20).
     AUTHORITATIVE_SOURCE = "authoritative_source"
-    #: Adopt a harvested metric as a KPI definition (K11).
+    #: What one side of a colliding column name means, and which concept it belongs to (G19).
+    COLUMN_MEANING = "column_meaning"
+    #: Adopt a metric as a KPI definition, carried in full (K11).
     KPI = "kpi"
     #: A question this deployment could now answer.
     USE_CASE = "use_case"
@@ -100,6 +102,7 @@ GRAPH_KINDS = frozenset(
         ProposalKind.MAPPING,
         ProposalKind.JOIN,
         ProposalKind.AUTHORITATIVE_SOURCE,
+        ProposalKind.COLUMN_MEANING,
     }
 )
 
@@ -277,8 +280,55 @@ def _mapping_from(payload: Mapping[str, Any]) -> Tuple[str, str]:
     return _required(payload, "table"), _required(payload, "concept")
 
 
-def _kpi_from(payload: Mapping[str, Any]) -> str:
-    return _required(payload, "identifier")
+def _column_meaning_from(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "table": _required(payload, "table"),
+        "column": _required(payload, "column"),
+        "concept": _required(payload, "concept"),
+        "means": _required(payload, "means"),
+        "joinable": bool(payload.get("joinable", False)),
+    }
+
+
+def _kpi_from(payload: Mapping[str, Any]) -> Any:
+    """A KPI proposal carries the whole definition, and it is built here so it fails here.
+
+    The first version required only an identifier, which made a KPI proposal a name a person
+    could accept and nothing could adopt. ``KpiDefinition``'s own construction checks the
+    formula against its declared parameters and tables, so a proposal that clears this
+    validator is one the registry can take without a second opinion.
+    """
+    from egpt_retail.contracts.kpi import (
+        Dialect,
+        KpiDefinition,
+        KpiParameter,
+        ParameterKind,
+        ResultShape,
+    )
+
+    try:
+        return KpiDefinition(
+            identifier=_required(payload, "identifier"),
+            name=_required(payload, "name"),
+            description=payload.get("description", ""),
+            sql=_required(payload, "sql"),
+            grain=_required(payload, "grain"),
+            business_area=_required(payload, "business_area"),
+            source_tables=frozenset(payload.get("source_tables", ())),
+            result_shape=ResultShape(payload.get("result_shape", "scalar")),
+            dialect=Dialect(payload.get("dialect", "postgres")),
+            parameters=tuple(
+                KpiParameter(
+                    name=p["name"],
+                    kind=ParameterKind(p.get("kind", "scalar")),
+                    description=p.get("description", ""),
+                )
+                for p in payload.get("parameters", ())
+            ),
+            concept=payload.get("concept"),
+        )
+    except ValueError as error:
+        raise PayloadError(str(error)) from None
 
 
 def _use_case_from(payload: Mapping[str, Any]) -> str:
@@ -299,6 +349,7 @@ _VALIDATORS: Dict[ProposalKind, Callable[[Mapping[str, Any]], Any]] = {
     ProposalKind.MAPPING: _mapping_from,
     ProposalKind.JOIN: _join_from,
     ProposalKind.AUTHORITATIVE_SOURCE: _authoritative_from,
+    ProposalKind.COLUMN_MEANING: _column_meaning_from,
     ProposalKind.KPI: _kpi_from,
     ProposalKind.USE_CASE: _use_case_from,
 }
@@ -659,6 +710,24 @@ class ProposalStore:
             applied.append(proposal.identifier)
         return ApplyOutcome(applied=tuple(applied), failed=tuple(failed))
 
+    def mark_applied(self, identifier: str) -> None:
+        """Stamp a proposal as applied by a consumer other than the graph (K11's registry).
+
+        The same rule as ``apply_accepted``: set only after the consumer's write returned.
+        """
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""UPDATE {self._schema}.proposal
+                    SET applied_at = now(), apply_error = NULL
+                    WHERE id = %s AND state = 'accepted'""",
+                (identifier,),
+            )
+        self._connection.commit()
+
+    async def amark_applied(self, identifier: str) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.mark_applied, identifier)
+
     async def aapply_accepted(self, store: Any) -> ApplyOutcome:
         """Async variant."""
         return await asyncio.to_thread(self.apply_accepted, store)
@@ -680,6 +749,15 @@ class ProposalStore:
             store.write_join(built, proposal_id=stamp)
         elif proposal.kind is ProposalKind.AUTHORITATIVE_SOURCE:
             store.write_authoritative_source(built, proposal_id=stamp)
+        elif proposal.kind is ProposalKind.COLUMN_MEANING:
+            store.write_column_meaning(
+                built["table"],
+                built["column"],
+                concept=built["concept"],
+                meaning=built["means"],
+                joinable=built["joinable"],
+                proposal_id=stamp,
+            )
 
     # --- internals ----------------------------------------------------------------------
 

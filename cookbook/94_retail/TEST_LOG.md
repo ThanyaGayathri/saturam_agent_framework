@@ -2982,3 +2982,100 @@ whichever the reader assumed is how a customer ends up told they support invento
 somebody wrote a concept description.
 
 ---
+
+---
+
+### P3 verification — nine gaps, all fixed; the K8 baseline re-measured across three runs
+
+**Status:** PASS — 448 unit, 33 live, cookbook sweep 23/23 across both lanes
+
+The same exercise as P1 and P2: read K11, K10, K8 and K9 against the five constraints and the
+plan's evidence lines, then probe the live stores rather than trust the cookbooks written
+alongside the code. Ordered by what it would have cost.
+
+**1. Accepting an enrichment proposal erased what a person had already accepted. (critical)**
+`write_concept` set every field unconditionally. A K8 proposal carrying synonyms and nothing
+else would, on acceptance, reset `QuoteRequest`'s description to `""` and blank the
+`sql_filter` accepted the week before — proved against the live node, which holds
+`d.record_type = 'deal'` today. A reviewer accepting *"add these synonyms"* was not accepting
+*"and forget the filter"*. Now lists union and scalars replace only when non-empty; a live
+test writes a full concept, then a partial one, and asserts nothing was lost. The cost is that
+nothing can now take a value away — filed as **K-6**, a `retraction` kind for P4.
+
+**2. K6 and K11 were each half of the same feature, and nobody had joined them. (high)**
+`refresh_semantic_layer` took `kpis=()` "until K11 persists them" — K11 now did, and the
+refresh still read nothing, so the nightly harvest could never put a registered KPI into
+review, never rebuilt the KPI mirror after a table appeared, and never stamped anything. Now
+wired, with one rule that matters: **only KPIs *not* in review are stamped.** A retyped
+column leaves a formula computable by set difference, so stamping every ready KPI would stamp
+the one whose meaning just changed and hide from K6's screen how far behind it is. Live test:
+drop a column one KPI reads, refresh — that KPI is in review and keeps its old stamp, the
+other is stamped with the new version.
+
+**3. `ProposalKind.KPI` had no consumer and its payload was just a name. (high)** K7 left it
+outside `GRAPH_KINDS` because the registry consumes it — and there was no registry code that
+did. An accepted KPI proposal stayed accepted forever. `_kpi_from` now builds a full
+`KpiDefinition` at propose time (so a formula reading an undeclared table fails *there*), and
+`KpiRegistryStore.adopt_accepted` saves it and stamps `applied_at`, idempotently.
+
+**4. G19 resolutions were parked in the wrong home. (medium)** The mapping proposer put
+"what this column means" into the concept's `question_patterns` — a field the enrichment
+agent owns, and a hack the docstring half-admitted. A column's accepted meaning, concept and
+joinability are properties of the column. `Column` gains `concept`, `meaning`, `joinable`
+(contract 1.2.0, additive), `ProposalKind.COLUMN_MEANING` writes them, `get_table` reads
+them back. Eight collisions now land as eight-per-table column meanings, and the K08 verdict
+fails if one ever reappears in a question pattern.
+
+**5. K9 trusted an agent's business area. (medium)** `business_area_evidence` read
+`c.business_area` off the graph node — which arrives through an enrichment proposal an agent
+drafted. The baseline runs then supplied the proof: run C put `WebSession` in `operations`,
+run A in `customer`; the ontology says `marketing`. A concept's area is shipped knowledge,
+so K9 now reads the mapped concepts from the graph and their areas from the ontology, and an
+agent's opinion about area is no longer consumed by anything.
+
+**6. `Concept.metrics` had two writers. (medium)** `write_concept` set it from the enrichment
+payload — candidate *names* an agent thought of — while the K11 mirror is the thing that
+knows which registry identifiers a concept actually carries. The mirror now owns it, computed
+from `MEASURED_BY` edges *after* the prune (the first attempt ran before it and a deleted KPI
+stayed on its concept's list — the live test caught that in the first run); enrichment
+carries candidates as `candidate_metrics` for K12.
+
+**7. `is_personal_data` on `Column` was hardcoded `False`** with a comment promising enrichment
+would set it, and nothing ever did. Now derived from the personal-data fields of the concepts
+the table instantiates.
+
+**8. The K10 memory leg had never run live**, and when it did, nothing corroborated — memory
+holds `promotable_text(concept)` while the semantic leg rendered the same node another way.
+Identity by content can only recognise identical statements, so two legs reading the *same
+node* must render it through the *same function*; that is K5's derivation contract, not a
+patch. The fused ranking now leads with `[memory, semantic]`, one finding from two legs.
+
+**9. The semantic leg ignored columns.** "Which table has email" could not be answered. Tables
+now match on column names too, at lower weight, naming the column in the result.
+
+Also: `rrf_rank`, `FusedItem`, `Leg`, `AsyncLeg` and `default_identity` were never exported
+from `egpt.memory.retrieval`; the Neo4j `CALL { WITH … }` form the mirror used is deprecated
+and is now `CALL (k, row) { … }`.
+
+**The K8 baseline, double-checked.** Two further runs against the committed one; the full
+comparison and every verdict are in `K08_BASELINE.md`, one row per proposal, with a column
+for the owner to confirm or overrule. The headline: **mappings are stable** — the same five
+in all three runs, both authoritative sources identical, all eight collisions resolved on
+both sides every time with `joinable=false` throughout; the only wobble is the confidence on
+the one mapping I judge wrong. **Enrichment is stable on structural claims and unstable on
+judgement claims** — which column is personal data and which synonym the harvest supports
+hold across runs; which area, and whether an identity field is `pii` or `pseudonymous_id`,
+do not. That split is the right shape and it dictated fix 5.
+
+**The number: 3 of 19 distinct proposals a reviewer would reject or edit** (one wrong mapping,
+one arguable authoritative source, one right enrichment with one wrong item inside it), or 2
+of 19 if the arguable source is accepted as the agent argued it. That is the baseline until
+the owner marks the last column of `K08_BASELINE.md`.
+
+**Surprising:** four of the nine gaps were seams between packages built days apart by the same
+person — K6/K11, K7/K11, K8/K9, K5/K10 — each side correct alone and the join missing. A
+package's own cookbook cannot find a missing join, because it tests the package. The question
+that found these was not "does this work" but "who consumes this, and did I ever run them
+together?"
+
+---

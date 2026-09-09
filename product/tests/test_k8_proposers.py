@@ -201,9 +201,8 @@ class TestMappingToProposals:
         )
         assert all(r.kind is not ProposalKind.AUTHORITATIVE_SOURCE for r in rows)
 
-    def test_collision_resolutions_become_enrichment_on_the_owning_concept(
-        self,
-    ) -> None:
+    def test_collision_resolutions_become_column_meanings(self) -> None:
+        """G19's home is the column, not the concept's question patterns (P3 verification)."""
         response = mapping.MappingProposalSet(
             collision_resolutions=[
                 mapping.CollisionResolution(
@@ -219,9 +218,15 @@ class TestMappingToProposals:
             response, proposer="agent", known_concepts=["WebSession"]
         )
         [row] = rows
-        assert row.kind is ProposalKind.ENRICHMENT
-        pattern = row.payload["question_patterns"][0]
-        assert "not joinable" in pattern
+        assert row.kind is ProposalKind.COLUMN_MEANING
+        assert row.target == "silver.analytics_event.session_id"
+        assert row.payload == {
+            "table": "silver.analytics_event",
+            "column": "session_id",
+            "concept": "WebSession",
+            "means": "the analytics vendor's session id",
+            "joinable": False,
+        }
 
 
 class TestUnresolvedCollisions:

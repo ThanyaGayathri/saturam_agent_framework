@@ -201,7 +201,7 @@ for name in TARGETS:
         f"terms already spoken for by other concepts, never propose these as synonyms:\n"
         f"{', '.join(taken)}"
     ).content
-    enrichment_responses.append(response)
+    enrichment_responses.append((concept, response))
     print(f"  {response.concept} (business_area={response.business_area or '-'})")
     for line in enrich.evidence_lines(response):
         print(f"    {line}")
@@ -213,8 +213,13 @@ for name in TARGETS:
 proposals = mapping.to_proposals(
     mapping_response, proposer=PROPOSER, known_concepts=concept_names
 )
-for response in enrichment_responses:
-    proposals += enrich.to_proposals(response, proposer=PROPOSER)
+for concept, response in enrichment_responses:
+    # The shipped concept rides along: its description and area are the ontology's facts,
+    # and the payload must never carry an empty description -- accepting one used to wipe
+    # the description a person had already accepted (P3 verification).
+    proposals += enrich.to_proposals(
+        response, proposer=PROPOSER, ontology_concept=concept
+    )
 inserted = store.propose_many(proposals)
 after_proposing = graph_state()
 
@@ -238,7 +243,13 @@ print("-" * 78)
 print(f"  {len(pending)} in the queue. Numbered for the log:")
 for index, proposal in enumerate(pending, start=1):
     detail = proposal.payload.get("concept") or proposal.payload.get("name") or ""
+    if proposal.kind.value == "column_meaning":
+        detail = f"{proposal.payload['concept']}: {proposal.payload['means'][:48]}"
     print(f"  {index:>2}. [{proposal.kind.value:<20}] {proposal.target} -> {detail}")
+g19_rows = [p for p in pending if p.kind.value == "column_meaning"]
+print(
+    f"  of which column meanings (G19): {len(g19_rows)}, one per colliding column per table"
+)
 
 # --- 6. Clean up ------------------------------------------------------------------------------------
 
@@ -286,7 +297,7 @@ if any(p.target in uncontested for p in authoritative_rows):
         "an authoritative source was proposed for a concept only one table serves; there "
         "was no contest to settle and the queue gains an item with no decision in it"
     )
-if not any(r.proposals for r in enrichment_responses):
+if not any(r.proposals for _, r in enrichment_responses):
     failures.append("the enrichment proposer returned nothing for any concept")
 if after_proposing != before:
     failures.append(
@@ -300,6 +311,20 @@ if any(p.state is not ReviewState.PENDING for p in pending):
 if inserted < 5:
     failures.append(
         f"only {inserted} proposals were produced; too few to judge a baseline on"
+    )
+expected_g19 = sum(len(c.tables) for c in harvest.collisions if c.needs_disambiguation)
+if len(g19_rows) != expected_g19:
+    failures.append(
+        f"expected one column-meaning proposal per colliding column per table "
+        f"({expected_g19}), got {len(g19_rows)}"
+    )
+if any(
+    p.kind.value == "enrichment"
+    and any("means" in q for q in p.payload.get("question_patterns", ()))
+    for p in pending
+):
+    failures.append(
+        "a collision resolution was parked in a concept's question patterns"
     )
 
 if failures:

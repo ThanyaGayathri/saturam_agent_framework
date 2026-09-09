@@ -392,19 +392,36 @@ class SemanticGraphStore:
         Everything on a ``Concept`` — synonyms, the scoping filter, personal-data fields,
         compliance tags — arrives through an accepted proposal (D10, K7). This is the write
         that proposal acceptance performs; nothing calls it directly from an agent.
+
+        **Enrichment accumulates.** Lists are unioned with what the node already holds and a
+        scalar is replaced only when the incoming value is non-empty. The first version set
+        every field unconditionally, and the P3 verification found what that meant: a K8
+        enrichment proposal carrying synonyms and nothing else would, on acceptance, erase the
+        concept's description and the ``sql_filter`` a person had accepted the week before.
+        A reviewer accepting "add these synonyms" was not accepting "and forget the filter".
+        Removing an accepted value is a separate decision with no proposal kind yet; until
+        there is one, nothing here can take a value away.
+
+        ``metrics`` is not written here at all. It is derived from the KPI registry's mirror
+        (K11), which owns it; an enrichment carrying candidate metric names carries them as
+        candidates, not as registry identifiers.
         """
         with self._driver.session(database=self._database) as session:
             session.run(
                 f"""
                 MERGE (c:{CONCEPT_LABEL} {{name: $name}})
-                SET c.description = $description,
-                    c.synonyms = $synonyms,
-                    c.question_patterns = $question_patterns,
-                    c.sql_filter = $sql_filter,
-                    c.personal_data_fields = $personal_data_fields,
-                    c.compliance_tags = $compliance_tags,
-                    c.metrics = $metrics,
-                    c.business_area = $business_area,
+                SET c.description = CASE WHEN $description = ''
+                        THEN coalesce(c.description, '') ELSE $description END,
+                    c.synonyms = coalesce(c.synonyms, []) + [x IN $synonyms WHERE NOT x IN coalesce(c.synonyms, [])],
+                    c.question_patterns =
+                        coalesce(c.question_patterns, []) + [x IN $question_patterns WHERE NOT x IN coalesce(c.question_patterns, [])],
+                    c.sql_filter = CASE WHEN $sql_filter = ''
+                        THEN coalesce(c.sql_filter, '') ELSE $sql_filter END,
+                    c.personal_data_fields = coalesce(c.personal_data_fields, []) + [x IN $personal_data_fields WHERE NOT x IN coalesce(c.personal_data_fields, [])],
+                    c.compliance_tags =
+                        coalesce(c.compliance_tags, []) + [x IN $compliance_tags WHERE NOT x IN coalesce(c.compliance_tags, [])],
+                    c.business_area = CASE WHEN $business_area IS NULL
+                        THEN c.business_area ELSE $business_area END,
                     c.status = $status,
                     c.applied_by_proposal = CASE WHEN $proposal_id = ''
                         THEN c.applied_by_proposal ELSE $proposal_id END
@@ -417,7 +434,6 @@ class SemanticGraphStore:
                 sql_filter=concept.sql_filter,
                 personal_data_fields=list(concept.personal_data_fields),
                 compliance_tags=list(concept.compliance_tags),
-                metrics=list(concept.metrics),
                 business_area=concept.business_area,
                 status=concept.status.value,
             )
@@ -490,6 +506,80 @@ class SemanticGraphStore:
             self.link_table_to_concept,
             qualified_table,
             concept,
+            proposal_id=proposal_id,
+        )
+
+    def write_column_meaning(
+        self,
+        qualified_table: str,
+        column: str,
+        *,
+        concept: str,
+        meaning: str,
+        joinable: bool = False,
+        proposal_id: str = "",
+    ) -> None:
+        """Record what one column means and which concept it belongs to (G19).
+
+        The resolution of a collision, one side at a time: the column node gains a concept
+        and a meaning, so two tables' ``session_id`` stop being one name. Written onto the
+        column rather than the concept because it is a fact about the column -- and because
+        the concept's own fields belong to the enrichment agent, which must not find its
+        question patterns filling up with column definitions.
+
+        Refuses a column the graph does not hold. A meaning attached to nothing is a claim
+        about a warehouse this deployment has never seen.
+        """
+        with self._driver.session(database=self._database) as session:
+            resolved = self._resolve_table(session, qualified_table)
+            if resolved is None:
+                raise SemanticReadError(
+                    f"cannot record a meaning for {qualified_table}.{column}: the table is "
+                    "not in the graph."
+                )
+            record = session.run(
+                f"""
+                MATCH (c:{COLUMN_LABEL} {{name: $column}})-[:OF_TABLE]->
+                      (t:{TABLE_LABEL} {{schema: $schema, name: $table}})
+                SET c.concept = $concept,
+                    c.meaning = $meaning,
+                    c.joinable = $joinable,
+                    c.applied_by_proposal = CASE WHEN $proposal_id = ''
+                        THEN c.applied_by_proposal ELSE $proposal_id END
+                RETURN c.name AS written
+                """,
+                schema=resolved[0],
+                table=resolved[1],
+                column=column,
+                concept=concept,
+                meaning=meaning,
+                joinable=joinable,
+                proposal_id=proposal_id,
+            ).single()
+        if record is None:
+            raise SemanticReadError(
+                f"cannot record a meaning for {qualified_table}.{column}: the column is not "
+                "in the graph. The harvest that reaches it lands first; this applies on retry."
+            )
+
+    async def awrite_column_meaning(
+        self,
+        qualified_table: str,
+        column: str,
+        *,
+        concept: str,
+        meaning: str,
+        joinable: bool = False,
+        proposal_id: str = "",
+    ) -> None:
+        """Async variant."""
+        await asyncio.to_thread(
+            self.write_column_meaning,
+            qualified_table,
+            column,
+            concept=concept,
+            meaning=meaning,
+            joinable=joinable,
             proposal_id=proposal_id,
         )
 
@@ -606,6 +696,34 @@ class SemanticGraphStore:
         await asyncio.to_thread(
             self.write_authoritative_source, source, proposal_id=proposal_id
         )
+
+    def mapped_concepts(self) -> Dict[str, List[str]]:
+        """Per accepted concept, the accepted tables mapped to it -- the graph half of K9.
+
+        Deliberately says nothing about areas. Which area a concept is in is a fact about the
+        shipped ontology, not something a deployment's graph node should be trusted to carry:
+        the node's ``business_area`` arrives through an enrichment proposal an agent drafted
+        and may have left empty, and K9 read it anyway, so a mapped concept with a blank area
+        contributed to nothing. The ontology already knows; ask it.
+        """
+        with self._driver.session(database=self._database) as session:
+            rows = session.run(
+                f"""
+                MATCH (t:{TABLE_LABEL})-[:INSTANTIATES]->(c:{CONCEPT_LABEL})
+                WHERE coalesce(c.status, 'accepted') = 'accepted'
+                  AND coalesce(t.status, 'accepted') = 'accepted'
+                RETURN c.name AS concept, t.schema + '.' + t.name AS table
+                ORDER BY concept, table
+                """
+            ).data()
+        mapped: Dict[str, List[str]] = {}
+        for row in rows:
+            mapped.setdefault(row["concept"], []).append(row["table"])
+        return mapped
+
+    async def amapped_concepts(self) -> Dict[str, List[str]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.mapped_concepts)
 
     def business_area_evidence(self) -> Dict[str, Dict[str, List[str]]]:
         """Per area, the accepted concepts that have a table mapped to them, and those tables.
@@ -733,7 +851,8 @@ class SemanticGraphStore:
                 f"WHERE true{_visible(include_proposed).replace('n.', 'c.')} "
                 "RETURN c.name AS name, c.data_type AS data_type, c.nullable AS nullable, "
                 "c.is_key AS is_key, c.comment AS comment, c.sampled_values AS sampled_values, "
-                "c.collides_with AS collides_with, c.status AS status "
+                "c.collides_with AS collides_with, c.status AS status, "
+                "c.concept AS concept, c.meaning AS meaning, c.joinable AS joinable "
                 "ORDER BY c.name",
                 schema=schema,
                 name=bare,
@@ -741,10 +860,20 @@ class SemanticGraphStore:
             concepts = session.run(
                 f"MATCH (:{TABLE_LABEL} {{schema: $schema, name: $name}})"
                 f"-[:INSTANTIATES]->(c:{CONCEPT_LABEL}) "
-                "RETURN c.name AS name ORDER BY c.name",
+                "RETURN c.name AS name, c.personal_data_fields AS pdf ORDER BY c.name",
                 schema=schema,
                 name=bare,
-            )
+            ).data()
+            # A column names personal data when a concept this table instantiates says so.
+            # Accepted enrichment lists them as `table.column` or `schema.table.column`; the
+            # flag was previously hardcoded False with a comment promising enrichment would
+            # set it, and nothing ever did.
+            personal = {
+                field.split(".")[-1]
+                for row in concepts
+                for field in (row["pdf"] or ())
+                if field.split(".")[-2:-1] in ([bare], [])
+            }
             return Table(
                 ref=TableRef(
                     name=record["name"],
@@ -759,10 +888,13 @@ class SemanticGraphStore:
                         is_key=bool(c["is_key"]),
                         # A column that names personal data is one whose concept declared it;
                         # the harvest cannot know, so this stays false until enrichment says so.
-                        is_personal_data=False,
+                        is_personal_data=c["name"] in personal,
                         description=c["comment"] or "",
                         sampled_values=tuple(c["sampled_values"] or ()),
                         status=ProposalStatus(c["status"] or "accepted"),
+                        concept=c["concept"],
+                        meaning=c["meaning"] or "",
+                        joinable=bool(c["joinable"]),
                     )
                     for c in columns
                 ),

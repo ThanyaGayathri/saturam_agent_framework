@@ -160,7 +160,10 @@ _FIELD_FOR_KIND = {
     EnrichmentKind.SQL_FILTER: ("sql_filter", False),
     EnrichmentKind.PERSONAL_DATA_FIELD: ("personal_data_fields", True),
     EnrichmentKind.COMPLIANCE_TAG: ("compliance_tags", True),
-    EnrichmentKind.CANDIDATE_METRIC: ("metrics", True),
+    # Candidate metrics are names an agent thought of, not registry identifiers. They ride
+    # on the proposal for K12 to turn into KPI proposals; `Concept.metrics` is derived from
+    # the registry mirror (K11) and is never written from here.
+    EnrichmentKind.CANDIDATE_METRIC: ("candidate_metrics", True),
 }
 
 
@@ -169,6 +172,7 @@ def to_proposals(
     *,
     proposer: str,
     vocabularies: Optional[VocabularySet] = None,
+    ontology_concept: Any = None,
 ) -> List[Proposal]:
     """Turn one agent response into rows for the proposals table.
 
@@ -181,12 +185,27 @@ def to_proposals(
 
     Returns an empty list for a refusal: an agent that found nothing proposes nothing, and a
     row saying "nothing" is a review item with no decision to make.
+
+    ``ontology_concept`` is the shipped concept this enrichment is for. Its description and
+    business area are facts about the ontology, not things an agent proposes per deployment,
+    so they fill the payload when the agent left them out -- and the payload never carries an
+    empty description, because the graph write treats an empty scalar as "leave it alone" and
+    a proposal that reset a concept's description on acceptance was the P3 verification's
+    first finding.
     """
     if not response.proposals:
         return []
     vocabularies = vocabularies or load_vocabulary_set()
 
-    payload: Dict[str, Any] = {"name": response.concept, "description": ""}
+    payload: Dict[str, Any] = {"name": response.concept}
+    shipped_description = (
+        str(ontology_concept.description)
+        if ontology_concept is not None
+        and getattr(ontology_concept, "description", None)
+        else ""
+    )
+    if shipped_description:
+        payload["description"] = shipped_description
     evidence: List[str] = []
     for item in response.proposals:
         field, is_list = _FIELD_FOR_KIND[item.kind]
@@ -206,9 +225,12 @@ def to_proposals(
             f"{item.kind.value}={item.value} ({item.confidence.value}): {item.evidence}"
         )
 
-    if response.business_area:
-        vocabularies.validate("business_area", response.business_area)
-        payload["business_area"] = response.business_area
+    area = response.business_area or (
+        getattr(ontology_concept, "business_area", None) if ontology_concept else None
+    )
+    if area:
+        vocabularies.validate("business_area", area)
+        payload["business_area"] = area
 
     return [
         Proposal(

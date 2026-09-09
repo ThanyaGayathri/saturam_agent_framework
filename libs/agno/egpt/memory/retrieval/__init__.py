@@ -16,12 +16,16 @@ block" case as ``orchestrate``: the public surface is
 off ``egpt.memory``'s top-level re-export.
 """
 
+from egpt.memory.retrieval.fuse import DEFAULT_RRF_K, FusedItem, rrf_fuse, rrf_rank
 from egpt.memory.retrieval.orchestrator import RetrievalLegs, aorchestrate, orchestrate
 from egpt.memory.retrieval.slice import assemble_bounded_context, bound_by_tokens, require_token_budget
 from egpt.memory.retrieval.unified import (
     KbFilters,
     KnowledgeRetrievable,
+    AsyncLeg,
+    Leg,
     RetrievalSource,
+    default_identity,
     UnifiedResult,
     UnifiedSlice,
     aunified_read,
@@ -31,7 +35,14 @@ from egpt.memory.retrieval.unified import (
 __all__ = [
     "KbFilters",
     "KnowledgeRetrievable",
+    "AsyncLeg",
+    "DEFAULT_RRF_K",
+    "FusedItem",
+    "Leg",
     "RetrievalLegs",
+    "default_identity",
+    "rrf_fuse",
+    "rrf_rank",
     "RetrievalSource",
     "UnifiedResult",
     "UnifiedSlice",

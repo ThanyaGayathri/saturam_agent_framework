@@ -34,6 +34,7 @@ from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology  # noqa: E40
 from egpt_retail.semantic.areas import (  # noqa: E402
     areas_in_ontology,
     detect_areas,
+    evidence_from_mappings,
     summary,
     supported_areas,
 )
@@ -107,7 +108,9 @@ try:
             "MATCH (:SemanticTable)-[r:INSTANTIATES]->(:SemanticConcept) DELETE r"
         )
 
-    unconnected = detect_areas(ontology, graph.business_area_evidence())
+    unconnected = detect_areas(
+        ontology, evidence_from_mappings(ontology, graph.mapped_concepts())
+    )
     print()
     print("2. With no source connected")
     print("-" * 78)
@@ -130,13 +133,9 @@ try:
         concept = next((c for c in ontology.concepts if c.name == concept_name), None)
         if concept is None:
             continue
-        graph.write_concept(
-            Concept(
-                name=concept.name,
-                description=concept.description,
-                business_area=concept.business_area,
-            )
-        )
+        # No business_area written here on purpose: the area is the ontology's fact, and K9
+        # reads it from there. A node whose area an agent left blank still counts.
+        graph.write_concept(Concept(name=concept.name, description=concept.description))
 
     drafted = [
         Proposal(
@@ -149,7 +148,9 @@ try:
     ]
     proposals.propose_many(drafted)
 
-    before_review = detect_areas(ontology, graph.business_area_evidence())
+    before_review = detect_areas(
+        ontology, evidence_from_mappings(ontology, graph.mapped_concepts())
+    )
     print()
     print("3. Proposed but not yet reviewed")
     print("-" * 78)
@@ -164,7 +165,9 @@ try:
     outcome = proposals.accept([p.identifier for p in drafted], "kiruthiga")
     applied = proposals.apply_accepted(graph)
 
-    connected = detect_areas(ontology, graph.business_area_evidence())
+    connected = detect_areas(
+        ontology, evidence_from_mappings(ontology, graph.mapped_concepts())
+    )
     print()
     print("4. Accepted and applied")
     print("-" * 78)
@@ -176,7 +179,9 @@ try:
 
     # --- 5. Two runs on unchanged data --------------------------------------------------------
 
-    again = detect_areas(ontology, graph.business_area_evidence())
+    again = detect_areas(
+        ontology, evidence_from_mappings(ontology, graph.mapped_concepts())
+    )
     identical = again == connected
     print()
     print("5. Run it twice on unchanged data")

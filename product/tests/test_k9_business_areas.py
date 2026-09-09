@@ -175,3 +175,33 @@ class TestAreaStatus:
         assert ("supported" in str(status)) and (
             ("not supported" in str(status)) != supported
         )
+
+
+class TestAreaComesFromTheOntology:
+    """The area is shipped knowledge, never what an agent wrote on the node (P3 verification:
+    one K8 run put WebSession in `operations`, another in `customer`; the ontology says
+    marketing)."""
+
+    def test_mapped_concepts_are_grouped_by_the_ontology_area(self) -> None:
+        from egpt_retail.semantic.areas import evidence_from_mappings
+
+        evidence = evidence_from_mappings(
+            ONTOLOGY,
+            {"Contact": ["silver.crm_contact"], "StockLevel": ["silver.stock"]},
+        )
+        assert evidence == {
+            "customer": {"concepts": ["Contact"], "tables": ["silver.crm_contact"]},
+            "inventory": {"concepts": ["StockLevel"], "tables": ["silver.stock"]},
+        }
+
+    def test_a_mapped_concept_the_ontology_does_not_place_counts_for_nothing(
+        self,
+    ) -> None:
+        from egpt_retail.semantic.areas import evidence_from_mappings
+
+        assert evidence_from_mappings(ONTOLOGY, {"Unplaced": ["silver.x"]}) == {}
+
+    def test_a_concept_mapped_to_no_table_supports_nothing(self) -> None:
+        from egpt_retail.semantic.areas import evidence_from_mappings
+
+        assert evidence_from_mappings(ONTOLOGY, {"Contact": []}) == {}

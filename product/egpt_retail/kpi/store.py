@@ -344,6 +344,39 @@ class KpiRegistryStore:
         """Async variant."""
         return await asyncio.to_thread(self.registry)
 
+    # --- adoption: the registry is the consumer of accepted KPI proposals (K7) ------------
+
+    def adopt_accepted(self, proposals: Any) -> Tuple[str, ...]:
+        """Take every accepted, unadopted ``KPI`` proposal into the registry. Returns identifiers.
+
+        K7 left ``KPI`` outside ``GRAPH_KINDS`` because its consumer is this table, not the
+        graph -- and until this existed there was no consumer, so an accepted KPI proposal
+        stayed accepted and unapplied forever. The payload was validated into a full
+        ``KpiDefinition`` at propose time, so adoption has nothing left to decide; it saves
+        and stamps ``applied_at``, the same contract ``apply_accepted`` keeps for the graph.
+        """
+        from egpt_retail.semantic.proposals import (
+            ProposalKind,
+            ReviewState,
+            validate_payload,
+        )
+
+        adopted: List[str] = []
+        for proposal in proposals.list(
+            state=ReviewState.ACCEPTED, kind=ProposalKind.KPI
+        ):
+            if proposal.applied_at is not None:
+                continue
+            definition = validate_payload(ProposalKind.KPI, proposal.payload)
+            self.save(definition)
+            proposals.mark_applied(proposal.identifier)
+            adopted.append(definition.identifier)
+        return tuple(adopted)
+
+    async def aadopt_accepted(self, proposals: Any) -> Tuple[str, ...]:
+        """Async variant."""
+        return await asyncio.to_thread(self.adopt_accepted, proposals)
+
     # --- feasibility --------------------------------------------------------------------
 
     def feasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
@@ -396,6 +429,22 @@ class KpiRegistryStore:
             validated=tuple(sorted(validated)),
             unvalidated=tuple(sorted(unvalidated)),
         )
+
+    def stamp_validated(self, identifier: str, snapshot_version: str) -> None:
+        """Stamp one definition, for a caller that already decided it is computable and not
+        in review -- the refresh, which knows the diff and must not stamp what it touched."""
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""UPDATE {self._schema}.kpi_definition
+                    SET validated_against_snapshot = %s, updated_at = now()
+                    WHERE identifier = %s""",
+                (snapshot_version, identifier),
+            )
+        self._connection.commit()
+
+    async def astamp_validated(self, identifier: str, snapshot_version: str) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.stamp_validated, identifier, snapshot_version)
 
     async def arevalidate(
         self, reader: SemanticRead, snapshot_version: str = ""
@@ -472,16 +521,14 @@ class KpiRegistryStore:
             OPTIONAL MATCH (:{_CONCEPT_LABEL})-[oldm:MEASURED_BY]->(k)
             DELETE oldm
             WITH k, row
-            CALL {{
-                WITH k, row
+            CALL (k, row) {{
                 UNWIND row.source_tables AS table_name
                 MATCH (t:{_TABLE_LABEL} {{name: table_name}})
                 MERGE (k)-[:READS]->(t)
                 RETURN count(*) AS _reads
             }}
             WITH k, row, _reads
-            CALL {{
-                WITH k, row
+            CALL (k, row) {{
                 MATCH (c:{_CONCEPT_LABEL} {{name: row.concept}})
                 MERGE (c)-[:MEASURED_BY]->(k)
                 RETURN count(*) AS _measures
@@ -493,6 +540,18 @@ class KpiRegistryStore:
         tx.run(
             f"MATCH (k:{KPI_LABEL}) WHERE NOT k.identifier IN $keep DETACH DELETE k",
             keep=[row["identifier"] for row in rows],
+        )
+        # `Concept.metrics` is derived from the mirror, so a concept reaches its KPIs by
+        # traversal and by field alike, and the two cannot disagree. Runs after the prune --
+        # the first version ran before it and a deleted KPI stayed on its concept's list,
+        # which the live test caught -- and clears a concept that lost its last edge.
+        tx.run(
+            f"""
+            MATCH (c:{_CONCEPT_LABEL})
+            OPTIONAL MATCH (c)-[:MEASURED_BY]->(k:{KPI_LABEL})
+            WITH c, [x IN collect(k.identifier) WHERE x IS NOT NULL] AS ids
+            SET c.metrics = ids
+            """
         )
 
     # --- internals ------------------------------------------------------------------------

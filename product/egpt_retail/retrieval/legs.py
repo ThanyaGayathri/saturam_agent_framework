@@ -41,6 +41,7 @@ from egpt.memory.retrieval.unified import (
 from egpt.memory.types import MemoryQuery, Scope
 
 from egpt_retail.contracts.semantic import SemanticRead
+from egpt_retail.semantic.promotion import promotable_text
 
 __all__ = [
     "ONTOLOGY_LEG",
@@ -154,18 +155,31 @@ def _semantic_results(
         # beats `crm_deal_stage_history` on the query "deal" -- the shorter name is the more
         # specific answer to it, and ranking by raw hit count would invert that.
         hits = sum(1 for term in terms if term in ref.name.lower())
-        if not hits:
+        # Columns count too, at a lower weight and named in the result. "Which table has
+        # email" is a question about a column, and the first version could not answer it.
+        table = reader.get_table(ref.qualified)
+        matched_columns = [
+            column.name
+            for column in (table.columns if table else ())
+            if any(term in column.name.lower() for term in terms)
+        ]
+        if not hits and not matched_columns:
             continue
+        via = f", via column(s) {', '.join(matched_columns)}" if matched_columns else ""
         results.append(
             UnifiedResult(
                 content=(
                     f"{ref.schema}.{ref.name} is a table in the semantic layer"
-                    f" ({ref.row_count} rows)."
+                    f" ({ref.row_count} rows{via})."
                 ),
                 source=RetrievalSource.KB,
-                score=hits / max(len(table_terms), 1),
+                score=hits / max(len(table_terms), 1) + 0.25 * bool(matched_columns),
                 id=f"semantic:{ref.schema}.{ref.name}",
-                metadata={"table": ref.name, "schema": ref.schema},
+                metadata={
+                    "table": ref.name,
+                    "schema": ref.schema,
+                    "columns": matched_columns,
+                },
                 origin=SEMANTIC_LEG,
             )
         )
@@ -175,9 +189,14 @@ def _semantic_results(
             concept = reader.get_concept(name)
             if concept is None:
                 continue
+            # Rendered with the same function promotion uses to write memory's copy (K5).
+            # Memory holds a copy derived from this very node; if the two legs rendered it
+            # differently, fusion by content could never recognise them as one finding --
+            # the P3 verification found exactly that, with the memory leg live and nothing
+            # corroborated. Same node, same function, same sentence, one hit from two legs.
             results.append(
                 UnifiedResult(
-                    content=f"{concept.name} in this deployment: {concept.description}",
+                    content=promotable_text(concept),
                     source=RetrievalSource.KB,
                     score=1.0,
                     id=f"semantic:concept:{concept.name}",

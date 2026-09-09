@@ -18,7 +18,7 @@ from egpt.workflow.types import StepInput, StepOutput
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
-from egpt_retail.semantic.areas import detect_areas, summary
+from egpt_retail.semantic.areas import detect_areas, evidence_from_mappings, summary
 from egpt_retail.semantic.store import SemanticGraphStore
 
 __all__ = ["detect_business_areas"]
@@ -49,7 +49,9 @@ async def detect_business_areas(step_input: StepInput) -> StepOutput:
         ontology = load_ontology(
             ARTIFACT_PATH, overlay_path=Path(overlay) if overlay else None
         )
-        statuses = detect_areas(ontology, store.business_area_evidence())
+        statuses = detect_areas(
+            ontology, evidence_from_mappings(ontology, store.mapped_concepts())
+        )
     finally:
         driver.close()
 

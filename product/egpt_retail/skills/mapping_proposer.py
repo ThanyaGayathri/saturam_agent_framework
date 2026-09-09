@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Set
+from typing import Dict, List, Sequence, Set
 
 from pydantic import BaseModel, Field
 
@@ -192,10 +192,11 @@ def to_proposals(
     """Turn one agent response into rows for the proposals table.
 
     Three kinds come out: a ``MAPPING`` per table-to-concept claim, an
-    ``AUTHORITATIVE_SOURCE`` per concept the agent named a winner for (G20), and an
-    ``ENRICHMENT`` carrying each collision resolution as a question pattern on the concept
-    that owns it (G19) -- the semantic layer has no separate home for "what this column
-    means", and inventing one to hold a draft would put an unreviewed shape in the graph.
+    ``AUTHORITATIVE_SOURCE`` per concept the agent named a winner for (G20), and a
+    ``COLUMN_MEANING`` per collision resolution (G19), which on acceptance lands on the
+    column itself -- its concept, its meaning, whether it joins. The first version parked
+    resolutions as question patterns on the concept, which was the wrong home in a field the
+    enrichment agent owns; the P3 verification moved them.
 
     A mapping onto a concept outside ``known_concepts`` is dropped rather than proposed. The
     prompt enumerates every permitted name, so a name outside it is the closed-set rule
@@ -253,26 +254,20 @@ def to_proposals(
                 )
             )
 
-    by_concept: Dict[str, List[CollisionResolution]] = {}
     for item in response.collision_resolutions:
         if permitted and item.concept not in permitted:
             continue
-        by_concept.setdefault(item.concept, []).append(item)
-    for concept, items in by_concept.items():
-        payload: Dict[str, Any] = {
-            "name": concept,
-            "description": "",
-            "question_patterns": [
-                f"{item.table}.{item.column_name} means {item.means}"
-                + ("" if item.joinable else " (not joinable across tables)")
-                for item in items
-            ],
-        }
         proposals.append(
             Proposal(
-                kind=ProposalKind.ENRICHMENT,
-                target=concept,
-                payload=payload,
+                kind=ProposalKind.COLUMN_MEANING,
+                target=f"{item.table}.{item.column_name}",
+                payload={
+                    "table": item.table,
+                    "column": item.column_name,
+                    "concept": item.concept,
+                    "means": item.means,
+                    "joinable": item.joinable,
+                },
                 proposer=proposer,
             )
         )

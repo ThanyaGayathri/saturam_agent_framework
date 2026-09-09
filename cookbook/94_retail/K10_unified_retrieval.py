@@ -30,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 os.environ.setdefault("EGPT_RETAIL_PROVIDER_MODE", "local")
+os.environ.setdefault("EGPT_RETAIL_MEMORY_TABLE", "memory_vectors_k10_cookbook")
 
 from egpt.integrations.knowledge.embedder.sentence_transformer import (  # noqa: E402,F401
     SentenceTransformerEmbedder,
@@ -39,7 +40,11 @@ from egpt.memory.types import MemoryQuery, Scope  # noqa: E402
 from egpt.metrics import ProviderMode  # noqa: E402
 from egpt.vectordb.pgvector import PgVector  # noqa: E402
 from egpt.vectordb.search import SearchType  # noqa: E402
+from egpt_retail.app.components import build_memory_provider  # noqa: E402
+from egpt_retail.app.settings import RetailSettings  # noqa: E402
 from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
+from egpt_retail.memory.scopes import SYSTEM_USER_ID  # noqa: E402
+from egpt_retail.semantic.promotion import promote_concepts  # noqa: E402
 from egpt_retail.ontology.store import OntologyStore  # noqa: E402
 from egpt_retail.retrieval import retail_unified_read  # noqa: E402
 from egpt_retail.semantic.store import SemanticGraphStore  # noqa: E402
@@ -75,13 +80,26 @@ knowledge = Knowledge(
 driver = GraphDatabase.driver(NEO4J, auth=AUTH)
 ontology = OntologyStore(driver=driver, embedder=resolved.embedder)
 semantic = SemanticGraphStore(driver=driver)
-scope = Scope(tenant_id="middleby")
+# The memory leg, live: K5's promotion writes one sentence per accepted concept into
+# semantic memory, so memory holds "QuoteRequest: A request from a prospective buyer..." --
+# the same text the ontology leg returns. That is the corroboration case fusion exists for,
+# and the reason identity is by content rather than by id.
+settings = RetailSettings(retail_customer_slug="middleby")
+memory = build_memory_provider(settings)
+scope = Scope(tenant_id="middleby", agent_id="semantic_layer", user_id=SYSTEM_USER_ID)
+promoted = promote_concepts(semantic, memory, scope)
+print(f"  memory leg primed: {promoted}")
 query = MemoryQuery(text=QUESTION, limit=5)
 
 # --- 1. Every leg, asked at once -----------------------------------------------------------
 
 everything = retail_unified_read(
-    scope, query, knowledge=knowledge, ontology=ontology, semantic=semantic
+    scope,
+    query,
+    memory=memory,
+    knowledge=knowledge,
+    ontology=ontology,
+    semantic=semantic,
 )
 
 print()
@@ -116,7 +134,7 @@ print("  Neither store could have answered the whole question on its own.")
 # --- 3. Disable the semantic leg -------------------------------------------------------------
 
 without_semantic = retail_unified_read(
-    scope, query, knowledge=knowledge, ontology=ontology, semantic=None
+    scope, query, memory=memory, knowledge=knowledge, ontology=ontology, semantic=None
 )
 degraded = without_semantic.fused(limit=6)
 
@@ -132,7 +150,7 @@ print("  name is gone. That is the leg proving it was contributing, not decorati
 # --- 4. Disable the prose leg ----------------------------------------------------------------
 
 without_prose = retail_unified_read(
-    scope, query, knowledge=None, ontology=ontology, semantic=semantic
+    scope, query, memory=memory, knowledge=None, ontology=ontology, semantic=semantic
 )
 no_prose = without_prose.fused(limit=6)
 
@@ -147,6 +165,7 @@ print(f"  any prose left: {any(r.label == 'kb' for r in no_prose)}")
 nonsense = retail_unified_read(
     scope,
     MemoryQuery(text="zzzz_no_such_thing_anywhere", limit=5),
+    memory=memory,
     knowledge=knowledge,
     ontology=ontology,
     semantic=semantic,
@@ -183,6 +202,16 @@ if any(r.score is None for r in fused):
     failures.append("a fused hit carries no score")
 if any(not r.metadata.get("fused_origins") for r in fused):
     failures.append("a fused hit does not name the leg(s) it came from")
+corroborated = [r for r in fused if r.metadata["fused_from"] > 1]
+if not corroborated:
+    failures.append(
+        "no hit was corroborated by two legs, though memory holds the promoted copy of the "
+        "same concept text the ontology returns -- identity by content is not working"
+    )
+if not any(
+    r.label == "memory" or "memory" in r.metadata["fused_origins"] for r in fused
+):
+    failures.append("the memory leg contributed nothing to the fused ranking")
 if "semantic" in {r.label for r in degraded}:
     failures.append("a disabled leg still contributed hits")
 if "semantic" in without_semantic.legs():

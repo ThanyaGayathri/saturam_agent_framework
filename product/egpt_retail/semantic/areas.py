@@ -29,6 +29,7 @@ __all__ = [
     "adetect_areas",
     "areas_in_ontology",
     "detect_areas",
+    "evidence_from_mappings",
     "supported_areas",
 ]
 
@@ -78,6 +79,34 @@ def areas_in_ontology(ontology: Any) -> Tuple[str, ...]:
             }
         )
     )
+
+
+def evidence_from_mappings(
+    ontology: Any, mapped: Mapping[str, Sequence[str]]
+) -> Dict[str, Dict[str, List[str]]]:
+    """Group mapped concepts by the area the **ontology** puts them in.
+
+    The area is read from the ontology concept, never from the graph node. A concept's
+    area is shipped knowledge; a graph node's ``business_area`` is whatever an accepted
+    enrichment wrote there, which may be nothing -- and the first K9 read the node, so a
+    mapped concept with a blank area supported no area at all.
+    """
+    area_of = {
+        concept.name: area
+        for concept in ontology.concepts
+        if (area := getattr(concept, "business_area", None))
+    }
+    evidence: Dict[str, Dict[str, List[str]]] = {}
+    for concept, tables in mapped.items():
+        area = area_of.get(concept)
+        if area is None or not tables:
+            continue
+        bucket = evidence.setdefault(area, {"concepts": [], "tables": []})
+        bucket["concepts"].append(concept)
+        for table in tables:
+            if table not in bucket["tables"]:
+                bucket["tables"].append(table)
+    return evidence
 
 
 def detect_areas(

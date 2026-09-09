@@ -707,3 +707,223 @@ class TestKpiRegistryLive:
             == report.snapshot_version
         )
         assert registry.get("livetest_kpi__absent").validated_against_snapshot is None
+
+
+def _stored_definition(registry: Any, identifier: str) -> Any:
+    """A stored definition that must exist; a test asserting on a missing one should say so."""
+    definition = registry.get(identifier)
+    assert definition is not None, identifier
+    return definition
+
+
+class TestP3Verification:
+    """The graph-side findings of the P3 verification, pinned."""
+
+    def test_accepting_a_partial_enrichment_does_not_wipe_accepted_fields(
+        self, graph: SemanticGraphStore
+    ) -> None:
+        """A K8 proposal carrying synonyms and nothing else erased the description and the
+        sql_filter a person had accepted -- the P3 verification's first finding."""
+        graph.write_concept(
+            Concept(
+                name="LivetestMerged",
+                description="A thing.",
+                synonyms=("first",),
+                sql_filter="x.kind = 'thing'",
+                compliance_tags=("pii",),
+            )
+        )
+        graph.write_concept(
+            Concept(name="LivetestMerged", synonyms=("second",), description="")
+        )
+        merged = graph.get_concept("LivetestMerged")
+        assert merged is not None
+        assert merged.description == "A thing."
+        assert merged.sql_filter == "x.kind = 'thing'"
+        assert set(merged.synonyms) == {"first", "second"}
+        assert merged.compliance_tags == ("pii",)
+
+    def test_a_column_meaning_lands_on_the_column(
+        self, graph: SemanticGraphStore
+    ) -> None:
+        graph.write_column_meaning(
+            "silver.analytics_event",
+            "session_id",
+            concept="LivetestSession",
+            meaning="the analytics vendor's session id",
+            joinable=False,
+        )
+        try:
+            table = graph.get_table("silver.analytics_event")
+            assert table is not None
+            column = next(c for c in table.columns if c.name == "session_id")
+            assert column.concept == "LivetestSession"
+            assert column.meaning == "the analytics vendor's session id"
+            assert column.joinable is False
+        finally:
+            with graph._driver.session() as s:  # noqa: SLF001 -- test cleanup
+                s.run(
+                    "MATCH (c:SemanticColumn {name:'session_id'})-[:OF_TABLE]->"
+                    "(:SemanticTable {name:'analytics_event'}) "
+                    "REMOVE c.concept, c.meaning, c.joinable"
+                )
+
+    def test_a_meaning_for_a_missing_column_raises(
+        self, graph: SemanticGraphStore
+    ) -> None:
+        with pytest.raises(SemanticReadError, match="not in the graph"):
+            graph.write_column_meaning(
+                "silver.analytics_event", "livetest_absent", concept="X", meaning="y"
+            )
+
+    def test_the_mirror_owns_concept_metrics(
+        self, graph: SemanticGraphStore, control_plane: Any, driver: Any
+    ) -> None:
+        from egpt_retail.contracts.kpi import KpiDefinition
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        graph.write_concept(Concept(name="LivetestMetricOwner", description="x"))
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        registry.save(
+            KpiDefinition(
+                identifier="livetest_kpi__owned",
+                name="n",
+                description="d",
+                sql="SELECT count(*) FROM crm_contact",
+                grain="overall",
+                business_area="customer",
+                source_tables=frozenset({"crm_contact"}),
+                concept="LivetestMetricOwner",
+            )
+        )
+        try:
+            registry.mirror(driver)
+            concept = graph.get_concept("LivetestMetricOwner")
+            assert concept is not None and concept.metrics == ("livetest_kpi__owned",)
+            registry.delete("livetest_kpi__owned")
+            registry.mirror(driver)
+            concept = graph.get_concept("LivetestMetricOwner")
+            assert concept is not None and concept.metrics == ()
+        finally:
+            registry.delete("livetest_kpi__owned")
+            with driver.session() as s:
+                s.run(
+                    "MATCH (c:SemanticConcept {name:'LivetestMetricOwner'}) DETACH DELETE c"
+                )
+
+    def test_an_accepted_kpi_proposal_is_adopted_into_the_registry(
+        self, proposals: ProposalStore, control_plane: Any
+    ) -> None:
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        proposal = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__adopted",
+            payload={
+                "identifier": "livetest_kpi__adopted",
+                "name": "Adopted",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "customer",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        proposals.propose(proposal)
+        proposals.accept([proposal.identifier], "livetest_reviewer")
+        try:
+            adopted = registry.adopt_accepted(proposals)
+            assert adopted == ("livetest_kpi__adopted",)
+            assert registry.get("livetest_kpi__adopted") is not None
+            row = proposals.get(proposal.identifier)
+            assert row is not None and row.applied_at is not None
+            # Idempotent: a second pass adopts nothing.
+            assert registry.adopt_accepted(proposals) == ()
+        finally:
+            registry.delete("livetest_kpi__adopted")
+
+    def test_refresh_puts_a_registered_kpi_into_review_and_stamps_the_rest(
+        self, control_plane: Any, driver: Any
+    ) -> None:
+        """K6 and K11 were each half of this; the refresh now joins them."""
+        from egpt_retail.contracts.kpi import KpiDefinition
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        psycopg = pytest.importorskip("psycopg")
+        warehouse = psycopg.connect(WAREHOUSE)
+        warehouse.autocommit = True
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        touched = KpiDefinition(
+            identifier="livetest_kpi__touched",
+            name="t",
+            description="d",
+            sql="SELECT count(*) FROM crm_deal WHERE livetest_col IS NOT NULL",
+            grain="overall",
+            business_area="sales",
+            source_tables=frozenset({"crm_deal"}),
+        )
+        untouched = KpiDefinition(
+            identifier="livetest_kpi__untouched",
+            name="u",
+            description="d",
+            sql="SELECT count(*) FROM crm_contact",
+            grain="overall",
+            business_area="customer",
+            source_tables=frozenset({"crm_contact"}),
+        )
+        try:
+            with warehouse.cursor() as cur:
+                cur.execute(
+                    "ALTER TABLE silver.crm_deal ADD COLUMN IF NOT EXISTS livetest_col text"
+                )
+            refresh_semantic_layer(
+                version="livetest.rv1",
+                warehouse=warehouse,
+                control_plane=control_plane,
+                driver=driver,
+            )
+            registry.save_many([touched, untouched])
+            with warehouse.cursor() as cur:
+                cur.execute(
+                    "ALTER TABLE silver.crm_deal DROP COLUMN IF EXISTS livetest_col"
+                )
+            report = refresh_semantic_layer(
+                version="livetest.rv2",
+                warehouse=warehouse,
+                control_plane=control_plane,
+                driver=driver,
+            )
+            assert {i.kpi_identifier for i in report.review} == {
+                "livetest_kpi__touched"
+            }
+            assert (
+                _stored_definition(
+                    registry, "livetest_kpi__untouched"
+                ).validated_against_snapshot
+                == "livetest.rv2"
+            )
+            # The one in review keeps its old stamp, so K6's screen can say how far behind it is.
+            assert (
+                _stored_definition(
+                    registry, "livetest_kpi__touched"
+                ).validated_against_snapshot
+                != "livetest.rv2"
+            )
+        finally:
+            registry.delete("livetest_kpi__touched")
+            registry.delete("livetest_kpi__untouched")
+            with warehouse.cursor() as cur:
+                cur.execute(
+                    "ALTER TABLE silver.crm_deal DROP COLUMN IF EXISTS livetest_col"
+                )
+            refresh_semantic_layer(
+                version="livetest.rv3",
+                warehouse=warehouse,
+                control_plane=control_plane,
+                driver=driver,
+            )
+            warehouse.close()

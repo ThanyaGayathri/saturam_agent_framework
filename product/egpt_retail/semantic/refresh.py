@@ -22,6 +22,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import KpiDefinition
+from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.semantic.harvest import HarvestDiff, diff_harvests, harvest_schema
 from egpt_retail.semantic.snapshots import (
     ReviewItem,
@@ -78,17 +79,26 @@ def refresh_semantic_layer(
     *,
     schema: str = "silver",
     version: str = "",
-    kpis: Sequence[KpiDefinition] = (),
+    kpis: Optional[Sequence[KpiDefinition]] = None,
     warehouse: Any = None,
     control_plane: Any = None,
     driver: Any = None,
 ) -> RefreshReport:
     """Harvest the warehouse schema, version it, write it to the graph, and say what moved.
 
+    Then the part K6 and K11 were each half of: the registry's definitions are checked
+    against the diff, the ones a change touches go into review, the ones it does not touch
+    are stamped as validated against the new snapshot, and the KPI mirror is rebuilt so a
+    table the harvest just added gets its ``READS`` edges. The P3 verification found none
+    of that wired -- ``kpis`` had to be passed by hand, so the nightly harvest could never
+    put a registered KPI into review.
+
     ``warehouse``, ``control_plane`` and ``driver`` are injectable so a test can drive this
     against whatever it likes; left unset, each is built from settings and closed here.
-    ``kpis`` are the definitions to check against the diff; until K11 persists them the
-    caller supplies them, and an empty sequence means no review items rather than an error.
+    ``kpis`` overrides the registry when given (a test, or a dry run against a draft set);
+    ``None`` reads the registry. **Only KPIs not in review are stamped.** A retyped column
+    leaves a formula computable by set difference, so stamping every ready KPI would stamp
+    the one whose meaning just changed and hide from K6's screen how far behind it is.
     """
     settings = settings or RetailSettings()
     owned: List[Any] = []
@@ -148,11 +158,22 @@ def refresh_semantic_layer(
         else:
             diff = None
 
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        definitions = tuple(kpis) if kpis is not None else registry.list()
         review = (
-            kpis_needing_review(diff, kpis, new_version=resolved)
-            if diff is not None and kpis
+            kpis_needing_review(diff, definitions, new_version=resolved)
+            if diff is not None and definitions
             else ()
         )
+        in_review = {item.kpi_identifier for item in review}
+        if kpis is None:
+            registry.mirror(driver, database=settings.retail_neo4j_database)
+            for kpi in definitions:
+                if kpi.identifier in in_review:
+                    continue
+                if kpi.source_tables <= {t.name.lower() for t in graph.list_tables()}:
+                    registry.stamp_validated(kpi.identifier, resolved)
         return RefreshReport(
             version=resolved,
             previous_version=previous,

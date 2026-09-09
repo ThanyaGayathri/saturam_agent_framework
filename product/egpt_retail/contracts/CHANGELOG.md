@@ -298,6 +298,18 @@ Two fields were considered and **not** added:
 
 ## Semantic read API
 
+### 1.2.0 — 2026-09-09 — `Column` gains `concept`, `meaning`, `joinable` (additive)
+
+Agreed by: Lane K. Additive, so no caller breaks: every new field has a default.
+
+The home G19 was missing. K8's mapping proposer resolves a colliding column name by saying
+what each side *means* and which concept it belongs to, and the first version stored those
+resolutions as question patterns on the concept — the wrong home, in a field the enrichment
+agent owns. A column's accepted meaning and its concept are properties of the column, and
+now they are: written by an accepted `column_meaning` proposal, read back on `Column`.
+`joinable` travels with them because the collision K4 found (`session_id` on two tables)
+is exactly the case where a shared name and type are *not* a join.
+
 ### 1.1.0 — 2026-09-09 — an authoritative source per concept (G20)
 
 **Additive: free under the change protocol, announced not negotiated.** Existing callers are
