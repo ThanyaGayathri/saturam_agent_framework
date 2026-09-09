@@ -15,6 +15,11 @@ What it does and does not touch:
   records both runs.
 * The pgvector memory table is not a migration concern: it self-provisions and is invisible to
   the runner.
+* R7's two control-plane tables (``egpt_answer_provenance``, ``retail_deliveries``) are applied
+  after ``MigrationManager.up()``, over a bare ``Engine`` rather than through the manager --
+  the same reasoning as the warehouse bullet above: neither is one of
+  ``MigrationManager._TABLE_TYPE_TO_ATTR``'s curated types, and it should stay that way
+  (tracker #178).
 """
 
 from __future__ import annotations
@@ -22,10 +27,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from egpt.answer_provenance import aapply_provenance_ddl
 from egpt.db.migrations.manager import MigrationManager
 
-from egpt_retail.app.db import build_control_plane_db
+from egpt_retail.app.db import build_control_plane_db, build_control_plane_engine
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.delivery import aapply_delivery_ddl
 
 __all__ = ["main", "amain"]
 
@@ -43,6 +50,16 @@ async def amain() -> int:
         manager.latest_schema_version,
     )
     await manager.up()
+
+    engine = build_control_plane_engine(settings)
+    try:
+        for name in await aapply_provenance_ddl(engine):
+            log.info("migrate: applied %s", name)
+        for name in await aapply_delivery_ddl(engine):
+            log.info("migrate: applied %s", name)
+    finally:
+        engine.dispose()
+
     log.info("migrate: done")
     return 0
 

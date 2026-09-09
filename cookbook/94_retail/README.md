@@ -37,6 +37,8 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R03_prototype_screen.md` | R3 | The other half of R3's verification -- a prototype screen rendered from the stub. A procedure run in the prototype repository, with what to record. |
 | `R06_sql_guard_parsing.py` | R6 | The SQL guard's classification rules: reads pass, every write kind refuses, a CTE alias is not mistaken for a table, a function call in table position is refused, stacked statements refuse before either half is inspected, an unresolved template placeholder is caught explicitly, and the row cap overrides whatever is requested. No database, no model. |
 | `R06_sql_guard_live.py` | R6 | The same guard against the real warehouse: delete refused with the row count unchanged, an out-of-scope read refused, an unbounded read capped, a real Postgres statement timeout enforced -- then the chat-interface half (an agent, a prompt-injection paste) once model credentials are sourced. |
+| `R07_executor_library.py` | R7 | A throwaway workflow of `check_preflight` -> `record_provenance` -> `deliver_in_app`, no agent step, driven only by `.arun()`: completes with no model, the provenance record is readable back by `run_id`, and a second run with the dry-run flag shows delivery previewing instead of sending. |
+| `R07_preflight_blocked_kpi.py` | R7 | Preflight against a use case referencing a blocked KPI, reproducing the API contract's own worked example: blocks and names the missing table, then passes once it is exposed. No database, no model. |
 
 Run:
 
@@ -79,6 +81,16 @@ EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_ware
 EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL=postgresql+psycopg://egpt_reader:egpt_reader@localhost:5532/egpt_warehouse \
   .venv/bin/python cookbook/94_retail/R06_sql_guard_live.py
 # add `set -a && source azure_key.env && set +a` first to also run its chat-interface section
+
+# R7's preflight scenario needs no services:
+.venv/bin/python cookbook/94_retail/R07_preflight_blocked_kpi.py
+
+# R7's executor-library workflow needs the same Postgres, with the control-plane database
+# migrated (creates egpt_answer_provenance and retail_deliveries):
+EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
+  .venv/bin/python -m egpt_retail.entrypoints migrate
+EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
+  .venv/bin/python cookbook/94_retail/R07_executor_library.py
 
 # R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
 docker build -f deploy/Dockerfile -t egpt-retail:dev .
