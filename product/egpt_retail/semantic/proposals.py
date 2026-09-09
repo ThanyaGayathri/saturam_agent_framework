@@ -47,10 +47,13 @@ from egpt_retail.contracts.semantic import (
     JoinEdge,
     ProposalStatus,
 )
+from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
 
 __all__ = [
+    "CARDINALITIES",
     "GRAPH_KINDS",
     "PROPOSAL_SCHEMA",
+    "ApplyOutcome",
     "PayloadError",
     "Proposal",
     "ProposalKind",
@@ -101,6 +104,12 @@ GRAPH_KINDS = frozenset(
 )
 
 
+#: The ways two tables can relate. Closed, like every other value an agent may emit: a
+#: proposer that writes ``"1:n"`` or ``"many"`` has invented a term, and a planner reading
+#: the edge later would have to guess what it meant.
+CARDINALITIES = frozenset({"one-to-one", "one-to-many", "many-to-one", "many-to-many"})
+
+
 class ReviewState(str, Enum):
     """Where a proposal is in review. One way out of ``PENDING``, and no way back."""
 
@@ -135,6 +144,10 @@ class Proposal:
     decided_at: Optional[datetime] = None
     decision_note: str = ""
     applied_at: Optional[datetime] = None
+    #: Why the last apply of this accepted proposal failed, if it did. Cleared on success.
+    #: Visible so a reviewer can see an acceptance that has not landed, rather than trusting
+    #: that "accepted" means "in the graph".
+    apply_error: Optional[str] = None
     created_at: Optional[datetime] = None
     identifier: str = ""
 
@@ -197,6 +210,23 @@ class ReviewOutcome:
         return f"{len(self.decided)} decided, {len(self.refused)} refused"
 
 
+@dataclass(frozen=True)
+class ApplyOutcome:
+    """What one apply run did to the graph.
+
+    A proposal whose write fails is reported here and left accepted-and-unapplied with its
+    error recorded, and the run continues. The first version raised on the first failure,
+    which meant one accepted mapping onto a concept nobody had defined yet would block every
+    proposal behind it in the queue -- forever, since the same one fails first every run.
+    """
+
+    applied: Tuple[str, ...] = ()
+    failed: Tuple[Refusal, ...] = ()
+
+    def __str__(self) -> str:
+        return f"{len(self.applied)} applied, {len(self.failed)} failed"
+
+
 # --- payload validation -----------------------------------------------------------------
 #
 # One validator per kind, each building the typed contract object the apply path will use.
@@ -220,11 +250,16 @@ def _concept_from(payload: Mapping[str, Any]) -> Concept:
 
 
 def _join_from(payload: Mapping[str, Any]) -> JoinEdge:
+    cardinality = payload.get("cardinality", "many-to-one")
+    if cardinality not in CARDINALITIES:
+        raise PayloadError(
+            f"cardinality {cardinality!r} is not one of {sorted(CARDINALITIES)}"
+        )
     return JoinEdge(
         left_table=_required(payload, "left_table"),
         right_table=_required(payload, "right_table"),
         on=_required(payload, "on"),
-        cardinality=payload.get("cardinality", "many-to-one"),
+        cardinality=cardinality,
     )
 
 
@@ -269,12 +304,34 @@ _VALIDATORS: Dict[ProposalKind, Callable[[Mapping[str, Any]], Any]] = {
 }
 
 
-def validate_payload(kind: ProposalKind, payload: Mapping[str, Any]) -> Any:
-    """Build the typed object a kind's payload describes, or raise ``PayloadError``."""
+def validate_payload(
+    kind: ProposalKind,
+    payload: Mapping[str, Any],
+    *,
+    vocabularies: Optional[VocabularySet] = None,
+) -> Any:
+    """Build the typed object a kind's payload describes, or raise ``PayloadError``.
+
+    With ``vocabularies``, every field that is a term from a closed set is checked against
+    it. An enrichment carrying ``business_area: "marketng"`` is the case: it parses, it
+    builds a ``Concept``, and once in the graph it is an area no screen lists and no KPI
+    matches. The set difference that feasibility rests on only works if both sides use the
+    same terms, and the proposal gate is where that is enforced.
+    """
     validator = _VALIDATORS.get(kind)
     if validator is None:  # pragma: no cover -- unreachable while the enum is closed
         raise PayloadError(f"no payload validator registered for kind {kind!r}")
-    return validator(payload)
+    built = validator(payload)
+    if (
+        vocabularies is not None
+        and kind is ProposalKind.ENRICHMENT
+        and built.business_area
+    ):
+        try:
+            vocabularies.validate("business_area", built.business_area)
+        except ValueError as error:
+            raise PayloadError(str(error)) from None
+    return built
 
 
 def content_id(proposal: Proposal) -> str:
@@ -307,12 +364,15 @@ _DDL = (
         decided_at    timestamptz,
         decision_note text        NOT NULL DEFAULT '',
         applied_at    timestamptz,
+        apply_error   text,
         created_at    timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT proposal_state_valid
             CHECK (state IN ('pending', 'accepted', 'rejected')),
         CONSTRAINT proposal_decision_attributed
             CHECK ((state = 'pending') = (reviewer IS NULL))
     )""",
+    # For a table created before apply_error existed. Idempotent, like the rest.
+    f"ALTER TABLE {PROPOSAL_SCHEMA}.proposal ADD COLUMN IF NOT EXISTS apply_error text",
     f"""CREATE INDEX IF NOT EXISTS proposal_state_kind
         ON {PROPOSAL_SCHEMA}.proposal (state, kind)""",
     f"""COMMENT ON TABLE {PROPOSAL_SCHEMA}.proposal IS
@@ -326,9 +386,18 @@ _DDL = (
 class ProposalStore:
     """The proposals table. The connection is injected; the caller owns its lifetime."""
 
-    def __init__(self, connection: Any, schema: str = PROPOSAL_SCHEMA) -> None:
+    def __init__(
+        self,
+        connection: Any,
+        schema: str = PROPOSAL_SCHEMA,
+        *,
+        vocabularies: Optional[VocabularySet] = None,
+    ) -> None:
         self._connection = connection
         self._schema = schema
+        # The shipped closed sets unless a deployment passes its overlay. Never None: a store
+        # built without vocabularies would accept any business area, and nothing would say so.
+        self._vocabularies = vocabularies or load_vocabulary_set()
 
     # --- schema ------------------------------------------------------------------------
 
@@ -361,7 +430,9 @@ class ProposalStore:
     def propose_many(self, proposals: Sequence[Proposal]) -> int:
         """Record several proposals in one transaction. Returns how many were new."""
         for proposal in proposals:
-            validate_payload(proposal.kind, proposal.payload)
+            validate_payload(
+                proposal.kind, proposal.payload, vocabularies=self._vocabularies
+            )
         inserted = 0
         with self._connection.cursor() as cursor:
             for proposal in proposals:
@@ -523,33 +594,50 @@ class ProposalStore:
 
     # --- applying -----------------------------------------------------------------------
 
-    def apply_accepted(self, store: Any) -> Tuple[str, ...]:
+    def apply_accepted(self, store: Any) -> ApplyOutcome:
         """Write every accepted, unapplied, graph-bound proposal into the semantic graph.
 
-        Returns the ids applied. This is the only path from the proposals table to the graph,
-        and it reads ``state = 'accepted'`` -- so a rejected or pending row cannot reach it
-        however it is called.
+        This is the only path from the proposals table to the graph, and it reads
+        ``state = 'accepted'`` -- so a rejected or pending row cannot reach it however it is
+        called.
 
         ``applied_at`` is set only after the graph write returns. A crash between the two
         leaves the proposal accepted-and-unapplied, and the next run applies it again; the
         graph writes are all ``MERGE``, so applying twice is the same as applying once. The
         opposite ordering would lose the write silently, which is the failure you cannot see.
+
+        A write that fails is recorded on the proposal and does not stop the run. It stays
+        accepted, so the next run retries it -- a mapping onto a concept that enrichment has
+        not yet landed will succeed once it has.
         """
         applied: List[str] = []
+        failed: List[Refusal] = []
         for proposal in self.list(state=ReviewState.ACCEPTED):
             if proposal.applied_at is not None or proposal.kind not in GRAPH_KINDS:
                 continue
-            self._apply_one(store, proposal)
+            try:
+                self._apply_one(store, proposal)
+            except Exception as error:  # noqa: BLE001 -- recorded, not swallowed
+                message = f"{type(error).__name__}: {error}"
+                with self._connection.cursor() as cursor:
+                    cursor.execute(
+                        f"UPDATE {self._schema}.proposal SET apply_error = %s WHERE id = %s",
+                        (message, proposal.identifier),
+                    )
+                self._connection.commit()
+                failed.append(Refusal(proposal.identifier, message))
+                continue
             with self._connection.cursor() as cursor:
                 cursor.execute(
-                    f"UPDATE {self._schema}.proposal SET applied_at = now() WHERE id = %s",
+                    f"""UPDATE {self._schema}.proposal
+                        SET applied_at = now(), apply_error = NULL WHERE id = %s""",
                     (proposal.identifier,),
                 )
             self._connection.commit()
             applied.append(proposal.identifier)
-        return tuple(applied)
+        return ApplyOutcome(applied=tuple(applied), failed=tuple(failed))
 
-    async def aapply_accepted(self, store: Any) -> Tuple[str, ...]:
+    async def aapply_accepted(self, store: Any) -> ApplyOutcome:
         """Async variant."""
         return await asyncio.to_thread(self.apply_accepted, store)
 
@@ -573,7 +661,7 @@ class ProposalStore:
         with self._connection.cursor() as cursor:
             cursor.execute(
                 f"""SELECT id, kind, target, payload, proposer, state, reviewer,
-                           decided_at, decision_note, applied_at, created_at
+                           decided_at, decision_note, applied_at, apply_error, created_at
                     FROM {self._schema}.proposal {where} ORDER BY created_at, id""",
                 params,
             )
@@ -590,7 +678,8 @@ class ProposalStore:
                 decided_at=row[7],
                 decision_note=row[8],
                 applied_at=row[9],
-                created_at=row[10],
+                apply_error=row[10],
+                created_at=row[11],
             )
             for row in rows
         ]

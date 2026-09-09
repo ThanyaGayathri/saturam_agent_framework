@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 
 import psycopg  # noqa: E402
 from egpt_retail.semantic.harvest import harvest_schema  # noqa: E402
+from egpt_retail.contracts.semantic import ProposalStatus  # noqa: E402
 from egpt_retail.semantic.proposals import (  # noqa: E402
     PayloadError,
     Proposal,
@@ -186,7 +187,7 @@ print(f"  reject: {reject_outcome}")
 
 # --- 4. Only accepted rows reach the graph -------------------------------------------------
 
-applied = proposals.apply_accepted(graph)
+applied = proposals.apply_accepted(graph).applied
 after_concepts, after_joins = count_in_graph()
 
 print()
@@ -221,7 +222,7 @@ for refusal in retry.refused:
     print(f"    {refusal}")
     print(f"      current state: {refusal.current_state.value}")
 
-after_retry = proposals.apply_accepted(graph)
+after_retry = proposals.apply_accepted(graph).applied
 retry_concepts, retry_joins = count_in_graph()
 print(f"  proposals applied on the follow-up run: {len(after_retry)}")
 print(
@@ -273,6 +274,97 @@ try:
 except PayloadError as error:
     refusals.append("malformed payload")
     print(f"  malformed payload: {str(error)[:72]}...")
+try:
+    proposals.propose(
+        Proposal(
+            kind=ProposalKind.ENRICHMENT,
+            target="K7Concept98",
+            payload={"name": "K7Concept98", "business_area": "marketng"},
+            proposer=PROPOSER,
+        )
+    )
+except PayloadError as error:
+    refusals.append("business area outside the closed set")
+    print(f"  business area outside the closed set: {str(error)[:60]}...")
+try:
+    proposals.propose(
+        Proposal(
+            kind=ProposalKind.JOIN,
+            target="a->b",
+            payload={
+                "left_table": "a",
+                "right_table": "b",
+                "on": "a.x = b.x",
+                "cardinality": "1:n",
+            },
+            proposer=PROPOSER,
+        )
+    )
+except PayloadError as error:
+    refusals.append("cardinality outside the closed set")
+    print(f"  cardinality outside the closed set: {str(error)[:60]}...")
+
+# --- 7b. One failing proposal does not block the queue ----------------------------------------
+
+print()
+print("7b. An accepted proposal that cannot be applied yet")
+print("-" * 78)
+# A mapping onto a concept nobody has defined, accepted alongside a perfectly good
+# enrichment. The first version of apply_accepted raised on the mapping and never reached
+# the enrichment -- and would have failed the same way every run, forever.
+stuck = Proposal(
+    kind=ProposalKind.MAPPING,
+    target="silver.crm_contact",
+    payload={"table": "silver.crm_contact", "concept": "K7NotYetDefined"},
+    proposer=PROPOSER,
+)
+fine = Proposal(
+    kind=ProposalKind.ENRICHMENT,
+    target="K7Concept99",
+    payload={"name": "K7Concept99", "description": "behind the stuck one in the queue"},
+    proposer=PROPOSER,
+)
+proposals.propose_many([stuck, fine])
+proposals.accept([stuck.identifier, fine.identifier], REVIEWER)
+partial = proposals.apply_accepted(graph)
+stuck_row = proposals.get(stuck.identifier)
+print(f"  outcome: {partial}")
+for failure in partial.failed:
+    print(f"    failed: {str(failure)[:90]}")
+print(f"  the good one behind it landed: {fine.identifier in partial.applied}")
+print(f"  the stuck one is still accepted: {stuck_row.state is ReviewState.ACCEPTED}")
+print(f"  and says why it has not landed: {bool(stuck_row.apply_error)}")
+
+# --- 7c. include_proposed reads the queue, not the graph ---------------------------------------
+
+print()
+print("7c. include_proposed, on the real store")
+print("-" * 78)
+reading = SemanticGraphStore(driver=driver, proposals=proposals)
+pending_one = Proposal(
+    kind=ProposalKind.ENRICHMENT,
+    target="K7ConceptPending",
+    payload={
+        "name": "K7ConceptPending",
+        "description": "awaiting review",
+        "business_area": "customer",
+    },
+    proposer=PROPOSER,
+)
+proposals.propose(pending_one)
+hidden = reading.get_concept("K7ConceptPending")
+shown = reading.get_concept("K7ConceptPending", include_proposed=True)
+listed_default = "K7ConceptPending" in reading.list_concepts()
+listed_proposed = "K7ConceptPending" in reading.list_concepts(include_proposed=True)
+print(f"  get_concept() by default:            {hidden}")
+print(
+    f"  get_concept(include_proposed=True):  {shown.name if shown else None}, status={shown.status.value if shown else None}"
+)
+print(f"  in list_concepts() by default:       {listed_default}")
+print(f"  in list_concepts(include_proposed):  {listed_proposed}")
+print(
+    "  Proposals live in Postgres, so without this the flag was a no-op on the real store."
+)
 
 # --- 8. Clean up ------------------------------------------------------------------------------
 
@@ -339,8 +431,26 @@ if second_run != 0:
     )
 if still_rejected != 8:
     failures.append(f"expected 8 still rejected after the re-run, got {still_rejected}")
-if len(refusals) != 3:
-    failures.append(f"expected three outright refusals, got {refusals}")
+if len(refusals) != 5:
+    failures.append(f"expected five outright refusals, got {refusals}")
+if len(partial.failed) != 1 or fine.identifier not in partial.applied:
+    failures.append(
+        f"one unappliable proposal did not leave the queue moving: {partial}"
+    )
+if (
+    stuck_row is None
+    or stuck_row.state is not ReviewState.ACCEPTED
+    or not stuck_row.apply_error
+):
+    failures.append("a failed apply did not stay accepted with its error recorded")
+if hidden is not None or shown is None or shown.status is not ProposalStatus.PROPOSED:
+    failures.append(
+        "include_proposed did not surface a pending proposal as status=proposed"
+    )
+if listed_default or not listed_proposed:
+    failures.append(
+        "list_concepts did not respect include_proposed for pending proposals"
+    )
 if cleaned != (0, 0):
     failures.append(f"the cookbook left {cleaned} behind in the graph")
 

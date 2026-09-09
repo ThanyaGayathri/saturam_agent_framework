@@ -22,6 +22,7 @@ Quote *is*, once, shipped. The semantic layer says which of *this customer's* ta
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Tuple
 
 from egpt_retail.contracts.semantic import (
@@ -37,6 +38,12 @@ from egpt_retail.contracts.semantic import (
     TableRef,
 )
 from egpt_retail.semantic.harvest import Harvest
+from egpt_retail.semantic.proposals import (
+    ProposalKind,
+    ProposalStore,
+    ReviewState,
+    validate_payload,
+)
 
 __all__ = [
     "COLUMN_LABEL",
@@ -72,9 +79,20 @@ class SemanticGraphStore:
     searched by meaning — that is the ontology's job (K3), and K10 is what fuses the two.
     """
 
-    def __init__(self, driver: Any, database: str = "neo4j") -> None:
+    def __init__(
+        self,
+        driver: Any,
+        database: str = "neo4j",
+        proposals: Optional[ProposalStore] = None,
+    ) -> None:
         self._driver = driver
         self._database = database
+        # Where ``include_proposed=True`` reads from. Proposals live in Postgres (K7), never
+        # in the graph, so without this the flag is a no-op on the real store -- the contract
+        # promises pending rows with ``status='proposed'`` and the store would silently return
+        # none. The graph wins when both hold a concept: an accepted row is the truth, and a
+        # newer proposal about it is a pending revision, not a replacement.
+        self._proposals = proposals
 
     # --- schema ------------------------------------------------------------------------
 
@@ -100,9 +118,27 @@ class SemanticGraphStore:
     def write_harvest(self, harvest: Harvest, *, snapshot_version: str = "") -> int:
         """Write a K4 harvest into the graph, returning how many tables were written.
 
-        Replaces the semantic layer's own labels and nothing else. Memory's ``Episode`` /
-        ``Fact`` / ``Entity`` rows and K3's ``OntologyConcept`` nodes are untouched by
-        construction rather than by care — the delete names the labels this class owns.
+        **Upserts and prunes; never wipes.** Tables and columns are merged by identity and
+        the ones the harvest no longer has are removed. The first version of this method did
+        ``DETACH DELETE`` on both labels and rewrote them, which read as the obviously
+        idempotent thing to do -- and destroyed every ``INSTANTIATES``, ``JOINS_TO`` and
+        ``AUTHORITATIVE_SOURCE`` edge on every run. A nightly harvest would have erased every
+        reviewed mapping every night, and ``applied_at`` in the proposals table would have
+        gone on saying they were applied. The P2 verification found it by writing three
+        reviewed edges, re-harvesting, and counting zero.
+
+        A table the warehouse dropped takes its edges with it, which is correct: a join to a
+        table that no longer exists is not a join, and K6 puts the KPIs that read it into
+        review. Everything attached to a surviving table survives.
+
+        **Sampled values do not come across.** The graph holds types and concepts; rows stay
+        in the warehouse. A sample is row data -- five real email addresses, in the case of
+        ``crm_contact.email`` -- and it belongs in the harvest a proposer reads transiently,
+        not in a store that persists and is queried by name. The harvest still carries them.
+
+        Only this class's labels are touched. Memory's ``Episode`` / ``Fact`` / ``Entity``
+        rows and K3's ``OntologyConcept`` nodes are untouched by construction rather than
+        by care.
 
         **Column-name collisions come across from the harvest.** A column carries
         ``collides_with``, the other tables sharing its name, so a caller reading one column
@@ -127,7 +163,6 @@ class SemanticGraphStore:
                             "nullable": column.nullable,
                             "is_key": column.is_key,
                             "comment": column.comment,
-                            "sampled_values": list(column.sampled_values),
                             "collides_with": [
                                 other
                                 for other in collisions.get(
@@ -144,9 +179,13 @@ class SemanticGraphStore:
                 }
             )
 
+        keep_tables = [f"{row['schema']}.{row['name']}" for row in rows]
+        keep_columns = [
+            f"{row['schema']}.{row['name']}.{col['name']}"
+            for row in rows
+            for col in row["columns"]
+        ]
         with self._driver.session(database=self._database) as session:
-            session.run(f"MATCH (n:{TABLE_LABEL}) DETACH DELETE n")
-            session.run(f"MATCH (n:{COLUMN_LABEL}) DETACH DELETE n")
             session.run(
                 f"""
                 UNWIND $rows AS row
@@ -162,13 +201,37 @@ class SemanticGraphStore:
                     c.nullable = col.nullable,
                     c.is_key = col.is_key,
                     c.comment = col.comment,
-                    c.sampled_values = col.sampled_values,
                     c.collides_with = col.collides_with,
                     c.status = 'accepted'
                 """,
                 rows=rows,
                 version=version,
             )
+            # Prune what the warehouse no longer has. Columns first, so a column dropped from
+            # a surviving table goes; then tables, taking their remaining columns and edges.
+            session.run(
+                f"""
+                MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL})
+                WHERE NOT (t.schema + '.' + t.name + '.' + c.name) IN $keep
+                DETACH DELETE c
+                """,
+                keep=keep_columns,
+            )
+            session.run(
+                f"""
+                MATCH (t:{TABLE_LABEL})
+                WHERE NOT (t.schema + '.' + t.name) IN $keep
+                OPTIONAL MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t)
+                DETACH DELETE c, t
+                """,
+                keep=keep_tables,
+            )
+            # A column that lost its table some other way has no meaning; do not keep it.
+            session.run(
+                f"MATCH (c:{COLUMN_LABEL}) WHERE NOT (c)-[:OF_TABLE]->() DELETE c"
+            )
+            # Any lingering row values from before this rule existed.
+            session.run(f"MATCH (c:{COLUMN_LABEL}) REMOVE c.sampled_values")
             session.run(
                 f"MERGE (s:{_SNAPSHOT_LABEL} {{singleton: true}}) "
                 "SET s.version = $version, s.harvested_at = $harvested_at, s.source = $source",
@@ -333,6 +396,14 @@ class SemanticGraphStore:
 
     # --- reads: the SemanticRead contract ----------------------------------------------
 
+    def _pending_enrichments(self) -> Tuple[Any, ...]:
+        """Enrichment proposals awaiting review, or nothing when no store was given."""
+        if self._proposals is None:
+            return ()
+        return self._proposals.list(
+            state=ReviewState.PENDING, kind=ProposalKind.ENRICHMENT
+        )
+
     def snapshot(self) -> Snapshot:
         with self._driver.session(database=self._database) as session:
             record = session.run(
@@ -443,7 +514,10 @@ class SemanticGraphStore:
                 f"MATCH (n:{CONCEPT_LABEL}) WHERE true{_visible(include_proposed)} "
                 "RETURN n.name AS name ORDER BY name"
             )
-            return tuple(r["name"] for r in result)
+            names = {r["name"] for r in result}
+        if include_proposed:
+            names.update(p.target for p in self._pending_enrichments())
+        return tuple(sorted(names))
 
     async def alist_concepts(
         self, *, include_proposed: bool = False
@@ -463,6 +537,11 @@ class SemanticGraphStore:
                 name=name,
             ).single()
         if record is None:
+            if include_proposed:
+                for pending in self._pending_enrichments():
+                    if pending.target == name:
+                        built = validate_payload(pending.kind, pending.payload)
+                        return replace(built, status=ProposalStatus.PROPOSED)
             return None
         node = record["n"]
         return Concept(
@@ -578,7 +657,13 @@ class SemanticGraphStore:
                 f"{_visible(include_proposed)} "
                 "RETURN DISTINCT n.business_area AS area ORDER BY area"
             )
-            return tuple(r["area"] for r in result)
+            areas = {r["area"] for r in result}
+        if include_proposed:
+            for pending in self._pending_enrichments():
+                area = pending.payload.get("business_area")
+                if area:
+                    areas.add(area)
+        return tuple(sorted(areas))
 
     async def alist_business_areas(
         self, *, include_proposed: bool = False

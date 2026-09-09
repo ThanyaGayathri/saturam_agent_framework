@@ -341,13 +341,54 @@ withheld = quote.sql_filter not in promoted_text and "pii" not in promoted_text
 print(f"  the scoping filter and compliance tags stay in the graph: {withheld}")
 
 provider.close()
+# --- 6. The nightly re-harvest must not erase what a person reviewed ------------------------
+
+print()
+print("6. Re-harvest, and what survives it")
+print("-" * 78)
+
+
+def reviewed_edges():
+    with driver.session() as s:
+        return {
+            kind: s.run(f"MATCH ()-[r:{kind}]->() RETURN count(r) AS n").single()["n"]
+            for kind in ("INSTANTIATES", "JOINS_TO", "AUTHORITATIVE_SOURCE")
+        }
+
+
+edges_before = reviewed_edges()
+store.write_harvest(harvest, snapshot_version="k5-demo.2")
+edges_after = reviewed_edges()
+with driver.session() as s:
+    samples_in_graph = s.run(
+        "MATCH (c:SemanticColumn) WHERE c.sampled_values IS NOT NULL RETURN count(c) AS n"
+    ).single()["n"]
+print(f"  reviewed edges before: {edges_before}")
+print(f"  reviewed edges after:  {edges_after}")
+print(f"  columns carrying sampled row values: {samples_in_graph}")
+print(
+    "  The first version of write_harvest wiped both labels and rewrote them, taking every"
+)
+print(
+    "  reviewed edge with it. A nightly harvest would have erased the review every night."
+)
+
 driver.close()
 
-# --- 6. Verdict ---------------------------------------------------------------------------
+# --- 7. Verdict ---------------------------------------------------------------------------
 
 print()
 print("=" * 78)
 failures = []
+if edges_after != edges_before or not all(edges_before.values()):
+    failures.append(
+        f"a re-harvest changed the reviewed edges: {edges_before} -> {edges_after}. "
+        "The nightly harvest would erase every accepted mapping, join and source."
+    )
+if samples_in_graph:
+    failures.append(
+        f"{samples_in_graph} columns carry sampled row values; rows stay in the warehouse"
+    )
 if not matches:
     failures.append("the column list from the graph does not match the harvest")
 if not rows:

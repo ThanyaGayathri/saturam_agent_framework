@@ -2040,3 +2040,81 @@ proposals landing as one edge to see it, and only because there were five tables
 nine.
 
 ---
+
+---
+
+### P2 verification — seven gaps, five fixed, one filed, one deferred to its owner
+
+**Status:** PASS (17/17 after fixes; two Lane K cookbooks and the R01 pair failed before them)
+
+**Description:** The same exercise as P1: read K4–K7 adversarially against the five constraints
+and the plan's evidence lines, then probe with live queries rather than trusting the cookbooks
+that were written alongside the code. Ordered by how much it would have cost in production.
+
+**1. A re-harvest destroyed every reviewed edge. (critical — fixed)**
+`write_harvest` did `DETACH DELETE` on both of its labels and rewrote them. It read as the
+obviously idempotent thing to do, and it was idempotent — for tables and columns. Every
+`INSTANTIATES`, `JOINS_TO` and `AUTHORITATIVE_SOURCE` edge went with them. Proved live: three
+reviewed edges, one re-harvest, zero edges. The nightly harvest would have erased the review
+every night, and `applied_at` in the proposals table would have gone on saying the proposals
+were applied. Now upserts by identity and prunes only what the warehouse no longer has; a
+dropped table takes its edges (correct — K6 puts the KPIs that read it into review). K05
+scenario 6 asserts 4/1/1 → 4/1/1.
+
+**2. Sampled row values were written into the graph. (constraint 4 — fixed)**
+"The graph holds types and concepts. Rows stay in the warehouse." `sampled_values` went onto
+every `SemanticColumn` — five real email addresses on `crm_contact.email`, in production. It
+never showed on this box only because silver has zero rows here, which is exactly the kind of
+gap a cookbook cannot find. The graph no longer takes them, and K6 snapshots strip them
+(`structural()`), since five addresses per column versioned forever in an audit table is a
+retention problem. The live harvest still carries them for a proposer to read transiently.
+
+**3. No product code did harvest → snapshot → graph. (fixed)**
+"Every harvest produces a versioned snapshot" was true of the cookbooks and not the product;
+each cookbook wired K4, K5 and K6 by hand, and the graph's version and the Postgres version
+were chosen separately by whoever called them. `semantic/refresh.py` is the orchestration;
+`egpt-retail harvest` is the command Lane R's schedule runs. One version in both stores.
+`K06_refresh_entrypoint.py` runs the real CLI from environment variables alone.
+
+**4. One unappliable proposal blocked the queue forever. (fixed)**
+`apply_accepted` raised on the first failure. An accepted mapping onto a concept that
+enrichment had not landed yet would fail first on every run, and nothing behind it would ever
+reach the graph. Now records `apply_error` on the row, leaves it accepted for retry, and
+continues. K07 scenario 7b: one stuck, one behind it landed.
+
+**5. Closed sets were not enforced at the proposal gate. (constraint 5 — fixed)**
+An enrichment with `business_area: "marketng"` parsed, built a `Concept`, and would have sat
+in the graph as an area no screen lists and no KPI matches — which breaks the set difference
+feasibility rests on. `ProposalStore` now validates against the vocabulary (shipped set by
+default, the customer overlay when passed) and refuses. Join `cardinality` is a closed set of
+four. Both refused in K07 scenario 7; both pinned in `test_p2_verification.py`.
+
+**6. `include_proposed` was a no-op on the real store. (fixed)**
+Proposals live in Postgres, so the graph only ever holds accepted rows and the flag returned
+nothing extra — while the contract promises pending rows with `status='proposed'`. The store
+now takes a `ProposalStore` and overlays pending enrichments on `get_concept`,
+`list_concepts` and `list_business_areas`. Graph wins when both hold a name. K07 scenario 7c.
+
+**7. Promotion cannot prune. (filed as K-5, not fixed here)**
+A concept removed from the graph leaves its promoted memory row: "rebuilt from the graph"
+currently means "a superset of the graph". The provider has no delete-by-id; K05 deletes
+with raw SQL, which product code must not. That is a `forget(scope, ids)` on the framework
+provider, sync and async, every backend — K1 territory and its own PR.
+
+Also: `EGPT_RETAIL_MEMORY_TABLE` is validated as an identifier at settings time.
+
+**Not a gap, recorded so nobody re-finds it:** `validated_against_snapshot` on
+`KpiDefinition` is never set by product code. K11 (P3) owns KPI persistence and will set it
+at validation time; K6 reads it. The field is in the right place; the writer is one phase out.
+
+**Result:** 253 unit tests (+17). Cookbook sweep 17/17, both lanes. Format run scoped to
+`product/` and `cookbook/94_retail/` — after the 107-file drift last time, `format.sh` is
+not run unscoped on this branch.
+
+**Surprising:** gap 1 was in code I had read twice and a cookbook had passed against. The
+cookbook wrote its reviewed edges *after* the harvest and never harvested again, so it could
+not have seen it. The verification found it in the first ten minutes by asking the one
+question the cookbook did not: what happens tomorrow night? That is the question to ask of
+every write path from here on.
+
+---

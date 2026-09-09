@@ -45,6 +45,7 @@ __all__ = [
     "ReviewReason",
     "SnapshotStore",
     "kpis_needing_review",
+    "structural",
 ]
 
 #: Its own schema in the control-plane database. Not the warehouse: these are records about
@@ -230,7 +231,7 @@ class SnapshotStore:
                     harvest.schema,
                     harvest.source,
                     harvest.harvested_at or datetime.now(timezone.utc).isoformat(),
-                    json.dumps(harvest.to_dict()),
+                    json.dumps(structural(harvest.to_dict())),
                 ),
             )
         self._connection.commit()
@@ -282,6 +283,30 @@ class SnapshotStore:
     async def adiff(self, before: str, after: str) -> HarvestDiff:
         """Async variant."""
         return await asyncio.to_thread(self.diff, before, after)
+
+
+def structural(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """A harvest payload with its sampled values removed.
+
+    A snapshot is a record of *structure* at a moment: it exists so a diff can be recomputed
+    later and so a KPI can say which schema it was validated against. Sampled values are row
+    data, and five real email addresses per column, versioned forever in an audit table, is
+    a retention problem dressed as a feature. They stay in the live harvest a proposer reads
+    and go no further (the graph refuses them for the same reason).
+    """
+    return {
+        **payload,
+        "tables": [
+            {
+                **table,
+                "columns": [
+                    {k: v for k, v in column.items() if k != "sampled_values"}
+                    for column in table.get("columns", ())
+                ],
+            }
+            for table in payload.get("tables", ())
+        ],
+    }
 
 
 def _harvest_from_dict(payload: Dict[str, Any]) -> Harvest:
