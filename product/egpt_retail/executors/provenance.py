@@ -26,6 +26,7 @@ from egpt.workflow.types import StepInput, StepOutput
 
 from egpt_retail.app.db import build_control_plane_engine
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.routing.table import NO_MODEL_TIER, model_tier_for
 
 __all__ = [
     "PROV_KEY",
@@ -172,12 +173,21 @@ def _run_id(step_input: StepInput, options: Dict[str, Any]) -> str:
 
 
 def _model_tier(step_input: StepInput, options: Dict[str, Any]) -> str:
-    """R8 (the real tier-routing table) is P3, after R7 -- this executor cannot map a model id
-    to a tier. An explicit override wins (matching PlanStep.model_tier being static plan
-    metadata); otherwise, if any upstream step actually ran a model (StepOutput.metrics set)
-    with no tier supplied, that is a real gap once R8 exists and is logged as one; a run with
-    no model step at all is genuinely "none" -- R7's own "workflow completes without a model"
-    evidence.
+    """The tier this run's model steps were bound to, from R8's routing table.
+
+    An explicit override still wins (PlanStep.model_tier is static plan metadata, and a caller
+    that knows better may say so). Otherwise every upstream step that actually ran a model
+    (``StepOutput.metrics`` set) is looked up by its ``executor_name`` -- for an agent step
+    that is the agent's name, which is its routing-table key -- and the highest tier bound
+    wins: a run with one frontier step is a frontier run. A run with no model step at all is
+    genuinely ``"none"``, R7's own "workflow completes without a model" evidence.
+
+    Static, deliberately: this is the tier the step was *bound* to, not the one that served
+    it. A small-tier step that escalated is recorded on the ``RunOutput`` the framework
+    persists (``metadata["egpt_escalation"]``), and ``StepOutput`` does not carry that
+    metadata forward -- so the escalation is visible in the run record, and the provenance
+    row states the binding. A model step whose executor is not in the table is a real gap and
+    is logged as one; it cannot be assigned a tier it was never routed to.
     """
     override = options.get("model_tier")
     if override is not None:
@@ -187,13 +197,25 @@ def _model_tier(step_input: StepInput, options: Dict[str, Any]) -> str:
             )
         return override
     outputs = step_input.previous_step_outputs or {}
-    if any(getattr(output, "metrics", None) is not None for output in outputs.values()):
-        log.warning(
-            "record_provenance: an upstream step ran a model but no model_tier was supplied "
-            "in additional_data -- R8's tier-routing table is not built yet (P3), so this run "
-            "is recorded as model_tier='none' even though a model served part of it."
-        )
-    return "none"
+    bound: List[str] = []
+    for step_name, output in outputs.items():
+        if getattr(output, "metrics", None) is None:
+            continue
+        executor_name = getattr(output, "executor_name", None)
+        tier = model_tier_for(executor_name)
+        if tier == NO_MODEL_TIER:
+            log.warning(
+                "record_provenance: step %r ran a model but its executor %r has no row in "
+                "R8's routing table -- recorded as model_tier='none' even though a model "
+                "served part of this run. Add the agent to routing/table.py.",
+                step_name,
+                executor_name,
+            )
+        bound.append(tier)
+    for tier in ("frontier", "small"):
+        if tier in bound:
+            return tier
+    return NO_MODEL_TIER
 
 
 async def record_provenance(step_input: StepInput) -> StepOutput:
