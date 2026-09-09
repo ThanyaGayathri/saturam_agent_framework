@@ -361,11 +361,18 @@ def view_statements(kpi_identifier: str, grain_keys: Sequence[str]) -> Tuple[str
 
 
 def read_gold_statement(kpi_identifier: str) -> str:
-    """The contract's read shape, through the per-KPI view, for one ``as_of``."""
-    return (
-        f"SELECT * FROM {GOLD_SCHEMA}.{gold_view(kpi_identifier)} "
-        "WHERE as_of = :as_of ORDER BY 1"
-    )
+    """The contract's read shape, through the per-KPI view, for one ``as_of``.
+
+    Orders by the whole row (Postgres's default record comparison, field by field in select
+    order), not just ``as_of``: the ``WHERE as_of = :as_of`` clause already fixes column 1 to
+    one value, so ``ORDER BY 1`` alone leaves a KPI with more than one dimension row per
+    ``as_of`` in whatever order the query plan happens to produce -- confirmed to actually
+    flip between an index scan and a forced sequential scan of the same data. Ordering by the
+    row itself is deterministic regardless of grain: it needs no grain-key names or count, so
+    this stays the pure, DB-free function it already was.
+    """
+    view = gold_view(kpi_identifier)
+    return f"SELECT * FROM {GOLD_SCHEMA}.{view} WHERE as_of = :as_of ORDER BY {view}"
 
 
 # ---------------------------------------------------------------------------

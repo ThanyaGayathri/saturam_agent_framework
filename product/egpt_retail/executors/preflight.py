@@ -36,15 +36,17 @@ from egpt_retail.contracts.kpi import (
     KpiDefinition,
     assess_feasibility,
 )
+from egpt_retail.warehouse.health import FRESHNESS_BOUND_HOURS
 
 __all__ = ["check_preflight", "gold_fresh_check", "GOLD_STALENESS_BOUND_HOURS"]
 
 log = logging.getLogger(__name__)
 
 #: Past this many hours since a KPI last materialised, ``gold_fresh`` fails for it. The same
-#: bound ``warehouse/health.py`` draws between ``fresh`` and ``stale``; overridable per run
-#: through ``additional_data["gold_staleness_hours"]``.
-GOLD_STALENESS_BOUND_HOURS = 36.0
+#: name ``warehouse/health.py`` draws its own ``fresh``/``stale`` line at -- imported rather
+#: than restated, so the two cannot drift into two different bounds behind one claimed
+#: meaning; overridable per run through ``additional_data["gold_staleness_hours"]``.
+GOLD_STALENESS_BOUND_HOURS = FRESHNESS_BOUND_HOURS
 
 #: The check names the API contract's own worked examples use
 #: (``product/egpt_retail/api/openapi/paths/use-cases.yaml``, ``runUseCasePreflight``).
