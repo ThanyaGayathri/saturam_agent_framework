@@ -1752,3 +1752,62 @@ live MinIO container in this environment (no MinIO available); the change is sch
 only and does not touch path parsing or the roundtrip script.
 
 ---
+
+### K04_metadata_harvest.py
+
+**Package:** K4 (P2, implements G19)
+**Status:** PASS
+
+**Description:** Harvested R4's real silver schema into a harvest record — tables, columns,
+types, keys, row counts, sampled values — deterministically, with no model. Then ran the
+package's three scenarios: read it and check by eye, add a column and diff, and add a column
+whose name already exists in another table.
+
+**Setup note:** R4 (#193) is not merged. Rather than harvest a schema I invented, I applied
+R4's own DDL from `feat/lane-r-phase1-r4` to a local `egpt_warehouse` database and harvested
+that. The harvester is schema-agnostic — it reads whatever the catalogue holds — so this is
+the real shape, not a stand-in, and nothing needs redoing when R4 lands.
+
+**Result:** 5 tables, 50 columns, all types and keys matching the DDL. The diff after adding
+`crm_deal.k4_probe_note` names exactly that column and nothing else. Adding `email` to
+`session_replay_session`, where `crm_contact.email` already existed, is reported as a **new**
+collision naming both tables. Dropping both probe columns returns the schema to structurally
+identical.
+
+**The find of the package, and it was not on the brief.** I harvested `COMMENT ON COLUMN`
+text, which the package description does not ask for, on the argument that a sentence the
+schema author already wrote is better than one an enrichment proposer invents. R4's DDL
+carries six. One of them is this:
+
+> `analytics_event.session_id` — *"The analytics vendor's session id. **NOT joinable** to
+> `silver.session_replay_session.session_id` — the two sources use separate id spaces and no
+> bridge exists yet."*
+
+My collision detector independently flagged `session_id` as a business collision needing a
+decision. **The comment already contains the answer, and it is the opposite of what anyone
+would assume.** Two columns with the same name, the same type, on two tables — every instinct
+says join key. It is not one. An agent given name and type alone would join them and produce
+a confidently wrong funnel; that is G19 stated as precisely as it can be stated, found in real
+DDL rather than in a hypothetical. It also makes the case for G20's authoritative flag
+concrete, and it is what K8's mapping proposer must be handed rather than left to infer.
+
+**A second finding, about signal.** The first run reported 10 collisions flatly. Four are
+lineage columns — `load_id`, `source_path`, `source_ingested_at`, `conformed_at` — which every
+silver table carries by design and which mean the same thing in each. They are a convention,
+not an ambiguity, and listing them beside `brand` buries the two that matter. Collisions are
+now split: 6 need a decision, 4 are lineage and reported separately. A proposer handed all ten
+undifferentiated reads four rows of noise first.
+
+**Deliberate design choices worth stating:**
+
+- **An exact `count(*)`, not `pg_stat_user_tables.n_live_tup`.** The estimate is zero until
+  autovacuum runs, which on a freshly loaded warehouse is exactly when a harvest is taken — so
+  the estimate reports an empty table that has just been filled, and every downstream
+  feasibility judgement inherits that.
+- **The diff is silent about row counts and sampled values.** A nightly load changes both every
+  night. A diff that reported them would cry wolf until nobody read it, at which point the
+  renamed column it exists to catch goes through unnoticed.
+- **Lineage columns are never sampled.** A load id tells a proposer nothing, and `source_path`
+  is the one place a filesystem layout could leak into a prompt.
+
+---
