@@ -45,7 +45,7 @@ sha256_of() {
 # "<sha256>  <path relative to root>" per file, sorted -- a manifest that can be diffed.
 manifest() {
   local root="$1"
-  find "$root" -type f -name '*.ndjson' | sort | while read -r f; do
+  find "$root" -type f -name '*.ndjson' -print0 | sort -z | while IFS= read -r -d '' f; do
     printf '%s  %s\n' "$(sha256_of "$f")" "${f#"$root"/}"
   done
 }

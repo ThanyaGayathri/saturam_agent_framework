@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from enum import Enum
 from types import MappingProxyType
-from typing import FrozenSet, Mapping, Tuple
+from typing import FrozenSet, Mapping, Optional, Tuple
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -36,7 +36,7 @@ __all__ = [
 
 #: Bumped on any breaking change, per the change protocol in
 #: ``product/egpt_retail/contracts/CHANGELOG.md``. Additive changes do not bump it.
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 #: ``strftime``/``strptime`` shape for the timestamp embedded in a landed filename.
 #: Compact and colon-free on purpose -- a raw ISO timestamp survives every object store and
@@ -86,6 +86,18 @@ class LandingSchema:
     #: the source system's data is known-dirty today (see ``LANDING_CONTRACT.md``). Never a
     #: key or the watermark column: those are structural, not business, fields.
     nullable_columns: FrozenSet[str] = field(default_factory=frozenset)
+    #: Required columns, other than the watermark column, whose value must also parse as a
+    #: UTC ISO-8601 timestamp. The watermark column is always format-checked regardless of
+    #: this set; this is for a *different* timestamp column that still needs the same check
+    #: now that it is no longer structural (e.g. session replay's ``session_start_at``, which
+    #: lost format-checking when ``last_updated_at`` became the watermark in its place).
+    timestamp_columns: FrozenSet[str] = field(default_factory=frozenset)
+    #: The watermark column this schema used before its most recent breaking change, if any.
+    #: Lets :func:`validate_row` tell "this row genuinely predates the switch" apart from
+    #: "this row is malformed" when the *current* watermark is absent: a row with a blank
+    #: ``watermark_column`` but a well-formed ``superseded_watermark_column`` is reported
+    #: distinctly, rather than folded into the generic missing-watermark defect.
+    superseded_watermark_column: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.stream_id:
@@ -116,6 +128,28 @@ class LandingSchema:
                 f"{self.stream_id}: nullable_columns {sorted(unknown_nullable)} are not "
                 "required_columns"
             )
+        unknown_timestamp = self.timestamp_columns - set(self.required_columns)
+        if unknown_timestamp:
+            raise ValueError(
+                f"{self.stream_id}: timestamp_columns {sorted(unknown_timestamp)} are not "
+                "required_columns"
+            )
+        if self.watermark_column in self.timestamp_columns:
+            raise ValueError(
+                f"{self.stream_id}: timestamp_columns must not include watermark_column "
+                f"{self.watermark_column!r} -- it is already format-checked unconditionally"
+            )
+        if self.superseded_watermark_column is not None:
+            if self.superseded_watermark_column == self.watermark_column:
+                raise ValueError(
+                    f"{self.stream_id}: superseded_watermark_column must differ from "
+                    "watermark_column"
+                )
+            if self.superseded_watermark_column not in self.required_columns:
+                raise ValueError(
+                    f"{self.stream_id}: superseded_watermark_column "
+                    f"{self.superseded_watermark_column!r} is not listed in required_columns"
+                )
 
 
 def _schemas() -> Tuple[LandingSchema, ...]:
@@ -136,7 +170,14 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "occurred_at",
                 "brand",
                 "product_id",
+                "identity_key",
             ),
+            # brand/product_id are null on an event that isn't product-scoped (a homepage
+            # page_view or a search) -- required only for the RFQ funnel events named in
+            # LANDING_CONTRACT.md, a per-row rule R4 enforces. identity_key is reserved on
+            # every shape but null everywhere until the shared hashed identity (the plan's one
+            # privacy-gated blocker) ships.
+            nullable_columns=frozenset({"brand", "product_id", "identity_key"}),
         ),
         LandingSchema(
             stream_id="crm.contact",
@@ -150,7 +191,12 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "last_modified_at",
                 "email",
                 "brand",
+                "identity_key",
             ),
+            # brand here is the contact's own CRM record, not authoritative for RFQ-funnel
+            # attribution -- see crm.deal, where brand is required because a single contact
+            # can request quotes across more than one brand, a deal-level fact.
+            nullable_columns=frozenset({"identity_key"}),
         ),
         LandingSchema(
             stream_id="crm.deal",
@@ -163,8 +209,13 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "object_id",
                 "last_modified_at",
                 "stage",
+                "brand",
                 "quote_request_source_url",
             ),
+            # brand is authoritative here (see crm.contact above). quote_request_source_url
+            # is null on a deal that isn't a quote request (a renewal, an upsell) -- required
+            # only when `stage` marks the deal as one, a per-row rule R4 enforces.
+            nullable_columns=frozenset({"quote_request_source_url"}),
         ),
         LandingSchema(
             stream_id="crm.deal_stage_history",
@@ -180,26 +231,49 @@ def _schemas() -> Tuple[LandingSchema, ...]:
                 "stage",
                 "entered_at",
             ),
+            # entered_at isn't the watermark (last_modified_at is), but it's still a
+            # timestamp -- without this it would pass validate_row clean regardless of shape,
+            # the same gap this PR closes for session_replay.session's session_start_at.
+            timestamp_columns=frozenset({"entered_at"}),
         ),
         LandingSchema(
             stream_id="session_replay.session",
             source=SourceName.SESSION_REPLAY,
             grain="one row per session",
             key_columns=("session_id",),
-            watermark_column="session_start_at",
+            watermark_column="last_updated_at",
             required_columns=(
                 "session_id",
                 "session_start_at",
+                "last_updated_at",
                 "rage_click_count",
                 "dead_click_count",
                 "script_error_count",
                 "session_url",
                 "identity_at_login",
                 "identity_at_submit",
+                "identity_key",
             ),
             # A session may end before login, or be abandoned before submission -- unlike
             # CRM's null brand, an unset identity here is not dirty data, it is the truth.
-            nullable_columns=frozenset({"identity_at_login", "identity_at_submit"}),
+            # This stream's `session_id` is its own tool's session, a different namespace
+            # from analytics.event's `session_id` -- nothing joins the two until identity_key
+            # is populated. The watermark is `last_updated_at`, not `session_start_at`:
+            # `session_start_at` never moves once a session begins, so a re-pull carrying
+            # corrected click counts would tie on it forever and the tie-break would discard
+            # the correction. `last_updated_at` moves when the record does, matching what
+            # `last_modified_at` gives the CRM streams (1.1.0, additive to this stream only).
+            nullable_columns=frozenset(
+                {"identity_at_login", "identity_at_submit", "identity_key"}
+            ),
+            # session_start_at stopped being the watermark in 1.1.0 but is still required and
+            # still a timestamp -- without this it would pass validate_row clean regardless of
+            # shape, since only the watermark column is format-checked unconditionally.
+            timestamp_columns=frozenset({"session_start_at"}),
+            # A row with a blank last_updated_at but a well-formed session_start_at is more
+            # likely a pre-1.1.0 landed row (session_start_at was the watermark then) than
+            # malformed 1.1.0 data -- see validate_row's use of this.
+            superseded_watermark_column="session_start_at",
         ),
     )
 
@@ -254,10 +328,20 @@ def resolve_stream_id(source: SourceName, row: Mapping[str, object]) -> str:
 
 
 def _parses_as_timestamp(value: object) -> bool:
-    if not isinstance(value, str):
+    """A UTC ISO-8601 timestamp, with the literal ``Z`` suffix -- never naive, never a
+    non-UTC offset.
+
+    The dedup rule (``LANDING_CONTRACT.md``'s re-run behaviour) compares two watermark
+    values lexically, not by parsing them: ``"2026-09-01T09:00:00+02:00" >
+    "2026-09-01T07:30:00Z"`` is true as strings but false as instants (09:00+02:00 is
+    07:00Z, earlier than 07:30Z). Lexical order only equals chronological order once every
+    watermark shares the same fixed-width UTC ``Z`` suffix -- the same rule already enforced
+    for ``ingested_at`` in :func:`landing_path`.
+    """
+    if not isinstance(value, str) or not value.endswith("Z"):
         return False
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError:
         return False
     return True
@@ -284,10 +368,10 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
     (session replay's identity fields) are told apart.
 
     ``row`` is untrusted input -- one parsed JSON line -- so this never raises on a
-    malformed shape (not an object; a key column holding a list or dict rather than a
-    scalar). Both are reported as defects rather than left to crash whatever reads the
-    result, which for the key-column case is this contract's own downstream dedup: a list
-    or dict is unhashable, and grouping by key is exactly what a caller does with it next.
+    malformed shape (not an object; a key column holding anything other than a string).
+    Both are reported as defects rather than left to crash whatever reads the result, which
+    for the key-column case is this contract's own downstream dedup: a list or dict is
+    unhashable, and grouping by key is exactly what a caller does with it next.
     """
     schema = landing_schema(stream_id)
     if not isinstance(row, Mapping):
@@ -301,34 +385,76 @@ def validate_row(stream_id: str, row: Mapping[str, object]) -> Tuple[str, ...]:
             continue
         if column not in row:
             defects.append(f"missing required column {column!r}")
-        elif _is_blank(row[column]) and column not in schema.nullable_columns:
-            defects.append(f"required column {column!r} is null or blank")
+            continue
+        value = row[column]
+        if _is_blank(value):
+            if column not in schema.nullable_columns:
+                defects.append(f"required column {column!r} is null or blank")
+            continue
+        if not isinstance(value, (str, int, float, bool)):
+            # Unlike a key column, a required column may legitimately be numeric (session
+            # replay's click counts) or boolean, so this checks scalar-ness, not string-ness.
+            # A list or dict is neither missing nor blank, so without this it would pass
+            # `validate_row` clean -- the exact completeness gap the key-column check above
+            # already closes for key columns. Only reached for a non-blank value, since a
+            # nullable column's `None` must not be reported as a defect here.
+            defects.append(
+                f"required column {column!r} is not a scalar value: "
+                f"{type(value).__name__}"
+            )
+            continue
+        if column in schema.timestamp_columns and not _parses_as_timestamp(value):
+            # A required column can lose format-checking silently if it used to be the
+            # watermark (the only column checked unconditionally, below) and stopped being
+            # one -- schema.timestamp_columns is how a schema re-declares "still a timestamp,
+            # still check it" for exactly that case.
+            defects.append(
+                f"required column {column!r} is not a parseable UTC ISO-8601 timestamp: "
+                f"{value!r}"
+            )
 
     for column in schema.key_columns:
         value = row.get(column)
         if _is_blank(value):
             defects.append(f"key column {column!r} is missing or null")
-        elif not isinstance(value, (str, int, float, bool)):
-            # A key column must be a scalar: every current key column is string-typed, and
-            # this contract's own dedup groups rows by a tuple of key values, which requires
-            # each to be hashable. A list or dict is legal NDJSON and illegal here.
+        elif not isinstance(value, str):
+            # Every current key column is string-typed. A list or dict is also unhashable,
+            # which would otherwise crash this contract's own downstream dedup (grouping by
+            # a tuple of key values); a bool, int or float is hashable but still the wrong
+            # shape for a key this contract expects to be a string.
             defects.append(
-                f"key column {column!r} is not a scalar value: {type(value).__name__}"
+                f"key column {column!r} must be a string, not {type(value).__name__}"
             )
 
     watermark = row.get(schema.watermark_column)
-    watermark_already_reported = _is_blank(watermark) and (
-        schema.watermark_column in schema.key_columns
+    watermark_is_key = schema.watermark_column in schema.key_columns
+    watermark_already_reported = watermark_is_key and (
+        _is_blank(watermark) or not isinstance(watermark, str)
     )
     if _is_blank(watermark):
         if not watermark_already_reported:
-            defects.append(
-                f"watermark column {schema.watermark_column!r} is missing or null"
-            )
-    elif not _parses_as_timestamp(watermark):
+            superseded = schema.superseded_watermark_column
+            superseded_value = row.get(superseded) if superseded else None
+            if superseded is not None and _parses_as_timestamp(superseded_value):
+                # A blank current watermark alongside a well-formed old one reads as "this
+                # row predates the watermark switch," not "this row is malformed" -- distinct
+                # from the generic message so a caller re-validating already-landed data
+                # (from before this schema's most recent breaking change) can tell the two
+                # apart instead of flagging every historical row as a fresh defect.
+                defects.append(
+                    f"watermark column {schema.watermark_column!r} is missing, but "
+                    f"{superseded!r} is present and well-formed -- this row may predate the "
+                    f"switch to {schema.watermark_column!r} as the watermark rather than "
+                    "being malformed"
+                )
+            else:
+                defects.append(
+                    f"watermark column {schema.watermark_column!r} is missing or null"
+                )
+    elif not watermark_already_reported and not _parses_as_timestamp(watermark):
         defects.append(
-            f"watermark column {schema.watermark_column!r} is not a parseable ISO-8601 "
-            f"timestamp: {watermark!r}"
+            f"watermark column {schema.watermark_column!r} is not a parseable UTC "
+            f"ISO-8601 timestamp: {watermark!r}"
         )
 
     return tuple(defects)

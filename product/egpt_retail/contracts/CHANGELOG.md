@@ -56,14 +56,154 @@ value as two defects; `LANDING_SCHEMAS` was documented as frozen but was a mutab
 report; `parse_landing_path` leaked a raw stdlib message for a calendar-invalid date instead
 of its own consistent wrapper.
 
-Added `product/tests/test_landing_contract.py` (28 tests) — `LandingSchema.__post_init__`'s
-four construction-time guards were correct but unexercised anywhere in the repository before
+Added `product/tests/test_landing_contract.py` (30 tests) — `LandingSchema.__post_init__`'s
+six construction-time guards were correct but unexercised anywhere in the repository before
 this; adversarial `parse_landing_path` inputs (traversal, mismatched source, calendar-invalid
 date, wrong extension) likewise. The cookbook fixtures gained two rows (`d_901`, missing
 `quote_request_source_url` outright; `h_9002`, a genuine same-watermark tie with different
 content across the two CRM pulls) so `C01_landing_contract.py` exercises and asserts on
 branches its previous fixtures happened not to touch. `C01_minio_roundtrip.sh` now diffs a
 sha256 manifest of uploaded vs. downloaded files, rather than relying on object names alone.
+
+### Patch — 2026-09-08 — round-2 review: correctness fixes, coverage, and contract-vs-plan gaps
+
+`CONTRACT_VERSION` stays `1.0.0` here — not because adding `brand` and `identity_key` as
+required columns is non-breaking under `validate_row`'s own semantics (a row missing a
+required column entirely is flagged regardless of nullability, so it is breaking by that
+rule), but because this contract is still `C → R`, an unreviewed proposal: a correction to a
+proposal is announced under change-protocol rule 1 rather than version-bumped as a change to
+an agreed shape. That distinction never mattered in practice — these commits never reached
+`main` under a released `1.0.0` label (PR #190 closed before round 2 was pushed); this PR
+folds rounds 2-4 into a single correct `1.0.0 → 1.1.0` transition below.
+
+Two findings from a deeper pass that checked the contract against
+`docs/plan/delivery-plan.md`/`build-plan.md` directly, not just against itself:
+
+| Fix | Was |
+|---|---|
+| `brand` is a required column on `crm.deal`, not only `crm.contact` | C3's own verify step reads "deals with empty or free-text brand", but `crm.deal` had no `brand` column at all — that verification could not be run against this contract as written. `crm.deal`'s `brand` is now authoritative for RFQ-funnel attribution, since a single contact can request quotes across more than one brand. |
+| Watermark timestamps must be UTC with a literal `Z` suffix | `validate_row` accepted a naive or non-UTC-offset timestamp. The dedup rule compares watermarks lexically, and `"09:00:00+02:00" > "07:30:00Z"` is true as strings but false as instants — the same class of bug round 1 fixed for `ingested_at` in `landing_path`, now closed for the row-level watermark too. |
+
+Also fixed, all Minor/Nit, reproduced before being fixed: the key-column type check now
+requires a string (a `bool`/`int`/`float` key value previously passed clean, contradicting
+the code's own comment); the key+watermark double-report guard now also covers a non-scalar
+value, not just a blank one; `test_validate_row_rejects_non_scalar_key_value` now covers
+`dict` alongside `list`; the "missing required column" and `nullable_columns` runtime-
+suppression branches each gained a dedicated unit test instead of only cookbook coverage.
+
+Three gaps recorded rather than fixed, per each finding's own "not a blocker, document it"
+recommendation:
+
+- **No dataset segment in the storage path** (medium) — breaking, and nothing has landed
+  against this convention yet, so redesigning it now is premature. Recorded as a known 1.0.0
+  limitation in `LANDING_CONTRACT.md`.
+- **`analytics.event`'s `brand`/`product_id` are now nullable**, required only for the named
+  RFQ-funnel events — they were non-nullable, which made a homepage `page_view` a false
+  defect.
+- **`identity_key` reserved, null everywhere.** Added as a required-but-nullable column to
+  `analytics.event`, `crm.contact` and `session_replay.session` — one per connector — so
+  C2–C4 do not each invent their own identity column. It stays null until the plan's shared
+  hashed identity ships (gated on privacy sign-off, per `build-plan.md`). Also recorded
+  explicitly: raw email continues to land in the clear in 1.0.0, a known privacy gap, not a
+  decision. `crm.deal`'s `quote_request_source_url` is now nullable too, since a deal that
+  is not a quote request has no referring URL — the conditional requirement is a per-row
+  rule for R4, not something this contract's `validate_row` encodes.
+- **No deletion or merge semantics** (low) — last-write-wins can add and replace a row,
+  never remove one. Recorded as a known 1.0.0 gap in `LANDING_CONTRACT.md`.
+
+Fixture and doc updates to match: `identity_key: null` added to every row across all three
+sources; `brand` added to the CRM deal fixture rows; a homepage `page_view` (null
+`brand`/`product_id`) added to the analytics fixture to demonstrate the nullable fix;
+`deploy/compose.yaml`'s MinIO image pinned to a release tag instead of `:latest`; the
+fixtures README brought back in sync with the fixture files (round 1 had left it describing
+an earlier, smaller version of the CRM fixtures).
+
+`product/tests/test_landing_contract.py` grew to 40 tests. Full list in `TEST_LOG.md`'s
+"Review round 2" entry.
+
+### Patch — 2026-09-08 — round-3 review: a real completeness gap round 2 introduced
+
+`CONTRACT_VERSION` stays `1.0.0` here for the same reason as round 2 above: tightening
+`validate_row` to flag a non-scalar value in a required column can fail a row that previously
+passed, which is breaking by `validate_row`'s own rule, not exempt from it — but this contract
+is still an unreviewed `C → R` proposal, and (as above) no released `1.0.0` label was ever
+live against it. One real finding from a review of round 2's own fix, plus three
+doc/robustness nits reproduced and closed alongside it.
+
+| Fix | Was |
+|---|---|
+| `validate_row` flags a non-scalar value in a non-key required column | Round 2's `_is_blank` check covered "missing" and "blank" but not "wrong shape" the way the key-column loop does. A list or dict in, e.g., `brand` was neither missing nor blank, so it passed `validate_row` clean -- the same completeness gap the key-column fix closed for keys, left open for every other required column. |
+
+Also fixed: `LandingSchema.__post_init__`'s guard count corrected from "four" to "six" (the
+method has six `raise` sites; the round-1 test file already added six matching tests, the
+prose just undercounted) in both `TEST_LOG.md` and this file; `C01_minio_roundtrip.sh`'s
+manifest loop is now NUL-delimited (`find -print0` / `sort -z` / `read -d ''`), a
+robustness fix with no behavioral difference against today's fixed fixture filenames; the
+adversarial `uppercase source` test case now notes it pins the `SourceName` enum layer, not
+`_PATH_RE`'s own case restriction, since the regex already excludes it.
+
+One finding investigated and not reproduced: a claimed double-report for a non-scalar value
+on a combined key+watermark column. `f6580c34`'s `watermark_already_reported` already
+covers this (`_is_blank(watermark) or not isinstance(watermark, str)`); reproducing the
+exact input against that commit returns one defect, not two.
+
+`product/tests/test_landing_contract.py` grew to 41 tests.
+
+### 1.1.0 — 2026-09-08 — session_replay's watermark, and a follow-up PR
+
+Agreed by: Lane R — this is Lane R's own finding, from building R4 against this contract, and
+R4 (#193) is the consumer whose dedup `ORDER BY` this change reaches.
+
+PR #190 merged at the round-1 commit before the round-2 and round-3 fixes above were pushed
+to it — both rounds are real (reproduced, tested, pushed), but landed in `main` through this
+follow-up PR instead, once the original was already closed. Recorded here rather than
+silently folded into the entries above, since those entries' commit SHAs no longer match
+what merged them.
+
+One more finding arrived after the merge, from Lane R having built R4 against this contract
+(#193, not yet merged): **breaking**, hence the version bump.
+
+| Change | Why | Cost to Lane R |
+|---|---|---|
+| `session_replay.session`'s watermark is `last_updated_at`, not `session_start_at` | `session_start_at` never moves once a session begins. A re-pull carrying corrected click counts for the same session would tie on it forever, and the tie-break (earliest-pulled wins) would silently discard every correction — the contract's own re-run rule producing a real data-loss bug, not a loader bug. `last_updated_at` moves when the record does, the same property `last_modified_at` already gives the three CRM streams. | `session_start_at` stays a required column, just no longer structural — R4's existing SQL keeps reading it, only the dedup's `ORDER BY`/comparison column changes. |
+
+Also fixed, additive: `product/pyproject.toml`'s `package-data` only listed
+`contracts/_fixtures/*.json`, which does not match
+`contracts/_fixtures/landing/raw/**/*.ndjson` — a non-editable install of `egpt-retail`
+shipped the landing contract without the fixtures that demonstrate it, invisible in the
+editable checkout where all development happens. Added
+`contracts/_fixtures/landing/raw/*/*/*.ndjson`, and a test
+(`test_landing_fixtures_are_covered_by_package_data_glob`) that fails if a future fixture
+file isn't covered by some glob, mirroring the shape of R4's own `test_r4_sql_assets.py`
+coverage check.
+
+`product/tests/test_landing_contract.py` grew to 44 tests.
+
+### Patch — 2026-09-09 — round-4 review: format-checking gap, version-compat gap, coverage
+
+Not a shape change; `CONTRACT_VERSION` stays `1.1.0`. Two real gaps in the 1.1.0 change
+itself, plus documentation and coverage fixes, from an automated review of this follow-up PR.
+
+| Fix | Was |
+|---|---|
+| `LandingSchema.timestamp_columns` restores format-checking for a required column that stops being the watermark | `_parses_as_timestamp` only ever ran on `schema.watermark_column`. `session_start_at` was format-checked before 1.1.0 (it was the watermark) and silently stopped being checked after — a garbage string in it passed `validate_row` clean. `crm.deal_stage_history.entered_at` had the same latent gap, never having been the watermark at all. Both are now in `timestamp_columns`. |
+| `LandingSchema.superseded_watermark_column` distinguishes a pre-1.1.0 landed row from malformed 1.1.0 data | A row landed under the pre-1.1.0 shape (has `session_start_at`, genuinely lacks `last_updated_at`) reported the identical generic "watermark missing" defect as truly corrupt data — re-validating PR #190's already-landed rows post-merge would have flagged every one of them. `session_replay.session` now names `session_start_at` as its superseded watermark; a blank current watermark alongside a well-formed old one gets a distinct "may predate the switch" message. |
+
+Also fixed: the round-2 and round-3 entries above reworded to stop claiming a version-exempt
+"proposal" carve-out that `validate_row` itself does not implement (see each entry); this
+entry's own "Agreed by" line added to the `1.1.0` entry above, per this file's Rule 5; the
+headline `session_replay` test renamed and its docstring narrowed from claiming a dedup
+demonstration it never performed (`validate_row` calls and a string comparison, not any
+winner-selection code) to what it actually pins — real dedup coverage is Lane R's R4 (#193),
+the actual consumer of `schema.watermark_column`. Coverage gaps closed: `crm.deal.brand`
+rejecting an explicit `null` (previously only "missing entirely" was tested), `crm.deal
+.quote_request_source_url` accepting an explicit `null` (previously only "missing entirely"
+for the opposite direction), `identity_key`'s required-ness on `analytics.event`, and the
+non-scalar required-column check on a `session_replay` column (`rage_click_count`), matching
+the check's own motivating comment. `LANDING_CONTRACT.md`'s stale "CRM shapes are 1.0.0"
+mention (superseded by the 1.1.0 bump) reworded to not name a version at all.
+
+`product/tests/test_landing_contract.py` grew to 57 tests.
 
 ## KPI formula shape
 

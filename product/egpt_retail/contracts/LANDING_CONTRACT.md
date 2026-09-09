@@ -26,6 +26,15 @@ raw/{source}/dt={YYYY-MM-DD}/{source}-{ingested_at}.ndjson
 
 Example: `raw/crm/dt=2026-09-01/crm-20260901T060000Z.ndjson`.
 
+**Known gap in 1.0.0: no dataset segment.** This path gives one file per source per pull.
+CRM works around that by multiplexing three shapes into one file via `record_type`, which is
+the pattern any future database source (a fourth connector, or CRM growing past three
+shapes) would have to inherit, and it does not generalise past a handful of shapes. Adding a
+`{dataset}` segment (`raw/{source}/{dataset}/dt=.../{dataset}-{ts}.ndjson`) is a breaking
+change — every landed path moves — so it is deliberately not made now, while nothing has
+landed against this convention yet. Recorded here as a known limitation, not a decision, so a
+future database-backed connector does not have to rediscover it.
+
 `libs/agno` never sees this path or a source-specific concept — the typed half of this
 contract, `egpt_retail.contracts.landing`, is what Lane R's loader (and later C2–C4) import
 to build and parse it. See `landing_path` / `parse_landing_path`.
@@ -42,20 +51,51 @@ conforming file per source — a text editor has to be enough.
 Analytics and session replay each land one shape. **CRM lands three**, multiplexed into the
 same file and distinguished by a `record_type` field — CRM's own resolution of "one row per
 what": the source's *what* is a CRM change event, not a single flat grain. All three CRM
-shapes are `1.0.0` of `egpt_retail.contracts.landing.LANDING_SCHEMAS` and share one
+shapes are entries in `egpt_retail.contracts.landing.LANDING_SCHEMAS` and share one
 `dt=` partition and one file per pull.
 
 | Stream | Grain | Key columns | Watermark | Required columns |
 |---|---|---|---|---|
-| `analytics.event` | one row per event, keyed on user, session, event name and when it occurred | `user_id`, `session_id`, `event_name`, `occurred_at` | `occurred_at` | + `brand`, `product_id` |
-| `crm.contact` | one row per contact, as of its last change | `record_type`, `object_id` | `last_modified_at` | + `email`, `brand` |
-| `crm.deal` | one row per deal, as of its last change | `record_type`, `object_id` | `last_modified_at` | + `stage`, `quote_request_source_url` |
+| `analytics.event` | one row per event, keyed on user, session, event name and when it occurred | `user_id`, `session_id`, `event_name`, `occurred_at` | `occurred_at` | + `brand`\*, `product_id`\*, `identity_key`\* |
+| `crm.contact` | one row per contact, as of its last change | `record_type`, `object_id` | `last_modified_at` | + `email`, `brand`, `identity_key`\* |
+| `crm.deal` | one row per deal, as of its last change | `record_type`, `object_id` | `last_modified_at` | + `stage`, `brand`, `quote_request_source_url`\* |
 | `crm.deal_stage_history` | one row per deal stage transition | `record_type`, `object_id` | `last_modified_at` | + `deal_id`, `stage`, `entered_at` |
-| `session_replay.session` | one row per session | `session_id` | `session_start_at` | + `rage_click_count`, `dead_click_count`, `script_error_count`, `session_url`, `identity_at_login`, `identity_at_submit` |
+| `session_replay.session` | one row per session | `session_id` | `last_updated_at` | + `session_start_at`, `rage_click_count`, `dead_click_count`, `script_error_count`, `session_url`, `identity_at_login`\*, `identity_at_submit`\*, `identity_key`\* |
+
+\* nullable — present on every row, but a `null` value is not a reported defect. See below.
+
+`analytics.event` and `session_replay.session` both have a `session_id` key column, from two
+different tools. They are different namespaces, not the same key: until `identity_key` is
+populated, nothing joins a row in one to a row in the other, and a reader must not assume a
+matching `session_id` means the same browsing session.
 
 Incremental pulls are by the watermark column: event date for analytics, last-modified for
-CRM, session start for session replay — matching the connector hand-off table in
+CRM, last-updated for session replay — matching the connector hand-off table in
 `docs/plan/build-plan.md`.
+
+**`session_replay.session`'s watermark is `last_updated_at`, not `session_start_at`.**
+`session_start_at` never moves once a session begins, so a re-pull carrying corrected click
+counts for the same session would tie on it forever, and the re-run rule's tie-break
+(earliest-pulled wins) would silently discard every correction. `last_updated_at` moves when
+the record does, the same property `last_modified_at` gives the three CRM streams — the
+watermark's job is always "did this version change", not "when did this entity begin".
+`session_start_at` stays a required column; it is simply no longer structural. It is still
+format-checked as a timestamp, the same as before the switch — `LandingSchema.timestamp_columns`
+carries that check forward for any required column that stops being the watermark but is still
+a timestamp (`crm.deal_stage_history.entered_at` gets the same treatment, since it was never
+structural to begin with).
+
+A row landed under the pre-1.1.0 shape (has `session_start_at`, genuinely lacks
+`last_updated_at`, since that column did not exist yet) is reported distinctly from malformed
+1.1.0 data — `validate_row` says the row "may predate the switch" rather than the generic
+missing-watermark defect, so re-validating already-landed pre-1.1.0 data does not read as a
+fresh wave of corruption. `LandingSchema.superseded_watermark_column` is the general mechanism;
+`session_replay.session` is its only user today.
+
+Every watermark value must be UTC, with the literal `Z` suffix — never naive, never a
+non-UTC offset. The re-run rule below compares two watermark values lexically, not by
+parsing them, and lexical order only equals chronological order once every value shares the
+same fixed-width UTC suffix (the same rule `landing_path`'s `ingested_at` already enforces).
 
 ## Known-dirty and legitimately-nullable fields, named rather than silently handled
 
@@ -68,10 +108,33 @@ rather than treating both as noise:
   shape — so a connector or loader that finds one null **reports it as a defect**, per the
   evidence bar in C3's own verify step ("a count of records failing each rule, reported
   rather than dropped"). It is not silently coerced to an empty string and it is not dropped
-  from the file.
+  from the file. `brand` is required on **both** `crm.contact` and `crm.deal`, and they are
+  not interchangeable: `crm.deal`'s `brand` is authoritative for RFQ-funnel attribution,
+  because C3's own verify step queries "deals with empty or free-text brand", and because a
+  single contact can request quotes across more than one brand — a fact `crm.contact`'s
+  single `brand` column cannot hold. `crm.contact`'s `brand` reflects the contact's own CRM
+  record and is known-dirty in the same way, but a reader joining brand into the RFQ funnel
+  must use the deal's, not the contact's.
 - **Legitimately sometimes unknown.** Session replay's `identity_at_login` and
   `identity_at_submit` are null when a session ends before that point happens — that is the
-  truth, not dirty data. These are the only two columns in `LandingSchema.nullable_columns`.
+  truth, not dirty data. `crm.deal`'s `quote_request_source_url` is null on a deal that is
+  not a quote request (a renewal, an upsell) — required only when `stage` marks the deal as
+  one, a per-row rule R4 enforces; this contract does not encode conditional requirement.
+  `analytics.event`'s `brand` and `product_id` are null on an event that is not
+  product-scoped (a homepage `page_view`, a `search`) — required only for the RFQ funnel
+  events named below.
+- **Reserved, pending a cross-lane blocker.** `identity_key` is a required column on
+  `analytics.event`, `crm.contact` and `session_replay.session` — one per connector — so
+  C2, C3 and C4 do not each invent their own identity column and R4 has one join column to
+  wait for. It is null on every row in 1.0.0: the plan's single non-engineering blocker is
+  "a single shared identity key, a hash of email, written into every system", gated on
+  privacy sign-off rather than build effort, and that sign-off has not happened. Until it
+  does, **raw email continues to land in the clear** — `crm.contact.email` and session
+  replay's `identity_at_login`/`identity_at_submit` are unhashed. This is a known privacy
+  gap in 1.0.0, not a decision: it must be resolved (either the identity key replaces these
+  fields, or they are hashed at the connector) before the identity key work in the plan's
+  P1 lands, and the storage account backing this contract needs the same handling as the
+  CRM source itself until then.
 - **Simply absent from a session.** Three RFQ funnel events (`add_to_cart`, `form_start`,
   `submit`) are not instrumented in the client's setup yet. A conforming analytics file does
   not need to contain them at all — there is no placeholder row, no null event. A session
@@ -81,6 +144,18 @@ rather than treating both as noise:
 Key columns and the watermark column are never nullable, for either reason: they are
 structural to the loader (partitioning, de-duplication), not a business fact about the
 source system.
+
+## Known gaps in 1.0.0
+
+Recorded so a future lane reads them as gaps, not silence implying a decision:
+
+- **No dataset segment in the storage path** — see the path convention section above.
+- **No deletion or merge semantics.** Last-write-wins can add and replace a row, never
+  remove one. CRM contacts get merged and deals get deleted at the source; a row that
+  disappears there never produces a landed row here, so a loader has no signal that it is
+  gone. Not something this contract is asked to solve in 1.0.0 — a future `_op: delete` or
+  tombstone convention is the likely shape — but recorded here so R4 does not have to
+  discover the gap by noticing a warehouse that only ever grows.
 
 ## Re-run behaviour
 

@@ -893,7 +893,7 @@ Nit finding. Every one was reproduced before being fixed; none was taken on fait
    `LANDING_CONTRACT.md` says the contract refuses to let through. A new `_is_blank` helper
    treats a whitespace-only string the same as `null`. Pinned by
    `test_validate_row_treats_blank_string_like_null`.
-7. **`LandingSchema.__post_init__`'s four guards were unexercised anywhere in the repo
+7. **`LandingSchema.__post_init__`'s six guards were unexercised anywhere in the repo
    (Minor)** — correct, but disabling any one of them produced byte-identical cookbook
    output, because nothing ever constructed a broken schema. Closed with direct unit tests,
    one per guard, in the new `product/tests/test_landing_contract.py`.
@@ -928,7 +928,7 @@ Nit finding. Every one was reproduced before being fixed; none was taken on fait
     every file's parsed rows in `rows_by_path`, and part 2 reuses them instead of calling
     `load_ndjson` again.
 
-**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 28
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 30
 passed. `C01_landing_contract.py` — same shape as before (5/10/2 row counts, now 10 CRM rows
 across two files after the new fixture rows, `crm` 10 → 6 after dedup, 2 asserted defects
 instead of 1), plus the new tie-break section. `C01_minio_roundtrip.sh` re-run end to end
@@ -940,5 +940,263 @@ clean on every touched file.
 watermark tie) — the review flagged the *absence of a test*, not the behaviour itself, and
 the behaviour is defensible as written (a genuine tie means the source system didn't
 timestamp the change, which this contract can't resolve on the loader's behalf).
+
+---
+
+### Review round 2 — correctness fixes, coverage, and contract-vs-plan gaps
+
+**Package:** C1
+**Status:** PASS — after fixing 9 findings (2 High, 3 Medium, 4 Minor/Nit) from a second
+automated review pass on PR #190
+
+**Description:** Round 1 closed 13 findings against the code as written. This pass checked
+the contract against `docs/plan/delivery-plan.md` and `build-plan.md` directly, not just
+against itself, plus follow-up coverage gaps from the round-1 fixes. Every finding was
+reproduced before being fixed.
+
+**Reproduced and fixed, `landing.py` and `LANDING_CONTRACT.md`:**
+
+1. **`brand` missing from `crm.deal` (High)** — C3's own verify step is "deals with empty or
+   free-text brand", but `crm.deal` had no `brand` column; that verification could not run
+   against this contract as written, and RFQ funnel attribution needs brand at deal grain
+   since one contact can request quotes across more than one brand. `brand` is now a
+   required column on `crm.deal`, documented as authoritative there (`crm.contact`'s `brand`
+   reflects the contact's own record, not the per-quote-request brand). Pinned by
+   `test_validate_row_requires_brand_on_deal`.
+2. **Watermarks accepted naive and non-UTC-offset timestamps (High)** — the dedup rule
+   compares watermarks lexically (`C01_landing_contract.py`), and
+   `"2026-09-01T09:00:00+02:00" > "2026-09-01T07:30:00Z"` is true as strings but false as
+   instants. `_parses_as_timestamp` now requires a literal `Z` suffix, closing the row-level
+   counterpart to round 1's naive-`ingested_at` fix. Pinned by
+   `test_validate_row_rejects_naive_watermark_timestamp` and
+   `test_validate_row_rejects_non_utc_offset_watermark_timestamp`.
+3. **Key-column type check looser than its own comment (Minor)** — `isinstance(value, (str,
+   int, float, bool))` let a `bool`/`int`/`float` key value pass clean, contradicting "every
+   current key column is string-typed." Narrowed to `isinstance(value, str)`. Pinned by
+   `test_validate_row_rejects_non_string_key_value`.
+4. **Key+watermark double-report guard covered blank but not non-scalar (Minor)** — a
+   `list`/`dict` value in a combined key+watermark column (`analytics.event.occurred_at`)
+   still produced two defects for one root cause. The guard now also covers "already flagged
+   non-string by the key-column loop". Pinned by
+   `test_validate_row_does_not_double_report_non_scalar_key_and_watermark_column`.
+5. **Analytics `brand`/`product_id` non-nullable (Medium)** — every analytics event required
+   both, making a homepage `page_view` a false defect. Now nullable, required only for the
+   named RFQ-funnel events. Pinned by `test_validate_row_suppresses_defect_for_nullable_column`.
+6. **No `identity_key` column anywhere (Medium)** — the plan's one shared-identity blocker
+   had no reserved column, and raw email landed with no acknowledgement of the gap. Added a
+   required-but-nullable `identity_key` to `analytics.event`, `crm.contact` and
+   `session_replay.session`; `LANDING_CONTRACT.md` now states explicitly that raw email lands
+   in the clear in 1.0.0 as a known privacy gap pending the plan's privacy sign-off.
+7. **`quote_request_source_url` required on every deal (Low)** — a renewal or upsell deal
+   has no referring URL and would false-defect. Made nullable on `crm.deal`, with the
+   conditional-on-`stage` requirement documented as a per-row rule for R4.
+
+**Reproduced and fixed, tests and fixtures:**
+
+8. **Coverage gaps from round 1's fixes (Minor)** — `test_validate_row_rejects_non_scalar_
+   key_value` only covered `list`, not `dict` (now parametrized over both); the "missing
+   required column" and `nullable_columns` runtime-suppression branches each had no dedicated
+   unit test (only cookbook coverage). Closed by
+   `test_validate_row_reports_missing_required_column` and
+   `test_validate_row_suppresses_defect_for_nullable_column`.
+9. **Fixtures README stale (Nit)** — round 1 added `d_901` and `h_9002` to the CRM fixtures
+   but never updated the README describing them. Brought back in sync, including the new
+   homepage `page_view` row and every row's new `identity_key: null`.
+
+Also fixed, not from this review but caught while touching the same file:
+`deploy/compose.yaml`'s MinIO image pinned to a release tag instead of `:latest`, matching
+every other image in the file.
+
+Two gaps recorded rather than fixed, per each finding's own "not a blocker, document it"
+recommendation, in `LANDING_CONTRACT.md`'s new "Known gaps in 1.0.0" section: no dataset
+segment in the storage path (breaking to add, and nothing has landed against the convention
+yet), and no deletion/tombstone semantics.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 40
+passed. `C01_landing_contract.py` — analytics 5 → 6 rows (new homepage `page_view`), CRM
+fixture rows gained `brand` (deals) and `identity_key` (contacts); `total_defects` stays
+exactly 2, unchanged — the new required columns were added with values that keep the
+existing fixtures conforming rather than introducing new defects. `./scripts/format.sh` and
+`./scripts/validate.sh` clean on every touched file.
+
+**Not changed:** whether `crm.contact` should drop `brand` entirely now that `crm.deal`
+carries the authoritative one — kept on both and documented which is which, since removing
+it would be a guess about what the real CRM models without evidence either way.
+
+---
+
+### Review round 3 — a real gap in round 2's own fix, plus doc/robustness nits
+
+**Package:** C1
+**Status:** PASS — after fixing 1 real finding and 3 nits from a review of round 2's fix
+(`f6580c34`) on PR #190
+
+**Description:** A review of the round-2 commit itself, not the original code. Every
+finding was reproduced against `f6580c34` before being fixed or, in one case, ruled out.
+
+**Reproduced and fixed:**
+
+1. **Non-scalar value in a non-key required column passed clean (Minor)** — round 2's fix
+   for finding #6 (blank/empty-string columns) added `_is_blank` to the required-columns
+   loop but never added the type check the key-column loop already has. Reproduced:
+   `validate_row("crm.contact", {..., "brand": ["Blodgett", "Follett"], ...})` returned
+   `()`. `validate_row` now also flags a list/dict in a non-key required column, checking
+   `isinstance(value, (str, int, float, bool))` rather than `isinstance(value, str)` --
+   unlike a key, a required column may legitimately be numeric (session replay's click
+   counts). Pinned by `test_validate_row_rejects_non_scalar_required_column_value`. First
+   attempt at this fix broke `test_validate_row_accepts_a_conforming_row` and
+   `test_validate_row_suppresses_defect_for_nullable_column`: the new check ran even on a
+   nullable column's `None`, which is not an `isinstance` of any of those four types. Fixed
+   by restructuring so the type check is only reached for a non-blank value.
+2. **`LandingSchema.__post_init__` guard count said "four", is six (Nit)** — corrected in
+   both `TEST_LOG.md` (this file, the round-1 entry) and `CHANGELOG.md`.
+3. **`C01_minio_roundtrip.sh`'s manifest loop not NUL-delimited (Nit)** — `find ... | sort |
+   while read -r f` would corrupt on a filename with a newline. Not exploitable against
+   today's fixed fixture filenames; fixed anyway with `-print0` / `sort -z` / `read -d ''`
+   for whoever copies the pattern later.
+
+**Investigated, not reproduced:**
+
+4. **Claimed double-report for a non-scalar key+watermark value.** The finding said
+   `watermark_already_reported` only guarded `None`, not the non-scalar case, for a column
+   that is both a key and the watermark (`analytics.event.occurred_at`). Reproducing the
+   exact input (`occurred_at: ["not", "a", "scalar"]`) against `f6580c34` returns exactly
+   one defect, not two -- round 2's fix (`_is_blank(watermark) or not isinstance(watermark,
+   str)`) already covers this. No change made; replied on the thread with the reproduction.
+
+**Also fixed, not from this review but caught while touching the same test file:** the
+adversarial `uppercase source` case in `test_parse_landing_path_rejects_adversarial_input`
+now notes it pins the `SourceName` enum layer, not `_PATH_RE`'s own case restriction, since
+the regex's `[a-z_]+` already excludes uppercase.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 41
+passed. `C01_landing_contract.py` and `C01_minio_roundtrip.sh` (against real MinIO)
+re-run end to end, unchanged output -- `total_defects` stays exactly 2, no fixture touched
+this round. `./scripts/format.sh` and `./scripts/validate.sh` clean on every touched file.
+
+---
+
+### Review round 4 (post-merge) — session_replay's watermark, a packaging gap, and a follow-up PR
+
+**Package:** C1
+**Status:** PASS — one real, breaking finding fixed (1.1.0); one packaging gap fixed;
+rounds 2 and 3 above carried forward into `main` via a follow-up PR
+
+**Description:** PR #190 merged at the round-1 commit (`b7f7a459`) before rounds 2 and 3
+above were pushed to it, so those fixes never reached `main` through that PR — they landed
+through this follow-up PR instead, cherry-picked onto a fresh branch off `main` and verified
+again end to end (41 tests, cookbook, real-MinIO roundtrip, all unchanged from when they
+were first fixed).
+
+One new finding arrived on the merged PR after the fact, from Lane R having built R4
+against this contract in PR #193 (still open, not yet merged):
+
+1. **`session_replay.session`'s watermark cannot detect a correction (breaking).**
+   `session_start_at` never moves for a session, so a re-pull with corrected click counts
+   ties on it forever and the tie-break (earliest-pulled wins) silently discards the
+   correction — the contract's own re-run rule producing real data loss, not a loader bug.
+   The other four streams don't have this problem (analytics is immutable; the three CRM
+   streams carry `last_modified_at`, which moves). Fixed by making `last_updated_at` the
+   watermark instead, `session_start_at` staying required but no longer structural.
+   `CONTRACT_VERSION` bumped to `1.1.0` -- the one breaking change, scoped to this stream
+   only. Pinned by `test_session_replay_watermark_is_last_updated_not_session_start` and
+   `test_validate_row_accepts_both_pulls_of_a_corrected_session_replay_row` (renamed in
+   review round 5 below -- its original name overclaimed what it tested).
+2. **Fixtures not covered by `package-data` (additive).** `product/pyproject.toml` globbed
+   `contracts/_fixtures/*.json`, which doesn't match
+   `contracts/_fixtures/landing/raw/**/*.ndjson` -- a non-editable install shipped the
+   contract without its demonstration fixtures. Added
+   `contracts/_fixtures/landing/raw/*/*/*.ndjson` and a coverage test,
+   `test_landing_fixtures_are_covered_by_package_data_glob`, mirroring R4's own
+   `test_r4_sql_assets.py` shape.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 44
+passed. `C01_landing_contract.py` unchanged output (`total_defects` still exactly 2).
+`C01_minio_roundtrip.sh` re-run against real MinIO -- unaffected, since it doesn't touch
+session replay's re-run behaviour. `./scripts/format.sh` and `./scripts/validate.sh` clean
+on every touched file.
+
+**Not changed:** whether R4's own SQL needs updating for the new watermark column --
+that's Lane R's call in PR #193, flagged in this PR's description rather than assumed here.
+
+---
+
+### Review round 5 — PR #194's own automated review: format-checking gap, version-compat gap, coverage
+
+**Package:** C1
+**Status:** PASS — two real gaps in the 1.1.0 change fixed, one test renamed for an
+overclaim, five coverage/doc gaps closed
+
+**Description:** PR #194 (this follow-up) received two independent round-1 automated
+reviews, both posted under the same reviewer, 3 Major + 6 Minor + 3 Nit total (one Minor
+duplicated across both reviews). All three Majors were about the 1.1.0 change itself, not
+rounds 1-3:
+
+1. **`session_start_at` silently lost timestamp format-checking (major).** It was
+   format-checked before 1.1.0 because it was the watermark; after the switch to
+   `last_updated_at`, nothing else format-checked it, since `_parses_as_timestamp` only ever
+   ran on `schema.watermark_column`. Reproduced:
+   `validate_row("session_replay.session", {..., "session_start_at": "not-a-real-timestamp",
+   ...})` returned `()` at the review's head commit. Fixed with a new
+   `LandingSchema.timestamp_columns` field -- required columns, other than the watermark,
+   that must still parse as a timestamp. Applied to `session_replay.session.session_start_at`
+   and, since the same latent gap existed there too (never having been the watermark),
+   `crm.deal_stage_history.entered_at`. Pinned by
+   `test_validate_row_rejects_malformed_non_watermark_timestamp_column`, parametrized over
+   both columns.
+2. **The headline test never exercised dedup (major).** The reviewer traced
+   `test_validate_row_lets_a_corrected_session_replay_row_win_on_last_updated_at` and found
+   it only called `validate_row` twice and compared two Python string literals -- no
+   winner-selection code runs anywhere in the repo for `session_replay` (the cookbook's dedup
+   hardcodes `last_modified_at` and never loads `session_replay`). Confirmed by reverting the
+   schema to its pre-1.1.0 shape: the test still passed unmodified. Not fixed by building a
+   dedup implementation here -- that is Lane R's R4 (#193), the actual consumer of
+   `schema.watermark_column`. Fixed by renaming the test to
+   `test_validate_row_accepts_both_pulls_of_a_corrected_session_replay_row` and narrowing its
+   docstring to what it actually pins (both pulls validate cleanly; the corrected pull's
+   watermark sorts later), rather than claiming a dedup demonstration.
+3. **No version-aware handling for pre-1.1.0 landed data (major).** A row landed under the
+   pre-1.1.0 shape (has `session_start_at`, genuinely lacks `last_updated_at`, since that
+   column didn't exist yet) reported the identical generic "watermark missing" defect as
+   truly malformed 1.1.0 data -- re-validating PR #190's already-landed rows post-merge would
+   flag every one of them. Fixed with a new `LandingSchema.superseded_watermark_column`
+   field: when the current watermark is blank but the named superseded column is present and
+   well-formed, `validate_row` reports a distinct "may predate the switch" message instead of
+   the generic one. `session_replay.session` names `session_start_at` as its superseded
+   watermark. Pinned by
+   `test_validate_row_distinguishes_pre_1_1_0_session_replay_row_from_malformed` (the new
+   message fires) and `test_validate_row_reports_generic_missing_watermark_when_no_superseded_value`
+   (the generic message still fires when the old column is also absent, so nothing is
+   silently suppressed).
+
+Six Minor/Nit findings also closed: `CHANGELOG.md`'s round-2 and round-3 entries reworded to
+stop claiming a version-exempt "proposal" carve-out `validate_row` doesn't implement; an
+"Agreed by: Lane R" line added to the `1.1.0` entry per the changelog's own Rule 5;
+`LANDING_CONTRACT.md`'s stale "CRM shapes are 1.0.0" mention reworded to not name a version;
+new tests for `crm.deal.brand` rejecting an explicit `null` (only "missing entirely" was
+tested), `crm.deal.quote_request_source_url` accepting an explicit `null` (only "missing
+entirely" was tested, in the opposite direction), `identity_key`'s required-ness on
+`analytics.event`, the non-scalar-required-column check on a `session_replay` column
+(`rage_click_count`, matching the check's own motivating comment), and the lexical mis-sort
+fact (not just "a defect is reported") behind the naive/non-UTC watermark rejection tests.
+New construction-time guards on `LandingSchema.__post_init__` (`timestamp_columns` and
+`superseded_watermark_column` must reference real required columns; a watermark can't also
+be its own superseded column or its own timestamp_columns entry) got the same dedicated-test
+treatment as the six pre-existing guards, per this file's founding principle.
+
+**Result after fixing:** `python -m pytest product/tests/test_landing_contract.py` — 57
+passed (was 44). `python -m pytest product/tests/` (full product suite) -- 201 passed, 7
+skipped, no regressions. `C01_landing_contract.py` re-run end to end, output unchanged
+(`total_defects` still exactly 2; the two new schema fields are additive validation, not new
+fixture data, so nothing in the existing fixtures trips either new check).
+`./scripts/format.sh` and `./scripts/validate.sh` run; `format.sh`'s known behavior of
+reformatting ~100+ unrelated cookbook/framework files (import-sort churn, not touched by
+this PR) was reverted before committing, keeping only the four files this round actually
+changed.
+
+**Not changed:** no real last-write-wins dedup implementation for `session_replay` was
+built in this PR -- see finding 2 above. `C01_minio_roundtrip.sh` was not re-run against a
+live MinIO container in this environment (no MinIO available); the change is schema-level
+only and does not touch path parsing or the roundtrip script.
 
 ---
