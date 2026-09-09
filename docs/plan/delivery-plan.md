@@ -30,7 +30,9 @@ These are what let three people work at once. Each is written and agreed in phas
 | **Executor registry** | K R | Names and signatures of every deterministic step a workflow may call. Both lanes author executors; both compose only from this list, which is what makes generated use cases possible later. | K and R jointly |
 | **API contract** | R K → interface | Every endpoint the screens will call, with request and response shapes. Written now, wired in the last phase. | R, reviewed by K |
 
-Each removes a blocking dependency. With the landing contract agreed, Lane C builds all three connectors before a warehouse exists and Lane R builds the silver layer against sample files before a connector runs. With the semantic read API agreed and stubbed, Lane R builds preflight, the playground and the spec screen before the real graph exists. With the formula shape agreed, gold materialisation is built before a single KPI is authored.
+> **Why these five and no more**
+>
+> Each removes a blocking dependency. With the landing contract agreed, Lane C builds all three connectors before a warehouse exists and Lane R builds the silver layer against sample files before a connector runs. With the semantic read API agreed and stubbed, Lane R builds preflight, the playground and the spec screen before the real graph exists. With the formula shape agreed, gold materialisation is built before a single KPI is authored.
 
 ### Which of the five will actually change
 
@@ -63,9 +65,11 @@ Without one, a contract becomes either a straitjacket people quietly route aroun
 - **Example payloads come from the sample data, never invented.** Invented payloads hide the awkward cases, and the awkward cases are the only ones worth agreeing on in advance.
 - **Each contract has one named owner** who decides when it changes. Joint ownership of a decision usually means nobody makes it.
 
-The three sync rows below are where contracts meet reality: agreed at P0, the stub replaced at P2, the formula shape populated at P3. Expect a change at each one, and treat that as the process working rather than as a planning failure.
-
-And do not over-invest in phase zero. Five perfect contracts is a fortnight with nobody building anything. Good enough plus a running stub will teach you more in a day than another review round will. Contracts buy roughly eighty percent independence; the last twenty is discovery, and no amount of design up front removes it.
+> **Two expectations worth setting now**
+>
+> The three sync rows below are where contracts meet reality: agreed at P0, the stub replaced at P2, the formula shape populated at P3. Expect a change at each one, and treat that as the process working rather than as a planning failure.
+>
+> And do not over-invest in phase zero. Five perfect contracts is a fortnight with nobody building anything. Good enough plus a running stub will teach you more in a day than another review round will. Contracts buy roughly eighty percent independence; the last twenty is discovery, and no amount of design up front removes it.
 
 ## Where the code lives
 
@@ -95,7 +99,9 @@ Four packages are genuine framework fixes and belong inside `libs/agno/egpt/`, b
 | All other packages | `product/` | Ontology, prose, enrichment prompts, semantic layer, KPI content, silver and gold, workflows, skills, dashboards, alerts, monitoring. |
 | Interface, phase five | `frontend/` | The Vite application from the prototype. Its Vercel-style API layer mostly disappears rather than moving, since tokens come from the identity provider and streams pass through the edge directly. |
 
-Path filters in CI, so the Python jobs do not run on frontend-only changes and a frontend job runs on those. Node modules and build output added to `.gitignore`. And `CLAUDE.md` updated to describe this layout and which directory is framework versus product. All three of us work through Claude sessions, so an undocumented layout is one that gets guessed at, and some of those guesses will put retail code inside the published package.
+> **Three phase-zero chores that are easy to skip**
+>
+> Path filters in CI, so the Python jobs do not run on frontend-only changes and a frontend job runs on those. Node modules and build output added to `.gitignore`. And `CLAUDE.md` updated to describe this layout and which directory is framework versus product. All three of us work through Claude sessions, so an undocumented layout is one that gets guessed at, and some of those guesses will put retail code inside the published package.
 
 ## Sequencing
 
@@ -111,9 +117,11 @@ Six phases, ordered by dependency. Sync rows mark where a lane cannot proceed un
 | P3 | K8 proposers · K9 business areas · K10 unified retrieval · K11 KPI registry and feasibility | R5 gold · R8 model routing · R9 spec, gap and plan | C moves into Lane R |
 | Sync — K11 formula shape populated before R5 gold materialises anything real. R7 executors before R10 RFQ. |  |  |  |
 | P4 | K12 KPI suggestion · K13 use case suggestion | R10 RFQ · R11 playground · R12 alerts · R13 dashboards · R14 monitoring · R15 golden sets | — |
-| P5 | Interface wiring, both lanes, after design approval | — |  |
+| P5 | K15 orchestration agent | Interface wiring, after design approval | — |
 
-Lane K sits on the critical path for almost everything, and the person owning it is also presenting to leadership, chasing approvals and coordinating the other two. Three mitigations are built into the sequencing above. The semantic read API is stubbed in phase zero so Lane R never waits on the real one. Lane K's deepest packages land in phase two, before the suggestion agents that depend on them. The connector owner joins Lane R from phase three, which is when Lane R's load peaks.
+> **The structural risk in this split**
+>
+> Lane K sits on the critical path for almost everything, and the person owning it is also presenting to leadership, chasing approvals and coordinating the other two. Three mitigations are built into the sequencing above. The semantic read API is stubbed in phase zero so Lane R never waits on the real one. Lane K's deepest packages land in phase two, before the suggestion agents that depend on them. The connector owner joins Lane R from phase three, which is when Lane R's load peaks.
 
 ## How each deliverable is verified
 
@@ -144,7 +152,7 @@ Two repository conventions apply on every push and are not optional. Run `./scri
 
 ## Lane K Knowledge
 
-Fourteen packages covering memory, domain knowledge, the semantic layer, retrieval and KPI definitions.
+Fifteen packages covering memory, domain knowledge, the semantic layer, retrieval, KPI definitions, and the bridge to generated use cases.
 
 #### K1 — Memory scope and wiring
 
@@ -174,15 +182,15 @@ Fourteen packages covering memory, domain knowledge, the semantic layer, retriev
 
 *P2 · after R4*
 
-- **Build** — A deterministic executor reading tables, columns, types, keys, row counts and sampled values from the warehouse into a harvest record. No model involved.
-- **Verify** — Run against the silver schema and compare to the schema by eye. Add a column to one table, re-run, and diff the two harvests.
-- **Evidence** — Every table and column present with correct types. The diff names exactly the added column and nothing else.
+- **Build** — A deterministic executor reading tables, columns, types, keys, row counts and sampled values from the warehouse into a harvest record. No model involved. Also collision detection **(G19)**: any column name appearing in more than one table is recorded as a collision, because the framework's own table description returns name, type, nullable and default and nothing that would tell two `amount` columns apart.
+- **Verify** — Run against the silver schema and compare to the schema by eye. Add a column to one table, re-run, and diff the two harvests. Then add a column whose name already exists in a different table.
+- **Evidence** — Every table and column present with correct types. The diff names exactly the added column and nothing else. The duplicated name is reported as a collision rather than landing silently, and it names both tables.
 
 #### K5 — Semantic graph store and read API
 
 *P2 · after K4 · implements D11*
 
-- **Build** — Its own node labels for table, column, concept and metric, written straight to Neo4j outside the memory substrate, because that substrate's labels are fixed and its query filters are refused. A read API answering what tables exist, what columns a table has, what a concept means, and what joins connect two tables. Promotion of selected facts into semantic memory as a derived, rebuildable copy.
+- **Build** — Its own node labels for table, column, concept and metric, written straight to Neo4j outside the memory substrate, because that substrate's labels are fixed and its query filters are refused. A read API answering what tables exist, what columns a table has, what a concept means, what joins connect two tables, and which source is authoritative for a concept when more than one could serve **(G20)**. Promotion of selected facts into semantic memory as a derived, rebuildable copy.
 - **Verify** — Write a harvest into the graph. Ask for the columns of one table. Ask for the join path between two tables from different sources. Delete the semantic memory copy and re-run promotion. Confirm the stub from phase zero can be swapped out without changing any caller.
 - **Evidence** — Column list matches the harvest. The join path returns, or an honest empty result does, never a guess. Promotion rebuilds the memory copy from the graph, proving the graph is the source of truth. Lane R's callers work unchanged against the real API.
 
@@ -192,7 +200,7 @@ Fourteen packages covering memory, domain knowledge, the semantic layer, retriev
 
 - **Build** — Every harvest produces a versioned snapshot. Snapshots are diffed. Every KPI records the semantic version it was validated against. A changed or removed column moves dependent KPIs to a review state.
 - **Verify** — Take a snapshot. Rename a column the sample KPIs depend on. Harvest again. Look at those KPIs.
-- **Evidence** — The diff names the renamed column. Dependent KPIs enter review before the nightly run, rather than failing during it at two in the morning.
+- **Evidence** — The diff names the renamed column. Dependent KPIs enter review before the nightly run, rather than failing during it at two in the morning. A newly introduced column-name collision appears in the diff as a review item **(G19)**.
 
 #### K7 — Proposals store and review
 
@@ -206,8 +214,8 @@ Fourteen packages covering memory, domain knowledge, the semantic layer, retriev
 
 *P3 · after K5, K7 · implements D10*
 
-- **Build** — Two agents. One proposes synonyms, question patterns, scoping filters, personal-data fields, compliance tags and candidate metrics per concept. The other proposes which table is an instance of which ontology concept. Both write proposals only, never the graph.
-- **Verify** — Run both over the sample harvest. Read twenty proposals by eye and judge each one. Query the graph before reviewing anything.
+- **Build** — Two agents. One proposes synonyms, question patterns, scoping filters, personal-data fields, compliance tags and candidate metrics per concept. The other proposes which table is an instance of which ontology concept, and resolves every collision K4 reported by mapping each side to a different concept property **(G19)**. Enrichment review is also where the authoritative source is set for a concept served by more than one table **(G20)**. Both write proposals only, never the graph.
+- **Verify** — Run both over the sample harvest. Read twenty proposals by eye and judge each one. Query the graph before reviewing anything. Then check that every collision K4 reported has a proposal resolving it.
 - **Evidence** — The graph is unchanged until proposals are accepted. How many of the twenty were wrong goes in the log, because that number is the baseline every later prompt change is measured against.
 
 #### K9 — Business area detection
@@ -257,6 +265,15 @@ Fourteen packages covering memory, domain knowledge, the semantic layer, retriev
 - **Build** — The prompt template every agent step follows, in the shape of the existing code-review skill: explicit inputs, phases, output format, templates. Authored here because Lane K writes four of the seven agents and writes them first.
 - **Verify** — Write one trivial agent against the template and run it. Then hand the template to Lane R and have them write one without asking a question.
 - **Evidence** — Output conforms to the declared schema. Lane R produces a conforming agent from the template alone, which is the only real test of whether the template is complete.
+
+#### K15 — Orchestration agent
+
+*P5 · after R10 and the second use case · the bridge to generated use cases*
+
+- **Build** — Turns a frozen spec into a publishable workflow definition plus the agent components its model steps need. Two parts, and only one is a model. **Deterministic:** the shape follows from the spec's autonomy level, the spec's values bind into that shape's parameter slots, and the result is validated. **Model:** authoring the prompt for each model step in the skill template's shape, grounded in the semantic layer and the domain knowledge, which is the part that needs judgment and is why this sits in Lane K. Output is a workflow definition referencing executors *by name* from the registry, so the agent composes what exists and cannot invent a deterministic step.
+- **Verify** — Run it against the frozen RFQ spec and diff the generated workflow against the one R10 built by hand. Then do the same for the second use case. Then feed it a spec whose autonomy level demands a guardrail the spec does not carry.
+- **Evidence** — The generated definitions match the hand-built ones step for step, or every difference is explainable and one of the two is wrong. Reproducing work that already exists is the only honest test available, which is why this package comes after both use cases rather than before. The under-specified spec is refused at validation rather than producing a workflow with a missing gate.
+- **Depends** — The executor registry contract, because the agent's output space is exactly that list. Everything built in K1 to K14 and R1 to R15 is what makes this package small: without a semantic layer, a KPI registry and an executor library, there is nothing to compose.
 
 ## Lane R Runtime
 
@@ -346,9 +363,9 @@ Fifteen packages covering the platform, the pipeline, the execution machinery an
 
 *P4 · after R6, K10*
 
-- **Build** — Chat with data grounded in the semantic layer, chat with the knowledge base through unified retrieval, chat with a use case scoped to its runs, chat with a business area scoped to its concepts. Skills loaded on demand rather than all at once.
-- **Verify** — Ask the same question in all four modes. Ask the use case mode about a specific past run. Ask the business area mode about something outside its area.
-- **Evidence** — Each mode answers from its own scope, with provenance. The past run is found by reference rather than by search. The out-of-area question is declined or scoped rather than answered from everything.
+- **Build** — Chat with data grounded in the semantic layer, chat with the knowledge base through unified retrieval, chat with a use case scoped to its runs, chat with a business area scoped to its concepts. Skills loaded on demand rather than all at once. Grounding is a build item, not polish: the database provider's sub-agent receives a schema name and nothing else, so the semantic layer has to be injected into its instructions or the model reasons over raw column names **(G21)**.
+- **Verify** — Ask the same question in all four modes. Ask the use case mode about a specific past run. Ask the business area mode about something outside its area. Then ask chat with data a question using a business word that appears in no column name, and one about a column name that exists in two tables.
+- **Evidence** — Each mode answers from its own scope, with provenance. The past run is found by reference rather than by search. The out-of-area question is declined or scoped rather than answered from everything. The business word resolves through a synonym to the right concept. The ambiguous column either resolves to the authoritative source or the answer asks which was meant, and never picks one silently.
 
 #### R12 — Alerts
 
@@ -419,7 +436,9 @@ Four packages, independent of the other lanes once C1 is agreed. From phase thre
 - **Verify** — Pull a window. Take three sessions from the landed data and open their recordings in the source tool.
 - **Evidence** — Friction counts match what the recordings show, checked by eye on all three.
 
-All three need one shared identity key, a hash of email, written into every system. It is gated on privacy sign-off rather than build effort. Until it exists each connector lands its own identifiers and nothing joins across sources. Lane K should chase this, since that is the lane already talking to leadership. Raise it in week one; it will not resolve by working harder.
+> **Blocked, and not by engineering**
+>
+> All three need one shared identity key, a hash of email, written into every system. It is gated on privacy sign-off rather than build effort. Until it exists each connector lands its own identifiers and nothing joins across sources. Lane K should chase this, since that is the lane already talking to leadership. Raise it in week one; it will not resolve by working harder.
 
 ## Definition of done
 
