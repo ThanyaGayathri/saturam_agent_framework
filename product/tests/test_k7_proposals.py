@@ -8,6 +8,8 @@ a re-run resurrecting a rejected proposal.
 
 from __future__ import annotations
 
+from typing import Any, Dict
+
 import pytest
 from egpt_retail.contracts.semantic import Concept, JoinEdge, ProposalStatus
 from egpt_retail.semantic.proposals import (
@@ -23,9 +25,12 @@ from egpt_retail.semantic.proposals import (
 )
 
 
-def _enrichment(**overrides: object) -> Proposal:
-    payload = {"name": "Contact", "description": "A person we can reach."}
-    payload.update(overrides.pop("payload", {}))  # type: ignore[arg-type]
+def _enrichment(**overrides: Any) -> Proposal:
+    payload: Dict[str, Any] = {
+        "name": "Contact",
+        "description": "A person we can reach.",
+    }
+    payload.update(overrides.pop("payload", {}))
     return Proposal(
         kind=ProposalKind.ENRICHMENT,
         target=str(overrides.pop("target", "Contact")),

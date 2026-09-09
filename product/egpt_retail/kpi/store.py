@@ -1,0 +1,510 @@
+"""K11 -- the KPI registry, authoritative in Postgres and mirrored into the graph.
+
+Three things live here, and the split between them is the whole point of the package.
+
+**The registry is data in Postgres.** A KPI definition is a governed record: someone wrote
+the formula, someone accepted it, and someone will read the number it produces months later
+and compare it against last quarter. That belongs in a relational table with a primary key,
+not in a graph that a nightly harvest rewrites.
+
+**The graph copy is a mirror, rebuilt from Postgres and never authored there.** It exists so
+a concept reaches its metrics by traversal -- ``(:SemanticConcept)-[:MEASURED_BY]->(:SemanticKpi)``
+-- and so a reviewer can ask which KPIs read a table that is about to change
+(``(:SemanticKpi)-[:READS]->(:SemanticTable)``). Both are questions about edges, which is
+what a graph is for. Neither is the source of truth, and :meth:`KpiRegistryStore.mirror`
+drops what it does not find in Postgres, so drift resolves toward the table.
+
+**Feasibility is never stored.** It is
+``formula.source_tables - available_tables(reader)`` evaluated at the moment of asking, and
+the moment it is cached it starts lying: a harvest drops a table and every stored verdict is
+stale while still rendering as a confident badge. What *is* stored is
+``validated_against_snapshot`` -- which snapshot the definition was last checked against --
+because that is a fact about the past rather than a claim about the present.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+from egpt_retail.contracts.kpi import (
+    Dialect,
+    Feasibility,
+    KpiDefinition,
+    KpiParameter,
+    KpiRegistry,
+    ParameterKind,
+    ResultShape,
+    TimeWindow,
+    TimeWindowUnit,
+    assess_registry,
+)
+from egpt_retail.contracts.semantic import SemanticRead, available_tables
+from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
+
+__all__ = [
+    "KPI_LABEL",
+    "KPI_SCHEMA",
+    "KpiRegistryStore",
+    "RevalidationReport",
+    "row_to_definition",
+]
+
+#: The same control-plane schema K6's snapshots and K7's proposals use.
+KPI_SCHEMA = "semantic"
+
+#: Prefixed like K5's labels, so it cannot collide with memory's fixed three
+#: (``Episode`` / ``Fact`` / ``Entity``) or with K3's ``OntologyConcept``.
+KPI_LABEL = "SemanticKpi"
+
+_TABLE_LABEL = "SemanticTable"
+_CONCEPT_LABEL = "SemanticConcept"
+
+_DDL = (
+    f"CREATE SCHEMA IF NOT EXISTS {KPI_SCHEMA}",
+    f"""CREATE TABLE IF NOT EXISTS {KPI_SCHEMA}.kpi_definition (
+        identifier                 text PRIMARY KEY,
+        name                       text        NOT NULL,
+        description                text        NOT NULL DEFAULT '',
+        sql                        text        NOT NULL,
+        grain                      text        NOT NULL,
+        business_area              text        NOT NULL,
+        source_tables              jsonb       NOT NULL,
+        result_shape               text        NOT NULL,
+        dialect                    text        NOT NULL,
+        parameters                 jsonb       NOT NULL DEFAULT '[]'::jsonb,
+        time_window                jsonb,
+        validated_against_snapshot text,
+        concept                    text,
+        created_at                 timestamptz NOT NULL DEFAULT now(),
+        updated_at                 timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT kpi_source_tables_not_empty
+            CHECK (jsonb_array_length(source_tables) > 0)
+    )""",
+    f"""CREATE INDEX IF NOT EXISTS kpi_definition_area
+        ON {KPI_SCHEMA}.kpi_definition (business_area)""",
+    f"""CREATE INDEX IF NOT EXISTS kpi_definition_concept
+        ON {KPI_SCHEMA}.kpi_definition (concept)""",
+    f"""COMMENT ON TABLE {KPI_SCHEMA}.kpi_definition IS
+        'The KPI registry (K11). Authoritative; the graph holds a mirror rebuilt from here. '
+        'Feasibility is deliberately absent -- it is a set difference computed at read time, '
+        'and a cached verdict goes stale the moment a harvest runs. '
+        'kpi_source_tables_not_empty makes a definition feasibility cannot be computed for '
+        'unrepresentable rather than merely discouraged.'""",
+)
+
+
+@dataclass(frozen=True)
+class RevalidationReport:
+    """What one revalidation pass decided, and against which snapshot."""
+
+    snapshot_version: str
+    #: Identifiers whose every source table is present, now stamped with the snapshot.
+    validated: Tuple[str, ...] = ()
+    #: Identifiers with at least one table missing. Deliberately **not** stamped: a stamp
+    #: means "checked and computable here", and stamping a blocked KPI would tell K6 the
+    #: definition had been validated against a snapshot that cannot run it.
+    unvalidated: Tuple[str, ...] = ()
+
+    def __str__(self) -> str:
+        return (
+            f"{len(self.validated)} validated against {self.snapshot_version}, "
+            f"{len(self.unvalidated)} left unstamped"
+        )
+
+
+def _definition_to_row(kpi: KpiDefinition) -> Tuple[Any, ...]:
+    return (
+        kpi.identifier,
+        kpi.name,
+        kpi.description,
+        kpi.sql,
+        kpi.grain,
+        kpi.business_area,
+        json.dumps(sorted(kpi.source_tables)),
+        kpi.result_shape.value,
+        kpi.dialect.value,
+        json.dumps(
+            [
+                {"name": p.name, "kind": p.kind.value, "description": p.description}
+                for p in kpi.parameters
+            ]
+        ),
+        json.dumps(
+            {"length": kpi.time_window.length, "unit": kpi.time_window.unit.value}
+            if kpi.time_window
+            else None
+        ),
+        kpi.validated_against_snapshot,
+        kpi.concept,
+    )
+
+
+def row_to_definition(row: Sequence[Any]) -> KpiDefinition:
+    """Rebuild a definition from its stored row.
+
+    Goes through ``KpiDefinition.__post_init__`` like any other construction, so a row that
+    somehow drifted out of shape -- a formula edited in place to read a table the row does
+    not list -- fails loudly on read rather than feeding feasibility a definition whose
+    ``source_tables`` no longer matches its SQL.
+    """
+    window = row[10]
+    if isinstance(window, str):
+        window = json.loads(window)
+    parameters = row[9]
+    if isinstance(parameters, str):
+        parameters = json.loads(parameters)
+    tables = row[6]
+    if isinstance(tables, str):
+        tables = json.loads(tables)
+    return KpiDefinition(
+        identifier=row[0],
+        name=row[1],
+        description=row[2] or "",
+        sql=row[3],
+        grain=row[4],
+        business_area=row[5],
+        source_tables=frozenset(tables),
+        result_shape=ResultShape(row[7]),
+        dialect=Dialect(row[8]),
+        parameters=tuple(
+            KpiParameter(
+                name=p["name"],
+                kind=ParameterKind(p["kind"]),
+                description=p.get("description", ""),
+            )
+            for p in (parameters or ())
+        ),
+        time_window=(
+            TimeWindow(length=window["length"], unit=TimeWindowUnit(window["unit"]))
+            if window
+            else None
+        ),
+        validated_against_snapshot=row[11],
+        concept=row[12],
+    )
+
+
+class KpiRegistryStore:
+    """The KPI registry in the control-plane database, with a graph mirror.
+
+    The connection is injected; the caller owns its lifetime. ``vocabularies`` defaults to
+    the shipped closed sets -- never ``None``, because a store that skipped term validation
+    would accept a business area no screen lists and nothing would say so.
+    """
+
+    def __init__(
+        self,
+        connection: Any,
+        schema: str = KPI_SCHEMA,
+        *,
+        vocabularies: Optional[VocabularySet] = None,
+    ) -> None:
+        self._connection = connection
+        self._schema = schema
+        self._vocabularies = vocabularies or load_vocabulary_set()
+
+    # --- schema ------------------------------------------------------------------------
+
+    def ensure_schema(self) -> None:
+        """Create the table if absent. Idempotent, and safe from several processes.
+
+        Self-provisioning for the reason given in ``semantic/proposals.py``: the framework's
+        ``MigrationManager`` tracks framework-owned tables through a fixed ``BaseDb``
+        attribute map, and teaching it a retail table would ship a retail need in the wheel.
+        The advisory lock is transaction-scoped and serialises concurrent creators.
+        """
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                ("egpt_retail.semantic.ddl",),
+            )
+            for statement in _DDL:
+                cursor.execute(statement)
+        self._connection.commit()
+
+    async def aensure_schema(self) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.ensure_schema)
+
+    # --- writing -----------------------------------------------------------------------
+
+    def save(self, kpi: KpiDefinition) -> None:
+        """Insert or replace one definition."""
+        self.save_many((kpi,))
+
+    async def asave(self, kpi: KpiDefinition) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.save, kpi)
+
+    def save_many(self, kpis: Sequence[KpiDefinition]) -> int:
+        """Insert or replace several definitions in one transaction. Returns how many.
+
+        Every definition passes through :class:`KpiRegistry` first, so ``grain`` and
+        ``business_area`` are checked against this deployment's vocabularies and duplicate
+        identifiers are refused *before* anything is written. Validating per row inside the
+        loop would leave the first half of a batch committed behind a bad second half.
+        """
+        registry = KpiRegistry.build(kpis, self._vocabularies)
+        with self._connection.cursor() as cursor:
+            for kpi in registry:
+                cursor.execute(
+                    f"""INSERT INTO {self._schema}.kpi_definition
+                        (identifier, name, description, sql, grain, business_area,
+                         source_tables, result_shape, dialect, parameters, time_window,
+                         validated_against_snapshot, concept)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (identifier) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            description = EXCLUDED.description,
+                            sql = EXCLUDED.sql,
+                            grain = EXCLUDED.grain,
+                            business_area = EXCLUDED.business_area,
+                            source_tables = EXCLUDED.source_tables,
+                            result_shape = EXCLUDED.result_shape,
+                            dialect = EXCLUDED.dialect,
+                            parameters = EXCLUDED.parameters,
+                            time_window = EXCLUDED.time_window,
+                            validated_against_snapshot =
+                                EXCLUDED.validated_against_snapshot,
+                            concept = EXCLUDED.concept,
+                            updated_at = now()""",
+                    _definition_to_row(kpi),
+                )
+        self._connection.commit()
+        return len(registry)
+
+    async def asave_many(self, kpis: Sequence[KpiDefinition]) -> int:
+        """Async variant."""
+        return await asyncio.to_thread(self.save_many, kpis)
+
+    def delete(self, identifier: str) -> bool:
+        """Remove one definition. Returns whether it was there."""
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"DELETE FROM {self._schema}.kpi_definition WHERE identifier = %s",
+                (identifier,),
+            )
+            removed = bool(cursor.rowcount)
+        self._connection.commit()
+        return removed
+
+    async def adelete(self, identifier: str) -> bool:
+        """Async variant."""
+        return await asyncio.to_thread(self.delete, identifier)
+
+    # --- reading -----------------------------------------------------------------------
+
+    def get(self, identifier: str) -> Optional[KpiDefinition]:
+        """One definition by identifier."""
+        rows = self._select("WHERE identifier = %s", (identifier,))
+        return rows[0] if rows else None
+
+    async def aget(self, identifier: str) -> Optional[KpiDefinition]:
+        """Async variant."""
+        return await asyncio.to_thread(self.get, identifier)
+
+    def list(
+        self,
+        *,
+        business_area: Optional[str] = None,
+        concept: Optional[str] = None,
+    ) -> Tuple[KpiDefinition, ...]:
+        """Definitions, optionally narrowed to a business area or a concept."""
+        clauses: List[str] = []
+        params: List[Any] = []
+        if business_area is not None:
+            self._vocabularies.validate("business_area", business_area)
+            clauses.append("business_area = %s")
+            params.append(business_area)
+        if concept is not None:
+            clauses.append("concept = %s")
+            params.append(concept)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return tuple(self._select(where, tuple(params)))
+
+    async def alist(
+        self,
+        *,
+        business_area: Optional[str] = None,
+        concept: Optional[str] = None,
+    ) -> Tuple[KpiDefinition, ...]:
+        """Async variant."""
+        return await asyncio.to_thread(
+            self.list, business_area=business_area, concept=concept
+        )
+
+    def registry(self) -> KpiRegistry:
+        """The whole registry, revalidated against this deployment's vocabularies."""
+        return KpiRegistry.build(self.list(), self._vocabularies)
+
+    async def aregistry(self) -> KpiRegistry:
+        """Async variant."""
+        return await asyncio.to_thread(self.registry)
+
+    # --- feasibility --------------------------------------------------------------------
+
+    def feasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
+        """Feasibility for every stored KPI against what the semantic layer holds now.
+
+        Computed, never read back from a column. ``assess_registry`` is a set difference over
+        two frozensets: it takes data and returns data, has no model, no client and no
+        callable to be persuaded by, and that is the entire guarantee behind the ready and
+        blocked badges a customer sees.
+        """
+        return assess_registry(self.list(), available_tables(reader))
+
+    async def afeasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
+        """Async variant."""
+        return await asyncio.to_thread(self.feasibility, reader)
+
+    def revalidate(
+        self, reader: SemanticRead, snapshot_version: str = ""
+    ) -> RevalidationReport:
+        """Stamp every computable definition with the snapshot it was checked against (K6).
+
+        This is the writer of ``validated_against_snapshot``. K6 reads it to tell a reviewer
+        how far behind a KPI is when a column it reads changes; until this existed, the field
+        was only ever read and never written, so every review item said ``None``.
+
+        A definition whose tables are not all present is left unstamped rather than stamped
+        with a verdict. "Validated against snapshot X" has to mean the formula could run
+        against X, or K6's review screen inherits a claim nobody checked.
+        """
+        version = snapshot_version or reader.snapshot().version
+        have = available_tables(reader)
+        validated: List[str] = []
+        unvalidated: List[str] = []
+        for kpi in self.list():
+            if kpi.source_tables <= have:
+                validated.append(kpi.identifier)
+            else:
+                unvalidated.append(kpi.identifier)
+        if validated:
+            with self._connection.cursor() as cursor:
+                cursor.execute(
+                    f"""UPDATE {self._schema}.kpi_definition
+                        SET validated_against_snapshot = %s, updated_at = now()
+                        WHERE identifier = ANY(%s)""",
+                    (version, validated),
+                )
+            self._connection.commit()
+        return RevalidationReport(
+            snapshot_version=version,
+            validated=tuple(sorted(validated)),
+            unvalidated=tuple(sorted(unvalidated)),
+        )
+
+    async def arevalidate(
+        self, reader: SemanticRead, snapshot_version: str = ""
+    ) -> RevalidationReport:
+        """Async variant."""
+        return await asyncio.to_thread(self.revalidate, reader, snapshot_version)
+
+    # --- the graph mirror ----------------------------------------------------------------
+
+    def mirror(self, driver: Any, database: str = "neo4j") -> int:
+        """Rebuild the graph's copy of the registry from Postgres. Returns KPIs written.
+
+        Upsert-and-prune, scoped to this label: a KPI deleted from the table loses its node,
+        and one renamed loses the old node rather than leaving two. The prune is bound to
+        ``SemanticKpi`` and touches nothing else -- the P2 review found what a label-blind
+        prune costs, twice.
+
+        Edges go both ways from the KPI: ``MEASURED_BY`` from the concept it hangs off, so a
+        concept reaches its metrics by traversal, and ``READS`` to each source table present
+        in the graph, so a reviewer can ask which KPIs a changing table breaks.
+
+        **Both edges are matched, never merged into existence.** A source table the graph does
+        not hold gets no edge -- the absence *is* the feasibility gap, and a placeholder node
+        would put a table in the semantic layer that no harvest ever saw. The same holds for
+        the concept, and it is the sharper case: concepts enter the graph through an accepted
+        proposal and nowhere else (D10), so a mirror that created one would let registering a
+        KPI invent a concept nobody reviewed. The first version of this method merged the
+        concept and did exactly that -- K5's cookbook caught it, because the four concepts it
+        conjured made the real store and the stub disagree about ``list_concepts()``.
+        """
+        rows = [
+            {
+                "identifier": kpi.identifier,
+                "name": kpi.name,
+                "description": kpi.description,
+                "grain": kpi.grain,
+                "business_area": kpi.business_area,
+                "concept": kpi.concept,
+                "source_tables": sorted(kpi.source_tables),
+                "validated_against_snapshot": kpi.validated_against_snapshot,
+            }
+            for kpi in self.list()
+        ]
+        with driver.session(database=database) as session:
+            session.execute_write(self._mirror_tx, rows)
+        return len(rows)
+
+    async def amirror(self, driver: Any, database: str = "neo4j") -> int:
+        """Async variant."""
+        return await asyncio.to_thread(self.mirror, driver, database)
+
+    @staticmethod
+    def _mirror_tx(tx: Any, rows: List[Dict[str, Any]]) -> None:
+        """The whole mirror in one transaction, so a failure part-way leaves the previous
+        copy rather than a half-written one."""
+        tx.run(
+            f"""
+            UNWIND $rows AS row
+            MERGE (k:{KPI_LABEL} {{identifier: row.identifier}})
+            SET k.name = row.name,
+                k.description = row.description,
+                k.grain = row.grain,
+                k.business_area = row.business_area,
+                k.concept = row.concept,
+                k.source_tables = row.source_tables,
+                k.validated_against_snapshot = row.validated_against_snapshot,
+                k.status = 'accepted'
+            WITH k, row
+            // Rebuild this KPI's edges from scratch: a formula that stopped reading a table
+            // must stop showing an edge to it, or the review screen over-reports forever.
+            OPTIONAL MATCH (k)-[old:READS]->(:{_TABLE_LABEL})
+            DELETE old
+            WITH k, row
+            OPTIONAL MATCH (:{_CONCEPT_LABEL})-[oldm:MEASURED_BY]->(k)
+            DELETE oldm
+            WITH k, row
+            CALL {{
+                WITH k, row
+                UNWIND row.source_tables AS table_name
+                MATCH (t:{_TABLE_LABEL} {{name: table_name}})
+                MERGE (k)-[:READS]->(t)
+                RETURN count(*) AS _reads
+            }}
+            WITH k, row, _reads
+            CALL {{
+                WITH k, row
+                MATCH (c:{_CONCEPT_LABEL} {{name: row.concept}})
+                MERGE (c)-[:MEASURED_BY]->(k)
+                RETURN count(*) AS _measures
+            }}
+            RETURN count(*) AS _done
+            """,
+            rows=rows,
+        )
+        tx.run(
+            f"MATCH (k:{KPI_LABEL}) WHERE NOT k.identifier IN $keep DETACH DELETE k",
+            keep=[row["identifier"] for row in rows],
+        )
+
+    # --- internals ------------------------------------------------------------------------
+
+    def _select(self, where: str, params: Tuple[Any, ...]) -> List[KpiDefinition]:
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT identifier, name, description, sql, grain, business_area,
+                           source_tables, result_shape, dialect, parameters, time_window,
+                           validated_against_snapshot, concept
+                    FROM {self._schema}.kpi_definition {where} ORDER BY identifier""",
+                params,
+            )
+            rows = cursor.fetchall()
+        return [row_to_definition(row) for row in rows]

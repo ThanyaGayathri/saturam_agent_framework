@@ -523,3 +523,187 @@ class TestAuditTrailReachesTheGraph:
         assert plain is not None and shown is not None
         assert "LivetestMapped" not in plain.concepts
         assert "LivetestMapped" in shown.concepts
+
+
+class TestKpiRegistryLive:
+    """K11's graph-side guarantees, which the DB-free tests cannot reach."""
+
+    IDENT = "livetest_kpi__contacts"
+
+    @pytest.fixture
+    def registry(self, control_plane: Any) -> Any:
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        store = KpiRegistryStore(control_plane)
+        store.ensure_schema()
+        with control_plane.cursor() as cur:
+            cur.execute(
+                "DELETE FROM semantic.kpi_definition WHERE identifier LIKE 'livetest%'"
+            )
+        control_plane.commit()
+        yield store
+        with control_plane.cursor() as cur:
+            cur.execute(
+                "DELETE FROM semantic.kpi_definition WHERE identifier LIKE 'livetest%'"
+            )
+        control_plane.commit()
+
+    def _definition(self, **overrides: Any) -> Any:
+        from egpt_retail.contracts.kpi import KpiDefinition
+
+        fields: dict = {
+            "identifier": self.IDENT,
+            "name": "Livetest contacts",
+            "description": "Contacts on file.",
+            "sql": "SELECT count(*) FROM crm_contact",
+            "grain": "overall",
+            "business_area": "customer",
+            "source_tables": frozenset({"crm_contact"}),
+            "concept": "LivetestMetricConcept",
+        }
+        fields.update(overrides)
+        return KpiDefinition(**fields)
+
+    def test_a_definition_survives_postgres(self, registry: Any) -> None:
+        original = self._definition()
+        registry.save(original)
+        assert registry.get(self.IDENT) == original
+
+    def test_the_mirror_makes_a_concept_reach_its_metrics(
+        self, registry: Any, graph: SemanticGraphStore, driver: Any
+    ) -> None:
+        # The concept has to be there first: it enters through an accepted proposal (D10),
+        # never through registering a KPI that names it.
+        graph.write_concept(Concept(name="LivetestMetricConcept", description="x"))
+        registry.save(self._definition())
+        assert registry.mirror(driver) >= 1
+        with driver.session() as s:
+            metrics = s.run(
+                "MATCH (c:SemanticConcept {name: 'LivetestMetricConcept'})"
+                "-[:MEASURED_BY]->(k:SemanticKpi) RETURN collect(k.identifier) AS ids"
+            ).single()["ids"]
+            reads = s.run(
+                "MATCH (k:SemanticKpi {identifier: $i})-[:READS]->(t:SemanticTable) "
+                "RETURN collect(t.name) AS tables",
+                i=self.IDENT,
+            ).single()["tables"]
+        try:
+            assert metrics == [self.IDENT]
+            assert reads == ["crm_contact"]
+        finally:
+            with driver.session() as s:
+                s.run(
+                    "MATCH (c:SemanticConcept {name: 'LivetestMetricConcept'}) DETACH DELETE c"
+                )
+
+    def test_the_mirror_cannot_invent_the_concept_a_kpi_names(
+        self, registry: Any, graph: SemanticGraphStore, driver: Any
+    ) -> None:
+        """Registering a KPI must not put a concept in the graph nobody reviewed (D10).
+
+        The first version merged the concept into existence, and K5's cookbook caught it:
+        the four concepts it conjured made the real store and the stub disagree about
+        ``list_concepts()``.
+        """
+        registry.save(self._definition(concept="LivetestNeverProposed"))
+        registry.mirror(driver)
+        with driver.session() as s:
+            invented = s.run(
+                "MATCH (c:SemanticConcept {name: 'LivetestNeverProposed'}) RETURN count(c) AS n"
+            ).single()["n"]
+            edges = s.run(
+                "MATCH (k:SemanticKpi {identifier: $i}) "
+                "OPTIONAL MATCH (:SemanticConcept)-[:MEASURED_BY]->(k) RETURN count(*) AS n",
+                i=self.IDENT,
+            ).single()["n"]
+        assert invented == 0
+        assert edges == 1  # the OPTIONAL MATCH row, with no concept on it
+        assert "LivetestNeverProposed" not in graph.list_concepts()
+
+    def test_the_mirror_prunes_what_postgres_no_longer_holds(
+        self, registry: Any, graph: SemanticGraphStore, driver: Any
+    ) -> None:
+        registry.save(self._definition())
+        registry.mirror(driver)
+        registry.delete(self.IDENT)
+        registry.mirror(driver)
+        with driver.session() as s:
+            left = s.run(
+                "MATCH (k:SemanticKpi {identifier: $i}) RETURN count(k) AS n",
+                i=self.IDENT,
+            ).single()["n"]
+            tables = s.run("MATCH (t:SemanticTable) RETURN count(t) AS n").single()["n"]
+        assert left == 0
+        # The prune is bound to SemanticKpi: the tables it read are untouched.
+        assert tables > 0
+
+    def test_a_formula_that_stops_reading_a_table_loses_the_edge(
+        self, registry: Any, graph: SemanticGraphStore, driver: Any
+    ) -> None:
+        """A stale READS edge would over-report which KPIs a changing table breaks."""
+        graph.write_concept(Concept(name="LivetestMetricConcept", description="x"))
+        registry.save(self._definition())
+        registry.mirror(driver)
+        registry.save(
+            self._definition(
+                sql="SELECT count(*) FROM crm_deal",
+                source_tables=frozenset({"crm_deal"}),
+            )
+        )
+        registry.mirror(driver)
+        with driver.session() as s:
+            reads = s.run(
+                "MATCH (k:SemanticKpi {identifier: $i})-[:READS]->(t) "
+                "RETURN collect(t.name) AS tables",
+                i=self.IDENT,
+            ).single()["tables"]
+        try:
+            assert reads == ["crm_deal"]
+        finally:
+            with driver.session() as s:
+                s.run(
+                    "MATCH (c:SemanticConcept {name: 'LivetestMetricConcept'}) DETACH DELETE c"
+                )
+
+    def test_feasibility_follows_the_live_snapshot(
+        self, registry: Any, graph: SemanticGraphStore
+    ) -> None:
+        """Never stored, so it changes with the layer rather than with a cached row."""
+        from egpt_retail.contracts.kpi import FeasibilityVerdict
+
+        registry.save(self._definition())
+        blocked = self._definition(
+            identifier="livetest_kpi__absent",
+            sql="SELECT count(*) FROM livetest_absent_one JOIN livetest_absent_two ON true",
+            source_tables=frozenset({"livetest_absent_one", "livetest_absent_two"}),
+            concept=None,
+        )
+        registry.save(blocked)
+        results = registry.feasibility(graph)
+        assert results[self.IDENT].verdict is FeasibilityVerdict.READY
+        assert results["livetest_kpi__absent"].verdict is FeasibilityVerdict.BLOCKED
+        assert sorted(results["livetest_kpi__absent"].missing_tables) == [
+            "livetest_absent_one",
+            "livetest_absent_two",
+        ]
+
+    def test_revalidate_stamps_only_what_is_computable(
+        self, registry: Any, graph: SemanticGraphStore
+    ) -> None:
+        registry.save(self._definition())
+        registry.save(
+            self._definition(
+                identifier="livetest_kpi__absent",
+                sql="SELECT count(*) FROM livetest_absent",
+                source_tables=frozenset({"livetest_absent"}),
+                concept=None,
+            )
+        )
+        report = registry.revalidate(graph)
+        assert self.IDENT in report.validated
+        assert "livetest_kpi__absent" in report.unvalidated
+        assert (
+            registry.get(self.IDENT).validated_against_snapshot
+            == report.snapshot_version
+        )
+        assert registry.get("livetest_kpi__absent").validated_against_snapshot is None

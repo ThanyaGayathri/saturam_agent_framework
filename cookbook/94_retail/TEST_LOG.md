@@ -2664,3 +2664,99 @@ sets. The graph-side proofs still run only where there is a graph.
 shared store now gets the question "shared with what?" before "does it match?".
 
 ---
+
+---
+
+### K11_kpi_registry_and_feasibility.py
+
+**Status:** PASS
+
+**Description:** K11 — the KPI registry, its graph mirror, and feasibility. The plan's
+scenario: assess the whole registry, remove one table from the snapshot and re-run, then a
+KPI needing two tables that are both missing.
+
+Six definitions over the real silver schema, one of them naming `orders` and `order_items`,
+which this warehouse has never held.
+
+**Three things this package deliberately does not do.**
+
+*Feasibility is never stored.* There is no verdict column and no write carries one — a cached
+verdict goes stale the moment a harvest runs, and a stale verdict still renders as a confident
+badge. It is computed against the live snapshot every time it is asked for. Two DB-free tests
+assert the CREATE TABLE has no such column and no INSERT invents one.
+
+*Feasibility is never a judgment.* `assess_registry` is a set difference over two frozensets:
+no model, no client, no callable. The executor's whole job is wiring — resolve the two stores,
+subtract, return the rows the discovery screen renders.
+
+*A blocked KPI is not stamped as validated.* `revalidate` writes `validated_against_snapshot`
+— the field P2 flagged as read by K6 and written by nobody — but only for definitions whose
+every table is present. "Validated against snapshot X" has to mean the formula could run
+against X, or K6's review screen inherits a claim nobody checked.
+
+**The middle step is the one worth reading.** Removing `crm_contact` produces *both* a blocked
+and a partial from one removal: `k11_contact__reachable` reads only that table and is blocked;
+`k11_deal__pipeline_by_contact` reads it beside `crm_deal` and is partial. That distinction is
+what a customer deciding what to connect next actually needs — "this area is unavailable"
+versus "you are one table away".
+
+**Result:**
+
+```
+1. 6 definitions stored, 5 tables in the layer   {'ready': 5, 'partial': 0, 'blocked': 1}
+2. two-missing case      missing: ['order_items', 'orders']   -- both, not the first found
+3. revalidation          5 validated against k11-full.1, 1 left unstamped
+4. mirror                6 KPIs; Deal -> 3 metrics by traversal
+                         KPIs reading crm_contact: contact__reachable, deal__pipeline_by_contact
+5. crm_contact removed   {'ready': 3, 'partial': 1, 'blocked': 2}
+                         contact__reachable    ready -> blocked
+                         deal__pipeline_by_contact  ready -> partial
+6. restored              {'ready': 5, 'partial': 0, 'blocked': 1}; 0 nodes left behind
+```
+
+**Tests:** 15 DB-free in `product/tests/test_k11_registry.py` (round-trip through the stored
+row, the vocabulary gate refusing to write anything on a bad term, the mirror's prune being
+label-scoped, discovery rows leading with blocked). 6 live in `test_semantic_live.py` covering
+the mirror, its prune, a formula that stops reading a table losing its `READS` edge, and
+revalidation.
+
+**A defect the sweep found in this package, before it was committed.** The first mirror did
+`MERGE (c:SemanticConcept {name: row.concept})` to hang its `MEASURED_BY` edge, so registering
+six KPIs invented three concepts — `Deal`, `Contact`, `Order` — that no proposal had ever
+produced. That breaks D10 outright: concepts enter the graph through review and nowhere else,
+and a KPI naming one must not be able to conjure it. It surfaced as `K05_semantic_graph`
+failing with *"the graph store and the stub gave a caller different answers"* — the invented
+nodes showed up in `list_concepts()` on the real store and not in the stub.
+
+Fixed by matching instead of merging, which is the rule the same method already applied to
+tables and which I had written down two paragraphs above the line that broke it: *"a source
+table the graph does not hold simply gets no edge — inventing a placeholder would put a table
+in the semantic layer that no harvest ever saw."* The cookbook now writes `Deal`, `Contact`
+and `WebSession` as accepted enrichment would, leaves `Order` unproposed on purpose, and
+asserts the KPI naming it carries no edge and no node was created.
+
+**A second defect, found by the same sweep.** With the concepts fixed, `K05_semantic_graph`
+still failed — this time on *"the rebuilt copy differs from the original"*. K11's cookbook had
+written a concept called `WebSession`, which is a name K05's cookbook owns, overwriting its
+description in the shared graph; K05 then promoted a different set of concepts into shared
+memory than it had written. K05 passed when run alone and failed in the sweep, which is the
+signature of order-dependent state rather than a code defect.
+
+Fixed by giving K11's cookbook its own names (`K11Deal`, `K11Contact`, `K11Session`,
+`K11Order`) and a cleanup that removes anything starting `K11`. **A cookbook must not reuse
+another cookbook's fixture names** — the stores are shared, so a name collision is a mutation,
+and it surfaces two cookbooks away from its cause.
+
+**Surprising, twice over.** First: the mirror needed to *delete* a KPI's `READS` edges before
+rebuilding them, not just MERGE new ones. A formula edited to stop reading a table would
+otherwise keep the old edge forever, and that edge's only purpose is answering "which KPIs
+does this table break" — which it would then answer wrongly, over-reporting, on a review
+screen someone is trying to trust.
+
+Second, and more instructive: I wrote the correct rule for tables and broke it for concepts in
+the same method, and no test of mine caught it. Another package's cookbook did, because it
+compares two implementations that must agree. Cross-implementation equivalence checks find
+things single-implementation assertions cannot — that is the second time K5's stub-versus-store
+scenario has paid for itself.
+
+---
