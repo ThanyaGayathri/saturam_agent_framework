@@ -2760,3 +2760,72 @@ things single-implementation assertions cannot — that is the second time K5's 
 scenario has paid for itself.
 
 ---
+
+---
+
+### K10_unified_retrieval.py
+
+**Status:** PASS
+
+**Description:** K10 — one entry point across memory, domain prose, the ontology and the
+semantic layer, fused by rank. The plan's scenario: ask a question needing two sources (a
+domain rule plus a table name), then disable a leg and ask again.
+
+The question is *"what is a quote request and which table holds deal records"*. No single
+store can answer it: the prose explains quoting, the ontology defines `QuoteRequest`, and only
+this customer's semantic layer knows the table is `crm_deal`.
+
+**What was actually missing.** The framework already had Reciprocal Rank Fusion — in
+`memory/retrieval/fuse.py`, typed to `MemoryRecord`, so nothing above the memory store could
+reach it. And `unified_read` already spanned KB and memory but deliberately held the two
+apart: *"Ranking the two together is out of scope."* So the gap was not a missing algorithm,
+it was an algorithm one store owned. K10 extracts a generic `rrf_rank` core, has the existing
+`rrf_fuse` delegate to it (all 17 of its tests pass unchanged), and gives `UnifiedSlice` a
+`fused()` that ranks every leg together.
+
+**Why fusing incomparable stores is defensible at all.** A prose chunk's score is a vector
+similarity, an ontology hit's is a Neo4j index score, the semantic layer's is a name overlap.
+RRF reads none of them — it reads each leg's *position*. That is the property that made
+reaching for the existing implementation right rather than writing a second one: two
+implementations of a ranking rule are two chances to disagree, and on a fused result set a
+disagreement is invisible — the order is merely different, never obviously wrong.
+
+**Result:**
+
+```
+1. four legs asked          kb 5 · memory 0 · ontology 5 · semantic 3
+2. fused ranking            origins present: kb, ontology, semantic
+                            a domain rule from the prose: True
+                            a table name from the semantic layer: True
+3. semantic leg disabled    origins: kb, ontology — no table name survives
+4. prose leg disabled       origins: ontology, semantic — no domain rule survives
+5. asked-and-empty          all four legs present, semantic 0 hits
+   vs never-asked           three legs present
+```
+
+**Two design decisions worth recording.**
+
+*Identity across stores is normalised content, not id.* Ids are per-store, so identity by id
+would make every cross-store pair distinct and reduce fusion to an interleave — the one thing
+a unified read exists to improve on. Content is the only key two stores share, and the case it
+gets right is the case that matters: a rule the prose states and memory has also recorded
+reads as corroborated by two legs.
+
+*A corroborated hit reports every leg that had it.* The fused item keeps the copy from the leg
+that saw it first, so `origin` alone names one contributor. A unit test caught that while I was
+writing it — the fused set was missing `ontology` entirely because its only hit was one the KB
+also had. `metadata["fused_origins"]` now lists them all: *"the prose and the ontology both say
+this"* is a different claim from *"two legs said this"*.
+
+**Framework changes** (`libs/agno/egpt/memory/retrieval/`, so every deployment inherits them):
+generic `rrf_rank` + `FusedItem`; `UnifiedResult.origin`; `UnifiedSlice.extra`, `legs()` and
+`fused()`; extra named legs on both `unified_read` and `aunified_read`, run concurrently on the
+async path. One existing framework test asserted the old `UnifiedResult` shape and was updated
+— the added field is deliberate. 3759 memory tests pass; import-linter contracts both kept.
+
+**Surprising:** the hardest part was not the fusion, it was resisting a second implementation.
+The obvious move was a fresh RRF over `UnifiedResult` — it would have been thirty lines and
+looked clean. It would also have been the second ranking rule in the codebase, and the first
+time the two disagreed nobody would have noticed.
+
+---
