@@ -23,6 +23,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 os.environ.setdefault("EGPT_RETAIL_PROVIDER_MODE", "local")
+# Its own memory table, not the deployment's. The table is created at the embedder's
+# dimension and the framework refuses to reuse one of a different width, so a cookbook
+# running Mode A (768) would leave the deployment's Mode B (1024) table unusable.
+os.environ.setdefault("EGPT_RETAIL_MEMORY_TABLE", "memory_vectors_k5_cookbook")
 
 import psycopg  # noqa: E402
 from egpt.memory.types import Scope  # noqa: E402
@@ -53,6 +57,7 @@ WAREHOUSE = os.environ.get(
 NEO4J = os.environ.get("EGPT_ONTOLOGY_NEO4J_URI", "neo4j://localhost:7701")
 AUTH = ("neo4j", os.environ.get("EGPT_RETAIL_NEO4J_PASSWORD", "egptretail"))
 SLUG = os.environ.get("EGPT_RETAIL_CUSTOMER_SLUG", "middleby")
+MEMORY_TABLE = os.environ["EGPT_RETAIL_MEMORY_TABLE"]
 
 print("K5 -- semantic graph store and read API")
 print("=" * 78)
@@ -292,7 +297,7 @@ def promoted_rows():
                 # topics is jsonb, not a Postgres array. `jsonb_exists` rather than the `?`
                 # operator: `?` collides with psycopg's own placeholder syntax, and the `??`
                 # escape is a driver convention this call style does not apply.
-                "select id, content from ai.memory_vectors "
+                f"select id, content from ai.{MEMORY_TABLE} "
                 "where tenant_id = %s and jsonb_exists(topics, %s) order by id",
                 (SLUG, PROMOTED_TOPIC),
             ).fetchall()
@@ -315,7 +320,7 @@ with psycopg.connect(
     settings.retail_db_url.replace("postgresql+psycopg://", "postgresql://")
 ) as conn:
     conn.execute(
-        "delete from ai.memory_vectors where tenant_id = %s and jsonb_exists(topics, %s)",
+        f"delete from ai.{MEMORY_TABLE} where tenant_id = %s and jsonb_exists(topics, %s)",
         (SLUG, PROMOTED_TOPIC),
     )
     conn.commit()

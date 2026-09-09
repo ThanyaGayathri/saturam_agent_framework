@@ -45,6 +45,7 @@ def build_memory_config(settings: RetailSettings) -> MemoryProviderConfig:
         vector={
             "backend": "pgvector",
             "db_url": settings.retail_db_url,
+            "table": settings.retail_memory_table,
             "ef_search": EF_SEARCH,
         },
     )

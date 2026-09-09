@@ -95,6 +95,14 @@ class RetailSettings(BrandedSettings):
         description="Directory of curated retail markdown to ingest (EGPT_RETAIL_CORPUS_PATH). "
         "Defaults to the corpus shipped inside the package.",
     )
+    retail_memory_table: str = Field(
+        default="memory_vectors",
+        description="pgvector table for memory (EGPT_RETAIL_MEMORY_TABLE). Configurable because "
+        "the table is created at the embedder's dimension and the framework refuses to reuse one "
+        "of a different width -- correctly, since changing dimension is a re-embedding migration. "
+        "On a dev box that means Mode A (768) and Mode B (1024) cannot share a table, so a "
+        "cookbook demonstrating one must not write into the deployment's.",
+    )
     retail_knowledge_table: str = Field(
         default="egpt_retail_domain_prose",
         description="pgvector table for the domain prose (EGPT_RETAIL_KNOWLEDGE_TABLE).",
