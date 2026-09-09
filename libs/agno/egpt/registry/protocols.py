@@ -85,10 +85,23 @@ carry stay out of the contract: the tool-call display probes ``run_response`` wi
 reset uses ``hasattr``/``setattr`` (a leading-underscore member would write privates into a
 public contract).
 
+``SQLGuardLike`` is R6's variant (G3): ``egpt.integrations.tools.sql.sql`` (``SQLTools``) and
+``egpt.integrations.context.database.provider`` (``DatabaseContextProvider``) both take an
+optional SQL guard over their read path, but ``egpt.guardrails`` is exactly as forbidden to
+``egpt.integrations`` as ``egpt.agent`` is (see ``libs/agno/pyproject.toml``'s "integrations
+must not import orchestration, services, or api" contract, which lists ``egpt.guardrails``
+alongside ``egpt.agent``/``egpt.team``/``egpt.workflow``). So the two integration modules type
+their `guard`/`read_guard` parameter against this shape instead of importing
+``egpt.guardrails.sql_guard.SQLGuard`` directly; the concrete class satisfies it structurally
+with no changes on its side. Only the four members those two call sites actually use --
+``check``/``acheck``/``effective_limit``/``statement_timeout_ms`` -- not the guard's full
+public surface (``row_cap`` and ``dialect`` are constructor-only concerns neither caller
+reads back).
+
 This module must keep importing nothing but ``typing`` -- that is the whole point of it.
 """
 
-from typing import Any, Dict, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, Optional, Protocol, Tuple, runtime_checkable
 
 
 @runtime_checkable
@@ -225,4 +238,29 @@ class SessionAgentLike(Protocol):
         rather than a named ``input`` for the same overload-matching reason as
         ``AsyncRunnableLike.arun``.
         """
+        ...
+
+
+@runtime_checkable
+class SQLGuardLike(Protocol):
+    """The surface ``SQLTools``/``DatabaseContextProvider`` need from R6's SQL guard."""
+
+    #: Read by ``SQLTools.run_sql`` to set Postgres's per-transaction ``SET LOCAL
+    #: statement_timeout`` -- the one guard member a caller reads directly rather than
+    #: through a method, because the timeout is applied to the session, not to the guard's
+    #: own check.
+    statement_timeout_ms: int
+
+    def check(self, sql: str) -> Tuple[str, ...]:
+        """Classify and validate ``sql``. Raises on refusal; returns the tables it reads."""
+        ...
+
+    async def acheck(self, sql: str) -> Tuple[str, ...]:
+        """Async twin of :meth:`check`."""
+        ...
+
+    def effective_limit(self, requested: Optional[int], *, sql: str = "") -> int:
+        """The fetch limit to actually use -- always ``<= row_cap``, regardless of ``requested``.
+        ``sql`` rides along on the audit-log entry when a clamp occurs, so it can be
+        correlated back to the query that triggered it."""
         ...

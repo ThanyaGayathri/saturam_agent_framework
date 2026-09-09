@@ -44,6 +44,22 @@ services:
       postgres:
         condition: service_healthy
 
+  # R4's warehouse schema (landing, silver, quality). Separate from `migrate`, which is the
+  # control plane's: on AKS these are different servers with different credentials, and the
+  # control-plane migration is a pre-install hook that gates the whole release.
+  warehouse-migrate:
+    image: egpt-retail:dev
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["warehouse-migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/egpt_warehouse
+    restart: "no"
+
   api:
     image: egpt-retail:dev
     command: ["api"]
@@ -51,6 +67,17 @@ services:
       EGPT_RETAIL_ROLE: api
       EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/ai
       EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@postgres:5432/egpt_warehouse
+      # R6's SQL guard sits above this connection, authenticated as the read-only egpt_reader
+      # role (warehouse/sql/ddl/065_readonly_role.sql, created by warehouse-migrate) rather
+      # than the ai writer above.
+      EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL: postgresql+psycopg://egpt_reader:egpt_reader@postgres:5432/egpt_warehouse
+      # R4 reads the raw drop from the compose MinIO (profile `full`). Unset provider is
+      # refused at the point of use rather than defaulting to an empty directory.
+      EGPT_RETAIL_STORAGE_PROVIDER: s3
+      EGPT_RETAIL_STORAGE_ENDPOINT: http://minio:9000
+      EGPT_RETAIL_STORAGE_CONTAINER: egpt-landing
+      EGPT_RETAIL_STORAGE_ACCESS_KEY: minioadmin
+      EGPT_RETAIL_STORAGE_SECRET_KEY: minioadmin
       EGPT_RETAIL_CUSTOMER_SLUG: ${EGPT_RETAIL_CUSTOMER_SLUG:-}
       EGPT_AGENT_OS_HOST: 0.0.0.0
       EGPT_AGENT_OS_PORT: "7777"

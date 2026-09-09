@@ -12,7 +12,14 @@ from typing import List, Optional
 
 __all__ = ["build_parser", "main"]
 
-COMMANDS = ("api", "pipelines", "consolidator", "migrate", "load-knowledge")
+COMMANDS = (
+    "api",
+    "pipelines",
+    "consolidator",
+    "migrate",
+    "warehouse-migrate",
+    "load-knowledge",
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,6 +59,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run control-plane schema migrations to the latest version and exit.",
     )
 
+    # Separate from `migrate` on purpose: on AKS the warehouse is a different server with
+    # different credentials, and the control-plane migration is a pre-install hook that gates
+    # the whole release. See entrypoints/warehouse_migrate.py.
+    sub.add_parser(
+        "warehouse-migrate",
+        help="Create or update the warehouse schema (landing, silver, quality) and exit.",
+    )
+
     load = sub.add_parser(
         "load-knowledge",
         help="Load the shipped retail ontology and prose, then exit.",
@@ -88,6 +103,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         from egpt_retail.entrypoints.migrate import main as run_migrate
 
         return run_migrate()
+    if args.command == "warehouse-migrate":
+        from egpt_retail.entrypoints.warehouse_migrate import (
+            main as run_warehouse_migrate,
+        )
+
+        return run_warehouse_migrate()
     if args.command == "load-knowledge":
         from egpt_retail.entrypoints.load_knowledge import main as run_load
 

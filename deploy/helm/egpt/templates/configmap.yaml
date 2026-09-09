@@ -7,7 +7,13 @@ data:
   EGPT_RETAIL_DB_URL: {{ .Values.database.url | quote }}
   EGPT_RETAIL_DB_DIRECT_URL: {{ .Values.database.directUrl | quote }}
   EGPT_RETAIL_WAREHOUSE_DB_URL: {{ .Values.database.warehouseUrl | quote }}
+  EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL: {{ .Values.database.warehouseReadonlyUrl | quote }}
   EGPT_RETAIL_CUSTOMER_SLUG: {{ .Values.customerSlug | quote }}
+  # R4's raw drop. Credentials live in the Secret, never here.
+  EGPT_RETAIL_STORAGE_PROVIDER: {{ .Values.storage.provider | quote }}
+  EGPT_RETAIL_STORAGE_ENDPOINT: {{ .Values.storage.endpoint | quote }}
+  EGPT_RETAIL_STORAGE_CONTAINER: {{ .Values.storage.container | quote }}
+  EGPT_RETAIL_STORAGE_PREFIX: {{ .Values.storage.prefix | default "" | quote }}
   EGPT_RETAIL_AZURE_DEPLOYMENT: {{ .Values.model.azureDeployment | quote }}
   EGPT_RETAIL_CONSOLIDATION_POLL_INTERVAL: {{ .Values.consolidator.pollInterval | quote }}
   EGPT_RETAIL_SCHEDULER_BASE_URL: "http://{{ .Release.Name }}-pipelines:{{ .Values.api.port }}"

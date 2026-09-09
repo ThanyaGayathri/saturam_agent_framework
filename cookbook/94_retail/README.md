@@ -26,7 +26,12 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R01_consolidator_no_work.py` | R1 | The consolidator's clean no-work exit in both shapes (slug unset; slug set with a real vector-only provider) and the single-instance refusal via the advisory lock. |
 | `R02_cluster_evidence.sh` | R2 | The four cluster scenarios on kind, end to end in `kubectl` and `helm`: infra chart, offline RS256 tokens, app chart with the migrate hook, 200/403/open `/health`, pod kill under an in-cluster request loop, consolidator scale refusal, render guard. Shell on purpose -- wrapping `kubectl` in `subprocess.run` to satisfy a file extension makes it harder to rerun by hand. |
 | `R02_wheel_contents.py` | R2 | Builds the `egpt` wheel and lists its members: nothing from `product/`, `frontend/` or `deploy/`. The regression guard CI runs after `python -m build`. |
+| `R04_landing_to_silver.py` | R4 | The four Verify scenarios against a real warehouse: load the sample files, load them again, null a key column, and load a fraction the size of the previous pull. |
+| `R04_conformance_sql.py` | R4 | The conformance specification per entity, printed beside the contract rules it implements. No database. |
+| `R04_minio_load.sh` | R4 | The same four scenarios loading from a real S3 bucket rather than a directory -- the half a local path cannot prove. |
 | `R03_prototype_screen.md` | R3 | The other half of R3's verification -- a prototype screen rendered from the stub. A procedure run in the prototype repository, with what to record. |
+| `R06_sql_guard_parsing.py` | R6 | The SQL guard's classification rules: reads pass, every write kind refuses, a CTE alias is not mistaken for a table, a function call in table position is refused, stacked statements refuse before either half is inspected, an unresolved template placeholder is caught explicitly, and the row cap overrides whatever is requested. No database, no model. |
+| `R06_sql_guard_live.py` | R6 | The same guard against the real warehouse: delete refused with the row count unchanged, an out-of-scope read refused, an unbounded read capped, a real Postgres statement timeout enforced -- then the chat-interface half (an agent, a prompt-injection paste) once model credentials are sourced. |
 
 Run:
 
@@ -50,6 +55,25 @@ and no model key:
 ```bash
 .venv/bin/python cookbook/94_retail/R01_local_stack.py
 .venv/bin/python cookbook/94_retail/R01_consolidator_no_work.py
+
+# R4 needs the same Postgres plus the egpt_warehouse database (created on first boot):
+docker compose -f deploy/compose.yaml up -d postgres
+EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse \
+  .venv/bin/python -m egpt_retail.entrypoints warehouse-migrate
+.venv/bin/python cookbook/94_retail/R04_landing_to_silver.py
+.venv/bin/python cookbook/94_retail/R04_conformance_sql.py   # no services
+bash cookbook/94_retail/R04_minio_load.sh                    # needs Docker
+
+# R6 needs no services for the classification rules alone:
+.venv/bin/python cookbook/94_retail/R06_sql_guard_parsing.py
+
+# R6's live script needs the same Postgres and egpt_warehouse (warehouse-migrate above also
+# creates the egpt_reader read-only role, R06_sql_guard_live.py's read-only connection) plus
+# R04's data:
+EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse \
+EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL=postgresql+psycopg://egpt_reader:egpt_reader@localhost:5532/egpt_warehouse \
+  .venv/bin/python cookbook/94_retail/R06_sql_guard_live.py
+# add `set -a && source azure_key.env && set +a` first to also run its chat-interface section
 
 # R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
 docker build -f deploy/Dockerfile -t egpt-retail:dev .

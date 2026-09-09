@@ -122,9 +122,23 @@ Grows through P4. Each entry: name, owner, one line, and what it refuses.
 
 | Name | Owner | Does | Refuses |
 |---|---|---|---|
-| _(none yet — P0 fixes the shape, not the list)_ | | | |
+| `load_landing_files` | Lane R (R4) | Reads the raw drop out of object storage into `landing.raw_row`, as-is, and opens the load's ledger row | A path that does not conform to the landing contract, and an object outside `raw/`. A line that is not a JSON object, and an unknown CRM `record_type`, are reported as row defects rather than raised — one bad line must not cost a whole file |
+| `conform_silver_entities` | Lane R (R4) | Runs the five conformance statements and records the per-stream counts | Nothing. It reports; the gates weigh |
+| `check_row_count_delta` | Lane R (R4) | Measures landed rows against the previous **successful** load, and checks silver did not shrink | Nothing. Measures and persists to `quality.gate_result` |
+| `check_key_null_rates` | Lane R (R4) | Measures missing, blank or uncoercible key and watermark columns per stream | Nothing. Measures and persists |
+| `check_referential_integrity` | Lane R (R4) | Counts orphans per declared edge over silver | Nothing. Measures and persists |
+| `decide_load_verdict` | Lane R (R4) | Aggregates every gate result, stamps `quality.load_run.verdict` and its one-paragraph reason | **Gold.** The only R4 executor that blocks: returns `stop=True`, which breaks the step loop before a gold step (R5) can run |
 
-Lane R's R7 executor library is the first substantial batch: preflight checks, dry run,
+Note the shape of those six: five measure and one decides. That is deliberate and worth
+copying. The alignment rule wants one clearly-named thing doing the blocking, which is easier
+to review than three that each might; and if every gate stopped on its own failure, an
+operator with two problems on one night would fix them one at a time over two nights, because
+the second gate would never have run.
+
+`check_freshness` — this document's own worked example of a silent collision — is deliberately
+still unused.
+
+Lane R's R7 executor library is the next substantial batch: preflight checks, dry run,
 delivery, provenance. Lane K's first are feasibility (K11) and business-area detection (K9),
 both already deterministic by design.
 
