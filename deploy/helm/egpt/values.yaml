@@ -87,6 +87,13 @@ consolidator:
 migrate:
   backoffLimit: 2
 
+# The nightly-refresh schedule (R5, D7): registered by a post-install hook, run by the
+# pipelines Deployment's scheduler poller. 01:00 UTC is after the upstream exports land and
+# before the 03:00 harvest reads the silver it built.
+scheduleNightly:
+  cron: "0 1 * * *"
+  backoffLimit: 2
+
 storage:
   # `s3` covers MinIO as well as AWS: MinIO speaks the S3 API, and egpt_retail.storage takes
   # an endpoint_url. Azure ADLS Gen2 is the AKS target and is a stated deferral -- one more

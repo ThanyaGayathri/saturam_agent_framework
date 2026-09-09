@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, NoReturn, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Dict, FrozenSet, Iterable, NoReturn, Optional, Protocol, Tuple, Union, runtime_checkable
 
 from egpt.exceptions import SQLGuardRefusal
 from egpt.utils.log import log_debug, log_warning
@@ -162,7 +162,7 @@ class SQLGuard:
         row_cap: int = 1000,
         statement_timeout_ms: int = 5000,
         dialect: str = "postgres",
-        schema: Optional[str] = None,
+        schema: Optional[Union[str, Iterable[str]]] = None,
     ) -> None:
         if not isinstance(row_cap, int) or isinstance(row_cap, bool) or row_cap < 0:
             raise ValueError(f"row_cap must be a non-negative int, got {row_cap!r}")
@@ -184,8 +184,21 @@ class SQLGuard:
         # an unqualified reference is unaffected (its enforcement is the DB role's grants and
         # the connection's search_path, not this guard). Left optional, defaulting to no
         # restriction, because the framework has no schema of its own to assume -- the retail
-        # adapter (product/egpt_retail/app/sql_guard.py) is what actually sets it to "silver".
+        # adapter (product/egpt_retail/app/sql_guard.py) is what actually sets it.
+        #
+        # A string or a set of strings. One schema was the P2 shape (silver only); a deployment
+        # whose read surface spans silver and gold (R5) names both, and a qualified reference
+        # must match one of them. Kept as `schema` (the original value) plus a normalised
+        # `schemas` frozenset, so nothing that read the attribute before has to change.
         self.schema = schema
+        if schema is None:
+            self.schemas: Optional[FrozenSet[str]] = None
+        elif isinstance(schema, str):
+            self.schemas = frozenset({schema.lower()})
+        else:
+            self.schemas = frozenset(name.lower() for name in schema)
+            if not self.schemas:
+                raise ValueError("schema must be None, a schema name, or a non-empty set of schema names")
 
     def check(self, sql: str) -> Tuple[str, ...]:
         """Classify and validate ``sql``. Returns the tables it reads. Raises
@@ -289,11 +302,15 @@ class SQLGuard:
             is_unqualified_cte_reference = not table.db and name in cte_names
             if is_unqualified_cte_reference:
                 continue
-            if self.schema is not None and table.db and table.db.lower() != self.schema.lower():
+            if self.schemas is not None and table.db and table.db.lower() not in self.schemas:
+                expected = ", ".join(sorted(self.schemas))
                 self._refuse(
                     "table_not_allowed",
                     f"Not permitted to read {table.db}.{name}: outside the semantic layer's "
-                    f"allow-list (expected schema '{self.schema}').",
+                    f"allow-list (expected schema {expected!r})."
+                    if len(self.schemas) == 1
+                    else f"Not permitted to read {table.db}.{name}: outside the semantic layer's "
+                    f"allow-list (expected one of the schemas: {expected}).",
                     truncated,
                 )
             if name:

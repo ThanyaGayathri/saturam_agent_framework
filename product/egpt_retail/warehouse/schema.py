@@ -25,6 +25,9 @@ __all__ = [
     "QUALITY_SCHEMA",
     "RAW_ROW_TABLE",
     "DDL_SCRIPTS",
+    "GOLD_SCHEMA",
+    "GOLD_TABLES",
+    "gold_view",
     "SILVER_TABLES",
     "silver_table",
     "conform_script",
@@ -33,11 +36,16 @@ __all__ = [
     "COERCED_COLUMNS",
 ]
 
-#: The three warehouse schemas R4 creates. Separate from the control plane's tables entirely
-#: -- this is a different database (D5), not a different schema in the same one.
+#: The warehouse schemas: three from R4, gold from R5. Separate from the control plane's
+#: tables entirely -- this is a different database (D5), not a different schema in the same one.
 LANDING_SCHEMA = "landing"
 SILVER_SCHEMA = "silver"
 QUALITY_SCHEMA = "quality"
+GOLD_SCHEMA = "gold"
+
+#: The fixed relations in gold (070_gold.sql). The per-KPI views are not fixed: they are named
+#: by :func:`gold_view` and created by materialisation.
+GOLD_TABLES: Tuple[str, ...] = ("kpi_value", "kpi_run", "kpi_latest_run")
 
 #: The single landing table. One table rather than one per stream: landing holds rows as-is,
 #: and CRM multiplexes three streams into one file, so per-stream landing tables would force
@@ -59,6 +67,8 @@ DDL_SCRIPTS: Tuple[str, ...] = (
     "054_silver_session_replay_session.sql",
     "060_views.sql",
     "065_readonly_role.sql",
+    "070_gold.sql",
+    "075_gold_grants.sql",
 )
 
 
@@ -77,6 +87,16 @@ def _table_stem(stream_id: str) -> str:
 SILVER_TABLES: Mapping[str, str] = MappingProxyType(
     {stream_id: _table_stem(stream_id) for stream_id in LANDING_SCHEMAS}
 )
+
+
+def gold_view(kpi_identifier: str) -> str:
+    """The bare name of a KPI's per-identifier view in gold, e.g. ``kpi_supplier__on_time_rate_30d``.
+
+    The API contract queries gold this way (``paths/playground.yaml``): ``gold.kpi_<identifier>``
+    with the grain keys as columns. A ``KpiDefinition.identifier`` is validated to be a Python
+    identifier, which is also a safe unquoted SQL identifier, so no quoting is needed.
+    """
+    return f"kpi_{kpi_identifier}"
 
 
 def silver_table(stream_id: str) -> str:

@@ -1,7 +1,7 @@
 """R7 -- preflight against a use case referencing a blocked KPI.
 
 The package's Verify line's second scenario: "run preflight against a use case referencing a
-blocked KPI." `check_preflight` is pure and needs no workflow, no database and no live
+blocked KPI." `check_preflight` needs no workflow, no database and no live
 semantic layer -- `assess_feasibility` is a set difference, so the blocked case is
 constructible by hand. Reproduces the API contract's own worked example
 (`product/egpt_retail/api/openapi/paths/use-cases.yaml`, `runUseCasePreflight`) verbatim.
@@ -12,6 +12,7 @@ Run:
     .venv/bin/python cookbook/94_retail/R07_preflight_blocked_kpi.py
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -48,7 +49,7 @@ step_input = StepInput(
         "available_tables": {"product_reviews"},  # web_sessions not exposed
     }
 )
-result = check_preflight(step_input)
+result = asyncio.run(check_preflight(step_input))
 
 print(f"  allowed:    {result.content['allowed']}")
 print(f"  blocked_by: {result.content['blocked_by']}")
@@ -71,7 +72,7 @@ step_input_ready = StepInput(
         "available_tables": {"product_reviews", "web_sessions"},
     }
 )
-result_ready = check_preflight(step_input_ready)
+result_ready = asyncio.run(check_preflight(step_input_ready))
 print(f"  allowed:    {result_ready.content['allowed']}")
 print(f"  blocked_by: {result_ready.content['blocked_by']}")
 assert result_ready.content["allowed"] is True

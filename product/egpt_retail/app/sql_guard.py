@@ -1,4 +1,4 @@
-"""R6's allow-list, sourced from the semantic layer (K5's contract).
+"""R6's allow-list, sourced from the semantic layer (K5's contract) -- widened to gold by R5.
 
 The framework's :class:`~egpt.guardrails.sql_guard.SQLGuard` never imports
 :mod:`egpt_retail.contracts.semantic` -- the framework/product boundary (``CLAUDE.md``)
@@ -6,11 +6,18 @@ forbids ``libs/agno/egpt/`` reaching into ``product/egpt_retail/``. This module 
 it satisfies the guard's ``TableAllowlistLike`` protocol by wrapping whatever
 :class:`~egpt_retail.contracts.semantic.SemanticRead` the deployment is configured with, so
 nothing downstream of the guard has to know a semantic layer exists.
+
+Gold is not in the semantic layer. K11's graph edges point at *source* tables only, and a
+harvest of ``silver`` does not see ``gold`` -- so ``available_tables(reader)`` alone would
+refuse every read of the values the product exists to produce. :class:`WarehouseReadAllowlist`
+is that set plus gold's fixed relations plus one view per registered KPI, and
+:func:`build_warehouse_read_guard` names both schemas. The KPI identifiers come from the
+registry the caller already holds, never from the statement being checked.
 """
 
 from __future__ import annotations
 
-from typing import FrozenSet
+from typing import FrozenSet, Iterable, Tuple
 
 from egpt.guardrails.sql_guard import SQLGuard
 
@@ -19,9 +26,18 @@ from egpt_retail.contracts.semantic import (
     aavailable_tables,
     available_tables,
 )
-from egpt_retail.warehouse.schema import SILVER_SCHEMA
+from egpt_retail.warehouse.schema import (
+    GOLD_SCHEMA,
+    GOLD_TABLES,
+    SILVER_SCHEMA,
+    gold_view,
+)
 
-__all__ = ["SemanticTableAllowlist", "build_warehouse_read_guard"]
+__all__ = [
+    "SemanticTableAllowlist",
+    "WarehouseReadAllowlist",
+    "build_warehouse_read_guard",
+]
 
 
 class SemanticTableAllowlist:
@@ -37,26 +53,66 @@ class SemanticTableAllowlist:
         return await aavailable_tables(self._reader)
 
 
+class WarehouseReadAllowlist(SemanticTableAllowlist):
+    """The semantic layer's tables, plus gold: its fixed relations and one view per KPI.
+
+    ``kpi_identifiers`` is a snapshot taken at construction, on purpose. A guard is built
+    per call site from the registry that site already loaded; a KPI registered after that
+    is not readable through this guard until the caller rebuilds it, which is the same
+    staleness rule the semantic tables already have (``available_tables`` is read per check,
+    but a harvest between two checks is a snapshot change the caller sees elsewhere).
+    """
+
+    def __init__(
+        self, reader: SemanticRead, kpi_identifiers: Iterable[str] = ()
+    ) -> None:
+        super().__init__(reader)
+        self._gold: FrozenSet[str] = frozenset(GOLD_TABLES) | frozenset(
+            gold_view(identifier) for identifier in kpi_identifiers
+        )
+
+    @property
+    def gold_tables(self) -> FrozenSet[str]:
+        return self._gold
+
+    def allowed_tables(self) -> FrozenSet[str]:
+        return super().allowed_tables() | self._gold
+
+    async def aallowed_tables(self) -> FrozenSet[str]:
+        return (await super().aallowed_tables()) | self._gold
+
+
+#: The schemas a retail read may name. Unqualified references are resolved by the connection's
+#: search_path (silver, set by the materialiser and the reader role's session), qualified ones
+#: must be one of these two.
+WAREHOUSE_READ_SCHEMAS: Tuple[str, ...] = (SILVER_SCHEMA, GOLD_SCHEMA)
+
+
 def build_warehouse_read_guard(
-    reader: SemanticRead, *, row_cap: int = 1000, statement_timeout_ms: int = 5000
+    reader: SemanticRead,
+    *,
+    kpi_identifiers: Iterable[str] = (),
+    row_cap: int = 1000,
+    statement_timeout_ms: int = 5000,
 ) -> SQLGuard:
-    """The guard every retail read path against the warehouse should be built with.
+    """The guard every retail read path against the warehouse is built with.
 
-    No call site in ``app/components.py``/``app/factory.py`` needs this yet -- nothing there
-    constructs a ``DatabaseContextProvider`` today; R11's playground (P4, "after R6") is what
-    will. This function exists now so that call, when it is written, is one line rather than
-    a re-derivation of this adapter.
+    R5's materialiser and ``read_gold`` call this; R11's playground (P4) will. Every read of
+    silver or gold goes through it -- "No SQL runs outside the guard" is an alignment rule,
+    not a preference -- and a formula the guard refuses is recorded as a failed run, not
+    executed anyway.
 
-    ``schema=SILVER_SCHEMA``: the allow-list itself is bare-name-only (``available_tables()``
+    ``schema={silver, gold}``: the allow-list itself is bare-name-only (``available_tables()``
     drops schema, same as the semantic contract it reads), so without this the guard cannot
-    tell ``silver.orders`` apart from ``landing.orders`` or a future ``gold.orders`` -- only
-    the ``egpt_reader`` role's grants would. Passing the one schema this deployment's
-    semantic layer actually exposes closes that gap here, at the one call site that knows it.
+    tell ``silver.orders`` apart from ``landing.orders`` -- only the ``egpt_reader`` role's
+    grants would. Naming exactly the two schemas this deployment exposes closes that gap at
+    the one call site that knows them. ``kpi_identifiers`` widens the allow-list to the
+    per-KPI views; pass the registry's identifiers, or nothing for a silver-only reader.
     """
     return SQLGuard(
-        allowlist=SemanticTableAllowlist(reader),
+        allowlist=WarehouseReadAllowlist(reader, kpi_identifiers),
         row_cap=row_cap,
         statement_timeout_ms=statement_timeout_ms,
         dialect="postgres",
-        schema=SILVER_SCHEMA,
+        schema=set(WAREHOUSE_READ_SCHEMAS),
     )

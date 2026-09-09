@@ -26,12 +26,14 @@ def test_the_three_executors_satisfy_the_registry_convention() -> None:
     assert len(R7_EXECUTORS) == 3
 
 
-def test_check_preflight_is_sync_with_no_io() -> None:
-    """The registry's exemption is for I/O -- check_preflight does none, so it stays a plain
-    def, unlike record_provenance/deliver_in_app."""
+def test_check_preflight_is_async_since_it_reads_gold() -> None:
+    """R7 shipped it as a plain def (no I/O). R5's gold_fresh reads the warehouse, so it is
+    now under the registry's I/O exemption like record_provenance/deliver_in_app -- and still
+    under one name."""
     from egpt_retail.executors.preflight import check_preflight
 
-    assert not inspect.iscoroutinefunction(check_preflight)
+    assert inspect.iscoroutinefunction(check_preflight)
+    assert check_preflight.__name__ == "check_preflight"
 
 
 def test_record_provenance_and_deliver_in_app_are_async_under_one_name() -> None:
