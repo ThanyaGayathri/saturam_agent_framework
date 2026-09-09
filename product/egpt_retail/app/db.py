@@ -25,6 +25,7 @@ __all__ = [
     "CONTROL_PLANE_DB_ID",
     "WAREHOUSE_DB_ID",
     "build_control_plane_db",
+    "build_control_plane_engine",
     "build_warehouse_engine",
     "build_warehouse_readonly_engine",
     "psycopg_dsn",
@@ -43,6 +44,24 @@ CONTROL_PLANE_DB_ID = "egpt-control-plane"
 def build_control_plane_db(settings: RetailSettings) -> PostgresDb:
     """The control-plane database: sessions, components, schedules, traces, memory tiers."""
     return PostgresDb(id=CONTROL_PLANE_DB_ID, db_url=settings.retail_db_url)
+
+
+def build_control_plane_engine(settings: RetailSettings) -> Engine:
+    """A bare ``Engine`` against the control-plane DSN, for DDL and writes that fall outside
+    ``PostgresDb``'s own curated table set (R7, G4): the answer-provenance and delivery tables.
+
+    ``MigrationManager`` is deliberately not extended for either -- its own scope is the
+    framework's relational tables, and tracker #178 hardened it specifically against stamping
+    a table it never migrated (the exact reasoning ``warehouse/ddl.py`` already documents for
+    the warehouse). These two tables get the same hand-rolled, idempotent-DDL treatment R4's
+    warehouse tables get, just pointed at the control-plane database instead of a separate one
+    -- so a bare engine, not a second ``PostgresDb``, is what a caller doing that DDL needs.
+
+    No refusal-when-unset branch, unlike the warehouse builders above: ``retail_db_url`` is a
+    required setting, not ``Optional``, so a missing value already fails at settings
+    construction rather than needing a point-of-use check here.
+    """
+    return create_engine(settings.retail_db_url, pool_pre_ping=True, future=True)
 
 
 def psycopg_dsn(sqlalchemy_url: str) -> str:
