@@ -1,0 +1,39 @@
+# Creates or updates the warehouse schema (landing, silver, quality; gold from R5) on every
+# install and upgrade. The command has existed since R4 (`egpt-retail warehouse-migrate`) and
+# nothing in the chart ran it -- a fresh cluster came up with an empty warehouse database and
+# the first load failed on a missing table (open-items, Lane R, found planning P3).
+#
+# Separate from job-migrate.yaml on purpose, and post- rather than pre-install: the warehouse
+# is a different database (D5) -- on AKS a different server with different credentials -- and
+# the control-plane migration is a pre-install hook that gates the whole release. This one must
+# not be able to block it. Nothing reads the warehouse at process start, so running after the
+# Deployments come up costs nothing. Idempotent: every script it applies is CREATE IF NOT EXISTS.
+#
+# Env is inline, like migrate's: it needs one URL, and a hook that depends on nothing but its
+# own database is the right shape.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-warehouse-migrate
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.warehouseMigrate.backoffLimit }}
+  template:
+    metadata:
+      labels: {{- include "egpt.labels" . | nindent 8 }}
+        app: {{ .Release.Name }}-warehouse-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: warehouse-migrate
+          image: {{ include "egpt.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["warehouse-migrate"]
+          env:
+            - name: EGPT_RETAIL_WAREHOUSE_DB_URL
+              value: {{ .Values.database.warehouseUrl | quote }}
+          securityContext: {{- include "egpt.securityContext" . | nindent 12 }}

@@ -106,7 +106,12 @@ jobs:
           set -e
           uv venv .venv --python "${{ matrix.python-version }}"
           source .venv/bin/activate
-          uv pip install -e libs/agno[integration-tests,tests]
+          # One resolve for the framework and the product: product pins egpt[os] to this
+          # checkout's version, and a public-PyPI package of the same name would win a
+          # separate resolve (see product/pyproject.toml). R-9: the semantic layer's live suite
+          # lives under product/tests and this job is the only place it can run against real
+          # Postgres and Neo4j.
+          uv pip install -e libs/agno[integration-tests,tests] -e product
           uv pip install brave-search --no-deps
 
       - name: Run integration tests
@@ -152,6 +157,46 @@ jobs:
           set -e
           source .venv/bin/activate
           python -m pytest libs/agno/tests/integration -m integration -v --tb=short
+
+      # R-9. product/tests/test_semantic_live.py harvests the warehouse's `silver` schema
+      # into a snapshot and the graph, so it needs what the compose stack gives a laptop and
+      # the pgvector service above does not: the separate egpt_warehouse database (D5) with
+      # R4's silver DDL applied. Both are created here, by the product's own entrypoint, so
+      # CI provisions the warehouse the same way a deployment does. The suite is gated on the
+      # same EGPT_INTEGRATION_* variables as the framework's and cleans up after itself.
+      - name: Provision the warehouse for the semantic live suite
+        env:
+          EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse
+        run: |
+          set -e
+          source .venv/bin/activate
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://ai:ai@localhost:5532/ai", autocommit=True) as conn:
+              exists = conn.execute(
+                  "SELECT 1 FROM pg_database WHERE datname = 'egpt_warehouse'"
+              ).fetchone()
+              if not exists:
+                  conn.execute("CREATE DATABASE egpt_warehouse OWNER ai")
+          PY
+          python -m egpt_retail.entrypoints warehouse-migrate
+
+      - name: Run the semantic layer live suite
+        env:
+          EGPT_TELEMETRY: false
+          EGPT_INTEGRATION_POSTGRES: "1"
+          EGPT_INTEGRATION_NEO4J: "1"
+          # The suite's defaults are the compose stack's ports. The services above expose
+          # Postgres on 5532 (matching) and Neo4j on 7691 with its own password (not).
+          EGPT_ONTOLOGY_NEO4J_URI: neo4j://localhost:7691
+          EGPT_RETAIL_NEO4J_URI: neo4j://localhost:7691
+          EGPT_RETAIL_NEO4J_PASSWORD: smg1testpassword
+          EGPT_RETAIL_DB_URL: postgresql+psycopg://ai:ai@localhost:5532/ai
+          EGPT_RETAIL_WAREHOUSE_DB_URL: postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse
+        run: |
+          set -e
+          source .venv/bin/activate
+          python -m pytest product/tests/test_semantic_live.py -v --tb=short
 
   system:
     name: system (py3.12)

@@ -1,0 +1,35 @@
+# Refreshes the semantic layer from the warehouse nightly: `egpt-retail harvest` reads the
+# silver schema into a versioned snapshot and the graph and reports drift (K4-K6). Lane K wrote
+# the command and asked for the schedule here (#196: "the schedule is yours"). It runs after the
+# connectors land and R4 materialises silver, because harvesting before the load reads
+# yesterday's schema -- so the default cadence sits after the nightly refresh window.
+#
+# Forbid, not Allow: two harvests at once would race on the snapshot version. The entrypoint is
+# idempotent, so a missed run is caught up by the next one rather than by a replay.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-harvest
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.harvest.schedule | quote }}
+  timeZone: UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.harvest.backoffLimit }}
+      template:
+        metadata:
+          labels: {{- include "egpt.labels" . | nindent 12 }}
+            app: {{ .Release.Name }}-harvest
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: harvest
+              image: {{ include "egpt.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args: ["harvest", "--schema", "silver"]
+              {{- include "egpt.envFrom" . | nindent 14 }}
+              securityContext: {{- include "egpt.securityContext" . | nindent 16 }}
