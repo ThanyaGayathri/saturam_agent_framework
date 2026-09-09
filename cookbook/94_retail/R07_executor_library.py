@@ -26,6 +26,7 @@ import asyncio
 import logging
 import os
 import sys
+import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -94,10 +95,22 @@ def build_workflow() -> Workflow:
 
 
 async def run_once(*, dry_run: bool):
+    """Pins one id as both the workflow's own ``run_id`` and ``record_provenance``'s --
+    ``StepInput`` carries no live reference to the enclosing run (confirmed: neither
+    ``workflow_session`` nor ``additional_data`` gets one from the engine), so a composer that
+    wants its provenance record to correlate with ``WorkflowRunOutput.run_id`` must generate
+    the id itself and pass it to both places, exactly as here. Skipping this still works --
+    ``record_provenance`` falls back to a fresh id of its own -- but that id would then have no
+    relationship to the run that produced it, which is what this cookbook's assertion below
+    guards against regressing.
+    """
+    run_id = str(uuid.uuid4())
     workflow = build_workflow()
     output = await workflow.arun(
         input="verify",
+        run_id=run_id,
         additional_data={
+            "run_id": run_id,
             "kpis": [READY_KPI],
             "available_tables": {"orders"},
             "use_case_id": "uc_r7_verify",
@@ -110,6 +123,9 @@ async def run_once(*, dry_run: bool):
     steps = output.step_results
     delivery = steps[-1].content
     provenance_ref = steps[-2].content["provenance_ref"]
+    assert provenance_ref == output.run_id == run_id, (
+        "the provenance record's id must correlate with the run that produced it"
+    )
     return provenance_ref, delivery, output
 
 

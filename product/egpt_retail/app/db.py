@@ -60,7 +60,20 @@ def build_control_plane_engine(settings: RetailSettings) -> Engine:
     No refusal-when-unset branch, unlike the warehouse builders above: ``retail_db_url`` is a
     required setting, not ``Optional``, so a missing value already fails at settings
     construction rather than needing a point-of-use check here.
+
+    Refuses a non-Postgres DSN by name, rather than letting one reach the DDL: R7's provenance
+    and delivery tables are Postgres-only (``JSONB``, ``TIMESTAMPTZ``, ``now()``), the same
+    assumption ``build_control_plane_db``'s ``PostgresDb`` already makes for every other
+    control-plane table -- an opaque driver error three calls downstream is a worse failure
+    than naming the setting here, at the one place both DDL callers construct their engine
+    through.
     """
+    if not _SQLALCHEMY_DRIVER_SCHEME.match(settings.retail_db_url):
+        raise ValueError(
+            f"EGPT_RETAIL_DB_URL must be a postgresql+<driver>:// DSN, got "
+            f"{settings.retail_db_url!r}. The control-plane database, including R7's "
+            "answer-provenance and delivery tables, is Postgres-only."
+        )
     return create_engine(settings.retail_db_url, pool_pre_ping=True, future=True)
 
 

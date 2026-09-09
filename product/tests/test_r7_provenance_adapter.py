@@ -5,6 +5,7 @@ write is exercised only by the cookbook (cookbook/94_retail/R07_executor_library
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
@@ -12,8 +13,10 @@ import yaml
 from egpt.answer_provenance import ProvenanceRecord
 from egpt.workflow.types import StepInput, StepOutput
 
+from egpt_retail.executors import provenance as provenance_module
 from egpt_retail.executors.provenance import (
     PROV_KEY,
+    _bag,
     _model_tier,
     _run_id,
     note_dataset_read,
@@ -21,7 +24,17 @@ from egpt_retail.executors.provenance import (
     note_retrieval_hit,
     note_row_sample,
     note_sql_execution,
+    record_provenance,
 )
+
+
+class _FakeEngine:
+    """A stand-in for the real ``Engine`` build_control_plane_engine returns -- disposed but
+    never connected to, since these tests patch the write function itself."""
+
+    def dispose(self) -> None:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # note_* helpers populate additional_data["prov"]
@@ -88,6 +101,20 @@ def test_notes_work_when_additional_data_starts_as_none():
     ]
 
 
+def test_bag_fills_in_missing_lists_rather_than_raising():
+    """An executor that seeded additional_data["prov"] itself, in some partial shape, instead
+    of through the note_* helpers, must not turn a later note_* call -- or record_provenance
+    itself -- into a KeyError. That would contradict record_provenance's own "never refuses"
+    docstring."""
+    step_input = StepInput(additional_data={PROV_KEY: {"datasets_read": []}})
+    note_sql_execution(step_input, statement="SELECT 1")
+    bag = _bag(step_input)
+    assert bag["sql_executed"] == [{"statement": "SELECT 1"}]
+    assert bag["rows_sampled"] == []
+    assert bag["freshness"] == []
+    assert bag["retrieval_hits"] == []
+
+
 # ---------------------------------------------------------------------------
 # run_id resolution
 # ---------------------------------------------------------------------------
@@ -98,11 +125,16 @@ def test_run_id_uses_explicit_override():
     assert _run_id(step_input, {"run_id": "run_pinned"}) == "run_pinned"
 
 
-def test_run_id_falls_back_to_a_fresh_uuid():
+def test_run_id_falls_back_to_a_fresh_uuid_and_warns(caplog):
+    """StepInput has no live run id to fall back to (workflow_session is the session, not the
+    run) -- a fresh id is generated, and this is logged, because it will not correlate with
+    WorkflowRunOutput.run_id unless the caller also pins additional_data["run_id"]."""
     step_input = StepInput()
-    run_id = _run_id(step_input, {})
+    with caplog.at_level(logging.WARNING):
+        run_id = _run_id(step_input, {})
     assert run_id  # non-empty
     assert _run_id(step_input, {}) != run_id  # a second call generates a different one
+    assert any("run_id" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +165,62 @@ def test_model_tier_warns_when_a_model_ran_with_no_tier_supplied(caplog):
         tier = _model_tier(step_input, {})
     assert tier == "none"
     assert any("model_tier" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# record_provenance itself -- the note_* bag is what actually reaches the written record
+# ---------------------------------------------------------------------------
+
+
+def test_record_provenance_writes_the_note_star_bag_not_a_bypass(monkeypatch):
+    """A mutation that reads a raw additional_data key instead of the note_*-populated bag
+    would pass every note_*-only test above -- this is the one that catches it, by asserting
+    on what actually reaches awrite_provenance."""
+    written = {}
+
+    async def fake_awrite_provenance(engine, record):
+        written["record"] = record
+
+    monkeypatch.setattr(provenance_module, "awrite_provenance", fake_awrite_provenance)
+    monkeypatch.setattr(
+        provenance_module, "build_control_plane_engine", lambda settings: _FakeEngine()
+    )
+
+    step_input = StepInput(
+        additional_data={"run_id": "run_x", "semantic_snapshot": "s.1"}
+    )
+    note_dataset_read(step_input, table="orders")
+    note_sql_execution(step_input, statement="SELECT 1", guard="allowed")
+
+    output = asyncio.run(record_provenance(step_input))
+
+    record = written["record"]
+    assert record.run_id == "run_x"
+    assert record.datasets_read == ({"schema": "silver", "table": "orders"},)
+    assert record.sql_executed == ({"statement": "SELECT 1", "guard": "allowed"},)
+    assert output.content == {"provenance_ref": "run_x"}
+
+
+def test_record_provenance_disposes_its_engine(monkeypatch):
+    disposed = []
+
+    async def fake_awrite_provenance(engine, record):
+        pass
+
+    class _TrackedEngine(_FakeEngine):
+        def dispose(self) -> None:
+            disposed.append(True)
+
+    monkeypatch.setattr(provenance_module, "awrite_provenance", fake_awrite_provenance)
+    monkeypatch.setattr(
+        provenance_module,
+        "build_control_plane_engine",
+        lambda settings: _TrackedEngine(),
+    )
+
+    asyncio.run(record_provenance(StepInput(additional_data={"run_id": "run_y"})))
+
+    assert disposed == [True]
 
 
 # ---------------------------------------------------------------------------

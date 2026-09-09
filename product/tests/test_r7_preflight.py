@@ -87,6 +87,28 @@ def test_fully_blocked_kpi_names_every_missing_table():
     assert "supplier_deliveries" in reason
 
 
+def test_multiple_ready_kpis_all_name_their_own_reason():
+    """Only the aggregate reason for an all-blocked-or-partial set is expected to name every
+    KPI -- an all-ready set must not silently drop every KPI after the first from the reason
+    text either."""
+    orders = _kpi("orders__count", "SELECT count(*) FROM orders", frozenset({"orders"}))
+    customers = _kpi(
+        "customers__count", "SELECT count(*) FROM customers", frozenset({"customers"})
+    )
+    step_input = StepInput(
+        additional_data={
+            "kpis": [orders, customers],
+            "available_tables": {"orders", "customers"},
+        }
+    )
+
+    output = check_preflight(step_input)
+
+    reason = output.content["checks"][0]["reason"]
+    assert "orders__count: ready." in reason
+    assert "customers__count: ready." in reason
+
+
 def test_no_kpis_referenced_allows():
     step_input = StepInput(additional_data={"kpis": [], "available_tables": set()})
 

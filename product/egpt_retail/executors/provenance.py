@@ -53,11 +53,27 @@ _PROV_LISTS = (
 
 
 def _bag(step_input: StepInput) -> Dict[str, List[Dict[str, Any]]]:
+    """The shared ``additional_data["prov"]`` dict, guaranteed to carry all five lists.
+
+    Fills in each list independently rather than only when the whole key is absent: an
+    executor that seeded ``additional_data["prov"]`` itself, in some partial shape, instead of
+    going through these helpers, must not turn a later ``note_*`` call -- or
+    ``record_provenance`` itself -- into a ``KeyError``. That would contradict this module's
+    own "never refuses" contract.
+
+    Caution for callers: this mutates the caller's ``additional_data`` dict in place with no
+    reset, so reusing the same dict object across two separate ``Workflow.arun()`` calls leaks
+    the first run's entries into the second -- pass a fresh dict per run. The workflow engine's
+    step-retry loop reuses this same object across retries of *one* step, too: a ``note_*``
+    call placed before the read or execution it describes might still fail will double-append
+    on retry -- call ``note_*`` only once that read/execution has actually succeeded.
+    """
     if step_input.additional_data is None:
         step_input.additional_data = {}
-    return step_input.additional_data.setdefault(
-        PROV_KEY, {name: [] for name in _PROV_LISTS}
-    )
+    bag = step_input.additional_data.setdefault(PROV_KEY, {})
+    for name in _PROV_LISTS:
+        bag.setdefault(name, [])
+    return bag
 
 
 def note_dataset_read(
@@ -129,14 +145,29 @@ def note_retrieval_hit(
 
 
 def _run_id(step_input: StepInput, options: Dict[str, Any]) -> str:
-    """Same fallback chain R4's warehouse.py uses for workflow_run_id, plus a fresh id as the
-    last resort -- every provenance record needs one, unlike R4's optional workflow_run_id."""
+    """The pinned override if the caller set one, else a fresh id -- logged, because it will
+    not correlate with anything.
+
+    There is no live run id to fall back to here: ``StepInput.workflow_session`` is the
+    *session*, not the run (``egpt.session.workflow.WorkflowSession`` has no ``run_id`` field
+    at all -- it holds a list of past ``runs``, each with its own), and
+    ``Workflow._create_step_input`` never threads the executing run's id into ``StepInput`` or
+    ``additional_data`` either. (R4's ``executors/warehouse.py`` reads the same
+    always-``None`` attribute for the same reason -- both predate this being noticed.) A
+    composer that needs this record's ``run_id`` to agree with the returned
+    ``WorkflowRunOutput.run_id`` must generate the id itself and pass it to both
+    ``Workflow.arun(run_id=..., additional_data={"run_id": ..., ...})`` --
+    ``cookbook/94_retail/R07_executor_library.py`` does exactly this.
+    """
     pinned = options.get("run_id")
     if pinned:
         return str(pinned)
-    session_run_id = getattr(step_input.workflow_session, "run_id", None)
-    if session_run_id:
-        return str(session_run_id)
+    log.warning(
+        "record_provenance: no additional_data['run_id'] was pinned, so this record is "
+        "keyed by a fresh, unlookupable UUID with no relationship to WorkflowRunOutput.run_id "
+        "-- pass the same id to both Workflow.arun(run_id=...) and "
+        "additional_data['run_id'] to keep them in correspondence."
+    )
     return str(uuid.uuid4())
 
 

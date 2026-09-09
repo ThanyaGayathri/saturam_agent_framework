@@ -2740,3 +2740,62 @@ panel, P4) is the natural owner; wiring it is a one-import call to
 does not exist yet, so `check_preflight`'s `kpis`/`available_tables` are caller-supplied here,
 not resolved from a live registry — the `kpis_ready` check itself is fully real regardless,
 since `assess_feasibility` needs nothing else.
+
+---
+
+### R07 — PR #197 round-1 review fixes
+
+**Package:** R7 (P2, G4)
+**Status:** PASS
+
+**Description:** Both round-1 reviews (two independent reviewers plus an auditor pass on
+`07ec3df3`) agreed on two Major findings and one confirmed mutation-testing gap; a third Major
+and a Minor were fixed alongside them:
+
+1. **`record_provenance`'s `_run_id` fallback was dead code.** `WorkflowSession` has no
+   `run_id` field (confirmed by reading `egpt.session.workflow.WorkflowSession` directly —
+   it holds a list of past `runs`, each with its own, not a scalar for the run in progress),
+   and `Workflow._create_step_input` never threads the executing run's id into `StepInput`
+   either — the same dead pattern already exists, unnoticed, in R4's
+   `executors/warehouse.py`. Fixed by removing the dead branch, logging a warning on the
+   fresh-uuid fallback, and — since `Workflow.arun` does accept a `run_id` override that seeds
+   `WorkflowRunOutput.run_id` — updating `R07_executor_library.py` to generate one id and pass
+   it to both `arun(run_id=...)` and `additional_data["run_id"]`, then assert
+   `provenance_ref == output.run_id == run_id`. Confirmed against real Postgres below: this
+   assertion holds.
+2. **`_bag()`'s `setdefault` was a no-op once `"prov"` existed in any shape**, so an executor
+   that seeded `additional_data["prov"]` itself in a partial shape would turn a later `note_*`
+   call, or `record_provenance` itself, into a `KeyError` — contradicting its own "never
+   refuses" docstring. Fixed: each of the five lists is now filled in independently.
+3. **The DDL is Postgres-only with no dialect guard.** `build_control_plane_engine` now
+   refuses a non-`postgresql+<driver>://` DSN by name (reusing the existing
+   `_SQLALCHEMY_DRIVER_SCHEME` pattern already in `db.py`), rather than letting one reach
+   `JSONB`/`TIMESTAMPTZ`/`now()` and fail with an opaque driver error three calls downstream.
+4. **Zero automated tests called `deliver_in_app`/`record_provenance` directly** — only their
+   pure helpers were tested, which is exactly why a mutation bypassing the
+   `additional_data["prov"]` convention survived the whole suite in round 1. Added direct
+   async tests for both executors (monkeypatching `awrite_provenance`/`awrite_delivery` and
+   `build_control_plane_engine`, no database) asserting on what actually reaches the write
+   call — the bypass mutation now fails `test_record_provenance_writes_the_note_star_bag_not_a_bypass`.
+5. **Minor, confirmed by both reviews:** `check_preflight`'s aggregate `kpis_ready` reason
+   dropped every KPI after the first when several were all ready (`feasibilities[:1]`). Fixed
+   to join every KPI's reason, matching the already-correct all-blocked-or-partial case.
+6. **Minor:** `retail_deliveries`' DDL had no idempotency test at all, unlike the identical-
+   reasoning `answer_provenance` DDL. Added the same checks (`CREATE TABLE IF NOT EXISTS`, no
+   bare non-idempotent `CREATE`, the `dry_run`/`channel` defaults) to `test_r7_delivery.py`.
+7. **Minor, documented rather than changed:** `_bag()`'s docstring now states plainly that it
+   mutates the caller's `additional_data` in place with no reset (a reused dict across two
+   `arun()` calls leaks entries) and that the workflow engine's step-retry loop reuses the same
+   object across retries of one step (a `note_*` call before I/O that might fail double-appends
+   on retry) — both caller-discipline risks, not defects in this executor itself.
+
+**Result:** `pytest product/tests/test_r7_*.py` — 46 passed (12 new: 1 preflight, 7 delivery
+inc. 4 DDL, 4 provenance-adapter inc. 2 direct-executor, 4 in a new
+`test_r7_control_plane_engine.py`). `pytest libs/agno/tests/unit/answer_provenance/` — 13
+passed, unchanged. `./scripts/format.sh && ./scripts/validate.sh` — both clean (`product`:
+382 passed, 7 skipped; ruff, mypy, API contract all green). Both cookbooks re-run against the
+real control-plane Postgres (`EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai`,
+after re-running `egpt-retail migrate`): `R07_executor_library.py` — the new
+`provenance_ref == output.run_id == run_id` assertion held on both the real and dry-run
+sections; `R07_preflight_blocked_kpi.py` — unchanged behavior, still blocks and clears exactly
+as before.

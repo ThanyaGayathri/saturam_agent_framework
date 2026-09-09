@@ -80,9 +80,11 @@ def _kpis_ready_check(
     blocked_or_partial = [
         f for f in feasibilities if f.verdict is not FeasibilityVerdict.READY
     ]
+    # Every KPI's reason, not just the first -- a use case referencing several KPIs must not
+    # have its later ones silently dropped from the aggregate reason, ready or not.
     reason = " ".join(
         _kpi_check_reason(f.kpi_identifier, f)
-        for f in (blocked_or_partial or feasibilities[:1])
+        for f in (blocked_or_partial or feasibilities)
     )
     return {"name": _KPIS_READY, "passed": not blocked_or_partial, "reason": reason}
 
