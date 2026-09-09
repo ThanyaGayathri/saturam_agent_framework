@@ -37,9 +37,12 @@ from egpt.memory.config import build_memory_provider_for
 from egpt.memory.provider import MemoryProvider
 from egpt.registry.registry import Registry
 from egpt.workflow import RemoteWorkflow, Workflow, WorkflowFactory
+from egpt.workflow.step import Step
+from egpt.workflow.types import OnError
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.registry import assert_registry_valid
+from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
 from egpt_retail.memory.config import build_memory_resolver
 from egpt_retail.skills.synonym_proposer import SynonymProposalSet
 
@@ -47,6 +50,7 @@ __all__ = [
     "RegisteredAgent",
     "RegisteredWorkflow",
     "SYNONYM_PROPOSER_ID",
+    "LANDING_TO_SILVER_WORKFLOW_ID",
     "MEMORY_WRITING_AGENT_IDS",
     "build_agents",
     "build_workflows",
@@ -59,6 +63,9 @@ RegisteredAgent = Union[Agent, RemoteAgent, AgentProtocol, AgentFactory]
 RegisteredWorkflow = Union[Workflow, RemoteWorkflow, WorkflowFactory]
 
 SYNONYM_PROPOSER_ID = "synonym_proposer"
+
+#: R4's pipeline. Stable, because a schedule (R5) and any stored workflow reference it by id.
+LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
 
 #: The agents whose memory partitions the consolidator drains. Phase zero: one.
 MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID]
@@ -101,18 +108,53 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
 def build_workflows(
     settings: RetailSettings, db: PostgresDb
 ) -> List[RegisteredWorkflow]:
-    """The registered workflows. None in phase zero: the RFQ chain is R10 and the executor
-    library it composes is R7. Kept as a function so ``main.py`` does not change when they land."""
-    return []
+    """The registered workflows. One so far: R4's landing-to-silver pipeline.
+
+    A workflow rather than a bespoke runner, because that is what buys per-step retries, run
+    history in the ``WorkflowSession``, and a step that can stop the chain -- the three things
+    R5's nightly gold materialisation will need and would otherwise have to invent.
+
+    **This workflow must be driven with ``arun``.** Its executors are ``async def`` (the
+    executor registry's exemption, since every one of them does I/O), and a synchronous
+    ``Workflow.run()`` raises inside ``Step``'s retry loop, which ``on_error`` then handles --
+    and ``on_error`` defaults to ``OnError.skip``. A sync run would therefore skip every step
+    and report a completed run that loaded nothing. ``on_error=OnError.fail`` below is the
+    second half of that guard: the gates never raise, so it only bites on an unexpected
+    failure, which must stop the chain rather than carry on toward gold.
+    """
+    return [
+        Workflow(
+            id=LANDING_TO_SILVER_WORKFLOW_ID,
+            name="Landing to silver",
+            description=(
+                "Loads the raw drop into landing, conforms the five silver entities, and "
+                "gates gold on row-count delta, key null rates and referential integrity "
+                "(R4, G8)."
+            ),
+            db=db,
+            steps=[
+                Step(
+                    name=executor.__name__.replace("_", "-"),
+                    executor=executor,
+                    on_error=OnError.fail,
+                )
+                for executor in WAREHOUSE_EXECUTORS
+            ],
+        )
+    ]
 
 
 def build_registry() -> Registry:
     """The executor registry, validated before it reaches the OS.
 
-    Empty in phase zero -- ``EXECUTOR_REGISTRY.md`` fixes the shape, not the list -- but the check
-    runs now so the seam is where the convention says it is: "wire it into the application factory
-    next to K1's memory startup check".
+    R4's six are the first entries. The check has run here since phase zero, when the list was
+    empty; it now has something to check, which is what makes the duplicate-name refusal real
+    rather than theoretical. Every name here is also a row in
+    ``contracts/EXECUTOR_REGISTRY.md``, and ``test_r4_executors.py`` asserts the two agree so
+    the document cannot rot.
     """
     registry = Registry()
+    for executor in WAREHOUSE_EXECUTORS:
+        registry.functions.append(executor)
     assert_registry_valid(registry.functions)
     return registry

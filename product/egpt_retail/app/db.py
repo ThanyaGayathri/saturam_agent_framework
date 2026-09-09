@@ -1,9 +1,14 @@
-"""Database construction for the control plane.
+"""Database construction: the control plane, and the warehouse.
 
-Pure construction -- ``PostgresDb`` opens nothing until first use -- so there is no async twin
-(the standing exemption in ``CLAUDE.md``). The warehouse is a separate database (D5) and is
-deliberately not constructed here: nothing in phase zero reads it, and a handle nobody uses is
-one that gets used by accident.
+Pure construction -- neither ``PostgresDb`` nor ``create_engine`` opens anything until first
+use -- so there are no async twins here (the standing exemption in ``CLAUDE.md``).
+
+Two databases, deliberately different types. The control plane gets a ``PostgresDb``, the
+framework's abstraction over sessions, memories, components and schedules. The warehouse (D5)
+gets a bare SQLAlchemy ``Engine``, and that asymmetry is the point: R4 needs an engine and
+``sqlalchemy.text`` and nothing else, while handing it a ``PostgresDb`` would invite someone to
+point a framework feature at the warehouse -- which is exactly what a separate database exists
+to prevent. No framework table lives there and ``MigrationManager`` never touches it.
 """
 
 from __future__ import annotations
@@ -11,10 +16,19 @@ from __future__ import annotations
 import re
 
 from egpt.integrations.db.postgres import PostgresDb
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 
 from egpt_retail.app.settings import RetailSettings
 
-__all__ = ["CONTROL_PLANE_DB_ID", "build_control_plane_db", "psycopg_dsn"]
+__all__ = [
+    "CONTROL_PLANE_DB_ID",
+    "WAREHOUSE_DB_ID",
+    "build_control_plane_db",
+    "build_warehouse_engine",
+    "build_warehouse_readonly_engine",
+    "psycopg_dsn",
+]
 
 #: Matches any SQLAlchemy ``postgresql+<driver>://`` scheme -- not just ``+psycopg`` -- so a DSN
 #: written for a different driver (``+psycopg2``, ``+asyncpg``) still reaches ``psycopg.connect``
@@ -42,3 +56,62 @@ def psycopg_dsn(sqlalchemy_url: str) -> str:
     unrelated-looking.
     """
     return _SQLALCHEMY_DRIVER_SCHEME.sub("postgresql://", sqlalchemy_url, count=1)
+
+
+#: What ``/config`` would call the warehouse if it ever listed it. It does not: the warehouse
+#: is not a framework database and no component is bound to it.
+WAREHOUSE_DB_ID = "egpt-warehouse"
+
+
+def build_warehouse_engine(settings: RetailSettings) -> Engine:
+    """The warehouse (D5): landing, the five silver entities, and the quality tables.
+
+    Refuses when ``EGPT_RETAIL_WAREHOUSE_DB_URL`` is unset, naming the variable. This is a
+    point-of-use refusal rather than a startup check on purpose -- the ``api`` and
+    ``consolidator`` roles never read the warehouse, so failing their startup over a variable
+    they do not use would be the wrong trade. The load path fails loudly the moment it needs
+    the handle, which is early enough to be useful and late enough to be true.
+
+    ``pool_pre_ping`` because a load is long-running and mostly idle between statements, and a
+    connection dropped by a pooler mid-load would otherwise surface as an opaque failure
+    partway through conformance.
+    """
+    if not settings.retail_warehouse_db_url:
+        raise RuntimeError(
+            "EGPT_RETAIL_WAREHOUSE_DB_URL is not set, so there is no warehouse to load into. "
+            "The compose stack creates the database (deploy/postgres/init/01-warehouse.sql) "
+            "and the Helm chart sets the variable from database.warehouseUrl."
+        )
+    return create_engine(
+        settings.retail_warehouse_db_url, pool_pre_ping=True, future=True
+    )
+
+
+def build_warehouse_readonly_engine(settings: RetailSettings) -> Engine:
+    """The read-only warehouse connection (R6, G3): authenticated as ``egpt_reader``
+    (``warehouse/sql/ddl/065_readonly_role.sql``), which cannot write regardless of what any
+    guard above it decides.
+
+    ``execution_options={"postgresql_readonly": True}`` is a second, independent enforcement
+    layer under the role and R6's SQL guard: SQLAlchemy sets the session to read-only mode at
+    the driver level, the same defence-in-depth ``PostgresTools.connect()`` already applies
+    by setting ``read_only = True`` on its raw psycopg connection. Three layers, none of them
+    the whole story alone: the guard refuses before a statement is sent, the role rejects a
+    write the guard let through by mistake, and the session mode rejects a write transaction
+    outright even if the role and the guard were both bypassed somehow.
+
+    Refuses when ``EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL`` is unset, at point of use --
+    same reasoning as :func:`build_warehouse_engine`.
+    """
+    if not settings.retail_warehouse_readonly_db_url:
+        raise RuntimeError(
+            "EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL is not set, so there is no read-only "
+            "warehouse connection for R6's SQL guard to sit above. Run warehouse-migrate "
+            "first to create the egpt_reader role (065_readonly_role.sql)."
+        )
+    return create_engine(
+        settings.retail_warehouse_readonly_db_url,
+        pool_pre_ping=True,
+        future=True,
+        execution_options={"postgresql_readonly": True},
+    )

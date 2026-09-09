@@ -30,9 +30,15 @@ from egpt.metrics import ProviderMode
 from egpt.settings.sources import BrandedSettings
 from pydantic import Field, field_validator
 
-__all__ = ["RetailSettings", "Role", "DEFAULT_DB_URL"]
+__all__ = ["RetailSettings", "Role", "StorageProvider", "DEFAULT_DB_URL"]
 
 Role = Literal["api", "pipelines"]
+
+#: Where the raw drop lives. ``s3`` covers MinIO as well as AWS -- MinIO speaks the S3 API,
+#: which is why the Helm chart's ``storage.provider`` reads ``s3`` rather than ``minio``.
+#: Azure ADLS Gen2 is the AKS target and is a stated deferral; adding it is a third member
+#: here and one more backend behind ``egpt_retail.storage.ObjectStore``.
+StorageProvider = Literal["local", "s3"]
 
 #: The cookbook and CI Postgres: ``agnohq/pgvector:18`` on host port 5532, database ``ai``.
 DEFAULT_DB_URL = "postgresql+psycopg://ai:ai@localhost:5532/ai"
@@ -148,7 +154,55 @@ class RetailSettings(BrandedSettings):
     retail_warehouse_db_url: Optional[str] = Field(
         default=None,
         description="The separate warehouse database for landing, silver and gold (EGPT_RETAIL_WAREHOUSE_DB_URL). "
-        "Declared here because the compose stack creates it; nothing reads it until R4.",
+        "Read by `warehouse-migrate` and by R4's landing-to-silver workflow. Unset is refused at the point "
+        "of use, not at startup: the api and consolidator roles never touch the warehouse.",
+    )
+    retail_warehouse_readonly_db_url: Optional[str] = Field(
+        default=None,
+        description="The read-only warehouse connection (EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL), authenticated "
+        "as `egpt_reader` (warehouse/sql/ddl/065_readonly_role.sql). R6's SQL guard sits above this "
+        "connection, not in place of it -- the role is the floor, the guard is the ceiling. Unset is "
+        "refused at the point of use, same as retail_warehouse_db_url.",
+    )
+    retail_storage_provider: Optional[StorageProvider] = Field(
+        default=None,
+        description="Where the raw drop lives: 'local' a directory, 's3' any S3-compatible endpoint "
+        "including MinIO (EGPT_RETAIL_STORAGE_PROVIDER). Unset is refused when a load runs, rather than "
+        "defaulting to 'local' and silently reading an empty directory. Azure ADLS Gen2 is the AKS target "
+        "and is not implemented yet -- see deploy/AKS_CUTOVER.md.",
+    )
+    retail_storage_endpoint: Optional[str] = Field(
+        default=None,
+        description="S3 endpoint URL (EGPT_RETAIL_STORAGE_ENDPOINT). Set for MinIO "
+        "(http://egpt-minio:9000); leave unset for real AWS, which resolves its own.",
+    )
+    retail_storage_container: str = Field(
+        default="egpt-landing",
+        description="Bucket or container holding the raw drop (EGPT_RETAIL_STORAGE_CONTAINER). The name is "
+        "reserved by the local-infra chart and by C1's verification.",
+    )
+    retail_storage_prefix: str = Field(
+        default="",
+        description="Key prefix ahead of 'raw/' when the landing root is not the container root "
+        "(EGPT_RETAIL_STORAGE_PREFIX). Stripped before a path reaches the landing contract's parser.",
+    )
+    retail_storage_region: Optional[str] = Field(
+        default=None,
+        description="S3 region (EGPT_RETAIL_STORAGE_REGION). Unused by MinIO.",
+    )
+    retail_storage_access_key: Optional[str] = Field(
+        default=None,
+        description="S3 access key (EGPT_RETAIL_STORAGE_ACCESS_KEY). Unset falls back to the SDK's own "
+        "credential chain, which is how workload identity is meant to work on AKS.",
+    )
+    retail_storage_secret_key: Optional[str] = Field(
+        default=None,
+        description="S3 secret key (EGPT_RETAIL_STORAGE_SECRET_KEY).",
+    )
+    retail_storage_local_root: Optional[str] = Field(
+        default=None,
+        description="Directory holding the 'raw/' subtree when the provider is 'local' "
+        "(EGPT_RETAIL_STORAGE_LOCAL_ROOT). Used by the R4 cookbook against C1's committed fixtures.",
     )
     retail_internal_service_token: Optional[str] = Field(
         default=None,

@@ -18,6 +18,10 @@ database:
   directUrl: postgresql+psycopg://ai:ai@egpt-postgres:5432/ai
   # The separate warehouse (D5). On AKS: its own Flexible Server. NEVER EXECUTED beyond creation.
   warehouseUrl: postgresql+psycopg://ai:ai@egpt-postgres:5432/egpt_warehouse
+  # R6's SQL guard sits above this connection, authenticated as the read-only egpt_reader
+  # role (warehouse/sql/ddl/065_readonly_role.sql, created by warehouse-migrate) rather than
+  # the ai writer above. NEVER EXECUTED beyond creation.
+  warehouseReadonlyUrl: postgresql+psycopg://egpt_reader:egpt_reader@egpt-postgres:5432/egpt_warehouse
 
 secrets:
   # kubernetes: a plain Secret rendered from `values` below (local).
@@ -84,9 +88,14 @@ migrate:
   backoffLimit: 2
 
 storage:
-  provider: minio                        # adls on AKS. NEVER EXECUTED: nothing reads it until R4.
+  # `s3` covers MinIO as well as AWS: MinIO speaks the S3 API, and egpt_retail.storage takes
+  # an endpoint_url. Azure ADLS Gen2 is the AKS target and is a stated deferral -- one more
+  # backend behind egpt_retail.storage.ObjectStore. See deploy/AKS_CUTOVER.md.
+  # Read by R4's landing-to-silver workflow via EGPT_RETAIL_STORAGE_* in the ConfigMap.
+  provider: s3
   endpoint: http://egpt-minio:9000
   container: egpt-landing
+  prefix: ""                             # when the landing root is not the container root
 
 neo4j:
   # Two databases in one Enterprise instance is the target. UNVERIFIED without a licence.

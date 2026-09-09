@@ -1752,6 +1752,432 @@ live MinIO container in this environment (no MinIO available); the change is sch
 only and does not touch path parsing or the roundtrip script.
 
 ---
+---
+
+## Lane R — phase one
+
+### R04_landing_to_silver.py
+
+**Package:** R4 (P1, after C1, implements G8 — landing to silver, with quality gates)
+**Status:** PASS
+
+**Description:** The package's four Verify scenarios against a real warehouse
+(`agnohq/pgvector:18` on 5532, database `egpt_warehouse`), driving the registered
+`landing-to-silver` workflow through `arun`. Load C1's four fixture files; load them again;
+add a hand-written file with a nulled key column; then load a file a quarter the size of the
+previous pull. Run twice: once reading the raw drop off disk, once from a real MinIO bucket
+via `R04_minio_load.sh`, with identical results.
+
+**Result:** 17 rows landed from 4 files; silver 5/2/2/2/2, CRM 10 → 6. Exactly the 2
+known-dirty defects the contract predicts (`c_501.brand` null, `d_901.quote_request_source_url`
+absent), both non-structural, both rows kept. `c_501` took the later pull's corrected brand
+(greater watermark) and `h_9002` resolved its exact watermark tie to the *earlier* file — the
+same two answers `C01_landing_contract.py` asserts in Python, now produced by SQL. The
+re-load inserted 0 rows and left every value and every `conformed_at` stamp identical. The
+nulled key was named as `crm.contact.object_id`, excluded from silver, and left the existing
+`c_501` row untouched; verdict `blocked`, `stop=True`. The undersized load was blocked with
+its ratio, both counts and the file named in the reason.
+
+**What surprised me, in order of how much it matters:**
+
+1. **A targeted load made every other stream look like it had collapsed to zero.** Loading a
+   single named file left the other four streams with 0 landed rows, and the row-count gate
+   compared each against the previous full load — four false failures, and a reason 753
+   characters long that nobody would read. The assertion on reason length is what caught it;
+   the counts assertion would not have. Fixed by scoping the delta check to the sources this
+   load actually read: a stream whose source was never opened is reported as "not in this
+   pull" and passes, while a stream whose source *was* read but carried nothing is still
+   compared, because that is a source delivering an empty file and is worth catching.
+2. **Idempotent DDL cannot evolve a table, and the failure is late and opaque.** Adding
+   `inserted_rows` to `quality.load_stream_count` did nothing on a database where the table
+   already existed — `CREATE TABLE IF NOT EXISTS` skips it — and the load failed mid-run with
+   `UndefinedColumn`. This is the cost of having no version ledger, accepted deliberately
+   while nothing outside R4 depends on the warehouse, and it stops being acceptable the day
+   R5's gold does. Recorded in `warehouse/LOAD_CONTRACT.md` with the drop-and-re-apply
+   procedure.
+3. **`on_error=OnError.fail` earned itself immediately.** When (2) failed, the run stopped
+   and reported. At `Step`'s default of `OnError.skip` it would have skipped conformance,
+   skipped all three gates and reported a completed run — and with a gold step appended, it
+   would have rebuilt gold from a load that never conformed anything. The framework comment
+   one line above that default claims `OnError.fail` is the default; the code says otherwise.
+4. **An unknown CRM `record_type` produced a plausible stream id, not a null.** The landing
+   generated column concatenated `'crm.' || record_type`, so a junk value became
+   `crm.gibberish` — a stream id no conformance statement matches, so the row would have been
+   skipped by all five and vanished unreported. Found by probing the column by hand rather
+   than by any test. The CASE now enumerates the contract's three record types and yields NULL
+   otherwise, and a test asserts the enumeration matches `LANDING_SCHEMAS`.
+5. **"Rows landed" had to mean the pull's size, not rows inserted.** Landing is idempotent, so
+   counting insertions would have made the second of two identical loads report zero rows and
+   the row-count gate block it — the exact scenario the package requires to pass.
+
+**A finding for Lane C, raised not resolved:** `session_replay.session`'s watermark
+`session_start_at` never changes for a session, so a re-pull carrying corrected click counts
+ties and the earliest pull wins, discarding the correction. Implemented as written rather than
+special-cased, because giving one stream different de-duplication semantics is what a shared
+contract exists to prevent. A `last_updated_at` watermark would fix it.
+
+**A second finding for Lane C:** `product/pyproject.toml`'s `package-data` globs
+`contracts/_fixtures/*.json`, which does not match C1's
+`contracts/_fixtures/landing/raw/**/*.ndjson` — a non-editable install of `egpt-retail` ships
+the landing contract without its fixtures.
+
+**Deliberately not done:** gold (R5), the KPI health screen and any API endpoint for data
+quality (an OpenAPI change, which is the change protocol's business), the Azure ADLS Gen2
+backend (a stated deferral to `AKS_CUTOVER.md`), the nightly schedule (R5 — the
+`ScheduleManager.create` call is written down in `LOAD_CONTRACT.md`, unexecuted), and a
+versioned warehouse migrator.
+
+---
+
+### R04_conformance_sql.py
+
+**Package:** R4 (the D6 half — transforms readable without a database)
+**Status:** PASS
+
+**Description:** Prints each of the five conformance statements beside the
+`LANDING_SCHEMAS` row it implements, and re-asserts the coverage and fold-order properties
+that `test_r4_sql_assets.py` holds, so the artefact exists as a runnable thing and not only as
+a test. Needs no services.
+
+**Result:** Five entities, five single-statement files. Each names every required column of
+its stream, filters on exactly the structural ones (never on a business column, which would
+drop a row the contract says to report), and carries `ingested_at ASC` / `line_number ASC`.
+`analytics.event` is the one that legitimately differs: its watermark is inside its key, so it
+uses `ON CONFLICT DO NOTHING` rather than a `<watermark> DESC` preference. The test asks the
+contract which shape to expect rather than hard-coding either.
+
+---
+
+### R04_minio_load.sh
+
+**Package:** R4 (the "loads from storage" half)
+**Status:** PASS
+
+**Description:** Brings up MinIO on the `full` compose profile, creates the `egpt-landing`
+bucket, uploads C1's fixtures with `mc`, applies the warehouse schema, then re-runs
+`R04_landing_to_silver.py` unmodified with `EGPT_RETAIL_STORAGE_PROVIDER=s3`. The scenarios
+that add a hand-written file put it into the bucket rather than onto disk, so all four run
+against real object storage.
+
+**Result:** Identical counts, identical de-duplication outcomes and identical blocked verdicts
+to the local-directory run. Every key the store returned parsed under
+`parse_landing_path`, which is the one property a local directory cannot demonstrate — the
+contract's parser anchors on `^raw/` and rejects a bucket-qualified key, so the path
+normalisation in `egpt_retail/storage` is load-bearing and is only exercised here.
+
+**Notable:** the `mc cp --recursive` path-semantics gotcha C1 recorded is real and applies
+here too — the destination must be the bucket root, or the objects land under `raw/raw/`.
+Reused rather than rediscovered.
+
+---
+
+### R04_landing_to_silver.py — review round 1
+
+**Package:** R4 · re-run after fixing 1 Critical, 8 Major, 2 Minor, 2 Nits on PR #193
+**Status:** PASS
+
+**Description:** All four Verify scenarios re-run against the live warehouse after the review
+fixes, plus targeted live checks for the findings that no unit test can reach, plus five
+mutation tests over the pure decision logic.
+
+**Result:** Unchanged where it should be — 17 rows, silver 5/2/2/2/2, CRM 10 → 6, the two
+known-dirty defects, `c_501` corrected by the later watermark, `h_9002` resolved to the earlier
+file, a re-load inserting 0 and moving no stamp. Changed where the review said it must:
+scenario 3's reason now carries **one** finding instead of three.
+
+**What the review caught that the evidence did not, and why:**
+
+1. **The gate scoped coverage by source, not by stream.** CRM multiplexes three streams into one
+   file, so a contacts-only pull reported `crm.deal` and `crm.deal_stage_history` as having
+   collapsed to zero — on **every run of scenarios 3 and 4**, not just the intentionally-broken
+   case. My assertions were substring checks (`assert "crm.contact" in reason`), so two spurious
+   failures sat in the same string and passed straight through. The scenarios now assert the
+   **exact set** of failing `(gate, subject)` pairs. That is the lesson worth keeping: a
+   substring assertion on a composed string cannot detect anything *extra*.
+2. **The false-negative direction was worse than filed, and it hit a passing scenario.** On a
+   re-load, `ON CONFLICT DO NOTHING` inserts nothing, so no landing row carries the new
+   `load_id`, so coverage came back empty and every stream passed as "not in this pull".
+   **Scenario 2 was passing for the wrong reason.** Coverage is now `landed_rows > 0` — what the
+   files the load *read* carried — which means the same thing on a first load and a re-load.
+3. **`conformed_rows` was a cumulative count in a per-load column.** The `load_id` parameter was
+   accepted and never used. Scoping it by `load_id` would have repeated the re-load trap, so it
+   is scoped by the files the load read.
+4. **Six engines per run, none disposed**, in the same PR that disposes correctly in
+   `warehouse_migrate.py` citing a prior leak fix. Verified fixed: 3 full runs, no connection
+   growth on `pg_stat_activity`, no `ResourceWarning`.
+5. **`acknowledge_shrink` also waived the undersized check** — the one gate whose entire job is
+   catching a truncated pull. Now two flags.
+6. **`'failed'` was a verdict the schema allowed and nothing wrote.** A crashed load kept a NULL
+   verdict for ever and was hidden by `quality.latest_load`'s `finished_at IS NOT NULL` filter.
+   Worse, its rows were folded into the next load's full-recompute conform with nothing
+   recording it — so a load's gates could be bypassed for rows it landed. Now: steps close as
+   `'failed'` on exception, the next load closes anything that died without a handler, the view
+   no longer hides them, and absorbed ungated rows are counted and **refuse** the next load.
+7. **Malformed non-watermark typed values were silently nulled**, contradicting
+   `040_coercion.sql`'s own "never silent" claim. `validate_row` only checks parseability on the
+   watermark. Now detected by `sql/defects/uncoercible.sql`, which calls **the same `try_*`
+   functions the conform statements call** — a Python reimplementation would have been a second
+   definition of "coercible" that eventually disagreed with the first.
+
+**Mutation results — 5 run, 5 caught.** Reintroduced source-scoped coverage (1 test failed),
+`acknowledge_shrink` waiving undersized (1), the `if paths` truthiness collapse (1), the silent
+edge-parser fallback (5), and half-configured S3 credentials falling through (2). Run with
+`PYTHONDONTWRITEBYTECODE=1 -p no:randomly`.
+
+**Not mutation-testable, and why:** the `.as_posix()` fix is unobservable on a POSIX filesystem,
+which is the only kind CI and this stack run on. Verified by reading, not by test.
+
+**A finding I disagree with in part:** the review suggested a `CLAUDE.md` addendum for
+`read_sql` having no async twin. The asymmetry *is* explained in `warehouse/sql.py`'s docstring;
+what I have not done is edit `CLAUDE.md` unilaterally, because its exemption list is a
+convention shared by all three lanes. Raised as a proposal instead.
+
+**Deliberately still not done:** the upstream half of finding 7 — extending the landing
+contract's `validate_row` parseability check beyond the watermark column would fix this for
+every consumer rather than just R4. That is a C1 contract change and belongs with Lane C.
+
+---
+
+## Lane R — phase two
+
+### R06_sql_guard_parsing.py
+
+**Package:** R6 (P2, implements G3 — the SQL guard's classification rules)
+**Status:** PASS
+
+**Description:** Runs the guard's `check()`/`effective_limit()` in isolation, no database, no
+model. Nine sections: reads pass and every DML/DDL write kind refuses; a `UNION` is still
+correctly classified as a read (`isinstance(statement, exp.Query)`, not the narrower
+`exp.Select`, which would misclassify it); the table allow-list names exactly what's missing;
+a CTE alias is not mistaken for a table while the real table inside the CTE body still is
+checked; joins and correlated subqueries are walked and every table they touch is checked;
+a table-valued function call in `FROM` position (`pg_read_file(...)`, `generate_series(...)`)
+is refused as not-a-table rather than silently admitted; stacked statements
+(`SELECT 1; DROP TABLE orders;`) refuse before either half is inspected; an unresolved
+`{predicate}` template placeholder is refused explicitly (see the finding below); the row
+cap overrides `None`, a value under the cap, and a value far over it.
+
+**Result:** All nine sections ran and printed the expected `ALLOWED`/`REFUSED` line for
+every case, each refusal naming its `check` and a reason.
+
+**What surprised me, in order of how much it matters:**
+
+1. **sqlglot does not raise on an unresolved `{predicate}` placeholder.** The plan assumed a
+   leftover template (`WHERE {predicate}`) would fail to parse and surface as an error.
+   Instead sqlglot parses `{predicate}` as a BigQuery-style `STRUCT` literal and returns a
+   normal-looking `Select` with zero complaint — an unassembled KPI formula template would
+   sail through the allow-list check looking like ordinary SQL, silently defeating the
+   `contracts/CHANGELOG.md` rule that the guard "parses the assembled statement, not the
+   template." Fixed by scanning the raw SQL text for `{name}`-shaped placeholders before
+   parsing at all, and refusing explicitly (`check="unresolved_placeholder"`) if one is
+   found — enforcing the rule rather than only documenting it.
+2. **`exp.Select` is the wrong check for "is this a read."** A `UNION`/`INTERSECT`/`EXCEPT`
+   query, or a parenthesized subquery used as the whole statement, parses as `exp.Union` /
+   `exp.Subquery` — not `exp.Select` — despite being an ordinary read. The correct check is
+   `isinstance(statement, exp.Query)`, the common base every read-shaped statement (Select
+   included) shares, confirmed against real DML/DDL statement types to make sure none of
+   them are also `exp.Query` subclasses.
+3. **A function call in table position parses as an `exp.Table` node whose name is the empty
+   string**, not the function's name (`SELECT * FROM pg_read_file(...)` gives a `Table` node
+   with `.name == ""`). Against a real allow-list this fails closed by accident (the empty
+   string is never on it), but the refusal message would have named nothing rather than the
+   function — added an explicit check for `isinstance(table.this, exp.Func)`, refused by
+   name, before this could be relied on as an accident rather than a decision.
+
+---
+
+### R06_sql_guard_live.py
+
+**Package:** R6 (P2, implements G3 — the SQL guard against the real warehouse)
+**Status:** PASS — sections 1-5; section 6 NOT RUN, no model credentials in this session
+
+**Description:** Sections 1-5 run the guard against the real Postgres warehouse R4's loader
+populated (`crm_contact`: 6 rows, `crm_deal`: 2 rows), through a guarded `SQLTools` bound to
+the read-only `egpt_reader` engine: delete rows, read a table outside the semantic layer's
+allow-list, read a table outside the allow-list *and* outside the DB role's own grant
+(`landing.raw_row`), request every row with no limit, and a tight (200ms) statement timeout
+against `pg_sleep(2)`. Section 6 is the chat-interface half — an agent with the guarded
+`SQLTools` and `PromptInjectionGuardrail` wired via `pre_hooks`, running the same four
+scenarios through natural language plus a prompt-injection paste — gated on
+`AZURE_OPENAI_API_KEY` the same way `K14_skill_template.py` gates its model-calling half.
+
+**Result (sections 1-5, against the real warehouse on `localhost:5532`):**
+- Delete: refused (`write_statement`); `crm_contact` row count unchanged, 6 before and after,
+  checked with a direct out-of-band count query on the writer engine.
+- Out-of-scope read (`crm_deal_stage_history`, not in the allow-list): refused
+  (`table_not_allowed`), naming the table.
+- Out-of-scope-and-outside-the-role's-grant read (`landing.raw_row`): refused by the guard's
+  allow-list check first (`table_not_allowed`) — the DB role's own `permission denied for
+  schema landing` would have caught it too, verified separately by hand
+  (`psql -U egpt_reader`), but the guard's refusal fires before the statement is even sent.
+- Unbounded read: executed (per the delivery plan's own text — only the first two scenarios
+  guarantee "no statement reached the database"); returned 3 rows against a real count of 6,
+  `row_cap=3`.
+- Statement timeout: `SELECT pg_sleep(2)` against a 200ms timeout returned in 0.22s with a
+  genuine `psycopg.errors.QueryCanceled: canceling statement due to statement timeout` from
+  Postgres itself, not a client-side abort.
+
+**Section 6:** exits with a clear message and status 1 when `AZURE_OPENAI_API_KEY` is unset,
+matching `K14_skill_template.py`'s convention (a hard stop, not a silent skip). Not run in
+this session for lack of credentials; sections 1-5 (the database-level evidence, which is the
+harder and more security-critical half) ran and passed first regardless. Whoever runs this
+next with `azure_key.env` sourced completes the natural-language and prompt-injection halves
+of the delivery plan's evidence bar.
+
+**What surprised me, in order of how much it matters:**
+
+1. **`SET LOCAL statement_timeout = :ms` is a syntax error against real Postgres.**
+   `SET`/`SET LOCAL` do not accept a bind parameter for their value — Postgres reported
+   `syntax error at or near "$1"`. No unit test caught this: every unit test runs against
+   SQLite, where the whole branch is skipped by the dialect check, so this was invisible
+   until it ran against a real Postgres server. Fixed by interpolating the (internally
+   controlled, always-an-int) timeout value directly into the SQL text rather than binding
+   it — safe specifically because the value is never caller- or model-supplied.
+2. **The shipped `r3_contract.json` fixture would have refused everything here.** Its table
+   names (`orders`, `customers`, ...) are synthetic/POC-shaped and don't match R4's actual
+   silver schema (`crm_contact`, `crm_deal`, ...). Built a small in-process
+   `StubSemanticRead.from_payload(...)` naming the real tables instead, so the allow-list
+   check has something legitimate to admit, not only things to refuse.
+3. **An unqualified table name resolves against `search_path`, which `egpt_reader` does not
+   have set to `silver`.** `SELECT * FROM crm_contact` failed with `relation "crm_contact"
+   does not exist` even though the guard allowed it and the role can read it — a pre-existing
+   property of `SQLTools.run_sql` (it never rewrites the caller's SQL), not a guard bug.
+   Every scenario above uses `silver.crm_contact`, schema-qualified, which is what a real
+   agent instructed on the schema would also do.
+
+**Environment note:** `.venv` did not have `egpt-retail` or `sqlglot` installed going into
+this session (only `egpt`/`egptctl`) — `./scripts/dev_setup.sh` was re-run to pick up both
+(the `sqlglot` addition to `libs/agno/pyproject.toml`'s `dev` extras, and `product[dev]`
+which this repo's own dev_setup.sh always installs but this particular `.venv` predated).
+`docker compose -f deploy/compose.yaml up -d postgres`, `warehouse-migrate` and
+`R04_landing_to_silver.py` were run once to build the real data this script reads.
+
+---
+
+### Review round 1 — five findings fixed, sections 1-5 re-run
+
+`/code-review` on PR #195 surfaced ten findings; five were confirmed real and fixed, one
+(`SELECT INTO`, below) found by verifying a review claim rather than trusting it as stated:
+
+1. **`if limit:` treated an explicit, guard-computed `0` as unset.** `effective_limit(0)`
+   returns `0` unchanged (0 is not `None` and not greater than any positive `row_cap`), and
+   the old `if limit:` check then took the `fetchall()` branch — returning every row for a
+   request that asked for zero, breaking the guard's own "always <= row_cap" promise. Fixed
+   to check `limit is not None`, then found a *second* problem verifying the fix:
+   `result.fetchmany(0)` itself returns every row too, at least on Python's `sqlite3` driver
+   (confirmed directly, not assumed) — a DB-API inconsistency, not a SQLAlchemy bug. `limit
+   == 0` is now handled explicitly (`rows = []`) rather than ever reaching `fetchmany`.
+2. **A schema-qualified table sharing a CTE's bare name evaded the allow-list.**
+   `WITH secret AS (...) SELECT * FROM public.secret` excluded `public.secret` from the
+   checked-tables set, because the CTE-alias exclusion compared bare names only. A CTE can
+   never be referenced with a schema prefix, so the fix restricts the exclusion to
+   unqualified references (`not table.db`) — a schema-qualified reference is always a real
+   table, never a CTE.
+3. **`arun_sql_query` was never reachable through an agent's async tool-calling path.**
+   Toolkit merges `async_functions` over `functions` by tool *name*
+   (`get_async_functions()`); adding `arun_sql_query` as a plain method registers nothing in
+   `async_functions`, so an agent's `arun()` would still dispatch to the synchronous
+   `run_sql_query` and block the event loop on the guard's DB I/O. Fixed by registering it
+   via `async_tools=[(self.arun_sql_query, "run_sql_query")]`, the same convention
+   `PerplexityTools` uses.
+4. **The unresolved-placeholder check false-positived on ordinary string literals.** A
+   Postgres array/text literal like `'{electronics}'` is visually identical to an unresolved
+   `{name}` template placeholder and was refused as one. Fixed by blanking out single-quoted
+   string contents before the placeholder scan.
+5. **`SELECT ... INTO new_table FROM ...` is a write wearing a read's syntax.** It parses as
+   `exp.Select` (an `exp.Query`), so the classifier's `isinstance` check alone lets it
+   through; it was only refused as an accident of the allow-list (the new table's name is
+   essentially never already allow-listed) — which fails open if an allow-list ever happens
+   to contain a matching name. Verified with real `sqlglot` output (`s.args.get("into")`)
+   before fixing; now refused explicitly as `write_statement`.
+
+Also fixed on review, lower severity: `SQLGuardEvent` could represent the nonsensical
+"refused and row-cap-applied" combination (now raises in `__post_init__`); the DDL
+idempotency test's `ROLE` exemption applied to every file rather than only one demonstrably
+guarded by the `IF NOT EXISTS (SELECT ...)` pattern (tightened so a future, genuinely
+unguarded `CREATE ROLE` elsewhere still fails the check); `product/pyproject.toml` was
+missing `sqlglot` entirely, which would have crashed any deployment that imports
+`egpt_retail.app.sql_guard` (added, matching the existing `sqlalchemy` line's pattern);
+`run_sql_query`'s docstring didn't mention that a guard overrides the documented "`None`
+means unlimited" behavior.
+
+Two findings reviewed and declined: the general schema-unaware allow-list (a documented,
+accepted trade-off already noted in the module docstring — the CTE-collision half of it, item
+2 above, is the part that was a real bug) and the duplication between `SQLGuardEvent` and
+`EscalationEvent` (a reuse suggestion, not a defect; introducing a shared base now would be
+exactly the premature abstraction this repo's own coding guidelines warn against for a
+two-instance pattern).
+
+Six new regression tests added pinning each fix. `./scripts/validate.sh` clean afterward, and
+`R06_sql_guard_live.py` sections 1-5 re-run against the same real warehouse with identical
+results to the first run.
+
+---
+
+### Review round 2 (Rasik, PR #195) — two more Critical/Major findings fixed
+
+A second, independent review (two reviewers plus an auditor pass, re-executing directly
+against the worktree) surfaced 2 Critical, 2 Major, 2 Minor and 1 Nit finding, one of which
+(the `limit=0` row-cap bypass) round 1 had already fixed. The rest were new:
+
+1. **Critical -- a data-modifying CTE or `SELECT ... INTO` bypassed write detection
+   entirely.** `WITH x AS (DELETE FROM orders RETURNING *) SELECT * FROM x` parses to an
+   outer `exp.Select`, so `isinstance(statement, exp.Query)` alone lets it straight through
+   -- verified by running `SQLGuard.check()` directly against CTE-wrapped `DELETE`/`UPDATE`/
+   `INSERT` bodies on an allow-listed table: all three were allowed before this fix. In this
+   PR's own deployment the Postgres `egpt_reader` role (SELECT-only grant) would still
+   reject the actual write at the database level, but the guard is generic, reusable,
+   framework-level code, and the SQLite dev path has no such role floor at all. Fixed by
+   walking every statement for an embedded `exp.Delete`/`exp.Update`/`exp.Insert` node
+   (`statement.find_all(exp.Delete, exp.Update, exp.Insert)`, which recurses into CTE
+   bodies) and refusing if one is found anywhere, regardless of nesting depth.
+2. **Major -- the allow-list check was schema-blind.** `table.name` only ever carries the
+   bare table name; sqlglot puts schema/catalog qualification in separate `.db`/`.catalog`
+   attributes the guard never read. Verified: with only `orders` allow-listed,
+   `landing.orders`, `quality.orders` and any other schema's `.orders` were all allowed
+   identically to bare `orders` -- only the `egpt_reader` role's grants provided the real
+   schema boundary, and a future `gold` schema (R5) with a same-named table would have
+   bypassed the guard entirely. Fixed with an optional `schema=` constructor parameter: when
+   set, a table reference carrying an explicit schema qualifier must match it, and an
+   unqualified reference is unaffected (its enforcement stays the DB role's grants and
+   search_path, as documented already). `product/egpt_retail/app/sql_guard.py`'s
+   `build_warehouse_read_guard` now passes `schema=SILVER_SCHEMA`.
+3. **Major -- the read-only role's password has no secret-injection path or tracking
+   note.** Matches this repo's existing dev-credential convention (`ai:ai`), but this role is
+   specifically the guard's DB-level safety floor and, unlike the API keys already routed
+   through Key Vault, the warehouse DB URLs bypass secret injection entirely with nothing
+   tracking it. Added a `TODO(AKS cutover)` comment in `065_readonly_role.sql` and a note in
+   `deploy/AKS_CUTOVER.md`'s Key Vault row naming exactly which four DSNs (including this
+   one) still need to move off literal `values.yaml` text.
+4. **Minor -- `SET LOCAL statement_timeout`'s interpolation had no runtime type check, and
+   the branch that contains it is skipped by the entire SQLite-only test suite.** The PR's
+   own description names this exact line as a bug only a live Postgres server caught; nothing
+   in CI would catch a future "use a bind param, it's safer" cleanup silently reintroducing
+   it. Added an `isinstance(timeout_ms, int)` guard at the interpolation site itself (not
+   just at `SQLGuard.__init__`, since `self.guard` is typed against the structural
+   `SQLGuardLike` protocol and nothing guarantees a *different* implementation validated the
+   value the way `SQLGuard` does), plus a test that forces the Postgres branch on a faked
+   dialect and asserts the exact SQL text sent, and a companion test that a non-int value is
+   rejected with `TypeError` rather than silently interpolated.
+5. **Minor -- no test pinned exact-match allow-list semantics against a substring
+   collision.** Mutating the comparison to substring-containment (`orders` vs
+   `customer_orders`) passed the entire suite. Added a test case with exactly that pair.
+6. **Nit -- the row-cap-clamp audit event omitted `statement=`**, unlike every other guard
+   event, so a clamp couldn't be correlated to the query that triggered it. `effective_limit`
+   now takes an optional `sql=` and threads it through to the logged event; `SQLTools.run_sql`
+   passes it.
+
+Also fixed, not explicitly requested but adjacent: `SQLGuard.__init__` now validates
+`row_cap`/`statement_timeout_ms` are non-negative ints at construction, catching a caller
+mistake immediately rather than at first use.
+
+Nine new/updated regression tests (`test_sql_guard.py`, `test_sql.py`,
+`test_sql_guard_adapter.py`). `./scripts/validate.sh` clean; `R06_sql_guard_live.py`
+sections 1-5 re-run against the same real warehouse -- identical results, with scenario 3's
+refusal now naming the schema mismatch directly (`"outside the semantic layer's allow-list
+(expected schema 'silver')"`) rather than the bare-name message. Also retitled the PR to
+match the repo's required title-lint format (`type: description`), which round 2 flagged as
+the actual cause of the failing "Lint PR Title and Body" CI check.
 
 ### K04_metadata_harvest.py
 

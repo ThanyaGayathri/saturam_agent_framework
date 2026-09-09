@@ -511,6 +511,7 @@ jobs:
             pymysql \
             redshift-connector \
             slack-sdk \
+            sqlglot \
             weaviate-client
 
       - name: Run unit tests with drivers absent

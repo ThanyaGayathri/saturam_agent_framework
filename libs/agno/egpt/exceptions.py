@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from egpt.models.message import Message
 
@@ -386,6 +386,29 @@ class RateLimitExceededError(ProviderDenial):
 
         self.type = "rate_limit_exceeded_error"
         self.error_id = "rate_limit_exceeded_error"
+
+
+class SQLGuardRefusal(AgnoError):
+    """R6's SQL guard (``egpt.guardrails.sql_guard``) refused a statement -- a deliberate
+    policy decision, not a fault (G3).
+
+    403 rather than a ``ProviderDenial`` subclass: a refused DELETE or an out-of-scope table
+    read refuses identically on retry, which is not the "come back later" shape 429 implies for
+    ``BudgetExceededError``/``RateLimitExceededError``. And ``ProviderDenial``'s guarantee is
+    specifically that the run loop's retry/fallback handling treats it as terminal -- this
+    refusal never reaches that loop at all, since ``SQLTools.run_sql_query`` catches it at the
+    tool-call boundary and returns its message as the tool result, the same way any SQL error
+    is already surfaced to the model. Subclassing ``ProviderDenial`` here would follow the
+    pattern by name without the pattern's actual justification applying.
+    """
+
+    def __init__(self, message: str, *, check: str, statement: str, tables: Tuple[str, ...] = ()):
+        super().__init__(message, status_code=403)
+        self.check = check
+        self.statement = statement
+        self.tables = tables
+        self.type = "sql_guard_refusal"
+        self.error_id = "sql_guard_refusal"
 
 
 class PromptResolutionError(AgnoError):

@@ -1,8 +1,21 @@
-import json
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
 
+import asyncio
+import json
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
+
+from egpt.exceptions import SQLGuardRefusal
 from egpt.tools import Toolkit
 from egpt.utils.log import log_debug, logger
+
+if TYPE_CHECKING:
+    # egpt.registry.protocols, not egpt.guardrails.sql_guard.SQLGuard directly: `egpt.guardrails`
+    # is exactly as forbidden to `egpt.integrations` as `egpt.agent` is (see that contract in
+    # libs/agno/pyproject.toml, and SQLGuardLike's own docstring). SQLGuard satisfies this
+    # protocol structurally, with no changes on its side -- and duck typing at runtime
+    # (self.guard.check(...) / self.guard.effective_limit(...)) means SQLTools needs no import
+    # of `egpt.guardrails` at all, let alone `sqlglot`, unless a caller passes a guard.
+    from egpt.registry.protocols import SQLGuardLike
 
 try:
     from sqlalchemy import Engine, create_engine
@@ -29,6 +42,7 @@ class SQLTools(Toolkit):
         enable_describe_table: bool = True,
         enable_run_sql_query: bool = True,
         all: bool = False,
+        guard: Optional[SQLGuardLike] = None,
         **kwargs,
     ):
         # Get the database engine
@@ -53,15 +67,30 @@ class SQLTools(Toolkit):
         # Tables this toolkit can access
         self.tables: Optional[Dict[str, Any]] = tables
 
+        # R6's SQL guard (G3). None by default: this same class also backs a write path
+        # (DatabaseContextProvider's write sub-agent), and forcing read-only classification
+        # there would refuse every legitimate write. Only a caller that knows this instance is
+        # read-only should pass a guard.
+        self.guard: Optional[SQLGuardLike] = guard
+
         tools: List[Any] = []
+        async_tools: List[Any] = []
         if enable_list_tables or all:
             tools.append(self.list_tables)
         if enable_describe_table or all:
             tools.append(self.describe_table)
         if enable_run_sql_query or all:
             tools.append(self.run_sql_query)
+            # Registered under the *same* tool name as the sync variant (the
+            # `async_tools=[(callable, name)]` convention every async-capable toolkit in this
+            # repo follows, e.g. PerplexityTools) so Toolkit.get_async_functions() picks the
+            # async version in an agent's async run path. Without this, `arun_sql_query`
+            # exists as a plain method but is never reachable through tool-calling -- an
+            # agent's `arun()` would still dispatch to the synchronous `run_sql_query` and
+            # block the event loop on the guard's DB I/O.
+            async_tools.append((self.arun_sql_query, "run_sql_query"))
 
-        super().__init__(name="sql_tools", tools=tools, **kwargs)
+        super().__init__(name="sql_tools", tools=tools, async_tools=async_tools, **kwargs)
 
     def list_tables(self) -> str:
         """Use this function to get a list of table names in the database.
@@ -124,13 +153,28 @@ class SQLTools(Toolkit):
             str: Result of the SQL query.
         Notes:
             - The result may be empty if the query does not return any data.
+            - If a guard is attached (R6), the effective limit is always capped at the
+              guard's configured row cap, regardless of what is requested here -- including
+              `None`, which does not mean unlimited when a guard is present.
         """
 
         try:
             return json.dumps(self.run_sql(sql=query, limit=limit), default=str)
+        except SQLGuardRefusal as e:
+            # Distinct from the generic error path below: a refusal is a deliberate policy
+            # decision, not a fault, and reads that way to the model rather than as an
+            # ordinary SQL error.
+            return f"Refused: {e.message}"
         except Exception as e:
             logger.exception("Error running query")
             return f"Error running query: {e}"
+
+    async def arun_sql_query(self, query: str, limit: Optional[int] = 10) -> str:
+        """Async twin of :meth:`run_sql_query`. SQLAlchemy's sync ``Session`` isn't
+        awaitable, so this hands the sync path to a thread rather than pretending otherwise --
+        the same idiom ``DatabaseContextProvider.astatus`` already uses.
+        """
+        return await asyncio.to_thread(self.run_sql_query, query, limit)
 
     def run_sql(self, sql: str, limit: Optional[int] = None) -> List[dict]:
         """Internal function to run a sql query.
@@ -141,10 +185,37 @@ class SQLTools(Toolkit):
 
         Returns:
             List[dict]: The result of the query.
+
+        Raises:
+            SQLGuardRefusal: if a guard is set and refuses the statement. Raised before
+                anything is sent to the database.
         """
         log_debug(f"Running sql |\n{sql}")
 
+        if self.guard is not None:
+            self.guard.check(sql)  # raises SQLGuardRefusal; nothing executes on a refusal
+            limit = self.guard.effective_limit(limit, sql=sql)
+
         with self.Session() as sess, sess.begin():
+            if self.guard is not None and sess.bind is not None and sess.bind.dialect.name == "postgresql":
+                # SET LOCAL scopes the timeout to this transaction only -- it resets on
+                # commit/rollback and never leaks into a pooled connection's default for the
+                # next caller. Postgres-only: SQLite (the dev-only backend, per CLAUDE.md) has
+                # no equivalent, so this is skipped rather than erroring there.
+                #
+                # Interpolated, not bound: Postgres's SET command does not accept a bind
+                # parameter for its value (`SET LOCAL statement_timeout = $1` is a syntax
+                # error against a real server -- caught by running this against real Postgres,
+                # not by any mock). Safe only because of the isinstance check on the next
+                # line: `self.guard` is typed against SQLGuardLike, a structural protocol, so
+                # nothing here guarantees a *different* implementation validated this value
+                # the way SQLGuard.__init__ does -- an f-string interpolation with no runtime
+                # check at the point of use would silently reopen a SQL-injection path the
+                # moment this value could flow from anywhere less trusted.
+                timeout_ms = self.guard.statement_timeout_ms
+                if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool):
+                    raise TypeError(f"guard.statement_timeout_ms must be an int, got {type(timeout_ms).__name__}")
+                sess.execute(text(f"SET LOCAL statement_timeout = {timeout_ms}"))
             result = sess.execute(text(sql))
 
             # DML (INSERT/UPDATE/DELETE) and DDL don't return rows — don't
@@ -154,7 +225,18 @@ class SQLTools(Toolkit):
                 return []
 
             try:
-                if limit:
+                # `limit == 0` is handled explicitly rather than passed to fetchmany(0):
+                # DB-API drivers are inconsistent about what size=0 means, and Python's
+                # own sqlite3 driver (verified directly, not assumed) returns *every* row
+                # for fetchmany(0) -- the opposite of "zero rows". Checking `is not None`
+                # rather than truthiness is also necessary on its own: with a guard
+                # attached, `limit` here is `effective_limit(...)`'s return value, which
+                # promises "always <= row_cap", and a plain `if limit:` would treat an
+                # explicit, guard-computed `0` as falsy and fall through to fetchall().
+                rows: Sequence[Any]
+                if limit == 0:
+                    rows = []
+                elif limit is not None:
                     rows = result.fetchmany(limit)
                 else:
                     rows = result.fetchall()
@@ -162,3 +244,7 @@ class SQLTools(Toolkit):
             except Exception:
                 logger.exception("Error while executing SQL")
                 return []
+
+    async def arun_sql(self, sql: str, limit: Optional[int] = None) -> List[dict]:
+        """Async twin of :meth:`run_sql`."""
+        return await asyncio.to_thread(self.run_sql, sql, limit)

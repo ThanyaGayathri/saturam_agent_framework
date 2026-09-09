@@ -31,7 +31,11 @@ from egpt.run.utils import construct_runnable
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
+    # egpt.registry.protocols, not egpt.guardrails.sql_guard.SQLGuard directly: `egpt.guardrails`
+    # is exactly as forbidden to `egpt.integrations` as `egpt.agent` is -- see SQLGuardLike's
+    # own docstring. SQLGuard satisfies this protocol structurally, no changes needed on its side.
     from egpt.models.base import Model
+    from egpt.registry.protocols import SQLGuardLike
 
 
 class DatabaseContextProvider(ContextProvider):
@@ -51,11 +55,19 @@ class DatabaseContextProvider(ContextProvider):
         model: Model | None = None,
         read: bool = True,
         write: bool = True,
+        read_guard: SQLGuardLike | None = None,
     ) -> None:
         super().__init__(id=id, name=name, mode=mode, model=model, read=read, write=write)
         self.sql_engine = sql_engine
         self.readonly_engine = readonly_engine
         self.schema = schema
+        # R6's SQL guard (G3), over the read path only -- never passed to the write agent's
+        # SQLTools below. None by default: the framework has no allow-list of its own and no
+        # opinion on row-cap/timeout defaults, both of which need the semantic layer
+        # (product/egpt_retail). A caller that has one should always pass it here; this
+        # parameter existing is what lets R11's future playground agents inherit the
+        # guarantee for free.
+        self.read_guard = read_guard
         self.read_instructions_text = read_instructions if read_instructions is not None else DEFAULT_READ_INSTRUCTIONS
         self.write_instructions_text = (
             write_instructions if write_instructions is not None else DEFAULT_WRITE_INSTRUCTIONS
@@ -129,7 +141,7 @@ class DatabaseContextProvider(ContextProvider):
         # default. Writes require mode=default (two-tool surface:
         # query_<id> / update_<id>) or explicit instantiation of a second
         # writable provider.
-        return [SQLTools(db_engine=self.readonly_engine, schema=self.schema)]
+        return [SQLTools(db_engine=self.readonly_engine, schema=self.schema, guard=self.read_guard)]
 
     # ------------------------------------------------------------------
     # Sub-agents
@@ -159,7 +171,7 @@ class DatabaseContextProvider(ContextProvider):
             name=f"{self.name} Read",
             model=self.model,
             instructions=self.read_instructions_text.replace("{schema}", schema_label),
-            tools=[SQLTools(db_engine=self.readonly_engine, schema=self.schema)],
+            tools=[SQLTools(db_engine=self.readonly_engine, schema=self.schema, guard=self.read_guard)],
             markdown=True,
         )
 

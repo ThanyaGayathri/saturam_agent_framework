@@ -105,13 +105,15 @@ def test_dsn_conversion_strips_any_sqlalchemy_driver_suffix():
     )
 
 
-def test_dispatch_knows_four_commands():
+def test_dispatch_knows_five_commands():
     parser = build_parser()
     assert parser.parse_args(["api"]).command == "api"
     assert parser.parse_args(["pipelines", "--port", "8000"]).port == 8000
     ns = parser.parse_args(["consolidator", "--once", "--poll-interval", "5"])
     assert ns.once is True and ns.poll_interval == 5.0
     assert parser.parse_args(["migrate"]).command == "migrate"
+    # R4. Separate from `migrate`, which stays control-plane only.
+    assert parser.parse_args(["warehouse-migrate"]).command == "warehouse-migrate"
     with pytest.raises(SystemExit):
         parser.parse_args(["worker"])
 

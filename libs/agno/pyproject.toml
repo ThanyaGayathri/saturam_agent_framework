@@ -66,6 +66,7 @@ dev = [
   "types-greenlet",
   "opentelemetry-sdk",
   "sqlalchemy",
+  "sqlglot",
   "aiosqlite",
   "greenlet",
   # First-party interfaces exercised by the unit suite
@@ -171,7 +172,7 @@ gcs = ["google-cloud-storage"]
 mysql = ["pymysql", "asyncmy"]
 postgres = ["psycopg-binary"]
 redis = ["redis", "redisvl>=0.12.1"]
-sql = ["sqlalchemy"]
+sql = ["sqlalchemy", "sqlglot"]
 sqlite = ["sqlalchemy", "aiosqlite"]
 
 # Dependencies for Vector databases

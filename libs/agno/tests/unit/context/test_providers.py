@@ -31,6 +31,13 @@ requires_slack_sdk = pytest.mark.skipif(
     reason="building the Slack tool surface needs the Slack SDK",
 )
 
+# DatabaseContextProvider and SQLTools import cleanly without sqlglot; only the tests that
+# construct an actual SQLGuard (R6, G3) need it.
+requires_sqlglot = pytest.mark.skipif(
+    importlib.util.find_spec("sqlglot") is None,
+    reason="R6's SQL guard (egpt.guardrails.sql_guard) needs sqlglot",
+)
+
 _GOOGLE_API_REASON = "the Google providers import the Google API client at module level"
 
 
@@ -425,6 +432,81 @@ def test_db_read_false_drops_query_tool():
         read=False,
     )
     assert [t.name for t in p.get_tools()] == ["update_crm"]
+
+
+class _StaticAllowlist:
+    """A frozen, in-test double for R6's TableAllowlistLike -- no product code needed here."""
+
+    def __init__(self, tables) -> None:
+        self._tables = tables
+
+    def allowed_tables(self):
+        return self._tables
+
+    async def aallowed_tables(self):
+        return self._tables
+
+
+def _sql_tool(tools):
+    (tool,) = tools
+    return tool
+
+
+@requires_sqlglot
+def test_db_read_guard_reaches_all_tools_mode():
+    """mode=tools returns the readonly SQLTools directly (_all_tools) -- R6's guard must
+    reach it there too, not only through the two-tool default surface."""
+    from egpt.guardrails.sql_guard import SQLGuard
+
+    engine = create_engine("sqlite:///:memory:")
+    guard = SQLGuard(allowlist=_StaticAllowlist(frozenset({"orders"})))
+    p = DatabaseContextProvider(
+        id="crm",
+        sql_engine=engine,
+        readonly_engine=engine,
+        mode=ContextMode.tools,
+        read_guard=guard,
+    )
+    assert _sql_tool(p.get_tools()).guard is guard
+
+
+@requires_sqlglot
+def test_db_read_guard_reaches_the_read_sub_agent():
+    from egpt.guardrails.sql_guard import SQLGuard
+
+    engine = create_engine("sqlite:///:memory:")
+    guard = SQLGuard(allowlist=_StaticAllowlist(frozenset({"orders"})))
+    p = DatabaseContextProvider(
+        id="crm",
+        sql_engine=engine,
+        readonly_engine=engine,
+        read_guard=guard,
+    )
+    read_agent = p._build_read_agent()
+    assert _sql_tool(read_agent.tools).guard is guard
+
+
+@requires_sqlglot
+def test_db_read_guard_never_reaches_the_write_sub_agent():
+    from egpt.guardrails.sql_guard import SQLGuard
+
+    engine = create_engine("sqlite:///:memory:")
+    guard = SQLGuard(allowlist=_StaticAllowlist(frozenset({"orders"})))
+    p = DatabaseContextProvider(
+        id="crm",
+        sql_engine=engine,
+        readonly_engine=engine,
+        read_guard=guard,
+    )
+    write_agent = p._build_write_agent()
+    assert _sql_tool(write_agent.tools).guard is None
+
+
+def test_db_read_guard_defaults_to_none():
+    engine = create_engine("sqlite:///:memory:")
+    p = DatabaseContextProvider(id="crm", sql_engine=engine, readonly_engine=engine)
+    assert p.read_guard is None
+    assert _sql_tool(p._build_read_agent().tools).guard is None
 
 
 # ---------------------------------------------------------------------------

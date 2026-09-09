@@ -34,13 +34,22 @@ dependencies = [
   # Found by the first kind install (R2). Any RS256 deployment of egpt[os] needs this.
   "cryptography>=41.0",
   "psycopg[binary]",
+  # R4 reads the raw drop from S3-compatible storage. Not inherited: egpt[os] carries no AWS
+  # SDK (only the aws-bedrock extra does), and the framework's own S3Config cannot serve --
+  # it has no endpoint_url, so it cannot address MinIO, and no get-object surface at all.
+  "boto3",
   "sqlalchemy",
+  # R6's SQL guard (product/egpt_retail/app/sql_guard.py imports egpt.guardrails.sql_guard,
+  # which imports sqlglot unconditionally). Not inherited: egpt[os] carries no sqlglot, only
+  # egpt[sql] does, and this product depends on egpt[os] directly rather than egpt[sql].
+  "sqlglot",
   "pgvector",
   "neo4j",
 ]
 
 [project.scripts]
-# The image's ENTRYPOINT. Four argv values: api, pipelines, consolidator, migrate.
+# The image's ENTRYPOINT. Five argv values: api, pipelines, consolidator, migrate,
+# warehouse-migrate.
 egpt-retail = "egpt_retail.entrypoints.__main__:main"
 
 [project.optional-dependencies]
@@ -81,6 +90,13 @@ egpt_retail = [
   "api/openapi/*.json",
   "api/openapi/paths/*.yaml",
   "api/openapi/schemas/*.yaml",
+  # R4's transforms. These are the product's data pipeline, not documentation: without them
+  # an installed copy has a warehouse package that cannot create a table or conform a row.
+  # test_r4_sql_assets.py asserts every .sql on disk is covered by one of these three globs.
+  "warehouse/sql/ddl/*.sql",
+  "warehouse/sql/conform/*.sql",
+  "warehouse/sql/checks/*.sql",
+  "warehouse/sql/defects/*.sql",
 ]
 
 [tool.ruff]
@@ -107,3 +123,11 @@ exclude = ["tests*"]
 # thing product/ types against: analysed for signatures, never reported on.
 module = ["egpt.*"]
 follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+# boto3 ships no type information and has no stub package in this environment. The framework
+# takes the same position for the same library (see libs/agno/pyproject.toml). The surface
+# egpt_retail.storage.s3 uses is three calls wide and is exercised for real by
+# cookbook/94_retail/R04_minio_load.sh, which is a better guarantee than a stub would be.
+module = ["boto3.*", "botocore.*"]
+ignore_missing_imports = true

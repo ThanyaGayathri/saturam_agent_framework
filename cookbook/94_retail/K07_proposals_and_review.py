@@ -221,7 +221,9 @@ with driver.session() as session:
         r=SAME_PAIR[1],
         marker=MARKER,
     ).single()["n"]
-print(f"  edges between {SAME_PAIR[0]} and {SAME_PAIR[1]}: {same_pair_edges} (two predicates)")
+print(
+    f"  edges between {SAME_PAIR[0]} and {SAME_PAIR[1]}: {same_pair_edges} (two predicates)"
+)
 print(f"  total in graph:    {after_concepts + after_joins} of {len(batch)} proposed")
 
 rejected_targets = {
