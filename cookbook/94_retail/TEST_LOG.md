@@ -2873,6 +2873,13 @@ repository gates, and running the product suite on the 3.10 floor.
    GitHub skips later steps after a failure unless told otherwise. Both now carry
    `if: ${{ !cancelled() }}`, so the semantic live suite reports on its own merits. The
    framework failures are not this branch's and are not fixed here; they belong on `main`.
+
+**R-9 evidence (integration run 34361850622, dispatched on this branch):** step 8
+"Provision the warehouse for the semantic live suite" — success (database created,
+`warehouse-migrate` applied); step 9 "Run the semantic layer live suite" — success,
+`product/tests/test_semantic_live.py`: **20 passed** against the job's Postgres and Neo4j.
+Step 7, the framework's own integration tests, failed as it does on `main`'s schedule
+(item 7), which is why the two product steps are `if: ${{ !cancelled() }}`.
 5. **X-6 was already closed by R2** and nobody had struck it: `dev_setup.sh` installs
    `product[dev]`, which carries `openapi-spec-validator`; the `.venv` has 0.9.0.
 
