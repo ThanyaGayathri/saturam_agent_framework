@@ -1,0 +1,601 @@
+"""K7 -- the proposals table, and the review that stands between an agent and the graph (G5, D10).
+
+This package exists to make one sentence true: **nothing enters the semantic graph unproposed
+and unconfirmed.** An agent writes proposals. A person accepts them. Only accepted rows are
+applied. Every other Lane K package that produces content -- enrichment, ontology mapping, KPI
+adoption, use case suggestion -- writes here rather than to the graph, which is why this is
+built once rather than four times.
+
+**Why the table lives in Postgres and not the graph.** A proposal is an audit record: who
+proposed, who decided, when, and what it said at the time. The graph is a live structure that
+gets rewritten by the next harvest; it is the wrong home for a record whose value is that it
+does not change. The graph holds the *outcome* of review, never the queue.
+
+**Three defences, because one is not enough.**
+
+1. *State.* A proposal is pending, accepted or rejected, and a decided proposal cannot be
+   decided again. Re-accepting something a person rejected is refused, not silently applied.
+2. *Identity.* A proposal's id is derived from its content, so an agent re-run proposing the
+   same thing produces the same id and the insert does nothing. This matters more than it
+   sounds: K8's proposers will be re-run, and without it a rejected proposal would be
+   resurrected by the next run and a review queue would double every night.
+3. *Shape.* A payload is validated into its typed contract object at insert, not at apply.
+   A proposal that could never be applied must not sit in a queue looking reviewable -- a
+   person accepting it would have their decision fail somewhere they never see.
+
+**Two status enums, deliberately.** ``contracts.semantic.ProposalStatus`` has two values,
+because the graph only ever holds accepted or proposed rows -- a rejected row is not in the
+graph at all, so a third value there would describe a state that cannot exist. This module's
+``ReviewState`` has three, because the queue is exactly where rejection lives. Collapsing them
+into one enum would put ``REJECTED`` into the graph's vocabulary and invite a query that
+filters for it.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+
+from egpt_retail.contracts.semantic import (
+    AuthoritativeSource,
+    Concept,
+    JoinEdge,
+    ProposalStatus,
+)
+
+__all__ = [
+    "GRAPH_KINDS",
+    "PROPOSAL_SCHEMA",
+    "PayloadError",
+    "Proposal",
+    "ProposalKind",
+    "ProposalStore",
+    "Refusal",
+    "ReviewOutcome",
+    "ReviewState",
+]
+
+#: The same schema K6's snapshots use, in the control-plane database.
+PROPOSAL_SCHEMA = "semantic"
+
+
+class ProposalKind(str, Enum):
+    """What a proposal is about. A closed set, and closed on purpose.
+
+    An agent that can invent a kind will, and a review screen would then have a row it does
+    not know how to render or apply. Adding a kind is a code change with a payload validator
+    and an apply path attached, which is the point -- it cannot be added by a model at runtime.
+    """
+
+    #: Everything on a concept that makes it answerable: synonyms, question patterns, the
+    #: scoping filter, personal-data fields, compliance tags, candidate metrics (K8).
+    ENRICHMENT = "enrichment"
+    #: This customer's table is an instance of this ontology concept (K8).
+    MAPPING = "mapping"
+    #: These two tables can be joined, and here is the predicate (G19).
+    JOIN = "join"
+    #: This table is the one that answers for this concept (G20).
+    AUTHORITATIVE_SOURCE = "authoritative_source"
+    #: Adopt a harvested metric as a KPI definition (K11).
+    KPI = "kpi"
+    #: A question this deployment could now answer.
+    USE_CASE = "use_case"
+
+
+#: The kinds whose acceptance writes to the semantic graph. The other two are accepted into
+#: their own consumers -- a KPI lands in the registry, a use case on a screen -- so ``apply``
+#: leaves them alone rather than pretending to have applied them. A kind that has no graph
+#: target is not a lesser proposal; it is a proposal about somewhere else.
+GRAPH_KINDS = frozenset(
+    {
+        ProposalKind.ENRICHMENT,
+        ProposalKind.MAPPING,
+        ProposalKind.JOIN,
+        ProposalKind.AUTHORITATIVE_SOURCE,
+    }
+)
+
+
+class ReviewState(str, Enum):
+    """Where a proposal is in review. One way out of ``PENDING``, and no way back."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class PayloadError(ValueError):
+    """A proposal's payload is not the shape its kind requires.
+
+    Raised at ``propose`` rather than at apply. A malformed proposal that reached the queue
+    would be reviewed by a person whose decision then failed silently in a background job.
+    """
+
+
+@dataclass(frozen=True)
+class Proposal:
+    """One thing an agent proposes, and the record of what happened to it."""
+
+    kind: ProposalKind
+    #: What the proposal is about -- a concept name, a qualified table, a metric identifier.
+    #: Carried as a column rather than dug out of the payload so a review screen can group and
+    #: filter without parsing jsonb.
+    target: str
+    payload: Mapping[str, Any]
+    #: Which agent or person produced it. Never blank: a proposal without provenance cannot be
+    #: judged, because half of judging it is knowing what produced it.
+    proposer: str
+    state: ReviewState = ReviewState.PENDING
+    reviewer: Optional[str] = None
+    decided_at: Optional[datetime] = None
+    decision_note: str = ""
+    applied_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    identifier: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.proposer.strip():
+            raise PayloadError(
+                "a proposal must say what produced it; proposer was blank"
+            )
+        if not self.target.strip():
+            raise PayloadError(
+                "a proposal must name what it is about; target was blank"
+            )
+        object.__setattr__(self, "identifier", self.identifier or content_id(self))
+
+    @property
+    def is_decided(self) -> bool:
+        return self.state is not ReviewState.PENDING
+
+    def __str__(self) -> str:
+        return f"{self.kind.value}/{self.target} [{self.state.value}]"
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """A decision that was not applied, and why.
+
+    Carries the existing decision, not just the fact of one. "Already rejected" is a shrug;
+    "rejected by dana on 8 Sep" is something a reviewer can act on.
+    """
+
+    identifier: str
+    reason: str
+    current_state: Optional[ReviewState] = None
+    decided_by: Optional[str] = None
+    decided_at: Optional[datetime] = None
+
+    def __str__(self) -> str:
+        who = f" by {self.decided_by}" if self.decided_by else ""
+        return f"{self.identifier}: {self.reason}{who}"
+
+
+@dataclass(frozen=True)
+class ReviewOutcome:
+    """What a bulk decision actually did.
+
+    Returned rather than raised, because a bulk accept of twelve must not be destroyed by one
+    id a colleague decided a moment earlier. The eleven good decisions commit; the refusal is
+    reported. Raising would force the caller to choose between losing the batch and catching
+    an exception to find out which row caused it.
+    """
+
+    decided: Tuple[str, ...] = ()
+    refused: Tuple[Refusal, ...] = field(default_factory=tuple)
+
+    @property
+    def all_applied(self) -> bool:
+        return not self.refused
+
+    def __str__(self) -> str:
+        return f"{len(self.decided)} decided, {len(self.refused)} refused"
+
+
+# --- payload validation -----------------------------------------------------------------
+#
+# One validator per kind, each building the typed contract object the apply path will use.
+# Building it here means a payload is proved applicable before anyone reviews it, and means
+# apply has nothing left to decide.
+
+
+def _concept_from(payload: Mapping[str, Any]) -> Concept:
+    return Concept(
+        name=_required(payload, "name"),
+        description=payload.get("description", ""),
+        synonyms=tuple(payload.get("synonyms", ())),
+        question_patterns=tuple(payload.get("question_patterns", ())),
+        sql_filter=payload.get("sql_filter", ""),
+        personal_data_fields=tuple(payload.get("personal_data_fields", ())),
+        compliance_tags=tuple(payload.get("compliance_tags", ())),
+        metrics=tuple(payload.get("metrics", ())),
+        business_area=payload.get("business_area"),
+        status=ProposalStatus.ACCEPTED,
+    )
+
+
+def _join_from(payload: Mapping[str, Any]) -> JoinEdge:
+    return JoinEdge(
+        left_table=_required(payload, "left_table"),
+        right_table=_required(payload, "right_table"),
+        on=_required(payload, "on"),
+        cardinality=payload.get("cardinality", "many-to-one"),
+    )
+
+
+def _authoritative_from(payload: Mapping[str, Any]) -> AuthoritativeSource:
+    return AuthoritativeSource(
+        concept=_required(payload, "concept"),
+        table=_required(payload, "table"),
+        alternatives=tuple(payload.get("alternatives", ())),
+        rationale=payload.get("rationale", ""),
+        status=ProposalStatus.ACCEPTED,
+    )
+
+
+def _mapping_from(payload: Mapping[str, Any]) -> Tuple[str, str]:
+    return _required(payload, "table"), _required(payload, "concept")
+
+
+def _kpi_from(payload: Mapping[str, Any]) -> str:
+    return _required(payload, "identifier")
+
+
+def _use_case_from(payload: Mapping[str, Any]) -> str:
+    return _required(payload, "question")
+
+
+def _required(payload: Mapping[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise PayloadError(
+            f"payload is missing a non-empty {key!r}; got {payload.get(key)!r}"
+        )
+    return value
+
+
+_VALIDATORS: Dict[ProposalKind, Callable[[Mapping[str, Any]], Any]] = {
+    ProposalKind.ENRICHMENT: _concept_from,
+    ProposalKind.MAPPING: _mapping_from,
+    ProposalKind.JOIN: _join_from,
+    ProposalKind.AUTHORITATIVE_SOURCE: _authoritative_from,
+    ProposalKind.KPI: _kpi_from,
+    ProposalKind.USE_CASE: _use_case_from,
+}
+
+
+def validate_payload(kind: ProposalKind, payload: Mapping[str, Any]) -> Any:
+    """Build the typed object a kind's payload describes, or raise ``PayloadError``."""
+    validator = _VALIDATORS.get(kind)
+    if validator is None:  # pragma: no cover -- unreachable while the enum is closed
+        raise PayloadError(f"no payload validator registered for kind {kind!r}")
+    return validator(payload)
+
+
+def content_id(proposal: Proposal) -> str:
+    """A proposal's identity, derived from what it says rather than when it was said.
+
+    Two runs of the same proposer over the same harvest produce the same ids, so the second
+    run inserts nothing. Without this a nightly enrichment pass would re-raise every proposal
+    a person already rejected, and the rejection would mean nothing.
+
+    The proposer is **not** in the digest. Two agents independently proposing the same synonym
+    for the same concept are proposing one thing, and a reviewer should see it once.
+    """
+    canonical = json.dumps(proposal.payload, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(
+        f"{proposal.kind.value}|{proposal.target}|{canonical}".encode()
+    )
+    return digest.hexdigest()[:32]
+
+
+_DDL = (
+    f"CREATE SCHEMA IF NOT EXISTS {PROPOSAL_SCHEMA}",
+    f"""CREATE TABLE IF NOT EXISTS {PROPOSAL_SCHEMA}.proposal (
+        id            text PRIMARY KEY,
+        kind          text        NOT NULL,
+        target        text        NOT NULL,
+        payload       jsonb       NOT NULL,
+        proposer      text        NOT NULL,
+        state         text        NOT NULL DEFAULT 'pending',
+        reviewer      text,
+        decided_at    timestamptz,
+        decision_note text        NOT NULL DEFAULT '',
+        applied_at    timestamptz,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT proposal_state_valid
+            CHECK (state IN ('pending', 'accepted', 'rejected')),
+        CONSTRAINT proposal_decision_attributed
+            CHECK ((state = 'pending') = (reviewer IS NULL))
+    )""",
+    f"""CREATE INDEX IF NOT EXISTS proposal_state_kind
+        ON {PROPOSAL_SCHEMA}.proposal (state, kind)""",
+    f"""COMMENT ON TABLE {PROPOSAL_SCHEMA}.proposal IS
+        'Everything an agent proposes and what a person decided (K7/G5/D10). The id is a '
+        'digest of kind, target and payload, so re-running a proposer cannot resurrect a '
+        'rejected row. proposal_decision_attributed makes an unattributed decision '
+        'unrepresentable rather than merely discouraged.'""",
+)
+
+
+class ProposalStore:
+    """The proposals table. The connection is injected; the caller owns its lifetime."""
+
+    def __init__(self, connection: Any, schema: str = PROPOSAL_SCHEMA) -> None:
+        self._connection = connection
+        self._schema = schema
+
+    # --- schema ------------------------------------------------------------------------
+
+    def ensure_schema(self) -> None:
+        """Create the table if absent. Idempotent."""
+        with self._connection.cursor() as cursor:
+            for statement in _DDL:
+                cursor.execute(statement)
+        self._connection.commit()
+
+    async def aensure_schema(self) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.ensure_schema)
+
+    # --- writing proposals -------------------------------------------------------------
+
+    def propose(self, proposal: Proposal) -> bool:
+        """Record one proposal. Returns whether it was new.
+
+        A proposal whose content matches one already stored is **not** re-raised, whatever
+        state that one is in. Re-proposing a rejected thing is the failure mode this guards:
+        the agent has no memory of the rejection and would raise it again every night.
+        """
+        return self.propose_many((proposal,)) == 1
+
+    async def apropose(self, proposal: Proposal) -> bool:
+        """Async variant."""
+        return await asyncio.to_thread(self.propose, proposal)
+
+    def propose_many(self, proposals: Sequence[Proposal]) -> int:
+        """Record several proposals in one transaction. Returns how many were new."""
+        for proposal in proposals:
+            validate_payload(proposal.kind, proposal.payload)
+        inserted = 0
+        with self._connection.cursor() as cursor:
+            for proposal in proposals:
+                cursor.execute(
+                    f"""INSERT INTO {self._schema}.proposal
+                        (id, kind, target, payload, proposer, state)
+                        VALUES (%s, %s, %s, %s, %s, 'pending')
+                        ON CONFLICT (id) DO NOTHING""",
+                    (
+                        proposal.identifier,
+                        proposal.kind.value,
+                        proposal.target,
+                        json.dumps(dict(proposal.payload)),
+                        proposal.proposer,
+                    ),
+                )
+                inserted += cursor.rowcount or 0
+        self._connection.commit()
+        return inserted
+
+    async def apropose_many(self, proposals: Sequence[Proposal]) -> int:
+        """Async variant."""
+        return await asyncio.to_thread(self.propose_many, proposals)
+
+    # --- reading ------------------------------------------------------------------------
+
+    def get(self, identifier: str) -> Optional[Proposal]:
+        """One proposal by id."""
+        rows = self._select("WHERE id = %s", (identifier,))
+        return rows[0] if rows else None
+
+    async def aget(self, identifier: str) -> Optional[Proposal]:
+        """Async variant."""
+        return await asyncio.to_thread(self.get, identifier)
+
+    def list(
+        self,
+        *,
+        state: Optional[ReviewState] = None,
+        kind: Optional[ProposalKind] = None,
+    ) -> Tuple[Proposal, ...]:
+        """Proposals, optionally narrowed to a state or a kind, oldest first.
+
+        Oldest first because this is a queue. A review screen that showed newest first would
+        let the oldest proposal -- the one most likely to be about a schema that has since
+        moved on -- sink quietly out of view.
+        """
+        clauses: List[str] = []
+        params: List[Any] = []
+        if state is not None:
+            clauses.append("state = %s")
+            params.append(state.value)
+        if kind is not None:
+            clauses.append("kind = %s")
+            params.append(kind.value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return tuple(self._select(where, tuple(params)))
+
+    async def alist(
+        self,
+        *,
+        state: Optional[ReviewState] = None,
+        kind: Optional[ProposalKind] = None,
+    ) -> Tuple[Proposal, ...]:
+        """Async variant."""
+        return await asyncio.to_thread(self.list, state=state, kind=kind)
+
+    def pending(self) -> Tuple[Proposal, ...]:
+        """Everything still awaiting a decision."""
+        return self.list(state=ReviewState.PENDING)
+
+    async def apending(self) -> Tuple[Proposal, ...]:
+        """Async variant."""
+        return await asyncio.to_thread(self.pending)
+
+    # --- deciding -----------------------------------------------------------------------
+
+    def accept(
+        self, identifiers: Sequence[str], reviewer: str, note: str = ""
+    ) -> ReviewOutcome:
+        """Accept proposals in bulk. Only pending ones move."""
+        return self._decide(identifiers, ReviewState.ACCEPTED, reviewer, note)
+
+    async def aaccept(
+        self, identifiers: Sequence[str], reviewer: str, note: str = ""
+    ) -> ReviewOutcome:
+        """Async variant."""
+        return await asyncio.to_thread(self.accept, identifiers, reviewer, note)
+
+    def reject(
+        self, identifiers: Sequence[str], reviewer: str, note: str = ""
+    ) -> ReviewOutcome:
+        """Reject proposals in bulk. Only pending ones move."""
+        return self._decide(identifiers, ReviewState.REJECTED, reviewer, note)
+
+    async def areject(
+        self, identifiers: Sequence[str], reviewer: str, note: str = ""
+    ) -> ReviewOutcome:
+        """Async variant."""
+        return await asyncio.to_thread(self.reject, identifiers, reviewer, note)
+
+    def _decide(
+        self,
+        identifiers: Sequence[str],
+        state: ReviewState,
+        reviewer: str,
+        note: str,
+    ) -> ReviewOutcome:
+        """The one place a proposal's state changes.
+
+        ``WHERE state = 'pending'`` is the whole enforcement of the one-way rule: a decided
+        proposal simply does not match, so it is not updated and lands in ``refused``. Doing
+        it in the predicate rather than in a read-then-write means two reviewers pressing
+        Accept and Reject at the same moment cannot both succeed.
+        """
+        if not reviewer.strip():
+            raise PayloadError(
+                "a decision must be attributed; reviewer was blank. An unattributed "
+                "acceptance is indistinguishable from no review at all (D10)"
+            )
+        wanted = list(dict.fromkeys(identifiers))
+        if not wanted:
+            return ReviewOutcome()
+
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""UPDATE {self._schema}.proposal
+                    SET state = %s, reviewer = %s, decided_at = now(), decision_note = %s
+                    WHERE id = ANY(%s) AND state = 'pending'
+                    RETURNING id""",
+                (state.value, reviewer, note, wanted),
+            )
+            decided = [row[0] for row in cursor.fetchall()]
+            untouched = [i for i in wanted if i not in set(decided)]
+            refusals: List[Refusal] = []
+            if untouched:
+                cursor.execute(
+                    f"""SELECT id, state, reviewer, decided_at
+                        FROM {self._schema}.proposal WHERE id = ANY(%s)""",
+                    (untouched,),
+                )
+                known = {row[0]: row for row in cursor.fetchall()}
+                for identifier in untouched:
+                    row = known.get(identifier)
+                    if row is None:
+                        refusals.append(Refusal(identifier, "no such proposal"))
+                    else:
+                        refusals.append(
+                            Refusal(
+                                identifier=identifier,
+                                reason=f"already {row[1]}",
+                                current_state=ReviewState(row[1]),
+                                decided_by=row[2],
+                                decided_at=row[3],
+                            )
+                        )
+        self._connection.commit()
+        return ReviewOutcome(decided=tuple(decided), refused=tuple(refusals))
+
+    # --- applying -----------------------------------------------------------------------
+
+    def apply_accepted(self, store: Any) -> Tuple[str, ...]:
+        """Write every accepted, unapplied, graph-bound proposal into the semantic graph.
+
+        Returns the ids applied. This is the only path from the proposals table to the graph,
+        and it reads ``state = 'accepted'`` -- so a rejected or pending row cannot reach it
+        however it is called.
+
+        ``applied_at`` is set only after the graph write returns. A crash between the two
+        leaves the proposal accepted-and-unapplied, and the next run applies it again; the
+        graph writes are all ``MERGE``, so applying twice is the same as applying once. The
+        opposite ordering would lose the write silently, which is the failure you cannot see.
+        """
+        applied: List[str] = []
+        for proposal in self.list(state=ReviewState.ACCEPTED):
+            if proposal.applied_at is not None or proposal.kind not in GRAPH_KINDS:
+                continue
+            self._apply_one(store, proposal)
+            with self._connection.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE {self._schema}.proposal SET applied_at = now() WHERE id = %s",
+                    (proposal.identifier,),
+                )
+            self._connection.commit()
+            applied.append(proposal.identifier)
+        return tuple(applied)
+
+    async def aapply_accepted(self, store: Any) -> Tuple[str, ...]:
+        """Async variant."""
+        return await asyncio.to_thread(self.apply_accepted, store)
+
+    @staticmethod
+    def _apply_one(store: Any, proposal: Proposal) -> None:
+        """Dispatch one accepted proposal to the graph write its kind implies."""
+        built = validate_payload(proposal.kind, proposal.payload)
+        if proposal.kind is ProposalKind.ENRICHMENT:
+            store.write_concept(built)
+        elif proposal.kind is ProposalKind.MAPPING:
+            table, concept = built
+            store.link_table_to_concept(table, concept)
+        elif proposal.kind is ProposalKind.JOIN:
+            store.write_join(built)
+        elif proposal.kind is ProposalKind.AUTHORITATIVE_SOURCE:
+            store.write_authoritative_source(built)
+
+    # --- internals ----------------------------------------------------------------------
+
+    def _select(self, where: str, params: Tuple[Any, ...]) -> List[Proposal]:
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT id, kind, target, payload, proposer, state, reviewer,
+                           decided_at, decision_note, applied_at, created_at
+                    FROM {self._schema}.proposal {where} ORDER BY created_at, id""",
+                params,
+            )
+            rows = cursor.fetchall()
+        return [
+            Proposal(
+                identifier=row[0],
+                kind=ProposalKind(row[1]),
+                target=row[2],
+                payload=row[3],
+                proposer=row[4],
+                state=ReviewState(row[5]),
+                reviewer=row[6],
+                decided_at=row[7],
+                decision_note=row[8],
+                applied_at=row[9],
+                created_at=row[10],
+            )
+            for row in rows
+        ]
+
+
+def utcnow() -> datetime:
+    """The clock, in one place, so a test can see what a decision time is compared against."""
+    return datetime.now(timezone.utc)

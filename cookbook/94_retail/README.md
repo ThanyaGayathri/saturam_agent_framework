@@ -19,6 +19,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `K04_metadata_harvest.py` | K4 | The metadata harvest against R4's silver schema: types, keys, comments, and column-name collisions. Needs a warehouse. |
 | `K05_semantic_graph.py` | K5 | The real semantic graph store: harvest in, contract out, G20's authoritative source, and promotion rebuilt from the graph. |
 | `K06_snapshots_and_drift.py` | K6 | Versioned harvests, the diff between two, and the KPIs a schema change moves into review. Needs a warehouse. |
+| `K07_proposals_and_review.py` | K7 | The proposals table and the review between an agent and the graph: twenty proposed, twelve accepted, eight rejected and absent. Needs a warehouse and Neo4j. |
 | `K05_semantic_read_api.py` | K5 | The semantic read API stub: unloaded behaviour, proposal visibility, join paths, and the seam to feasibility. |
 | `K14_skill_template.py` | K14 | The skill template, by running an agent written against it: closed sets agree, output conforms, refusal is schema-shaped. |
 | `K14_join_path_explainer.py` | K14 (second half) | The template's other half: an agent Lane R wrote from the template alone. Verdict mirrors a deterministic input, twice; a null path invents nothing; a missing input refuses as `unknown`. |

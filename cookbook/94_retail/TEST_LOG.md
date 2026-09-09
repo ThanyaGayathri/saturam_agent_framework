@@ -1976,3 +1976,67 @@ conflict was never about row ownership — a pgvector table's dimension is in th
 empty table of the wrong width is exactly as unusable as a full one.
 
 ---
+
+### K07_proposals_and_review.py
+
+**Status:** PASS
+
+**Description:** K7 (G5, D10) — the proposals table and the review that stands between an
+agent and the semantic graph. Twenty proposals of two kinds inserted, twelve accepted in one
+action and eight rejected in another, the graph queried, then an already-rejected proposal
+re-accepted.
+
+Two checks beyond the plan's scenario, both aimed at ways the review could be theatre:
+
+- **The graph is queried before any review, not only after.** If proposing wrote to the graph,
+  a test that only looked afterwards would pass and D10 would be a comment. Zero of the twenty
+  are present before a decision is made.
+- **Every proposer is re-run at the end.** An agent has no memory of a rejection. Proposal ids
+  are a digest of kind, target and canonical payload, so the second run inserts 0 and all eight
+  rejections stand. Without this the nightly enrichment pass would resurrect every rejected
+  proposal and the reviewer's decision would last one day.
+
+The decision split is mixed on purpose — eight enrichments and four joins accepted, four of
+each rejected. If the split followed kind, a store that decided by kind rather than by decision
+would still pass.
+
+**A defect this found in K5, not in K7.** The first run accepted four join proposals and only
+three edges appeared. `write_join` did `MERGE (a)-[j:JOINS_TO]->(b)` on the table pair alone
+and then `SET j.on = $on`, so two accepted proposals with different predicates between the same
+two tables silently collapsed into one edge — last write wins, and `apply_accepted` reported
+both as applied. There are five silver tables, so the cookbook's rotating pair window reused
+pairs and exposed it.
+
+Fixed by making the predicate part of the edge's identity: `MERGE (a)-[j:JOINS_TO {on: $on}]->(b)`.
+Two tables can genuinely join two ways — on an email hash and on a contact id, with different
+cardinality and different trust — and collapsing them loses one. The cookbook now uses distinct
+pairs as well, so "four accepted joins" means four edges without the reader having to work out
+which pairs coincide.
+
+**Result:**
+
+```
+1. inserted 20, pending 20            enrichment 12, join 8
+2. in the graph before review          0 concepts, 0 joins
+3. accept: 12 decided, 0 refused       reject: 8 decided, 0 refused
+4. applied 12                          8 concepts + 4 joins; rejected in graph: 0
+5. re-accept a rejected proposal       0 decided, 1 refused -- "already rejected by kiruthiga"
+   follow-up apply                     0 applied, graph unchanged
+6. proposer re-run                     0 inserted, 8 still rejected
+7. refused outright                    blank reviewer, blank proposer, malformed payload
+8. cleanup                             (0, 0) left behind
+```
+
+**Unit tests:** 24 DB-free tests in `product/tests/test_k7_proposals.py` covering identity,
+provenance, payload validation and the outcome type. `test_every_kind_has_a_validator` checks
+the registry directly rather than calling `validate_payload({})` — a missing validator raises
+`PayloadError` too, so the obvious version of that test would pass on exactly the bug it exists
+to catch. Mutation-proved by deleting the `USE_CASE` validator: the test fails, and passes again
+when it is restored.
+
+**Surprising:** the join collapse. I had read `write_join` as idempotent and it is — but
+idempotent on the wrong key. Nothing about the code looked wrong; it took two accepted
+proposals landing as one edge to see it, and only because there were five tables rather than
+nine.
+
+---

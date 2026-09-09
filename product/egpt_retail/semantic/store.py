@@ -237,6 +237,41 @@ class SemanticGraphStore:
         """Async variant."""
         await asyncio.to_thread(self.write_concept, concept, tables)
 
+    def link_table_to_concept(self, qualified_table: str, concept: str) -> None:
+        """Record that a table is an instance of a concept, and nothing else (K8's mapping).
+
+        Narrower than ``write_concept`` on purpose. A mapping proposal says only *this table
+        is a Contact*; routing it through ``write_concept`` would carry a bare ``Concept``
+        alongside it and overwrite the synonyms and filter that enrichment had already put
+        there. Mapping and enrichment are separate proposals reviewed separately, so they get
+        separate writes.
+
+        The concept must already exist. A mapping onto a concept nobody has defined is a
+        mapping onto nothing, and silently creating the node would hide the ordering mistake.
+        """
+        with self._driver.session(database=self._database) as session:
+            schema, _, name = qualified_table.partition(".")
+            record = session.run(
+                f"""
+                MATCH (t:{TABLE_LABEL} {{schema: $schema, name: $name}})
+                MATCH (c:{CONCEPT_LABEL} {{name: $concept}})
+                MERGE (t)-[:INSTANTIATES]->(c)
+                RETURN c.name AS linked
+                """,
+                schema=schema,
+                name=name,
+                concept=concept,
+            ).single()
+        if record is None:
+            raise SemanticReadError(
+                f"cannot map {qualified_table!r} to {concept!r}: one of them is not in the "
+                "graph. A mapping is an edge between two things that exist."
+            )
+
+    async def alink_table_to_concept(self, qualified_table: str, concept: str) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.link_table_to_concept, qualified_table, concept)
+
     def write_join(self, edge: JoinEdge) -> None:
         """Record that two tables can be joined, and how.
 
@@ -247,14 +282,21 @@ class SemanticGraphStore:
         ``analytics_event.session_id`` and ``session_replay_session.session_id`` share a name
         and a type and are **not** joinable, which the schema comment says and no name-matching
         heuristic could.
+
+        The predicate is part of the edge's identity, not a property set on it. Two tables can
+        genuinely join two ways -- on an email hash and on a contact id, say, with different
+        cardinality and different trust -- and merging on the pair alone would silently
+        collapse them, keeping whichever was written last. Two accepted proposals must not
+        become one edge; K7's cookbook found exactly that by accepting four joins and getting
+        three.
         """
         with self._driver.session(database=self._database) as session:
             session.run(
                 f"""
                 MATCH (a:{TABLE_LABEL} {{name: $left}})
                 MATCH (b:{TABLE_LABEL} {{name: $right}})
-                MERGE (a)-[j:JOINS_TO]->(b)
-                SET j.on = $on, j.cardinality = $cardinality, j.status = 'accepted'
+                MERGE (a)-[j:JOINS_TO {{on: $on}}]->(b)
+                SET j.cardinality = $cardinality, j.status = 'accepted'
                 """,
                 left=edge.left_table,
                 right=edge.right_table,
