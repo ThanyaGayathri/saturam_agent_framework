@@ -3417,3 +3417,88 @@ for a plain `resolve` (3). Cookbook offline half PASS on 3.12 and 3.10.
 `ROUTING_TABLE` reserves `enrichment_proposer`/`mapping_proposer` (K8) and `spec_extractor`
 (R9) / `funnel_explanation` (R10) — a package that registers one of those under another id
 refuses at startup, which is the point, but the name is the contract.
+
+### R09_spec_gap_plan.py
+
+**Status:** PASS (section 1, the deterministic gap check, on 3.12 and 3.10; no services).
+Section 2, the live extraction through the spec extractor on the small tier, NOT RUN on
+this machine — no `azure_key.env` and no second deployment named, as with R08. It is
+written, gated, and every check it makes is a `validate_spec` assertion over the lists
+rendered into the prompt, so a coined value fails it rather than a reviewer's eye.
+
+**Description:** R9's three Verify sentences — "Which brands' quote requests fell this
+month?", the same naming "average basket size" (no such KPI), the same ending "and pause
+the underperforming ones" (an action) — as hand-written *correct* specs through
+`assess_gaps` over the contract fixture and a three-KPI registry: all three feasible,
+nothing coined, the unknown metric a `questions` entry, the action verb a `questions`
+entry. Then the near-miss from the prompt's section 7 — a coined `brand__avg_basket_size`,
+an unknown `Carrier`, no schedule, Recommend shape — becomes `blocked_kpi`,
+`unknown_concept` and six `missing_parameter` gaps (`candidates`, `guardrails`, `approver`,
+`write target`, `timeout behaviour`, `schedule`), each saying which builder field fills
+it or that none exists yet. Every `GapCheck` and `Spec` validates against the generated
+models, including the two additive fields this package adds to the contract (1.1.0).
+
+**What surprised me:**
+
+1. **Most of this skill's closed sets cannot be enums.** Business areas, grains, concept
+   names and KPI identifiers vary by deployment (overlay, harvest, registry), so the
+   template's "render, do not hand-type" rule is the whole design: `render_closed_sets`
+   appends the deployment's lists under a fixed heading, and `validate_spec` checks an
+   output against exactly the lists that were rendered. Only `role`, `unit` and `delivery`
+   stay enums, and `closed_sets_match_prompt` keeps those three and the prompt agreeing.
+2. **`questions` needed to exist before the skill could be honest.** `notes` records what
+   the deployment cannot express; an unknown metric is not that — it is something the
+   author must answer. Without a field to ask in, the template's "never coin a value to
+   avoid asking" had no shape to take. Additive to `Spec`; announced in the CHANGELOG.
+3. **"For the chosen autonomy level" is a parameter list, and the build plan already has
+   it.** Section 07's table gives each shape its slots; `missing_parameter` is that table
+   applied to the draft and spec. Six of the Recommend/Act slots have no builder field
+   yet — they are reported as gaps naming P4 rather than silently passed, so a Recommend
+   draft cannot clear a check that only knew about Inform.
+4. **The fixture proves `no_join_path` for free.** The contract's own gap example names
+   `product_reviews -> supplier_deliveries`; a KPI reading both tables yields exactly that
+   gap from `find_join_path`, with nothing constructed for it.
+
+**Result:** Offline half PASS. Extraction pending a credential.
+
+---
+
+### R09_plan_view.py
+
+**Status:** PASS (six checks; 3.12 and 3.10; section 4 against the compose control plane).
+
+**Description:** The fourth Verify line — compare the plan on screen to the workflow
+definition. An Inform-shape workflow (`check_preflight → read_gold → funnel_explanation →
+record_provenance → deliver_in_app`) serialised the way the framework stores it
+(`Step.to_dict()`), derived with `plan_from_config`, validated against the contract's
+`Plan`, and compared ref for ref with `plan_refs` (a recursive walk of the same config):
+equal. A `Condition` with an `else_steps` branch and a `Router` with choices added: the
+walk reaches both, still equal, `materialise_gold` visible on the else branch. R10's
+`sample_rows` swapped in: refused, naming the executor and where to register it. Then the
+config stored as a component through `create_component_with_config` and derived by the
+`derive_plan` executor from the stored row via the framework's own `fetch_config_row`:
+the same five steps.
+
+**What surprised me:**
+
+1. **`create_component_with_config(component_type="workflow")` fails with `'str' object
+   has no attribute 'value'`.** The framework's own API wants the `ComponentType` enum and
+   does not coerce the string its `Literal` docstring suggests. One line in the cookbook;
+   worth a framework fix so the first product caller does not learn it from a traceback.
+2. **`Step` has no `agent_id` kwarg** — it takes `agent=` and `to_dict()` writes
+   `agent_id` from the agent's id. An agent step for a plan can be built with an
+   `Agent(id=..., name=...)` that has no model and never runs.
+3. **A plan is only trustworthy if the walker is.** The mutant that dropped `else_steps`
+   and `choices` from the walk still produced a *valid* `Plan` — shorter, not broken —
+   which is exactly the failure "every step on screen exists in the workflow and none is
+   missing" names. Two tests fail on it now, one of them a mutation written as a test.
+4. `validate.sh` on this branch: product mypy X-5, framework mypy X-2 (both pre-existing);
+   everything else green, including the API contract with the regenerated artefacts.
+
+**Result:** `pytest product/tests` — 573 passed, 40 skipped (21 new in
+`test_r9_spec_gap_plan.py`); framework touched suites 675 passed; same on 3.10. Ten
+mutants — walker skipping branches, unregistered executor accepted, unrouted agent
+accepted, agent step marked blocking, partial reported as blocked, unknown concept ignored,
+join path unchecked, shape ignoring autonomy, coined KPI passing `validate_spec`, metadata
+missing an executor — ten caught (two had to be re-applied after ruff wrapped the lines
+they targeted; recorded so the count is honest).

@@ -47,6 +47,8 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R05_gold_health.py` | R5 | The contract's `KpiHealth` assembled in Python from the registry and gold: all five statuses reachable, every row validated against the generated model, and `gold_fresh` as preflight computes it. No services. |
 
 | `R08_model_routing.py` | R8 | The routing table covers every registered agent (an unrouted one refuses assembly by name); offline, an input over the small tier's declared context window escalates *before* the small tier is resolved and the reason lands in `RunOutput.metadata["egpt_escalation"]`; live, `join_path_explainer` on both tiers with `RunOutput.model` naming each deployment, then a deliberately small declared window forcing a real pre-call escalation. |
+| `R09_spec_gap_plan.py` | R9 | The three sentences of the Verify line -- plain, one naming a metric that does not exist, one ambiguous about acting -- as hand-written correct specs through the deterministic gap check over the contract fixture (feasible, nothing coined; a coined near-miss becomes gaps), then live through the spec extractor on the small tier with every closed-set value checked against the lists rendered into its prompt: the unknown metric is a question, the action verb is a question. |
+| `R09_plan_view.py` | R9 | The plan as a view: an Inform-shape workflow stored as `Workflow.to_dict()`, derived and compared ref for ref; a `Condition` with `else_steps` and a `Router` with choices still compared; an executor nobody registered refused by name; and, with the control plane up, the same plan derived by `derive_plan` from the stored component row. |
 
 Run:
 
@@ -110,6 +112,12 @@ docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
 
 # R8's table and pre-call escalation need no services or credential:
 .venv/bin/python cookbook/94_retail/R08_model_routing.py
+
+# R9's gap check and plan view need no services (R09_plan_view's last section also stores
+# the workflow in the control plane when EGPT_RETAIL_DB_URL is reachable):
+.venv/bin/python cookbook/94_retail/R09_spec_gap_plan.py
+.venv/bin/python cookbook/94_retail/R09_plan_view.py
+# add azure_key.env and EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT to also run the live extraction
 # add `set -a && source azure_key.env && set +a` and EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT=<a
 # second, cheaper deployment> to also run the two live sections
 

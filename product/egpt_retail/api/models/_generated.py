@@ -208,12 +208,21 @@ class FeasibilityVerdict(Enum):
 
 
 class GapKind(Enum):
+    """
+    `missing_parameter` (1.1.0, R9): a slot the chosen autonomy shape requires (build plan, section 07)
+    that the draft and spec do not fill -- metrics, dimensions, comparison, schedule, recipient for
+    Inform; candidates, guardrails, approver, write target and more for Recommend and Act. `subject`
+    is the parameter name; `detail` says which builder field fills it, or that none exists yet.
+
+    """
+
     missing_table = "missing_table"
     blocked_kpi = "blocked_kpi"
     partial_kpi = "partial_kpi"
     unknown_concept = "unknown_concept"
     no_join_path = "no_join_path"
     unsupported_area = "unsupported_area"
+    missing_parameter = "missing_parameter"
 
 
 class GuardDecision(Enum):
@@ -1842,6 +1851,10 @@ class Spec(BaseModel):
     notes: str = Field(
         ...,
         description="Empty on a clean extraction; otherwise what the question asked for that the deployment cannot express.",
+    )
+    questions: list[str] | None = Field(
+        None,
+        description="Clarifying questions for the author (1.1.0, R9). Where `notes` records what could not be\nexpressed, this records what the agent needs answered before the spec is complete -- a\nmetric it could not match to the registry, or a sentence ambiguous about whether the use\ncase should act. Empty on a clean extraction. A question is the refusal shape for an\nunknown; the agent never coins a value to avoid asking one.\n",
     )
     extracted_by: SkillRef
     semantic_snapshot: str | None = None

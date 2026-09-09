@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -1525,8 +1525,10 @@
           "partial_kpi",
           "unknown_concept",
           "no_join_path",
-          "unsupported_area"
-        ]
+          "unsupported_area",
+          "missing_parameter"
+        ],
+        "description": "`missing_parameter` (1.1.0, R9): a slot the chosen autonomy shape requires (build plan, section 07)\nthat the draft and spec do not fill -- metrics, dimensions, comparison, schedule, recipient for\nInform; candidates, guardrails, approver, write target and more for Recommend and Act. `subject`\nis the parameter name; `detail` says which builder field fills it, or that none exists yet.\n"
       },
       "Grain": {
         "type": "string",
@@ -3594,6 +3596,13 @@
           "notes": {
             "type": "string",
             "description": "Empty on a clean extraction; otherwise what the question asked for that the deployment cannot express."
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Clarifying questions for the author (1.1.0, R9). Where `notes` records what could not be\nexpressed, this records what the agent needs answered before the spec is complete -- a\nmetric it could not match to the registry, or a sentence ambiguous about whether the use\ncase should act. Empty on a clean extraction. A question is the refusal shape for an\nunknown; the agent never coins a value to avoid asking one.\n"
           },
           "extracted_by": {
             "$ref": "#/components/schemas/SkillRef"

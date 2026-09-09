@@ -168,13 +168,27 @@ Spec:
     notes:
       type: string
       description: Empty on a clean extraction; otherwise what the question asked for that the deployment cannot express.
+    questions:
+      type: array
+      items: {type: string}
+      description: |
+        Clarifying questions for the author (1.1.0, R9). Where `notes` records what could not be
+        expressed, this records what the agent needs answered before the spec is complete -- a
+        metric it could not match to the registry, or a sentence ambiguous about whether the use
+        case should act. Empty on a clean extraction. A question is the refusal shape for an
+        unknown; the agent never coins a value to avoid asking one.
     extracted_by:
       $ref: './common.yaml#/SkillRef'
     semantic_snapshot: {type: string}
 
 GapKind:
   type: string
-  enum: [missing_table, blocked_kpi, partial_kpi, unknown_concept, no_join_path, unsupported_area]
+  enum: [missing_table, blocked_kpi, partial_kpi, unknown_concept, no_join_path, unsupported_area, missing_parameter]
+  description: |
+    `missing_parameter` (1.1.0, R9): a slot the chosen autonomy shape requires (build plan, section 07)
+    that the draft and spec do not fill -- metrics, dimensions, comparison, schedule, recipient for
+    Inform; candidates, guardrails, approver, write target and more for Recommend and Act. `subject`
+    is the parameter name; `detail` says which builder field fills it, or that none exists yet.
 
 Gap:
   type: object
