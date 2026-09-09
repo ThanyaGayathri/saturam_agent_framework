@@ -436,7 +436,7 @@ def materialise_kpi(
 ) -> KpiRunResult:
     """Bind, guard, compile, execute and stamp one KPI. Never raises for a KPI's own failure."""
     started = _now()
-    base = dict(
+    base: Dict[str, Any] = dict(
         kpi_identifier=kpi.identifier,
         run_id=run_id,
         as_of=as_of,
@@ -494,8 +494,11 @@ def materialise_kpi(
                 probe = connection.execute(
                     text(probe_statement(bound.sql)), dict(bound.params)
                 )
+                # DBAPI description tuples: (name, type_code, ...) -- indexed, not attribute
+                # access, so the same line holds for psycopg3's Column objects and a plain tuple.
                 described = [
-                    (col.name, col.type_code) for col in probe.cursor.description
+                    (str(col[0]), col[1] if isinstance(col[1], int) else None)
+                    for col in probe.cursor.description
                 ]
                 probe.close()
         except Exception as exc:  # the database's own refusal, verbatim

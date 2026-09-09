@@ -59,7 +59,7 @@ def open_semantic_reader(
     does not close it -- the caller that opened it owns it.
     """
     owned = driver is None
-    handle = semantic_driver(settings) if owned else driver
+    handle: Any = driver if driver is not None else semantic_driver(settings)
     try:
         yield build_semantic_reader(settings, handle)
     finally:
