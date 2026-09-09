@@ -39,6 +39,7 @@ except ImportError:  # pragma: no cover
 
 __all__ = [
     "CONTRACT_VERSION",
+    "AuthoritativeSource",
     "Column",
     "Concept",
     "JoinEdge",
@@ -59,7 +60,7 @@ __all__ = [
 ]
 
 #: Bumped on any breaking change, per the change protocol.
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 
 class ProposalStatus(str, Enum):
@@ -216,6 +217,29 @@ class JoinPath:
         return len(self.edges)
 
 
+@dataclass(frozen=True)
+class AuthoritativeSource:
+    """Which table answers for a concept, and what the alternatives were (G20).
+
+    ``alternatives`` is carried rather than discarded because a provenance record has to be
+    able to say *"answered from crm_deal, not from analytics_event"*. A decision recorded
+    without the options it beat is indistinguishable from there having been no decision.
+    """
+
+    concept: str
+    table: str
+    #: The tables that could also have served, and did not.
+    alternatives: Tuple[str, ...] = ()
+    #: Why this one. A sentence a person wrote or accepted, never a model's inference -- an
+    #: authoritative source that a model chose is the thing G20 exists to prevent.
+    rationale: str = ""
+    status: ProposalStatus = ProposalStatus.ACCEPTED
+
+    @property
+    def was_contested(self) -> bool:
+        return bool(self.alternatives)
+
+
 @runtime_checkable
 class SemanticRead(Protocol):
     """The read surface. Implemented by the stub in P0 and by the graph in P2.
@@ -292,6 +316,24 @@ class SemanticRead(Protocol):
     async def afind_join_path(
         self, from_table: str, to_table: str
     ) -> Optional[JoinPath]: ...
+
+    def authoritative_source(self, concept: str) -> Optional["AuthoritativeSource"]:
+        """Which table is the source of truth for a concept, when more than one could serve.
+
+        Added for G20. Nothing in the layer declared this, and the absence is not neutral: two
+        tables that can both answer a question leave an agent to pick one, and it sounds
+        equally confident either way. K4 makes the problem visible by recording column-name
+        collisions; this is where the decision it demands gets recorded.
+
+        Returns ``None`` when the concept has no contested source -- one table, or none. That
+        is a real answer and distinct from an unanswerable one, which raises, for the same
+        reason ``find_join_path`` separates the two.
+        """
+        ...
+
+    async def aauthoritative_source(
+        self, concept: str
+    ) -> Optional["AuthoritativeSource"]: ...
 
     def list_business_areas(self, *, include_proposed: bool = False) -> Tuple[str, ...]:
         """Areas this deployment supports.

@@ -38,6 +38,11 @@ from egpt_retail.memory.scopes import (  # noqa: E402
 
 SLUG = os.environ.get("EGPT_RETAIL_CUSTOMER_SLUG", "middleby")
 os.environ.setdefault("EGPT_RETAIL_PROVIDER_MODE", "local")
+# Its own memory table, not the deployment's. The table is created at the embedder's
+# dimension and the framework refuses to reuse one of a different width, so a cookbook
+# running Mode A (768) would leave the deployment's Mode B (1024) table unusable.
+os.environ.setdefault("EGPT_RETAIL_MEMORY_TABLE", "memory_vectors_k1_cookbook")
+MEMORY_TABLE = os.environ["EGPT_RETAIL_MEMORY_TABLE"]
 
 
 def _store_and_exit() -> int:
@@ -219,10 +224,10 @@ else:
     with psycopg.connect(raw) as conn:
         rows = conn.execute(
             "select coalesce(agent_id,'*'), coalesce(user_id,'*'), count(*) "
-            "from ai.memory_vectors where tenant_id=%s group by 1,2 order by 2",
+            f"from ai.{MEMORY_TABLE} where tenant_id=%s group by 1,2 order by 2",
             (SLUG,),
         ).fetchall()
-    print("  scopes in memory_vectors for this tenant:")
+    print(f"  scopes in {MEMORY_TABLE} for this tenant:")
     for agent_id, user_id, n in rows:
         print(f"    {SLUG}/{agent_id}/{user_id}  x{n}")
         if user_id == "alice":

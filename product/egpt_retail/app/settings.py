@@ -22,11 +22,13 @@ Two of these are contracts with other lanes rather than private knobs:
 
 from __future__ import annotations
 
+import re
+
 from typing import Literal, Optional
 
 from egpt.metrics import ProviderMode
 from egpt.settings.sources import BrandedSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 
 __all__ = ["RetailSettings", "Role", "StorageProvider", "DEFAULT_DB_URL"]
 
@@ -101,6 +103,27 @@ class RetailSettings(BrandedSettings):
         description="Directory of curated retail markdown to ingest (EGPT_RETAIL_CORPUS_PATH). "
         "Defaults to the corpus shipped inside the package.",
     )
+    retail_memory_table: str = Field(
+        default="memory_vectors",
+        description="pgvector table for memory (EGPT_RETAIL_MEMORY_TABLE). Configurable because "
+        "the table is created at the embedder's dimension and the framework refuses to reuse one "
+        "of a different width -- correctly, since changing dimension is a re-embedding migration. "
+        "On a dev box that means Mode A (768) and Mode B (1024) cannot share a table, so a "
+        "cookbook demonstrating one must not write into the deployment's.",
+    )
+
+    @field_validator("retail_memory_table")
+    @classmethod
+    def _memory_table_is_an_identifier(cls, value: str) -> str:
+        """The name is interpolated into DDL by the substrate. An environment variable is not
+        user input, but a value with a dot or a quote in it would fail somewhere far from
+        here, and refusing at settings time names the variable."""
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", value):
+            raise ValueError(
+                f"EGPT_RETAIL_MEMORY_TABLE must be a plain lowercase identifier, got {value!r}"
+            )
+        return value
+
     retail_knowledge_table: str = Field(
         default="egpt_retail_domain_prose",
         description="pgvector table for the domain prose (EGPT_RETAIL_KNOWLEDGE_TABLE).",

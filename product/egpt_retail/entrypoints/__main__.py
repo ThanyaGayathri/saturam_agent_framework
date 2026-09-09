@@ -19,6 +19,7 @@ COMMANDS = (
     "migrate",
     "warehouse-migrate",
     "load-knowledge",
+    "harvest",
 )
 
 
@@ -82,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Drop and rebuild a vector index whose width no longer matches the embedder.",
     )
+    harvest = sub.add_parser(
+        "harvest",
+        help="Harvest the warehouse schema into a snapshot and the graph, then exit.",
+    )
+    harvest.add_argument("--schema", default="silver")
+    harvest.add_argument("--version", default="")
     return parser
 
 
@@ -120,6 +127,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.rebuild_indexes:
             argv_load.append("--rebuild-indexes")
         return run_load(argv_load)
+    if args.command == "harvest":
+        from egpt_retail.entrypoints.harvest import main as run_harvest
+
+        return run_harvest(["--schema", args.schema, "--version", args.version])
     raise SystemExit(
         f"unknown command {args.command!r}"
     )  # pragma: no cover -- argparse refuses first
