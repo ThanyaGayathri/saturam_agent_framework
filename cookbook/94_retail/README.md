@@ -13,6 +13,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `C01_minio_roundtrip.sh` | C1 (object storage) | The same fixtures, uploaded to and downloaded back from a real MinIO bucket, then re-verified with `C01_landing_contract.py` unmodified -- proves the verify step's "upload it" against actual object storage, not just local disk. |
 | `K11_kpi_formula_shape.py` | K11 | The KPI formula shape against nineteen real formulas: what fits, what has to be rewritten, and that feasibility is a set difference. |
 | `K08_proposers.py` | K8 | The enrichment and mapping proposers drafting against the real harvest, and the graph proving it does not change. Needs Azure, ontology, warehouse and Neo4j. |
+| `K09_business_areas.py` | K9 | Which areas a deployment supports: they exist before any source, and a proposal alone supports nothing. Needs a warehouse and Neo4j. |
 | `K10_unified_retrieval.py` | K10 | One question across memory, prose, the ontology and the semantic layer, fused by rank; disable a leg and watch the answer degrade. Needs prose, ontology, a warehouse and Neo4j. |
 | `K11_kpi_registry_and_feasibility.py` | K11 | The registry in Postgres, mirrored to the graph, and feasibility as a set difference: remove a table and watch one KPI block while another goes partial. Needs a warehouse and Neo4j. |
 | `K00_executor_registry.py` | — | The executor naming convention: the silent collision it prevents, and the check that enforces it. |

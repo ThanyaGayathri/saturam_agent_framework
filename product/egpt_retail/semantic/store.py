@@ -607,6 +607,44 @@ class SemanticGraphStore:
             self.write_authoritative_source, source, proposal_id=proposal_id
         )
 
+    def business_area_evidence(self) -> Dict[str, Dict[str, List[str]]]:
+        """Per area, the accepted concepts that have a table mapped to them, and those tables.
+
+        The graph query behind K9. An area is *supported* when some concept in it has at
+        least one ``INSTANTIATES`` edge from a table -- confirmed, because only an accepted
+        proposal writes that edge (D10). A concept nobody mapped contributes nothing however
+        well described it is: there is no data behind it, and marking its area supported would
+        promise a customer answers this deployment cannot compute.
+
+        Evidence comes back with the answer rather than separately, because "inventory is
+        supported" is not actionable and "inventory is supported, via StockLevel on
+        silver.stock_level" is.
+        """
+        with self._driver.session(database=self._database) as session:
+            rows = session.run(
+                f"""
+                MATCH (t:{TABLE_LABEL})-[:INSTANTIATES]->(c:{CONCEPT_LABEL})
+                WHERE c.business_area IS NOT NULL
+                  AND coalesce(c.status, 'accepted') = 'accepted'
+                  AND coalesce(t.status, 'accepted') = 'accepted'
+                RETURN c.business_area AS area, c.name AS concept,
+                       t.schema + '.' + t.name AS table
+                ORDER BY area, concept, table
+                """
+            ).data()
+        evidence: Dict[str, Dict[str, List[str]]] = {}
+        for row in rows:
+            bucket = evidence.setdefault(row["area"], {"concepts": [], "tables": []})
+            if row["concept"] not in bucket["concepts"]:
+                bucket["concepts"].append(row["concept"])
+            if row["table"] not in bucket["tables"]:
+                bucket["tables"].append(row["table"])
+        return evidence
+
+    async def abusiness_area_evidence(self) -> Dict[str, Dict[str, List[str]]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.business_area_evidence)
+
     # --- reads: the SemanticRead contract ----------------------------------------------
 
     def _pending(self, kind: ProposalKind) -> Tuple[Any, ...]:
@@ -897,7 +935,19 @@ class SemanticGraphStore:
         return await asyncio.to_thread(self.authoritative_source, concept)
 
     def list_business_areas(self, *, include_proposed: bool = False) -> Tuple[str, ...]:
-        """Areas reachable from confirmed concept mappings. Empty means no source connected."""
+        """Every area **named by** an accepted concept, whether or not a table backs it.
+
+        Not the same question as "which areas can this deployment answer about", and the
+        difference is K9's whole subject: a concept can carry ``business_area = 'inventory'``
+        with no table mapped to it at all, and this method still returns ``inventory``. What
+        it reports is which areas the *ontology* covers here, which is what a configuration
+        screen needs before any source is connected.
+
+        For the stricter question -- areas with a confirmed mapping behind them -- use
+        :meth:`business_area_evidence`. This docstring previously claimed to answer that one
+        and did not, which is the kind of error that survives review because the method name
+        reads correct either way.
+        """
         with self._driver.session(database=self._database) as session:
             result = session.run(
                 f"MATCH (n:{CONCEPT_LABEL}) WHERE n.business_area IS NOT NULL"

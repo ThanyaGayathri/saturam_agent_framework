@@ -2917,3 +2917,68 @@ template insists on is not just for refusals; it is where an agent tells you you
 wrong, and it is worth reading even when the run succeeded.
 
 ---
+
+---
+
+### K09_business_areas.py
+
+**Status:** PASS
+
+**Description:** K9 — which business areas a deployment can answer about. A deterministic
+executor, not an agent. The plan's scenario: list areas with no source connected, connect the
+sample source and confirm its mappings, list again, then run the detection twice on unchanged
+data.
+
+**Two facts kept apart, which is the whole package.** An area *exists* because the shipped
+ontology has concepts in it — seven areas, listed with no database consulted at all, which is
+what lets a customer configure the areas their business has before a connector has ever run.
+An area is *supported* because some concept in it has a table mapped to it, and only an
+accepted proposal writes that edge.
+
+**A proposal alone supports nothing.** The cookbook proposes three mappings, checks — still
+zero areas supported — then accepts and applies them, and exactly `customer`, `marketing`,
+`sales` become supported. That intermediate check is the D10 assertion: if proposing were
+enough, the badge would be describing what an agent suggested rather than what a person
+confirmed.
+
+**A defect this found in K5.** `list_business_areas`'s docstring read *"Areas reachable from
+confirmed concept mappings. Empty means no source connected."* The query behind it does no
+such thing — it returns every area named by an accepted concept, mapped or not. Both sentences
+were wrong, and the method name reads correct either way, which is why it survived two reviews.
+Corrected to say what it does, with a pointer to the new `business_area_evidence()` for the
+question it was claiming to answer. The old method is still right for what a *configuration*
+screen needs; it was only the docstring that overclaimed.
+
+**Result:**
+
+```
+1. areas in the shipped ontology   7, no database consulted
+2. no source connected             7 listed, 0 supported
+3. proposed, not yet reviewed      3 pending, 0 supported
+4. accepted and applied            customer, marketing, sales -- each naming its evidence
+5. run twice on unchanged data     identical, field for field
+6. restored                        4 INSTANTIATES edges before, 4 after
+```
+
+**On removing the graph's edges to reach the empty state.** The cookbook deletes every
+`INSTANTIATES` edge and restores them in a `finally`. Passing an empty dictionary to the pure
+function would have been safer and would have demonstrated the arithmetic rather than the
+query — and the query is the part that could be wrong. After the K11 lesson about cookbooks
+mutating each other's fixtures, the restore is asserted, not assumed: edge count before and
+after is compared and a mismatch fails the run.
+
+**Tests:** 18 DB-free in `product/tests/test_k9_business_areas.py`. The ones worth naming:
+evidence naming zero concepts must not read as support (that is what a query returns for an
+area nothing mapped, and a green badge on it would be a promise with no data behind it);
+evidence for an area the ontology has since dropped is ignored rather than rendered; and a
+source-level assertion that the module imports no agent, no driver and no model client — the
+determinism guarantee is structural, like K8's.
+
+**Surprising:** the honest answer to "which areas does this deployment support" needed *two*
+queries, not one, and the existing method's name concealed that. "Areas the ontology covers"
+and "areas with data behind them" are different questions with different callers — a
+configuration screen wants the first, a capability badge the second — and one method answering
+whichever the reader assumed is how a customer ends up told they support inventory because
+somebody wrote a concept description.
+
+---
