@@ -3882,6 +3882,13 @@ exactly when the next person re-runs and hits the residue. It is now an `atexit`
 registered where the concepts are written, which runs on an unhandled exception too. Verified
 by failing R05 deliberately and reading the graph: clean.
 
+**And one in K05, the cookbook that kept catching everyone else's leaks.** Its promotion
+scenario promotes, counts, deletes and rebuilds, then compares — with no clean slate first, so
+a row left by an earlier run with a different concept set made the baseline something the
+rebuild could not reproduce. It passed on the second run every time, which is the worst kind
+of flake: it reads as a transient and is a missing precondition. It now clears the promoted
+copy before taking its baseline, and the scenario's own delete reuses the same helper.
+
 **Surprising:** the three findings I'd have been least likely to find myself were all *tests
 that passed*. A test that cannot fail is worse than no test, because it is counted. All three
 had been reviewed at least once — including one I had written specifically to close a previous

@@ -283,9 +283,6 @@ settings = RetailSettings(retail_customer_slug=SLUG)
 provider = build_memory_provider(settings)
 scope = Scope(tenant_id=SLUG, agent_id="semantic_layer", user_id=SYSTEM_USER_ID)
 
-first = promote_concepts(store, provider, scope)
-print(f"  {first} under {scope.key()}")
-
 
 def promoted_rows():
     with psycopg.connect(
@@ -304,6 +301,30 @@ def promoted_rows():
         }
 
 
+# A clean slate before the baseline. The scenario deletes the copy and rebuilds it, then
+# compares -- so a row left by an earlier run with a different concept set makes the baseline
+# something the rebuild cannot reproduce, and the cookbook fails on residue rather than on
+# behaviour. It self-corrected on a second run, which is the worst kind of flake: it looks
+# like a transient and is a missing precondition.
+def clear_promoted_copy():
+    """Remove every row this scenario's promotion writes, by tenant and topic."""
+    with psycopg.connect(
+        settings.retail_db_url.replace("postgresql+psycopg://", "postgresql://")
+    ) as conn:
+        conn.execute(
+            f"delete from ai.{MEMORY_TABLE} "
+            "where tenant_id = %s and jsonb_exists(topics, %s)",
+            (SLUG, PROMOTED_TOPIC),
+        )
+        conn.commit()
+
+
+clear_promoted_copy()
+
+first = promote_concepts(store, provider, scope)
+print(f"  {first} under {scope.key()}")
+
+
 after_first = promoted_rows()
 print(f"  rows in semantic memory: {len(after_first)}")
 
@@ -316,14 +337,7 @@ stable_ids = set(after_first) == {promoted_event_id(n) for n in store.list_conce
 print(f"  each row carries its stable derived id: {stable_ids}")
 
 # Now the scenario: delete the copy entirely and rebuild it from the graph.
-with psycopg.connect(
-    settings.retail_db_url.replace("postgresql+psycopg://", "postgresql://")
-) as conn:
-    conn.execute(
-        f"delete from ai.{MEMORY_TABLE} where tenant_id = %s and jsonb_exists(topics, %s)",
-        (SLUG, PROMOTED_TOPIC),
-    )
-    conn.commit()
+clear_promoted_copy()
 emptied = promoted_rows()
 promote_concepts(store, provider, scope)
 rebuilt = promoted_rows()
