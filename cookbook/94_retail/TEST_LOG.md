@@ -3970,3 +3970,63 @@ identifier convention the registry already had (`<concept>__<name>`, from
 proposing the same metric and disagreeing only about what to call it.
 
 ---
+
+---
+
+### K12.5 — feasibility reasons, and a gap the set difference could not see
+
+**Status:** PASS — recorded in `K11_kpi_registry_and_feasibility.py` section 4b
+
+**Description:** Lane K's slice of X-7. A KPI blocked for a missing table and one blocked
+because two of its tables must not be joined rendered identically: one `rationale` string
+built only from `missing_tables`. The two are days apart — a missing table needs a connector
+configured and data landed; a ruled-out pair needs that pair resolved.
+
+**It turned out not to be a rendering gap.** `assess_feasibility` subtracts tables, so a
+formula over `analytics_event` and `session_replay_session` — both present — reported
+**ready**, and would then have joined two `session_id` columns that are different id spaces,
+returning a number rather than an error. Wrong numbers, no failure, nothing upstream to catch
+it. That is worse than a badge that reads poorly.
+
+**A design error of mine, caught by K11's own cookbook.** The first version asked "is there a
+join path between these tables" and blocked when there was none. That blocked three of K11's
+six fixture KPIs, including `crm_deal` + `crm_deal_stage_history`, whose formula states a
+correct `ON` clause of its own. **Absence of a proposal is not a prohibition**, and treating
+it as one would make most multi-table KPIs unusable to enforce a rule nobody stated. The check
+now asks the narrower question — *has review recorded that this pair must not be joined* —
+answered from the `joinable = false` column meanings K8's mapping agent produces.
+
+That narrowing is what makes the scenario an end-to-end chain rather than a rule invented
+here: K4 detects `session_id` on two tables → K8 resolves each side from the harvest's own
+column comment and marks it not joinable → a person accepts → feasibility can finally see it.
+Every link already existed; nothing consumed the last one.
+
+**Result** (section 4b):
+
+```
+tables alone:   ready (none)          <- the set difference cannot see it
+with the join:  blocked (not_joinable)
+  "Every source table is present, but review has recorded that analytics_event and
+   session_replay_session must not be joined -- the shared column names are different id
+   spaces. ... until then the formula would join two unrelated keys and return a number
+   rather than fail."
+```
+
+**Shape of the change.** `assess_feasibility` keeps its signature and its purity — two
+frozensets in, a verdict out — and a test asserts that. The join check *composes*:
+`assess_feasibility_with_joins` takes a `(left, right) -> bool` callable, so it stays a
+function over data and a test supplies a dictionary where the store supplies a memoised graph
+read. `Feasibility` gains `reason` and `unjoinable`, both defaulted, so every existing
+construction keeps the meaning it already had — with a test for that too.
+
+**Tests:** 13 DB-free in `product/tests/test_k12_5_feasibility_reasons.py`. The one worth
+naming keeps the old behaviour visible: *"the set difference alone calls it ready"* — the
+thing that produced the wrong number, kept as a test so the reason for the new function does
+not get lost.
+
+**Surprising:** I wrote the over-broad version, and the cookbook that caught it was K11's —
+the package this change extends. A fixture built for one purpose (six KPIs across various
+table counts) turned out to be a good adversary for a rule invented later. That is the second
+time this phase a cookbook has found a design error rather than a coding one.
+
+---

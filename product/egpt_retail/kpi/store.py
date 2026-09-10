@@ -39,6 +39,7 @@ from egpt_retail.contracts.kpi import (
     ResultShape,
     TimeWindow,
     TimeWindowUnit,
+    assess_feasibility_with_joins,
     assess_registry,
 )
 from egpt_retail.contracts.semantic import SemanticRead, available_tables
@@ -412,7 +413,18 @@ class KpiRegistryStore:
         callable to be persuaded by, and that is the entire guarantee behind the ready and
         blocked badges a customer sees.
         """
-        return assess_registry(self.list(), available_tables(reader))
+        tables = available_tables(reader)
+        oracle_factory = getattr(reader, "unjoinable_oracle", None)
+        if oracle_factory is None:
+            return assess_registry(self.list(), tables)
+        # A reader that knows which pairs review ruled out gets asked. Without this a KPI
+        # over two tables whose shared column is two different id spaces reports ready and
+        # then returns a wrong number rather than failing.
+        oracle = oracle_factory()
+        return {
+            kpi.identifier: assess_feasibility_with_joins(kpi, tables, oracle)
+            for kpi in self.list()
+        }
 
     async def afeasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
         """Async variant."""
