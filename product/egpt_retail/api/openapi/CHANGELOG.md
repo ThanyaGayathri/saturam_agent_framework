@@ -75,3 +75,37 @@ column through an accepted concept — exactly what "nothing unconfirmed leaks i
 (`contracts/semantic.py`) exists to prevent. Fixed by leaving both lists empty until the
 column itself is accepted; the column's own proposed-and-personal-data demonstration is
 unchanged. Round-1 review, PR #187.
+
+## 1.1.0 — 2026-09-09 — R9: `Spec.questions` and `GapKind.missing_parameter` (additive)
+
+Agreed by: Lane R (contract owner). Announced to Lane K per rule 5; additive, so no
+negotiation and no major bump.
+
+- **`Spec.questions`** (array of string, optional). The spec-extraction skill's refusal shape
+  for an *unknown*, as distinct from `notes`, which records what the deployment *cannot
+  express*. "…and average basket size" against a registry with no such metric yields an
+  empty `kpi_identifiers` for it and a question naming it; "…and pause the underperforming
+  ones" yields a question about whether the use case should act. The template's rule --
+  never coin a value to avoid asking -- needed a field to ask in.
+- **`GapKind.missing_parameter`.** The gap check is "for the chosen autonomy level" (delivery
+  plan, R9), and the build plan's section 07 gives each of the four shapes a parameter list.
+  A slot the draft and spec do not fill is a gap of this kind, `subject` the parameter name,
+  `detail` the builder field that fills it or the statement that none exists yet (Recommend
+  and Act slots are P4's). A screen keyed on the enum gains one row to render; every existing
+  value is unchanged.
+
+## 1.1.1 — 2026-09-09 — R9: `GapKind.unknown_grain` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump.
+
+- **`GapKind.unknown_grain`.** Round-2 review, PR #203: `spec.grain` was the one closed-set
+  spec field `assess_gaps` never re-checked against ground truth -- `business_area`, each
+  entity's `concept` and `kpi_identifiers` all did. `spec_extractor.validate_spec` catches a
+  coined grain at extraction time, but the deterministic gap check is meant to be the
+  backstop regardless of whether a caller ran that validator first, and until now it
+  structurally could not be: it never received the grain vocabulary. Fixed by threading the
+  vocabulary's `grain` terms into `assess_gaps` (a new, defaulted-`None` `grains` parameter
+  that skips the check when not supplied, so every existing caller is unchanged) and
+  `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
+  existing value is unchanged.
+

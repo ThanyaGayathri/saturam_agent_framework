@@ -129,7 +129,7 @@ def gold_fresh_check(
     fresh: List[str] = []
     for kpi in kpis:
         row: Mapping[str, Any] = health.get(kpi.identifier) or {}
-        status = row.get("status") or "never_computed"
+        status = row.get("status") if row else "never_computed"
         if status == "fresh":
             fresh.append(f"{kpi.identifier}: fresh ({row['staleness_hours']} h old).")
         elif status == "stale":
