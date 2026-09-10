@@ -9,6 +9,7 @@ secrets:
   provider: kubernetes
   values:
     internalServiceToken: "local-shared-token"
+    neo4jPassword: "password"            # egpt-local-infra's neo4j.password
 auth:
   enabled: true
   audience: "api://egpt-retail"

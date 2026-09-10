@@ -2800,7 +2800,103 @@ after re-running `egpt-retail migrate`): `R07_executor_library.py` — the new
 sections; `R07_preflight_blocked_kpi.py` — unchanged behavior, still blocks and clears exactly
 as before.
 
+---
+
 ## Lane R — phase three
+
+### Lane R chores (open-items R-5, R-6, R-9, X-5, X-6, and a hook R4 forgot)
+
+**Package:** none — the open-items tail closed ahead of P3, so no P3 package carries it
+**Status:** PASS — with one finding that changed the scope of R-5
+
+**Description:** Closed every Lane R row in `docs/plan/open-items.md` that was blocking or
+embarrassing before R5/R8/R9 start. Verified by rendering the chart both ways, running the
+repository gates, and running the product suite on the 3.10 floor.
+
+**Result:**
+
+- `helm lint` clean with and without the kind overlay. `helm template` renders four hook/cron
+  objects in a deterministic order — `migrate` (pre, −5), `warehouse-migrate` (post, 0),
+  `load-knowledge` (post, 5), `harvest` (CronJob, `0 3 * * *`, `Forbid`) — with
+  `EGPT_RETAIL_NEO4J_URI/USER/DATABASE` and `EGPT_RETAIL_PROVIDER_MODE` in the ConfigMap and
+  `EGPT_RETAIL_NEO4J_PASSWORD` in the Secret, omitted when empty.
+- `validate.sh`: product target green including mypy (74 files) — the first time on this
+  machine since numpy 2.5; 430 product tests. Product tests on a fresh **Python 3.10** venv:
+  436 passed. `egpt[demo]` resolves `unstructured==0.18.27` inside the existing `<0.18.31` pin.
+- `integration.yml` parses and carries the two new steps. Its real proof is a run, dispatched
+  on this branch after push; the result is appended below.
+
+**What surprised me, in order of how much it matters:**
+
+1. **R-5 was not a missing hook; it was a missing half of the chart.** The Helm ConfigMap and
+   Secret carried no `EGPT_RETAIL_NEO4J_*` and no `EGPT_RETAIL_PROVIDER_MODE` at all — Lane K's
+   P1 added the settings and no template ever mapped them. The `load-knowledge` entrypoint
+   refuses to start without a Neo4j password, so the hook as filed would have failed on every
+   fresh cluster with the settings' own "unset" message. Both are now mapped from `neo4j.*`,
+   `model.providerMode` and `secrets.values.neo4jPassword` (Key Vault object `neo4j-password`,
+   added to `AKS_CUTOVER.md`'s list). The api and pipelines pods get them too, via `envFrom`,
+   which R5's feasibility and R9's gap check will need in P3 anyway.
+2. **X-5 resists every per-module mypy lever.** `follow_imports = "skip"` and `ignore_errors`
+   on `numpy.*` both still parse the stub; so does skipping `neo4j.*`, the actual importer
+   (`neo4j/_work/summary.py` → numpy, found with `mypy -v`). mypy collects the stub before any
+   override applies. The fix is the product mypy target at `python_version = "3.12"`, with the
+   reasoning in the pyproject comment. The 3.10 floor is still enforced where it bites — ruff's
+   `target-version = py310`, and CI's real-3.10 product test job, which is what caught the
+   `tomllib` slip on #193; mypy never did.
+3. **R4 wrote `warehouse-migrate` and nothing in the chart ran it.** A fresh cluster came up
+   with an empty warehouse database and would have failed the first load on a missing table.
+   `job-warehouse-migrate.yaml`, post-install rather than pre-, so it can never block the
+   control-plane migration that gates the release.
+4. **`validate.sh`'s framework mypy step fails on this machine with two errors, and neither is
+   this branch.** One is environment staleness: `sqlglot`, added to the framework's extras by
+   R6 (#195), was absent from a `.venv` built before that PR — `uv pip install sqlglot` (or
+   re-running `dev_setup.sh`) clears it. The other is X-2 verbatim
+   (`integrations/knowledge/reader/llms_txt_reader.py:94`, a bs4 `Tag.find` overload pulled
+   in by an optional dependency CI does not install). Both identical with the branch stashed.
+   Recorded because "I ran validate.sh" is only a claim worth making if the environment is the
+   one the script assumes — and today, on a dev box, it is not, which is X-2's whole point.
+5. **CI's `helm-lint` job caught that the first push of this branch was missing five of its
+   own files.** The commit carried the three new templates but not the ConfigMap, Secret,
+   `values.yaml`, `values.local.yaml` or `AKS_CUTOVER.md` edits, so
+   `.Values.warehouseMigrate.backoffLimit` was nil and the chart failed to lint — on CI, not
+   here, because here it had been linted *before* the edits were lost. The reflog shows a
+   `reset: moving to HEAD` between the edits and the commit: the "identical with the branch
+   stashed" check in item 4 stashed the tree and the pop never restored those five. Re-applied
+   from the session record, re-linted, re-rendered both ways, amended. The lesson is the one
+   the chores entry already argues for R-9: a verification that ran once on a laptop is a
+   claim; the job that runs on every push is the evidence.
+6. **`integration.yml`'s own framework step is red on `main`'s schedule, and has been for
+   three days** (7–9 Sep: 132 failed / 1 645 passed on 9 Sep, in `test_per_request_isolation`,
+   `test_share_sessions`, `test_tool_generated_media`, `test_output_schema_override` — no
+   product test among them). The dispatch on this branch failed the same way (130 / 1 645),
+   which is how I learned that the two steps this PR adds were *skipped* rather than run:
+   GitHub skips later steps after a failure unless told otherwise. Both now carry
+   `if: ${{ !cancelled() }}`, so the semantic live suite reports on its own merits. The
+   framework failures are not this branch's and are not fixed here; they belong on `main`.
+
+**R-9 evidence (integration run 34361850622, dispatched on this branch):** step 8
+"Provision the warehouse for the semantic live suite" — success (database created,
+`warehouse-migrate` applied); step 9 "Run the semantic layer live suite" — success,
+`product/tests/test_semantic_live.py`: **20 passed**. Caveat added after review: that run
+predates the fix below and connected via `test_semantic_live.py`'s own hardcoded fallback
+DSNs (`postgresql://ai:ai@localhost:5532/{ai,egpt_warehouse}`), not the step's
+`EGPT_RETAIL_DB_URL`/`EGPT_RETAIL_WAREHOUSE_DB_URL` — those two names are not what the test
+reads (it reads `EGPT_RETAIL_CP_DSN`/`EGPT_RETAIL_WAREHOUSE_DSN`), so they had no effect; the
+fallback happened to match this job's Postgres port. The 20-pass result is real, but its
+Postgres connection was coincidence, not this step's env, until the rename below. Neo4j was
+correctly wired throughout (`EGPT_ONTOLOGY_NEO4J_URI`, read directly). The step's env now
+sets the names the test actually reads, so a future dispatch's connection is intentional
+rather than coincidental. Step 7, the framework's own integration tests, failed as it does on
+`main`'s schedule (item 6), which is why the two product steps are `if: ${{ !cancelled() }}`.
+7. **X-6 was already closed by R2** and nobody had struck it: `dev_setup.sh` installs
+   `product[dev]`, which carries `openapi-spec-validator`; the `.venv` has 0.9.0.
+
+**Deliberately not done:** `deploy/helm/egpt/templates/NOTES.txt` does not yet mention the
+hooks; the README's install text is Lane R's to revisit with R5's `schedule-nightly` hook, so
+one edit rather than two. R-8 (provider-mode re-embedding migration) stays open as SM-V2 #96 —
+a deployment concern, not a chore.
+
+---
 
 ### R08_model_routing.py
 
