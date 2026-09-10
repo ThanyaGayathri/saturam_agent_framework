@@ -4078,3 +4078,39 @@ existing "skip and say why" behavior on an empty result is exactly the right res
 that regardless of cause.
 
 ---
+
+### PR #207 review rounds 2-3 — 2 carried-over findings, both fixed
+
+Round 2 (`89f1591`) confirmed all 7 round-1 findings fixed and raised 2 new, non-blocking
+ones; round 3 (`ffe89bf`) confirmed neither had been touched yet (both files byte-for-byte
+unchanged in that commit). Both addressed now:
+
+- **`dashboards/data.py:132`** — the round-1 fix's gap-check only fired for non-`TABLE`
+  charts, so a `TABLE` tile with a `grain_value` that matched no row still fell through to
+  showing the entire *unfiltered* listing (an unrelated dimension's rows) rather than
+  reporting a gap. Fixed: the "show everything" exemption now applies only to a `TABLE`
+  tile configured with no `grain_value` at all (`table_showing_everything = tile.chart is
+  ChartKind.TABLE and tile.grain_value is None`); a `TABLE` tile *with* a `grain_value`
+  that resolves nothing now reports `never_computed`, same as every other chart kind.
+  Verified live against the same real materialised KPI (`rfq__quote_to_deal_rate`) used in
+  the round-1 fix's own live check: a `TABLE` tile with `grain_value='Blodgett'` reads
+  `status=fresh, value=1.0`; the same KPI with a non-matching `grain_value` now reads
+  `status=never_computed, rows=[]` instead of silently showing the `Blodgett` row under an
+  unrelated tile. New unit test:
+  `test_tile_data_table_tile_with_grain_mismatch_reports_never_computed_too`.
+- **`app/db.py:100`** — `pooled_control_plane_connection`/`_pooled_control_plane_engine` had
+  no regression test; a future revert to a fresh `psycopg.connect()` per call, or a change
+  breaking the `lru_cache` keying, would not have been caught. Added three DB-free tests to
+  `test_r7_control_plane_engine.py`: same DSN returns the same cached `Engine` object,
+  different DSNs return different objects, and `pooled_control_plane_connection` actually
+  calls `.raw_connection()` on the cached engine and `.close()`s it (via a monkeypatched
+  fake engine -- no database needed, matching this file's existing DB-free convention).
+
+4 new tests; `product/tests` at 654 passing. Docker had restarted between review rounds
+(same session, different point in time) -- `docker start egpt-retail-postgres-1
+egpt-retail-neo4j-1` brought both containers back with their volumes, and the warehouse's
+materialised gold data from the previous entry's live run was still there, confirming the
+compose stack's named volumes are what make this reproducible across restarts rather than
+a one-off.
+
+---

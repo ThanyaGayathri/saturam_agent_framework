@@ -109,13 +109,18 @@ def _tile_data(
     else:
         target_row = None
 
-    # A table tile with no single target row shows the whole listing -- that is the tile's
-    # own configuration (no grain, more than one row), not a resolution failure. Every other
-    # shape expected exactly one value; finding none (a `grain_value` that matched no
-    # dimension row, or an ambiguous multi-row result with no grain to disambiguate) is a
-    # real gap, not "fresh and empty" -- reporting `fresh` here would be indistinguishable
-    # from a genuinely current, correctly empty tile.
-    if target_row is None and tile.chart is not ChartKind.TABLE:
+    # A table tile configured with *no* grain_value shows the whole listing when it has no
+    # single target row -- that is the tile's own configuration (more than one row, nothing
+    # to scope to), not a resolution failure. Every other case expected exactly one value:
+    # finding none -- a `grain_value` (table tile or not) that matched no dimension row, or
+    # an ambiguous multi-row result with no grain to disambiguate -- is a real gap, not
+    # "fresh and empty". A table tile *with* a `grain_value` that matched nothing must not
+    # fall through to showing the unrelated, unfiltered listing -- that is as wrong as
+    # reporting `fresh` with an empty value.
+    table_showing_everything = (
+        tile.chart is ChartKind.TABLE and tile.grain_value is None
+    )
+    if target_row is None and not table_showing_everything:
         return _empty_tile_data(
             tile,
             KpiHealthStatus.never_computed,

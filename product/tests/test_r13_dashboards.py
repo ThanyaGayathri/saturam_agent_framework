@@ -271,6 +271,40 @@ def test_tile_data_ambiguous_multi_row_non_table_reports_never_computed():
     assert data.value is None
 
 
+def test_tile_data_table_tile_with_grain_mismatch_reports_never_computed_too():
+    """Round-2 review finding: the round-1 fix's guard only fired for non-TABLE charts, so a
+    TABLE tile with a `grain_value` that matches no row fell through to showing the entire
+    *unfiltered* listing -- indistinguishable from a TABLE tile deliberately configured with
+    no grain to show everything. A TABLE tile with a grain_value that resolves nothing is a
+    real gap, the same as any other chart kind."""
+    tile = _tile(chart=ChartKind.TABLE, grain_value="sup_999")
+    result = {
+        "as_of": "2026-09-06",
+        "computed_at": "2026-09-07T02:20:00Z",
+        "run_id": "run_gold_1",
+        "rows": [
+            {
+                "value": "0.71",
+                "supplier_id": "sup_014",
+                "as_of": "x",
+                "computed_at": "x",
+                "run_id": "x",
+            },
+            {
+                "value": "0.88",
+                "supplier_id": "sup_003",
+                "as_of": "x",
+                "computed_at": "x",
+                "run_id": "x",
+            },
+        ],
+    }
+    data = _tile_data(tile, result, "")
+    assert data.status.value == "never_computed"
+    assert data.value is None
+    assert data.rows == []
+
+
 # ---------------------------------------------------------------------------
 # tile_readiness_refusal -- R13's headline 422 guarantee, pure and DB-free
 # (round-1 review: this path previously had zero coverage that CI actually runs)
