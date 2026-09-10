@@ -31,8 +31,10 @@ $$;
 -- this role's own permissions, so granting them here would only widen what a guard bug could
 -- expose, never anything a correctly-configured guard would let through anyway.
 --
--- A future `gold` schema (R5) will need the same two GRANTs added for `gold` once that
--- schema exists; this file predates it.
+-- The `gold` schema's grants are in 075_gold_grants.sql, after 070_gold.sql has created the
+-- tables and the view they apply to: `GRANT SELECT ON ALL TABLES` covers only what exists at
+-- the moment it runs, so it has to follow the CREATEs, and the default-privileges line there
+-- is what covers the per-KPI views materialisation creates later.
 -- No `FOR ROLE` clause: unqualified, ALTER DEFAULT PRIVILEGES applies to objects the
 -- *executing* role creates from now on, which is exactly whatever role warehouse-migrate
 -- runs as -- the same role that creates the silver tables themselves. Naming a role

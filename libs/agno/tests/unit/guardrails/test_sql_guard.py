@@ -28,7 +28,7 @@ class _Allowlist:
         return self._tables
 
 
-def _guard(*allowed: str, row_cap: int = 1000, schema: str | None = None) -> SQLGuard:
+def _guard(*allowed: str, row_cap: int = 1000, schema: str | set[str] | None = None) -> SQLGuard:
     return SQLGuard(allowlist=_Allowlist(frozenset(allowed)), row_cap=row_cap, schema=schema)
 
 
@@ -201,6 +201,29 @@ def test_schema_qualified_reference_outside_the_configured_schema_refuses():
         guard.check("SELECT * FROM landing.orders")
     assert excinfo.value.check == "table_not_allowed"
     assert "landing.orders" in excinfo.value.message
+
+
+def test_a_set_of_schemas_admits_each_and_refuses_the_rest():
+    """R5: the retail read surface spans silver and gold, so the adapter names both. A
+    reference qualified with either passes; one qualified with a third schema refuses and the
+    reason lists what was expected."""
+    guard = _guard("orders", "kpi_value", schema={"silver", "gold"})
+    assert guard.check("SELECT * FROM silver.orders") == ("orders",)
+    assert guard.check("SELECT * FROM gold.kpi_value") == ("kpi_value",)
+    with pytest.raises(SQLGuardRefusal) as excinfo:
+        guard.check("SELECT * FROM landing.orders")
+    assert excinfo.value.check == "table_not_allowed"
+    assert "gold" in excinfo.value.message and "silver" in excinfo.value.message
+
+
+def test_schema_matching_is_case_insensitive_for_a_set_too():
+    guard = _guard("orders", schema={"Silver"})
+    assert guard.check("SELECT * FROM SILVER.orders") == ("orders",)
+
+
+def test_an_empty_schema_set_is_refused_at_construction():
+    with pytest.raises(ValueError):
+        _guard("orders", schema=set())
 
 
 def test_no_configured_schema_leaves_schema_qualified_references_unchecked():

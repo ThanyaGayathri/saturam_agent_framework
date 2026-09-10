@@ -7,10 +7,26 @@ constructible by hand.
 
 from __future__ import annotations
 
+import asyncio
+
+import pytest
 from egpt.workflow.types import StepInput
 
 from egpt_retail.contracts.kpi import KpiDefinition
-from egpt_retail.executors.preflight import check_preflight
+from egpt_retail.executors.preflight import GOLD_STALENESS_BOUND_HOURS
+from egpt_retail.executors.preflight import check_preflight as _check_preflight
+from egpt_retail.warehouse.health import FRESHNESS_BOUND_HOURS
+
+
+@pytest.fixture(autouse=True)
+def _no_warehouse(monkeypatch):
+    """These are R7's DB-free scenarios: with no warehouse configured, gold_fresh stays the
+    named placeholder and every assertion below is about kpis_ready alone."""
+    monkeypatch.delenv("EGPT_RETAIL_WAREHOUSE_DB_URL", raising=False)
+
+
+def check_preflight(step_input):
+    return asyncio.run(_check_preflight(step_input))
 
 
 def _kpi(identifier: str, sql: str, source_tables: frozenset) -> KpiDefinition:
@@ -23,6 +39,14 @@ def _kpi(identifier: str, sql: str, source_tables: frozenset) -> KpiDefinition:
         business_area="product",
         source_tables=source_tables,
     )
+
+
+def test_gold_staleness_bound_is_imported_from_health_not_restated():
+    """``preflight.py``'s docstring and this executor's own comment both call
+    ``GOLD_STALENESS_BOUND_HOURS`` the same bound ``warehouse/health.py`` draws its
+    ``fresh``/``stale`` line at -- that claim is only true if it is the *same* value, not two
+    ``36.0`` literals that happen to agree today and can silently drift apart tomorrow."""
+    assert GOLD_STALENESS_BOUND_HOURS == FRESHNESS_BOUND_HOURS
 
 
 def test_ready_kpi_with_every_table_available_allows():

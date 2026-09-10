@@ -3400,6 +3400,26 @@ together?"
 
 ---
 
+### R07_preflight_blocked_kpi.py
+
+**Package:** R7 (P2, implements G4 — preflight against a blocked KPI)
+**Status:** PASS
+
+**Description:** Reproduces the API contract's own worked example
+(`api/openapi/paths/use-cases.yaml`'s `runUseCasePreflight`, `product__avg_rating` /
+`web_sessions`) directly against `check_preflight`, no workflow, no database, no live semantic
+layer needed — `assess_feasibility` is a pure set difference. Then re-runs the same use case
+with the missing table exposed.
+
+**Result:** Blocked case: `allowed=False`, `blocked_by=["kpis_ready"]`, `StepOutput.stop=True`,
+the `kpis_ready` check's reason reads `"product__avg_rating: partial -- missing from the
+semantic snapshot: web_sessions."` — the contract's own text, verbatim. The other three checks
+(`tables_exposed`, `gold_fresh`, `guard_role`) all pass, each naming what is unbuilt (K5, R5,
+R6-wiring) rather than pretending to be computed. Once `web_sessions` is added to
+`available_tables`, the same use case passes: `allowed=True`, `blocked_by=[]`.
+
+---
+
 ### PR #199 review round 1 — one real regression, one finding overtaken by Lane R
 
 **Status:** PASS — 535 unit (+19), 3759 framework, 33 live, cookbook sweep 22/23
@@ -3467,6 +3487,129 @@ Verified by stashing every Lane K change — it fails identically — and by
 `git diff origin/main..HEAD`, which shows this branch touches neither the consolidator
 entrypoint nor settings. Filed as **R-11**; Lane R's cookbook, left alone.
 
+**Result:** `pytest product/tests/test_r7_*.py` — 46 passed (12 new: 1 preflight, 7 delivery
+inc. 4 DDL, 4 provenance-adapter inc. 2 direct-executor, 4 in a new
+`test_r7_control_plane_engine.py`). `pytest libs/agno/tests/unit/answer_provenance/` — 13
+passed, unchanged. `./scripts/format.sh && ./scripts/validate.sh` — both clean (`product`:
+382 passed, 7 skipped; ruff, mypy, API contract all green). Both cookbooks re-run against the
+real control-plane Postgres (`EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai`,
+after re-running `egpt-retail migrate`): `R07_executor_library.py` — the new
+`provenance_ref == output.run_id == run_id` assertion held on both the real and dry-run
+sections; `R07_preflight_blocked_kpi.py` — unchanged behavior, still blocks and clears exactly
+as before.
+
+### R05_gold_materialisation.py
+
+**Status:** PASS (twenty checks, against the compose Postgres and Neo4j; on Python 3.12 —
+the service-free companion below also on 3.10).
+
+**Description:** R5's Verify line end to end (D6, D7). Seeds the warehouse DDL (13 scripts,
+`070_gold.sql` and `075_gold_grants.sql` new), harvests silver into the graph as snapshot
+`r05.1`, and saves K11's six definitions in the registry. Then: (1) `nightly-refresh` driven
+by hand — R4's six steps then `materialise-gold`: two KPIs materialise
+(`k11_contact__reachable`, `k11_session__replay_coverage`), three fail at the compile probe
+with Postgres's message verbatim in `gold.kpi_run.error` (`column "amount" does not exist`,
+`column d.deal_id does not exist`, `column d.amount does not exist`), one is skipped as
+blocked naming `order_items, orders`; the run is COMPLETED. (2) Gold versus SQL:
+`gold.kpi_k11_contact__reachable[today] = 2` equals `SELECT count(*) FROM silver.crm_contact
+WHERE email IS NOT NULL`, every `kpi_value` row carries snapshot, tables, formula hash,
+`computed_at` and `run_id`. (3) `k11_contact__reachable` broken on purpose (a column silver
+lacks) and the gold step re-run alone: it fails with `column "phone_number" does not exist`
+in `gold.kpi_latest_run`, the other KPI still materialises, the last good value survives, a
+same-night re-run overwrites rather than duplicates, and R7's bag holds 8 dataset reads, 5
+statements and a freshness stamp. (4) `read_gold` through the guard by the per-KPI view,
+latest `as_of` by default, the blocked KPI listed as `missing` not invented. (5) A blocked
+night: a nulled key column → COMPLETED run with **no** `materialise-gold` in `step_results`,
+`quality.load_run.verdict = blocked`, gold byte-for-byte unchanged; a hand run of the gold
+step afterwards refuses, naming the verdict. (6) `egpt-retail schedule-nightly` registers
+`nightly-refresh` at `0 1 * * *` with `{"message": ..., "additional_data": {"trigger":
+"schedule"}}`; a trigger through `ScheduleExecutor` against the in-process pipelines app
+(`httpx.ASGITransport`) returns `status=success`, the load it ran is recorded with
+`trigger='schedule'` and `verdict='passed'` — the bag arrived as a dict — and the final step
+output on the `ScheduleRun` is `materialise-gold`'s, with `run_id` equal to the ScheduleRun's
+and six `gold.kpi_run` rows under it.
+
+**What surprised me:**
+
+1. **K11's corpus is the Verify line's "broken formula", three times, before this script
+   breaks one.** Table-level feasibility passes five of six; three reference columns silver
+   does not have. The compile probe (`LIMIT 0` in a savepoint, `cursor.description` read)
+   catches every one before a write, and the evidence bar — fails alone, visible in run
+   history — holds on the real corpus rather than on a fixture built to satisfy it. Raised
+   on #199: feasibility wants a column-level half (`referenced_columns` from the harvest).
+2. **A blocked night blocks the next night too, by design.** After section 5's nulled key,
+   the first scheduled trigger was *blocked* — not by the bad file (removed) but by R4's
+   ungated-rows rule: the bad row had entered silver ungated and every later load reports
+   it until it is dealt with. Correct, and not what section 6 is about; the section now
+   resets the warehouse first and the reason is in the script. Worth knowing before the
+   first real bad night: "fix the file and re-run" is not enough, the landing row must go.
+3. **`ScheduleExecutor` posts `additional_data` as a JSON string, and the run endpoint
+   parsed only five other fields back.** The scheduled bag arrived as `str`; R4's
+   `_state()` refuses that. Fixed in the framework (`get_request_kwargs` parses
+   `additional_data` like `metadata`, refusing a non-object), four unit tests, and the
+   cookbook's section 6 is the live proof: `trigger='schedule'` on `quality.load_run` can
+   only have come from the parsed bag.
+4. **`gold.kpi_run.run_id` equals the workflow run id through the API path.** I had hedged
+   the executor's `_run_id` with the same fallback chain as R7's provenance (pinned
+   `additional_data["run_id"]`, then the session's last run, then a fresh uuid) because
+   R7's entry recorded that `StepInput` carries no live run id. Through
+   `POST /workflows/{id}/runs` the session *does* carry it, and the ScheduleRun's `run_id`
+   matched. Through a bare `Workflow.arun()` it does not — section 1 reads the id off the
+   step's content instead. Both paths are exercised; the fallback earns its keep.
+5. **`ALTER DEFAULT PRIVILEGES` and `GRANT ... ON ALL TABLES` are order-sensitive in a way
+   R6's own comment predicted.** The gold grants are a separate `075` script after `070`
+   creates the relations; in `065` (before `070`) the `ON ALL TABLES` grant would have
+   covered nothing. The per-KPI views are created later by materialisation and reach
+   `egpt_reader` through the default-privileges line — same role runs both, by construction
+   of the DSN. `read_gold` reads through `egpt_reader` when the read-only URL is set; this
+   run had it unset (logged, warehouse role used) — the R06 live cookbook is where the role
+   is proven, and it still passes on this branch.
+6. **`egpt_retail.api.models._generated` is where the generated models live**, not
+   `api/_generated.py` as the plan's outline said. And `r3_contract.json` was stale on the
+   merge of `feature/knowledge_phase3` + `main` (each side had regenerated); `validate.sh`'s
+   contract check refused until `./scripts/gen_api_models.sh` — only the fixture changed,
+   included here so the branch validates. Not a contract change of this package.
+7. **`format.sh` reformatted six Lane K test files** (`test_k7/k8/k9/k11`,
+   `test_p2_verification`, `test_semantic_live`) on this branch; reverted, as every Lane R
+   branch does — those belong to #199.
+8. **Product mypy on this branch is X-5, framework mypy is X-2** — both pre-existing, X-5
+   fixed by #200 which is not on `main` yet. Three framework `tests/unit/os` failures on
+   this machine (`test_components_policy` ×2, `test_per_request_isolation` ×1) fail
+   identically with this branch's one framework change stashed, and pass on CI; not this
+   package's.
+
+**Deliberately not done, and why:** the compile probe is not in `check_preflight`. Preflight
+answers per interactive request and must stay cheap; a formula that does not compile shows up
+one night later as a `failed` run, which `gold_fresh` (now real) reports for that KPI. Same
+signal, one place that pays for it — documented on the executor.
+
+**Result:** `pytest product/tests` — 532 passed, 40 skipped (30 new in `test_r5_gold.py`,
+R4/R7 expectations updated for the second workflow and the async preflight);
+`libs/agno/tests/unit/{os/test_request_kwargs_additional_data.py,guardrails,providers,
+test_model_read_guard.py}` — 668 passed. Same on a Python 3.10 venv. Twelve mutants — scope
+unparenthesised, `as_of` as text, overall accepting keys, insert without `ON CONFLICT`, view
+without `DROP`, rowset not skipped, failed-as-fresh, `gold_fresh` ignoring stale, guard
+schema-set compared by one element, `additional_data` left a string, preflight check order,
+gold executors unregistered — eleven caught on the first pass; the survivor (stale ignored)
+exposed a missing case in the test, added, now caught: twelve of twelve.
+`R07_preflight_blocked_kpi.py`, `R07_executor_library.py`, `R06_sql_guard_live.py` (database
+sections) re-run on this branch: unchanged behaviour.
+
+---
+
+### R05_gold_health.py
+
+**Status:** PASS (3.12 and 3.10; no services).
+
+**Description:** `warehouse/health.py::classify_health` over five constructed pairs of
+`kpi_run` rows — fresh (7 h), stale (40 h), failed with a value from the night before,
+skipped-as-blocked, never in gold — produces exactly `fresh, stale, failed, not_scheduled,
+never_computed`, each row validated against the generated `KpiHealth` model, then
+`gold_fresh_check` over the same rows fails naming four problems and passes over the fresh
+KPI alone. The "failed" row keeps `last_computed_at` from the last good run, which is the
+screen saying two true things at once.
+
+**Result:** Overall PASS.
 **Surprising:** the most useful thing in this round was discovering that a finding had already
 been fixed by someone else. I was one commit from shipping a duplicate CI job into a file I do
 not own, solving a problem that was solved the day before. Reading `open-items.md` after a

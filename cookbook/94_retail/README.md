@@ -44,6 +44,8 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R07_executor_library.py` | R7 | A throwaway workflow of `check_preflight` -> `record_provenance` -> `deliver_in_app`, no agent step, driven only by `.arun()`: completes with no model, the provenance record is readable back by `run_id`, and a second run with the dry-run flag shows delivery previewing instead of sending. |
 | `R07_preflight_blocked_kpi.py` | R7 | Preflight against a use case referencing a blocked KPI, reproducing the API contract's own worked example: blocks and names the missing table, then passes once it is exposed. No database, no model. |
 | `R08_model_routing.py` | R8 | The routing table covers every registered agent (an unrouted one refuses assembly by name); offline, an input over the small tier's declared context window escalates *before* the small tier is resolved and the reason lands in `RunOutput.metadata["egpt_escalation"]`; live, `join_path_explainer` on both tiers with `RunOutput.model` naming each deployment, then a deliberately small declared window forcing a real pre-call escalation. |
+| `R05_gold_materialisation.py` | R5 | The Verify line against a real warehouse: the nightly chain by hand (R4's six steps, then gold) over K11's six definitions -- two materialise, three fail at compile with Postgres's own words in `gold.kpi_run`, one is skipped as blocked; gold versus the same number in SQL, and the stamp on every row; one good formula broken deliberately and failing alone while the other still materialises; `read_gold` through the guard; a blocked night as a COMPLETED run with no gold step and gold untouched; then `schedule-nightly` and a trigger through `ScheduleExecutor` against the in-process pipelines app, whose `additional_data` arrives as a dict. |
+| `R05_gold_health.py` | R5 | The contract's `KpiHealth` assembled in Python from the registry and gold: all five statuses reachable, every row validated against the generated model, and `gold_fresh` as preflight computes it. No services. |
 
 Run:
 
@@ -101,6 +103,13 @@ EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
 .venv/bin/python cookbook/94_retail/R08_model_routing.py
 # add `set -a && source azure_key.env && set +a` and EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT=<a
 # second, cheaper deployment> to also run the two live sections
+# R5's health cookbook needs no services:
+.venv/bin/python cookbook/94_retail/R05_gold_health.py
+
+# R5's materialisation needs Postgres (control plane migrated, egpt_warehouse migrated) and
+# the compose stack's Neo4j; the script defaults every URL to the compose ports:
+docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
+.venv/bin/python cookbook/94_retail/R05_gold_materialisation.py
 
 # R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
 docker build -f deploy/Dockerfile -t egpt-retail:dev .
