@@ -16,6 +16,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `K09_business_areas.py` | K9 | Which areas a deployment supports: they exist before any source, and a proposal alone supports nothing. Needs a warehouse and Neo4j. |
 | `K10_unified_retrieval.py` | K10 | One question across memory, prose, the ontology and the semantic layer, fused by rank; disable a leg and watch the answer degrade. Needs prose, ontology, a warehouse and Neo4j. |
 | `K11_kpi_registry_and_feasibility.py` | K11 | The registry in Postgres, mirrored to the graph, and feasibility as a set difference: remove a table and watch one KPI block while another goes partial. Needs a warehouse and Neo4j. |
+| `K12_kpi_suggestion.py` | K12 | Candidate KPIs proposed from the connected data, with a feasibility the agent's schema cannot express. Three runs, a stable core, and `K12_BASELINE.md`. Needs Azure, a warehouse and Neo4j. |
 | `K00_executor_registry.py` | — | The executor naming convention: the silent collision it prevents, and the check that enforces it. |
 | `K01_memory_scope_convention.py` | K1 | The memory scope convention against the real `Scope`: write scopes, read scopes, and the isolation matrix. |
 | `K02_domain_prose.py` | K2 | The curated retail corpus into pgvector, split on headings and tagged by origin. Needs pgvector + the corpus. |

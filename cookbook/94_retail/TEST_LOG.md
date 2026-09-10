@@ -3895,3 +3895,78 @@ had been reviewed at least once — including one I had written specifically to 
 review finding.
 
 ---
+
+---
+
+### K12_kpi_suggestion.py
+
+**Status:** PASS
+
+**Description:** K12 — candidate KPIs proposed from the harvest, the ontology and the curated
+catalogue, with feasibility stamped by the executor. Three runs on identical input; baseline
+and judgements in `K12_BASELINE.md`.
+
+**The guarantee is structural, not a promise in the prompt.** `KpiSuggestionDraft` has no
+feasibility field and sets `extra="forbid"`, so the agent cannot express a verdict even if a
+future prompt edit invited one — and `assemble` calls `assess_feasibility`, which takes two
+frozensets and has no argument a model's opinion could travel through. Measured across every
+run: **0 disagreements** with an independent assessment.
+
+**Drift with the discovery screen is impossible by construction.** `assemble` returns
+`egpt_retail.api.models.KpiSuggestion` — the model generated from the OpenAPI schema the
+screen renders — rather than a hand-written copy. The plan requires these to render "without
+transformation", so a field the agent invents is a construction error in this process instead
+of a blank cell in front of a customer.
+
+**Three defects the live runs found, all mine.**
+
+*Every suggestion was dropped by my own validator.* The first run produced ten drafts and
+assembled zero: "formula reads `['crm_deal']` which source_tables does not list". The harvest
+text shows tables qualified (`silver.crm_deal`), so the agent listed them that way, while
+`referenced_tables` reads bare names out of the SQL and `available_tables` returns bare names
+from the graph. Three spellings of one table, and the agent was right every time. Normalised
+in one place, with three tests over the qualified case.
+
+*I trusted the agent's business area — the exact defect I fixed in K9 one package earlier.*
+Three baseline runs placed `WebSession` in `customer`, `operations` and `marketing`. Which
+area a concept belongs to is shipped knowledge, and K9's P3 verification already concluded
+that. `assemble` now takes the ontology's mapping and it wins wherever a concept is named;
+areas are identical across runs by construction. **Having fixed a class of defect once is not
+the same as having internalised it.**
+
+*My stability gate was a coin toss.* Pairwise overlap between two runs measured 67%, 100% and
+40% on three consecutive pairs, and my threshold sat at 50% — so the cookbook failed roughly
+one run in three on unchanged code. The fix was not to lower the threshold. Three runs, a
+stable core, and the judgement recorded rather than gated: the plan's third evidence line is
+*"wild variation means the prompt is underspecified"*, which is a reading, not a number.
+
+**Result:**
+
+```
+1. inputs                5 tables, 2 concepts, 295 catalogue metrics, 0 registered
+2. suggestions           5, all ready, all traceable
+3. verdicts checked      5 checked, 0 disagreements with the executor
+4. three runs            core 5 identifiers (71% of union); grain/shape drift 0
+                         cardinality 5,6,6 (1.2x); business areas identical
+5. traceability          0 cite the catalogue (with a correct reason); 0 name no table
+```
+
+**Two things the agent did that I did not ask for and would not have thought to test.** It
+refused every cross-source metric, citing the harvest's own comment that
+`analytics_event.session_id` is not joinable to `session_replay_session.session_id` — reading
+K4's harvested comment and honouring G19 unprompted. And it explained the empty catalogue
+citation rather than padding: the catalogue needs revenue, orders and transactions, and this
+harvest has none. Both are in `notes`, which is the field the K14 template insists on and
+which keeps earning its place.
+
+**Tests:** 31 DB-free in `product/tests/test_k12_kpi_suggestion.py` — the draft schema having
+no verdict field and refusing one, every verdict matching an independent `assess_feasibility`
+call, the assembled object being the generated contract type with every required field
+populated, qualified table names, and the drop-one-keep-the-rest rule.
+
+**Surprising:** the prompt work that mattered was not about metrics at all. Mandating the
+identifier convention the registry already had (`<concept>__<name>`, from
+`contracts.kpi.kpi_identifier`) removed a whole axis of apparent instability — two runs were
+proposing the same metric and disagreeing only about what to call it.
+
+---
