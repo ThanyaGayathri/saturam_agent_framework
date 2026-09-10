@@ -538,7 +538,10 @@ else:
         summary=(
             f"{summary_prefix} {', '.join(cited_brands)} moved this period."
             if cited_brands
-            else f"{summary_prefix} No data was available to compare this period."
+            else (
+                f"{summary_prefix} No gold rows were available for "
+                f"{', '.join(sorted(identifiers))} this run."
+            )
         ),
         likely_drivers=[],
         snapshot_version=sampled.content["snapshot_version"] or "r10-cookbook-offline",

@@ -284,18 +284,37 @@ def test_citations_within_input_checks_summary_too():
 
 
 def test_citations_within_input_accepts_an_honest_no_data_summary():
-    """With no movers and no friction, there is nothing to cite from and nothing to check a
-    summary against -- a "nothing to report" summary must not be rejected just because it
-    names no grounded term, since there is no term to ground it against either."""
+    """With no movers and no friction, there is nothing brand- or event-shaped to cite --
+    but the honest "nothing to report" summary names the KPI it's reporting on instead
+    (funnel_explanation.md's own documented example), and the check now grounds against
+    `kpi_identifiers` in that case rather than skipping outright."""
     empty = _explanation(
         top_movers=[],
         brands_cited=[],
         friction_available=False,
         friction=[],
-        summary="No data was available to compare this period.",
+        summary="No gold rows were available for rfq__quote_to_deal_rate this run.",
         likely_drivers=[],
     )
     assert citations_within_input(empty) is True
+
+
+def test_citations_within_input_rejects_a_fabricated_no_data_summary():
+    """The gap this closes: with no movers and no friction, a summary that names neither a
+    grounded term nor the KPI it claims to be about must be rejected, not waved through just
+    because `allowed_terms` is empty."""
+    empty = _explanation(
+        top_movers=[],
+        brands_cited=[],
+        friction_available=False,
+        friction=[],
+        summary=(
+            "Sales exploded because of a secret alliance with mars_corp, a brand never "
+            "mentioned anywhere."
+        ),
+        likely_drivers=[],
+    )
+    assert citations_within_input(empty) is False
 
 
 def test_movers_match_input_requires_verbatim_copy():

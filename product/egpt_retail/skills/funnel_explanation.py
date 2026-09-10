@@ -173,10 +173,17 @@ def citations_within_input(explanation: FunnelExplanation) -> bool:
     allowed_terms = allowed_brands | allowed_events
     # `summary` is required and non-empty even when there is nothing to report (no movers,
     # no friction) -- unlike `likely_drivers`, which is just an empty list in that case and
-    # so never reaches this loop. With `allowed_terms` empty there is nothing to cite from
-    # and nothing to check against, so a "nothing moved" summary is honest, not ungrounded.
-    if allowed_terms and not _mentions_a_grounded_term(
-        explanation.summary, allowed_terms
+    # so never reaches this loop. With `allowed_terms` empty there is nothing brand- or
+    # event-shaped to cite, but the schema still requires `kpi_identifiers` copied through
+    # unchanged, and the documented "nothing to report" summary names the KPI it's reporting
+    # on (funnel_explanation.md's own example: "No gold rows were available for
+    # <kpi_identifier> this run."). Grounding on `kpi_identifiers` in that case -- rather than
+    # skipping the check outright -- still lets an honest "nothing moved" summary through while
+    # catching a fabricated narrative that names neither a real term nor the KPI it claims to
+    # be about.
+    summary_terms = allowed_terms or set(explanation.kpi_identifiers)
+    if summary_terms and not _mentions_a_grounded_term(
+        explanation.summary, summary_terms
     ):
         return False
     for driver in explanation.likely_drivers:
