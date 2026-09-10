@@ -27,6 +27,7 @@ Needs the compose stack's Postgres (control plane migrated, egpt_warehouse) and 
 import asyncio
 import json
 import logging
+import atexit
 import os
 import shutil
 import sys
@@ -101,6 +102,35 @@ shutil.copytree(FIXTURES_ROOT / "raw", WORK_ROOT / "raw")
 os.environ["EGPT_RETAIL_STORAGE_LOCAL_ROOT"] = str(WORK_ROOT)
 
 SETTINGS = RetailSettings()
+
+
+@atexit.register
+def _remove_this_cookbooks_concepts() -> None:
+    """Remove the K11-named concepts this cookbook writes into the shared graph.
+
+    Registered at exit rather than run at the end, because the end is not reached when the
+    cookbook fails -- and a failed run is exactly when the next person re-runs it. Leaving
+    them there broke two Lane K cookbooks that read the same graph: K05 compares the real
+    store against the stub and saw three concepts the stub does not have, and K10's retrieval
+    ranked `K11Deal` above the tables its question was actually about.
+    """
+    try:
+        driver = GraphDatabase.driver(
+            SETTINGS.retail_neo4j_uri,
+            auth=(SETTINGS.retail_neo4j_user, SETTINGS.retail_neo4j_password or ""),
+        )
+        try:
+            with driver.session() as session:
+                session.run(
+                    "MATCH (c:SemanticConcept) WHERE c.name STARTS WITH 'K11' "
+                    "DETACH DELETE c"
+                )
+        finally:
+            driver.close()
+    except Exception:  # noqa: BLE001 -- cleanup must never mask the real failure
+        pass
+
+
 WAREHOUSE = build_warehouse_engine(SETTINGS)
 TODAY = datetime.now(timezone.utc).date()
 
@@ -590,23 +620,6 @@ checks["the triggered schedule succeeded and its run materialised gold"] = (
 )
 for name in list(checks)[-2:]:
     print("   ", "OK " if checks[name] else "FAIL", name)
-# The concepts this cookbook wrote, removed. They live in the shared graph, and leaving them
-# there broke two Lane K cookbooks that read it: K05 compares the real store against the stub
-# and saw three concepts the stub does not have, and K10's retrieval ranked `K11Deal` above
-# the tables its question was actually about. A cookbook must clean up what it writes to a
-# store other cookbooks read.
-_cleanup_driver = GraphDatabase.driver(
-    SETTINGS.retail_neo4j_uri,
-    auth=(SETTINGS.retail_neo4j_user, SETTINGS.retail_neo4j_password or ""),
-)
-try:
-    with _cleanup_driver.session() as _cleanup:
-        _cleanup.run(
-            "MATCH (c:SemanticConcept) WHERE c.name STARTS WITH 'K11' DETACH DELETE c"
-        )
-finally:
-    _cleanup_driver.close()
-
 manager.close()
 control_plane.close()
 WAREHOUSE.dispose()

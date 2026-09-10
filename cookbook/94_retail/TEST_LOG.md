@@ -3875,6 +3875,13 @@ options bag could disable the quality gate and the statement timeout from client
 exactness; a driver's error text reached API clients; and `EXECUTOR_REGISTRY.md` still
 described `gold_fresh` as a placeholder R5 had replaced.
 
+**A follow-up on the R05 leak, found while verifying the fix.** The cleanup was written at
+the end of the cookbook, and R05 fails on this machine before reaching it — so the concepts
+were still there. Cleanup at the end only runs when nothing went wrong, and a failed run is
+exactly when the next person re-runs and hits the residue. It is now an `atexit` handler
+registered where the concepts are written, which runs on an unhandled exception too. Verified
+by failing R05 deliberately and reading the graph: clean.
+
 **Surprising:** the three findings I'd have been least likely to find myself were all *tests
 that passed*. A test that cannot fail is worse than no test, because it is counted. All three
 had been reviewed at least once — including one I had written specifically to close a previous
