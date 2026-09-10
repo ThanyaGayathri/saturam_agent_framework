@@ -9,11 +9,17 @@ the per-table round trip.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import pytest
 from egpt.memory.types import MemoryQuery
-from egpt_retail.contracts.semantic import Concept, Snapshot, Table, TableRef
+from egpt_retail.contracts.semantic import (
+    Concept,
+    SemanticRead,
+    Snapshot,
+    Table,
+    TableRef,
+)
 from egpt_retail.contracts.semantic import Column as SemanticColumn
 from egpt_retail.retrieval.legs import (
     ONTOLOGY_LEG,
@@ -28,7 +34,12 @@ from egpt_retail.retrieval.legs import (
 @dataclass
 class _Reader:
     """A semantic reader over a fixed schema. Counts its own calls, so a test can prove a
-    round trip did not happen rather than only that the answer was right."""
+    round trip did not happen rather than only that the answer was right.
+
+    Cast at the call sites rather than fleshed out to the whole ``SemanticRead`` protocol:
+    these legs read four things, and a fake implementing the other dozen methods would hide
+    which four.
+    """
 
     tables: Dict[str, List[str]]
     concepts: Dict[str, str]
@@ -104,7 +115,7 @@ class TestSemanticLegRanking:
             tables={"silver.crm_deal": ["id"], "silver.crm_deal_stage_history": ["id"]},
             concepts={},
         )
-        results = semantic_leg(reader)(_query("deal"))
+        results = semantic_leg(cast(SemanticRead, reader))(_query("deal"))
         assert [r.metadata["table"] for r in results] == [
             "crm_deal",
             "crm_deal_stage_history",
@@ -113,7 +124,7 @@ class TestSemanticLegRanking:
     def test_a_column_match_alone_finds_the_table(self) -> None:
         """ "Which table has email" is a question about a column, and the first version of
         this leg could not answer it at all."""
-        results = semantic_leg(_reader())(_query("email"))
+        results = semantic_leg(cast(SemanticRead, _reader()))(_query("email"))
         assert [r.metadata["table"] for r in results] == ["crm_contact"]
         assert results[0].metadata["columns"] == ["email"]
         assert "via column(s) email" in results[0].content
@@ -122,19 +133,22 @@ class TestSemanticLegRanking:
         reader = _Reader(
             tables={"silver.stage": ["id"], "silver.crm_deal": ["stage"]}, concepts={}
         )
-        results = semantic_leg(reader)(_query("stage"))
+        results = semantic_leg(cast(SemanticRead, reader))(_query("stage"))
         assert [r.metadata["table"] for r in results] == ["stage", "crm_deal"]
 
     def test_a_table_matching_nothing_is_absent(self) -> None:
-        assert semantic_leg(_reader())(_query("zzz_nothing")) == []
+        assert semantic_leg(cast(SemanticRead, _reader()))(_query("zzz_nothing")) == []
 
     def test_results_are_capped_at_the_limit(self) -> None:
         # "crm" matches two tables by name; the cap must apply after ranking, not before.
-        assert len(semantic_leg(_reader())(_query("crm"))) == 2
-        assert len(semantic_leg(_reader())(_query("crm", limit=1))) == 1
+        assert len(semantic_leg(cast(SemanticRead, _reader()))(_query("crm"))) == 2
+        assert (
+            len(semantic_leg(cast(SemanticRead, _reader()))(_query("crm", limit=1)))
+            == 1
+        )
 
     def test_every_result_names_the_leg(self) -> None:
-        for result in semantic_leg(_reader())(_query("email")):
+        for result in semantic_leg(cast(SemanticRead, _reader()))(_query("email")):
             assert result.origin == SEMANTIC_LEG
 
     def test_a_concept_is_rendered_as_promotion_renders_it(self) -> None:
@@ -142,7 +156,7 @@ class TestSemanticLegRanking:
         can never recognise them as one finding."""
         from egpt_retail.semantic.promotion import promotable_text
 
-        results = semantic_leg(_reader())(_query("quoterequest"))
+        results = semantic_leg(cast(SemanticRead, _reader()))(_query("quoterequest"))
         concept = next(r for r in results if "concept" in r.metadata)
         assert concept.content == promotable_text(
             Concept(name="QuoteRequest", description="A request for a price.")
@@ -151,13 +165,13 @@ class TestSemanticLegRanking:
     def test_short_query_words_are_ignored(self) -> None:
         """Two-letter fragments match half a schema; the floor keeps the leg from returning
         every table for a query containing "of"."""
-        assert semantic_leg(_reader())(_query("of an")) == []
+        assert semantic_leg(cast(SemanticRead, _reader()))(_query("of an")) == []
 
 
 class TestSemanticLegBatching:
     def test_an_indexed_reader_is_asked_once_not_once_per_table(self) -> None:
         reader = _reader()
-        semantic_leg(reader)(_query("email"))
+        semantic_leg(cast(SemanticRead, reader))(_query("email"))
         assert reader.index_calls == 1
         assert reader.get_table_calls == 0
 
@@ -165,7 +179,7 @@ class TestSemanticLegBatching:
         """The P0 stub has no column_index; the documented fallback must answer the same."""
         plain = _UnindexedReader(tables={"silver.crm_contact": ["email"]}, concepts={})
         assert not isinstance(plain, ColumnIndexed)
-        results = semantic_leg(plain)(_query("email"))
+        results = semantic_leg(cast(SemanticRead, plain))(_query("email"))
         assert [r.metadata["table"] for r in results] == ["crm_contact"]
         assert plain.get_table_calls == 1
 
@@ -215,11 +229,13 @@ class TestNoneMeansNoLeg:
         assert retail_legs(ontology=None, semantic=None) == {}
 
     def test_each_store_contributes_its_own_leg(self) -> None:
-        legs = retail_legs(ontology=object(), semantic=_reader())
+        legs = retail_legs(ontology=object(), semantic=cast(SemanticRead, _reader()))
         assert sorted(legs) == [ONTOLOGY_LEG, SEMANTIC_LEG]
 
     def test_only_the_wired_one_appears(self) -> None:
-        assert list(retail_legs(semantic=_reader())) == [SEMANTIC_LEG]
+        assert list(retail_legs(semantic=cast(SemanticRead, _reader()))) == [
+            SEMANTIC_LEG
+        ]
 
 
 class TestExecutorDeterminism:
