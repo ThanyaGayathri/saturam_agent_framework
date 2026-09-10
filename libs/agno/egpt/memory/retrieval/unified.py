@@ -14,13 +14,27 @@ than interleaving by a comparison this ticket does not make.
 """
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    Hashable,
+    List,
+    Mapping,
+    Optional,
+    Protocol,
+    Sequence,
+    Union,
+    runtime_checkable,
+)
 
 from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.retrieval.fuse import DEFAULT_RRF_K, rrf_rank
 from egpt.memory.types import MemoryQuery, MemoryRecord, Scope
 
 #: What ``knowledge.retrieve``/``aretrieve`` actually accept as ``filters`` (matches
@@ -29,14 +43,28 @@ from egpt.memory.types import MemoryQuery, MemoryRecord, Scope
 KbFilters = Optional[Union[Dict[str, Any], List[FilterExpr]]]
 
 __all__ = [
+    "AsyncLeg",
     "KbFilters",
     "KnowledgeRetrievable",
+    "Leg",
     "RetrievalSource",
     "UnifiedResult",
     "UnifiedSlice",
     "aunified_read",
+    "default_identity",
     "unified_read",
 ]
+
+#: An extra retrieval leg: given the query, return its results already ranked best-first.
+#:
+#: A callable rather than a store, because the framework cannot know what the fourth store
+#: *is*. A deployment with an ontology graph and a semantic layer has two more places worth
+#: asking, and both are its own; what belongs here is the fan-out, the labelling and the
+#: fusion, not a hardcoded list of everyone's stores.
+Leg = Callable[[MemoryQuery], Sequence["UnifiedResult"]]
+
+#: The async counterpart. Legs are awaited concurrently on the async path.
+AsyncLeg = Callable[[MemoryQuery], Awaitable[Sequence["UnifiedResult"]]]
 
 
 @runtime_checkable
@@ -61,7 +89,14 @@ class KnowledgeRetrievable(Protocol):
 
 
 class RetrievalSource(str, Enum):
-    """Which store a :class:`UnifiedResult` came from."""
+    """Which store a :class:`UnifiedResult` came from.
+
+    Two members because two stores are built in here. A deployment's own legs -- an ontology,
+    a semantic layer -- name themselves through :attr:`UnifiedResult.origin`, which is a plain
+    string for exactly that reason: a frozen enum in the framework cannot enumerate the stores
+    a product will add, and pretending otherwise would either lock the set or fill it with
+    nouns no framework user has.
+    """
 
     KB = "kb"
     MEMORY = "memory"
@@ -69,13 +104,23 @@ class RetrievalSource(str, Enum):
 
 @dataclass(frozen=True)
 class UnifiedResult:
-    """One result, labeled by the store it came from."""
+    """One result, labeled by the store it came from and the leg that produced it."""
 
     content: str
+    #: The built-in store, for the two legs this module retrieves itself. An extra leg that
+    #: is neither carries whichever it most resembles and distinguishes itself by ``origin``.
     source: RetrievalSource
     score: Optional[float] = None
     id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    #: The leg's name -- ``"kb"``, ``"memory"``, or whatever an extra leg was registered as.
+    #: This is what a caller renders as provenance, and what fusion reports per hit.
+    origin: str = ""
+
+    @property
+    def label(self) -> str:
+        """The leg name, falling back to the store when a result predates ``origin``."""
+        return self.origin or self.source.value
 
 
 @dataclass(frozen=True)
@@ -91,17 +136,103 @@ class UnifiedSlice:
 
     kb: List[UnifiedResult] = field(default_factory=list)
     memory: List[UnifiedResult] = field(default_factory=list)
+    #: Any extra legs the caller wired, keyed by the name it registered them under and held
+    #: in registration order.
+    extra: Dict[str, List[UnifiedResult]] = field(default_factory=dict)
 
     @property
     def results(self) -> List[UnifiedResult]:
-        """KB results followed by memory results, each still carrying its own ``source``."""
-        return [*self.kb, *self.memory]
+        """Every leg's results, unfused, in leg order. Each carries its own ``origin``."""
+        out = [*self.kb, *self.memory]
+        for results in self.extra.values():
+            out.extend(results)
+        return out
+
+    def legs(self) -> Dict[str, List[UnifiedResult]]:
+        """The results keyed by leg name, ready for fusion.
+
+        Empty legs are kept. A leg that ran and matched nothing is a different fact from a leg
+        that was never wired, and dropping it here would erase the difference exactly where a
+        caller checking whether a leg contributed would look.
+        """
+        return {"kb": self.kb, "memory": self.memory, **self.extra}
+
+    #: Leg names this class populates itself. An extra leg may not take one of them.
+    RESERVED_LEG_NAMES = ("kb", "memory")
+
+    def fused(
+        self,
+        *,
+        k: int = DEFAULT_RRF_K,
+        identity: Optional[Callable[[UnifiedResult], Hashable]] = None,
+        limit: Optional[int] = None,
+    ) -> List[UnifiedResult]:
+        """One ranking across every leg, by Reciprocal Rank Fusion.
+
+        This is what the package could not do before: the RRF that fuses memory's own
+        substrate legs lived in ``fuse.py`` typed to ``MemoryRecord``, so nothing above the
+        memory store could reach it and this class held its legs apart rather than ranking
+        them. Rank-based fusion is what makes ranking them defensible at all -- a KB
+        document's similarity, a memory record's fused score and a graph hit's traversal
+        distance are three incomparable scales, and RRF reads none of them. It reads position.
+
+        Each returned result carries the fused score, ``metadata["fused_from"]`` -- how many
+        legs had it -- and ``metadata["fused_origins"]``, naming them.
+
+        ``origin`` on a fused result is the leg that saw it **first in fan-out order**, not
+        the leg that ranked it best. The distinction is invisible until it matters: a hit the
+        semantic layer ranked first and the KB ranked ninth reports ``kb`` if the KB leg came
+        first in the mapping. That is why ``fused_origins`` exists and why a caller rendering
+        provenance should read it rather than ``origin`` alone. Fixing the attribution would
+        mean re-ranking within each identity group, which changes what is fused rather than
+        how it is labelled; this docstring previously claimed the better behaviour and the
+        code has always done the simpler one.
+
+        Both provenance fields are here because neither substitutes for the other. The count
+        is what a caller ranks or filters on; the names are what it renders, and a
+        corroborated hit reports only one ``origin`` by construction -- the fused item keeps
+        the copy from whichever leg saw it first -- so without the list the second store's
+        contribution would be invisible on screen. "The prose and the ontology both say this"
+        is a different claim from "two legs said this".
+        """
+        ranked = rrf_rank(
+            self.legs(),
+            identity=identity or default_identity,
+            tie_break=lambda r: (r.content, r.label, r.id or ""),
+            k=k,
+        )
+        fused = [
+            replace(
+                entry.item,
+                score=entry.score,
+                metadata={
+                    **entry.item.metadata,
+                    "fused_from": entry.legs,
+                    "fused_origins": list(entry.sources),
+                },
+            )
+            for entry in ranked
+        ]
+        return fused[:limit] if limit is not None else fused
+
+
+def default_identity(result: UnifiedResult) -> Hashable:
+    """When two results from different legs are the same finding: when they say the same thing.
+
+    Ids are per-store, so identity by id would make every cross-store pair distinct and reduce
+    fusion to an interleave -- the one thing a unified read exists to improve on. Normalised
+    content is the only comparable key two stores actually share, and the case it gets right
+    is the case that matters: a domain rule the prose states and memory has also recorded
+    should read as corroborated by two legs, not as two separate hits that happen to match.
+    """
+    return " ".join(result.content.split()).casefold()
 
 
 def _kb_result(document: Document) -> UnifiedResult:
     return UnifiedResult(
         content=document.content,
         source=RetrievalSource.KB,
+        origin="kb",
         score=document.reranking_score,
         id=document.id if document.id is not None else document.content_id,
         metadata=dict(document.meta_data or {}),
@@ -112,10 +243,41 @@ def _memory_result(record: MemoryRecord) -> UnifiedResult:
     return UnifiedResult(
         content=record.content,
         source=RetrievalSource.MEMORY,
+        origin="memory",
         score=record.score,
         id=record.id,
         metadata={**record.metadata, "tier": record.tier.value},
     )
+
+
+def _checked_leg_names(legs: Optional[Mapping[str, Any]]) -> List[str]:
+    """The extra legs' names, refusing one that collides with a built-in.
+
+    ``legs()`` merges ``extra`` over the two built-in keys, so an extra leg called ``kb``
+    replaced the KB's own results wholesale -- the KB leg still ran, its output was still
+    fetched, and it vanished from the slice with nothing raised. A caller would see one leg's
+    results labelled as another's and no indication the first had been discarded.
+    """
+    names = list((legs or {}).keys())
+    collisions = [name for name in names if name in UnifiedSlice.RESERVED_LEG_NAMES]
+    if collisions:
+        raise ValueError(
+            f"extra leg name(s) {collisions} collide with the built-in legs "
+            f"{list(UnifiedSlice.RESERVED_LEG_NAMES)}; the built-in's results would be "
+            "replaced with no error. Name the leg after the store it reads."
+        )
+    return names
+
+
+def _labelled(name: str, results: Sequence[UnifiedResult]) -> List[UnifiedResult]:
+    """Stamp a leg's own name onto its results.
+
+    Done here rather than trusted to the leg: ``origin`` is what a caller renders as
+    provenance and what fusion groups by, and a leg that forgot to set it -- or set it to
+    something other than the key it was registered under -- would produce results whose stated
+    source is not the leg that produced them. The registration key is the truth.
+    """
+    return [replace(result, origin=name) for result in results]
 
 
 def _kb_leg(
@@ -145,8 +307,9 @@ def unified_read(
     memory: Optional[MemoryProvider] = None,
     knowledge: Optional[KnowledgeRetrievable] = None,
     kb_filters: KbFilters = None,
+    legs: Optional[Mapping[str, Leg]] = None,
 ) -> UnifiedSlice:
-    """Fan ``query`` out across the KB and memory, each result labeled by its source.
+    """Fan ``query`` out across the KB, memory and any extra legs, each result labeled.
 
     ``query.text`` and ``query.limit`` serve both legs -- one request envelope, not a KB-specific
     and a memory-specific query type, since the two already carry what each leg's own ``retrieve``/
@@ -162,6 +325,14 @@ def unified_read(
         kb_filters: Forwarded to ``knowledge.retrieve`` only -- there is no memory-side
             equivalent, so the memory leg always reads with the unfiltered ``query``. Pass
             ``None`` (the default) to retrieve from the KB without filtering.
+        legs: Extra named legs, each a callable returning results ranked best-first. A
+            deployment's own stores -- an ontology graph, a semantic layer -- arrive here.
+            Omitting a leg is how a caller disables it, which is what makes it possible to
+            show that a leg was contributing rather than decorating.
+
+    Every leg runs even if an earlier one raised, and the first exception is re-raised
+    afterwards in leg order. The stores are independent, so one failing must not discard
+    another's already-fetched results.
     """
     kb_results: List[UnifiedResult] = []
     kb_error: Optional[Exception] = None
@@ -177,12 +348,24 @@ def unified_read(
     except Exception as exc:
         memory_error = exc
 
+    _checked_leg_names(legs)
+    extra_results: Dict[str, List[UnifiedResult]] = {}
+    extra_errors: List[Exception] = []
+    for name, leg in (legs or {}).items():
+        try:
+            extra_results[name] = _labelled(name, leg(query))
+        except Exception as exc:
+            extra_results[name] = []
+            extra_errors.append(exc)
+
     if kb_error is not None:
         raise kb_error
     if memory_error is not None:
         raise memory_error
+    if extra_errors:
+        raise extra_errors[0]
 
-    return UnifiedSlice(kb=kb_results, memory=memory_results)
+    return UnifiedSlice(kb=kb_results, memory=memory_results, extra=extra_results)
 
 
 async def _akb_leg(
@@ -208,6 +391,7 @@ async def aunified_read(
     memory: Optional[MemoryProvider] = None,
     knowledge: Optional[KnowledgeRetrievable] = None,
     kb_filters: KbFilters = None,
+    legs: Optional[Mapping[str, AsyncLeg]] = None,
 ) -> UnifiedSlice:
     """Async variant of :func:`unified_read`.
 
@@ -219,13 +403,37 @@ async def aunified_read(
     completion, then the first exception (KB's before memory's) is re-raised, matching the sync
     variant's ordering.
     """
-    kb_outcome, memory_outcome = await asyncio.gather(
+    names = _checked_leg_names(legs)
+
+    # Each extra leg is *called* inside its own coroutine rather than in the generator that
+    # builds gather's arguments. A leg that raises synchronously -- before returning its
+    # awaitable, which an `async def` doing argument validation at the top does -- blew up
+    # while gather's arguments were still being constructed, so gather never ran and every
+    # sibling was skipped. The sync twin ran them all; this one did not, for the same input.
+    async def _call(name: str) -> Sequence[UnifiedResult]:
+        return await (legs or {})[name](query)
+
+    outcomes = await asyncio.gather(
         _akb_leg(knowledge, query, kb_filters),
         _amemory_leg(memory, scope, query),
+        *(_call(name) for name in names),
         return_exceptions=True,
     )
+    kb_outcome, memory_outcome, extra_outcomes = outcomes[0], outcomes[1], outcomes[2:]
+
+    extra: Dict[str, List[UnifiedResult]] = {}
+    first_extra_error: Optional[BaseException] = None
+    for name, outcome in zip(names, extra_outcomes):
+        if isinstance(outcome, BaseException):
+            extra[name] = []
+            first_extra_error = first_extra_error or outcome
+        else:
+            extra[name] = _labelled(name, outcome)
+
     if isinstance(kb_outcome, BaseException):
         raise kb_outcome
     if isinstance(memory_outcome, BaseException):
         raise memory_outcome
-    return UnifiedSlice(kb=kb_outcome, memory=memory_outcome)
+    if first_extra_error is not None:
+        raise first_extra_error
+    return UnifiedSlice(kb=list(kb_outcome), memory=list(memory_outcome), extra=extra)

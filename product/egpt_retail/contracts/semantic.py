@@ -60,7 +60,7 @@ __all__ = [
 ]
 
 #: Bumped on any breaking change, per the change protocol.
-CONTRACT_VERSION = "1.1.0"
+CONTRACT_VERSION = "1.2.0"
 
 
 class ProposalStatus(str, Enum):
@@ -115,6 +115,18 @@ class Column:
     #: API for types and concepts, and rows stay in the warehouse.
     sampled_values: Tuple[str, ...] = ()
     status: ProposalStatus = ProposalStatus.ACCEPTED
+    #: The concept this column is a property of, once a person has confirmed it (G19). A
+    #: column name carried by two tables is resolved by giving each side its own concept, so
+    #: ``analytics_event.session_id`` and ``session_replay_session.session_id`` stop being
+    #: one name and become two properties of two concepts. ``None`` until then.
+    concept: Optional[str] = None
+    #: What this column identifies, in one clause, as accepted through review. Distinct from
+    #: ``description``, which is what the schema author wrote: the harvest's comment is a
+    #: fact about the warehouse, the meaning is a decision about the semantic layer.
+    meaning: str = ""
+    #: Whether this column may be joined to another table's column of the same name. False
+    #: unless review said otherwise -- a shared name and type are not evidence of a join.
+    joinable: bool = False
 
 
 @dataclass(frozen=True)

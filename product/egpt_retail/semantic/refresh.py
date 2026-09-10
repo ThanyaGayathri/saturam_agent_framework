@@ -22,6 +22,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import KpiDefinition
+from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.semantic.harvest import HarvestDiff, diff_harvests, harvest_schema
 from egpt_retail.semantic.snapshots import (
     ReviewItem,
@@ -78,17 +79,26 @@ def refresh_semantic_layer(
     *,
     schema: str = "silver",
     version: str = "",
-    kpis: Sequence[KpiDefinition] = (),
+    kpis: Optional[Sequence[KpiDefinition]] = None,
     warehouse: Any = None,
     control_plane: Any = None,
     driver: Any = None,
 ) -> RefreshReport:
     """Harvest the warehouse schema, version it, write it to the graph, and say what moved.
 
+    Then the part K6 and K11 were each half of: the registry's definitions are checked
+    against the diff, the ones a change touches go into review, the ones it does not touch
+    are stamped as validated against the new snapshot, and the KPI mirror is rebuilt so a
+    table the harvest just added gets its ``READS`` edges. The P3 verification found none
+    of that wired -- ``kpis`` had to be passed by hand, so the nightly harvest could never
+    put a registered KPI into review.
+
     ``warehouse``, ``control_plane`` and ``driver`` are injectable so a test can drive this
     against whatever it likes; left unset, each is built from settings and closed here.
-    ``kpis`` are the definitions to check against the diff; until K11 persists them the
-    caller supplies them, and an empty sequence means no review items rather than an error.
+    ``kpis`` overrides the registry when given (a test, or a dry run against a draft set);
+    ``None`` reads the registry. **Only KPIs not in review are stamped.** A retyped column
+    leaves a formula computable by set difference, so stamping every ready KPI would stamp
+    the one whose meaning just changed and hide from K6's screen how far behind it is.
     """
     settings = settings or RetailSettings()
     owned: List[Any] = []
@@ -148,11 +158,31 @@ def refresh_semantic_layer(
         else:
             diff = None
 
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        definitions = tuple(kpis) if kpis is not None else registry.list()
         review = (
-            kpis_needing_review(diff, kpis, new_version=resolved)
-            if diff is not None and kpis
+            kpis_needing_review(diff, definitions, new_version=resolved)
+            if diff is not None and definitions
             else ()
         )
+        in_review = {item.kpi_identifier for item in review}
+        if kpis is None:
+            # Stamp first, mirror second. The mirror copies each definition's
+            # `validated_against_snapshot` onto its graph node, so mirroring before stamping
+            # publishes the *previous* run's value and the graph is permanently one refresh
+            # behind Postgres -- silently, because both are populated and neither is null.
+            available = {t.name.lower() for t in graph.list_tables()}
+            registry.stamp_validated(
+                [
+                    kpi.identifier
+                    for kpi in definitions
+                    if kpi.identifier not in in_review
+                    and kpi.source_tables <= available
+                ],
+                resolved,
+            )
+            registry.mirror(driver, database=settings.retail_neo4j_database)
         return RefreshReport(
             version=resolved,
             previous_version=previous,
@@ -172,12 +202,20 @@ async def arefresh_semantic_layer(
     *,
     schema: str = "silver",
     version: str = "",
-    kpis: Sequence[KpiDefinition] = (),
+    kpis: Optional[Sequence[KpiDefinition]] = None,
     warehouse: Any = None,
     control_plane: Any = None,
     driver: Any = None,
 ) -> RefreshReport:
-    """Async variant. Blocking I/O against three stores, run off the event loop."""
+    """Async variant. Blocking I/O against three stores, run off the event loop.
+
+    The ``kpis`` sentinel matches the sync twin exactly: ``None`` reads the registry, a
+    sequence overrides it. Review round 1 on the P3 PR found this defaulting to ``()`` after
+    the sync side moved to ``None`` -- which silently turned the registry read, the mirror
+    rebuild and the stamping off for every async caller. The two variants agreeing on their
+    sentinels is not a style point; a divergence here is a feature that exists on one path
+    and not the other, and nothing fails.
+    """
     return await asyncio.to_thread(
         refresh_semantic_layer,
         settings,

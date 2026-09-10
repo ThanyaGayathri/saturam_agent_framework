@@ -20,6 +20,7 @@ COMMANDS = (
     "warehouse-migrate",
     "load-knowledge",
     "harvest",
+    "schedule-nightly",
 )
 
 
@@ -89,6 +90,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     harvest.add_argument("--schema", default="silver")
     harvest.add_argument("--version", default="")
+
+    # Control plane only, like `migrate`: it writes the schedule row and exits, and the
+    # pipelines pod's poller does the rest. See entrypoints/schedule_nightly.py.
+    nightly = sub.add_parser(
+        "schedule-nightly",
+        help="Register (or update) the 01:00 UTC nightly-refresh schedule and exit.",
+    )
+    nightly.add_argument("--cron", default=None)
+    nightly.add_argument(
+        "--if-exists", default=None, choices=("raise", "skip", "update")
+    )
     return parser
 
 
@@ -131,6 +143,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         from egpt_retail.entrypoints.harvest import main as run_harvest
 
         return run_harvest(["--schema", args.schema, "--version", args.version])
+    if args.command == "schedule-nightly":
+        from egpt_retail.entrypoints.schedule_nightly import main as run_schedule
+
+        argv_nightly: List[str] = []
+        if args.cron is not None:
+            argv_nightly += ["--cron", args.cron]
+        if args.if_exists is not None:
+            argv_nightly += ["--if-exists", args.if_exists]
+        return run_schedule(argv_nightly)
     raise SystemExit(
         f"unknown command {args.command!r}"
     )  # pragma: no cover -- argparse refuses first

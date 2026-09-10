@@ -82,9 +82,8 @@ def test_build_registry_registers_and_validates_them() -> None:
 def test_the_workflow_has_the_six_steps_in_order() -> None:
     settings = RetailSettings()
     workflows = build_workflows(settings, build_control_plane_db(settings))
-    assert len(workflows) == 1
-    workflow = workflows[0]
-    assert workflow.id == LANDING_TO_SILVER_WORKFLOW_ID
+    # R5 registers nightly-refresh beside it; this test is about the hand-run chain alone.
+    workflow = next(w for w in workflows if w.id == LANDING_TO_SILVER_WORKFLOW_ID)
     assert [step.executor.__name__ for step in workflow.steps] == [
         executor.__name__ for executor in WAREHOUSE_EXECUTORS
     ]

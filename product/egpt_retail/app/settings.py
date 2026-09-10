@@ -123,6 +123,16 @@ class RetailSettings(BrandedSettings):
             )
         return value
 
+    retail_allow_unsafe_gold_options: bool = Field(
+        default=False,
+        description=(
+            "Permit a workflow's additional_data to disable gold's quality gate "
+            "(allow_unverified_silver) or its statement timeout "
+            "(EGPT_RETAIL_ALLOW_UNSAFE_GOLD_OPTIONS). Off by default: that bag is "
+            "client-supplied, so without this whoever can start a workflow can write gold "
+            "from unverified silver. On for a deliberate backfill, and only then."
+        ),
+    )
     retail_knowledge_table: str = Field(
         default="egpt_retail_domain_prose",
         description="pgvector table for the domain prose (EGPT_RETAIL_KNOWLEDGE_TABLE).",

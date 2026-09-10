@@ -384,6 +384,9 @@ def test_kb_result_carries_document_identity_and_score():
         score=0.7,
         id="d1",
         metadata={"page": 3},
+        # K10: every result names the leg that produced it, so a ranking fused across stores
+        # can say where each hit came from.
+        origin="kb",
     )
 
 

@@ -72,6 +72,7 @@ async def get_request_kwargs(request: Request, endpoint_func: Callable) -> Dict[
         - session_state: JSON string of session state dict
         - dependencies: JSON string of dependencies dict
         - metadata: JSON string of metadata dict
+        - additional_data: JSON string of the workflow run's additional_data dict
         - knowledge_filters: JSON string of knowledge filters
         - output_schema: JSON schema string (converted to Pydantic model by default)
         - use_json_schema: If "true", keeps output_schema as dict instead of converting to Pydantic model
@@ -113,6 +114,23 @@ async def get_request_kwargs(request: Request, endpoint_func: Callable) -> Dict[
         except json.JSONDecodeError as e:
             kwargs.pop("metadata")
             log_warning(f"Invalid metadata parameter couldn't be loaded: {metadata}: {str(e)}")
+
+    # `additional_data` is the workflow run's per-step bag (`StepInput.additional_data`), and a
+    # scheduled run is the path that most needs it: `ScheduleExecutor._to_form_value` JSON-
+    # encodes a dict payload value, so a schedule created with `payload={"additional_data":
+    # {...}}` arrived here as a string and every executor that read the bag as a mapping
+    # failed on its first key. Parsed the same way `metadata` is above; a string that is not
+    # JSON is dropped with a warning rather than handed on as a bag that cannot be indexed.
+    if additional_data := kwargs.get("additional_data"):
+        try:
+            if isinstance(additional_data, str):
+                additional_data_dict = json.loads(additional_data)  # type: ignore
+                if not isinstance(additional_data_dict, dict):
+                    raise json.JSONDecodeError("additional_data must be a JSON object", additional_data, 0)
+                kwargs["additional_data"] = additional_data_dict
+        except json.JSONDecodeError as e:
+            kwargs.pop("additional_data")
+            log_warning(f"Invalid additional_data parameter couldn't be loaded: {additional_data}: {str(e)}")
 
     if knowledge_filters := kwargs.get("knowledge_filters"):
         try:

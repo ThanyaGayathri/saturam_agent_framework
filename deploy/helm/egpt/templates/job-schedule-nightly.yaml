@@ -1,0 +1,33 @@
+# Registers the nightly-refresh schedule (R5, D7) after every install and upgrade.
+#
+# post-install rather than pre-install: the schedule table is the control plane's, created by
+# the migrate hook that gates the release, so this has to follow it. It writes one row and
+# exits -- the pipelines Deployment's scheduler poller is what runs the workflow -- so it
+# needs only the control-plane URL, inline like migrate's, and nothing from the release
+# ConfigMap. Idempotent: `if_exists=update`, so a changed cron lands on the next upgrade.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-schedule-nightly
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.scheduleNightly.backoffLimit }}
+  template:
+    metadata:
+      labels: {{- include "egpt.labels" . | nindent 8 }}
+        app: {{ .Release.Name }}-schedule-nightly
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: schedule-nightly
+          image: {{ include "egpt.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["schedule-nightly", "--cron", {{ .Values.scheduleNightly.cron | quote }}]
+          env:
+            - name: EGPT_RETAIL_DB_URL
+              value: {{ .Values.database.directUrl | default .Values.database.url | quote }}
+          securityContext: {{- include "egpt.securityContext" . | nindent 12 }}

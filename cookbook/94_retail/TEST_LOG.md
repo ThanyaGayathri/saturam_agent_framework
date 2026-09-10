@@ -2983,3 +2983,915 @@ for a plain `resolve` (3). Cookbook offline half PASS on 3.12 and 3.10.
 `ROUTING_TABLE` reserves `enrichment_proposer`/`mapping_proposer` (K8) and `spec_extractor`
 (R9) / `funnel_explanation` (R10) — a package that registers one of those under another id
 refuses at startup, which is the point, but the name is the contract.
+---
+
+### K11_kpi_registry_and_feasibility.py
+
+**Status:** PASS
+
+**Description:** K11 — the KPI registry, its graph mirror, and feasibility. The plan's
+scenario: assess the whole registry, remove one table from the snapshot and re-run, then a
+KPI needing two tables that are both missing.
+
+Six definitions over the real silver schema, one of them naming `orders` and `order_items`,
+which this warehouse has never held.
+
+**Three things this package deliberately does not do.**
+
+*Feasibility is never stored.* There is no verdict column and no write carries one — a cached
+verdict goes stale the moment a harvest runs, and a stale verdict still renders as a confident
+badge. It is computed against the live snapshot every time it is asked for. Two DB-free tests
+assert the CREATE TABLE has no such column and no INSERT invents one.
+
+*Feasibility is never a judgment.* `assess_registry` is a set difference over two frozensets:
+no model, no client, no callable. The executor's whole job is wiring — resolve the two stores,
+subtract, return the rows the discovery screen renders.
+
+*A blocked KPI is not stamped as validated.* `revalidate` writes `validated_against_snapshot`
+— the field P2 flagged as read by K6 and written by nobody — but only for definitions whose
+every table is present. "Validated against snapshot X" has to mean the formula could run
+against X, or K6's review screen inherits a claim nobody checked.
+
+**The middle step is the one worth reading.** Removing `crm_contact` produces *both* a blocked
+and a partial from one removal: `k11_contact__reachable` reads only that table and is blocked;
+`k11_deal__pipeline_by_contact` reads it beside `crm_deal` and is partial. That distinction is
+what a customer deciding what to connect next actually needs — "this area is unavailable"
+versus "you are one table away".
+
+**Result:**
+
+```
+1. 6 definitions stored, 5 tables in the layer   {'ready': 5, 'partial': 0, 'blocked': 1}
+2. two-missing case      missing: ['order_items', 'orders']   -- both, not the first found
+3. revalidation          5 validated against k11-full.1, 1 left unstamped
+4. mirror                6 KPIs; Deal -> 3 metrics by traversal
+                         KPIs reading crm_contact: contact__reachable, deal__pipeline_by_contact
+5. crm_contact removed   {'ready': 3, 'partial': 1, 'blocked': 2}
+                         contact__reachable    ready -> blocked
+                         deal__pipeline_by_contact  ready -> partial
+6. restored              {'ready': 5, 'partial': 0, 'blocked': 1}; 0 nodes left behind
+```
+
+**Tests:** 15 DB-free in `product/tests/test_k11_registry.py` (round-trip through the stored
+row, the vocabulary gate refusing to write anything on a bad term, the mirror's prune being
+label-scoped, discovery rows leading with blocked). 6 live in `test_semantic_live.py` covering
+the mirror, its prune, a formula that stops reading a table losing its `READS` edge, and
+revalidation.
+
+**A defect the sweep found in this package, before it was committed.** The first mirror did
+`MERGE (c:SemanticConcept {name: row.concept})` to hang its `MEASURED_BY` edge, so registering
+six KPIs invented three concepts — `Deal`, `Contact`, `Order` — that no proposal had ever
+produced. That breaks D10 outright: concepts enter the graph through review and nowhere else,
+and a KPI naming one must not be able to conjure it. It surfaced as `K05_semantic_graph`
+failing with *"the graph store and the stub gave a caller different answers"* — the invented
+nodes showed up in `list_concepts()` on the real store and not in the stub.
+
+Fixed by matching instead of merging, which is the rule the same method already applied to
+tables and which I had written down two paragraphs above the line that broke it: *"a source
+table the graph does not hold simply gets no edge — inventing a placeholder would put a table
+in the semantic layer that no harvest ever saw."* The cookbook now writes `Deal`, `Contact`
+and `WebSession` as accepted enrichment would, leaves `Order` unproposed on purpose, and
+asserts the KPI naming it carries no edge and no node was created.
+
+**A second defect, found by the same sweep.** With the concepts fixed, `K05_semantic_graph`
+still failed — this time on *"the rebuilt copy differs from the original"*. K11's cookbook had
+written a concept called `WebSession`, which is a name K05's cookbook owns, overwriting its
+description in the shared graph; K05 then promoted a different set of concepts into shared
+memory than it had written. K05 passed when run alone and failed in the sweep, which is the
+signature of order-dependent state rather than a code defect.
+
+Fixed by giving K11's cookbook its own names (`K11Deal`, `K11Contact`, `K11Session`,
+`K11Order`) and a cleanup that removes anything starting `K11`. **A cookbook must not reuse
+another cookbook's fixture names** — the stores are shared, so a name collision is a mutation,
+and it surfaces two cookbooks away from its cause.
+
+**Surprising, twice over.** First: the mirror needed to *delete* a KPI's `READS` edges before
+rebuilding them, not just MERGE new ones. A formula edited to stop reading a table would
+otherwise keep the old edge forever, and that edge's only purpose is answering "which KPIs
+does this table break" — which it would then answer wrongly, over-reporting, on a review
+screen someone is trying to trust.
+
+Second, and more instructive: I wrote the correct rule for tables and broke it for concepts in
+the same method, and no test of mine caught it. Another package's cookbook did, because it
+compares two implementations that must agree. Cross-implementation equivalence checks find
+things single-implementation assertions cannot — that is the second time K5's stub-versus-store
+scenario has paid for itself.
+
+---
+
+---
+
+### K10_unified_retrieval.py
+
+**Status:** PASS
+
+**Description:** K10 — one entry point across memory, domain prose, the ontology and the
+semantic layer, fused by rank. The plan's scenario: ask a question needing two sources (a
+domain rule plus a table name), then disable a leg and ask again.
+
+The question is *"what is a quote request and which table holds deal records"*. No single
+store can answer it: the prose explains quoting, the ontology defines `QuoteRequest`, and only
+this customer's semantic layer knows the table is `crm_deal`.
+
+**What was actually missing.** The framework already had Reciprocal Rank Fusion — in
+`memory/retrieval/fuse.py`, typed to `MemoryRecord`, so nothing above the memory store could
+reach it. And `unified_read` already spanned KB and memory but deliberately held the two
+apart: *"Ranking the two together is out of scope."* So the gap was not a missing algorithm,
+it was an algorithm one store owned. K10 extracts a generic `rrf_rank` core, has the existing
+`rrf_fuse` delegate to it (all 17 of its tests pass unchanged), and gives `UnifiedSlice` a
+`fused()` that ranks every leg together.
+
+**Why fusing incomparable stores is defensible at all.** A prose chunk's score is a vector
+similarity, an ontology hit's is a Neo4j index score, the semantic layer's is a name overlap.
+RRF reads none of them — it reads each leg's *position*. That is the property that made
+reaching for the existing implementation right rather than writing a second one: two
+implementations of a ranking rule are two chances to disagree, and on a fused result set a
+disagreement is invisible — the order is merely different, never obviously wrong.
+
+**Result:**
+
+```
+1. four legs asked          kb 5 · memory 0 · ontology 5 · semantic 3
+2. fused ranking            origins present: kb, ontology, semantic
+                            a domain rule from the prose: True
+                            a table name from the semantic layer: True
+3. semantic leg disabled    origins: kb, ontology — no table name survives
+4. prose leg disabled       origins: ontology, semantic — no domain rule survives
+5. asked-and-empty          all four legs present, semantic 0 hits
+   vs never-asked           three legs present
+```
+
+**Two design decisions worth recording.**
+
+*Identity across stores is normalised content, not id.* Ids are per-store, so identity by id
+would make every cross-store pair distinct and reduce fusion to an interleave — the one thing
+a unified read exists to improve on. Content is the only key two stores share, and the case it
+gets right is the case that matters: a rule the prose states and memory has also recorded
+reads as corroborated by two legs.
+
+*A corroborated hit reports every leg that had it.* The fused item keeps the copy from the leg
+that saw it first, so `origin` alone names one contributor. A unit test caught that while I was
+writing it — the fused set was missing `ontology` entirely because its only hit was one the KB
+also had. `metadata["fused_origins"]` now lists them all: *"the prose and the ontology both say
+this"* is a different claim from *"two legs said this"*.
+
+**Framework changes** (`libs/agno/egpt/memory/retrieval/`, so every deployment inherits them):
+generic `rrf_rank` + `FusedItem`; `UnifiedResult.origin`; `UnifiedSlice.extra`, `legs()` and
+`fused()`; extra named legs on both `unified_read` and `aunified_read`, run concurrently on the
+async path. One existing framework test asserted the old `UnifiedResult` shape and was updated
+— the added field is deliberate. 3759 memory tests pass; import-linter contracts both kept.
+
+**Surprising:** the hardest part was not the fusion, it was resisting a second implementation.
+The obvious move was a fresh RRF over `UnifiedResult` — it would have been thirty lines and
+looked clean. It would also have been the second ranking rule in the codebase, and the first
+time the two disagreed nobody would have noticed.
+
+---
+
+---
+
+### K08_proposers.py
+
+**Status:** PASS
+
+**Description:** K8 — the enrichment and mapping proposers, run against the real silver
+harvest with sampled values on. The plan's scenario: run both, read the proposals by eye and
+judge each one, query the graph before reviewing anything, and check every collision K4
+reported has a resolution.
+
+**The D10 guarantee is structural, and the cookbook proves it.** `graph before` and
+`graph after` are byte-identical — `{'concepts': 2, 'instantiates': 4, 'authoritative': 1}`
+both times — with 13 proposals sitting in the queue. Neither skill module imports a graph
+store; a unit test asserts that, so the guarantee cannot be undone by a later edit that
+"just needs a quick write".
+
+**G19: every collision resolved on both sides.** Eight column names collide across the silver
+schema; the agent resolved each on every table carrying it. The one that matters:
+
+```
+analytics_event.session_id        -> the analytics vendor's session id, explicitly in a
+                                     separate id space from session_replay_session.session_id
+session_replay_session.session_id -> the session replay system's id for the replay session
+both: not joinable
+```
+
+That is the exact trap R4's DDL comment warns about, and the agent found it from the comment
+rather than from the name — which is the only way it could have been found.
+
+**G20: two contested concepts, one authoritative each.** `QuoteRequest` → `crm_deal` (over
+`crm_deal_stage_history`), `WebSession` → `session_replay_session` (over `analytics_event`).
+
+**Judging the proposals — the baseline.** Of the 13, I judge **2 wrong and 1 arguable**:
+
+| # | Proposal | Verdict |
+|---|---|---|
+| 11 | `crm_deal_stage_history → QuoteRequest` | **Wrong.** A stage-history table is a record of transitions *about* a quote request, not an instance of one. The agent itself marked it `low` and said it "appears secondary" |
+| — | `Customer` ← `identity_at_login` / `identity_at_submit` as personal-data fields | **Wrong.** Those are session identities on a replay table; attaching them to Customer confuses a session actor with a customer record |
+| 9 | `WebSession` authoritative = `session_replay_session` | **Arguable.** Replay is typically sampled, so `analytics_event` is the broader source for "how many sessions". Exactly the judgement G20 exists to put in front of a person |
+
+**That is 2/13 clearly wrong, and it is this number that later prompt changes are measured
+against.** It is my judgement, not the user's — the baseline is theirs to confirm, and the
+numbered list in section 5 of the cookbook output is printed for exactly that.
+
+**Two defects this run found — both mine, not the agents'.**
+
+*The agent was given the wrong concept list.* The first run loaded the core ontology only, so
+`QuoteRequest` — which lives in the Middleby overlay — was not on it. The agent mapped
+`crm_deal → Order`, which is wrong, and it was the best answer available: the right word was
+not in the set it was allowed to use. **An agent constrained to a closed set can only be as
+right as the set**, and offering the wrong one produces a plausible mapping that reads as a
+model failure. Fixed by loading the overlay; the mapping became `crm_deal → QuoteRequest`.
+
+*The agent told me about the second one.* Its notes said *"No accepted synonyms from other
+concepts were provided, so synonym collision could not be checked"* — and it then proposed
+`contact` as a synonym for `Customer`, which is the name of another concept and which K3's
+synonym index refuses outright. `taken_terms` was declared as an input in the prompt and never
+passed. After passing it, the proposal disappeared and the notes read *"terms such as
+'contact', 'lead', 'prospect', and 'person' are already spoken for."* A measurable input
+change with a measurable result — which is the discipline this baseline exists to support.
+
+*Also fixed:* the agent was asked to restate `alternatives` for an authoritative source. Those
+are derivable — the alternatives to a table are the other tables mapped to the same concept —
+so they are now derived from the response and the model's own field is advisory. On the first
+run it marked a single-table concept authoritative with an empty list; that case now cannot
+reach the queue at all, because an uncontested concept has no contest to settle.
+
+**Run-to-run variation** is real and worth recording: three runs produced 12, 14 and 13
+proposals. The mappings that differed were the low-confidence ones (`crm_deal → Order` vs
+`→ Promotion` before the overlay landed); the high-confidence mappings, both authoritative
+sources and all eight collision resolutions were stable across every run. That is the right
+shape — the agent is steady where the evidence is strong and varies where it is weak — but it
+means a golden set (G13/R15) has to score the confident half separately.
+
+**Tests:** 23 DB-free in `product/tests/test_k8_proposers.py` — prompts carrying their closed
+sets in full, vocabularies rendered rather than hand-typed, a prompt missing its placeholder
+refused, unresolved collisions detected, and the structural check that neither module imports
+a graph store.
+
+**Surprising:** the model was a better reviewer of my inputs than I was. Both input defects
+were visible in its `notes` field before I noticed either — one stated outright, one implied
+by a low-confidence mapping with an apologetic rationale. The refusal channel section 8 of the
+template insists on is not just for refusals; it is where an agent tells you your pipeline is
+wrong, and it is worth reading even when the run succeeded.
+
+---
+
+---
+
+### K09_business_areas.py
+
+**Status:** PASS
+
+**Description:** K9 — which business areas a deployment can answer about. A deterministic
+executor, not an agent. The plan's scenario: list areas with no source connected, connect the
+sample source and confirm its mappings, list again, then run the detection twice on unchanged
+data.
+
+**Two facts kept apart, which is the whole package.** An area *exists* because the shipped
+ontology has concepts in it — seven areas, listed with no database consulted at all, which is
+what lets a customer configure the areas their business has before a connector has ever run.
+An area is *supported* because some concept in it has a table mapped to it, and only an
+accepted proposal writes that edge.
+
+**A proposal alone supports nothing.** The cookbook proposes three mappings, checks — still
+zero areas supported — then accepts and applies them, and exactly `customer`, `marketing`,
+`sales` become supported. That intermediate check is the D10 assertion: if proposing were
+enough, the badge would be describing what an agent suggested rather than what a person
+confirmed.
+
+**A defect this found in K5.** `list_business_areas`'s docstring read *"Areas reachable from
+confirmed concept mappings. Empty means no source connected."* The query behind it does no
+such thing — it returns every area named by an accepted concept, mapped or not. Both sentences
+were wrong, and the method name reads correct either way, which is why it survived two reviews.
+Corrected to say what it does, with a pointer to the new `business_area_evidence()` for the
+question it was claiming to answer. The old method is still right for what a *configuration*
+screen needs; it was only the docstring that overclaimed.
+
+**Result:**
+
+```
+1. areas in the shipped ontology   7, no database consulted
+2. no source connected             7 listed, 0 supported
+3. proposed, not yet reviewed      3 pending, 0 supported
+4. accepted and applied            customer, marketing, sales -- each naming its evidence
+5. run twice on unchanged data     identical, field for field
+6. restored                        4 INSTANTIATES edges before, 4 after
+```
+
+**On removing the graph's edges to reach the empty state.** The cookbook deletes every
+`INSTANTIATES` edge and restores them in a `finally`. Passing an empty dictionary to the pure
+function would have been safer and would have demonstrated the arithmetic rather than the
+query — and the query is the part that could be wrong. After the K11 lesson about cookbooks
+mutating each other's fixtures, the restore is asserted, not assumed: edge count before and
+after is compared and a mismatch fails the run.
+
+**Tests:** 18 DB-free in `product/tests/test_k9_business_areas.py`. The ones worth naming:
+evidence naming zero concepts must not read as support (that is what a query returns for an
+area nothing mapped, and a green badge on it would be a promise with no data behind it);
+evidence for an area the ontology has since dropped is ignored rather than rendered; and a
+source-level assertion that the module imports no agent, no driver and no model client — the
+determinism guarantee is structural, like K8's.
+
+**Surprising:** the honest answer to "which areas does this deployment support" needed *two*
+queries, not one, and the existing method's name concealed that. "Areas the ontology covers"
+and "areas with data behind them" are different questions with different callers — a
+configuration screen wants the first, a capability badge the second — and one method answering
+whichever the reader assumed is how a customer ends up told they support inventory because
+somebody wrote a concept description.
+
+---
+
+---
+
+### P3 verification — nine gaps, all fixed; the K8 baseline re-measured across three runs
+
+**Status:** PASS — 448 unit, 33 live, cookbook sweep 23/23 across both lanes
+
+The same exercise as P1 and P2: read K11, K10, K8 and K9 against the five constraints and the
+plan's evidence lines, then probe the live stores rather than trust the cookbooks written
+alongside the code. Ordered by what it would have cost.
+
+**1. Accepting an enrichment proposal erased what a person had already accepted. (critical)**
+`write_concept` set every field unconditionally. A K8 proposal carrying synonyms and nothing
+else would, on acceptance, reset `QuoteRequest`'s description to `""` and blank the
+`sql_filter` accepted the week before — proved against the live node, which holds
+`d.record_type = 'deal'` today. A reviewer accepting *"add these synonyms"* was not accepting
+*"and forget the filter"*. Now lists union and scalars replace only when non-empty; a live
+test writes a full concept, then a partial one, and asserts nothing was lost. The cost is that
+nothing can now take a value away — filed as **K-6**, a `retraction` kind for P4.
+
+**2. K6 and K11 were each half of the same feature, and nobody had joined them. (high)**
+`refresh_semantic_layer` took `kpis=()` "until K11 persists them" — K11 now did, and the
+refresh still read nothing, so the nightly harvest could never put a registered KPI into
+review, never rebuilt the KPI mirror after a table appeared, and never stamped anything. Now
+wired, with one rule that matters: **only KPIs *not* in review are stamped.** A retyped
+column leaves a formula computable by set difference, so stamping every ready KPI would stamp
+the one whose meaning just changed and hide from K6's screen how far behind it is. Live test:
+drop a column one KPI reads, refresh — that KPI is in review and keeps its old stamp, the
+other is stamped with the new version.
+
+**3. `ProposalKind.KPI` had no consumer and its payload was just a name. (high)** K7 left it
+outside `GRAPH_KINDS` because the registry consumes it — and there was no registry code that
+did. An accepted KPI proposal stayed accepted forever. `_kpi_from` now builds a full
+`KpiDefinition` at propose time (so a formula reading an undeclared table fails *there*), and
+`KpiRegistryStore.adopt_accepted` saves it and stamps `applied_at`, idempotently.
+
+**4. G19 resolutions were parked in the wrong home. (medium)** The mapping proposer put
+"what this column means" into the concept's `question_patterns` — a field the enrichment
+agent owns, and a hack the docstring half-admitted. A column's accepted meaning, concept and
+joinability are properties of the column. `Column` gains `concept`, `meaning`, `joinable`
+(contract 1.2.0, additive), `ProposalKind.COLUMN_MEANING` writes them, `get_table` reads
+them back. Eight collisions now land as eight-per-table column meanings, and the K08 verdict
+fails if one ever reappears in a question pattern.
+
+**5. K9 trusted an agent's business area. (medium)** `business_area_evidence` read
+`c.business_area` off the graph node — which arrives through an enrichment proposal an agent
+drafted. The baseline runs then supplied the proof: run C put `WebSession` in `operations`,
+run A in `customer`; the ontology says `marketing`. A concept's area is shipped knowledge,
+so K9 now reads the mapped concepts from the graph and their areas from the ontology, and an
+agent's opinion about area is no longer consumed by anything.
+
+**6. `Concept.metrics` had two writers. (medium)** `write_concept` set it from the enrichment
+payload — candidate *names* an agent thought of — while the K11 mirror is the thing that
+knows which registry identifiers a concept actually carries. The mirror now owns it, computed
+from `MEASURED_BY` edges *after* the prune (the first attempt ran before it and a deleted KPI
+stayed on its concept's list — the live test caught that in the first run); enrichment
+carries candidates as `candidate_metrics` for K12.
+
+**7. `is_personal_data` on `Column` was hardcoded `False`** with a comment promising enrichment
+would set it, and nothing ever did. Now derived from the personal-data fields of the concepts
+the table instantiates.
+
+**8. The K10 memory leg had never run live**, and when it did, nothing corroborated — memory
+holds `promotable_text(concept)` while the semantic leg rendered the same node another way.
+Identity by content can only recognise identical statements, so two legs reading the *same
+node* must render it through the *same function*; that is K5's derivation contract, not a
+patch. The fused ranking now leads with `[memory, semantic]`, one finding from two legs.
+
+**9. The semantic leg ignored columns.** "Which table has email" could not be answered. Tables
+now match on column names too, at lower weight, naming the column in the result.
+
+Also: `rrf_rank`, `FusedItem`, `Leg`, `AsyncLeg` and `default_identity` were never exported
+from `egpt.memory.retrieval`; the Neo4j `CALL { WITH … }` form the mirror used is deprecated
+and is now `CALL (k, row) { … }`.
+
+**The K8 baseline, double-checked.** Two further runs against the committed one; the full
+comparison and every verdict are in `K08_BASELINE.md`, one row per proposal, with a column
+for the owner to confirm or overrule. The headline: **mappings are stable** — the same five
+in all three runs, both authoritative sources identical, all eight collisions resolved on
+both sides every time with `joinable=false` throughout; the only wobble is the confidence on
+the one mapping I judge wrong. **Enrichment is stable on structural claims and unstable on
+judgement claims** — which column is personal data and which synonym the harvest supports
+hold across runs; which area, and whether an identity field is `pii` or `pseudonymous_id`,
+do not. That split is the right shape and it dictated fix 5.
+
+**The number: 3 of 19 distinct proposals a reviewer would reject or edit** (one wrong mapping,
+one arguable authoritative source, one right enrichment with one wrong item inside it), or 2
+of 19 if the arguable source is accepted as the agent argued it. That is the baseline until
+the owner marks the last column of `K08_BASELINE.md`.
+
+**Surprising:** four of the nine gaps were seams between packages built days apart by the same
+person — K6/K11, K7/K11, K8/K9, K5/K10 — each side correct alone and the join missing. A
+package's own cookbook cannot find a missing join, because it tests the package. The question
+that found these was not "does this work" but "who consumes this, and did I ever run them
+together?"
+
+---
+
+---
+
+### R07_preflight_blocked_kpi.py
+
+**Package:** R7 (P2, implements G4 — preflight against a blocked KPI)
+**Status:** PASS
+
+**Description:** Reproduces the API contract's own worked example
+(`api/openapi/paths/use-cases.yaml`'s `runUseCasePreflight`, `product__avg_rating` /
+`web_sessions`) directly against `check_preflight`, no workflow, no database, no live semantic
+layer needed — `assess_feasibility` is a pure set difference. Then re-runs the same use case
+with the missing table exposed.
+
+**Result:** Blocked case: `allowed=False`, `blocked_by=["kpis_ready"]`, `StepOutput.stop=True`,
+the `kpis_ready` check's reason reads `"product__avg_rating: partial -- missing from the
+semantic snapshot: web_sessions."` — the contract's own text, verbatim. The other three checks
+(`tables_exposed`, `gold_fresh`, `guard_role`) all pass, each naming what is unbuilt (K5, R5,
+R6-wiring) rather than pretending to be computed. Once `web_sessions` is added to
+`available_tables`, the same use case passes: `allowed=True`, `blocked_by=[]`.
+
+---
+
+### PR #199 review round 1 — one real regression, one finding overtaken by Lane R
+
+**Status:** PASS — 535 unit (+19), 3759 framework, 33 live, cookbook sweep 22/23
+
+**The critical was mine and it was exactly the failure CLAUDE.md's sync/async rule exists to
+stop.** `refresh_semantic_layer` moved its `kpis` sentinel from `()` to `None`-means-read-the-
+registry and gated the new mirror/stamp block on `kpis is None`. `arefresh_semantic_layer`
+kept `()` and forwarded it — so every async caller got the *old* behaviour: no registry read,
+no mirror rebuild, no stamping, and nothing failing. The P3 verification wrote that fix and
+then shipped it on one of two paths. Both variants now share the sentinel, and the docstring
+says why a divergence here is not a style point.
+
+**The CI finding was right when written and had been fixed by Lane R before I read it.**
+Round 1 called `test_semantic_live.py` unreachable by any CI job — the same failure class the
+tests exist to close. That was true of the tree the reviewer read. It is no longer: Lane R
+closed **R-9** on 9 Sep, wiring the suite into `integration.yml` with services, an
+`egpt_warehouse` create, `warehouse-migrate`, and — impressively — a comment tracing my test's
+own `os.environ.get` calls to get the DSN variable names right.
+
+I had already drafted a PR-triggered `product-live` job for `ci.yml` before finding that.
+**Reverted it.** It duplicated about a hundred lines of services, install and warehouse setup
+Lane R had just written, in Lane R's file, and two copies of that setup drift. What survives
+the finding is narrower and is filed as **R-10**: `integration.yml` triggers only on schedule
+and dispatch, so the suite catches a regression within 24 hours rather than before merge. For
+a data-loss class guarantee — accepting an enrichment erasing accepted fields — that gap is
+worth closing, but the shape of the fix (a `pull_request` trigger pulls the whole 25-minute
+framework suite onto every PR) is a decision about Lane R's workflow, not mine to take.
+
+**The two majors, both fair.**
+
+*N+1 on the live query path.* `_semantic_results` called `get_table` once per table on every
+retrieval — a fifty-table warehouse meant fifty-one round trips to answer one question. Added
+`SemanticGraphStore.column_index()`, one query for the whole graph, reached through a
+`runtime_checkable` protocol so a reader without it (the P0 stub) takes a documented fallback
+rather than failing. Two tests: the indexed reader is asked once and `get_table` zero times;
+the unindexed one still answers correctly.
+
+*297 lines of `legs.py` with no unit coverage.* Now 19 tests: the ranking rule that makes
+`crm_deal` beat `crm_deal_stage_history` on "deal", column-only matching, the ontology leg's
+dedup across its store's two internal legs, `None`-means-no-leg, and the concept rendering
+that must match `promotable_text` or fusion can never corroborate.
+
+**Four test-quality minors, each a fair hit on a test that could not fail.**
+
+- The two "one leg fails, the sibling survives" tests asserted only that the exception
+  surfaced — they would pass unchanged against a fail-fast implementation that never called
+  the sibling, which is the entire property. Both now record what ran; the async one sleeps in
+  the surviving leg so "awaited to completion" is distinguishable from "started".
+- The "no proposer imports a store" check was a substring grep of the module's own text. A
+  helper two hops away could have held the driver. Now walks the import graph transitively.
+- The registered `detect_business_areas` executor had no determinism test, only the pure
+  helper it calls. Added, with the driver stubbed.
+
+**Three code minors:** `is_personal_data` matched an *unqualified* `personal_data_fields`
+entry against every table's same-named column — over-tagging, not a leak, but a compliance
+flag wrong in the safe direction still teaches a reviewer to stop reading it; now only a
+`table.column` entry naming this table counts. `stamp_validated` committed once per KPI in a
+loop and now takes the batch. `_ddl` is bound to `self._schema` instead of the module
+constant, so a store constructed with a different schema no longer creates its table in one
+place and reads it from another.
+
+**A pre-existing failure found by the sweep, not mine.** `R01_consolidator_no_work` fails on
+`main`: it asserts one scope with no work, and the consolidator now defaults to two agents.
+Verified by stashing every Lane K change — it fails identically — and by
+`git diff origin/main..HEAD`, which shows this branch touches neither the consolidator
+entrypoint nor settings. Filed as **R-11**; Lane R's cookbook, left alone.
+
+**Result:** `pytest product/tests/test_r7_*.py` — 46 passed (12 new: 1 preflight, 7 delivery
+inc. 4 DDL, 4 provenance-adapter inc. 2 direct-executor, 4 in a new
+`test_r7_control_plane_engine.py`). `pytest libs/agno/tests/unit/answer_provenance/` — 13
+passed, unchanged. `./scripts/format.sh && ./scripts/validate.sh` — both clean (`product`:
+382 passed, 7 skipped; ruff, mypy, API contract all green). Both cookbooks re-run against the
+real control-plane Postgres (`EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai`,
+after re-running `egpt-retail migrate`): `R07_executor_library.py` — the new
+`provenance_ref == output.run_id == run_id` assertion held on both the real and dry-run
+sections; `R07_preflight_blocked_kpi.py` — unchanged behavior, still blocks and clears exactly
+as before.
+
+### R05_gold_materialisation.py
+
+**Status:** PASS (twenty checks, against the compose Postgres and Neo4j; on Python 3.12 —
+the service-free companion below also on 3.10).
+
+**Description:** R5's Verify line end to end (D6, D7). Seeds the warehouse DDL (13 scripts,
+`070_gold.sql` and `075_gold_grants.sql` new), harvests silver into the graph as snapshot
+`r05.1`, and saves K11's six definitions in the registry. Then: (1) `nightly-refresh` driven
+by hand — R4's six steps then `materialise-gold`: two KPIs materialise
+(`k11_contact__reachable`, `k11_session__replay_coverage`), three fail at the compile probe
+with Postgres's message verbatim in `gold.kpi_run.error` (`column "amount" does not exist`,
+`column d.deal_id does not exist`, `column d.amount does not exist`), one is skipped as
+blocked naming `order_items, orders`; the run is COMPLETED. (2) Gold versus SQL:
+`gold.kpi_k11_contact__reachable[today] = 2` equals `SELECT count(*) FROM silver.crm_contact
+WHERE email IS NOT NULL`, every `kpi_value` row carries snapshot, tables, formula hash,
+`computed_at` and `run_id`. (3) `k11_contact__reachable` broken on purpose (a column silver
+lacks) and the gold step re-run alone: it fails with `column "phone_number" does not exist`
+in `gold.kpi_latest_run`, the other KPI still materialises, the last good value survives, a
+same-night re-run overwrites rather than duplicates, and R7's bag holds 8 dataset reads, 5
+statements and a freshness stamp. (4) `read_gold` through the guard by the per-KPI view,
+latest `as_of` by default, the blocked KPI listed as `missing` not invented. (5) A blocked
+night: a nulled key column → COMPLETED run with **no** `materialise-gold` in `step_results`,
+`quality.load_run.verdict = blocked`, gold byte-for-byte unchanged; a hand run of the gold
+step afterwards refuses, naming the verdict. (6) `egpt-retail schedule-nightly` registers
+`nightly-refresh` at `0 1 * * *` with `{"message": ..., "additional_data": {"trigger":
+"schedule"}}`; a trigger through `ScheduleExecutor` against the in-process pipelines app
+(`httpx.ASGITransport`) returns `status=success`, the load it ran is recorded with
+`trigger='schedule'` and `verdict='passed'` — the bag arrived as a dict — and the final step
+output on the `ScheduleRun` is `materialise-gold`'s, with `run_id` equal to the ScheduleRun's
+and six `gold.kpi_run` rows under it.
+
+**What surprised me:**
+
+1. **K11's corpus is the Verify line's "broken formula", three times, before this script
+   breaks one.** Table-level feasibility passes five of six; three reference columns silver
+   does not have. The compile probe (`LIMIT 0` in a savepoint, `cursor.description` read)
+   catches every one before a write, and the evidence bar — fails alone, visible in run
+   history — holds on the real corpus rather than on a fixture built to satisfy it. Raised
+   on #199: feasibility wants a column-level half (`referenced_columns` from the harvest).
+2. **A blocked night blocks the next night too, by design.** After section 5's nulled key,
+   the first scheduled trigger was *blocked* — not by the bad file (removed) but by R4's
+   ungated-rows rule: the bad row had entered silver ungated and every later load reports
+   it until it is dealt with. Correct, and not what section 6 is about; the section now
+   resets the warehouse first and the reason is in the script. Worth knowing before the
+   first real bad night: "fix the file and re-run" is not enough, the landing row must go.
+3. **`ScheduleExecutor` posts `additional_data` as a JSON string, and the run endpoint
+   parsed only five other fields back.** The scheduled bag arrived as `str`; R4's
+   `_state()` refuses that. Fixed in the framework (`get_request_kwargs` parses
+   `additional_data` like `metadata`, refusing a non-object), four unit tests, and the
+   cookbook's section 6 is the live proof: `trigger='schedule'` on `quality.load_run` can
+   only have come from the parsed bag.
+4. **`gold.kpi_run.run_id` equals the workflow run id through the API path.** I had hedged
+   the executor's `_run_id` with the same fallback chain as R7's provenance (pinned
+   `additional_data["run_id"]`, then the session's last run, then a fresh uuid) because
+   R7's entry recorded that `StepInput` carries no live run id. Through
+   `POST /workflows/{id}/runs` the session *does* carry it, and the ScheduleRun's `run_id`
+   matched. Through a bare `Workflow.arun()` it does not — section 1 reads the id off the
+   step's content instead. Both paths are exercised; the fallback earns its keep.
+5. **`ALTER DEFAULT PRIVILEGES` and `GRANT ... ON ALL TABLES` are order-sensitive in a way
+   R6's own comment predicted.** The gold grants are a separate `075` script after `070`
+   creates the relations; in `065` (before `070`) the `ON ALL TABLES` grant would have
+   covered nothing. The per-KPI views are created later by materialisation and reach
+   `egpt_reader` through the default-privileges line — same role runs both, by construction
+   of the DSN. `read_gold` reads through `egpt_reader` when the read-only URL is set; this
+   run had it unset (logged, warehouse role used) — the R06 live cookbook is where the role
+   is proven, and it still passes on this branch.
+6. **`egpt_retail.api.models._generated` is where the generated models live**, not
+   `api/_generated.py` as the plan's outline said. And `r3_contract.json` was stale on the
+   merge of `feature/knowledge_phase3` + `main` (each side had regenerated); `validate.sh`'s
+   contract check refused until `./scripts/gen_api_models.sh` — only the fixture changed,
+   included here so the branch validates. Not a contract change of this package.
+7. **`format.sh` reformatted six Lane K test files** (`test_k7/k8/k9/k11`,
+   `test_p2_verification`, `test_semantic_live`) on this branch; reverted, as every Lane R
+   branch does — those belong to #199.
+8. **Product mypy on this branch is X-5, framework mypy is X-2** — both pre-existing, X-5
+   fixed by #200 which is not on `main` yet. Three framework `tests/unit/os` failures on
+   this machine (`test_components_policy` ×2, `test_per_request_isolation` ×1) fail
+   identically with this branch's one framework change stashed, and pass on CI; not this
+   package's.
+
+**Deliberately not done, and why:** the compile probe is not in `check_preflight`. Preflight
+answers per interactive request and must stay cheap; a formula that does not compile shows up
+one night later as a `failed` run, which `gold_fresh` (now real) reports for that KPI. Same
+signal, one place that pays for it — documented on the executor.
+
+**Result:** `pytest product/tests` — 532 passed, 40 skipped (30 new in `test_r5_gold.py`,
+R4/R7 expectations updated for the second workflow and the async preflight);
+`libs/agno/tests/unit/{os/test_request_kwargs_additional_data.py,guardrails,providers,
+test_model_read_guard.py}` — 668 passed. Same on a Python 3.10 venv. Twelve mutants — scope
+unparenthesised, `as_of` as text, overall accepting keys, insert without `ON CONFLICT`, view
+without `DROP`, rowset not skipped, failed-as-fresh, `gold_fresh` ignoring stale, guard
+schema-set compared by one element, `additional_data` left a string, preflight check order,
+gold executors unregistered — eleven caught on the first pass; the survivor (stale ignored)
+exposed a missing case in the test, added, now caught: twelve of twelve.
+`R07_preflight_blocked_kpi.py`, `R07_executor_library.py`, `R06_sql_guard_live.py` (database
+sections) re-run on this branch: unchanged behaviour.
+
+---
+
+### R05_gold_health.py
+
+**Status:** PASS (3.12 and 3.10; no services).
+
+**Description:** `warehouse/health.py::classify_health` over five constructed pairs of
+`kpi_run` rows — fresh (7 h), stale (40 h), failed with a value from the night before,
+skipped-as-blocked, never in gold — produces exactly `fresh, stale, failed, not_scheduled,
+never_computed`, each row validated against the generated `KpiHealth` model, then
+`gold_fresh_check` over the same rows fails naming four problems and passes over the fresh
+KPI alone. The "failed" row keeps `last_computed_at` from the last good run, which is the
+screen saying two true things at once.
+
+**Result:** Overall PASS.
+**Surprising:** the most useful thing in this round was discovering that a finding had already
+been fixed by someone else. I was one commit from shipping a duplicate CI job into a file I do
+not own, solving a problem that was solved the day before. Reading `open-items.md` after a
+merge — not just the review — is what caught it.
+
+---
+
+## Lane R — phase three
+
+### R08_model_routing.py
+
+**Status:** PASS (offline half, sections 1–2, on Python 3.12 and 3.10). Sections 3–4 (live,
+both Azure deployments) NOT RUN on this machine — there is no `azure_key.env` anywhere under
+`~/coe` or `~/code`, and nothing else names a second deployment. They are written, gated on
+`AZURE_OPENAI_API_KEY` + `EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT`, and exit non-zero on any
+failed check; the result belongs in this entry when someone with the credential runs them.
+
+**Description:** G6, "model routing". A routing table (`product/egpt_retail/routing/table.py`)
+names the tier per agent; `build_agents` builds every agent with `model=None` and
+`route_agents` installs a provider per row — the framework's `FrontierModelProvider` pinned
+to the tier's Azure deployment, wrapped for small-tier agents in the framework's
+`EscalatingModelProvider` with the frontier as target. An unrouted agent refuses assembly
+by name. The one product-side provider class, `TierModelProvider`, exists to declare a
+`context_window` (Mode B cannot state one) so `input_exceeds_context_window` can fire.
+The framework half: `resolve_run_model` narrowed `ModelResolveResult` to a bare `Model` and
+the run record never learned of an escalation; `resolve_run_model_detailed` twins now keep
+the detail and `_stamp_resolved_model` writes it to `RunOutput.metadata["egpt_escalation"]`,
+which `to_dict` persists. R7's `record_provenance` reads `model_tier` off the table by
+`StepOutput.executor_name` instead of warning and writing `none`.
+
+Section 1 prints the table, builds the registered agents against a dead control-plane URL
+(nothing connects), shows each with `model=None` and its provider, and shows the refusal
+for a ghost agent. Section 2 declares a 1 000-token window, drives the real per-run hook
+(`apply_run_model`) with an estimate of 999 then 1 001 tokens, and counts
+`resolve_detailed` calls per tier: 999 → `gpt-5.4-mini`, no key; 1 001 → `gpt-5.4`, record
+`{reason: input_exceeds_context_window, escalated_from: azure-openai, model_id: gpt-5.4,
+agent_id: join_path_explainer, escalation_level: 1}`, and the small tier resolved exactly
+once across both runs — the over-window request never reached it.
+
+**What surprised me:**
+
+1. **`AZURE_OPENAI_DEPLOYMENT` in the shell would have made both tiers one deployment.**
+   Azure routes a call by the *client's* deployment and ignores the request's `model`;
+   `AzureOpenAI._get_client_params` falls back to that env var when the client has none.
+   `AzureOpenAI(id=deployment)` — what `components.py` did before R8, and what every K14
+   cookbook does — therefore sends every call to whatever `azure_key.env` names, whatever
+   `id` says, and `RunOutput.model` reports the id. Two tiers built that way would have
+   been a label. `TierModelProvider` pins `azure_deployment` on the client
+   (`model_config`), and `test_the_resolved_model_is_pinned_to_its_tier_deployment_on_the_client`
+   sets the env var to something else and asserts both. Worth a line in K14's cookbooks; not
+   changed here.
+2. **`escalated_from` and `target` both read `azure-openai`.** `ModelResolveResult` records
+   provider *keys*, and two tiers on one provider share a key. `model_id` is what
+   distinguishes the record, and the log line (`small-tier -> frontier-tier`, from the
+   providers' names) carries the identity the record lacks. The base class's
+   `capabilities().provider_keys` is the whole frontier shortlist, so before narrowing it
+   the record would have said `escalated_from: anthropic` for an Azure tier — worse than
+   ambiguous, wrong. A `ModelResolveResult` that also carried the primary's model id is the
+   framework follow-up that would make the record self-sufficient.
+3. **`RunOutput.metadata` is the caller's dict.** `RunOutput` is built with
+   `metadata=run_context.metadata or {}`, and the same dict is forwarded to the provider as
+   the request's metadata, where `explicit_policy_flag` reads it. Appending the escalation
+   record in place would have written into the caller's `run(metadata=...)` object and into
+   the next re-resolve's rule input. The stamp replaces the dict;
+   `test_the_callers_metadata_dict_is_not_mutated` pins it and a mutation restoring the
+   in-place write fails it.
+4. **Provenance records the tier the step was *bound* to, not the one that served it.**
+   `StepOutput` has no metadata field, so a step's escalation stays on the `RunOutput` the
+   framework persists and does not reach `record_provenance`. Documented on `_model_tier`
+   rather than papered over: the run record has the escalation, the provenance row has the
+   binding, and PlanStep.model_tier is static plan metadata in the contract anyway.
+5. **A provider with only `resolve()` gets `(model, None)`, not a made-up result.**
+   `ModelResolveResult.mode` is required, and synthesising one for a Protocol-only provider
+   would have put a fact in the run record no provider stated. `resolve_via_detailed` returns
+   `None` for the detail there, and a test pins that such a provider still serves and
+   resolves exactly once.
+6. **`format.sh` reformatted 114 files outside this change**, as on every Lane R branch;
+   reverted. `validate.sh`'s product mypy is red on this branch with X-5
+   (`numpy/__init__.pyi:737`), fixed by #200 which is not on `main` yet; the framework mypy
+   red is X-2. Everything else green: ruff, 21 framework files mypy, API contract, 456
+   product tests, brand audit.
+
+**Result:** `pytest product/tests` — 456 passed, 27 skipped (20 new in `test_r8_routing.py`);
+`pytest libs/agno/tests/unit/providers` — 602 passed (7 new in
+`TestEscalationReachesTheRunRecord`, including the async twin and the pre-call count). Same
+counts on a Python 3.10 venv. Seven mutants, seven caught: escalation never stamped (4
+tests), metadata mutated in place (1), provenance ignores the table (2), client deployment
+not pinned (1), agents not routed (2), small window not declared (2), detailed path dropped
+for a plain `resolve` (3). Cookbook offline half PASS on 3.12 and 3.10.
+
+**Cross-lane, to raise:** the `AZURE_OPENAI_DEPLOYMENT` finding above for K14's cookbooks;
+`ROUTING_TABLE` reserves `enrichment_proposer`/`mapping_proposer` (K8) and `spec_extractor`
+(R9) / `funnel_explanation` (R10) — a package that registers one of those under another id
+refuses at startup, which is the point, but the name is the contract.
+
+### R09_spec_gap_plan.py
+
+**Status:** PASS (section 1, the deterministic gap check, on 3.12 and 3.10; no services).
+Section 2, the live extraction through the spec extractor on the small tier, NOT RUN on
+this machine — no `azure_key.env` and no second deployment named, as with R08. It is
+written, gated, and every check it makes is a `validate_spec` assertion over the lists
+rendered into the prompt, so a coined value fails it rather than a reviewer's eye.
+
+**Description:** R9's three Verify sentences — "Which brands' quote requests fell this
+month?", the same naming "average basket size" (no such KPI), the same ending "and pause
+the underperforming ones" (an action) — as hand-written *correct* specs through
+`assess_gaps` over the contract fixture and a three-KPI registry: all three feasible,
+nothing coined, the unknown metric a `questions` entry, the action verb a `questions`
+entry. Then the near-miss from the prompt's section 7 — a coined `brand__avg_basket_size`,
+an unknown `Carrier`, no schedule, Recommend shape — becomes `blocked_kpi`,
+`unknown_concept` and six `missing_parameter` gaps (`candidates`, `guardrails`, `approver`,
+`write target`, `timeout behaviour`, `schedule`), each saying which builder field fills
+it or that none exists yet. Every `GapCheck` and `Spec` validates against the generated
+models, including the two additive fields this package adds to the contract (1.1.0).
+
+**What surprised me:**
+
+1. **Most of this skill's closed sets cannot be enums.** Business areas, grains, concept
+   names and KPI identifiers vary by deployment (overlay, harvest, registry), so the
+   template's "render, do not hand-type" rule is the whole design: `render_closed_sets`
+   appends the deployment's lists under a fixed heading, and `validate_spec` checks an
+   output against exactly the lists that were rendered. Only `role`, `unit` and `delivery`
+   stay enums, and `closed_sets_match_prompt` keeps those three and the prompt agreeing.
+2. **`questions` needed to exist before the skill could be honest.** `notes` records what
+   the deployment cannot express; an unknown metric is not that — it is something the
+   author must answer. Without a field to ask in, the template's "never coin a value to
+   avoid asking" had no shape to take. Additive to `Spec`; announced in the CHANGELOG.
+3. **"For the chosen autonomy level" is a parameter list, and the build plan already has
+   it.** Section 07's table gives each shape its slots; `missing_parameter` is that table
+   applied to the draft and spec. Six of the Recommend/Act slots have no builder field
+   yet — they are reported as gaps naming P4 rather than silently passed, so a Recommend
+   draft cannot clear a check that only knew about Inform.
+4. **The fixture proves `no_join_path` for free.** The contract's own gap example names
+   `product_reviews -> supplier_deliveries`; a KPI reading both tables yields exactly that
+   gap from `find_join_path`, with nothing constructed for it.
+
+**Result:** Offline half PASS. Extraction pending a credential.
+
+---
+
+### R09_plan_view.py
+
+**Status:** PASS (six checks; 3.12 and 3.10; section 4 against the compose control plane).
+
+**Description:** The fourth Verify line — compare the plan on screen to the workflow
+definition. An Inform-shape workflow (`check_preflight → read_gold → funnel_explanation →
+record_provenance → deliver_in_app`) serialised the way the framework stores it
+(`Step.to_dict()`), derived with `plan_from_config`, validated against the contract's
+`Plan`, and compared ref for ref with `plan_refs` (a recursive walk of the same config):
+equal. A `Condition` with an `else_steps` branch and a `Router` with choices added: the
+walk reaches both, still equal, `materialise_gold` visible on the else branch. R10's
+`sample_rows` swapped in: refused, naming the executor and where to register it. Then the
+config stored as a component through `create_component_with_config` and derived by the
+`derive_plan` executor from the stored row via the framework's own `fetch_config_row`:
+the same five steps.
+
+**What surprised me:**
+
+1. **`create_component_with_config(component_type="workflow")` fails with `'str' object
+   has no attribute 'value'`.** The framework's own API wants the `ComponentType` enum and
+   does not coerce the string its `Literal` docstring suggests. One line in the cookbook;
+   worth a framework fix so the first product caller does not learn it from a traceback.
+2. **`Step` has no `agent_id` kwarg** — it takes `agent=` and `to_dict()` writes
+   `agent_id` from the agent's id. An agent step for a plan can be built with an
+   `Agent(id=..., name=...)` that has no model and never runs.
+3. **A plan is only trustworthy if the walker is.** The mutant that dropped `else_steps`
+   and `choices` from the walk still produced a *valid* `Plan` — shorter, not broken —
+   which is exactly the failure "every step on screen exists in the workflow and none is
+   missing" names. Two tests fail on it now, one of them a mutation written as a test.
+4. `validate.sh` on this branch: product mypy X-5, framework mypy X-2 (both pre-existing);
+   everything else green, including the API contract with the regenerated artefacts.
+
+**Result:** `pytest product/tests` — 573 passed, 40 skipped (21 new in
+`test_r9_spec_gap_plan.py`); framework touched suites 675 passed; same on 3.10. Ten
+mutants — walker skipping branches, unregistered executor accepted, unrouted agent
+accepted, agent step marked blocking, partial reported as blocked, unknown concept ignored,
+join path unchecked, shape ignoring autonomy, coined KPI passing `validate_spec`, metadata
+missing an executor — ten caught (two had to be re-applied after ruff wrapped the lines
+they targeted; recorded so the count is honest).
+---
+
+### PR #199 review round 2 — 38 findings across two reviews, all fixed
+
+**Status:** PASS — 581 product unit tests, 3759 framework, 34 live
+
+Two reviews landed together: a round-2 re-review and a QC review carrying 1 critical, 12 major
+and 25 minor/nit. 11 findings sat in R5/R6/R7 code that reached this branch when R5 was merged
+into it; the owner's call was to fix everything here rather than split them out.
+
+**The critical was data corruption, and it was in gold.** `insert_statement` used `ON CONFLICT`
+with no partition delete. `ON CONFLICT` updates the rows the new result still produces and
+cannot touch the ones it no longer does — so a dimension that disappeared between two runs of
+the same night kept its previous value forever, and `read_gold` served one answer whose rows
+carried two runs' `run_id` and `computed_at`. The module docstring and `070_gold.sql` both
+promised a same-night re-run was a replacement. `delete_statement()` now clears
+`(kpi_identifier, as_of)` before the insert. The R05 cookbook could not have caught it: every
+KPI it materialises is grain-`overall`, so it has exactly one dimension row and nothing to
+leave behind.
+
+**Four executors ran blocking I/O on the event loop**, including the two in the file that
+documents the rule. `materialise_gold`, `read_gold`, `assess_kpi_feasibility` and
+`detect_business_areas` all now do their store work in `asyncio.to_thread`. `read_gold`'s cost
+was worse than it looked because the SQL guard re-queried the whole semantic layer on every
+`check()` — a full graph listing per KPI, nightly. The allow-list is now read once per guard,
+which is also the correct semantics: every statement a guard judges should be judged against
+one view of the layer, or statement 40 is refused for a reason statement 1 was not.
+
+**Two orderings were backwards.** `refresh_semantic_layer` mirrored before stamping, so the
+graph published the *previous* run's `validated_against_snapshot` and was permanently one
+refresh behind Postgres — silently, because both were populated. And `_mirror_tx` recomputed
+`Concept.metrics` before the prune, so a deleted KPI stayed on its concept's list. The live
+test caught the second; the first had no test at all until now.
+
+**`ontology_leg` was feeding the fusion a claim about ranking that was not true.** It
+concatenated the store's vector and lexical results and truncated without a final sort, so a
+concept the lexical leg ranked *first* arrived after every vector hit — wrong position for RRF,
+and dropped entirely under `limit`. Exactly the exact-match case lexical search exists to
+serve. Dedup also kept the first-seen copy, always the vector one, so a concept both legs found
+reported the vector score even when lexical scored it higher. Now keeps the better score and
+sorts before truncating.
+
+**Three tests could not fail on the case they were written for.** The D10 import check was a
+substring grep of one module's own text; round 1 replaced it with a walk that followed only
+`egpt`-prefixed names — so a proposer importing `neo4j` *directly* was still invisible, which
+is the leak the test exists for. It is now an AST walk over the real import graph, and
+mutation-proved: planting `import neo4j` in a proposer turns it red. The mirror was tested only
+with `rows=[]`, leaving both mirror findings unexercised. And the async-refresh fix from round 1
+had no PR-gating coverage; two tests now pin that the signatures agree on every default and
+that every argument is forwarded.
+
+**A cookbook leaked fixtures into the shared graph — R05's, this time.** It writes concepts
+named `K11Deal`, `K11Contact`, `K11Session` (borrowing K11's naming) and never removed them.
+Two Lane K cookbooks broke on it: K05 compares the real store against the stub and saw three
+concepts the stub does not have, and K10's retrieval ranked `K11Deal` above the tables its
+question was actually about. R05 now cleans up. **This is the third time cross-cookbook
+fixture leakage has cost a debugging session** — the rule is now proven three ways: a cookbook
+must remove everything it writes to a store another cookbook reads.
+
+**K10's own assertions were made more honest in the process.** They checked `label` to decide
+whether a leg contributed — but a hit two legs agree on keeps the copy of whichever leg came
+first, so a semantic-layer result that memory also holds reports `memory`. Asserting on `label`
+called the leg absent exactly when it was corroborated. They read `fused_origins` now, which is
+what the round-2 docstring correction says a caller should do.
+
+**The rest**, briefly: `_kpi_from` silently dropped `time_window`, registering a 30-day metric
+as unbounded; raw `TypeError`/`KeyError` escaped `validate_payload` instead of `PayloadError`;
+a JSON `null` reached Cypher as `null` and `null = ''` is false, so the accumulate guard erased
+the accepted value it was written to protect; `write_column_meaning` never checked the concept
+existed, leaving `Column.concept` dangling through the 1.2.0 contract; `write_concept` wrote its
+edges outside any transaction; the stub dropped the three fields 1.2.0 adds, making the P0
+swap visible to a caller; `assess_kpi_feasibility` and `detect_business_areas` were registered
+in no registry and called from nowhere while their docstrings claimed registration; the mirror's
+`READS` edges matched table names across all schemas while nodes are keyed `{schema, name}`;
+`unresolved_collisions` hardcoded two sides, so a three-way collision reported as resolved; two
+authoritative sources for one concept were proposed and applied without complaint; one bad
+compliance tag lost an entire enrichment response; an extra leg named `kb` silently replaced
+the built-in leg's results; an async leg raising before returning its awaitable skipped every
+sibling while the sync twin ran them all; `limit=0` meant "nothing" to the framework legs and
+"five" to these; the documented name-specificity ranking was dead code because `_terms` splits
+on whitespace and the divisor was always 1; `"(None rows)"` could reach model-facing text; the
+options bag could disable the quality gate and the statement timeout from client-supplied
+`additional_data`; `numeric` was coerced to `float` on the read path, undoing the DDL's
+exactness; a driver's error text reached API clients; and `EXECUTOR_REGISTRY.md` still
+described `gold_fresh` as a placeholder R5 had replaced.
+
+**A follow-up on the R05 leak, found while verifying the fix.** The cleanup was written at
+the end of the cookbook, and R05 fails on this machine before reaching it — so the concepts
+were still there. Cleanup at the end only runs when nothing went wrong, and a failed run is
+exactly when the next person re-runs and hits the residue. It is now an `atexit` handler
+registered where the concepts are written, which runs on an unhandled exception too. Verified
+by failing R05 deliberately and reading the graph: clean.
+
+**And one in K05, the cookbook that kept catching everyone else's leaks.** Its promotion
+scenario promotes, counts, deletes and rebuilds, then compares — with no clean slate first, so
+a row left by an earlier run with a different concept set made the baseline something the
+rebuild could not reproduce. It passed on the second run every time, which is the worst kind
+of flake: it reads as a transient and is a missing precondition. It now clears the promoted
+copy before taking its baseline, and the scenario's own delete reuses the same helper.
+
+**Surprising:** the three findings I'd have been least likely to find myself were all *tests
+that passed*. A test that cannot fail is worse than no test, because it is counted. All three
+had been reviewed at least once — including one I had written specifically to close a previous
+review finding.
+
+---

@@ -12,6 +12,10 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `C01_landing_contract.py` | C1 | The landing contract, by playing Lane R's loader against three hand-written fixture files: loads all three sources with no source-specific code, reports a known-dirty row instead of dropping it, and the re-run dedup rule collapses a duplicate and resolves that row's defect. |
 | `C01_minio_roundtrip.sh` | C1 (object storage) | The same fixtures, uploaded to and downloaded back from a real MinIO bucket, then re-verified with `C01_landing_contract.py` unmodified -- proves the verify step's "upload it" against actual object storage, not just local disk. |
 | `K11_kpi_formula_shape.py` | K11 | The KPI formula shape against nineteen real formulas: what fits, what has to be rewritten, and that feasibility is a set difference. |
+| `K08_proposers.py` | K8 | The enrichment and mapping proposers drafting against the real harvest, and the graph proving it does not change. Needs Azure, ontology, warehouse and Neo4j. |
+| `K09_business_areas.py` | K9 | Which areas a deployment supports: they exist before any source, and a proposal alone supports nothing. Needs a warehouse and Neo4j. |
+| `K10_unified_retrieval.py` | K10 | One question across memory, prose, the ontology and the semantic layer, fused by rank; disable a leg and watch the answer degrade. Needs prose, ontology, a warehouse and Neo4j. |
+| `K11_kpi_registry_and_feasibility.py` | K11 | The registry in Postgres, mirrored to the graph, and feasibility as a set difference: remove a table and watch one KPI block while another goes partial. Needs a warehouse and Neo4j. |
 | `K00_executor_registry.py` | — | The executor naming convention: the silent collision it prevents, and the check that enforces it. |
 | `K01_memory_scope_convention.py` | K1 | The memory scope convention against the real `Scope`: write scopes, read scopes, and the isolation matrix. |
 | `K02_domain_prose.py` | K2 | The curated retail corpus into pgvector, split on headings and tagged by origin. Needs pgvector + the corpus. |
@@ -39,7 +43,11 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R06_sql_guard_live.py` | R6 | The same guard against the real warehouse: delete refused with the row count unchanged, an out-of-scope read refused, an unbounded read capped, a real Postgres statement timeout enforced -- then the chat-interface half (an agent, a prompt-injection paste) once model credentials are sourced. |
 | `R07_executor_library.py` | R7 | A throwaway workflow of `check_preflight` -> `record_provenance` -> `deliver_in_app`, no agent step, driven only by `.arun()`: completes with no model, the provenance record is readable back by `run_id`, and a second run with the dry-run flag shows delivery previewing instead of sending. |
 | `R07_preflight_blocked_kpi.py` | R7 | Preflight against a use case referencing a blocked KPI, reproducing the API contract's own worked example: blocks and names the missing table, then passes once it is exposed. No database, no model. |
+| `R05_gold_materialisation.py` | R5 | The Verify line against a real warehouse: the nightly chain by hand (R4's six steps, then gold) over K11's six definitions -- two materialise, three fail at compile with Postgres's own words in `gold.kpi_run`, one is skipped as blocked; gold versus the same number in SQL, and the stamp on every row; one good formula broken deliberately and failing alone while the other still materialises; `read_gold` through the guard; a blocked night as a COMPLETED run with no gold step and gold untouched; then `schedule-nightly` and a trigger through `ScheduleExecutor` against the in-process pipelines app, whose `additional_data` arrives as a dict. |
+| `R05_gold_health.py` | R5 | The contract's `KpiHealth` assembled in Python from the registry and gold: all five statuses reachable, every row validated against the generated model, and `gold_fresh` as preflight computes it. No services. |
 | `R08_model_routing.py` | R8 | The routing table covers every registered agent (an unrouted one refuses assembly by name); offline, an input over the small tier's declared context window escalates *before* the small tier is resolved and the reason lands in `RunOutput.metadata["egpt_escalation"]`; live, `join_path_explainer` on both tiers with `RunOutput.model` naming each deployment, then a deliberately small declared window forcing a real pre-call escalation. |
+| `R09_spec_gap_plan.py` | R9 | The three sentences of the Verify line -- plain, one naming a metric that does not exist, one ambiguous about acting -- as hand-written correct specs through the deterministic gap check over the contract fixture (feasible, nothing coined; a coined near-miss becomes gaps), then live through the spec extractor on the small tier with every closed-set value checked against the lists rendered into its prompt: the unknown metric is a question, the action verb is a question. |
+| `R09_plan_view.py` | R9 | The plan as a view: an Inform-shape workflow stored as `Workflow.to_dict()`, derived and compared ref for ref; a `Condition` with `else_steps` and a `Router` with choices still compared; an executor nobody registered refused by name; and, with the control plane up, the same plan derived by `derive_plan` from the stored component row. |
 
 Run:
 
@@ -97,6 +105,19 @@ EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
 .venv/bin/python cookbook/94_retail/R08_model_routing.py
 # add `set -a && source azure_key.env && set +a` and EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT=<a
 # second, cheaper deployment> to also run the two live sections
+# R5's health cookbook needs no services:
+.venv/bin/python cookbook/94_retail/R05_gold_health.py
+
+# R5's materialisation needs Postgres (control plane migrated, egpt_warehouse migrated) and
+# the compose stack's Neo4j; the script defaults every URL to the compose ports:
+docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
+.venv/bin/python cookbook/94_retail/R05_gold_materialisation.py
+
+# R9's gap check and plan view need no services (R09_plan_view's last section also stores
+# the workflow in the control plane when EGPT_RETAIL_DB_URL is reachable):
+.venv/bin/python cookbook/94_retail/R09_spec_gap_plan.py
+.venv/bin/python cookbook/94_retail/R09_plan_view.py
+# add azure_key.env and EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT to also run the live extraction
 
 # R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
 docker build -f deploy/Dockerfile -t egpt-retail:dev .
