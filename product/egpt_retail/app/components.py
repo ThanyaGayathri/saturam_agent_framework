@@ -27,7 +27,7 @@ factory. Provider and tenant are two halves of one fix; either alone leaves memo
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from egpt.agent import Agent, AgentFactory, RemoteAgent
 from egpt.agent.protocol import AgentProtocol
@@ -41,6 +41,10 @@ from egpt.workflow.step import Step
 from egpt.workflow.types import OnError
 
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.executors.delivery import deliver_in_app
+from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold
+from egpt_retail.executors.preflight import check_preflight
+from egpt_retail.executors.provenance import record_provenance
 from egpt_retail.executors.registry import assert_registry_valid
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
 from egpt_retail.memory.config import build_memory_resolver
@@ -51,6 +55,7 @@ __all__ = [
     "RegisteredWorkflow",
     "SYNONYM_PROPOSER_ID",
     "LANDING_TO_SILVER_WORKFLOW_ID",
+    "NIGHTLY_REFRESH_WORKFLOW_ID",
     "MEMORY_WRITING_AGENT_IDS",
     "build_agents",
     "build_workflows",
@@ -64,11 +69,20 @@ RegisteredWorkflow = Union[Workflow, RemoteWorkflow, WorkflowFactory]
 
 SYNONYM_PROPOSER_ID = "synonym_proposer"
 
-#: R4's pipeline. Stable, because a schedule (R5) and any stored workflow reference it by id.
+#: R4's pipeline, kept registered for hand runs. Stable: stored workflows reference it by id.
 LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
+
+#: R5's nightly chain: R4's six steps then ``materialise_gold``. The schedule
+#: (``egpt-retail schedule-nightly``) targets this id, so it is the one that must not move.
+NIGHTLY_REFRESH_WORKFLOW_ID = "nightly-refresh"
 
 #: The agents whose memory partitions the consolidator drains. Phase zero: one.
 MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID]
+
+#: R7's three (G4). Unlike R4's six, these are not wired into a standalone registered
+#: workflow -- they exist to be composed into other packages' workflows (R10's RFQ chain,
+#: eventually), and R7's own verification is a throwaway workflow in the cookbook.
+R7_EXECUTORS = (check_preflight, record_provenance, deliver_in_app)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -105,10 +119,38 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
     return [synonym_proposer]
 
 
+def _chain(executors: tuple) -> List[Any]:
+    """Steps from executors, every one ``on_error=OnError.fail`` -- see ``build_workflows``.
+
+    ``List[Any]`` because ``Workflow(steps=...)`` takes an invariant ``list`` of a union that
+    a ``List[Step]`` does not satisfy for mypy, though every element is a ``Step``.
+    """
+    return [
+        Step(
+            name=executor.__name__.replace("_", "-"),
+            executor=executor,
+            on_error=OnError.fail,
+        )
+        for executor in executors
+    ]
+
+
 def build_workflows(
     settings: RetailSettings, db: PostgresDb
 ) -> List[RegisteredWorkflow]:
-    """The registered workflows. One so far: R4's landing-to-silver pipeline.
+    """The registered workflows: R4's landing-to-silver, and R5's nightly-refresh on top of it.
+
+    Two workflows, one executor list. ``nightly-refresh`` is R4's six steps followed by
+    ``materialise_gold``; ``landing-to-silver`` stays for hand runs that must not touch gold.
+    Both are built from the same tuples, so the chain cannot drift between them, and
+    ``assert_registry_valid`` checks ``registry.functions`` -- a name shared by two workflows
+    is not a collision, a name shared by two *functions* is.
+
+    A blocked night is a *completed* run: ``decide_load_verdict`` returns ``stop=True``, the
+    engine breaks the step loop, ``materialise-gold`` never starts and is absent from
+    ``step_results``, and the schedule records ``success``. The verdict is in
+    ``quality.load_run``; nothing about the run record says "gold was rebuilt" unless the
+    gold step is present. R05's cookbook asserts that shape.
 
     A workflow rather than a bespoke runner, because that is what buys per-step retries, run
     history in the ``WorkflowSession``, and a step that can stop the chain -- the three things
@@ -132,29 +174,35 @@ def build_workflows(
                 "(R4, G8)."
             ),
             db=db,
-            steps=[
-                Step(
-                    name=executor.__name__.replace("_", "-"),
-                    executor=executor,
-                    on_error=OnError.fail,
-                )
-                for executor in WAREHOUSE_EXECUTORS
-            ],
-        )
+            steps=_chain(WAREHOUSE_EXECUTORS),
+        ),
+        Workflow(
+            id=NIGHTLY_REFRESH_WORKFLOW_ID,
+            name="Nightly refresh",
+            description=(
+                "The scheduled night (D7): landing to silver with its quality gates, then "
+                "every ready KPI materialised into gold from the registry's formula, "
+                "executed in the warehouse (R5, D6). A blocked load stops the chain before "
+                "gold."
+            ),
+            db=db,
+            steps=_chain(WAREHOUSE_EXECUTORS + (materialise_gold,)),
+        ),
     ]
 
 
 def build_registry() -> Registry:
     """The executor registry, validated before it reaches the OS.
 
-    R4's six are the first entries. The check has run here since phase zero, when the list was
-    empty; it now has something to check, which is what makes the duplicate-name refusal real
-    rather than theoretical. Every name here is also a row in
-    ``contracts/EXECUTOR_REGISTRY.md``, and ``test_r4_executors.py`` asserts the two agree so
-    the document cannot rot.
+    R4's six, R7's three (``check_preflight``, ``record_provenance``, ``deliver_in_app``,
+    G4) and R5's two (``materialise_gold``, ``read_gold``). The check has run here since phase zero, when the list was empty; it now has
+    something to check, which is what makes the duplicate-name refusal real rather than
+    theoretical. Every name here is also a row in ``contracts/EXECUTOR_REGISTRY.md``, and
+    ``test_r4_executors.py``/``test_r7_executors.py`` assert the two agree so the document
+    cannot rot.
     """
     registry = Registry()
-    for executor in WAREHOUSE_EXECUTORS:
+    for executor in WAREHOUSE_EXECUTORS + R7_EXECUTORS + GOLD_EXECUTORS:
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)
     return registry

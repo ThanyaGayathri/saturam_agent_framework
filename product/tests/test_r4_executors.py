@@ -70,18 +70,20 @@ def test_the_worked_collision_example_is_still_unused() -> None:
 
 
 def test_build_registry_registers_and_validates_them() -> None:
+    """The registry also holds R7's three (see test_r7_executors.py) -- this only pins that
+    the six warehouse names are a subset, not the whole set, so R4's own test doesn't have to
+    know about every other package that registers executors."""
     registry = build_registry()
     names = {function.__name__ for function in registry.functions}
-    assert names == {executor.__name__ for executor in WAREHOUSE_EXECUTORS}
+    assert {executor.__name__ for executor in WAREHOUSE_EXECUTORS} <= names
     assert_registry_valid(registry.functions)
 
 
 def test_the_workflow_has_the_six_steps_in_order() -> None:
     settings = RetailSettings()
     workflows = build_workflows(settings, build_control_plane_db(settings))
-    assert len(workflows) == 1
-    workflow = workflows[0]
-    assert workflow.id == LANDING_TO_SILVER_WORKFLOW_ID
+    # R5 registers nightly-refresh beside it; this test is about the hand-run chain alone.
+    workflow = next(w for w in workflows if w.id == LANDING_TO_SILVER_WORKFLOW_ID)
     assert [step.executor.__name__ for step in workflow.steps] == [
         executor.__name__ for executor in WAREHOUSE_EXECUTORS
     ]
