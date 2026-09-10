@@ -4105,3 +4105,78 @@ on a deployment with nowhere to write, the control proving that check can fail, 
 registry rows removed.
 
 ---
+
+### K15_orchestration.py
+
+**Status:** PASS, with K15's primary evidence explicitly outstanding — see the last section.
+
+**Description:** K15 — a frozen spec compiled into a workflow definition plus the prompts its
+model steps carry. Two halves: `egpt_retail.orchestration.compiler` is deterministic and
+consults no model; `egpt_retail.skills.step_prompt` authors the model steps' instructions.
+Baseline and judgements in `K15_BASELINE.md`.
+
+**Three layers, and the middle one was missing until the owner named it.** The shape fixes the
+step sequence; a template fixes the parameter values; the spec and the author fill the rest. I
+had built the first and third and gone straight from spec to steps — no notion of a template,
+and K13 writing `template_id=None` into a contract field that exists. The contract states the
+model plainly (`UseCaseStatus` is `template | draft | activated | ...`, and `template_id` is
+"the template's id; the draft is prefilled from it"), and the prototype ships fifteen. Now:
+`compile_workflow` takes a template, layers its defaults under the author's entries, and
+records **where every bound parameter came from** — `spec`, `template` or `authored`.
+
+That last part is the one worth keeping. In the baseline run, **six of seven parameters on an
+unattended writer were never chosen by a person** — including the per-run cap and the rollback
+point. That is what a template is for and is not by itself wrong, but nothing recorded it, so a
+prefilled Act and a considered one rendered identically on the activation screen.
+
+**A template supplies values, never steps.** Asserted in the run and in a test. The build
+plan's tractability argument is that the sequence follows from the shape — "a new use case is
+not a new flow, it is one of four shapes with its slots filled" — so a template able to add or
+reorder a step would be a fifth shape wearing another name.
+
+**Two findings from code I did not write.**
+
+*R9's plan walker refuses every generated model step.* `plan_from_config` resolves an agent
+step's tier from R8's `ROUTING_TABLE`, a static literal keyed by agent id — and K15 mints an id
+per use case, because the contract says a use case carries its own skill prompts. So no
+hand-written table can contain one, and a generated Inform, Recommend or Act is unplannable
+today. The refusal is correct: an unrouted step has no model. `required_routing_rows` now names
+the agent id and tier each step needs, so the fix is a registration path at activation rather
+than a redesign. Filed as **K-9**, and a test asserts the refusal so it fails when the gap
+closes.
+
+*The Inform shape declares a parameter no step consumes.* Diffing against R9's hand-built
+`inform_skeleton` surfaced that neither sequence carries `compare_to_baseline` — R9 dropped it
+silently, the compiler reports it missing. The shape binds a `comparison` parameter from
+`spec.time_window` and nothing reads it, so a use case saying "versus the previous four weeks"
+compiles to a workflow that never compares. Not a difference of opinion; a declared parameter
+with no consumer is a gap in the shape.
+
+**One correction the owner made mid-build, and it was right.** I had built `SHAPE_STAGES`
+around R9's `AutonomyShape` — three shapes, inferred from `autonomy` and `level`. The interface
+has a spec form per shape, so the shape is chosen before the spec is filled and there are four
+of them. `UseCaseShape` and the per-shape parameter table now live in
+`contracts/use_case.py`, read by both K13 and K15. R9's three-shape enum is left alone and the
+divergence filed as **K-8**, because changing Lane R's under them is not mine to do.
+
+**The invariant parts of an authored prompt are written by code, not by the model.**
+`StepPromptDraft` has no field for the header, the four standing rules or section 6's closed
+sets. K14 requires those rules copied word for word so seven prompts can be reviewed against
+each other; a model asked to reproduce them paraphrases one eventually, and the paraphrase
+reads fine and checks differently. `model_tier` follows from the role under G6 — an agent that
+could choose its own tier would choose frontier.
+
+**What is NOT verified, and it is K15's stated primary evidence.** The delivery plan verifies
+this package by diffing the generated workflow against the one R10 built by hand, then
+repeating for a second use case, and calls that "the only honest test available". **R10 has not
+landed** — Lane R is at R9 — so neither diff exists. What was done instead: a diff against R9's
+five-step `inform_skeleton`, R9's plan walker as an independent containment check, and the
+capability set difference. None of those is the same thing. Filed as **K-10**: re-run this
+cookbook against R10's RFQ workflow the week it merges.
+
+**Result:** PASS. 45 DB-free tests, mutation-checked (removing the missing-gate blanking and
+collapsing the template/authored origin each break a test). Cookbook runs with no warehouse, no
+Neo4j and no model. Nothing is publishable in any shape against the current registry, which is
+the correct answer and is the exact dependency list in `K15_BASELINE.md`.
+
+---

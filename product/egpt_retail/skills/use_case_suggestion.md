@@ -111,6 +111,7 @@ and the skill reference.
 | `rationale` | string | One sentence naming the tables and KPIs it derives from |
 | `derived_from_tables` | string list | Every table it reads. Never empty |
 | `kpi_identifiers` | string list | Registered identifiers only. May be empty |
+| `template_id` | string or null | A shipped template id from the list below, or null |
 
 **The four shapes.** The axis is side effects, and it is what a customer is actually deciding
 about when they accept a suggestion:
@@ -127,6 +128,14 @@ list is here so you know what the words mean:
 **The registered KPIs -- the only metrics that exist:**
 
 {{kpis}}
+
+**The templates this deployment ships.** A template is a use case that arrives with its
+parameters already filled in -- schedule, threshold, guardrail amounts -- so a person accepts
+it rather than filling a form. Cite one in `template_id` when your suggestion is genuinely
+that pattern applied to this data. Cite `null` when nothing here matches: a wrong template id
+prefills the wrong numbers, and the author sees a form that looks considered and is not.
+
+{{templates}}
 
 ## 7. Worked example
 

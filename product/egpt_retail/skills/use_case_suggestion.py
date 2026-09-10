@@ -31,6 +31,7 @@ from typing import Any, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from egpt_retail.api.models import Confidence, UseCaseSuggestion, UseCaseSuggestionList
+from egpt_retail.contracts.use_case import Autonomy, UseCaseShape
 from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
 
 __all__ = [
@@ -53,30 +54,6 @@ __all__ = [
 
 PROMPT_PATH = Path(__file__).parent / "use_case_suggestion.md"
 SKILL_VERSION = "1.0.0"
-
-
-class UseCaseShape(str, Enum):
-    """The four shapes, on the side-effect axis.
-
-    A Python enum rather than a customer-extensible vocabulary, and the build plan gives the
-    argument: *"Four shapes is the complete set, because the axis is side effects rather than
-    subject matter... Nothing about the retail domain adds a fifth shape."* A customer who
-    could add one would be adding a side effect the executors cannot perform. Mirrored in the
-    vocabulary so a prompt renders it from the same place as everything else -- the
-    ``result_shape`` / ``feasibility`` pattern.
-    """
-
-    INFORM = "inform"
-    ALERT = "alert"
-    RECOMMEND = "recommend"
-    ACT = "act"
-
-
-class Autonomy(str, Enum):
-    """Mirrors the contract's ``Autonomy``. Checked equal to it in the tests."""
-
-    COPILOT = "copilot"
-    AUTOPILOT = "autopilot"
 
 
 class DraftConfidence(str, Enum):
@@ -153,6 +130,15 @@ class UseCaseSuggestionDraft(BaseModel):
         description=(
             "The registered KPIs it would use. Only identifiers that exist -- naming one "
             "that does not is the failure mode this list has."
+        ),
+    )
+    template_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "The shipped template this corresponds to, from the list in section 6, or null. "
+            "A template arrives with its parameters pre-filled, so citing one turns a "
+            "suggestion into something a person can accept rather than fill in. Null is the "
+            "right answer where nothing shipped matches -- never the nearest one."
         ),
     )
 
@@ -238,6 +224,7 @@ def assemble(
     configured: FrozenSet[str],
     known_kpis: Sequence[str] = (),
     available_tables: FrozenSet[str] = frozenset(),
+    known_templates: Sequence[str] = (),
     vocabularies: Optional[VocabularySet] = None,
 ) -> AssemblyReport:
     """Turn drafts into contract suggestions, gating each by what its shape needs.
@@ -255,6 +242,7 @@ def assemble(
     vocabularies = vocabularies or load_vocabulary_set()
     kpis = {identifier.lower() for identifier in known_kpis}
     tables = {table.lower() for table in available_tables}
+    known_templates = tuple(known_templates)
     report = AssemblyReport(notes=response.notes)
     seen: set = set()
 
@@ -283,6 +271,15 @@ def assemble(
                 f"{', '.join(unknown_tables)}"
             )
             continue
+        template_id = (draft.template_id or "").strip() or None
+        if template_id and known_templates and template_id not in known_templates:
+            # A template id nobody ships is worse than none: the draft is created from it, so
+            # the prefill silently produces nothing and the author sees an empty form where
+            # the suggestion promised a starting point.
+            report.dropped.append(
+                f"{title}: cites template {template_id!r}, which this deployment does not ship"
+            )
+            continue
         named_kpis = sorted(
             {k.strip().lower() for k in draft.kpi_identifiers if k.strip()}
         )
@@ -306,7 +303,7 @@ def assemble(
                 derived_from_tables=named_tables,
                 kpi_identifiers=named_kpis,
                 confidence=Confidence(draft.confidence.value),
-                template_id=None,
+                template_id=template_id,
             )
         )
         report.readiness.append(assess_shape_readiness(draft.shape, configured))
@@ -336,6 +333,7 @@ def render_prompt(
     *,
     vocabularies: Optional[VocabularySet] = None,
     kpis: Sequence[Any] = (),
+    templates: Sequence[Any] = (),
     prompt_path: Path = PROMPT_PATH,
 ) -> str:
     """The prompt with its closed sets and the registry filled in."""
@@ -345,6 +343,7 @@ def render_prompt(
         "business_area": vocabularies["business_area"].render_for_prompt(),
         "shapes": vocabularies["use_case_shape"].describe(),
         "kpis": _render_kpis(kpis),
+        "templates": _render_templates(templates),
         "shape_requirements": "\n".join(
             f"- **{shape.value}** needs: {', '.join(needs)}"
             for shape, needs in SHAPE_REQUIREMENTS.items()
@@ -365,11 +364,16 @@ async def arender_prompt(
     *,
     vocabularies: Optional[VocabularySet] = None,
     kpis: Sequence[Any] = (),
+    templates: Sequence[Any] = (),
     prompt_path: Path = PROMPT_PATH,
 ) -> str:
     """Async variant. The file read happens off the event loop."""
     return await asyncio.to_thread(
-        render_prompt, vocabularies=vocabularies, kpis=kpis, prompt_path=prompt_path
+        render_prompt,
+        vocabularies=vocabularies,
+        kpis=kpis,
+        templates=templates,
+        prompt_path=prompt_path,
     )
 
 
@@ -381,6 +385,24 @@ def _render_kpis(kpis: Sequence[Any]) -> str:
     for kpi in kpis:
         tables = ", ".join(sorted(getattr(kpi, "source_tables", ()) or ()))
         lines.append(f"- `{kpi.identifier}` ({kpi.name}) over {tables or 'no table'}")
+    return "\n".join(lines)
+
+
+def _render_templates(templates: Sequence[Any]) -> str:
+    """One line per shipped template: id, title and the shape it is."""
+    if not templates:
+        return (
+            "(none shipped -- use `template_id: null` on every suggestion, and a person will "
+            "fill the parameters by hand)"
+        )
+    lines = []
+    for template in templates:
+        identifier = getattr(template, "id", None) or getattr(
+            template, "identifier", ""
+        )
+        shape = getattr(template, "shape", "") or ""
+        title = getattr(template, "title", "")
+        lines.append(f"- `{identifier}` ({shape}) {title}".rstrip())
     return "\n".join(lines)
 
 
