@@ -414,6 +414,11 @@ integration-tests = [
 demo = [
     "egpt[dev]",
     "egpt[scheduler]",
+    # R-6 (docs/plan/open-items.md): cookbook/94_retail/K02 ingests the retail prose with
+    # MarkdownChunking, which needs `unstructured`. It lives in the markdown extra; the demo
+    # environment is where the cookbooks run, so the extra belongs here rather than in a
+    # setup script that would have to know which chunker a cookbook picked.
+    "egpt[markdown]",
     "anthropic",
     "chromadb",
     "ddgs",
