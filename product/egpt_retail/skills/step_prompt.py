@@ -29,7 +29,7 @@ import asyncio
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -121,6 +121,11 @@ class RoleTemplate:
     rules: Tuple[str, ...]
     output_notes: str
     refusals: Tuple[str, ...]
+    #: The tools the role's agent may call inside its step -- the "agentic interior" of the
+    #: review's *declared skeleton, agentic interior*. Names, not objects: Lane K says what a
+    #: role needs, Lane R binds each name to a tool at activation. A closed set here for the
+    #: same reason executors are: an agent that could pick its own tools would pick a writer.
+    tools: Tuple[str, ...] = ()
 
 
 ROLE_TEMPLATES: Mapping[str, RoleTemplate] = {
@@ -168,6 +173,9 @@ ROLE_TEMPLATES: Mapping[str, RoleTemplate] = {
             "Rows present but every value null: return the empty schema and say the metrics "
             "did not compute.",
         ),
+        # Read-only by construction. An explanation may look up what a column means and
+        # may run a guarded read to check a figure; it may not write anywhere.
+        tools=("semantic_read", "sql_through_guard"),
     ),
     "proposal": RoleTemplate(
         role="proposal",
@@ -213,6 +221,9 @@ ROLE_TEMPLATES: Mapping[str, RoleTemplate] = {
             "Guardrails absent from the input: return the empty schema and say so. Proposing "
             "without knowing the limits invites a run where everything is struck.",
         ),
+        # Still read-only: proposing is not writing. The write is `write_to_target`, a
+        # declared step after the limits and the gate, and no tool here reaches it.
+        tools=("semantic_read", "sql_through_guard", "domain_prose"),
     ),
 }
 
@@ -268,11 +279,46 @@ class AuthoredPrompt(BaseModel):
     role: str
     model_tier: str
     markdown: str
+    output_schema: str = ""
+    tools: List[str] = Field(default_factory=list)
     problems: List[str] = Field(default_factory=list)
 
     @property
     def publishable(self) -> bool:
         return not self.problems
+
+    def as_component(self, *, tenant_id: str) -> Dict[str, Any]:
+        """The second artifact: an agent component the components API can publish.
+
+        The review is explicit that generation produces two artifacts -- *"the workflow
+        definition... and the agent components for the model steps, each carrying its
+        generated prompt"* -- and that a deployed use case runs *"with the entire memory tiers
+        connected"*. This is the agent half, with everything activation needs and nothing it
+        has to guess: the prompt, the schema, the tier R8 must route it on, the tools Lane R
+        binds, and the memory scope K1's convention fixes for a scheduled run -- the agent's
+        own partition under the scheduler identity, never a person's.
+        """
+        from egpt_retail.memory.scopes import SYSTEM_USER_ID
+
+        return {
+            "id": self.agent_id,
+            "name": self.agent_id,
+            "role": self.role,
+            "instructions": self.markdown,
+            "output_schema": self.output_schema,
+            "model_tier": self.model_tier,
+            "tools": list(self.tools),
+            "memory": {
+                "write_scope": {
+                    "tenant_id": tenant_id,
+                    "agent_id": self.agent_id,
+                    "user_id": SYSTEM_USER_ID,
+                },
+                "read_scope": {"tenant_id": tenant_id, "user_id": SYSTEM_USER_ID},
+            },
+            "publishable": self.publishable,
+            "problems": list(self.problems),
+        }
 
 
 def missing_sections(markdown: str) -> List[str]:
@@ -445,6 +491,8 @@ order to return something.
         role=role,
         model_tier=tier,
         markdown=markdown,
+        output_schema=output_schema,
+        tools=list(template.tools),
         problems=problems,
     )
 

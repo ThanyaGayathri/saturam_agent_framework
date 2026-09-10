@@ -83,6 +83,14 @@ Whether an Act should *require* explicit acknowledgement of a spec-derived `per-
 `rollback` before it can be switched on is a product decision, not mine. Flagged because the
 data to enforce it now exists.
 
+## The second artifact, and the draft the interface writes
+
+`AuthoredPrompt.as_component(tenant_id)` now emits the agent component the review describes —
+prompt, output schema, tier, the role's tools as a closed set (none writes), and the memory
+scope K1 fixes for a scheduled run. The compiler binds slots from the contract's nested draft
+(`step8.schedule`, `step8.recipient`, `step8.guardrail_amount`) with a flat fallback, so it
+consumes what the interface produces today; the slots the contract lacks are R-15's list.
+
 ## Known incompletenesses
 
 1. **The R10 diff and the second use case are not done** — R10 has not landed. This is K15's

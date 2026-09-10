@@ -34,8 +34,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 
 import psycopg  # noqa: E402
-from egpt.agent import Agent  # noqa: E402
-from egpt.integrations.models.azure import AzureOpenAI  # noqa: E402
+from egpt.knowledge.knowledge import Knowledge  # noqa: E402
+from egpt.metrics import ProviderMode  # noqa: E402
+from egpt.vectordb.pgvector import PgVector  # noqa: E402
+from egpt.vectordb.search import SearchType  # noqa: E402
+from egpt_retail.app.settings import RetailSettings  # noqa: E402
+from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
+from egpt_retail.ontology.store import OntologyStore  # noqa: E402
+from egpt_retail.suggestions import build_suggestion_agents, gather_context  # noqa: E402
+from egpt_retail.suggestions.context import (  # noqa: E402
+    render_context,
+    samples_from_harvest,
+)
 from egpt_retail.contracts.kpi import assess_feasibility  # noqa: E402
 from egpt_retail.contracts.semantic import available_tables  # noqa: E402
 from egpt_retail.kpi.store import KpiRegistryStore  # noqa: E402
@@ -122,16 +132,50 @@ print(f"  concepts: {len(graph.list_concepts())}")
 print(f"  curated catalogue: {len(catalogue)} metric definitions")
 print(f"  already registered: {len(existing)}")
 
-agent = Agent(
-    name="kpi_suggestion",
-    model=AzureOpenAI(id=os.environ["AZURE_OPENAI_DEPLOYMENT"]),
-    instructions=k12.render_prompt(catalogue=catalogue, existing=existing),
-    output_schema=k12.KpiSuggestionDraftSet,
+
+# The stores the suggestion pass reads, built the way the product builds them: agents routed
+# through R8 (no pinned model), and domain prose through K10 rather than pasted in by hand.
+settings = RetailSettings(
+    retail_customer_slug="middleby",
+    retail_db_url=CONTROL_PLANE.replace("postgresql://", "postgresql+psycopg://", 1),
+    retail_neo4j_uri=NEO4J,
+    retail_neo4j_password=AUTH[1],
+    retail_provider_mode=ProviderMode.LOCAL,
+    # The corpus K02 loaded for cookbooks -- the table K10 reads. A deployment's
+    # `load-knowledge` fills the settings default instead.
+    retail_knowledge_table=os.environ.get(
+        "EGPT_RETAIL_KNOWLEDGE_TABLE", "egpt_retail_domain_prose_bge"
+    ),
+    retail_azure_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT"],
+    retail_azure_small_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT"],
 )
-message = (
-    f"harvest:\n{harvest_text()}\n\nconcepts in this deployment:\n{concepts_text or '(none)'}"
-    "\n\nPropose the KPIs this data supports."
+embedder = resolve_knowledge_embedder(mode=ProviderMode.LOCAL)
+knowledge = Knowledge(
+    vector_db=PgVector(
+        table_name=settings.retail_knowledge_table,
+        db_url=settings.retail_db_url,
+        search_type=SearchType.hybrid,
+        embedder=embedder.embedder,
+    )
 )
+ontology = OntologyStore(driver=driver, embedder=embedder.embedder)
+context = gather_context(
+    graph,
+    knowledge=knowledge,
+    ontology=ontology,
+    tenant_id="middleby",
+    # Example values from the warehouse harvest above -- the graph never holds them.
+    samples=samples_from_harvest(harvest),
+)
+agent, _ = build_suggestion_agents(
+    settings,
+    existing_kpis=existing,
+    registry_kpis=registry.list(),
+    catalogue=catalogue,
+)
+message = render_context(context, ask="Propose the KPIs this data supports.")
+print(f"  domain prose passages retrieved through K10: {len(context.prose)}")
+print(f"  routed through R8: {type(agent.model_provider).__name__}")
 
 
 def run_once():
@@ -153,9 +197,13 @@ print("2. Suggestions")
 print("-" * 78)
 for suggestion in first.suggestions:
     missing = ", ".join(suggestion.feasibility.missing_tables) or "-"
+    badge = (
+        "catalogue" if first.catalogue_source.get(suggestion.identifier) else "inferred"
+    )
     print(
         f"  [{suggestion.feasibility.verdict.value:<7}] {suggestion.identifier:<34} "
-        f"{suggestion.confidence.value:<7} tables: {', '.join(suggestion.derived_from_tables)}"
+        f"{suggestion.confidence.value:<7} {badge:<9} tables: "
+        f"{', '.join(suggestion.derived_from_tables)}"
     )
     print(f"      {suggestion.rationale[:88]}")
     if suggestion.feasibility.verdict.value != "ready":
@@ -298,6 +346,12 @@ areas = Counter(s.business_area for s in first.suggestions)
 print(f"  business areas covered: {dict(areas)}")
 untraceable = [s.identifier for s in first.suggestions if not s.derived_from_tables]
 print(f"  suggestions naming no table: {len(untraceable)}")
+proposals = first.as_proposals()
+print(
+    f"  adoptable as KPI proposals (carry a formula): {len(proposals)} of "
+    f"{len(first.suggestions)}; without a formula: {len(first.without_formula)}"
+)
+print("  Not filed here; K13_suggest_on_connect.py files and cleans up.")
 
 control_plane.close()
 driver.close()

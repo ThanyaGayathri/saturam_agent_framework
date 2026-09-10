@@ -4202,3 +4202,93 @@ Neo4j and no model. Nothing is publishable in any shape against the current regi
 the correct answer and is the exact dependency list in `K15_BASELINE.md`.
 
 ---
+
+### Phase 4 and 5 alignment pass — K12_kpi_suggestion.py, K13_use_case_suggestion.py, K13_suggest_on_connect.py, K15_orchestration.py
+
+**Status:** PASS (all four), with three open items filed for what a cookbook cannot fix.
+
+**Description:** P4 and P5 validated against the "Enterprise GPT architecture review" session
+and the tracked plan it produced, the gaps listed, and each fixed or filed. Eight gaps; six
+fixed here, two contract gaps filed for Lane R with proposed schemas.
+
+**Gap 1 — suggestions never became proposals.** Build plan §06: candidates "are proposals, so
+they carry an adopt action and enter the registry only when a person accepts them." K7 had the
+`KPI` and `USE_CASE` kinds and the registry adopted accepted KPI proposals; nothing produced
+one. Both assembly reports now carry `as_proposals()`. A KPI proposal is the whole definition —
+K7's validator builds a `KpiDefinition` from it and adoption saves that unread — so only
+suggestions carrying a formula become proposals; the rest are listed in `without_formula` and
+still shown. Measured: 13 of 14 KPI suggestions adoptable, every payload round-trips through
+`validate_payload`.
+
+**Gap 2 — suggestions did not run when the semantic layer completed.** The review's sequence is
+connect, build the layer, *then immediately suggest*; `harvest` refreshed and exited. New
+`egpt-retail suggest` entrypoint and `harvest --suggest`, behind `egpt_retail.suggestions`:
+gather the harvest, the ontology and K10's prose; run both agents; assemble; file proposals.
+Live: 5 tables, 6 prose passages, 16 proposals filed, 0 → 16 rows by proposer, all removed at
+exit.
+
+**Gap 3 — K12 and K13 were not deployable agents.** No routing rows; the cookbooks pinned
+`AzureOpenAI`, which `route_agents` refuses on purpose. Rows added on the frontier tier (G6),
+both agents registered in `build_agents` through one builder the entrypoint reuses with the
+live registry, both cookbooks re-routed. `test_r8_routing` caught that every registered agent
+must be in `MEMORY_WRITING_AGENT_IDS`, because the lifespan hands each one the provider —
+correct, and added.
+
+**Gap 4 — curated-vs-inferred provenance was dropped at assembly.** The review wants "from the
+curated registry — vetted" badged differently from "inferred from your schema — a guess".
+Carried on the report and in the proposal payload; contract field filed as **R-16**. This run:
+1 of 14 cited the catalogue.
+
+**Gap 5 — K13 had no data-feasibility aggregate.** Shape readiness answers "can this deployment
+run it"; the review's badge answers "can the data compute it": ready / mostly ready (n of m
+metrics) / blocked, plus "connect X to unlock N". Now computed from K11's per-KPI set
+difference; blocked suggestions are **kept**, not dropped, because a dropped one cannot say what
+would unlock it. Filed with R-16.
+
+**Gap 6 — neither agent received domain prose.** The review names the inputs as domain
+knowledge (doc and graph) *and* the semantic graph; nothing asked K10. `gather_context` now
+reads one K10 pass per concept and keeps the prose leg's hits. Six passages reached the agents.
+The cookbooks had to be pointed at the corpus K02 loads for cookbooks
+(`egpt_retail_domain_prose_bge`); a deployment's `load-knowledge` fills the settings default.
+
+**Gap 7 — no contract carries the shape with its per-shape parameters.** Filed as **R-15** with
+the field list from `SHAPE_PARAMETERS`. K15 now reads the draft keys the interface actually
+writes (`step8.schedule`, `step8.recipient`, `step8.guardrail_amount`) with a flat fallback, so
+it consumes the form the day it lands.
+
+**Gap 8 — K15 emitted no agent component.** The review's second artifact — prompt, tools
+("declared skeleton, agentic interior"), memory scope per K1 — is now `as_component()`. Role
+templates declare their tools as a closed set, none of which writes.
+
+**Two findings the live runs produced, both worth more than the fixes.**
+
+*Without example values the KPI agent falls apart.* The graph never holds row values — *rows
+stay in the warehouse* — and `write_harvest` strips `sampled_values` on every write. The old
+cookbook had read the warehouse directly, samples included. Run from the graph alone, K12's
+three runs proposed 2, 10 and 18 KPIs with an empty stable core, against the baseline's core of
+five at 1.2×. With samples read transiently from the warehouse (the entrypoint does this when a
+warehouse URL is set; the graph is untouched), the core returned: the same five identifiers,
+2.1× spread. The harvest text is not enough; what a column *contains* is what anchors the agent.
+
+*K7's dedupe does not hold across model calls.* The idempotence section first tested "run the
+pass twice" and 15 rephrased duplicates landed as new rows: K7 keys a proposal by payload
+content, and a second model call retitles and rephrases. Re-filing the *identical* assembled
+proposals is a no-op (16 offered, 0 new), which is what K7 promises. What it does not promise is
+what a nightly pass needs, and a rejected suggestion would return the next morning under new
+wording. Filed as **K-13**: identity by `(kind, target)` for the two suggestion kinds.
+
+**One operational finding, mine.** The first live run of the entrypoint cookbook sat for forty
+minutes at 1.5s of CPU: it seeded the registry inside an open transaction on one connection,
+then `suggest()` opened a second connection and waited on the first's locks —
+`pg_stat_activity` showed the `ALTER TABLE` queued behind an idle-in-transaction `SELECT`. A
+cookbook that opens a second connection to the same database must commit or use autocommit.
+
+**Also observed:** with prose in the message, K13 proposed a **Recommend** for the first time
+across every run to date ("review of long-stalled quote requests" — blocked on approver, write
+target, guardrails, as it should be). Partial evidence on K-7: the shape gate was not the only
+reason Recommend never appeared; the agent had not had the domain grounding to propose one.
+
+**Result:** PASS. 750 product tests (51 new), mutation-checked where the logic gates; four live
+cookbooks; product ruff and mypy clean under `validate.sh`. Open: R-15, R-16, K-13.
+
+---

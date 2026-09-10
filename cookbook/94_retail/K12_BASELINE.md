@@ -70,3 +70,30 @@ told to. That is the strongest single signal in this baseline.
 2. Decide the slicing rule: should `rage_clicks` and `rage_clicks_per_session` both be
    proposable, or should the prompt pick one convention? That answer is what v1.1.0 implements
    and this baseline measures.
+
+
+## Re-baseline, 2026-09-10 — routed through R8, with domain prose and warehouse samples
+
+Same harvest, the agent now built by `build_suggestion_agents` (frontier tier via R8, no pinned
+model), fed six K10 prose passages and example values read transiently from the warehouse.
+
+| Run | Suggestions | Buckets |
+|---|---|---|
+| A | 14 | 5 |
+| B | 10 | 4 |
+| C | 21 | 5 |
+
+Stable core **5** — `quoterequest__count`, `websession__count`, `websession__dead_clicks`,
+`websession__rage_clicks`, `websession__script_errors` — one swap against the first baseline
+(`websession__count` in, `websession__rage_click_rate` out). Cardinality spread 2.1×; core over
+union 15%, down from 71%, because run C sliced the session-replay counts into rates and
+per-session rates as well. Coverage is stable; slicing is not — the same weakness the first
+baseline named.
+
+**The finding that matters:** run without example values — the graph alone — the three runs
+were 2 / 10 / 18 with an **empty** core. The harvest text names types; the samples say what a
+column holds, and that is what anchors the agent. The graph must never hold them (rows stay in
+the warehouse); the pass reads them from the warehouse for the prompt and nothing else.
+
+Adoptable as KPI proposals: 13 of 14 (one without a formula). Citing the catalogue: 1 of 14 —
+the review's badge would show thirteen "inferred" rows, which is itself worth the owner's eye.

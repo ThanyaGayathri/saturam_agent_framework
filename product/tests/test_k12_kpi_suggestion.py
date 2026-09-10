@@ -298,3 +298,84 @@ class TestQualifiedTableNames:
         [suggestion] = report.suggestions
         assert _feasibility(suggestion).verdict is FeasibilityVerdict.blocked
         assert _feasibility(suggestion).missing_tables == ["absent"]
+
+
+# --- proposals: the adopt action D10 requires ------------------------------------------
+
+
+def _proposal_drafts(*suggestions):
+    return k12.KpiSuggestionDraftSet(suggestions=list(suggestions), notes="")
+
+
+def _proposal_draft(
+    identifier="quoterequest__count", sql="SELECT count(*) FROM crm_deal", source=None
+):
+    return k12.KpiSuggestionDraft(
+        identifier=identifier,
+        name="Quote requests",
+        description="How many.",
+        business_area="sales",
+        grain="overall",
+        concept="QuoteRequest",
+        result_shape="scalar",
+        confidence="high",
+        rationale="crm_deal.deal_id counts them.",
+        derived_from_tables=["silver.crm_deal"],
+        proposed_sql=sql,
+        catalogue_source=source,
+    )
+
+
+def test_a_suggestion_with_a_formula_becomes_a_kpi_proposal_the_registry_can_adopt():
+    """Build plan section 06: candidates "are proposals, so they carry an adopt action and
+    enter the registry only when a person accepts them". This is the producer that was
+    missing. The payload round-trips through K7's validator into a KpiDefinition, which is
+    exactly what adoption saves."""
+    from egpt_retail.semantic.proposals import ProposalKind, validate_payload
+
+    report = k12.assemble(
+        _proposal_drafts(_proposal_draft(source="Quote request volume")),
+        available_tables=frozenset({"crm_deal"}),
+        snapshot_version="snap-1",
+    )
+    proposals = report.as_proposals()
+    assert len(proposals) == 1
+    proposal = proposals[0]
+    assert proposal.kind is ProposalKind.KPI
+    assert proposal.target == "quoterequest__count"
+    assert proposal.proposer == "kpi_suggestion@1.0.0"
+    definition = validate_payload(ProposalKind.KPI, proposal.payload)
+    assert definition.identifier == "quoterequest__count"
+    assert definition.source_tables == frozenset({"crm_deal"})
+    assert proposal.payload["catalogue_source"] == "Quote request volume"
+    assert proposal.payload["feasibility"] == "ready"
+
+
+def test_a_suggestion_without_a_formula_is_kept_but_not_proposed():
+    """The placeholder formula assembly uses for the feasibility check must never reach the
+    registry as a formula."""
+    report = k12.assemble(
+        _proposal_drafts(_proposal_draft(sql=None)),
+        available_tables=frozenset({"crm_deal"}),
+    )
+    assert [s.identifier for s in report.suggestions] == ["quoterequest__count"]
+    assert report.without_formula == ["quoterequest__count"]
+    assert report.as_proposals() == []
+
+
+def test_catalogue_provenance_is_carried_beside_each_suggestion():
+    """The review wants "from the curated registry" and "inferred from your schema" badged
+    differently. The contract has no field for it (R-16); the report carries it."""
+    report = k12.assemble(
+        _proposal_drafts(
+            _proposal_draft(identifier="a__one", source="Quote request volume"),
+            _proposal_draft(identifier="a__two", source=None),
+            _proposal_draft(identifier="a__three", source="   "),
+        ),
+        available_tables=frozenset({"crm_deal"}),
+    )
+    assert report.catalogue_source == {
+        "a__one": "Quote request volume",
+        "a__two": None,
+        "a__three": None,
+    }

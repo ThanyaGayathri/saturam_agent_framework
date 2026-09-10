@@ -645,3 +645,88 @@ def test_async_step_prompt_variants_match():
     assert asyncio.run(
         sp.arender_prompt(role="explanation", use_case_id="wk", question="q")
     ) == sp.render_prompt(role="explanation", use_case_id="wk", question="q")
+
+
+# --- the second artifact: the agent component -----------------------------------------
+
+
+def test_the_authored_prompt_becomes_a_publishable_agent_component():
+    """The review: generation produces two artifacts, the workflow definition and "the agent
+    components for the model steps, each carrying its generated prompt". This is the second,
+    with everything activation needs and nothing it has to guess."""
+    component = authored().as_component(tenant_id="acme")
+    assert component["id"] == "wk__explanation"
+    assert component["instructions"] == authored().markdown
+    assert component["output_schema"] == "x.Y"
+    assert component["model_tier"] == "small"
+    assert component["publishable"] is True
+
+
+def test_the_component_carries_the_roles_tools_as_a_closed_set():
+    """ "Declared skeleton, agentic interior": the step is fixed, the agent inside it may
+    investigate with tools -- and only the tools its role declares. None of them writes."""
+    explanation = authored().as_component(tenant_id="acme")
+    assert explanation["tools"] == ["semantic_read", "sql_through_guard"]
+    proposal = sp.assemble(
+        draft_prompt(),
+        agent_id="wk__proposal",
+        role="proposal",
+        output_schema="x.Y",
+        use_case_id="wk",
+    ).as_component(tenant_id="acme")
+    assert "write_to_target" not in proposal["tools"]
+    for template in sp.ROLE_TEMPLATES.values():
+        assert not any("write" in tool for tool in template.tools)
+
+
+def test_the_component_memory_scope_follows_k1s_convention():
+    """A scheduled run writes under its own agent id and the scheduler identity, and reads
+    only what scheduled runs have learned -- never a person's rows."""
+    memory = authored().as_component(tenant_id="acme")["memory"]
+    assert memory["write_scope"] == {
+        "tenant_id": "acme",
+        "agent_id": "wk__explanation",
+        "user_id": "__scheduler__",
+    }
+    assert memory["read_scope"] == {"tenant_id": "acme", "user_id": "__scheduler__"}
+    assert "agent_id" not in memory["read_scope"]
+
+
+# --- the draft the interface actually produces ----------------------------------------
+
+
+def test_slots_bind_from_the_contracts_nested_draft_steps():
+    """The interface writes ``step8.schedule``, not a flat ``schedule``. The compiler reads
+    what the interface produces; a flat key still works for a hand-built draft."""
+    nested = {
+        "step1": {"autonomy": "copilot"},
+        "step8": {
+            "schedule": "0 7 * * 1",
+            "recipient": "sales@example.com",
+            "guardrail_amount": 5000,
+        },
+    }
+    report = compile_workflow(
+        SPEC, registered_executors=FULL, shape=UseCaseShape.INFORM, draft=nested
+    )
+    assert report.parameters["schedule"] == "0 7 * * 1"
+    assert report.parameters["recipient"] == "sales@example.com"
+    assert report.parameter_origins["schedule"] is ParameterOrigin.AUTHORED
+    flat = compile_workflow(
+        SPEC,
+        registered_executors=FULL,
+        shape=UseCaseShape.INFORM,
+        draft={"schedule": "0 7 * * 1", "recipient": "x"},
+    )
+    assert flat.parameters["schedule"] == "0 7 * * 1"
+
+
+def test_the_nested_draft_wins_where_both_forms_are_present():
+    """The dotted path is what the activation screen reads back."""
+    report = compile_workflow(
+        SPEC,
+        registered_executors=FULL,
+        shape=UseCaseShape.INFORM,
+        draft={"schedule": "flat", "recipient": "x", "step8": {"schedule": "nested"}},
+    )
+    assert report.parameters["schedule"] == "nested"

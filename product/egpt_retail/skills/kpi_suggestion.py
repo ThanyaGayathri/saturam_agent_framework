@@ -20,11 +20,12 @@ is an error at construction, in this process, rather than a blank on a screen.
 
 from __future__ import annotations
 
+
 import asyncio
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -44,6 +45,9 @@ from egpt_retail.contracts.kpi import (
 )
 from egpt_retail.contracts.kpi import ResultShape as ContractResultShape
 from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
+
+if TYPE_CHECKING:
+    from egpt_retail.semantic.proposals import Proposal
 
 __all__ = [
     "PROMPT_PATH",
@@ -169,8 +173,87 @@ class AssemblyReport(BaseModel):
     """
 
     suggestions: List[KpiSuggestion] = Field(default_factory=list)
+    #: Identifier -> the curated catalogue metric it corresponds to, or None where the agent
+    #: inferred it from the schema. Carried beside the suggestion because the contract's
+    #: ``KpiSuggestion`` has no field for it (R-16), and the two deserve different trust: a
+    #: catalogue metric has a vetted definition someone stands behind; an inferred one is a
+    #: guess from column names that happens to parse.
+    catalogue_source: Dict[str, Optional[str]] = Field(default_factory=dict)
+    #: Identifiers the agent proposed without a formula. They are real suggestions -- the
+    #: discovery screen shows them -- but they cannot become KPI proposals, because a proposal
+    #: carries the whole definition and the registry adopts it without a second opinion.
+    without_formula: List[str] = Field(default_factory=list)
     dropped: List[str] = Field(default_factory=list)
     notes: str = ""
+
+    def as_proposals(self, *, proposer: str = "") -> List["Proposal"]:
+        """The accepted suggestions as K7 proposals, for the adopt action D10 requires.
+
+        Build plan section 06: candidates the suggestion agent derives *"are proposals, so
+        they carry an adopt action and enter the registry only when a person accepts them."*
+        The registry's ``adopt_accepted`` already consumes accepted ``KPI`` proposals; this is
+        the producer that was missing.
+
+        Only suggestions carrying ``proposed_sql`` become proposals. A KPI proposal is the whole
+        definition -- ``validate_payload`` builds a ``KpiDefinition`` from it, and adoption saves
+        that without looking again -- so a placeholder formula would be adopted as a formula.
+        The rest are listed in ``without_formula`` rather than dropped: they are still worth
+        showing, and asking the agent for a formula is the next step, not a failure.
+        """
+        from egpt_retail.semantic.proposals import Proposal, ProposalKind
+
+        proposer = proposer or f"{SKILL.identifier}@{SKILL.version}"
+        proposals: List[Proposal] = []
+        for suggestion in self.suggestions:
+            if not suggestion.proposed_sql:
+                continue
+            payload: Dict[str, Any] = {
+                "identifier": suggestion.identifier,
+                "name": suggestion.name,
+                "description": suggestion.description,
+                "sql": suggestion.proposed_sql,
+                "grain": suggestion.grain.value
+                if hasattr(suggestion.grain, "value")
+                else suggestion.grain,
+                "business_area": suggestion.business_area,
+                "source_tables": list(suggestion.derived_from_tables),
+                "result_shape": suggestion.result_shape.value,
+                "concept": suggestion.concept,
+                "parameters": (
+                    [
+                        {
+                            "name": "scope",
+                            "kind": "predicate",
+                            "description": "Concept scoping filter.",
+                        }
+                    ]
+                    if "{scope}" in suggestion.proposed_sql
+                    else []
+                ),
+                # Provenance for the review screen's badge. `_kpi_from` ignores keys it does
+                # not build from, so this rides along in the jsonb without affecting adoption.
+                "catalogue_source": self.catalogue_source.get(suggestion.identifier),
+                "feasibility": (
+                    suggestion.feasibility.verdict.value
+                    if suggestion.feasibility
+                    else "unknown"
+                ),
+                "missing_tables": (
+                    list(suggestion.feasibility.missing_tables)
+                    if suggestion.feasibility
+                    else []
+                ),
+                "rationale": suggestion.rationale,
+            }
+            proposals.append(
+                Proposal(
+                    kind=ProposalKind.KPI,
+                    target=suggestion.identifier,
+                    payload=payload,
+                    proposer=proposer,
+                )
+            )
+        return proposals
 
 
 def _bare(table: str) -> str:
@@ -273,6 +356,11 @@ def assemble(
             continue
 
         seen.add(identifier)
+        report.catalogue_source[identifier] = (
+            draft.catalogue_source or ""
+        ).strip() or None
+        if not draft.proposed_sql:
+            report.without_formula.append(identifier)
         # The ontology's area, where it has one for this concept.
         area = (area_of_concept or {}).get(draft.concept or "", draft.business_area)
         verdict = assess_feasibility(definition, frozenset(available_tables))

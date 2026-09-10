@@ -34,8 +34,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 
 import psycopg  # noqa: E402
-from egpt.agent import Agent  # noqa: E402
-from egpt.integrations.models.azure import AzureOpenAI  # noqa: E402
+from egpt.knowledge.knowledge import Knowledge  # noqa: E402
+from egpt.metrics import ProviderMode  # noqa: E402
+from egpt.vectordb.pgvector import PgVector  # noqa: E402
+from egpt.vectordb.search import SearchType  # noqa: E402
+from egpt_retail.app.settings import RetailSettings  # noqa: E402
+from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
+from egpt_retail.ontology.store import OntologyStore  # noqa: E402
+from egpt_retail.suggestions import build_suggestion_agents, gather_context  # noqa: E402
+from egpt_retail.suggestions.context import (  # noqa: E402
+    render_context,
+    samples_from_harvest,
+)
 from egpt_retail.contracts.kpi import KpiDefinition  # noqa: E402
 from egpt_retail.contracts.semantic import available_tables  # noqa: E402
 from egpt_retail.kpi.store import KpiRegistryStore  # noqa: E402
@@ -195,16 +205,46 @@ print(f"  concepts: {len(graph.list_concepts())}")
 print(f"  bare deployment has: {', '.join(sorted(BARE))}")
 print(f"  configured deployment has: {len(CONFIGURED)} capabilities")
 
-agent = Agent(
-    name="use_case_suggestion",
-    model=AzureOpenAI(id=os.environ["AZURE_OPENAI_DEPLOYMENT"]),
-    instructions=k13.render_prompt(kpis=kpis),
-    output_schema=k13.UseCaseSuggestionDraftSet,
+
+# The stores the suggestion pass reads, built the way the product builds them: agents routed
+# through R8 (no pinned model), and domain prose through K10 rather than pasted in by hand.
+settings = RetailSettings(
+    retail_customer_slug="middleby",
+    retail_db_url=CONTROL_PLANE.replace("postgresql://", "postgresql+psycopg://", 1),
+    retail_neo4j_uri=NEO4J,
+    retail_neo4j_password=AUTH[1],
+    retail_provider_mode=ProviderMode.LOCAL,
+    # The corpus K02 loaded for cookbooks -- the table K10 reads. A deployment's
+    # `load-knowledge` fills the settings default instead.
+    retail_knowledge_table=os.environ.get(
+        "EGPT_RETAIL_KNOWLEDGE_TABLE", "egpt_retail_domain_prose_bge"
+    ),
+    retail_azure_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT"],
+    retail_azure_small_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT"],
 )
-message = (
-    f"harvest:\n{harvest_text()}\n\nconcepts in this deployment:\n{concepts_text or '(none)'}"
-    "\n\nPropose the use cases this data supports."
+embedder = resolve_knowledge_embedder(mode=ProviderMode.LOCAL)
+knowledge = Knowledge(
+    vector_db=PgVector(
+        table_name=settings.retail_knowledge_table,
+        db_url=settings.retail_db_url,
+        search_type=SearchType.hybrid,
+        embedder=embedder.embedder,
+    )
 )
+ontology = OntologyStore(driver=driver, embedder=embedder.embedder)
+context = gather_context(
+    graph,
+    knowledge=knowledge,
+    ontology=ontology,
+    tenant_id="middleby",
+    # Example values from the warehouse harvest above -- the graph never holds them.
+    samples=samples_from_harvest(harvest),
+)
+_, agent = build_suggestion_agents(settings, registry_kpis=kpis)
+message = render_context(context, ask="Propose the use cases this data supports.")
+by_identifier = {kpi.identifier: kpi for kpi in kpis}
+print(f"  domain prose passages retrieved through K10: {len(context.prose)}")
+print(f"  routed through R8: {type(agent.model_provider).__name__}")
 
 drafts = agent.run(message).content
 known = [kpi.identifier for kpi in kpis]
@@ -212,10 +252,18 @@ known = [kpi.identifier for kpi in kpis]
 # The same drafts, assembled twice against two deployments. One agent run, so any difference
 # in the verdicts is the deployment's doing and provably not the model's.
 against_bare = k13.assemble(
-    drafts, configured=BARE, known_kpis=known, available_tables=tables
+    drafts,
+    configured=BARE,
+    known_kpis=known,
+    available_tables=tables,
+    registry=by_identifier,
 )
 against_configured = k13.assemble(
-    drafts, configured=CONFIGURED, known_kpis=known, available_tables=tables
+    drafts,
+    configured=CONFIGURED,
+    known_kpis=known,
+    available_tables=tables,
+    registry=by_identifier,
 )
 
 # --- 2. The suggestions ------------------------------------------------------------------
@@ -223,8 +271,13 @@ against_configured = k13.assemble(
 print()
 print("2. Suggestions, on the bare deployment")
 print("-" * 78)
-for line in k13.readiness_lines(against_bare):
+for line, feasibility in zip(
+    k13.readiness_lines(against_bare), against_bare.feasibility
+):
     print(f"  {line}")
+    print(f"      data: {feasibility.label}")
+for table, titles in sorted(against_bare.unlocks.items()):
+    print(f"  connect {table} to unlock {len(titles)}: {', '.join(titles)}")
 if against_bare.dropped:
     print("  dropped before assembly:")
     for reason in against_bare.dropped:

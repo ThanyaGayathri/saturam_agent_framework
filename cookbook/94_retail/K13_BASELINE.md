@@ -83,3 +83,14 @@ This is the behaviour section 8 asks for, and it doubles as a work queue for K12
 
 *To be filled in by Lane K's owner. The rows above that need a mark: the Recommend/Act absence,
 and whether rows 2/3 and 4/5 are two use cases each or one.*
+
+
+## Re-baseline, 2026-09-10 — with domain prose and data feasibility
+
+Run D, routed through R8 with six prose passages: **inform 3, alert 2, recommend 1**. The
+Recommend ("review of long-stalled quote requests") is the first write shape proposed across
+every run to date; blocked on the bare deployment for approver, write target and guardrails,
+as it should be. Partial evidence on K-7: the agent had lacked grounding, not only a write
+target. Data feasibility: every suggestion `ready` (all named KPIs and tables present), so the
+"connect X to unlock N" line had nothing to say on this harvest; the DB-free tests cover the
+mostly-ready and blocked paths.

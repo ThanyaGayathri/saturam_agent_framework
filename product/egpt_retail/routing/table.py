@@ -56,6 +56,11 @@ ROUTING_TABLE: Mapping[str, Tier] = MappingProxyType(
         "synonym_proposer": Tier.FRONTIER,
         "enrichment_proposer": Tier.FRONTIER,  # K8
         "mapping_proposer": Tier.FRONTIER,  # K8
+        # K12 and K13: G6 puts suggestion on the frontier tier -- rare, quality-critical,
+        # a handful of runs per refresh. Without these rows neither is a deployable agent;
+        # the first cut ran them from cookbooks with a pinned model, bypassing routing.
+        "kpi_suggestion": Tier.FRONTIER,  # K12
+        "use_case_suggestion": Tier.FRONTIER,  # K13
     }
 )
 

@@ -26,19 +26,40 @@ from __future__ import annotations
 import asyncio
 from enum import Enum
 from pathlib import Path
-from typing import Any, FrozenSet, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    FrozenSet,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from egpt_retail.api.models import Confidence, UseCaseSuggestion, UseCaseSuggestionList
+from egpt_retail.contracts.kpi import (
+    FeasibilityVerdict,
+    KpiDefinition,
+    assess_feasibility,
+)
 from egpt_retail.contracts.use_case import Autonomy, UseCaseShape
 from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
+
+if TYPE_CHECKING:
+    from egpt_retail.semantic.proposals import Proposal
 
 __all__ = [
     "PROMPT_PATH",
     "SHAPE_REQUIREMENTS",
     "SKILL_VERSION",
     "AssemblyReport",
+    "DataFeasibility",
+    "UseCaseFeasibility",
+    "assess_data_feasibility",
     "Autonomy",
     "ShapeReadiness",
     "UseCaseShape",
@@ -53,6 +74,7 @@ __all__ = [
 ]
 
 PROMPT_PATH = Path(__file__).parent / "use_case_suggestion.md"
+SKILL_IDENTIFIER = "use_case_suggestion"
 SKILL_VERSION = "1.0.0"
 
 
@@ -190,6 +212,36 @@ def assess_shape_readiness(
     return ShapeReadiness(shape=shape, ready=not missing, missing=missing)
 
 
+class UseCaseFeasibility(str, Enum):
+    """Whether the data can compute what a use case needs. An aggregate, so its own words.
+
+    A KPI is computable or it is not. A use case needs several, so it can be *partly* there,
+    and "1 of 2 metrics" tells a person how close they are and what to fix in a way that
+    "partial" does not. The architecture review's ruling, and the reason this is not the
+    KPI-level ``FeasibilityVerdict`` reused.
+    """
+
+    READY = "ready"
+    MOSTLY_READY = "mostly_ready"
+    BLOCKED = "blocked"
+
+
+class DataFeasibility(BaseModel):
+    """What the semantic layer can and cannot compute for one suggestion. A set difference."""
+
+    verdict: UseCaseFeasibility
+    ready_kpis: List[str] = Field(default_factory=list)
+    blocked_kpis: List[str] = Field(default_factory=list)
+    missing_tables: List[str] = Field(default_factory=list)
+
+    @property
+    def label(self) -> str:
+        total = len(self.ready_kpis) + len(self.blocked_kpis)
+        if self.verdict is UseCaseFeasibility.MOSTLY_READY:
+            return f"mostly ready -- {len(self.ready_kpis)} of {total} metrics"
+        return self.verdict.value
+
+
 class AssemblyReport(BaseModel):
     """What survived assembly, what was dropped, and what each shape needs."""
 
@@ -200,6 +252,13 @@ class AssemblyReport(BaseModel):
     #: could run it. Carried alongside rather than on the suggestion because the contract has
     #: nowhere to put it yet (R-12).
     readiness: List[ShapeReadiness] = Field(default_factory=list)
+    #: Per accepted suggestion, in the same order: whether the DATA can compute what it needs.
+    #: Distinct from readiness -- a deployment may have every channel wired and still hold
+    #: none of the tables. Also nowhere on the contract yet (R-16).
+    feasibility: List[DataFeasibility] = Field(default_factory=list)
+    #: Missing table -> the titles connecting it would unlock. The review's "connect a
+    #: promotions source to unlock 6 more use cases": it turns a blocked list into a roadmap.
+    unlocks: Dict[str, List[str]] = Field(default_factory=dict)
     dropped: List[str] = Field(default_factory=list)
     notes: str = ""
 
@@ -217,6 +276,106 @@ class AssemblyReport(BaseModel):
             semantic_snapshot=snapshot_version or None,
         )
 
+    def as_proposals(self, *, proposer: str = "") -> List["Proposal"]:
+        """The accepted suggestions as K7 ``USE_CASE`` proposals, for the adopt action.
+
+        The open-items resolution for the proposals table names its three consumers --
+        ontology mapping, KPI adoption, and use case suggestions -- and this is the third's
+        producer. The payload carries everything the contract cannot: the shape, the
+        readiness and feasibility verdicts, so a reviewer sees on the proposal exactly what
+        the discovery screen would have shown.
+        """
+        from egpt_retail.semantic.proposals import Proposal, ProposalKind
+
+        proposer = proposer or f"{SKILL_IDENTIFIER}@{SKILL_VERSION}"
+        proposals: List[Proposal] = []
+        for suggestion, readiness, feasibility in zip(
+            self.suggestions, self.readiness, self.feasibility
+        ):
+            proposals.append(
+                Proposal(
+                    kind=ProposalKind.USE_CASE,
+                    target=_slug(suggestion.title),
+                    payload={
+                        "question": suggestion.title,
+                        "description": suggestion.description,
+                        "business_area": suggestion.business_area,
+                        "rationale": suggestion.rationale,
+                        "kpi_identifiers": list(suggestion.kpi_identifiers),
+                        "derived_from_tables": list(suggestion.derived_from_tables),
+                        "confidence": suggestion.confidence.value,
+                        "shape": readiness.shape.value,
+                        "shape_ready": readiness.ready,
+                        "shape_missing": list(readiness.missing),
+                        "feasibility": feasibility.verdict.value,
+                        "ready_kpis": list(feasibility.ready_kpis),
+                        "blocked_kpis": list(feasibility.blocked_kpis),
+                        "missing_tables": list(feasibility.missing_tables),
+                        "template_id": suggestion.template_id,
+                    },
+                    proposer=proposer,
+                )
+            )
+        return proposals
+
+
+def _slug(text: str) -> str:
+    return "_".join(part for part in text.lower().replace("-", " ").split() if part)
+
+
+def assess_data_feasibility(
+    kpi_identifiers: Sequence[str],
+    derived_from_tables: Sequence[str],
+    *,
+    registry: Mapping[str, KpiDefinition],
+    available_tables: FrozenSet[str],
+) -> DataFeasibility:
+    """Aggregate K11's per-KPI verdicts into the use case's. Pure; consults no model.
+
+    Each named KPI is assessed with ``assess_feasibility`` -- the same set difference the
+    discovery screen shows for the KPI on its own -- and the aggregate is a count. A use case
+    naming no KPI is judged on its tables alone.
+    """
+    ready: List[str] = []
+    blocked: List[str] = []
+    missing: set = set()
+    # No registry means no basis to judge a KPI, not a verdict that every KPI is blocked.
+    # The DB-free callers (tests, the cookbook's control) pass none and get a tables-only
+    # verdict; a run with the registry in hand gets the per-KPI aggregate.
+    for identifier in kpi_identifiers if registry else ():
+        definition = registry.get(identifier)
+        if definition is None:
+            blocked.append(identifier)
+            continue
+        verdict = assess_feasibility(definition, available_tables)
+        if verdict.verdict is FeasibilityVerdict.READY:
+            ready.append(identifier)
+        else:
+            blocked.append(identifier)
+            missing.update(verdict.missing_tables)
+    table_gaps = [
+        t for t in derived_from_tables if available_tables and t not in available_tables
+    ]
+    missing.update(table_gaps)
+
+    if ready or blocked:
+        if not blocked:
+            verdict_value = UseCaseFeasibility.READY
+        elif ready:
+            verdict_value = UseCaseFeasibility.MOSTLY_READY
+        else:
+            verdict_value = UseCaseFeasibility.BLOCKED
+    else:
+        verdict_value = (
+            UseCaseFeasibility.BLOCKED if table_gaps else UseCaseFeasibility.READY
+        )
+    return DataFeasibility(
+        verdict=verdict_value,
+        ready_kpis=ready,
+        blocked_kpis=blocked,
+        missing_tables=sorted(missing),
+    )
+
 
 def assemble(
     response: UseCaseSuggestionDraftSet,
@@ -225,9 +384,14 @@ def assemble(
     known_kpis: Sequence[str] = (),
     available_tables: FrozenSet[str] = frozenset(),
     known_templates: Sequence[str] = (),
+    registry: Optional[Mapping[str, KpiDefinition]] = None,
     vocabularies: Optional[VocabularySet] = None,
 ) -> AssemblyReport:
     """Turn drafts into contract suggestions, gating each by what its shape needs.
+
+    ``registry`` is the K11 definitions keyed by identifier. With it, every kept suggestion
+    also carries a data-feasibility verdict aggregated from its KPIs; without it (the DB-free
+    case) feasibility is judged on tables alone and ``ready_kpis`` stays empty.
 
     Every draft is checked before it is kept: its business area is a term this deployment
     has, every table it names is in the semantic layer, and every KPI it names is in the
@@ -264,13 +428,10 @@ def assemble(
             continue
 
         named_tables = sorted({_bare(t) for t in draft.derived_from_tables})
-        unknown_tables = [t for t in named_tables if tables and t not in tables]
-        if unknown_tables:
-            report.dropped.append(
-                f"{title}: names table(s) the semantic layer does not hold: "
-                f"{', '.join(unknown_tables)}"
-            )
-            continue
+        # A suggestion over a table the layer does not hold is NOT dropped any more. The
+        # review's ruling: blocked suggestions stay visible, because "connect a promotions
+        # source to unlock 6 more use cases" is the roadmap, and a dropped one is invisible.
+        # It is kept, marked blocked, and its missing tables feed `unlocks`.
         template_id = (draft.template_id or "").strip() or None
         if template_id and known_templates and template_id not in known_templates:
             # A template id nobody ships is worse than none: the draft is created from it, so
@@ -294,6 +455,15 @@ def assemble(
             continue
 
         seen.add(title.lower())
+        data = assess_data_feasibility(
+            named_kpis,
+            named_tables,
+            registry=registry or {},
+            available_tables=frozenset(tables),
+        )
+        for table in data.missing_tables:
+            report.unlocks.setdefault(table, []).append(title)
+        report.feasibility.append(data)
         report.suggestions.append(
             UseCaseSuggestion(
                 title=title,

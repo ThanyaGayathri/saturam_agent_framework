@@ -16,11 +16,13 @@ from pydantic import ValidationError
 from egpt_retail.api.models import Autonomy as ContractAutonomy
 from egpt_retail.api.models import Confidence, UseCaseSuggestionList
 from egpt_retail.contracts.vocabulary import load_vocabulary_set
+from egpt_retail.contracts.kpi import KpiDefinition
 from egpt_retail.skills.use_case_suggestion import (
     PROMPT_PATH,
     SHAPE_REQUIREMENTS,
     Autonomy,
     DraftConfidence,
+    UseCaseFeasibility,
     UseCaseShape,
     UseCaseSuggestionDraft,
     UseCaseSuggestionDraftSet,
@@ -45,6 +47,20 @@ FULLY_CONFIGURED = frozenset(
         "rollback_point",
     }
 )
+
+
+def _definition(identifier: str, tables: set) -> KpiDefinition:
+    table = sorted(tables)[0]
+    joins = " ".join(f"JOIN {t} USING (id)" for t in sorted(tables)[1:])
+    return KpiDefinition(
+        identifier=identifier,
+        name=identifier,
+        description="",
+        sql=f"SELECT count(*) FROM {table} {joins}".strip(),
+        grain="overall",
+        business_area="sales",
+        source_tables=frozenset(tables),
+    )
 
 
 def draft(**overrides: object) -> UseCaseSuggestionDraft:
@@ -166,10 +182,62 @@ def test_a_suggestion_naming_an_unregistered_kpi_is_dropped():
     assert "quoterequest__margin" in report.dropped[0]
 
 
-def test_a_suggestion_naming_an_unknown_table_is_dropped():
+def test_a_suggestion_over_a_table_the_layer_lacks_is_kept_and_marked_blocked():
+    """The review's ruling: blocked suggestions stay visible. "Connect a promotions source to
+    unlock 6 more use cases" is the roadmap, and a dropped suggestion is invisible."""
     report = accept(draft(derived_from_tables=["erp_invoice"]))
-    assert report.suggestions == []
-    assert "erp_invoice" in report.dropped[0]
+    assert len(report.suggestions) == 1
+    assert report.feasibility[0].verdict is UseCaseFeasibility.BLOCKED
+    assert report.feasibility[0].missing_tables == ["erp_invoice"]
+    assert report.unlocks == {"erp_invoice": ["Stalled quote requests"]}
+    assert report.dropped == []
+
+
+def test_feasibility_aggregates_over_the_registered_kpis():
+    """Ready / mostly ready n-of-m / blocked, from K11's per-KPI set difference."""
+    registry = {
+        "quoterequest__ageing_days": _definition(
+            "quoterequest__ageing_days", {"crm_deal", "crm_deal_stage_history"}
+        ),
+        "quoterequest__count": _definition("quoterequest__count", {"crm_deal"}),
+    }
+    report = assemble(
+        response(
+            draft(
+                kpi_identifiers=["quoterequest__ageing_days", "quoterequest__count"],
+                derived_from_tables=["crm_deal"],
+            )
+        ),
+        configured=FULLY_CONFIGURED,
+        known_kpis=list(registry),
+        available_tables=frozenset({"crm_deal"}),
+        registry=registry,
+    )
+    verdict = report.feasibility[0]
+    assert verdict.verdict is UseCaseFeasibility.MOSTLY_READY
+    assert verdict.ready_kpis == ["quoterequest__count"]
+    assert verdict.blocked_kpis == ["quoterequest__ageing_days"]
+    assert verdict.missing_tables == ["crm_deal_stage_history"]
+    assert verdict.label == "mostly ready -- 1 of 2 metrics"
+    assert report.unlocks == {"crm_deal_stage_history": ["Stalled quote requests"]}
+
+
+def test_use_case_proposals_carry_what_the_contract_cannot():
+    """The producer K7's USE_CASE kind was missing. The payload carries shape, readiness and
+    feasibility, so a reviewer sees on the proposal what the discovery screen would show."""
+    from egpt_retail.semantic.proposals import ProposalKind, validate_payload
+
+    report = accept(draft(), configured=frozenset({"delivery_channel"}))
+    proposals = report.as_proposals()
+    assert len(proposals) == 1
+    proposal = proposals[0]
+    assert proposal.kind is ProposalKind.USE_CASE
+    assert proposal.target == "stalled_quote_requests"
+    assert proposal.proposer == "use_case_suggestion@1.0.0"
+    assert proposal.payload["shape"] == "alert"
+    assert proposal.payload["shape_ready"] is False
+    assert proposal.payload["feasibility"] == "ready"
+    validate_payload(ProposalKind.USE_CASE, proposal.payload)
 
 
 def test_a_suggestion_derived_from_no_table_is_dropped():
@@ -188,7 +256,7 @@ def test_one_bad_suggestion_does_not_cost_the_good_ones():
     """Dropping rather than raising. A reviewer loses the one, not the run."""
     report = accept(
         draft(),
-        draft(title="Invented", derived_from_tables=["erp_invoice"]),
+        draft(title="Invented", kpi_identifiers=["nope__nope"]),
         draft(title="Quote volume", shape=UseCaseShape.INFORM, kpi_identifiers=[]),
     )
     assert [s.title for s in report.suggestions] == [

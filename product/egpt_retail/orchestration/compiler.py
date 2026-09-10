@@ -231,20 +231,25 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
     ),
 }
 
-#: Which spec or draft field fills each slot. A slot with no entry falls back to the draft
-#: under its slugged name, so a shape's form can supply one without an edit here.
+#: Which spec or draft field fills each slot, as a dotted path into the contract's
+#: ``UseCaseDraft`` where the field exists there today (``step8.schedule`` is what the
+#: interface actually writes; a flat ``schedule`` is also accepted so a caller assembling a
+#: draft by hand is not refused). Slots the contract has no field for yet -- operator,
+#: threshold, severity, candidates, approver, write target, timeout, per-run cap, rollback --
+#: read a flat key under the slot's slug until R-15 gives them one. The per-shape form the
+#: interface will carry is exactly this list, which is why R-15 quotes it.
 _SLOT_VALUES: Mapping[str, Tuple[str, str]] = {
     "metrics": ("spec", "kpi_identifiers"),
     "metric": ("spec", "kpi_identifiers"),
     "dimensions": ("spec", "grain"),
     "scope": ("spec", "grain"),
     "comparison": ("spec", "time_window"),
-    "recipient": ("draft", "recipient"),
-    "schedule": ("draft", "schedule"),
+    "recipient": ("draft", "step8.recipient"),
+    "schedule": ("draft", "step8.schedule"),
     "operator": ("draft", "operator"),
     "threshold": ("draft", "threshold"),
     "severity": ("draft", "severity"),
-    "guardrails": ("draft", "guardrail_amount"),
+    "guardrails": ("draft", "step8.guardrail_amount"),
     "candidates": ("draft", "candidates"),
     "approver": ("draft", "approver"),
     "write target": ("draft", "write_target"),
@@ -378,6 +383,27 @@ def _slug(text: str) -> str:
     return "_".join(part for part in text.lower().replace("-", " ").split() if part)
 
 
+def _lookup(source: Mapping[str, Any], key: str) -> Any:
+    """``step8.schedule`` from a nested draft, or ``schedule`` from a flat one. Dotted first.
+
+    The nested form is the contract's; the flat form is what a test or a hand-built spec
+    passes. Both are accepted so the compiler consumes what the interface produces without
+    refusing what a person types, and the dotted path wins where both are present because it
+    is the one the activation screen reads back.
+    """
+    if "." in key:
+        node: Any = source
+        for part in key.split("."):
+            if not isinstance(node, Mapping):
+                node = None
+                break
+            node = node.get(part)
+        if node is not None:
+            return node
+        return source.get(key.rsplit(".", 1)[-1])
+    return source.get(key)
+
+
 def _filled(value: Any) -> bool:
     """Whether a slot value counts as bound. Zero and False are values; empty is not."""
     if value is None:
@@ -501,8 +527,8 @@ def compile_workflow(
     # different facts about the same number.
     for slot in SHAPE_PARAMETERS[resolved]:
         source, key = _SLOT_VALUES.get(slot, ("draft", _slug(slot)))
-        authored = draft.get(key)
-        spec_value = spec.get(key) if source == "spec" else None
+        authored = _lookup(draft, key)
+        spec_value = _lookup(spec, key) if source == "spec" else None
 
         if _filled(authored):
             compiled.parameters[slot] = authored
