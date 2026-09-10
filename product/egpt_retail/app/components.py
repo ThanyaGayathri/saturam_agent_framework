@@ -226,6 +226,7 @@ def _rfq_steps(funnel_explanation: Agent) -> List[Any]:
             name="funnel-explanation",
             agent=funnel_explanation,
             description="One model step. Explains the numbers; never decides anything.",
+            on_error=OnError.fail,
         ),
         *_chain((record_provenance, deliver_in_app)),
     ]
@@ -273,9 +274,16 @@ def build_workflows(
     assignment reach the one this workflow actually runs.
     """
     agents = agents if agents is not None else build_agents(settings, db)
-    funnel_explanation = next(
-        agent for agent in agents if getattr(agent, "id", None) == FUNNEL_EXPLANATION_ID
-    )
+    try:
+        funnel_explanation = next(
+            agent
+            for agent in agents
+            if getattr(agent, "id", None) == FUNNEL_EXPLANATION_ID
+        )
+    except StopIteration:
+        raise ValueError(
+            f"{FUNNEL_EXPLANATION_ID!r} must be in `agents` to build the rfq-funnel workflow"
+        ) from None
     if not isinstance(funnel_explanation, Agent):
         raise TypeError(
             f"{FUNNEL_EXPLANATION_ID!r} must be a concrete Agent to embed in a workflow "

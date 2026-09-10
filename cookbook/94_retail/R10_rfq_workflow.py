@@ -241,6 +241,32 @@ checks["today's real run materialised the RFQ KPIs"] = (
 )
 print()
 
+# --- 1b. quote_to_deal_rate: gold must aggregate distinct deals, not joined stage-history rows -
+print("1b. quote_to_deal_rate -- gold matches a distinct-deal direct SQL computation")
+print("-" * 78)
+gold_deal_rate = query(
+    "SELECT dimension->>'brand' AS brand, value FROM gold.kpi_value "
+    "WHERE kpi_identifier = 'rfq__quote_to_deal_rate' AND as_of = :as_of",
+    as_of=TODAY,
+)
+direct_deal_rate = query(
+    "SELECT d.brand AS brand, "
+    "(count(DISTINCT d.object_id) FILTER (WHERE h.deal_id IS NOT NULL))::numeric "
+    "/ NULLIF(count(DISTINCT d.object_id), 0) AS value "
+    "FROM silver.crm_deal d LEFT JOIN silver.crm_deal_stage_history h "
+    "ON h.deal_id = d.object_id "
+    "WHERE d.quote_request_source_url IS NOT NULL GROUP BY d.brand"
+)
+direct_deal_rate_by_brand = {r["brand"]: float(r["value"]) for r in direct_deal_rate}
+print(f"  gold: {gold_deal_rate}")
+print(f"  direct SQL (distinct deals): {direct_deal_rate_by_brand}")
+checks["quote_to_deal_rate matches a distinct-deal direct SQL computation"] = bool(
+    gold_deal_rate
+) and all(
+    abs(float(r["value"]) - direct_deal_rate_by_brand[r["brand"]]) < 1e-9
+    for r in gold_deal_rate
+)
+
 # --- 2. read_gold then sample_rows: movers against direct SQL, friction honestly unavailable ---
 print("2. read_gold then sample_rows -- movers checked against direct SQL")
 print("-" * 78)
@@ -265,6 +291,17 @@ movers = sample_output.content["movers"]
 friction = sample_output.content["friction"]
 print(f"  movers: {movers}")
 print(f"  friction: {friction}")
+print(
+    f"  kpi_identifiers: {sample_output.content['kpi_identifiers']} "
+    f"snapshot_version: {sample_output.content['snapshot_version']!r}"
+)
+checks["sample_rows forwards read_gold's kpi_identifiers and snapshot_version"] = (
+    sample_output.content["kpi_identifiers"] == sorted(identifiers)
+    and bool(sample_output.content["snapshot_version"])
+)
+checks["sample_rows' movers are bounded to mover_sample_size, not unbounded"] = all(
+    len(rows) <= 5 for rows in movers.values()
+)
 
 direct_prior = query(
     "SELECT dimension->>'brand' AS brand, value FROM gold.kpi_value "

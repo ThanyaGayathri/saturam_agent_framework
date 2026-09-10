@@ -25,8 +25,10 @@ branch does I/O.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date
+from decimal import Decimal
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from egpt.exceptions import SQLGuardRefusal
@@ -76,16 +78,30 @@ DIRECTION_UNKNOWN = (
 #: shares with `silver.analytics_event` -- see the module docstring. Both tables are already
 #: exposed by the guard once harvested (they are silver tables, not KPI views), so no
 #: `kpi_identifiers` widening is needed for this statement specifically.
+#:
+#: `session_replay_session` is aggregated to one row per `identity_key` *before* the join:
+#: a returning visitor's `identity_key` can legitimately span multiple sessions, so joining
+#: the raw table directly against `analytics_event` (whose own primary key admits many rows
+#: per `identity_key`) would re-sum the same session's counts once per matching event row.
 FRICTION_QUERY = (
-    f"SELECT e.event_name AS event_name, "
-    f"sum(s.rage_click_count) AS rage_clicks, "
-    f"sum(s.dead_click_count) AS dead_clicks, "
-    f"sum(s.script_error_count) AS script_errors, "
-    f"count(*) AS sessions "
+    "WITH sessions_by_identity AS ("
+    "SELECT identity_key, "
+    "sum(rage_click_count) AS rage_clicks, "
+    "sum(dead_click_count) AS dead_clicks, "
+    "sum(script_error_count) AS script_errors "
+    f"FROM {SILVER_SCHEMA}.session_replay_session "
+    "WHERE identity_key IS NOT NULL "
+    "GROUP BY identity_key"
+    ") "
+    "SELECT e.event_name AS event_name, "
+    "sum(s.rage_clicks) AS rage_clicks, "
+    "sum(s.dead_clicks) AS dead_clicks, "
+    "sum(s.script_errors) AS script_errors, "
+    "count(*) AS sessions "
     f"FROM {SILVER_SCHEMA}.analytics_event e "
-    f"JOIN {SILVER_SCHEMA}.session_replay_session s ON s.identity_key = e.identity_key "
-    f"WHERE e.identity_key IS NOT NULL AND s.identity_key IS NOT NULL "
-    f"GROUP BY e.event_name"
+    "JOIN sessions_by_identity s ON s.identity_key = e.identity_key "
+    "WHERE e.identity_key IS NOT NULL "
+    "GROUP BY e.event_name"
 )
 
 
@@ -133,12 +149,17 @@ def rank_movers(
         current_value = row.get("value")
         prior_row = prior_by_brand.get(brand)
         prior_value = prior_row["value"] if prior_row is not None else None
-        delta: Optional[float] = None
+        delta: Optional[Decimal] = None
         direction = DIRECTION_UNKNOWN
         if prior_row is None:
             direction = DIRECTION_NEW
         elif current_value is not None and prior_value is not None:
-            delta = float(current_value) - float(prior_value)
+            # `.normalize()` strips the trailing zeros a wide-scale `numeric` column leaves
+            # behind (and turns Postgres's own zero, `Decimal("0E-20")`, into a plain "0")
+            # without touching the value -- `Decimal` alone, unlike `float`, keeps this exact.
+            delta = (
+                Decimal(str(current_value)) - Decimal(str(prior_value))
+            ).normalize()
             direction = (
                 DIRECTION_UP
                 if delta > 0
@@ -156,7 +177,9 @@ def rank_movers(
             }
         )
     movers.sort(
-        key=lambda m: abs(float(m["delta"])) if m["delta"] is not None else -1.0,
+        key=lambda m: (
+            abs(Decimal(m["delta"])) if m["delta"] is not None else Decimal(-1)
+        ),
         reverse=True,
     )
     return movers
@@ -204,6 +227,8 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
                     "no KPI rows from read_gold to compare"
                 ),
                 "samples": [],
+                "kpi_identifiers": [],
+                "snapshot_version": "",
             }
         )
 
@@ -216,6 +241,8 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
         )
         engine = build_warehouse_engine(settings)
     sample_size = int(options.get("mover_sample_size", 5))
+    if sample_size < 0:
+        raise ValueError(f"mover_sample_size must be >= 0, got {sample_size}")
     try:
         with open_semantic_reader(settings) as reader:
             guard = build_warehouse_read_guard(reader, kpi_identifiers=list(kpis))
@@ -225,7 +252,8 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
                 current_rows = current.get("rows") or []
                 as_of = date.fromisoformat(str(current.get("as_of")))
                 try:
-                    prior_rows = _run_guarded(
+                    prior_rows = await asyncio.to_thread(
+                        _run_guarded,
                         engine,
                         guard,
                         step_input,
@@ -240,8 +268,8 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
                         stop=True,
                     )
                 ranked = rank_movers(current_rows, prior_rows)
-                movers[identifier] = ranked
                 top = ranked[:sample_size]
+                movers[identifier] = top
                 samples.append({"kpi_identifier": identifier, "rows": top})
                 if top:
                     note_row_sample(step_input, table=gold_view(identifier), rows=top)
@@ -253,7 +281,9 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
                 )
 
             try:
-                friction_rows = _run_guarded(engine, guard, step_input, FRICTION_QUERY)
+                friction_rows = await asyncio.to_thread(
+                    _run_guarded, engine, guard, step_input, FRICTION_QUERY
+                )
             except SQLGuardRefusal as exc:
                 return StepOutput(
                     content={"refused": f"friction: {exc.message}"},
@@ -285,6 +315,16 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
     finally:
         engine.dispose()
 
+    kpi_identifiers = sorted(kpis)
+    snapshot_version = str(
+        kpis[kpi_identifiers[0]].get("source_snapshot", "") if kpi_identifiers else ""
+    )
     return StepOutput(
-        content={"movers": movers, "friction": friction, "samples": samples}
+        content={
+            "movers": movers,
+            "friction": friction,
+            "samples": samples,
+            "kpi_identifiers": kpi_identifiers,
+            "snapshot_version": snapshot_version,
+        }
     )

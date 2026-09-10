@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import pytest
 from egpt.workflow.types import OnError
 
 from egpt_retail.app.components import (
@@ -102,11 +103,21 @@ def test_rank_movers_reports_flat_for_an_equal_known_value_not_unknown():
     for a value that could not be compared at all, per its own docstring."""
     ranked = rank_movers([{"brand": "a", "value": "5"}], [{"brand": "a", "value": "5"}])
     assert ranked[0]["direction"] == DIRECTION_FLAT
-    assert ranked[0]["delta"] == "0.0"
+    assert ranked[0]["delta"] == "0"
 
 
 def test_rank_movers_skips_a_row_with_no_brand():
     assert rank_movers([{"brand": None, "value": "1"}], []) == []
+
+
+def test_rank_movers_computes_delta_with_decimal_not_float():
+    """`0.18 - 0.23` on Python `float` is `-0.050000000000000044`, not `-0.05` -- the exact
+    binary-rounding error `read_gold` keeps values as `str` from a Postgres `numeric` column
+    specifically to avoid. `rank_movers` must round-trip through `Decimal`, not `float`."""
+    ranked = rank_movers(
+        [{"brand": "a", "value": "0.18"}], [{"brand": "a", "value": "0.23"}]
+    )
+    assert ranked[0]["delta"] == "-0.05"
 
 
 def test_friction_unavailable_shape():
@@ -234,6 +245,23 @@ def test_citations_within_input_accepts_a_driver_naming_a_cited_brand():
     assert citations_within_input(ok) is True
 
 
+def test_citations_within_input_rejects_a_driver_matching_only_as_a_substring():
+    """A real brand that is a *prefix* of a fabricated one must not count as a citation --
+    `"brand_a" in "...brand_ab..."` is true as plain substring containment but `brand_ab` is
+    not a term this input ever carried."""
+    bad = _explanation(
+        likely_drivers=["Something about brand_ab happened this period."]
+    )
+    assert citations_within_input(bad) is False
+
+
+def test_citations_within_input_checks_summary_too():
+    """`summary` is prose a person reads first and the module's own rule requires every brand
+    or event name it names to be grounded, same as `likely_drivers`."""
+    bad = _explanation(summary="evilbrand had a rough quarter.")
+    assert citations_within_input(bad) is False
+
+
 def test_movers_match_input_requires_verbatim_copy():
     movers_input = {
         "rfq__quote_to_deal_rate": [
@@ -302,8 +330,7 @@ def test_rfq_funnel_workflow_is_the_contracts_own_six_steps_in_order():
         "record-provenance",
         "deliver-in-app",
     ]
-    executor_steps = [s for s in rfq.steps if s.name != "funnel-explanation"]
-    assert all(s.on_error is OnError.fail for s in executor_steps)
+    assert all(s.on_error is OnError.fail for s in rfq.steps)
 
     agent_step = next(s for s in rfq.steps if s.name == "funnel-explanation")
     assert getattr(agent_step, "agent", None) is not None
@@ -330,3 +357,13 @@ def test_rfq_funnel_workflow_reuses_the_same_agent_object_passed_in():
         s for s in workflows[RFQ_WORKFLOW_ID].steps if s.name == "funnel-explanation"
     )
     assert step.agent is funnel_explanation
+
+
+def test_build_workflows_names_the_missing_agent_instead_of_a_bare_stopiteration():
+    settings = RetailSettings(
+        retail_db_url="postgresql+psycopg://nobody:nope@127.0.0.1:1/none"
+    )
+    db = build_control_plane_db(settings)
+
+    with pytest.raises(ValueError, match=FUNNEL_EXPLANATION_ID):
+        build_workflows(settings, db, agents=[])

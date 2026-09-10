@@ -168,7 +168,7 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             "Sample supporting rows",
             "Pull a bounded sample through the SQL guard for the explanation to cite.",
             ("rows",),
-            ("samples",),
+            ("movers", "friction", "samples", "kpi_identifiers", "snapshot_version"),
             # The API contract's own example plan (paths/use-cases.yaml): true, the same as
             # check_preflight -- a guard refusal here must stop the chain before an
             # explanation runs against rows nobody guaranteed were safe to read.

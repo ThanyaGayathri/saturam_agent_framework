@@ -53,7 +53,8 @@ QUOTE_TO_DEAL_RATE = KpiDefinition(
     ),
     sql=(
         "SELECT d.brand AS brand, "
-        "(count(*) FILTER (WHERE h.deal_id IS NOT NULL))::numeric / NULLIF(count(*), 0) AS value "
+        "(count(DISTINCT d.object_id) FILTER (WHERE h.deal_id IS NOT NULL))::numeric "
+        "/ NULLIF(count(DISTINCT d.object_id), 0) AS value "
         "FROM crm_deal d LEFT JOIN crm_deal_stage_history h ON h.deal_id = d.object_id "
         "WHERE d.quote_request_source_url IS NOT NULL GROUP BY d.brand"
     ),

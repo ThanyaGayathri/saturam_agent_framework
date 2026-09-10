@@ -3965,4 +3965,29 @@ tests fixed as part of landing this package: `test_r9_spec_gap_plan.py`'s
 expected `permits_or_blocks` set -- `format.sh` and `validate.sh` both green afterward
 (`product`: ruff, mypy, API contract and 627 tests; `egpt`/`egptctl`: unchanged).
 
+**Follow-up (code review fixes):** A multi-model code review of the PR found a fan-out bug in
+`QUOTE_TO_DEAL_RATE` (the `LEFT JOIN` to `crm_deal_stage_history` counted joined rows, not
+distinct deals -- masked in the original run because the one qualifying brand happened to have
+exactly one matching deal) and the same fan-out shape in `FRICTION_QUERY`'s join to
+`session_replay_session`; a missing `on_error=OnError.fail` on the `funnel-explanation` step
+(the only step in `_rfq_steps` not built through `_chain`, so a model failure was silently
+skipped rather than stopping the chain); `rank_movers` computing `delta` through `float`
+instead of `Decimal`, reintroducing the binary-rounding error `read_gold` deliberately avoids;
+`sample_rows` storing the unbounded `movers` list rather than the `sample_size`-bounded slice,
+and dropping `read_gold`'s `kpi_identifiers`/`source_snapshot` entirely -- both required fields
+on `FunnelExplanation` the model therefore had no real data to populate; `_run_guarded` called
+synchronously from the `async def` executor instead of through `asyncio.to_thread`; and a
+`citations_within_input` grounding gap (unanchored substring matching, and `summary` never
+checked). Added `Decimal.normalize()` after switching `rank_movers` off `float`: Postgres's
+wide-scale `numeric` zero round-trips through `Decimal` as `0E-20`, not `0`, and normalizing
+fixes that without losing precision -- found by re-running this cookbook after the `Decimal`
+change, not by the review itself. Fixed all of the above; added `1b.` (a direct-SQL
+distinct-deal cross-check for `quote_to_deal_rate`) and two `sample_rows`-content checks
+(`kpi_identifiers`/`snapshot_version` forwarded, `movers` bounded) to this cookbook, and new
+unit tests to `test_r10_rfq.py` (a `Decimal`-precision case using the review's own `0.18`/`0.23`
+worked example, a word-boundary `citations_within_input` counterexample, a `summary`-grounding
+case, and a `StopIteration`→`ValueError` case for `build_workflows`). Re-run: all checks PASS,
+including the new ones; `pytest product/tests/test_r10_rfq.py` -- 30 passed;
+`pytest product/tests/` -- 631 passed, 41 skipped; `format.sh`/`validate.sh` both green.
+
 ---

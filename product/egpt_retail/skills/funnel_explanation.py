@@ -70,14 +70,14 @@ class FrictionSample(BaseModel):
     event_name: str = Field(
         description="Copied from the friction input row, unchanged."
     )
-    rage_clicks: int = Field(
-        description="Copied from the friction input row, unchanged."
+    rage_clicks: Optional[int] = Field(
+        default=None, description="Copied from the friction input row, unchanged."
     )
-    dead_clicks: int = Field(
-        description="Copied from the friction input row, unchanged."
+    dead_clicks: Optional[int] = Field(
+        default=None, description="Copied from the friction input row, unchanged."
     )
-    script_errors: int = Field(
-        description="Copied from the friction input row, unchanged."
+    script_errors: Optional[int] = Field(
+        default=None, description="Copied from the friction input row, unchanged."
     )
 
 
@@ -151,6 +151,15 @@ def movers_match_input(
     return actual == expected
 
 
+def _mentions_a_grounded_term(text: str, allowed_terms: Set[str]) -> bool:
+    """Whether ``text`` names at least one term from ``allowed_terms``, word-bounded so a real
+    term that is a prefix of a fabricated one (``brand_a`` inside ``brand_ab``) does not count
+    as a match."""
+    return any(
+        re.search(rf"\b{re.escape(term)}\b", text) is not None for term in allowed_terms
+    )
+
+
 def citations_within_input(explanation: FunnelExplanation) -> bool:
     """Every brand and friction event the model claims a driver from actually appears in the
     rows it was handed. This is the check that stands in for reading the prose: a citation
@@ -162,8 +171,10 @@ def citations_within_input(explanation: FunnelExplanation) -> bool:
         return False
     allowed_events = {f.event_name for f in explanation.friction}
     allowed_terms = allowed_brands | allowed_events
+    if not _mentions_a_grounded_term(explanation.summary, allowed_terms):
+        return False
     for driver in explanation.likely_drivers:
-        if not any(term in driver for term in allowed_terms):
+        if not _mentions_a_grounded_term(driver, allowed_terms):
             return False
     return True
 
