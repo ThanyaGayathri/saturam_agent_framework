@@ -32,7 +32,7 @@ import copy
 import difflib
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Collection, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Collection, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 from egpt_retail.contracts.use_case import (
     SHAPE_PARAMETERS,
@@ -42,6 +42,7 @@ from egpt_retail.contracts.use_case import (
 
 __all__ = [
     "SHAPE_STAGES",
+    "TRIGGER_SLOTS",
     "CompiledWorkflow",
     "ParameterOrigin",
     "Stage",
@@ -113,6 +114,16 @@ class Stage:
     #: :func:`capability_report` rather than being quietly dropped from the table.
     satisfied_by: Optional[str] = None
     satisfied_because: str = ""
+    #: The shape's parameter slots this stage reads. Every slot a shape declares must be
+    #: consumed by one of its stages or be a trigger slot, and a test holds that line --
+    #: because the Inform shape shipped with a ``comparison`` slot no stage read (K-14).
+    consumes: Tuple[str, ...] = ()
+    #: A stage without which a write must not run: the hard limits, the per-run cap, the
+    #: rollback point, the approval gate. Missing any of these in a shape that writes refuses
+    #: the whole compilation, exactly as a missing gate does. Round 1 of PR 208: an Act with
+    #: ``write_to_target`` registered before ``apply_per_run_cap`` would otherwise have
+    #: emitted an uncapped write step with nothing downstream to stop it.
+    guards_write: bool = False
 
 
 #: What "compute metrics" means once there is a gold layer. R5 materialises every ready KPI's
@@ -126,6 +137,10 @@ _COMPUTE_SATISFIED = (
 )
 
 
+#: Slots consumed by the trigger rather than by a step. The trigger is the schedule that
+#: starts the workflow, not a row on the plan screen, so no stage reads these.
+TRIGGER_SLOTS: FrozenSet[str] = frozenset({"schedule"})
+
 #: The four shapes' step sequences, from build-plan.md section 07, in order.
 #:
 #: **Trigger is not in these lists.** It is the schedule that starts the workflow rather than
@@ -133,15 +148,21 @@ _COMPUTE_SATISFIED = (
 #: executes. It binds as the ``schedule`` slot instead.
 SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
     UseCaseShape.INFORM: (
-        Stage("Read gold", StageKind.EXECUTOR, "read_gold"),
+        Stage("Read gold", StageKind.EXECUTOR, "read_gold", consumes=("metrics",)),
         Stage(
             "Compute metrics",
             StageKind.EXECUTOR,
             "compute_metrics",
             satisfied_by="read_gold",
             satisfied_because=_COMPUTE_SATISFIED,
+            consumes=("dimensions",),
         ),
-        Stage("Compare to baseline", StageKind.EXECUTOR, "compare_to_baseline"),
+        Stage(
+            "Compare to baseline",
+            StageKind.EXECUTOR,
+            "compare_to_baseline",
+            consumes=("comparison",),
+        ),
         Stage(
             "Explain",
             StageKind.MODEL,
@@ -149,21 +170,23 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
             description="One model step. Explains the numbers; never decides anything.",
         ),
         Stage("Record provenance", StageKind.EXECUTOR, "record_provenance"),
-        Stage("Deliver", StageKind.EXECUTOR, "deliver_in_app"),
+        Stage("Deliver", StageKind.EXECUTOR, "deliver_in_app", consumes=("recipient",)),
     ),
     UseCaseShape.ALERT: (
-        Stage("Read gold", StageKind.EXECUTOR, "read_gold"),
+        Stage("Read gold", StageKind.EXECUTOR, "read_gold", consumes=("metric",)),
         Stage(
             "Compute metric",
             StageKind.EXECUTOR,
             "compute_metrics",
             satisfied_by="read_gold",
             satisfied_because=_COMPUTE_SATISFIED,
+            consumes=("scope",),
         ),
         Stage(
             "Evaluate condition",
             StageKind.BRANCH,
             "evaluate_alert_condition",
+            consumes=("operator", "threshold"),
             description=(
                 "Deterministic. Compares the metric to the threshold and decides whether the "
                 "steps after it run. Logs the outcome either way -- an alert that does not "
@@ -175,13 +198,19 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
             StageKind.EXECUTOR,
             "write_alert",
             description="Only reached when the condition fired.",
+            consumes=("severity",),
         ),
         Stage("Record provenance", StageKind.EXECUTOR, "record_provenance"),
-        Stage("Notify", StageKind.EXECUTOR, "deliver_in_app"),
+        Stage("Notify", StageKind.EXECUTOR, "deliver_in_app", consumes=("recipient",)),
     ),
     UseCaseShape.RECOMMEND: (
-        Stage("Read gold", StageKind.EXECUTOR, "read_gold"),
-        Stage("Select candidates", StageKind.EXECUTOR, "select_candidates"),
+        Stage("Read gold", StageKind.EXECUTOR, "read_gold", consumes=("metrics",)),
+        Stage(
+            "Select candidates",
+            StageKind.EXECUTOR,
+            "select_candidates",
+            consumes=("candidates",),
+        ),
         Stage(
             "Compute metrics",
             StageKind.EXECUTOR,
@@ -195,20 +224,38 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
             role="proposal",
             description="One model step. Proposes changes; the limits below decide which stand.",
         ),
-        Stage("Apply hard limits", StageKind.EXECUTOR, "apply_hard_limits"),
+        Stage(
+            "Apply hard limits",
+            StageKind.EXECUTOR,
+            "apply_hard_limits",
+            consumes=("guardrails",),
+            guards_write=True,
+        ),
         Stage(
             "Approver decides",
             StageKind.GATE,
             "await_approval",
             description="A person decides. The run stops here until they do.",
+            consumes=("approver", "timeout behaviour"),
+            guards_write=True,
         ),
-        Stage("Write to target", StageKind.EXECUTOR, "write_to_target"),
+        Stage(
+            "Write to target",
+            StageKind.EXECUTOR,
+            "write_to_target",
+            consumes=("write target",),
+        ),
         Stage("Record provenance", StageKind.EXECUTOR, "record_provenance"),
         Stage("Notify owner", StageKind.EXECUTOR, "deliver_in_app"),
     ),
     UseCaseShape.ACT: (
-        Stage("Read gold", StageKind.EXECUTOR, "read_gold"),
-        Stage("Select candidates", StageKind.EXECUTOR, "select_candidates"),
+        Stage("Read gold", StageKind.EXECUTOR, "read_gold", consumes=("metrics",)),
+        Stage(
+            "Select candidates",
+            StageKind.EXECUTOR,
+            "select_candidates",
+            consumes=("candidates",),
+        ),
         Stage(
             "Compute metrics",
             StageKind.EXECUTOR,
@@ -222,10 +269,33 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
             role="proposal",
             description="One model step. Proposes changes; the limits below decide which stand.",
         ),
-        Stage("Apply hard limits", StageKind.EXECUTOR, "apply_hard_limits"),
-        Stage("Apply per-run cap", StageKind.EXECUTOR, "apply_per_run_cap"),
-        Stage("Write to target", StageKind.EXECUTOR, "write_to_target"),
-        Stage("Record rollback point", StageKind.EXECUTOR, "record_rollback_point"),
+        Stage(
+            "Apply hard limits",
+            StageKind.EXECUTOR,
+            "apply_hard_limits",
+            consumes=("guardrails",),
+            guards_write=True,
+        ),
+        Stage(
+            "Apply per-run cap",
+            StageKind.EXECUTOR,
+            "apply_per_run_cap",
+            consumes=("per-run cap",),
+            guards_write=True,
+        ),
+        Stage(
+            "Write to target",
+            StageKind.EXECUTOR,
+            "write_to_target",
+            consumes=("write target",),
+        ),
+        Stage(
+            "Record rollback point",
+            StageKind.EXECUTOR,
+            "record_rollback_point",
+            consumes=("rollback",),
+            guards_write=True,
+        ),
         Stage("Record provenance", StageKind.EXECUTOR, "record_provenance"),
         Stage("Notify owner", StageKind.EXECUTOR, "deliver_in_app"),
     ),
@@ -502,7 +572,7 @@ def compile_workflow(
         ref = stage.executor_ref or ""
         if ref not in known:
             compiled.missing_capabilities[stage.name] = ref
-            if stage.kind is StageKind.GATE:
+            if stage.kind is StageKind.GATE or stage.guards_write:
                 missing_gate = True
             continue
         steps.append(
@@ -546,9 +616,15 @@ def compile_workflow(
     # activation, and a reviewer needs to see the sequence to judge what is missing from it.
     compiled.config = {"steps": [] if missing_gate else steps}
     if missing_gate:
+        guards = [
+            stage.name
+            for stage in SHAPE_STAGES[resolved]
+            if (stage.kind is StageKind.GATE or stage.guards_write)
+            and stage.name in compiled.missing_capabilities
+        ]
         compiled.notes = (
-            f"Refused: the {resolved.value} shape's approval gate has no executor, so every "
-            "step after it would run unapproved. No steps emitted."
+            f"Refused: the {resolved.value} shape's write guard(s) {', '.join(guards)} "
+            "have no executor, so the write would run unguarded. No steps emitted."
         )
     elif not compiled.publishable:
         compiled.notes = (

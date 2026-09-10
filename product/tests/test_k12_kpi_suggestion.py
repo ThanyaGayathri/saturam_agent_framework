@@ -379,3 +379,54 @@ def test_catalogue_provenance_is_carried_beside_each_suggestion():
         "a__two": None,
         "a__three": None,
     }
+
+
+# --- round 1 of PR 208: the suggestion-time verdict is the join-aware one ---------------
+
+
+def test_a_suggestion_over_an_unjoinable_pair_is_blocked_at_suggestion_time():
+    """Without the oracle this reported READY at suggestion time and BLOCKED after adoption
+    -- the badge that quietly starts lying, one stage earlier than K12.5 closed it."""
+    draft = _proposal_draft(
+        identifier="websession__replay_coverage",
+        sql="SELECT count(*) FROM analytics_event e JOIN session_replay_session s ON s.session_id = e.session_id",
+    )
+    draft = draft.model_copy(
+        update={"derived_from_tables": ["analytics_event", "session_replay_session"]}
+    )
+    tables = frozenset({"analytics_event", "session_replay_session"})
+
+    def ruled_out(left: str, right: str) -> bool:
+        return {left, right} == {"analytics_event", "session_replay_session"}
+
+    plain = k12.assemble(_proposal_drafts(draft), available_tables=tables)
+    aware = k12.assemble(
+        _proposal_drafts(draft), available_tables=tables, known_unjoinable=ruled_out
+    )
+    assert plain.suggestions[0].feasibility.verdict.value == "ready"
+    assert aware.suggestions[0].feasibility.verdict.value == "blocked"
+    assert aware.feasibility_reason == {"websession__replay_coverage": "not_joinable"}
+    assert "must not be joined" in aware.suggestions[0].feasibility.rationale
+    payload = aware.as_proposals()[0].payload
+    assert payload["feasibility"] == "blocked"
+    assert payload["feasibility_reason"] == "not_joinable"
+
+
+def test_the_oracle_changes_nothing_for_a_pair_review_has_not_ruled_on():
+    report = k12.assemble(
+        _proposal_drafts(_proposal_draft()),
+        available_tables=frozenset({"crm_deal"}),
+        known_unjoinable=lambda left, right: False,
+    )
+    assert report.suggestions[0].feasibility.verdict.value == "ready"
+    assert report.feasibility_reason == {"quoterequest__count": "none"}
+
+
+def test_the_async_assembly_takes_exactly_the_sync_arguments():
+    """The async twin had drifted behind the sync one twice. Pin the signatures together."""
+    import inspect
+
+    assert (
+        inspect.signature(k12.aassemble).parameters.keys()
+        == inspect.signature(k12.assemble).parameters.keys()
+    )

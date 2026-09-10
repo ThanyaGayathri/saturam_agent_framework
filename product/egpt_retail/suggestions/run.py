@@ -155,6 +155,8 @@ def run_suggestions(
         snapshot_version=context.snapshot,
         known_identifiers=existing,
         area_of_concept=context.area_of_concept,
+        # The same join-aware verdict the registry shows after adoption.
+        known_unjoinable=reader.unjoinable_oracle(),
     )
 
     use_case_drafts = _drafts_of(

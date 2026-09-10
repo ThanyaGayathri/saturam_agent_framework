@@ -170,7 +170,7 @@ def test_a_missing_approval_gate_emits_no_steps_at_all():
     without = FULL - {"await_approval"}
     report = compiled(UseCaseShape.RECOMMEND, executors=without)
     assert report.config["steps"] == []
-    assert "unapproved" in report.notes
+    assert "Approver decides" in report.notes and "unguarded" in report.notes
 
 
 def test_a_missing_non_gate_stage_still_emits_what_it_could_build():
@@ -730,3 +730,51 @@ def test_the_nested_draft_wins_where_both_forms_are_present():
         draft={"schedule": "flat", "recipient": "x", "step8": {"schedule": "nested"}},
     )
     assert report.parameters["schedule"] == "nested"
+
+
+# --- round 1 of PR 208 ----------------------------------------------------------------
+
+
+def test_every_declared_parameter_has_a_consumer():
+    """The Inform shape shipped with a `comparison` slot no stage read (K-14). This holds the
+    line for every shape: each declared slot is read by a stage, or is a trigger slot."""
+    from egpt_retail.orchestration import TRIGGER_SLOTS
+
+    for shape, slots in SHAPE_PARAMETERS.items():
+        consumed = {
+            slot for stage in SHAPE_STAGES[shape] for slot in stage.consumes
+        } | set(TRIGGER_SLOTS)
+        assert set(slots) <= consumed, f"{shape}: unconsumed {set(slots) - consumed}"
+
+
+def test_no_stage_consumes_a_slot_its_shape_does_not_declare():
+    for shape, stages in SHAPE_STAGES.items():
+        for stage in stages:
+            assert set(stage.consumes) <= set(SHAPE_PARAMETERS[shape]), (
+                f"{shape}/{stage.name} reads {stage.consumes}"
+            )
+
+
+def test_an_act_missing_its_per_run_cap_emits_nothing():
+    """The latent gap review found: with `write_to_target` registered before
+    `apply_per_run_cap`, an Act would have emitted an uncapped write step and nothing
+    downstream consults `publishable`. A write guard missing refuses everything, as the
+    approval gate does."""
+    for guard in ("apply_per_run_cap", "record_rollback_point", "apply_hard_limits"):
+        report = compiled(UseCaseShape.ACT, executors=FULL - {guard})
+        assert report.config["steps"] == [], guard
+        assert "unguarded" in report.notes
+        assert report.publishable is False
+
+
+def test_a_recommend_missing_its_hard_limits_emits_nothing():
+    report = compiled(UseCaseShape.RECOMMEND, executors=FULL - {"apply_hard_limits"})
+    assert report.config["steps"] == []
+
+
+def test_a_missing_non_guard_stage_still_emits_the_rest():
+    """The refusal is for guards only; a missing `select_candidates` is incomplete, not
+    dangerous, and a reviewer needs to see the sequence."""
+    report = compiled(UseCaseShape.ACT, executors=FULL - {"select_candidates"})
+    assert report.config["steps"]
+    assert report.publishable is False

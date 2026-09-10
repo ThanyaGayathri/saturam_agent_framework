@@ -77,6 +77,9 @@ class FakeReader:
     def get_concept(self, name: str, *, include_proposed: bool = False):
         return self._concepts.get(name)
 
+    def unjoinable_oracle(self):
+        return lambda left, right: False
+
 
 class FakeRegistry:
     def __init__(self, definitions):
@@ -399,3 +402,47 @@ def test_example_values_reach_the_message_only_when_a_caller_read_them_from_the_
         ]
     )
     assert samples_from_harvest(harvest) == {("crm_deal", "amount"): ("1", "2")}
+
+
+def test_the_suggestion_agents_are_not_on_the_generic_run_route():
+    """Round 1 of PR 208: a registered agent sits on the framework's generic run route, and
+    a caller there would get the raw draft set with none of assemble()'s discipline, from a
+    prompt rendered against an empty registry at startup. They run only through
+    `egpt-retail suggest`, which always assembles."""
+    from egpt_retail.app.components import MEMORY_WRITING_AGENT_IDS, build_agents
+
+    registered = {
+        agent.id
+        for agent in build_agents(RetailSettings(retail_customer_slug="t"), db=None)
+    }
+    assert not registered & {KPI_SUGGESTION_ID, USE_CASE_SUGGESTION_ID}
+    assert not set(MEMORY_WRITING_AGENT_IDS) & {
+        KPI_SUGGESTION_ID,
+        USE_CASE_SUGGESTION_ID,
+    }
+
+
+def test_the_stub_reader_satisfies_the_oracle_contract():
+    """unjoinable_oracle is on the SemanticRead Protocol, so the stub must answer -- with
+    False for every pair, never by falling back to a weaker check."""
+    from egpt_retail.contracts.semantic_stub import StubSemanticRead
+
+    stub = (
+        StubSemanticRead.from_payload(
+            {
+                "snapshot": {
+                    "version": "s",
+                    "harvested_at": "2026-09-10T00:00:00Z",
+                    "source": "x",
+                },
+                "tables": [],
+                "concepts": [],
+            }
+        )
+        if hasattr(StubSemanticRead, "from_payload")
+        else None
+    )
+    if stub is None:
+        pytest.skip("stub has no from_payload")
+    oracle = stub.unjoinable_oracle()
+    assert oracle("a", "b") is False

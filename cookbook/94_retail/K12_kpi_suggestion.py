@@ -46,7 +46,7 @@ from egpt_retail.suggestions.context import (  # noqa: E402
     render_context,
     samples_from_harvest,
 )
-from egpt_retail.contracts.kpi import assess_feasibility  # noqa: E402
+from egpt_retail.contracts.kpi import assess_feasibility_with_joins  # noqa: E402
 from egpt_retail.contracts.semantic import available_tables  # noqa: E402
 from egpt_retail.kpi.store import KpiRegistryStore  # noqa: E402
 from egpt_retail.semantic.harvest import harvest_schema  # noqa: E402
@@ -88,6 +88,10 @@ registry.ensure_schema()
 
 tables = available_tables(graph)
 snapshot = graph.snapshot().version
+# The join rulings review has recorded, so a suggestion over two id spaces is blocked HERE
+# and not only after adoption. Round 1 of PR 208 caught the suggestion-time stamp using the
+# plain set difference while the registry used the join-aware one.
+ORACLE = graph.unjoinable_oracle()
 existing = [kpi.identifier for kpi in registry.list()]
 catalogue = json.loads(CATALOGUE.read_text())["metrics"]
 
@@ -186,6 +190,7 @@ def run_once():
         snapshot_version=snapshot,
         known_identifiers=existing,
         area_of_concept=AREA_OF_CONCEPT,
+        known_unjoinable=ORACLE,
     )
 
 
@@ -227,7 +232,9 @@ for suggestion in first.suggestions:
         for d in first_drafts.suggestions
         if d.identifier.lower() == suggestion.identifier
     )
-    independent = assess_feasibility(k12._looks_like_a_definition(draft), tables)
+    independent = assess_feasibility_with_joins(
+        k12._looks_like_a_definition(draft), tables, ORACLE
+    )
     agrees = (
         suggestion.feasibility.verdict.value == independent.verdict.value
         and sorted(suggestion.feasibility.missing_tables)

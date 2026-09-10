@@ -9,6 +9,7 @@ step the compiled shape carries.
 
 from egpt_retail.orchestration.compiler import (
     SHAPE_STAGES,
+    TRIGGER_SLOTS,
     CompiledWorkflow,
     ParameterOrigin,
     Stage,
@@ -23,6 +24,7 @@ from egpt_retail.orchestration.compiler import (
 
 __all__ = [
     "SHAPE_STAGES",
+    "TRIGGER_SLOTS",
     "CompiledWorkflow",
     "ParameterOrigin",
     "Stage",

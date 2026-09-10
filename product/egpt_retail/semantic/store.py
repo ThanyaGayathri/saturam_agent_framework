@@ -813,6 +813,10 @@ class SemanticGraphStore:
 
         return known_unjoinable
 
+    async def aunjoinable_oracle(self) -> Any:
+        """Async variant. One graph read, off the event loop."""
+        return await asyncio.to_thread(self.unjoinable_oracle)
+
     def business_area_evidence(self) -> Dict[str, Dict[str, List[str]]]:
         """Per area, the accepted concepts that have a table mapped to them, and those tables.
 

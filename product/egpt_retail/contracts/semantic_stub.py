@@ -27,7 +27,7 @@ import asyncio
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Callable, Any, Dict, List, Mapping, Optional, Tuple
 
 from egpt_retail.contracts.semantic import (
     AuthoritativeSource,
@@ -186,6 +186,13 @@ class StubSemanticRead:
         return status is ProposalStatus.ACCEPTED or include_proposed
 
     # --- reads -------------------------------------------------------------------------
+
+    def unjoinable_oracle(self) -> Callable[[str, str], bool]:
+        """The stub records no join rulings, so no pair is ruled out. Never a ``None``."""
+        return lambda left, right: False
+
+    async def aunjoinable_oracle(self) -> Callable[[str, str], bool]:
+        return self.unjoinable_oracle()
 
     def snapshot(self) -> Snapshot:
         self._require_fixture("snapshot")

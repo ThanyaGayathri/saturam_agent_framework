@@ -25,7 +25,17 @@ import asyncio
 import re
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,6 +52,7 @@ from egpt_retail.contracts.kpi import (
     KpiParameter,
     ParameterKind,
     assess_feasibility,
+    assess_feasibility_with_joins,
 )
 from egpt_retail.contracts.kpi import ResultShape as ContractResultShape
 from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
@@ -179,6 +190,9 @@ class AssemblyReport(BaseModel):
     #: catalogue metric has a vetted definition someone stands behind; an inferred one is a
     #: guess from column names that happens to parse.
     catalogue_source: Dict[str, Optional[str]] = Field(default_factory=dict)
+    #: Identifier -> K12.5's reason (``none`` / ``missing_tables`` / ``not_joinable``). The
+    #: contract's ``Feasibility`` has no reason field, so it rides here and in the payload.
+    feasibility_reason: Dict[str, str] = Field(default_factory=dict)
     #: Identifiers the agent proposed without a formula. They are real suggestions -- the
     #: discovery screen shows them -- but they cannot become KPI proposals, because a proposal
     #: carries the whole definition and the registry adopts it without a second opinion.
@@ -237,6 +251,9 @@ class AssemblyReport(BaseModel):
                     suggestion.feasibility.verdict.value
                     if suggestion.feasibility
                     else "unknown"
+                ),
+                "feasibility_reason": self.feasibility_reason.get(
+                    suggestion.identifier, "none"
                 ),
                 "missing_tables": (
                     list(suggestion.feasibility.missing_tables)
@@ -304,8 +321,16 @@ def assemble(
     vocabularies: Optional[VocabularySet] = None,
     known_identifiers: Sequence[str] = (),
     area_of_concept: Optional[Mapping[str, str]] = None,
+    known_unjoinable: Optional[Callable[[str, str], bool]] = None,
 ) -> AssemblyReport:
     """Turn drafts into contract suggestions, stamping feasibility from the executor.
+
+    ``known_unjoinable`` is the reader's ``unjoinable_oracle()``. With it, the verdict is the
+    join-aware one the registry uses (``assess_feasibility_with_joins``); a suggestion over
+    two tables review has marked unjoinable is ``blocked`` here, at suggestion time, rather
+    than ``ready`` here and ``blocked`` the moment it is adopted -- the badge that quietly
+    starts lying, reintroduced one stage earlier. Without it the plain set difference runs,
+    which is what a DB-free caller gets and says so in ``notes``.
 
     Every draft is checked before it is stamped: its identifier is well formed and new, its
     ``business_area`` and ``grain`` are terms this deployment has, and its formula and tables
@@ -363,7 +388,16 @@ def assemble(
             report.without_formula.append(identifier)
         # The ontology's area, where it has one for this concept.
         area = (area_of_concept or {}).get(draft.concept or "", draft.business_area)
-        verdict = assess_feasibility(definition, frozenset(available_tables))
+        verdict = (
+            assess_feasibility_with_joins(
+                definition, frozenset(available_tables), known_unjoinable
+            )
+            if known_unjoinable is not None
+            else assess_feasibility(definition, frozenset(available_tables))
+        )
+        report.feasibility_reason[identifier] = (
+            verdict.reason.value if verdict.reason else "none"
+        )
         report.suggestions.append(
             KpiSuggestion(
                 identifier=identifier,
@@ -399,8 +433,15 @@ async def aassemble(
     snapshot_version: str = "",
     vocabularies: Optional[VocabularySet] = None,
     known_identifiers: Sequence[str] = (),
+    area_of_concept: Optional[Mapping[str, str]] = None,
+    known_unjoinable: Optional[Callable[[str, str], bool]] = None,
 ) -> AssemblyReport:
-    """Async variant. Pure, so it exists to keep the calling convention uniform."""
+    """Async variant. Pure, so it exists to keep the calling convention uniform.
+
+    Mirrors ``assemble`` argument for argument. It had drifted -- no ``area_of_concept``,
+    no ``known_unjoinable`` -- so an async caller silently got the agent's business area and
+    the plain set difference; a test now asserts the two signatures agree.
+    """
     return await asyncio.to_thread(
         assemble,
         response,
@@ -408,6 +449,8 @@ async def aassemble(
         snapshot_version=snapshot_version,
         vocabularies=vocabularies,
         known_identifiers=known_identifiers,
+        area_of_concept=area_of_concept,
+        known_unjoinable=known_unjoinable,
     )
 
 

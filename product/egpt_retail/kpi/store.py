@@ -40,7 +40,6 @@ from egpt_retail.contracts.kpi import (
     TimeWindow,
     TimeWindowUnit,
     assess_feasibility_with_joins,
-    assess_registry,
 )
 from egpt_retail.contracts.semantic import SemanticRead, available_tables
 from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
@@ -414,13 +413,11 @@ class KpiRegistryStore:
         blocked badges a customer sees.
         """
         tables = available_tables(reader)
-        oracle_factory = getattr(reader, "unjoinable_oracle", None)
-        if oracle_factory is None:
-            return assess_registry(self.list(), tables)
-        # A reader that knows which pairs review ruled out gets asked. Without this a KPI
-        # over two tables whose shared column is two different id spaces reports ready and
-        # then returns a wrong number rather than failing.
-        oracle = oracle_factory()
+        # Part of the SemanticRead contract, not an optional extra: a reader with no join
+        # rulings answers False for every pair, and a reader that has them gets asked. The
+        # first version probed with getattr and fell back to the plain set difference for the
+        # stub -- silently weaker than production, with nothing to say so.
+        oracle = reader.unjoinable_oracle()
         return {
             kpi.identifier: assess_feasibility_with_joins(kpi, tables, oracle)
             for kpi in self.list()

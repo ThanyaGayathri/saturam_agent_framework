@@ -9,6 +9,7 @@ what makes them the same kind of thing as every other registered agent.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -24,6 +25,7 @@ __all__ = [
     "CATALOGUE_PATH",
     "KPI_SUGGESTION_ID",
     "USE_CASE_SUGGESTION_ID",
+    "aload_catalogue",
     "build_suggestion_agents",
     "load_catalogue",
 ]
@@ -40,6 +42,11 @@ CATALOGUE_PATH = Path(__file__).resolve().parents[1] / "kpi" / "retail_metrics.j
 def load_catalogue(path: Path = CATALOGUE_PATH) -> List[Dict[str, Any]]:
     """The catalogue's metric entries. Shipped content, so a missing file is a packaging bug."""
     return list(json.loads(path.read_text())["metrics"])
+
+
+async def aload_catalogue(path: Path = CATALOGUE_PATH) -> List[Dict[str, Any]]:
+    """Async variant. The file read happens off the event loop."""
+    return await asyncio.to_thread(load_catalogue, path)
 
 
 def build_suggestion_agents(

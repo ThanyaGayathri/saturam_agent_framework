@@ -58,11 +58,6 @@ from egpt_retail.memory.config import build_memory_resolver
 from egpt_retail.routing.providers import build_tier_providers, route_agents
 from egpt_retail.skills.join_path_explainer import JoinExplanation
 from egpt_retail.skills.synonym_proposer import SynonymProposalSet
-from egpt_retail.suggestions.agents import (
-    KPI_SUGGESTION_ID,
-    USE_CASE_SUGGESTION_ID,
-    build_suggestion_agents,
-)
 
 __all__ = [
     "RegisteredAgent",
@@ -96,12 +91,7 @@ NIGHTLY_REFRESH_WORKFLOW_ID = "nightly-refresh"
 
 #: The agents whose memory partitions the consolidator drains. Every registered agent: the
 #: lifespan hands each one the memory provider, so each one writes a partition.
-MEMORY_WRITING_AGENT_IDS: List[str] = [
-    SYNONYM_PROPOSER_ID,
-    JOIN_PATH_EXPLAINER_ID,
-    KPI_SUGGESTION_ID,
-    USE_CASE_SUGGESTION_ID,
-]
+MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID, JOIN_PATH_EXPLAINER_ID]
 
 #: R7's three (G4). Unlike R4's six, these are not wired into a standalone registered
 #: workflow -- they exist to be composed into other packages' workflows (R10's RFQ chain,
@@ -163,11 +153,13 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
     agents: List[RegisteredAgent] = [synonym_proposer, join_path_explainer]
     # R8: tier per agent, from the table; refuses an unrouted or model-pinning agent.
     route_agents(agents, build_tier_providers(settings))
-    # K12 and K13, registered so the deployment lists them and routing is asserted at
-    # startup. Their section 6 closed sets (the registry's identifiers, the templates) are
-    # rendered empty here because construction is pure; `egpt-retail suggest` builds them
-    # again with the live registry, through the same builder.
-    agents.extend(build_suggestion_agents(settings, db=db))
+    # K12 and K13 are deliberately NOT registered here. A registered agent sits on the
+    # framework's generic run route, and a caller hitting it would get the raw draft set with
+    # none of assemble()'s discipline -- no dedup against the registry, no vocabulary check,
+    # no definition self-consistency -- from a prompt whose closed sets were rendered at
+    # startup. They run only through `egpt-retail suggest`, which builds them with the live
+    # registry via `build_suggestion_agents` and always assembles. Routing rows still exist
+    # and the builder still routes; `test_k12_k13_suggestion_pass` pins both.
     return agents
 
 
