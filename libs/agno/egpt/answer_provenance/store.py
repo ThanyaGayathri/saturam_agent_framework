@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Optional
+from typing import Optional, Tuple
 
 from egpt.answer_provenance.ddl import PROVENANCE_TABLE
 from egpt.answer_provenance.record import ProvenanceRecord
@@ -21,7 +21,14 @@ try:
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Run `pip install sqlalchemy` or `pip install egpt[sql]`.")
 
-__all__ = ["write_provenance", "awrite_provenance", "read_provenance", "aread_provenance"]
+__all__ = [
+    "write_provenance",
+    "awrite_provenance",
+    "read_provenance",
+    "aread_provenance",
+    "list_provenance_by_use_case",
+    "alist_provenance_by_use_case",
+]
 
 _INSERT = f"""
 INSERT INTO {PROVENANCE_TABLE}
@@ -35,6 +42,14 @@ VALUES
 """
 
 _SELECT = f"SELECT * FROM {PROVENANCE_TABLE} WHERE run_id = :run_id"
+
+#: Newest first: a use-case-scoped reader wants "the last time this ran" before it wants the
+#: first. ``limit`` is bounded by the caller rather than open-ended, the same posture
+#: ``read_gold``'s row caps take -- a use case with a long history must not turn one lookup
+#: into an unbounded scan.
+_SELECT_BY_USE_CASE = (
+    f"SELECT * FROM {PROVENANCE_TABLE} WHERE use_case_id = :use_case_id ORDER BY produced_at DESC LIMIT :limit"
+)
 
 
 def _json_or_null(value: object) -> Optional[str]:
@@ -84,3 +99,25 @@ def read_provenance(engine: Engine, run_id: str) -> Optional[ProvenanceRecord]:
 async def aread_provenance(engine: Engine, run_id: str) -> Optional[ProvenanceRecord]:
     """:func:`read_provenance` off the event loop."""
     return await asyncio.to_thread(read_provenance, engine, run_id)
+
+
+def list_provenance_by_use_case(engine: Engine, use_case_id: str, *, limit: int = 50) -> Tuple[ProvenanceRecord, ...]:
+    """Every record for one use case, newest first -- a run found by reference, not search.
+
+    ``use_case_id`` is written by ``record_provenance`` whenever a caller supplies one
+    (``product/egpt_retail/executors/provenance.py``); a use case that has never run
+    returns an empty tuple, the same "real, honest answer" posture as
+    :func:`read_provenance`'s ``None``.
+    """
+    with engine.connect() as connection:
+        rows = (
+            connection.execute(text(_SELECT_BY_USE_CASE), {"use_case_id": use_case_id, "limit": limit}).mappings().all()
+        )
+    return tuple(ProvenanceRecord.from_row(dict(row)) for row in rows)
+
+
+async def alist_provenance_by_use_case(
+    engine: Engine, use_case_id: str, *, limit: int = 50
+) -> Tuple[ProvenanceRecord, ...]:
+    """:func:`list_provenance_by_use_case` off the event loop."""
+    return await asyncio.to_thread(list_provenance_by_use_case, engine, use_case_id, limit=limit)

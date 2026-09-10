@@ -19,14 +19,18 @@ from egpt.os.config import AuthorizationConfig
 from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware
 from fastapi import FastAPI
 
+from egpt_retail.api.routers.dashboards import router as dashboards_router
+from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.app.components import (
     build_agents,
     build_memory_provider,
     build_registry,
     build_workflows,
 )
-from egpt_retail.app.db import build_control_plane_db
+from egpt_retail.app.db import build_control_plane_db, psycopg_dsn
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.dashboards.store import DashboardStore
+from egpt_retail.playground.store import PlaygroundStore
 
 __all__ = ["OS_ID", "build_agent_os"]
 
@@ -59,6 +63,38 @@ def memory_lifespan_for(settings: RetailSettings, agents: List[Any]) -> Any:
         finally:
             if provider is not None:
                 await provider.aclose()
+
+    return _lifespan
+
+
+def _ensure_playground_and_dashboard_schemas(settings: RetailSettings) -> None:
+    """Provisions R11's and R13's control-plane tables once, at boot -- not per request
+    (``api/routers/playground.py`` and ``dashboards.py`` open a fresh connection per call,
+    but do not re-run DDL on it). Synchronous and cheap (advisory lock, ``CREATE ... IF NOT
+    EXISTS``); run inside the composed lifespan below, same startup point K1's memory check
+    runs at, for the same reason: a deployment that cannot provision its own tables should
+    fail at boot, not on the first request that touches them.
+    """
+    import psycopg
+
+    connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
+    try:
+        PlaygroundStore(connection).ensure_schema()
+        DashboardStore(connection).ensure_schema()
+    finally:
+        connection.close()
+
+
+def _combined_lifespan(settings: RetailSettings, agents: List[Any]) -> Any:
+    """K1's memory lifespan, plus R11/R13's schema provisioning. One ``EgptOS(lifespan=...)``
+    slot exists, so the two are composed here rather than each trying to claim it."""
+    memory_lifespan = memory_lifespan_for(settings, agents)
+
+    @asynccontextmanager
+    async def _lifespan(app: Any, agent_os: Any):
+        _ensure_playground_and_dashboard_schemas(settings)
+        async with memory_lifespan(app, agent_os):
+            yield
 
     return _lifespan
 
@@ -124,6 +160,13 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     if slug:
         base_app.add_middleware(FixedTenantMiddleware, tenant_id=slug)
 
+    # R11's and R13's real routers -- the first non-stub, non-framework routes in the
+    # product. Mounted on the base app, same as the middleware above and for the same
+    # reason: they need to exist on the app AuthMiddleware wraps, which EgptOS builds on
+    # top of this one.
+    base_app.include_router(playground_router)
+    base_app.include_router(dashboards_router)
+
     os_app = EgptOS(
         id=OS_ID,
         base_app=base_app,
@@ -138,7 +181,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
         scheduler=settings.scheduler_enabled,
         scheduler_base_url=settings.retail_scheduler_base_url,
         internal_service_token=settings.retail_internal_service_token,
-        lifespan=memory_lifespan_for(settings, agents),
+        lifespan=_combined_lifespan(settings, agents),
     )
 
     return os_app

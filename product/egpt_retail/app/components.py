@@ -31,10 +31,11 @@ factory. Provider and tenant are two halves of one fix; either alone leaves memo
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Union, cast
 
 from egpt.agent import Agent, AgentFactory, RemoteAgent
 from egpt.agent.protocol import AgentProtocol
+from egpt.factory import RequestContext
 from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory.config import build_memory_provider_for
 from egpt.memory.provider import MemoryProvider
@@ -42,21 +43,30 @@ from egpt.registry.registry import Registry
 from egpt.workflow import RemoteWorkflow, Workflow, WorkflowFactory
 from egpt.workflow.step import Step
 from egpt.workflow.types import OnError
+from pydantic import BaseModel
 
 from egpt_retail.app.settings import RetailSettings
-from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.areas import detect_business_areas
+from egpt_retail.executors.delivery import deliver_in_app
+from egpt_retail.executors.gaps import check_spec_gaps
 from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold
 from egpt_retail.executors.kpi import assess_kpi_feasibility
-from egpt_retail.executors.gaps import check_spec_gaps
 from egpt_retail.executors.plan import derive_plan
 from egpt_retail.executors.preflight import check_preflight
 from egpt_retail.executors.provenance import record_provenance
 from egpt_retail.executors.registry import assert_registry_valid
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
 from egpt_retail.memory.config import build_memory_resolver
-from egpt_retail.routing.providers import build_tier_providers, route_agents
+from egpt_retail.playground.modes import PlaygroundMode, resolve_mode_scope
+from egpt_retail.routing.providers import (
+    TierProviders,
+    build_tier_providers,
+    provider_for,
+    route_agents,
+)
+from egpt_retail.routing.table import assert_every_agent_routed, tier_for
 from egpt_retail.skills.join_path_explainer import JoinExplanation
+from egpt_retail.skills.playground import PlaygroundAnswer
 from egpt_retail.skills.synonym_proposer import SynonymProposalSet
 
 __all__ = [
@@ -64,10 +74,13 @@ __all__ = [
     "RegisteredWorkflow",
     "SYNONYM_PROPOSER_ID",
     "JOIN_PATH_EXPLAINER_ID",
+    "PLAYGROUND_AGENT_ID",
+    "PlaygroundModeInput",
     "LANDING_TO_SILVER_WORKFLOW_ID",
     "NIGHTLY_REFRESH_WORKFLOW_ID",
     "MEMORY_WRITING_AGENT_IDS",
     "build_agents",
+    "build_playground_agent_factory",
     "build_workflows",
     "build_registry",
 ]
@@ -81,6 +94,9 @@ SYNONYM_PROPOSER_ID = "synonym_proposer"
 #: Lane R's agent from K14's second half. Registered here (R8) rather than living only in its
 #: cookbook, because the routing table needs one small-tier agent that really exists.
 JOIN_PATH_EXPLAINER_ID = "join_path_explainer"
+#: R11's playground agent. Built by an ``AgentFactory``, not a static ``Agent`` -- see
+#: ``build_playground_agent_factory``.
+PLAYGROUND_AGENT_ID = "playground"
 
 #: R4's pipeline, kept registered for hand runs. Stable: stored workflows reference it by id.
 LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
@@ -89,8 +105,14 @@ LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
 #: (``egpt-retail schedule-nightly``) targets this id, so it is the one that must not move.
 NIGHTLY_REFRESH_WORKFLOW_ID = "nightly-refresh"
 
-#: The agents whose memory partitions the consolidator drains. Every registered agent: the
+#: The agents whose memory partitions the consolidator drains. The two static agents: the
 #: lifespan hands each one the memory provider, so each one writes a partition.
+#: ``PLAYGROUND_AGENT_ID`` is deliberately absent -- ``memory_lifespan_for`` iterates the
+#: objects ``build_agents`` returns, and for a factory that is the ``AgentFactory`` itself,
+#: not the fresh ``Agent`` it builds per request inside ``build_playground_agent``. Wiring
+#: memory into a per-request factory agent is real work R11 does not do in this package;
+#: listing this id here without doing it would tell the consolidator to drain a partition
+#: nothing ever writes.
 MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID, JOIN_PATH_EXPLAINER_ID]
 
 #: R7's three (G4). Unlike R4's six, these are not wired into a standalone registered
@@ -110,6 +132,16 @@ R9_EXECUTORS = (check_spec_gaps, derive_plan)
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
 _JOIN_PATH_EXPLAINER_PROMPT = _SKILLS_DIR / "join_path_explainer.md"
+_PLAYGROUND_PROMPT = _SKILLS_DIR / "playground.md"
+
+
+class PlaygroundModeInput(BaseModel):
+    """``factory_input`` for the playground agent -- validated by ``EgptOS`` before
+    ``build_playground_agent`` runs (``cookbook/05_agent_os/factories/agent/
+    02_input_schema_factory.py`` is the pattern)."""
+
+    mode: PlaygroundMode
+    scope_id: Optional[str] = None
 
 
 def build_memory_provider(settings: RetailSettings) -> Optional[MemoryProvider]:
@@ -151,9 +183,82 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
         db=db,
     )
     agents: List[RegisteredAgent] = [synonym_proposer, join_path_explainer]
+    providers = build_tier_providers(settings)
     # R8: tier per agent, from the table; refuses an unrouted or model-pinning agent.
-    route_agents(agents, build_tier_providers(settings))
+    route_agents(agents, providers)
+
+    # The playground agent is built per request by an AgentFactory (R11), not statically
+    # like the two above -- `route_agents` only ever sees the two static agents, so its own
+    # tier is asserted here instead, at the same startup point, rather than only surfacing
+    # the first time a request resolves an unrouted agent id.
+    factory = build_playground_agent_factory(settings, db, providers)
+    assert_every_agent_routed([factory.id])
+    agents.append(factory)
     return agents
+
+
+def build_playground_agent_factory(
+    settings: RetailSettings, db: PostgresDb, providers: TierProviders
+) -> AgentFactory:
+    """R11's playground: a fresh, narrowly-tooled ``Agent`` per request rather than four
+    static ones. ``ctx.input.mode``/``scope_id`` resolve through
+    ``playground.modes.resolve_mode_scope`` -- the deterministic router that decides what
+    the returned agent is even allowed to try -- before the agent is constructed at all.
+
+    Not covered by ``route_agents``: a factory has no ``model`` attribute of its own to pin
+    or route, since the model belongs to the ``Agent`` it builds per call. The per-request
+    ``model_provider`` assignment below is what ``route_agents`` does for the two static
+    agents, done here at the one place it applies to a factory-built agent.
+    """
+    prompt = _PLAYGROUND_PROMPT.read_text()
+
+    def build_playground_agent(ctx: RequestContext) -> Agent:
+        # `RequestContext.input` is typed as `BaseModel | dict | None` because a factory
+        # can declare any schema; `input_schema=PlaygroundModeInput` below is what EgptOS
+        # actually validates it against before this function ever runs.
+        cfg = cast(PlaygroundModeInput, ctx.input)
+        scope = resolve_mode_scope(cfg.mode, cfg.scope_id, settings=settings)
+        if scope.refused:
+            instructions = (
+                f"{prompt}\n\n"
+                f"This request is refused before any tool call: {scope.refused}\n"
+                "Return PlaygroundAnswer with an empty blocks list and notes set to exactly "
+                "that refusal text -- do not attempt to answer from general knowledge."
+            )
+            tools: List[Any] = []
+        else:
+            instructions = prompt
+            tools = list(scope.tools)
+        agent = Agent(
+            id=PLAYGROUND_AGENT_ID,
+            name=PLAYGROUND_AGENT_ID,
+            description=(
+                "Answers one retail question, grounded only by its resolved mode's tools (R11)."
+            ),
+            instructions=instructions,
+            tools=tools,
+            output_schema=PlaygroundAnswer,
+            db=db,
+        )
+        # `model_provider` is not an `Agent` constructor argument -- the framework reads it
+        # as a plain attribute (`routing/providers.py`'s `route_agents` does the same thing
+        # for the two static agents, via `setattr` for the identical reason: mypy has no
+        # stub for an attribute the framework only ever assigns dynamically).
+        setattr(
+            agent,
+            "model_provider",
+            provider_for(tier_for(PLAYGROUND_AGENT_ID), providers),
+        )  # noqa: B010
+        return agent
+
+    return AgentFactory(
+        db=db,
+        id=PLAYGROUND_AGENT_ID,
+        name="Playground",
+        description="Four-mode grounded chat (R11): data, knowledge, use_case, business_area.",
+        factory=build_playground_agent,
+        input_schema=PlaygroundModeInput,
+    )
 
 
 def _chain(executors: tuple) -> List[Any]:

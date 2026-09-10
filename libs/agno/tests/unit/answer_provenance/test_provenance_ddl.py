@@ -14,12 +14,14 @@ import pytest
 
 pytest.importorskip("sqlalchemy", reason="egpt.answer_provenance writes through a bare Engine")
 
-from egpt.answer_provenance.ddl import _DDL, PROVENANCE_TABLE  # noqa: E402
+from egpt.answer_provenance.ddl import _DDL_STATEMENTS, PROVENANCE_TABLE  # noqa: E402
 from egpt.answer_provenance.record import MODEL_TIERS, ProvenanceRecord  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # DDL is idempotent by construction
 # ---------------------------------------------------------------------------
+
+_TABLE_DDL, _USE_CASE_INDEX_DDL = _DDL_STATEMENTS
 
 
 def test_table_name_is_prefixed_egpt_answer_provenance():
@@ -27,18 +29,27 @@ def test_table_name_is_prefixed_egpt_answer_provenance():
 
 
 def test_ddl_uses_create_table_if_not_exists():
-    assert "CREATE TABLE IF NOT EXISTS" in _DDL
+    assert "CREATE TABLE IF NOT EXISTS" in _TABLE_DDL
 
 
 def test_ddl_has_no_non_idempotent_create():
     """Mirrors test_r4_sql_assets.py's own check: no bare CREATE that would fail on a second
-    run, other than the guarded CREATE TABLE IF NOT EXISTS."""
-    bad = re.findall(r"CREATE\s+(?!TABLE\s+IF)([A-Z ]+?)\s", _DDL)
-    assert not bad, bad
+    run, other than the guarded CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS."""
+    for statement in _DDL_STATEMENTS:
+        bad = re.findall(r"CREATE\s+(?!TABLE\s+IF|INDEX\s+IF)([A-Z ]+?)\s", statement)
+        assert not bad, bad
 
 
 def test_ddl_declares_the_model_tier_check_constraint():
-    assert "CHECK (model_tier IN ('none', 'small', 'frontier'))" in _DDL
+    assert "CHECK (model_tier IN ('none', 'small', 'frontier'))" in _TABLE_DDL
+
+
+def test_use_case_index_is_conditional_and_covers_recency_order():
+    """R11's list-by-use-case reads newest first; the index's column order has to match or
+    it buys nothing over a sequential scan."""
+    assert "CREATE INDEX IF NOT EXISTS" in _USE_CASE_INDEX_DDL
+    assert "use_case_id, produced_at DESC" in _USE_CASE_INDEX_DDL
+    assert "WHERE use_case_id IS NOT NULL" in _USE_CASE_INDEX_DDL
 
 
 # ---------------------------------------------------------------------------

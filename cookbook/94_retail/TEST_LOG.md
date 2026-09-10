@@ -3895,3 +3895,117 @@ had been reviewed at least once — including one I had written specifically to 
 review finding.
 
 ---
+
+### R11_playground.py
+
+**Status:** PASS
+
+**Description:** R11 — the playground's four grounding modes (`data`, `knowledge`,
+`use_case`, `business_area`) plus storage (saved prompts, chat filters, preferences,
+reports) and the citation panel (`GET /runs/{run_id}/provenance`). Built to the delivery
+plan's full scope rather than `EXECUTOR_REGISTRY.md`'s narrower "citation panel only"
+framing, since R11's own Verify bullet exercises all four modes.
+
+The router is `playground.modes.resolve_mode_scope`, a deterministic function from
+`(mode, scope_id)` to a bounded tuple of tools — no model ever decides scope. It is wired
+into an `AgentFactory` (`app.components.build_playground_agent_factory`), so "skills loaded
+on demand" is request-time parameterisation of one shared agent identity, not four static
+agents; the framework's own `factory_input` mechanism carries `mode`/`scope_id` per request,
+and chat transport itself (SSE runs, session history) stays a framework concern this package
+never touches.
+
+**Result:**
+
+```
+1. saved prompts/filters/reports  real Postgres, idempotent save, auto-created first report
+2. data mode                      resolves read_kpi_data; refuses honestly with no warehouse
+3. knowledge mode                 resolves search_knowledge; live K10 call, 0 results (empty
+                                   semantic snapshot in this dev environment, no exception)
+4. use_case mode                  two runs, two use cases, real provenance rows: own run
+                                   found by reference; the other use case's run declined
+5. business_area mode             'inventory' concept resolves; 'Customer' (in 'customer')
+                                   declined by the tool itself; an unknown area refuses
+                                   before any agent tooling is built
+```
+
+All five sections ran against the real control-plane Postgres; sections 3-4 also touched a
+real Neo4j graph (`EGPT_RETAIL_NEO4J_URI=neo4j://localhost:7687`, the container already
+running in this environment). Every `OK`/`FAIL` line in the script's own output read `OK`.
+
+**A genuine gap in R11's own EXECUTOR_REGISTRY.md note.** `egpt.answer_provenance` had only
+`read_provenance(run_id)` — no way to list a use case's runs at all, which "found by
+reference, not search" needs. Added `list_provenance_by_use_case`/
+`alist_provenance_by_use_case` plus a partial index (`use_case_id, produced_at DESC WHERE
+use_case_id IS NOT NULL`) to the framework module (`libs/agno/egpt/answer_provenance/`),
+verified live against real Postgres before wiring it into `playground/modes.py`. This is a
+framework fix, not a retail workaround, for the same reason R7's provenance record itself
+is: every deployment that scopes an answer to a use case needs this query, not only retail's.
+
+**Deliberately not built here, and said so rather than guessed at.** The `knowledge` mode's
+tool wires K10's semantic leg only; the ontology leg additionally needs a resolved embedder
+(`ontology/store.py`'s `OntologyStore`), which is a real, separate piece of wiring this
+package does not do. `data` mode's tool delegates straight to `read_gold` and inherits its
+refusal when no warehouse is configured — this environment has none, so section 2 shows the
+refusal rather than a real read, which is the honest thing to demonstrate without one.
+
+**One design decision worth recording.** The business-area lookup tool refuses an
+out-of-area concept *inside the tool*, returning a decline rather than the concept's
+description — not a prompt instruction asking the model to decline.
+`test_r11_playground.py`'s `test_business_area_lookup_declines_a_concept_outside_the_area`
+calls the tool directly, with no model involved, and gets the decline — the same posture
+R6's guard and K11's feasibility take: the guarantee is structural, not requested.
+
+---
+
+### R13_dashboards.py
+
+**Status:** PASS
+
+**Description:** R13 — dashboards as a named set of KPI references (layout, filters,
+refresh schedule, visibility) in the control-plane database, with reads going to gold only.
+Every tile's `kpi_identifier` must be a registered, `ready` KPI at write time (K11's
+feasibility, the same set difference `materialise_gold` already uses) — checked in the
+router, not the store, since it needs the KPI registry and an open semantic reader.
+
+`GET /dashboards/{id}/data` calls `read_gold` (R5's own executor, a plain function, not
+workflow-engine-only) directly, once per dashboard covering every tile's KPI in one call —
+`executors/gold.py`'s own docstring names this exact seam ("the seam an interactive
+playground reads through"). The mapping from `read_gold`'s `values`/`missing` shape into
+each tile's `TileData` lives in `dashboards/data.py`.
+
+**Result:**
+
+```
+1. unregistered KPI tile      422, refused at creation, before anything is written
+2. registered KPI tile        this dev environment's KPI happened to be ready (a real
+                               semantic snapshot is loaded); created successfully
+3. tileless dashboard         201 on create, 200 with an empty tile list on load
+4. visibility + ownership     bob sees alice's `team` dashboard; bob cannot edit or delete
+                               it; alice can
+```
+
+Ran against the real control-plane Postgres and the real Neo4j graph for the readiness
+gate. `test_r13_dashboards.py` adds 13 DB-free unit tests over the pure conversion and
+mapping helpers (`_tile_to_json`/`_tile_from_json` round-trips, `Dashboard.visible_to`,
+`_row_for_grain`, `_status_for_missing`, `_tile_data`'s three tile shapes).
+
+**A real bug those unit tests caught, that the live run in this environment could not.**
+`_tile_data` originally passed `read_gold`'s `as_of` (a bare business date, `date.isoformat()`
+— gold's own `KpiRunResult`/`note_freshness` shape) straight into `TileData.as_of`, which the
+generated Pydantic model types as a strict `AwareDatetime`. A unit test constructed with
+`read_gold`'s actual documented output shape failed construction immediately
+(`pydantic_core.ValidationError: as_of ... Input should have timezone info`). Fixed with
+`_end_of_business_day`, which stamps the business date at `T23:59:59Z` — the same convention
+`common.yaml`'s and `dashboards.yaml`'s own worked examples use for a gold freshness stamp,
+not midnight, which would read as a different moment. This environment has no configured
+warehouse (`EGPT_RETAIL_WAREHOUSE_DB_URL` unset), so `read_gold` refuses before ever reaching
+this code on a live call here — the unit test is the only verification this fix has had, and
+that gap is recorded rather than papered over.
+
+**Deliberately not built here.** `delta` (period-over-period change) ships `null`; `series`
+(for `line`/`bar` tiles) ships empty — `read_gold` returns only the latest materialised
+value, not a history across `as_of` dates, and neither is exercised by R13's own Verify or
+Evidence bullet. Both are present in the schema and absent in the value, the same posture
+R7's `tables_exposed`/`guard_role` placeholders take.
+
+---
