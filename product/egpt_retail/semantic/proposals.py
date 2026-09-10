@@ -304,6 +304,8 @@ def _kpi_from(payload: Mapping[str, Any]) -> Any:
         KpiParameter,
         ParameterKind,
         ResultShape,
+        TimeWindow,
+        TimeWindowUnit,
     )
 
     try:
@@ -325,10 +327,26 @@ def _kpi_from(payload: Mapping[str, Any]) -> Any:
                 )
                 for p in payload.get("parameters", ())
             ),
+            # Carried, not dropped. A declared lookback is the difference between a metric
+            # that can be recomputed for a past date and one that silently means "since the
+            # beginning"; the first version accepted `time_window` in a payload and built a
+            # definition without it, so a 30-day metric registered as unbounded and nothing
+            # anywhere said so.
+            time_window=(
+                TimeWindow(
+                    length=int(window["length"]), unit=TimeWindowUnit(window["unit"])
+                )
+                if (window := payload.get("time_window"))
+                else None
+            ),
             concept=payload.get("concept"),
         )
-    except ValueError as error:
-        raise PayloadError(str(error)) from None
+    except (ValueError, TypeError, KeyError) as error:
+        # A malformed payload is a PayloadError whatever shape the malformation takes. A raw
+        # KeyError from a parameter missing "name", or a TypeError from a string where an int
+        # belongs, escaped as itself -- so a caller catching PayloadError to report "this
+        # proposal cannot be applied" saw an unhandled exception instead.
+        raise PayloadError(f"{type(error).__name__}: {error}") from None
 
 
 def _use_case_from(payload: Mapping[str, Any]) -> str:

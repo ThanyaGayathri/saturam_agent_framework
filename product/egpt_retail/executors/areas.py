@@ -11,6 +11,8 @@ answer stops being checkable -- the same argument that keeps feasibility determi
 
 from __future__ import annotations
 
+import asyncio
+
 from pathlib import Path
 from typing import Any, Optional
 
@@ -29,6 +31,12 @@ async def detect_business_areas(step_input: StepInput) -> StepOutput:
 
     Returns every area the ontology covers, not only the supported ones: a screen showing
     only what works cannot tell a customer what connecting one more source would buy them.
+
+    Every store call below is blocking I/O and runs on a worker thread. An ``async def``
+    executor that calls a driver inline stalls the event loop for the whole call -- with a
+    graph round trip per concept, that is the scheduler's loop held for seconds while nothing
+    else in the process can make progress. Round 2 on the P3 PR found this in four executors
+    at once, including the two in the file that documents the rule.
     """
     options = step_input.additional_data or {}
     settings = RetailSettings()
@@ -38,22 +46,25 @@ async def detect_business_areas(step_input: StepInput) -> StepOutput:
 
     from neo4j import GraphDatabase
 
-    driver: Any = GraphDatabase.driver(
-        settings.retail_neo4j_uri,
-        auth=(settings.retail_neo4j_user, settings.retail_neo4j_password or ""),
-    )
-    try:
-        store = SemanticGraphStore(
-            driver=driver, database=settings.retail_neo4j_database
+    def _collect() -> Any:
+        driver: Any = GraphDatabase.driver(
+            settings.retail_neo4j_uri,
+            auth=(settings.retail_neo4j_user, settings.retail_neo4j_password or ""),
         )
-        ontology = load_ontology(
-            ARTIFACT_PATH, overlay_path=Path(overlay) if overlay else None
-        )
-        statuses = detect_areas(
-            ontology, evidence_from_mappings(ontology, store.mapped_concepts())
-        )
-    finally:
-        driver.close()
+        try:
+            store = SemanticGraphStore(
+                driver=driver, database=settings.retail_neo4j_database
+            )
+            ontology = load_ontology(
+                ARTIFACT_PATH, overlay_path=Path(overlay) if overlay else None
+            )
+            return detect_areas(
+                ontology, evidence_from_mappings(ontology, store.mapped_concepts())
+            )
+        finally:
+            driver.close()
+
+    statuses = await asyncio.to_thread(_collect)
 
     return StepOutput(
         content={

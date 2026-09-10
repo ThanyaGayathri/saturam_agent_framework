@@ -447,3 +447,51 @@ class TestWriteHarvestGuardAndScope:
         for sql, params in prunes:
             assert params.get("schema") == "gold", sql
             assert "{schema: $schema}" in sql, sql
+
+
+class TestAsyncRefreshMatchesItsSyncTwin:
+    """Round 1's Critical: the async variant defaulted `kpis` to `()` after the sync one moved
+    to `None`, silently turning off the registry read for every async caller. Round 2 noted
+    the fix had no PR-gating coverage — the live suite runs nightly. This is that coverage."""
+
+    def test_the_two_signatures_agree_on_every_default(self) -> None:
+        import inspect
+
+        from egpt_retail.semantic.refresh import (
+            arefresh_semantic_layer,
+            refresh_semantic_layer,
+        )
+
+        sync = inspect.signature(refresh_semantic_layer).parameters
+        asyn = inspect.signature(arefresh_semantic_layer).parameters
+        assert set(sync) == set(asyn)
+        for name, parameter in sync.items():
+            assert parameter.default == asyn[name].default, name
+
+    @pytest.mark.asyncio
+    async def test_the_async_variant_forwards_every_argument_unchanged(self) -> None:
+        """Not just the sentinel: any argument the wrapper forgets is a feature that exists
+        on one path and not the other, with nothing failing."""
+        from egpt_retail.semantic import refresh as refresh_module
+
+        seen: Dict[str, Any] = {}
+
+        def _capture(settings: Any = None, **kwargs: Any) -> str:
+            seen.update(kwargs)
+            seen["settings"] = settings
+            return "report"
+
+        original = refresh_module.refresh_semantic_layer
+        refresh_module.refresh_semantic_layer = _capture  # type: ignore[assignment]
+        try:
+            result = await refresh_module.arefresh_semantic_layer(
+                None, schema="gold", version="v9", kpis=None, warehouse="w"
+            )
+        finally:
+            refresh_module.refresh_semantic_layer = original  # type: ignore[assignment]
+
+        assert result == "report"
+        assert seen["schema"] == "gold"
+        assert seen["version"] == "v9"
+        assert seen["kpis"] is None
+        assert seen["warehouse"] == "w"

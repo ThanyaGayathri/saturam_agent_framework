@@ -157,6 +157,9 @@ class UnifiedSlice:
         """
         return {"kb": self.kb, "memory": self.memory, **self.extra}
 
+    #: Leg names this class populates itself. An extra leg may not take one of them.
+    RESERVED_LEG_NAMES = ("kb", "memory")
+
     def fused(
         self,
         *,
@@ -173,9 +176,17 @@ class UnifiedSlice:
         document's similarity, a memory record's fused score and a graph hit's traversal
         distance are three incomparable scales, and RRF reads none of them. It reads position.
 
-        Each returned result carries the fused score, the ``origin`` of the leg that ranked
-        it best, ``metadata["fused_from"]`` -- how many legs had it -- and
-        ``metadata["fused_origins"]``, naming them.
+        Each returned result carries the fused score, ``metadata["fused_from"]`` -- how many
+        legs had it -- and ``metadata["fused_origins"]``, naming them.
+
+        ``origin`` on a fused result is the leg that saw it **first in fan-out order**, not
+        the leg that ranked it best. The distinction is invisible until it matters: a hit the
+        semantic layer ranked first and the KB ranked ninth reports ``kb`` if the KB leg came
+        first in the mapping. That is why ``fused_origins`` exists and why a caller rendering
+        provenance should read it rather than ``origin`` alone. Fixing the attribution would
+        mean re-ranking within each identity group, which changes what is fused rather than
+        how it is labelled; this docstring previously claimed the better behaviour and the
+        code has always done the simpler one.
 
         Both provenance fields are here because neither substitutes for the other. The count
         is what a caller ranks or filters on; the names are what it renders, and a
@@ -237,6 +248,25 @@ def _memory_result(record: MemoryRecord) -> UnifiedResult:
         id=record.id,
         metadata={**record.metadata, "tier": record.tier.value},
     )
+
+
+def _checked_leg_names(legs: Optional[Mapping[str, Any]]) -> List[str]:
+    """The extra legs' names, refusing one that collides with a built-in.
+
+    ``legs()`` merges ``extra`` over the two built-in keys, so an extra leg called ``kb``
+    replaced the KB's own results wholesale -- the KB leg still ran, its output was still
+    fetched, and it vanished from the slice with nothing raised. A caller would see one leg's
+    results labelled as another's and no indication the first had been discarded.
+    """
+    names = list((legs or {}).keys())
+    collisions = [name for name in names if name in UnifiedSlice.RESERVED_LEG_NAMES]
+    if collisions:
+        raise ValueError(
+            f"extra leg name(s) {collisions} collide with the built-in legs "
+            f"{list(UnifiedSlice.RESERVED_LEG_NAMES)}; the built-in's results would be "
+            "replaced with no error. Name the leg after the store it reads."
+        )
+    return names
 
 
 def _labelled(name: str, results: Sequence[UnifiedResult]) -> List[UnifiedResult]:
@@ -318,6 +348,7 @@ def unified_read(
     except Exception as exc:
         memory_error = exc
 
+    _checked_leg_names(legs)
     extra_results: Dict[str, List[UnifiedResult]] = {}
     extra_errors: List[Exception] = []
     for name, leg in (legs or {}).items():
@@ -372,11 +403,20 @@ async def aunified_read(
     completion, then the first exception (KB's before memory's) is re-raised, matching the sync
     variant's ordering.
     """
-    names = list((legs or {}).keys())
+    names = _checked_leg_names(legs)
+
+    # Each extra leg is *called* inside its own coroutine rather than in the generator that
+    # builds gather's arguments. A leg that raises synchronously -- before returning its
+    # awaitable, which an `async def` doing argument validation at the top does -- blew up
+    # while gather's arguments were still being constructed, so gather never ran and every
+    # sibling was skipped. The sync twin ran them all; this one did not, for the same input.
+    async def _call(name: str) -> Sequence[UnifiedResult]:
+        return await (legs or {})[name](query)
+
     outcomes = await asyncio.gather(
         _akb_leg(knowledge, query, kb_filters),
         _amemory_leg(memory, scope, query),
-        *((legs or {})[name](query) for name in names),
+        *(_call(name) for name in names),
         return_exceptions=True,
     )
     kb_outcome, memory_outcome, extra_outcomes = outcomes[0], outcomes[1], outcomes[2:]

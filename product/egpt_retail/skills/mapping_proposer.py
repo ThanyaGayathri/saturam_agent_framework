@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Sequence, Set
+from typing import Any, Dict, List, Sequence, Set
 
 from pydantic import BaseModel, Field
 
@@ -168,7 +168,9 @@ async def arender_prompt(
 
 
 def unresolved_collisions(
-    response: MappingProposalSet, reported: Sequence[str]
+    response: MappingProposalSet,
+    reported: Sequence[str],
+    carrying: Sequence[Any] = (),
 ) -> List[str]:
     """Collisions K4 reported that the agent did not resolve on **every** side.
 
@@ -180,7 +182,16 @@ def unresolved_collisions(
     resolved: Dict[str, Set[str]] = {}
     for item in response.collision_resolutions:
         resolved.setdefault(item.column_name, set()).add(item.table)
-    return sorted(name for name in reported if len(resolved.get(name, set())) < 2)
+    # Every side, not two. A name on three tables needs three resolutions; hardcoding two
+    # reported a three-way collision as resolved with one table's meaning still unwritten --
+    # and a three-way collision is the case most likely to hide a wrong join, because the
+    # more tables carry a name the more plausible joining on it looks.
+    sides = {
+        collision.column_name: len(collision.tables) for collision in (carrying or ())
+    }
+    return sorted(
+        name for name in reported if len(resolved.get(name, set())) < sides.get(name, 2)
+    )
 
 
 def to_proposals(
@@ -205,6 +216,22 @@ def to_proposals(
     """
     permitted = set(known_concepts)
     proposals: List[Proposal] = []
+
+    # G20 is "one table answers for a concept". Two tables marked authoritative is not a
+    # stronger claim, it is an unresolved one -- and both proposals were being written, so
+    # accepting each in turn left whichever was applied last as the answer, with no record
+    # that a person had ever been shown a contest. Refuse the set rather than pick.
+    contested = [
+        concept
+        for concept in {m.concept for m in response.mappings if m.authoritative}
+        if sum(1 for m in response.mappings if m.authoritative and m.concept == concept)
+        > 1
+    ]
+    if contested:
+        raise ValueError(
+            f"more than one table is marked authoritative for {sorted(contested)}; G20 "
+            "permits one. The agent left the contest unresolved and it must not be applied."
+        )
 
     # Which tables each concept was mapped to, across the whole response. Derived rather than
     # read from `alternatives`, because it *is* derivable: the alternatives to a table are the

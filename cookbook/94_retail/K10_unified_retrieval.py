@@ -123,8 +123,12 @@ for rank, result in enumerate(fused, start=1):
     print(f"     {result.content[:70].strip()}")
 
 origins_present = {result.label for result in fused}
-has_prose = any(r.label == "kb" for r in fused)
-has_semantic = any(r.label == "semantic" for r in fused)
+has_prose = any("kb" in r.metadata["fused_origins"] for r in fused)
+# Read `fused_origins`, not `label`. A hit two legs agree on keeps the copy of whichever leg
+# came first in fan-out order, so a semantic-layer result that memory also holds reports
+# `memory` -- correctly, and the round-2 review made that explicit in `fused()`'s docstring.
+# Asserting on `label` alone would call the leg absent exactly when it was corroborated.
+has_semantic = any("semantic" in r.metadata["fused_origins"] for r in fused)
 print()
 print(f"  origins in the ranking: {sorted(origins_present)}")
 print(f"  a domain rule from the prose: {has_prose}")
@@ -143,7 +147,10 @@ print("3. The semantic leg disabled")
 print("-" * 78)
 print(f"  legs asked: {sorted(without_semantic.legs())}")
 print(f"  origins in the ranking: {sorted({r.label for r in degraded})}")
-print(f"  any table name left: {any(r.label == 'semantic' for r in degraded)}")
+print(
+    f"  any table name left: "
+    f"{any('semantic' in r.metadata['fused_origins'] for r in degraded)}"
+)
 print("  The question is now half-answerable: the domain language survives, the table")
 print("  name is gone. That is the leg proving it was contributing, not decorating.")
 
@@ -158,7 +165,7 @@ print()
 print("4. The prose leg disabled")
 print("-" * 78)
 print(f"  origins in the ranking: {sorted({r.label for r in no_prose})}")
-print(f"  any prose left: {any(r.label == 'kb' for r in no_prose)}")
+print(f"  any prose left: {any('kb' in r.metadata['fused_origins'] for r in no_prose)}")
 
 # --- 5. A leg that is asked and finds nothing is not a leg that was never asked ---------------
 
@@ -212,14 +219,14 @@ if not any(
     r.label == "memory" or "memory" in r.metadata["fused_origins"] for r in fused
 ):
     failures.append("the memory leg contributed nothing to the fused ranking")
-if "semantic" in {r.label for r in degraded}:
+if any("semantic" in r.metadata["fused_origins"] for r in degraded):
     failures.append("a disabled leg still contributed hits")
 if "semantic" in without_semantic.legs():
     failures.append(
         "an unwired leg appears in legs(); 'no match' and 'not configured' are now "
         "indistinguishable"
     )
-if any(r.label == "kb" for r in no_prose):
+if any("kb" in r.metadata["fused_origins"] for r in no_prose):
     failures.append("the prose leg still contributed after being disabled")
 if [r.content for r in degraded] == [r.content for r in fused]:
     failures.append(

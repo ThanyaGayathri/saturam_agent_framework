@@ -45,7 +45,9 @@ from egpt.workflow.types import OnError
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.delivery import deliver_in_app
+from egpt_retail.executors.areas import detect_business_areas
 from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold
+from egpt_retail.executors.kpi import assess_kpi_feasibility
 from egpt_retail.executors.preflight import check_preflight
 from egpt_retail.executors.provenance import record_provenance
 from egpt_retail.executors.registry import assert_registry_valid
@@ -93,6 +95,12 @@ MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID, JOIN_PATH_EXPLAINER_
 #: workflow -- they exist to be composed into other packages' workflows (R10's RFQ chain,
 #: eventually), and R7's own verification is a throwaway workflow in the cookbook.
 R7_EXECUTORS = (check_preflight, record_provenance, deliver_in_app)
+
+#: Lane K's two (K9, K11). Both are deterministic steps a workflow composes -- feasibility is
+#: a set difference and area detection is a graph query -- and both shipped unreachable:
+#: registered in no registry, called from nowhere, with docstrings claiming registration.
+#: A name in EXECUTOR_REGISTRY.md that no registry holds is a contract nobody can resolve.
+K_EXECUTORS = (assess_kpi_feasibility, detect_business_areas)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -219,14 +227,15 @@ def build_registry() -> Registry:
     """The executor registry, validated before it reaches the OS.
 
     R4's six, R7's three (``check_preflight``, ``record_provenance``, ``deliver_in_app``,
-    G4) and R5's two (``materialise_gold``, ``read_gold``). The check has run here since phase zero, when the list was empty; it now has
+    G4), R5's two (``materialise_gold``, ``read_gold``) and Lane K's two
+    (``assess_kpi_feasibility``, ``detect_business_areas``). The check has run here since phase zero, when the list was empty; it now has
     something to check, which is what makes the duplicate-name refusal real rather than
     theoretical. Every name here is also a row in ``contracts/EXECUTOR_REGISTRY.md``, and
     ``test_r4_executors.py``/``test_r7_executors.py`` assert the two agree so the document
     cannot rot.
     """
     registry = Registry()
-    for executor in WAREHOUSE_EXECUTORS + R7_EXECUTORS + GOLD_EXECUTORS:
+    for executor in WAREHOUSE_EXECUTORS + R7_EXECUTORS + GOLD_EXECUTORS + K_EXECUTORS:
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)
     return registry

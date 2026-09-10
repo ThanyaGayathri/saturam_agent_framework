@@ -336,3 +336,111 @@ class TestDiscoveryRows:
         rows = verdict_rows(assess_registry([two_missing], frozenset({"crm_deal"})))
         assert rows[0]["missing_tables"] == ["absent_one", "absent_two"]
         assert "absent_one, absent_two" in rows[0]["rationale"]
+
+
+class TestMirrorWithRealRows:
+    """Round 2: the mirror was tested only with `rows=[]`, so its statement *order* and its
+    edge matching were unexercised — the two places findings #9 and #18 lived."""
+
+    class _Tx:
+        def __init__(self, log: List[Tuple[str, Any]]) -> None:
+            self.log = log
+
+        def run(self, query: str, **params: Any) -> Any:
+            self.log.append((" ".join(query.split()), params))
+
+            class _R:
+                @staticmethod
+                def data() -> List[Any]:
+                    return []
+
+                @staticmethod
+                def single() -> Any:
+                    return None
+
+            return _R()
+
+    class _Session:
+        def __init__(self, log: List[Tuple[str, Any]]) -> None:
+            self.log = log
+
+        def __enter__(self) -> "TestMirrorWithRealRows._Session":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def execute_write(self, fn: Any, *args: Any) -> Any:
+            return fn(TestMirrorWithRealRows._Tx(self.log), *args)
+
+    class _Driver:
+        def __init__(self) -> None:
+            self.log: List[Tuple[str, Any]] = []
+
+        def session(self, **_: Any) -> "TestMirrorWithRealRows._Session":
+            return TestMirrorWithRealRows._Session(self.log)
+
+    def _store_with_one_kpi(self) -> Tuple[Any, "_Connection"]:
+        kpi = _kpi(concept="Deal")
+        row = (
+            kpi.identifier,
+            kpi.name,
+            kpi.description,
+            kpi.sql,
+            kpi.grain,
+            kpi.business_area,
+            sorted(kpi.source_tables),
+            kpi.result_shape.value,
+            kpi.dialect.value,
+            [
+                {"name": p.name, "kind": p.kind.value, "description": p.description}
+                for p in kpi.parameters
+            ],
+            None,
+            "snap.3",
+            kpi.concept,
+        )
+        connection = _Connection(rows=[row])
+        return KpiRegistryStore(connection), connection
+
+    def test_metrics_are_recomputed_after_the_prune_not_before(self) -> None:
+        """A KPI deleted from Postgres must lose its concept's metrics entry. Recomputing
+        before the prune leaves the deleted identifier on the concept, and the live test that
+        caught this has no PR-gating job — so it is pinned here too."""
+        store, _ = self._store_with_one_kpi()
+        driver = self._Driver()
+        store.mirror(driver)
+
+        statements = [sql for sql, _ in driver.log]
+        prune = next(i for i, sql in enumerate(statements) if "DETACH DELETE k" in sql)
+        metrics = next(i for i, sql in enumerate(statements) if "SET c.metrics" in sql)
+        assert prune < metrics, (
+            "metrics recomputed before the prune; a deleted KPI lingers"
+        )
+
+    def test_reads_edges_accept_a_qualified_table_name(self) -> None:
+        """Nodes are keyed {schema, name}; matching on bare name alone linked a KPI to every
+        schema's table of that name."""
+        store, _ = self._store_with_one_kpi()
+        driver = self._Driver()
+        store.mirror(driver)
+        upsert = next(sql for sql, _ in driver.log if "MERGE (k:SemanticKpi" in sql)
+        assert "t.schema + '.' + t.name" in upsert
+
+    def test_the_metrics_recompute_is_scoped_not_graph_wide(self) -> None:
+        """Rewriting every concept nightly is write amplification on a shared store."""
+        store, _ = self._store_with_one_kpi()
+        driver = self._Driver()
+        store.mirror(driver)
+        sql, params = next((s, p) for s, p in driver.log if "SET c.metrics" in s)
+        assert "c.name IN $named" in sql
+        assert params["named"] == ["Deal"]
+
+    def test_one_kpi_reaches_the_upsert_with_its_stamp(self) -> None:
+        store, _ = self._store_with_one_kpi()
+        driver = self._Driver()
+        assert store.mirror(driver) == 1
+        _, params = next((s, p) for s, p in driver.log if "MERGE (k:SemanticKpi" in s)
+        [row] = params["rows"]
+        assert row["identifier"] == "deal__won_value"
+        assert row["validated_against_snapshot"] == "snap.3"

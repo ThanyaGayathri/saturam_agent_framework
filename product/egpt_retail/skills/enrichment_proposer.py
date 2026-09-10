@@ -197,6 +197,7 @@ def to_proposals(
         return []
     vocabularies = vocabularies or load_vocabulary_set()
 
+    rejected: List[str] = []
     payload: Dict[str, Any] = {"name": response.concept}
     shipped_description = (
         str(ontology_concept.description)
@@ -214,7 +215,16 @@ def to_proposals(
             # given the list; a term that is not in it is the failure the closed-set rule
             # exists to catch, and letting it through would put an unreviewable tag in front
             # of a person as if the system had vouched for it.
-            vocabularies.validate("compliance_tag", item.value)
+            try:
+                vocabularies.validate("compliance_tag", item.value)
+            except ValueError as error:
+                # Drop the tag, keep the response. Raising lost every synonym, filter and
+                # personal-data field the agent got right because one tag was outside the
+                # closed set -- and the agent is *more* likely to miss on a tag than on a
+                # column name, so the common failure destroyed the uncommon success. What is
+                # dropped is recorded, so a reviewer sees the agent tried and what it tried.
+                rejected.append(f"{item.value} ({error.args[0].split('.')[0]})")
+                continue
         if is_list:
             payload.setdefault(field, [])
             if item.value not in payload[field]:
@@ -232,6 +242,8 @@ def to_proposals(
         vocabularies.validate("business_area", area)
         payload["business_area"] = area
 
+    if rejected:
+        payload["rejected_compliance_tags"] = rejected
     return [
         Proposal(
             kind=ProposalKind.ENRICHMENT,

@@ -73,6 +73,12 @@ def _column(payload: Mapping[str, Any]) -> Column:
         description=payload.get("description", ""),
         sampled_values=tuple(payload.get("sampled_values", ())),
         status=ProposalStatus(payload.get("status", "accepted")),
+        # 1.2.0's three. The stub claims to implement SemanticRead exactly, so a field the
+        # real store returns and this one drops makes the swap the P0 contract exists for
+        # visible to a caller -- which is the one thing the stub must never do.
+        concept=payload.get("concept"),
+        meaning=payload.get("meaning", ""),
+        joinable=bool(payload.get("joinable", False)),
     )
 
 

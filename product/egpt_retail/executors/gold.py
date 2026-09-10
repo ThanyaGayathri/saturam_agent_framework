@@ -148,6 +148,24 @@ async def materialise_gold(step_input: StepInput) -> StepOutput:
     as_of = _as_of(options)
     run_id = _run_id(step_input, options)
 
+    # `additional_data` is a workflow's client-supplied bag. Two of its keys turn off a
+    # safety property -- the quality gate and the statement timeout -- so they are honoured
+    # only when the deployment has opted in. Without this, whoever can start a workflow can
+    # write gold from unverified silver and run an unbounded statement against the warehouse.
+    if not settings.retail_allow_unsafe_gold_options:
+        for unsafe in ("allow_unverified_silver", "statement_timeout_ms"):
+            if unsafe in options:
+                log.warning(
+                    "materialise_gold: ignoring %s from additional_data; set "
+                    "EGPT_RETAIL_ALLOW_UNSAFE_GOLD_OPTIONS to permit it",
+                    unsafe,
+                )
+        options = {
+            key: value
+            for key, value in options.items()
+            if key not in {"allow_unverified_silver", "statement_timeout_ms"}
+        }
+
     engine = build_warehouse_engine(settings)
     try:
         verdict, reason = last_load_verdict(engine)
@@ -394,7 +412,11 @@ async def read_gold(step_input: StepInput) -> StepOutput:
                             k: (
                                 v.isoformat()
                                 if hasattr(v, "isoformat")
-                                else (float(v) if k == "value" and v is not None else v)
+                                # `str`, not `float`. The DDL chose `numeric` so a money
+                                # or ratio value is exact; float on the way out
+                                # reintroduces the binary rounding that choice
+                                # exists to avoid, in the value a customer reads.
+                                else (str(v) if k == "value" and v is not None else v)
                             )
                             for k, v in row.items()
                         }

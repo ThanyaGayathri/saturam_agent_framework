@@ -746,6 +746,11 @@ class TestP3Verification:
     def test_a_column_meaning_lands_on_the_column(
         self, graph: SemanticGraphStore
     ) -> None:
+        # The concept has to exist: `Column.concept` is part of the 1.2.0 read surface, so a
+        # meaning naming one that does not would publish a dangling reference.
+        graph.write_concept(
+            Concept(name="LivetestSession", description="a web session")
+        )
         graph.write_column_meaning(
             "silver.analytics_event",
             "session_id",
@@ -767,13 +772,40 @@ class TestP3Verification:
                     "(:SemanticTable {name:'analytics_event'}) "
                     "REMOVE c.concept, c.meaning, c.joinable"
                 )
+                s.run(
+                    "MATCH (c:SemanticConcept {name:'LivetestSession'}) DETACH DELETE c"
+                )
 
     def test_a_meaning_for_a_missing_column_raises(
         self, graph: SemanticGraphStore
     ) -> None:
+        graph.write_concept(
+            Concept(name="LivetestSession", description="a web session")
+        )
+        try:
+            with pytest.raises(SemanticReadError, match="not in the graph"):
+                graph.write_column_meaning(
+                    "silver.analytics_event",
+                    "livetest_absent",
+                    concept="LivetestSession",
+                    meaning="y",
+                )
+        finally:
+            with graph._driver.session() as s:  # noqa: SLF001 -- test cleanup
+                s.run(
+                    "MATCH (c:SemanticConcept {name:'LivetestSession'}) DETACH DELETE c"
+                )
+
+    def test_a_meaning_naming_an_unknown_concept_raises(
+        self, graph: SemanticGraphStore
+    ) -> None:
+        """Round 2: without this, `Column.concept` could point at nothing."""
         with pytest.raises(SemanticReadError, match="not in the graph"):
             graph.write_column_meaning(
-                "silver.analytics_event", "livetest_absent", concept="X", meaning="y"
+                "silver.analytics_event",
+                "session_id",
+                concept="LivetestNeverDefined",
+                meaning="y",
             )
 
     def test_the_mirror_owns_concept_metrics(

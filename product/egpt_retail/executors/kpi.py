@@ -18,6 +18,8 @@ this function (``contracts/EXECUTOR_REGISTRY.md``).
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Any, Dict, List, Mapping, Optional
 
 from egpt.workflow.types import StepInput, StepOutput
@@ -80,6 +82,12 @@ async def assess_kpi_feasibility(step_input: StepInput) -> StepOutput:
     A blocked KPI is not a failed step. The step answered the question it was asked, and the
     answer is that some KPIs cannot be computed here -- which is the product working, not
     breaking. Nothing in this function raises on a blocked verdict.
+
+    Every store call below is blocking I/O and runs on a worker thread. An ``async def``
+    executor that calls a driver inline stalls the event loop for the whole call -- with a
+    graph round trip per concept, that is the scheduler's loop held for seconds while nothing
+    else in the process can make progress. Round 2 on the P3 PR found this in four executors
+    at once, including the two in the file that documents the rule.
     """
     options: Mapping[str, Any] = step_input.additional_data or {}
     settings = RetailSettings()
@@ -88,25 +96,29 @@ async def assess_kpi_feasibility(step_input: StepInput) -> StepOutput:
     import psycopg
     from neo4j import GraphDatabase
 
-    connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
-    driver = GraphDatabase.driver(
-        settings.retail_neo4j_uri,
-        auth=(settings.retail_neo4j_user, settings.retail_neo4j_password or ""),
-    )
-    try:
-        store = KpiRegistryStore(connection)
-        reader: SemanticRead = SemanticGraphStore(
-            driver=driver, database=settings.retail_neo4j_database
+    def _assess() -> Any:
+        connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
+        driver = GraphDatabase.driver(
+            settings.retail_neo4j_uri,
+            auth=(settings.retail_neo4j_user, settings.retail_neo4j_password or ""),
         )
-        definitions = store.list(business_area=area)
-        from egpt_retail.contracts.kpi import assess_registry
-        from egpt_retail.contracts.semantic import available_tables
+        try:
+            store = KpiRegistryStore(connection)
+            reader: SemanticRead = SemanticGraphStore(
+                driver=driver, database=settings.retail_neo4j_database
+            )
+            definitions = store.list(business_area=area)
+            from egpt_retail.contracts.kpi import assess_registry
+            from egpt_retail.contracts.semantic import available_tables
 
-        feasibility = assess_registry(definitions, available_tables(reader))
-        snapshot = reader.snapshot()
-    finally:
-        connection.close()
-        driver.close()
+            return assess_registry(
+                definitions, available_tables(reader)
+            ), reader.snapshot()
+        finally:
+            connection.close()
+            driver.close()
+
+    feasibility, snapshot = await asyncio.to_thread(_assess)
 
     return StepOutput(
         content={

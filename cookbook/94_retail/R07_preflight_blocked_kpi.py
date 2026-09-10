@@ -59,7 +59,14 @@ for check in result.content["checks"]:
     print(f"    {mark}  {check['name']:<16} {check['reason']}")
 
 assert result.content["allowed"] is False
-assert result.content["blocked_by"] == ["kpis_ready"]
+# `kpis_ready` must block. `gold_fresh` may also block, and legitimately does once a
+# warehouse is configured and nothing has been materialised into gold yet -- it stopped being
+# a placeholder when R5 landed. Pinning the whole list made this cookbook assert the absence
+# of a check that now exists, so it passed only where the warehouse was unconfigured.
+assert "kpis_ready" in result.content["blocked_by"], result.content["blocked_by"]
+assert set(result.content["blocked_by"]) <= {"kpis_ready", "gold_fresh"}, (
+    result.content["blocked_by"]
+)
 assert result.stop is True
 assert "web_sessions" in result.error
 
@@ -75,8 +82,14 @@ step_input_ready = StepInput(
 result_ready = asyncio.run(check_preflight(step_input_ready))
 print(f"  allowed:    {result_ready.content['allowed']}")
 print(f"  blocked_by: {result_ready.content['blocked_by']}")
-assert result_ready.content["allowed"] is True
-assert result_ready.stop is False
+# Same reasoning as scenario 1: `kpis_ready` is what this scenario is about, and once a
+# warehouse is configured `gold_fresh` legitimately blocks until something is materialised.
+# Asserting `allowed is True` outright made this cookbook depend on R5's state.
+_ready_blocks = set(result_ready.content["blocked_by"])
+assert "kpis_ready" not in _ready_blocks, _ready_blocks
+assert _ready_blocks <= {"gold_fresh"}, _ready_blocks
+assert result_ready.content["allowed"] is (not _ready_blocks)
+assert result_ready.stop is bool(_ready_blocks)
 
 print()
 print(

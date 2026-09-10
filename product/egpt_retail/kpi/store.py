@@ -59,8 +59,14 @@ KPI_SCHEMA = "semantic"
 #: (``Episode`` / ``Fact`` / ``Entity``) or with K3's ``OntologyConcept``.
 KPI_LABEL = "SemanticKpi"
 
-_TABLE_LABEL = "SemanticTable"
-_CONCEPT_LABEL = "SemanticConcept"
+# Imported, not restated. `semantic/store.py` owns these labels; a second copy here drifts
+# the first time one is renamed, and the symptom is a mirror that silently matches nothing.
+from egpt_retail.semantic.store import (  # noqa: E402
+    CONCEPT_LABEL as _CONCEPT_LABEL,
+)
+from egpt_retail.semantic.store import (  # noqa: E402
+    TABLE_LABEL as _TABLE_LABEL,
+)
 
 
 def _ddl(schema: str) -> Tuple[str, ...]:
@@ -369,13 +375,24 @@ class KpiRegistryStore:
             validate_payload,
         )
 
+        pending = [
+            proposal
+            for proposal in proposals.list(
+                state=ReviewState.ACCEPTED, kind=ProposalKind.KPI
+            )
+            if proposal.applied_at is None
+        ]
+        # Validate the whole batch before writing any of it. Validating inside the loop meant
+        # a bad second payload -- a business_area the deployment does not have -- left the
+        # first adopted, the third never looked at, and the exception carrying no hint that
+        # the run was half-applied. A batch that cannot all be adopted adopts none.
+        built = [
+            (proposal, validate_payload(ProposalKind.KPI, proposal.payload))
+            for proposal in pending
+        ]
+
         adopted: List[str] = []
-        for proposal in proposals.list(
-            state=ReviewState.ACCEPTED, kind=ProposalKind.KPI
-        ):
-            if proposal.applied_at is not None:
-                continue
-            definition = validate_payload(ProposalKind.KPI, proposal.payload)
+        for proposal, definition in built:
             self.save(definition)
             proposals.mark_applied(proposal.identifier)
             adopted.append(definition.identifier)
@@ -544,7 +561,13 @@ class KpiRegistryStore:
             WITH k, row
             CALL (k, row) {{
                 UNWIND row.source_tables AS table_name
-                MATCH (t:{_TABLE_LABEL} {{name: table_name}})
+                // Match on the qualified name where the KPI gave one. Nodes are keyed
+                // {{schema, name}}, so a bare match linked a KPI to every schema's table of
+                // that name -- harmless while one schema is harvested, a wrong answer to
+                // "which KPIs break if this table changes" the moment two are.
+                MATCH (t:{_TABLE_LABEL})
+                WHERE t.name = table_name
+                   OR (t.schema + '.' + t.name) = table_name
                 MERGE (k)-[:READS]->(t)
                 RETURN count(*) AS _reads
             }}
@@ -566,13 +589,19 @@ class KpiRegistryStore:
         # traversal and by field alike, and the two cannot disagree. Runs after the prune --
         # the first version ran before it and a deleted KPI stayed on its concept's list,
         # which the live test caught -- and clears a concept that lost its last edge.
+        # Only concepts this mirror can affect: the ones a KPI names, plus any that still
+        # carry a metrics list. Rewriting every concept in the graph nightly touched nodes no
+        # KPI has ever mentioned -- write amplification on a shared store, and a lock on
+        # concepts another writer may be enriching at the same moment.
         tx.run(
             f"""
             MATCH (c:{_CONCEPT_LABEL})
+            WHERE c.name IN $named OR (c.metrics IS NOT NULL AND size(c.metrics) > 0)
             OPTIONAL MATCH (c)-[:MEASURED_BY]->(k:{KPI_LABEL})
             WITH c, [x IN collect(k.identifier) WHERE x IS NOT NULL] AS ids
             SET c.metrics = ids
-            """
+            """,
+            named=sorted({row["concept"] for row in rows if row["concept"]}),
         )
 
     # --- internals ------------------------------------------------------------------------

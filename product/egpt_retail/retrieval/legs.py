@@ -83,7 +83,9 @@ def ontology_leg(store: Any, *, limit: Optional[int] = None) -> Leg:
     """
 
     def leg(query: MemoryQuery) -> Sequence[UnifiedResult]:
-        size = limit or query.limit or 5
+        size = _size(limit, query)
+        if size == 0:
+            return []
         hits = list(store.search_vector(query.text, limit=size))
         hits += list(store.search_lexical(query.text, limit=size))
         return _concept_results(hits, size)
@@ -95,7 +97,9 @@ def aontology_leg(store: Any, *, limit: Optional[int] = None) -> AsyncLeg:
     """Async variant of :func:`ontology_leg`."""
 
     async def leg(query: MemoryQuery) -> Sequence[UnifiedResult]:
-        size = limit or query.limit or 5
+        size = _size(limit, query)
+        if size == 0:
+            return []
         vector, lexical = await asyncio.gather(
             store.asearch_vector(query.text, limit=size),
             store.asearch_lexical(query.text, limit=size),
@@ -106,11 +110,25 @@ def aontology_leg(store: Any, *, limit: Optional[int] = None) -> AsyncLeg:
 
 
 def _concept_results(hits: Sequence[Any], limit: int) -> List[UnifiedResult]:
-    """One result per concept, keeping its best-ranked appearance across the store's legs."""
+    """One result per concept, keeping its best appearance, ranked before it is truncated.
+
+    Three things had to be true here and only one was. The store's two legs are concatenated,
+    so a concept the lexical leg ranked first arrives *after* every vector hit: without a
+    final sort it is handed to the outer fusion in the wrong position, and under ``limit`` it
+    is dropped entirely -- silently, and exactly for the exact-match case lexical search
+    exists to serve. And dedup kept whichever copy came first, which is always the vector
+    one, so a concept both legs found reported the vector score even when lexical scored it
+    higher.
+
+    The ``Leg`` contract says results are ranked best-first. RRF reads position, so a leg that
+    returns them in the wrong order is not merely less useful -- it is feeding the fusion a
+    claim about ranking that is not true.
+    """
     seen: Dict[str, UnifiedResult] = {}
     for hit in hits:
         concept = hit.concept
-        if concept.name in seen:
+        previous = seen.get(concept.name)
+        if previous is not None and (previous.score or 0.0) >= hit.score:
             continue
         seen[concept.name] = UnifiedResult(
             content=f"{concept.name}: {concept.description}",
@@ -124,7 +142,10 @@ def _concept_results(hits: Sequence[Any], limit: int) -> List[UnifiedResult]:
             },
             origin=ONTOLOGY_LEG,
         )
-    return list(seen.values())[:limit]
+    ranked = sorted(
+        seen.values(), key=lambda r: (-(r.score or 0.0), r.metadata["concept"])
+    )
+    return ranked[:limit]
 
 
 def semantic_leg(reader: SemanticRead, *, limit: Optional[int] = None) -> Leg:
@@ -140,7 +161,8 @@ def semantic_leg(reader: SemanticRead, *, limit: Optional[int] = None) -> Leg:
     """
 
     def leg(query: MemoryQuery) -> Sequence[UnifiedResult]:
-        return _semantic_results(reader, query, limit or query.limit or 5)
+        size = _size(limit, query)
+        return _semantic_results(reader, query, size) if size else []
 
     return leg
 
@@ -149,9 +171,10 @@ def asemantic_leg(reader: SemanticRead, *, limit: Optional[int] = None) -> Async
     """Async variant of :func:`semantic_leg`."""
 
     async def leg(query: MemoryQuery) -> Sequence[UnifiedResult]:
-        return await asyncio.to_thread(
-            _semantic_results, reader, query, limit or query.limit or 5
-        )
+        size = _size(limit, query)
+        if size == 0:
+            return []
+        return await asyncio.to_thread(_semantic_results, reader, query, size)
 
     return leg
 
@@ -184,7 +207,11 @@ def _semantic_results(
     index = _column_index(reader, tables)
 
     for ref in tables:
-        table_terms = set(_terms(ref.name))
+        # Split the *table's* name on underscores, which is how table names are actually
+        # segmented -- `_terms` splits on whitespace, so this set was always a single element
+        # and the divisor below was always 1, making the documented specificity ranking dead
+        # code that happened to look right because the tie-break sorted the same way.
+        table_terms = {part for part in ref.name.lower().split("_") if part}
         # Score by how much of the table's own name the query accounted for, so `crm_deal`
         # beats `crm_deal_stage_history` on the query "deal" -- the shorter name is the more
         # specific answer to it, and ranking by raw hit count would invert that.
@@ -199,11 +226,18 @@ def _semantic_results(
         if not hits and not matched_columns:
             continue
         via = f", via column(s) {', '.join(matched_columns)}" if matched_columns else ""
+        # `row_count` is Optional on TableRef, and "(None rows)" was reaching text a model
+        # reads. An unknown count says so; it does not render as a Python repr.
+        rows = (
+            f"{ref.row_count} rows"
+            if ref.row_count is not None
+            else "row count unknown"
+        )
         results.append(
             UnifiedResult(
                 content=(
                     f"{ref.schema}.{ref.name} is a table in the semantic layer"
-                    f" ({ref.row_count} rows{via})."
+                    f" ({rows}{via})."
                 ),
                 source=RetrievalSource.KB,
                 score=hits / max(len(table_terms), 1) + 0.25 * bool(matched_columns),
@@ -217,11 +251,18 @@ def _semantic_results(
             )
         )
 
-    for name in reader.list_concepts():
-        if any(term in name.lower() for term in terms):
-            concept = reader.get_concept(name)
-            if concept is None:
-                continue
+    # Only the names that matched are fetched, and the match is decided before any I/O --
+    # the loop below used to call get_concept for every matching name with no ceiling, so a
+    # one-word query against a rich ontology issued a round trip per concept on the
+    # interactive path. Capped at the limit, since anything past it is discarded anyway.
+    matching = [
+        name
+        for name in reader.list_concepts()
+        if any(term in name.lower() for term in terms)
+    ]
+    for name in matching[:limit]:
+        concept = reader.get_concept(name)
+        if concept is not None:
             # Rendered with the same function promotion uses to write memory's copy (K5).
             # Memory holds a copy derived from this very node; if the two legs rendered it
             # differently, fusion by content could never recognise them as one finding.
@@ -314,6 +355,21 @@ async def aretail_unified_read(
         kb_filters=kb_filters,
         legs=legs,
     )
+
+
+def _size(limit: Optional[int], query: MemoryQuery) -> int:
+    """How many results this leg may return.
+
+    ``limit=0`` means *nothing*, matching what the framework's own KB leg does with it
+    (``unified.py`` returns early on ``query.limit == 0``). The first version wrote
+    ``limit or query.limit or 5``, so a caller asking for zero results from every leg got
+    five from these two and none from the built-ins -- the same request answered two ways in
+    one fan-out.
+    """
+    for candidate in (limit, query.limit):
+        if candidate is not None:
+            return max(0, candidate)
+    return 5
 
 
 def _terms(text: str) -> List[str]:

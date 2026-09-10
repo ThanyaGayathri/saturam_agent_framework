@@ -17,7 +17,7 @@ registry the caller already holds, never from the statement being checked.
 
 from __future__ import annotations
 
-from typing import FrozenSet, Iterable, Tuple
+from typing import FrozenSet, Iterable, Optional, Tuple
 
 from egpt.guardrails.sql_guard import SQLGuard
 
@@ -41,16 +41,34 @@ __all__ = [
 
 
 class SemanticTableAllowlist:
-    """Adapts ``SemanticRead.list_tables()`` to the framework's ``TableAllowlistLike`` seam."""
+    """Adapts ``SemanticRead.list_tables()`` to the framework's ``TableAllowlistLike`` seam.
+
+    **Read once, per guard.** The framework calls ``allowed_tables()`` on every ``check()``,
+    and a guard is built per call site for a batch of statements -- so an uncached adapter
+    listed the whole graph once per statement checked. R5's nightly pass checks a statement
+    per KPI, which made this a full graph listing per KPI, on the loop.
+
+    Caching is not a shortcut here, it is the correct semantics: a guard's decisions should
+    all be made against one view of the semantic layer. A harvest landing mid-pass would
+    otherwise let statement 40 be judged against tables statement 1 was not, and two KPIs in
+    the same run would be refused for different reasons with nothing recording why. The
+    staleness this introduces is the staleness ``kpi_identifiers`` already documents: a guard
+    is a snapshot, and a caller that wants a newer one builds a new guard.
+    """
 
     def __init__(self, reader: SemanticRead) -> None:
         self._reader = reader
+        self._cached: Optional[FrozenSet[str]] = None
 
     def allowed_tables(self) -> FrozenSet[str]:
-        return available_tables(self._reader)
+        if self._cached is None:
+            self._cached = available_tables(self._reader)
+        return self._cached
 
     async def aallowed_tables(self) -> FrozenSet[str]:
-        return await aavailable_tables(self._reader)
+        if self._cached is None:
+            self._cached = await aavailable_tables(self._reader)
+        return self._cached
 
 
 class WarehouseReadAllowlist(SemanticTableAllowlist):

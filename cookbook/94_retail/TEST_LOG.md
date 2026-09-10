@@ -3616,3 +3616,96 @@ not own, solving a problem that was solved the day before. Reading `open-items.m
 merge — not just the review — is what caught it.
 
 ---
+
+---
+
+### PR #199 review round 2 — 38 findings across two reviews, all fixed
+
+**Status:** PASS — 581 product unit tests, 3759 framework, 34 live
+
+Two reviews landed together: a round-2 re-review and a QC review carrying 1 critical, 12 major
+and 25 minor/nit. 11 findings sat in R5/R6/R7 code that reached this branch when R5 was merged
+into it; the owner's call was to fix everything here rather than split them out.
+
+**The critical was data corruption, and it was in gold.** `insert_statement` used `ON CONFLICT`
+with no partition delete. `ON CONFLICT` updates the rows the new result still produces and
+cannot touch the ones it no longer does — so a dimension that disappeared between two runs of
+the same night kept its previous value forever, and `read_gold` served one answer whose rows
+carried two runs' `run_id` and `computed_at`. The module docstring and `070_gold.sql` both
+promised a same-night re-run was a replacement. `delete_statement()` now clears
+`(kpi_identifier, as_of)` before the insert. The R05 cookbook could not have caught it: every
+KPI it materialises is grain-`overall`, so it has exactly one dimension row and nothing to
+leave behind.
+
+**Four executors ran blocking I/O on the event loop**, including the two in the file that
+documents the rule. `materialise_gold`, `read_gold`, `assess_kpi_feasibility` and
+`detect_business_areas` all now do their store work in `asyncio.to_thread`. `read_gold`'s cost
+was worse than it looked because the SQL guard re-queried the whole semantic layer on every
+`check()` — a full graph listing per KPI, nightly. The allow-list is now read once per guard,
+which is also the correct semantics: every statement a guard judges should be judged against
+one view of the layer, or statement 40 is refused for a reason statement 1 was not.
+
+**Two orderings were backwards.** `refresh_semantic_layer` mirrored before stamping, so the
+graph published the *previous* run's `validated_against_snapshot` and was permanently one
+refresh behind Postgres — silently, because both were populated. And `_mirror_tx` recomputed
+`Concept.metrics` before the prune, so a deleted KPI stayed on its concept's list. The live
+test caught the second; the first had no test at all until now.
+
+**`ontology_leg` was feeding the fusion a claim about ranking that was not true.** It
+concatenated the store's vector and lexical results and truncated without a final sort, so a
+concept the lexical leg ranked *first* arrived after every vector hit — wrong position for RRF,
+and dropped entirely under `limit`. Exactly the exact-match case lexical search exists to
+serve. Dedup also kept the first-seen copy, always the vector one, so a concept both legs found
+reported the vector score even when lexical scored it higher. Now keeps the better score and
+sorts before truncating.
+
+**Three tests could not fail on the case they were written for.** The D10 import check was a
+substring grep of one module's own text; round 1 replaced it with a walk that followed only
+`egpt`-prefixed names — so a proposer importing `neo4j` *directly* was still invisible, which
+is the leak the test exists for. It is now an AST walk over the real import graph, and
+mutation-proved: planting `import neo4j` in a proposer turns it red. The mirror was tested only
+with `rows=[]`, leaving both mirror findings unexercised. And the async-refresh fix from round 1
+had no PR-gating coverage; two tests now pin that the signatures agree on every default and
+that every argument is forwarded.
+
+**A cookbook leaked fixtures into the shared graph — R05's, this time.** It writes concepts
+named `K11Deal`, `K11Contact`, `K11Session` (borrowing K11's naming) and never removed them.
+Two Lane K cookbooks broke on it: K05 compares the real store against the stub and saw three
+concepts the stub does not have, and K10's retrieval ranked `K11Deal` above the tables its
+question was actually about. R05 now cleans up. **This is the third time cross-cookbook
+fixture leakage has cost a debugging session** — the rule is now proven three ways: a cookbook
+must remove everything it writes to a store another cookbook reads.
+
+**K10's own assertions were made more honest in the process.** They checked `label` to decide
+whether a leg contributed — but a hit two legs agree on keeps the copy of whichever leg came
+first, so a semantic-layer result that memory also holds reports `memory`. Asserting on `label`
+called the leg absent exactly when it was corroborated. They read `fused_origins` now, which is
+what the round-2 docstring correction says a caller should do.
+
+**The rest**, briefly: `_kpi_from` silently dropped `time_window`, registering a 30-day metric
+as unbounded; raw `TypeError`/`KeyError` escaped `validate_payload` instead of `PayloadError`;
+a JSON `null` reached Cypher as `null` and `null = ''` is false, so the accumulate guard erased
+the accepted value it was written to protect; `write_column_meaning` never checked the concept
+existed, leaving `Column.concept` dangling through the 1.2.0 contract; `write_concept` wrote its
+edges outside any transaction; the stub dropped the three fields 1.2.0 adds, making the P0
+swap visible to a caller; `assess_kpi_feasibility` and `detect_business_areas` were registered
+in no registry and called from nowhere while their docstrings claimed registration; the mirror's
+`READS` edges matched table names across all schemas while nodes are keyed `{schema, name}`;
+`unresolved_collisions` hardcoded two sides, so a three-way collision reported as resolved; two
+authoritative sources for one concept were proposed and applied without complaint; one bad
+compliance tag lost an entire enrichment response; an extra leg named `kb` silently replaced
+the built-in leg's results; an async leg raising before returning its awaitable skipped every
+sibling while the sync twin ran them all; `limit=0` meant "nothing" to the framework legs and
+"five" to these; the documented name-specificity ranking was dead code because `_terms` splits
+on whitespace and the divisor was always 1; `"(None rows)"` could reach model-facing text; the
+options bag could disable the quality gate and the statement timeout from client-supplied
+`additional_data`; `numeric` was coerced to `float` on the read path, undoing the DDL's
+exactness; a driver's error text reached API clients; and `EXECUTOR_REGISTRY.md` still
+described `gold_fresh` as a placeholder R5 had replaced.
+
+**Surprising:** the three findings I'd have been least likely to find myself were all *tests
+that passed*. A test that cannot fail is worse than no test, because it is counted. All three
+had been reviewed at least once — including one I had written specifically to close a previous
+review finding.
+
+---

@@ -347,10 +347,39 @@ def insert_statement(
     )
 
 
+def delete_statement() -> str:
+    """Clear one KPI's partition for one ``as_of`` before the insert rewrites it.
+
+    ``ON CONFLICT`` updates the rows the new result still produces and cannot touch the ones
+    it no longer does. A dimension that disappears between two runs of the same night --
+    a brand dropped from the source, a filter narrowed -- keeps its previous value forever,
+    and ``read_gold`` then serves one answer whose rows carry two runs' ``run_id`` and
+    ``computed_at``. The module docstring and ``070_gold.sql`` both promise a same-night
+    re-run is a replacement; this is what makes that true.
+
+    Scoped to ``(kpi_identifier, as_of)``: never the whole KPI, so yesterday's numbers stay,
+    and never the whole day, so one KPI's re-run cannot disturb another's.
+    """
+    return (
+        f"DELETE FROM {GOLD_SCHEMA}.kpi_value "
+        "WHERE kpi_identifier = :kpi_identifier AND as_of = :as_of"
+    )
+
+
 def view_statements(kpi_identifier: str, grain_keys: Sequence[str]) -> Tuple[str, str]:
     """``DROP VIEW IF EXISTS`` then ``CREATE VIEW`` -- ``CREATE OR REPLACE`` cannot drop a
     column, and a KPI whose grain keys changed has exactly that shape."""
-    name = f"{GOLD_SCHEMA}.{gold_view(kpi_identifier)}"
+    view = gold_view(kpi_identifier)
+    if len(view.encode()) > 63:
+        # Postgres truncates an identifier at NAMEDATALEN-1 silently, so two KPIs sharing a
+        # long prefix would resolve to one view and each would overwrite the other's -- the
+        # second one's readers would get the first one's rows with no error anywhere.
+        raise ValueError(
+            f"the view name for {kpi_identifier!r} is {len(view.encode())} bytes; Postgres "
+            "truncates at 63 and two KPIs sharing a prefix would silently share one view. "
+            "Shorten the KPI identifier."
+        )
+    name = f"{GOLD_SCHEMA}.{view}"
     projected = "".join(f"dimension->>'{key}' AS {_quote(key)}, " for key in grain_keys)
     create = (
         f"CREATE VIEW {name} AS SELECT as_of, {projected}value, computed_at, "
@@ -523,6 +552,12 @@ def materialise_kpi(
         statement = insert_statement(kpi.identifier, bound.sql, columns)
         try:
             with connection.begin_nested():
+                # Clear this KPI's partition for this as_of first. See delete_statement():
+                # ON CONFLICT alone leaves a dimension that has since disappeared in place.
+                connection.execute(
+                    text(delete_statement()),
+                    {"kpi_identifier": kpi.identifier, "as_of": as_of},
+                )
                 written = connection.execute(
                     text(statement),
                     {
@@ -537,12 +572,24 @@ def materialise_kpi(
                     },
                 )
                 rows_written = int(written.rowcount or 0)
-                for ddl in view_statements(kpi.identifier, columns.grain_keys):
-                    connection.exec_driver_sql(ddl)
         except Exception as exc:
             result = failed(_error_text(exc), statement=bound.sql, reason=reason)
             _write_run(connection, result)
             return result
+
+        # The projection view is DDL and lives in its own savepoint. Inside the value
+        # savepoint, a dependent view or a lock wait on DROP VIEW rolled back the insert that
+        # had already succeeded and recorded the KPI as `failed` -- losing a good number to a
+        # problem with its presentation.
+        try:
+            with connection.begin_nested():
+                for ddl in view_statements(kpi.identifier, columns.grain_keys):
+                    connection.exec_driver_sql(ddl)
+        except Exception as exc:
+            reason = (
+                f"{reason + '; ' if reason else ''}values written, projection view not "
+                f"rebuilt: {_error_text(exc)}"
+            )
 
         finished = _now()
         result = KpiRunResult(

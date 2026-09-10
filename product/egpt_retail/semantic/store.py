@@ -407,48 +407,64 @@ class SemanticGraphStore:
         candidates, not as registry identifiers.
         """
         with self._driver.session(database=self._database) as session:
-            session.run(
+            session.execute_write(self._write_concept_tx, concept, tables, proposal_id)
+
+    @staticmethod
+    def _write_concept_tx(
+        tx: Any, concept: Concept, tables: Tuple[str, ...], proposal_id: str
+    ) -> None:
+        """The concept and its INSTANTIATES edges in one transaction.
+
+        They ran as separate auto-committed statements, so a failure between them left the
+        concept written and its mappings absent -- a concept that exists and instantiates
+        nothing, which reads on every screen as "mapped to no table" rather than as a partial
+        write, and which K9 would then count as supporting nothing.
+        """
+        tx.run(
+            f"""
+            MERGE (c:{CONCEPT_LABEL} {{name: $name}})
+            SET c.description = CASE
+                    WHEN $description IS NULL OR $description = ''
+                    THEN coalesce(c.description, '') ELSE $description END,
+                c.synonyms = coalesce(c.synonyms, []) + [x IN $synonyms WHERE NOT x IN coalesce(c.synonyms, [])],
+                c.question_patterns =
+                    coalesce(c.question_patterns, []) + [x IN $question_patterns WHERE NOT x IN coalesce(c.question_patterns, [])],
+                c.sql_filter = CASE
+                    WHEN $sql_filter IS NULL OR $sql_filter = ''
+                    THEN coalesce(c.sql_filter, '') ELSE $sql_filter END,
+                c.personal_data_fields = coalesce(c.personal_data_fields, []) + [x IN $personal_data_fields WHERE NOT x IN coalesce(c.personal_data_fields, [])],
+                c.compliance_tags =
+                    coalesce(c.compliance_tags, []) + [x IN $compliance_tags WHERE NOT x IN coalesce(c.compliance_tags, [])],
+                c.business_area = CASE
+                    WHEN $business_area IS NULL OR $business_area = ''
+                    THEN c.business_area ELSE $business_area END,
+                c.status = $status,
+                c.applied_by_proposal = CASE WHEN $proposal_id = ''
+                    THEN c.applied_by_proposal ELSE $proposal_id END
+            """,
+            proposal_id=proposal_id,
+            name=concept.name,
+            description=concept.description,
+            synonyms=list(concept.synonyms),
+            question_patterns=list(concept.question_patterns),
+            sql_filter=concept.sql_filter,
+            personal_data_fields=list(concept.personal_data_fields),
+            compliance_tags=list(concept.compliance_tags),
+            business_area=concept.business_area,
+            status=concept.status.value,
+        )
+        for qualified in tables:
+            schema, _, name = qualified.partition(".")
+            tx.run(
                 f"""
-                MERGE (c:{CONCEPT_LABEL} {{name: $name}})
-                SET c.description = CASE WHEN $description = ''
-                        THEN coalesce(c.description, '') ELSE $description END,
-                    c.synonyms = coalesce(c.synonyms, []) + [x IN $synonyms WHERE NOT x IN coalesce(c.synonyms, [])],
-                    c.question_patterns =
-                        coalesce(c.question_patterns, []) + [x IN $question_patterns WHERE NOT x IN coalesce(c.question_patterns, [])],
-                    c.sql_filter = CASE WHEN $sql_filter = ''
-                        THEN coalesce(c.sql_filter, '') ELSE $sql_filter END,
-                    c.personal_data_fields = coalesce(c.personal_data_fields, []) + [x IN $personal_data_fields WHERE NOT x IN coalesce(c.personal_data_fields, [])],
-                    c.compliance_tags =
-                        coalesce(c.compliance_tags, []) + [x IN $compliance_tags WHERE NOT x IN coalesce(c.compliance_tags, [])],
-                    c.business_area = CASE WHEN $business_area IS NULL
-                        THEN c.business_area ELSE $business_area END,
-                    c.status = $status,
-                    c.applied_by_proposal = CASE WHEN $proposal_id = ''
-                        THEN c.applied_by_proposal ELSE $proposal_id END
+                MATCH (t:{TABLE_LABEL} {{schema: $schema, name: $name}})
+                MATCH (c:{CONCEPT_LABEL} {{name: $concept}})
+                MERGE (t)-[:INSTANTIATES]->(c)
                 """,
-                proposal_id=proposal_id,
-                name=concept.name,
-                description=concept.description,
-                synonyms=list(concept.synonyms),
-                question_patterns=list(concept.question_patterns),
-                sql_filter=concept.sql_filter,
-                personal_data_fields=list(concept.personal_data_fields),
-                compliance_tags=list(concept.compliance_tags),
-                business_area=concept.business_area,
-                status=concept.status.value,
+                schema=schema,
+                name=name,
+                concept=concept.name,
             )
-            for qualified in tables:
-                schema, _, name = qualified.partition(".")
-                session.run(
-                    f"""
-                    MATCH (t:{TABLE_LABEL} {{schema: $schema, name: $name}})
-                    MATCH (c:{CONCEPT_LABEL} {{name: $concept}})
-                    MERGE (t)-[:INSTANTIATES]->(c)
-                    """,
-                    schema=schema,
-                    name=name,
-                    concept=concept.name,
-                )
 
     async def awrite_concept(
         self,
@@ -536,6 +552,19 @@ class SemanticGraphStore:
                 raise SemanticReadError(
                     f"cannot record a meaning for {qualified_table}.{column}: the table is "
                     "not in the graph."
+                )
+            known = session.run(
+                f"MATCH (c:{CONCEPT_LABEL} {{name: $name}}) RETURN count(c) AS n",
+                name=concept,
+            ).single()
+            if not known or not known["n"]:
+                # `Column.concept` is part of the 1.2.0 read surface, so a meaning naming a
+                # concept that does not exist publishes a dangling reference through the
+                # contract. Enrichment lands the concept first; this applies on retry, which
+                # is the same shape as the mapping and authoritative-source writes.
+                raise SemanticReadError(
+                    f"cannot record a meaning for {qualified_table}.{column}: concept "
+                    f"{concept!r} is not in the graph."
                 )
             record = session.run(
                 f"""

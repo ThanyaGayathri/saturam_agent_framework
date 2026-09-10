@@ -8,7 +8,8 @@ and that the three things the schema must refuse are refused.
 
 from __future__ import annotations
 
-from typing import List
+from pathlib import Path
+from typing import List, Optional, Set
 
 import pytest
 from egpt_retail.contracts.vocabulary import load_vocabulary_set
@@ -113,14 +114,27 @@ class TestEnrichmentToProposals:
         )
         assert enrich.to_proposals(empty, proposer="agent") == []
 
-    def test_a_compliance_tag_outside_the_vocabulary_is_refused(self) -> None:
-        """The model was given the list. A term outside it is the closed-set rule failing,
-        and passing it on would put an unreviewable tag in front of a person."""
+    def test_a_compliance_tag_outside_the_vocabulary_is_dropped_not_fatal(self) -> None:
+        """The tag goes; the rest of the response stays.
+
+        Raising lost every synonym, filter and personal-data field the agent got right
+        because one tag was outside the closed set -- and a tag is the field an agent is
+        most likely to miss on, so the common failure destroyed the uncommon success. What
+        was dropped is recorded, so a reviewer can see the agent tried and what it tried.
+        """
         response = self._response(
-            proposals=[_proposal(enrich.EnrichmentKind.COMPLIANCE_TAG, "top_secret")]
+            proposals=[
+                _proposal(enrich.EnrichmentKind.SYNONYM, "buyer"),
+                _proposal(enrich.EnrichmentKind.COMPLIANCE_TAG, "top_secret"),
+                _proposal(enrich.EnrichmentKind.COMPLIANCE_TAG, "pii"),
+            ]
         )
-        with pytest.raises(ValueError, match="not a permitted compliance_tag"):
-            enrich.to_proposals(response, proposer="agent")
+        [row] = enrich.to_proposals(response, proposer="agent")
+        assert row.payload["synonyms"] == ["buyer"]
+        assert row.payload["compliance_tags"] == ["pii"]
+        assert any(
+            "top_secret" in note for note in row.payload["rejected_compliance_tags"]
+        )
 
     def test_a_business_area_outside_the_vocabulary_is_refused(self) -> None:
         with pytest.raises(ValueError, match="not a permitted business_area"):
@@ -263,37 +277,62 @@ class TestNeitherAgentCanWrite:
         """The D10 guarantee is structural, not a promise in a prompt: these modules have no
         write path to the graph, so no prompt injection or model error can produce one.
 
-        Checked transitively, not by grepping the module's own text. Round 1 on the P3 PR
-        pointed out that a same-module substring search proves nothing about what the module
-        imports: a helper two hops away could hold the driver and the grep would pass. This
-        walks the actual import graph from each proposer and fails if a graph client is
-        reachable at all.
+        Walks the real import graph from each proposer's source, transitively, through every
+        first-party module it reaches. Two earlier versions of this test could not fail on
+        the case it exists for: the first grepped one module's own text, so a helper two hops
+        away holding the driver was invisible; the second followed only ``egpt``-prefixed
+        names, so a proposer importing ``neo4j`` directly was invisible. This reads the AST,
+        so it depends on the files rather than on what a test session happened to import.
         """
-        import sys
+        import ast
 
-        def reachable(root: str) -> set:
-            seen, stack = set(), [root]
+        product_root = Path(__file__).resolve().parents[1]
+
+        def module_path(name: str) -> Optional[Path]:
+            candidate = product_root / Path(*name.split(".")).with_suffix(".py")
+            package = product_root / Path(*name.split(".")) / "__init__.py"
+            if candidate.is_file():
+                return candidate
+            return package if package.is_file() else None
+
+        def imports_of(path: Path) -> Set[str]:
+            tree = ast.parse(path.read_text())
+            found: Set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    found.update(alias.name for alias in node.names)
+                elif (
+                    isinstance(node, ast.ImportFrom) and node.module and not node.level
+                ):
+                    found.add(node.module)
+            return found
+
+        FORBIDDEN_ROOTS = {"neo4j", "psycopg", "psycopg2", "sqlalchemy"}
+        FORBIDDEN_MODULES = {
+            "egpt_retail.semantic.store",
+            "egpt_retail.kpi.store",
+            "egpt_retail.ontology.store",
+        }
+
+        for module in (enrich, mapping):
+            seen: Set[str] = set()
+            stack = [module.__name__]
+            leaked: List[str] = []
             while stack:
                 name = stack.pop()
                 if name in seen:
                     continue
                 seen.add(name)
-                module = sys.modules.get(name)
-                for attribute in vars(module or object()).values():
-                    child = getattr(attribute, "__module__", None) or getattr(
-                        attribute, "__name__", None
-                    )
-                    if isinstance(child, str) and child.startswith("egpt"):
-                        stack.append(child)
-            return seen
-
-        for module in (enrich, mapping):
-            names = reachable(module.__name__)
-            assert not any("neo4j" in name for name in names), (module.__name__, names)
-            assert not any(name.endswith("semantic.store") for name in names), (
-                module.__name__,
-                names,
-            )
+                path = module_path(name)
+                if path is None:
+                    continue
+                for imported in imports_of(path):
+                    if imported.split(".")[0] in FORBIDDEN_ROOTS:
+                        leaked.append(f"{name} -> {imported}")
+                    if imported in FORBIDDEN_MODULES:
+                        leaked.append(f"{name} -> {imported}")
+                    stack.append(imported)
+            assert not leaked, (module.__name__, leaked)
 
     def test_every_produced_proposal_is_pending(self) -> None:
         response = mapping.MappingProposalSet(

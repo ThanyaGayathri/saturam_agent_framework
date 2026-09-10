@@ -66,6 +66,7 @@ from egpt_retail.app.db import (  # noqa: E402
 )
 from egpt_retail.app.factory import build_agent_os  # noqa: E402
 from egpt_retail.app.semantic import open_semantic_reader  # noqa: E402
+from neo4j import GraphDatabase  # noqa: E402
 from egpt_retail.app.settings import RetailSettings  # noqa: E402
 from egpt_retail.contracts.kpi import (  # noqa: E402
     KpiDefinition,
@@ -589,6 +590,23 @@ checks["the triggered schedule succeeded and its run materialised gold"] = (
 )
 for name in list(checks)[-2:]:
     print("   ", "OK " if checks[name] else "FAIL", name)
+# The concepts this cookbook wrote, removed. They live in the shared graph, and leaving them
+# there broke two Lane K cookbooks that read it: K05 compares the real store against the stub
+# and saw three concepts the stub does not have, and K10's retrieval ranked `K11Deal` above
+# the tables its question was actually about. A cookbook must clean up what it writes to a
+# store other cookbooks read.
+_cleanup_driver = GraphDatabase.driver(
+    SETTINGS.retail_neo4j_uri,
+    auth=(SETTINGS.retail_neo4j_user, SETTINGS.retail_neo4j_password or ""),
+)
+try:
+    with _cleanup_driver.session() as _cleanup:
+        _cleanup.run(
+            "MATCH (c:SemanticConcept) WHERE c.name STARTS WITH 'K11' DETACH DELETE c"
+        )
+finally:
+    _cleanup_driver.close()
+
 manager.close()
 control_plane.close()
 WAREHOUSE.dispose()

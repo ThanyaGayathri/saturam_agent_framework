@@ -195,10 +195,19 @@ async def check_preflight(step_input: StepInput) -> StepOutput:
         except (
             Exception
         ) as exc:  # the warehouse is configured but not reachable: that is a block
+            # The exception text, not the exception. A driver's message carries the DSN,
+            # the host and sometimes the role -- this dict is rendered by the preflight
+            # screen, so a connection failure would put the warehouse's address in front of
+            # whoever opened the page. The type is enough for a reader to act on; the detail
+            # goes to the log, which is where an operator looks.
+            log.warning("preflight: gold health unreadable", exc_info=exc)
             gold_check = {
                 "name": _GOLD_FRESH,
                 "passed": False,
-                "reason": f"gold could not be read: {type(exc).__name__}: {exc}",
+                "reason": (
+                    f"gold could not be read ({type(exc).__name__}); see the server log for "
+                    "detail"
+                ),
             }
     elif settings.retail_warehouse_db_url:
         gold_check = {

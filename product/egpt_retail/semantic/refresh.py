@@ -168,7 +168,10 @@ def refresh_semantic_layer(
         )
         in_review = {item.kpi_identifier for item in review}
         if kpis is None:
-            registry.mirror(driver, database=settings.retail_neo4j_database)
+            # Stamp first, mirror second. The mirror copies each definition's
+            # `validated_against_snapshot` onto its graph node, so mirroring before stamping
+            # publishes the *previous* run's value and the graph is permanently one refresh
+            # behind Postgres -- silently, because both are populated and neither is null.
             available = {t.name.lower() for t in graph.list_tables()}
             registry.stamp_validated(
                 [
@@ -179,6 +182,7 @@ def refresh_semantic_layer(
                 ],
                 resolved,
             )
+            registry.mirror(driver, database=settings.retail_neo4j_database)
         return RefreshReport(
             version=resolved,
             previous_version=previous,
