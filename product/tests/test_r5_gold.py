@@ -263,9 +263,28 @@ def test_the_view_projects_the_keys_as_columns_as_the_contract_queries_them():
     assert drop == "DROP VIEW IF EXISTS gold.kpi_supplier__on_time_rate_30d"
     assert "dimension->>'supplier_id' AS \"supplier_id\"" in create
     assert create.endswith("WHERE kpi_identifier = 'supplier__on_time_rate_30d'")
-    assert read_gold_statement("supplier__on_time_rate_30d").startswith(
-        "SELECT * FROM gold.kpi_supplier__on_time_rate_30d WHERE as_of = :as_of"
+    assert read_gold_statement("supplier__on_time_rate_30d") == (
+        "SELECT * FROM gold.kpi_supplier__on_time_rate_30d WHERE as_of = :as_of "
+        "ORDER BY kpi_supplier__on_time_rate_30d"
     )
+
+
+def test_read_gold_statement_orders_by_the_whole_row_not_just_as_of():
+    """``ORDER BY 1`` alone is a no-op once ``WHERE as_of = :as_of`` fixes column 1 to a
+    single value -- a KPI at a non-``overall`` grain has more than one row per ``as_of``, and
+    without a real order the rows come back in whatever order the query plan picks (confirmed
+    against a real warehouse: the same data comes back in a different order under a forced
+    sequential scan than under the index scan Postgres otherwise prefers). Ordering by the row
+    itself (Postgres's default whole-row record comparison, referencing the view by its own
+    unqualified name as the implicit range-table alias) is deterministic regardless of grain,
+    which is also why this stays checkable without a warehouse: the statement text is the same
+    whether the KPI has zero, one or five grain keys."""
+    statement = read_gold_statement("kpi_with_two_dims")
+    assert statement == (
+        "SELECT * FROM gold.kpi_kpi_with_two_dims WHERE as_of = :as_of "
+        "ORDER BY kpi_kpi_with_two_dims"
+    )
+    assert "ORDER BY 1" not in statement
 
 
 def test_a_kpi_is_skipped_for_the_right_reasons():

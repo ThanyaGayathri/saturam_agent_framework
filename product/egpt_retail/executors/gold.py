@@ -15,6 +15,7 @@ this step alone after a blocked night.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import date, datetime, timezone
@@ -46,8 +47,8 @@ from egpt_retail.warehouse.gold import (
     MATERIALISED,
     SKIPPED,
     KpiRunResult,
+    alatest_as_of,
     amaterialise_registry,
-    latest_as_of,
     read_gold_statement,
 )
 from egpt_retail.warehouse.loads import LoadLock
@@ -113,6 +114,21 @@ def _refusal(reason: str, **content: Any) -> StepOutput:
     return StepOutput(
         content={"refused": reason, **content}, success=False, error=reason, stop=True
     )
+
+
+def _fetch_gold_rows(
+    engine: Engine, statement: str, as_of: date
+) -> List[Dict[str, Any]]:
+    """The blocking half of one KPI's read. :func:`read_gold` offloads this to a thread via
+    ``asyncio.to_thread`` -- an ``async def`` executor is ``await``ed directly by the workflow
+    engine with no automatic offload (``workflow/step.py``'s ``_is_async_callable`` branch), so
+    a plain synchronous call here would block the event loop for the round-trip's duration on
+    every interactive read."""
+    with engine.begin() as connection:
+        return [
+            dict(row)
+            for row in connection.execute(text(statement), {"as_of": as_of}).mappings()
+        ]
 
 
 async def materialise_gold(step_input: StepInput) -> StepOutput:
@@ -268,6 +284,11 @@ async def read_gold(step_input: StepInput) -> StepOutput:
     with no gold at that date is reported (``missing``), never invented. Reads through the
     read-only role when ``EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL`` is set, otherwise through
     the warehouse engine with a warning -- the guard runs either way.
+
+    This is the seam an interactive playground reads through, so every warehouse round-trip
+    (``alatest_as_of``, then the per-KPI read via :func:`_fetch_gold_rows`) is offloaded with
+    ``asyncio.to_thread`` rather than run inline -- an ``async def`` executor is ``await``ed
+    directly by the workflow engine with no automatic thread offload.
     """
     options = _options(step_input)
     settings = RetailSettings()
@@ -298,7 +319,7 @@ async def read_gold(step_input: StepInput) -> StepOutput:
                 as_of = (
                     date.fromisoformat(str(options["as_of"]))
                     if options.get("as_of")
-                    else latest_as_of(engine, identifier)
+                    else await alatest_as_of(engine, identifier)
                 )
                 if as_of is None:
                     missing.append(
@@ -319,13 +340,9 @@ async def read_gold(step_input: StepInput) -> StepOutput:
                     continue
                 started = datetime.now(timezone.utc)
                 try:
-                    with engine.begin() as connection:
-                        rows = [
-                            dict(row)
-                            for row in connection.execute(
-                                text(statement), {"as_of": as_of}
-                            ).mappings()
-                        ]
+                    rows = await asyncio.to_thread(
+                        _fetch_gold_rows, engine, statement, as_of
+                    )
                 except (
                     Exception
                 ) as exc:  # the view does not exist yet, or the role cannot see it
