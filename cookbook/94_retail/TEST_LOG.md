@@ -4009,3 +4009,72 @@ Evidence bullet. Both are present in the schema and absent in the value, the sam
 R7's `tables_exposed`/`guard_role` placeholders take.
 
 ---
+
+### PR #207 review round 1 — 7 findings (4 major, 2 minor, 1 nit), all fixed
+
+Reviewed by `rasiksuhailali` (Claude Code's automated review). All seven addressed:
+
+- **`_owner()` fallback to `"local"`** (`api/routers/{playground,dashboards}.py`, major):
+  collapsed *any* falsy `request.state.user_id` onto a shared owner, including the case
+  `AuthMiddleware` sets deliberately — `user_id=None` for a token that decodes and passes
+  scope checks but carries no `sub` claim. With authorization on, every such caller's
+  prompts/filters/reports/dashboards became one shared, mutable pool. Now refuses (401).
+  Verified live over HTTP with a fake auth middleware forcing `user_id=None`.
+- **`_tile_data` grain-mismatch bug** (`dashboards/data.py`, major): a `grain_value` that
+  matched no row reported `status=fresh, value=None` — indistinguishable from a genuinely
+  current, empty tile. Now reports `never_computed`. See the live re-verification below —
+  this is the fix the previous entry's "unit test is the only verification" gap now closes.
+- **Readiness-gate coverage gap** (`api/routers/dashboards.py`, major): extracted the 422
+  decision into `tile_readiness_refusal(wanted, definitions, tables)`, pure and DB-free, unit
+  -tested directly (unregistered / blocked / partial / ready) — `.github/workflows/ci.yml`'s
+  `test-and-build` has no Postgres/Neo4j service, so before this fix a regression in the
+  verdict logic would have passed CI clean.
+- **Unpooled `psycopg.connect()` per request** (minor): added
+  `app/db.py::pooled_control_plane_connection` (a cached, process-wide pooled `Engine`'s
+  `raw_connection()`); both routers and the readiness gate use it now.
+- **`aresolve_mode_scope` dead code** (minor): `build_playground_agent` is now `async def`
+  and actually calls it (`AgentFactory.factory` accepts an async callable by its own type
+  contract). Direct tests added for the async twin.
+- **`_ensure_default_report` TOCTOU race** (nit): guarded with a per-owner
+  `pg_advisory_xact_lock`, the same primitive `ensure_schema()` already uses. The R11
+  cookbook adds a live concurrency check (two threads racing a brand-new owner's first
+  `list_reports` call) rather than only asserting the fix by reading the code.
+
+14 new unit tests (44 → 58 across the two files); `product/tests` at 650 passing.
+
+### Full live re-verification against a real materialised warehouse
+
+The previous entries both recorded an honest gap: "this environment has no configured
+warehouse." It turns out the local `deploy/compose.yaml` Postgres container already had one
+— `warehouse-migrate` and a real gold materialisation (R10's RFQ fixture KPIs) had already
+run in this environment from earlier work. Re-ran both cookbooks with
+`EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse` and
+`EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL=postgresql+psycopg://egpt_reader:egpt_reader@localhost:5532/egpt_warehouse`:
+
+```
+R11, data mode, real read_kpi_data(['rfq__quote_to_deal_rate', 'no_such_kpi__nope']):
+  kpis:    {'rfq__quote_to_deal_rate': {value row for dimension {"brand": "Blodgett"}, ...}}
+  missing: [{'kpi_identifier': 'no_such_kpi__nope', 'reason': 'never materialised'}]
+
+R13, section 5 (new), a dashboard with two tiles over the same real materialised KPI:
+  grain_value='Blodgett' (matches)      -> status=fresh, value=1.0
+  grain_value='no_such_dimension_value' -> status=never_computed, value=None
+```
+
+The second line is the exact scenario the round-1 review reproduced synthetically
+(`_tile_data` reporting `fresh` with nothing to show) — now confirmed against a genuinely
+materialised gold row, not a constructed fixture. R11's cookbook was also updated to report
+`read_gold`'s real "missing" shape when a warehouse is configured, rather than assuming the
+refusal path is the only honest thing to show (both cookbooks still degrade gracefully and
+say so when no warehouse is configured, which is the more common case for a fresh clone).
+
+One flake noted, not chased: on one of several re-runs, R13's new section 5 found zero rows
+in `gold.kpi_value` and skipped, immediately reproducible as present again on the very next
+run. The row count in the warehouse (checked directly via `psql`) never actually changed
+across these runs, so this reads as a transient condition in this specific shared,
+long-lived local Postgres container — not a defect in `read_dashboard_data` or its mapping,
+which produced the correct result every time data was actually visible to it. The section's
+existing "skip and say why" behavior on an empty result is exactly the right response to
+that regardless of cause.
+
+---

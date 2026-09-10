@@ -17,8 +17,11 @@ Six sections:
    control-plane database, through ``PlaygroundStore``. Includes a concurrency check on
    ``_ensure_default_report``'s advisory-lock guard: two concurrent first-ever calls for a
    brand-new owner must produce exactly one report, not two.
-2. `data` mode: resolves to the gold-read tool. Verified via ``read_gold``'s own refusal
-   when no warehouse is configured, which is the honest thing to show without one.
+2. `data` mode: resolves to the gold-read tool. With no warehouse configured, shows
+   ``read_gold``'s own refusal, which is the honest thing to demonstrate without one; with
+   one configured (``EGPT_RETAIL_WAREHOUSE_DB_URL``/``_READONLY_DB_URL`` pointed at the
+   local compose stack's ``egpt_warehouse`` database), shows the real "missing" shape for
+   a KPI that was never materialised -- never invented, either way.
 3. `knowledge` mode: resolves to K10's unified retrieval tool, called live against Neo4j.
 4. `use_case` mode: two runs are written for two different use cases (framework provenance,
    real Postgres). The mode scoped to one use case finds its own run by reference and
@@ -35,8 +38,10 @@ Run:
 
 Needs: the local Postgres (``cookbook/scripts/run_pgvector.sh``) and Neo4j
 (``EGPT_RETAIL_NEO4J_URI``/``_PASSWORD``, pointed at whichever container is running) for
-sections 1, 3 and 4. Section 5 needs neither. Section 2 needs neither either -- it is
-demonstrating the refusal, not a real read.
+sections 1, 3 and 4. Section 5 needs neither. Section 2 works either way: with
+``EGPT_RETAIL_WAREHOUSE_DB_URL``/``_READONLY_DB_URL`` unset it demonstrates the refusal;
+pointed at the local ``deploy/compose.yaml`` stack's ``egpt_warehouse`` database (started
+with ``--profile full``, after ``warehouse-migrate`` has run) it demonstrates a real read.
 """
 
 import asyncio
@@ -93,7 +98,9 @@ async def main() -> None:
         "saving the same text twice is a no-op",
     )
 
-    store.set_filters(store.get_filters(owner))  # exercises the upsert path with defaults
+    store.set_filters(
+        store.get_filters(owner)
+    )  # exercises the upsert path with defaults
     active_report_id, reports = store.list_reports(owner)
     print(
         "   OK " if reports else "   FAIL",
@@ -138,7 +145,9 @@ async def main() -> None:
         first_ids = list(pool.map(lambda _: _first_report_id(), range(2)))
     _, race_reports_after = store.list_reports(race_owner)
     print(
-        "   OK " if len(race_reports_after) == 1 and first_ids[0] == first_ids[1] else "   FAIL",
+        "   OK "
+        if len(race_reports_after) == 1 and first_ids[0] == first_ids[1]
+        else "   FAIL",
         "two concurrent first-ever calls produce exactly one report, not two",
     )
 
@@ -147,7 +156,9 @@ async def main() -> None:
     # --- 2. `data` mode: resolves to the gold-read tool -----------------------------------
 
     print()
-    print("2. `data` mode resolves a real tool, backed by R6's guard and R5's read_gold")
+    print(
+        "2. `data` mode resolves a real tool, backed by R6's guard and R5's read_gold"
+    )
     print("-" * 78)
 
     db = build_control_plane_db(settings)
@@ -165,10 +176,20 @@ async def main() -> None:
     )
 
     try:
-        await data_agent.tools[0](["no_such_kpi__nope"])
-        print("    read (unexpected in this environment -- a warehouse is configured)")
+        no_warehouse_result = await data_agent.tools[0](["no_such_kpi__nope"])
+        missing = no_warehouse_result["missing"]
+        print(
+            "   OK "
+            if missing and missing[0]["kpi_identifier"] == "no_such_kpi__nope"
+            else "   FAIL",
+            "a KPI that was never materialised is reported missing, not invented:",
+            missing[0]["reason"] if missing else missing,
+        )
     except RuntimeError as exc:
-        print("    refused, honestly:", str(exc).splitlines()[0][:88])
+        print(
+            "    no warehouse configured in this environment; refused, honestly:",
+            str(exc).splitlines()[0][:88],
+        )
 
     # --- 3. `knowledge` mode: K10's unified retrieval, live -------------------------------
 
@@ -194,7 +215,9 @@ async def main() -> None:
             len(result["results"]),
             "result(s) -- no exception",
         )
-    except Exception as exc:  # pragma: no cover -- environment-dependent (Neo4j reachability)
+    except (
+        Exception
+    ) as exc:  # pragma: no cover -- environment-dependent (Neo4j reachability)
         print("    skipped (Neo4j unreachable in this environment):", str(exc)[:88])
 
     # --- 4. `use_case` mode: found by reference, not search -------------------------------
@@ -268,7 +291,9 @@ async def main() -> None:
     # --- 5. `business_area` mode: structural refusal, no model involved -------------------
 
     print()
-    print("5. `business_area` mode: an out-of-area concept is declined, in the tool itself")
+    print(
+        "5. `business_area` mode: an out-of-area concept is declined, in the tool itself"
+    )
     print("-" * 78)
 
     area_agent = await factory.factory(

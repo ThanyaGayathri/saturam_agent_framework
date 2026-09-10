@@ -4,17 +4,15 @@ The delivery plan's own verification scenario: create a dashboard of four KPIs t
 API, load it while watching the database, then delete a KPI it references and load again.
 
 This cookbook runs the storage and readiness-gate halves against the real control-plane
-database and the real semantic graph (both required); the fourth KPI and the "load while
-watching the database" step are demonstrated with three, plus the explicit non-ready-KPI
-refusal, because a fourth *ready* KPI needs a materialised warehouse this environment does
-not carry (R4/R5's pipeline) -- the same honest gap ``dashboards/data.py``'s own docstring
-names. What *is* shown live: a tile naming a KPI that was never registered, or one the
-registry knows is `blocked`/`partial`, is refused at creation time (422) rather than
-discovered as a broken tile after the fact; and a dashboard whose tile references a KPI that
-disappears from the registry after creation still loads, with that tile reporting itself
-unavailable rather than the response breaking.
+database and the real semantic graph (both required, sections 1-4). Section 5 exercises the
+gold read itself -- the round-1 review's own headline finding, a tile whose configured
+``grain_value`` matches no materialised row -- against **real** materialised gold data, when
+``EGPT_RETAIL_WAREHOUSE_DB_URL``/``_READONLY_DB_URL`` point at a warehouse that has actually
+run R4/R5 (the local ``deploy/compose.yaml`` stack, after ``warehouse-migrate`` and a real
+nightly-refresh or ``R05_gold_materialisation.py``). Without one, section 5 says so and skips
+rather than guessing -- everything else here still runs.
 
-Four sections:
+Five sections:
 
 1. A dashboard with a tile naming an unregistered KPI is refused at creation (422),
    over the real HTTP router, before anything is written.
@@ -25,12 +23,17 @@ Four sections:
    the read is inspected: it never reaches for anything under ``silver``.
 4. Visibility and ownership: a `team` dashboard is visible to another caller; only the
    owner may edit or delete it.
+5. With a real materialised KPI available: a tile whose `grain_value` matches the latest
+   materialisation reads a real value (`status=fresh`); the same KPI with a `grain_value`
+   that matches nothing reports `status=never_computed` rather than `fresh` with an empty
+   value -- the exact scenario the round-1 review reproduced and this PR fixed.
 
 Run:
     .venvs/demo/bin/python cookbook/94_retail/R13_dashboards.py
 
 Needs: the local Postgres (``cookbook/scripts/run_pgvector.sh``) and Neo4j
-(``EGPT_RETAIL_NEO4J_URI``/``_PASSWORD``) for the readiness gate in sections 1-2.
+(``EGPT_RETAIL_NEO4J_URI``/``_PASSWORD``) for the readiness gate in sections 1-2; a
+materialised warehouse (see above) for section 5.
 """
 
 import sys
@@ -175,6 +178,87 @@ print("   OK " if not bob_delete else "   FAIL", "bob cannot delete alice's dash
 alice_delete = store.delete(owned.id, "alice")
 print("   OK " if alice_delete else "   FAIL", "alice can delete her own dashboard")
 connection.close()
+
+# --- 5. A real materialised KPI: grain match reads, mismatch reports unavailable -------------
+
+print()
+print(
+    "5. A real gold-materialised KPI: grain match reads a value, "
+    "mismatch reports unavailable"
+)
+print("-" * 78)
+
+if not settings.retail_warehouse_db_url:
+    print("   skipped: EGPT_RETAIL_WAREHOUSE_DB_URL is not set in this environment")
+else:
+    from egpt_retail.app.db import build_warehouse_engine
+    from sqlalchemy import text
+
+    warehouse_engine = build_warehouse_engine(settings)
+    with warehouse_engine.begin() as wh_connection:
+        gold_row = wh_connection.execute(
+            text(
+                "SELECT kpi_identifier, dimension FROM gold.kpi_value "
+                "ORDER BY as_of DESC LIMIT 1"
+            )
+        ).first()
+    warehouse_engine.dispose()
+
+    if gold_row is None:
+        print("   skipped: no materialised gold rows in this environment's warehouse")
+    else:
+        kpi_identifier, dimension = gold_row
+        grain_item = next(iter(dimension.items()), None) if dimension else None
+        if grain_item is None:
+            print(
+                f"   skipped: {kpi_identifier} materialises at the overall grain, "
+                "nothing to mismatch a grain_value against"
+            )
+        else:
+            _, grain_value = grain_item
+            real_dashboard = client.post(
+                "/dashboards",
+                json={
+                    "name": "Real gold read",
+                    "tiles": [
+                        {
+                            "kpi_identifier": kpi_identifier,
+                            "chart": "number",
+                            "position": {"x": 0, "y": 0, "w": 3, "h": 2},
+                            "grain_value": grain_value,
+                        },
+                        {
+                            "kpi_identifier": kpi_identifier,
+                            "chart": "number",
+                            "position": {"x": 3, "y": 0, "w": 3, "h": 2},
+                            "grain_value": "no_such_dimension_value",
+                        },
+                    ],
+                },
+            )
+            print(
+                "   OK " if real_dashboard.status_code == 201 else "   FAIL",
+                "created ->",
+                real_dashboard.status_code,
+            )
+            real_id = real_dashboard.json()["id"]
+            real_data = client.get(f"/dashboards/{real_id}/data").json()["tiles"]
+            print(
+                "   OK "
+                if real_data[0]["status"] == "fresh"
+                and real_data[0]["value"] is not None
+                else "   FAIL",
+                f"matching grain_value={grain_value!r} -> status={real_data[0]['status']}, "
+                f"value={real_data[0]['value']}",
+            )
+            print(
+                "   OK "
+                if real_data[1]["status"] == "never_computed"
+                and real_data[1]["value"] is None
+                else "   FAIL",
+                "mismatched grain_value -> status=never_computed, not fresh with an empty "
+                f"value: {real_data[1]['status']}",
+            )
 
 print()
 print("=" * 78)

@@ -250,8 +250,20 @@ def test_tile_data_ambiguous_multi_row_non_table_reports_never_computed():
         "computed_at": "2026-09-07T02:20:00Z",
         "run_id": "run_gold_1",
         "rows": [
-            {"value": "0.71", "supplier_id": "sup_014", "as_of": "x", "computed_at": "x", "run_id": "x"},
-            {"value": "0.88", "supplier_id": "sup_003", "as_of": "x", "computed_at": "x", "run_id": "x"},
+            {
+                "value": "0.71",
+                "supplier_id": "sup_014",
+                "as_of": "x",
+                "computed_at": "x",
+                "run_id": "x",
+            },
+            {
+                "value": "0.88",
+                "supplier_id": "sup_003",
+                "as_of": "x",
+                "computed_at": "x",
+                "run_id": "x",
+            },
         ],
     }
     data = _tile_data(tile, result, "")

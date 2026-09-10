@@ -21,7 +21,10 @@ from egpt.answer_provenance import aread_provenance
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from egpt_retail.api import models as wire
-from egpt_retail.app.db import build_control_plane_engine, pooled_control_plane_connection
+from egpt_retail.app.db import (
+    build_control_plane_engine,
+    pooled_control_plane_connection,
+)
 from egpt_retail.app.scopes import require_scopes
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.playground import (
