@@ -118,9 +118,10 @@ R7_EXECUTORS = (check_preflight, record_provenance, deliver_in_app)
 
 #: R10's own (D12). ``sample_rows`` is the API contract's own example plan's third step,
 #: reserved there since R9 landed and refused as unregistered until now.
-#: ``check_explanation_grounding`` is not in that example plan -- it was added after review
-#: found the plan's own checkers (``citations_within_input``, ``movers_match_input``) were
-#: cookbook/test-only, reachable by nothing at run time.
+#: ``check_explanation_grounding`` was added after review found the plan's own checkers
+#: (``citations_within_input``, ``movers_match_input``) were cookbook/test-only, reachable by
+#: nothing at run time -- the contract's example plan (``paths/use-cases.yaml``) was updated
+#: to add it as step 5 in the same change.
 R10_EXECUTORS = (sample_rows, check_explanation_grounding)
 
 #: Lane K's two (K9, K11). Both are deterministic steps a workflow composes -- feasibility is
@@ -216,11 +217,12 @@ def _chain(executors: tuple) -> List[Any]:
 def _rfq_steps(funnel_explanation: Agent) -> List[Any]:
     """The API contract's own example plan order (``paths/use-cases.yaml``,
     ``runUseCasePreflight``) -- ``check_preflight``, ``read_gold``, ``sample_rows``, the one
-    model step, then R7's ``record_provenance`` and ``deliver_in_app`` -- plus one step the
-    example plan does not yet name: ``check_explanation_grounding``, added between the model
-    step and delivery after review found the schema's own checkers
+    model step, then R7's ``record_provenance`` and ``deliver_in_app`` -- plus one step added
+    after the plan was first written: ``check_explanation_grounding``, inserted between the
+    model step and delivery after review found the schema's own checkers
     (``citations_within_input``, ``movers_match_input``) were reachable from nowhere at run
-    time. See that executor's docstring; ``paths/use-cases.yaml`` records the drift.
+    time. See that executor's docstring; ``paths/use-cases.yaml`` was updated in the same
+    change to name it as step 5.
 
     Not built by :func:`_chain`, which only knows executors -- ``funnel_explanation`` is the
     live, already-routed ``Agent`` object :func:`build_agents` returned, not a name the engine

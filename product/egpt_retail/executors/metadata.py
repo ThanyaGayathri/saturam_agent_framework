@@ -181,11 +181,10 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             "handed it; stop the chain before delivery otherwise.",
             ("explanation", "movers"),
             ("explanation",),
-            # Not in the API contract's example plan yet (paths/use-cases.yaml records the
-            # drift) -- added after review found the schema's own checkers were reachable
-            # from nowhere at run time. True, the same as sample_rows: a failed check must
-            # stop the chain before record_provenance/deliver_in_app run against an
-            # explanation nobody verified.
+            # Added after review found the schema's own checkers were reachable from nowhere
+            # at run time; paths/use-cases.yaml was updated in the same change to name it as
+            # step 5. True, the same as sample_rows: a failed check must stop the chain before
+            # record_provenance/deliver_in_app run against an explanation nobody verified.
             True,
             1,
         ),
