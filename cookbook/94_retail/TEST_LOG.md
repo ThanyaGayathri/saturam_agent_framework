@@ -2895,3 +2895,91 @@ rather than coincidental. Step 7, the framework's own integration tests, failed 
 hooks; the README's install text is Lane R's to revisit with R5's `schedule-nightly` hook, so
 one edit rather than two. R-8 (provider-mode re-embedding migration) stays open as SM-V2 #96 —
 a deployment concern, not a chore.
+
+---
+
+### R08_model_routing.py
+
+**Status:** PASS (offline half, sections 1–2, on Python 3.12 and 3.10). Sections 3–4 (live,
+both Azure deployments) NOT RUN on this machine — there is no `azure_key.env` anywhere under
+`~/coe` or `~/code`, and nothing else names a second deployment. They are written, gated on
+`AZURE_OPENAI_API_KEY` + `EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT`, and exit non-zero on any
+failed check; the result belongs in this entry when someone with the credential runs them.
+
+**Description:** G6, "model routing". A routing table (`product/egpt_retail/routing/table.py`)
+names the tier per agent; `build_agents` builds every agent with `model=None` and
+`route_agents` installs a provider per row — the framework's `FrontierModelProvider` pinned
+to the tier's Azure deployment, wrapped for small-tier agents in the framework's
+`EscalatingModelProvider` with the frontier as target. An unrouted agent refuses assembly
+by name. The one product-side provider class, `TierModelProvider`, exists to declare a
+`context_window` (Mode B cannot state one) so `input_exceeds_context_window` can fire.
+The framework half: `resolve_run_model` narrowed `ModelResolveResult` to a bare `Model` and
+the run record never learned of an escalation; `resolve_run_model_detailed` twins now keep
+the detail and `_stamp_resolved_model` writes it to `RunOutput.metadata["egpt_escalation"]`,
+which `to_dict` persists. R7's `record_provenance` reads `model_tier` off the table by
+`StepOutput.executor_name` instead of warning and writing `none`.
+
+Section 1 prints the table, builds the registered agents against a dead control-plane URL
+(nothing connects), shows each with `model=None` and its provider, and shows the refusal
+for a ghost agent. Section 2 declares a 1 000-token window, drives the real per-run hook
+(`apply_run_model`) with an estimate of 999 then 1 001 tokens, and counts
+`resolve_detailed` calls per tier: 999 → `gpt-5.4-mini`, no key; 1 001 → `gpt-5.4`, record
+`{reason: input_exceeds_context_window, escalated_from: azure-openai, model_id: gpt-5.4,
+agent_id: join_path_explainer, escalation_level: 1}`, and the small tier resolved exactly
+once across both runs — the over-window request never reached it.
+
+**What surprised me:**
+
+1. **`AZURE_OPENAI_DEPLOYMENT` in the shell would have made both tiers one deployment.**
+   Azure routes a call by the *client's* deployment and ignores the request's `model`;
+   `AzureOpenAI._get_client_params` falls back to that env var when the client has none.
+   `AzureOpenAI(id=deployment)` — what `components.py` did before R8, and what every K14
+   cookbook does — therefore sends every call to whatever `azure_key.env` names, whatever
+   `id` says, and `RunOutput.model` reports the id. Two tiers built that way would have
+   been a label. `TierModelProvider` pins `azure_deployment` on the client
+   (`model_config`), and `test_the_resolved_model_is_pinned_to_its_tier_deployment_on_the_client`
+   sets the env var to something else and asserts both. Worth a line in K14's cookbooks; not
+   changed here.
+2. **`escalated_from` and `target` both read `azure-openai`.** `ModelResolveResult` records
+   provider *keys*, and two tiers on one provider share a key. `model_id` is what
+   distinguishes the record, and the log line (`small-tier -> frontier-tier`, from the
+   providers' names) carries the identity the record lacks. The base class's
+   `capabilities().provider_keys` is the whole frontier shortlist, so before narrowing it
+   the record would have said `escalated_from: anthropic` for an Azure tier — worse than
+   ambiguous, wrong. A `ModelResolveResult` that also carried the primary's model id is the
+   framework follow-up that would make the record self-sufficient.
+3. **`RunOutput.metadata` is the caller's dict.** `RunOutput` is built with
+   `metadata=run_context.metadata or {}`, and the same dict is forwarded to the provider as
+   the request's metadata, where `explicit_policy_flag` reads it. Appending the escalation
+   record in place would have written into the caller's `run(metadata=...)` object and into
+   the next re-resolve's rule input. The stamp replaces the dict;
+   `test_the_callers_metadata_dict_is_not_mutated` pins it and a mutation restoring the
+   in-place write fails it.
+4. **Provenance records the tier the step was *bound* to, not the one that served it.**
+   `StepOutput` has no metadata field, so a step's escalation stays on the `RunOutput` the
+   framework persists and does not reach `record_provenance`. Documented on `_model_tier`
+   rather than papered over: the run record has the escalation, the provenance row has the
+   binding, and PlanStep.model_tier is static plan metadata in the contract anyway.
+5. **A provider with only `resolve()` gets `(model, None)`, not a made-up result.**
+   `ModelResolveResult.mode` is required, and synthesising one for a Protocol-only provider
+   would have put a fact in the run record no provider stated. `resolve_via_detailed` returns
+   `None` for the detail there, and a test pins that such a provider still serves and
+   resolves exactly once.
+6. **`format.sh` reformatted 114 files outside this change**, as on every Lane R branch;
+   reverted. `validate.sh`'s product mypy is red on this branch with X-5
+   (`numpy/__init__.pyi:737`), fixed by #200 which is not on `main` yet; the framework mypy
+   red is X-2. Everything else green: ruff, 21 framework files mypy, API contract, 456
+   product tests, brand audit.
+
+**Result:** `pytest product/tests` — 456 passed, 27 skipped (20 new in `test_r8_routing.py`);
+`pytest libs/agno/tests/unit/providers` — 602 passed (7 new in
+`TestEscalationReachesTheRunRecord`, including the async twin and the pre-call count). Same
+counts on a Python 3.10 venv. Seven mutants, seven caught: escalation never stamped (4
+tests), metadata mutated in place (1), provenance ignores the table (2), client deployment
+not pinned (1), agents not routed (2), small window not declared (2), detailed path dropped
+for a plain `resolve` (3). Cookbook offline half PASS on 3.12 and 3.10.
+
+**Cross-lane, to raise:** the `AZURE_OPENAI_DEPLOYMENT` finding above for K14's cookbooks;
+`ROUTING_TABLE` reserves `enrichment_proposer`/`mapping_proposer` (K8) and `spec_extractor`
+(R9) / `funnel_explanation` (R10) — a package that registers one of those under another id
+refuses at startup, which is the point, but the name is the contract.

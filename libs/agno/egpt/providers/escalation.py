@@ -299,6 +299,9 @@ class EscalatingModelProvider(BaseModelProvider):
             escalated_from=self._provider_key(self.primary),
             reason=reason,
             gateway=result.gateway,
+            # The real depth this resolution reached, off the request that was actually served --
+            # not re-derived by a caller from the pre-call request. See `ModelResolveResult`.
+            escalation_level=escalated_request.escalation_level,
         )
 
     def resolve_detailed(self, request: ModelResolveRequest) -> ModelResolveResult:
@@ -347,6 +350,9 @@ class EscalatingModelProvider(BaseModelProvider):
             escalated_from=primary_key,
             reason=reason,
             gateway=result.gateway,
+            # The real depth this resolution reached, off the request that was actually served --
+            # not re-derived by a caller from the pre-call request. See `ModelResolveResult`.
+            escalation_level=escalated_request.escalation_level,
         )
 
     @staticmethod

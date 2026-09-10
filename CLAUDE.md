@@ -27,9 +27,12 @@ is where retail nouns belong. The packaging boundary enforces it: the wheel is b
 `libs/agno/` with `packages.find include = ["egpt*"]`, so a root-level `product/` or `frontend/`
 cannot reach it, and CI's wheel-contents check fails if that ever changes.
 
-Four packages are genuine framework fixes and go in `libs/agno/egpt/` because every deployment
+Five packages are genuine framework fixes and go in `libs/agno/egpt/` because every deployment
 inherits them: **K1** memory scope and wiring, **K10** unified retrieval, **R6** the SQL guard,
-**R7** the provenance record. Everything else retail — ontology, prose, enrichment prompts,
+**R7** the provenance record, **R8** escalation into the run record (`ModelResolveResult`
+detail, `resolve_run_model_detailed`/`aresolve_run_model_detailed`, `_stamp_escalation` --
+every `EscalatingModelProvider` deployment benefits, not only retail's tiers). Everything else
+retail — ontology, prose, enrichment prompts,
 semantic layer, KPI content, silver and gold, workflows, skills, dashboards, alerts, monitoring —
 is `product/`. When in doubt: would a non-retail deployment want it? If not, it is product.
 

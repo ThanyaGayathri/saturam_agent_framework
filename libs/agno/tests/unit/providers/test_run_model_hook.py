@@ -1513,3 +1513,134 @@ class TestTheFormatFlagGate:
         resolved = openai.OpenAIResponses(id="gpt-5.5", base_url="https://tenant-b.internal/v1")
 
         assert _stamp_resolved_model(StubAgent(model=current), None, None, resolved) is False
+
+
+class TestEscalationReachesTheRunRecord:
+    """G6: "every escalation is visible in the run record".
+
+    Before this, ``resolve_run_model`` narrowed the provider's ``ModelResolveResult`` to a bare
+    ``Model`` and dropped ``escalated_from``/``reason``. The provider logged the escalation; the
+    persisted run never learned of it. These pin that the hook now asks for the detail and
+    writes it into ``RunOutput.metadata`` -- the field that ``to_dict`` serialises -- and that
+    the record is absent, not empty, when nothing escalated.
+    """
+
+    class StubRunOutput:
+        def __init__(self, metadata=None) -> None:
+            self.model = "small"
+            self.model_provider = "mode-a"
+            self.metadata = metadata
+
+    def _agent(self, primary, frontier):
+        return StubAgent(
+            model=FakeModel(id="stale"),
+            model_provider=EscalatingModelProvider(primary=primary, escalation_target=frontier),
+        )
+
+    def test_an_escalated_run_is_recorded_in_the_run_metadata(self, run_context, primary, frontier):
+        from egpt.agent._run import ESCALATION_METADATA_KEY
+
+        run_response = self.StubRunOutput()
+        apply_run_model(self._agent(primary, frontier), run_context, tools=[object()] * 50, run_response=run_response)
+
+        record = run_response.metadata[ESCALATION_METADATA_KEY]
+        assert record["event"] == "model_escalation"
+        assert record["reason"] == "too_many_tools"
+        # The registry keys, matching `ModelResolveResult.escalated_from`'s contract ("provider_key
+        # we escalated away from") -- SMALL builds under "vllm", FRONTIER under "anthropic".
+        assert record["escalated_from"] == "vllm"
+        assert record["target"] == "anthropic"
+        assert record["model_id"] == "mode-b-model" == run_response.model
+        assert record["agent_id"] == "agent-1"
+        assert record["session_id"] == "s-1"
+        assert record["escalation_level"] == 1
+        assert record["gateway"] is None
+
+    def test_a_run_that_stayed_on_the_primary_leaves_no_key(self, run_context, primary, frontier):
+        """Presence of the key is the signal, so a non-escalated run must not write an empty one."""
+        from egpt.agent._run import ESCALATION_METADATA_KEY
+
+        run_response = self.StubRunOutput()
+        apply_run_model(self._agent(primary, frontier), run_context, tools=None, run_response=run_response)
+
+        assert run_response.model == "mode-a-model"
+        assert run_response.metadata is None or ESCALATION_METADATA_KEY not in run_response.metadata
+
+    def test_the_pre_call_rule_fires_before_the_primary_is_ever_asked(self, run_context, primary, frontier):
+        """The context-window rule is a *pre-call* decision: the primary must not be resolved,
+        let alone invoked, when the estimate already exceeds its declared window. Counted on the
+        provider doubles, which is the only place "before the call" is observable offline."""
+        from egpt.agent._run import ESCALATION_METADATA_KEY
+
+        run_response = self.StubRunOutput()
+        apply_run_model(
+            self._agent(primary, frontier),
+            run_context,
+            tools=None,
+            run_response=run_response,
+            estimated_input_tokens=SMALL.context_window + 1,
+        )
+
+        assert run_response.metadata[ESCALATION_METADATA_KEY]["reason"] == "input_exceeds_context_window"
+        assert primary.calls == [], "the small tier must not have been resolved at all"
+        assert len(frontier.calls) == 1
+
+    def test_the_callers_metadata_dict_is_not_mutated(self, primary, frontier):
+        """`RunOutput.metadata` aliases the caller's `run(metadata=...)` dict, and the same dict is
+        what `_run_model_request` forwards to the provider as the request's metadata -- so an
+        in-place append would leak the record into the caller's object and into the next
+        re-resolve's rule evaluation. The response must get a fresh dict."""
+        from egpt.agent._run import ESCALATION_METADATA_KEY
+
+        callers = {"escalate": True}  # the documented escape hatch; fires `explicit_policy_flag`
+        run_context = RunContext(run_id="r-1", session_id="s-1", user_id="u-1", metadata=callers)
+        run_response = self.StubRunOutput(metadata=callers)
+
+        apply_run_model(self._agent(primary, frontier), run_context, tools=None, run_response=run_response)
+
+        assert run_response.metadata[ESCALATION_METADATA_KEY]["reason"] == "explicit_policy_flag"
+        assert run_response.metadata["escalate"] is True, "existing keys are carried, not dropped"
+        assert callers == {"escalate": True}, "the caller's dict must be untouched"
+        assert run_response.metadata is not callers
+
+    def test_a_provider_with_only_resolve_still_serves_and_records_nothing(self, run_context):
+        """No `resolve_detailed` means no detail to record; the model must still be applied, and
+        no fabricated result may appear in the record (see `resolve_via_detailed`)."""
+        from egpt.agent._run import ESCALATION_METADATA_KEY
+        from tests.unit.providers.test_escalation import FakeProvider
+
+        plain = FakeProvider("plain", SMALL)
+        run_response = self.StubRunOutput()
+        agent = StubAgent(model=FakeModel(id="stale"), model_provider=plain)
+
+        apply_run_model(agent, run_context, tools=None, run_response=run_response)
+
+        assert run_response.model == "plain-model"
+        assert len(plain.calls) == 1, "resolved exactly once"
+        assert run_response.metadata is None or ESCALATION_METADATA_KEY not in run_response.metadata
+
+    def test_a_run_output_without_a_metadata_attribute_is_left_alone(self, run_context, primary, frontier):
+        class Eventish:
+            model = None
+            model_provider = None
+
+        run_response = Eventish()
+        apply_run_model(self._agent(primary, frontier), run_context, tools=[object()] * 50, run_response=run_response)
+
+        assert run_response.model == "mode-b-model"
+        assert not hasattr(run_response, "metadata")
+
+    async def test_the_async_hook_records_the_same_way(self, run_context, primary, frontier):
+        """The sync/async twin: the four async run paths call `aapply_run_model`, and G6's
+        visibility holds there or it does not hold for the API at all."""
+        from egpt.agent._run import ESCALATION_METADATA_KEY, aapply_run_model
+
+        run_response = self.StubRunOutput()
+        await aapply_run_model(
+            self._agent(primary, frontier), run_context, tools=None, run_response=run_response, images=[object()]
+        )
+
+        record = run_response.metadata[ESCALATION_METADATA_KEY]
+        assert record["reason"] == "vision_unsupported"
+        assert record["escalated_from"] == "vllm"
+        assert run_response.model == "mode-b-model"
