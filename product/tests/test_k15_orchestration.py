@@ -10,7 +10,11 @@ import asyncio
 
 import pytest
 
-from egpt_retail.contracts.use_case import SHAPE_PARAMETERS, UseCaseShape
+from egpt_retail.contracts.use_case import (
+    SHAPE_PARAMETERS,
+    TIER_FOR_ROLE,
+    UseCaseShape,
+)
 from egpt_retail.executors.plan import UnknownPlanRef, plan_from_config, plan_refs
 from egpt_retail.orchestration import (
     SHAPE_STAGES,
@@ -68,13 +72,9 @@ DRAFT = {
 }
 
 
-def compiled(shape, *, executors=FULL, draft=DRAFT, template=None, spec=None):
+def compiled(shape, *, executors=FULL, draft=DRAFT, spec=None):
     return compile_workflow(
-        spec or SPEC,
-        registered_executors=executors,
-        shape=shape,
-        draft=draft,
-        template=template,
+        spec or SPEC, registered_executors=executors, shape=shape, draft=draft
     )
 
 
@@ -224,39 +224,47 @@ def test_an_unfilled_slot_blocks_publication():
     assert "per-run cap" in report.unfilled_slots
 
 
-def test_a_template_fills_slots_the_author_left_empty():
-    template = {
-        "id": "tmpl_a",
-        "parameters": {"per-run cap": 20, "rollback": "snapshot"},
-    }
-    report = compiled(
-        UseCaseShape.ACT,
-        draft={**DRAFT, "per_run_cap": None, "rollback": None},
-        template=template,
+def test_the_shape_is_the_template():
+    """Two use cases of one shape compile to the same sequence and differ only in values.
+
+    That is the whole templating claim, and it is worth a test rather than a comment: if two
+    Alerts could compile to different sequences, there would be no Alert template -- only two
+    workflows that happen to look alike.
+    """
+    first = compiled(
+        UseCaseShape.ALERT,
+        spec={**SPEC, "use_case_id": "stalled_quotes", "kpi_identifiers": ["a__b"]},
+        draft={**DRAFT, "threshold": 7},
     )
-    assert report.template_id == "tmpl_a"
-    assert report.parameters["per-run cap"] == 20
-    assert report.parameter_origins["per-run cap"] is ParameterOrigin.TEMPLATE
-
-
-def test_an_authored_value_beats_the_template_default():
-    """Otherwise editing a prefilled field would do nothing."""
-    template = {"id": "tmpl_a", "parameters": {"per-run cap": 20}}
-    report = compiled(
-        UseCaseShape.ACT, draft={**DRAFT, "per_run_cap": 5}, template=template
+    second = compiled(
+        UseCaseShape.ALERT,
+        spec={**SPEC, "use_case_id": "cold_leads", "kpi_identifiers": ["c__d"]},
+        draft={**DRAFT, "threshold": 30},
     )
-    assert report.parameters["per-run cap"] == 5
-    assert report.parameter_origins["per-run cap"] is ParameterOrigin.AUTHORED
+    assert [s["name"] for s in normalise_config(first.config)] == [
+        s["name"] for s in normalise_config(second.config)
+    ]
+    assert [s["ref"] for s in normalise_config(first.config)] == [
+        s["ref"] for s in normalise_config(second.config)
+    ]
+    assert first.parameters["threshold"] != second.parameters["threshold"]
+    assert first.parameters["metric"] != second.parameters["metric"]
 
 
-def test_accepting_the_shipped_value_is_recorded_as_template_not_authored():
-    """The distinction the activation screen needs: whether the approver of an Act chose its
-    per-run cap or accepted the number a template shipped with."""
-    template = {"id": "tmpl_a", "parameters": {"per-run cap": 20}}
+def test_a_value_the_author_typed_beats_one_the_conversation_proposed():
+    """Otherwise editing a field the chat had already filled would do nothing.
+
+    Note the draft uses the slot's own key (`grain`), not its display name: one key per slot
+    whichever layer supplies it, so a form field and a spec field cannot disagree about what
+    they are filling.
+    """
     report = compiled(
-        UseCaseShape.ACT, draft={**DRAFT, "per_run_cap": 20}, template=template
+        UseCaseShape.INFORM,
+        spec={**SPEC, "grain": "overall"},
+        draft={**DRAFT, "grain": "store"},
     )
-    assert report.parameter_origins["per-run cap"] is ParameterOrigin.TEMPLATE
+    assert report.parameters["dimensions"] == "store"
+    assert report.parameter_origins["dimensions"] is ParameterOrigin.AUTHORED
 
 
 def test_spec_values_are_marked_as_coming_from_the_spec():
@@ -265,17 +273,14 @@ def test_spec_values_are_marked_as_coming_from_the_spec():
     assert report.parameters["metrics"] == ["quoterequest__count"]
 
 
-def test_a_template_cannot_add_or_reorder_steps():
-    """A template that could change the sequence would be a fifth shape wearing another name,
-    and every guarantee resting on the four sequences would stop holding."""
-    template = {
-        "id": "tmpl_a",
-        "parameters": {"schedule": "@daily"},
-        "steps": [{"name": "Exfiltrate", "executor_ref": "read_gold"}],
+def test_origins_separate_what_a_person_set_from_what_a_model_inferred():
+    """On an Act, a per-run cap inferred from a sentence and one typed on the form are not
+    the same evidence, and the activation screen has nothing else to tell them apart."""
+    report = compiled(UseCaseShape.ACT)
+    assert set(report.parameter_origins.values()) == {
+        ParameterOrigin.AUTHORED,
+        ParameterOrigin.SPEC,
     }
-    with_template = compiled(UseCaseShape.INFORM, template=template)
-    without = compiled(UseCaseShape.INFORM)
-    assert normalise_config(with_template.config) == normalise_config(without.config)
 
 
 # --- the definition is real, and contains only what exists ----------------------------
@@ -442,15 +447,12 @@ def test_async_compile_matches_the_sync_one():
 
 def draft_prompt(**overrides):
     fields = {
-        "identity": "You explain how the numbers moved.",
-        "inputs": [sp.InputRow(name="rows", source="read_gold", required=True)],
-        "phases": ["Read every row.", "Emit the schema."],
-        "specific_rules": ["Never state a percentage change against a zero prior."],
-        "output_notes": "One paragraph per KPI.",
-        "worked_example": "Given two rows, say which way it moved.",
-        "near_miss": "Judging whether the move is significant.",
-        "near_miss_reason": "Significance is a threshold, and thresholds belong to Alert.",
-        "refusals": ["No rows: return empty and say gold held nothing."],
+        "grounding": "quoterequest__count counts requests, not the contacts who made them.",
+        "metric_rules": ["Never call this count 'customers who asked'."],
+        "worked_example": "Given 41 and 47, say it fell by six.",
+        "near_miss": "Quote requests fell 13 per cent, suggesting demand is softening.",
+        "near_miss_reason": "The clause after the number is a judgement nothing computed.",
+        "extra_refusals": [],
     }
     fields.update(overrides)
     return sp.StepPromptDraft(**fields)
@@ -473,14 +475,57 @@ def test_the_four_standing_rules_appear_verbatim():
     assert sp.STANDING_RULES in authored().markdown
 
 
-def test_the_draft_has_no_field_for_the_parts_code_owns():
+def test_the_role_template_supplies_the_invariant_half():
+    """Identity, inputs, phases and refusals come from the role, not from the model."""
+    markdown = authored().markdown
+    template = sp.ROLE_TEMPLATES["explanation"]
+    assert template.identity.split("\n")[0] in markdown
+    for row in template.inputs:
+        assert f"`{row.name}`" in markdown
+    for refusal in template.refusals:
+        assert refusal in markdown
+
+
+def test_two_use_cases_of_one_role_share_everything_but_their_grounding():
+    """The templating claim, applied to prompts. What differs between two Inform prompts
+    should be what differs between the two use cases, and nothing else."""
+    first = sp.assemble(
+        draft_prompt(grounding="First use case grounding."),
+        agent_id="a__explanation",
+        role="explanation",
+        output_schema="x.Y",
+        use_case_id="a",
+    )
+    second = sp.assemble(
+        draft_prompt(grounding="Second use case grounding."),
+        agent_id="b__explanation",
+        role="explanation",
+        output_schema="x.Y",
+        use_case_id="b",
+    )
+    differing = {
+        line
+        for line in first.markdown.splitlines()
+        if line.strip() and line not in second.markdown
+    }
+    # Only the header identifier, the use case name and the grounding line may differ.
+    assert all(
+        ("a__explanation" in line or "`a`" in line or "First use case" in line)
+        for line in differing
+    ), differing
+
+
+def test_the_draft_has_no_field_for_the_parts_the_role_template_owns():
     fields = set(sp.StepPromptDraft.model_fields)
     assert not fields & {
+        "identity",
+        "inputs",
+        "phases",
+        "refusals",
+        "output_notes",
         "header",
         "model_tier",
         "standing_rules",
-        "identifier",
-        "writes",
     }
 
 
@@ -489,7 +534,7 @@ def test_an_unexpected_key_is_refused_not_ignored():
 
     with pytest.raises(ValidationError):
         sp.StepPromptDraft.model_validate(
-            {**draft_prompt().model_dump(), "model_tier": "frontier"}
+            {**draft_prompt().model_dump(), "identity": "mine now"}
         )
 
 
@@ -507,7 +552,19 @@ def test_the_tier_follows_from_the_role():
     assert proposal.model_tier == "frontier"
 
 
-def test_an_unruled_role_refuses_rather_than_guessing_a_tier():
+def test_every_role_the_compiler_can_emit_has_a_template_and_a_tier():
+    """A compiled model step with no role template is a prompt nobody can assemble."""
+    roles = {
+        stage.role
+        for stages in SHAPE_STAGES.values()
+        for stage in stages
+        if stage.kind is StageKind.MODEL
+    }
+    assert roles <= set(sp.ROLE_TEMPLATES)
+    assert roles <= set(TIER_FOR_ROLE)
+
+
+def test_a_role_with_no_template_refuses_rather_than_improvising():
     got = sp.assemble(
         draft_prompt(),
         agent_id="a",
@@ -516,7 +573,8 @@ def test_an_unruled_role_refuses_rather_than_guessing_a_tier():
         use_case_id="wk",
     )
     assert got.publishable is False
-    assert any("model_tier" in problem for problem in got.problems)
+    assert got.markdown == ""
+    assert any("ROLE_TEMPLATES" in problem for problem in got.problems)
 
 
 def test_all_eight_sections_are_present_and_in_order():
@@ -535,16 +593,12 @@ def test_an_empty_section_is_caught_as_well_as_an_absent_one():
     assert sp.missing_sections("## 1. Header\n\n## 2. Identity\n") != []
 
 
-def test_a_draft_with_no_refusal_case_is_not_publishable():
-    got = authored(refusals=[])
+def test_a_draft_with_no_grounding_is_not_publishable():
+    """Without it the prompt says nothing the role template did not already say, and the
+    model step was called for nothing."""
+    got = authored(grounding="   ")
     assert got.publishable is False
-    assert any("refusal" in problem for problem in got.problems)
-
-
-def test_a_draft_naming_no_input_is_not_publishable():
-    got = authored(inputs=[])
-    assert got.publishable is False
-    assert any("traceable" in problem for problem in got.problems)
+    assert any("grounding" in problem for problem in got.problems)
 
 
 def test_render_fills_every_placeholder():
@@ -553,6 +607,7 @@ def test_render_fills_every_placeholder():
     )
     assert "{{" not in rendered
     assert "a__b" in rendered
+    assert sp.STANDING_RULES in rendered
 
 
 def test_render_refuses_a_prompt_that_lost_a_placeholder(tmp_path):
@@ -561,6 +616,17 @@ def test_render_refuses_a_prompt_that_lost_a_placeholder(tmp_path):
     with pytest.raises(ValueError, match="role"):
         sp.render_prompt(
             role="explanation", use_case_id="wk", question="q", prompt_path=stripped
+        )
+
+
+def test_render_refuses_a_placeholder_nothing_fills(tmp_path):
+    """The mirror of the test above, and it caught a real one: a placeholder present in the
+    file but absent from the fill mapping reaches the model as literal text."""
+    extra = tmp_path / "p.md"
+    extra.write_text(sp.PROMPT_PATH.read_text() + "\n{{unfilled_thing}}\n")
+    with pytest.raises(ValueError, match="unfilled_thing"):
+        sp.render_prompt(
+            role="explanation", use_case_id="wk", question="q", prompt_path=extra
         )
 
 

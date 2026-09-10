@@ -4115,24 +4115,30 @@ model steps carry. Two halves: `egpt_retail.orchestration.compiler` is determini
 consults no model; `egpt_retail.skills.step_prompt` authors the model steps' instructions.
 Baseline and judgements in `K15_BASELINE.md`.
 
-**Three layers, and the middle one was missing until the owner named it.** The shape fixes the
-step sequence; a template fixes the parameter values; the spec and the author fill the rest. I
-had built the first and third and gone straight from spec to steps — no notion of a template,
-and K13 writing `template_id=None` into a contract field that exists. The contract states the
-model plainly (`UseCaseStatus` is `template | draft | activated | ...`, and `template_id` is
-"the template's id; the draft is prefilled from it"), and the prototype ships fifteen. Now:
-`compile_workflow` takes a template, layers its defaults under the author's entries, and
-records **where every bound parameter came from** — `spec`, `template` or `authored`.
+**The shape IS the template, and my first cut got that wrong.** I read "template plus
+parameters" as a catalog of named templates layered over the shapes, and built one — a
+`template` argument, a `template_id`, defaults merged under the author's entries. That is not
+the design. The architecture review settles it: the orchestration agent emits *"a shape plus
+parameters, something like an alert shape with these metrics, this threshold, this scope, this
+recipient"*, and the interface has a spec form per shape. Two Alert use cases are the same
+sequence with the same slots; everything distinguishing them fills those slots. The catalog
+layer is removed.
 
-That last part is the one worth keeping. In the baseline run, **six of seven parameters on an
-unattended writer were never chosen by a person** — including the per-run cap and the rollback
-point. That is what a template is for and is not by itself wrong, but nothing recorded it, so a
-prefilled Act and a considered one rendered identically on the activation screen.
+Measured in the run: `stalled_quotes` and `friction_spike` compile to an identical sequence and
+differ in three of seven slots.
 
-**A template supplies values, never steps.** Asserted in the run and in a test. The build
-plan's tractability argument is that the sequence follows from the shape — "a new use case is
-not a new flow, it is one of four shapes with its slots filled" — so a template able to add or
-reorder a step would be a fifth shape wearing another name.
+**The same correction applies to the prompts, and that was the more valuable half.** Two Inform
+use cases both carry an `explanation` step doing the same job, so authoring its prompt twice
+from scratch produces two prompts differing in wording and not in meaning — unreviewable, and
+they drift under editing. The invariant half is now a **role template** in `ROLE_TEMPLATES`,
+written once by hand; `StepPromptDraft` shrank to what actually varies: the grounding for these
+metrics, any rule arising from them, and a worked example using them. A test asserts two
+prompts of one role differ only in their grounding and identifiers.
+
+**What survived the correction** is the parameter origin. Each bound value records whether it
+came from the spec (derived from the conversation) or was authored on the form. On an Act, a
+per-run cap a model inferred from a sentence and one a person set deliberately are not the same
+evidence, and nothing else on the activation screen tells them apart.
 
 **Two findings from code I did not write.**
 
@@ -4152,12 +4158,20 @@ silently, the compiler reports it missing. The shape binds a `comparison` parame
 compiles to a workflow that never compares. Not a difference of opinion; a declared parameter
 with no consumer is a gap in the shape.
 
-**One correction the owner made mid-build, and it was right.** I had built `SHAPE_STAGES`
+**Two corrections the owner made mid-build, both right.** First: I had built `SHAPE_STAGES`
 around R9's `AutonomyShape` — three shapes, inferred from `autonomy` and `level`. The interface
 has a spec form per shape, so the shape is chosen before the spec is filled and there are four
-of them. `UseCaseShape` and the per-shape parameter table now live in
-`contracts/use_case.py`, read by both K13 and K15. R9's three-shape enum is left alone and the
-divergence filed as **K-8**, because changing Lane R's under them is not mine to do.
+of them. `UseCaseShape` and the per-shape parameter table now live in `contracts/use_case.py`,
+read by both K13 and K15. R9's three-shape enum is left alone and the divergence filed as
+**K-8**, because changing Lane R's under them is not mine to do. Second: the template sense,
+above. `contracts/use_case.py` now names both senses explicitly — the shape template, and the
+*starter use case* the contract's `template_id` refers to — because conflating them is what I
+did and the two are unrelated.
+
+**A defect the correction surfaced.** Rewriting the authoring prompt left `{{standing_rules}}`
+in the file with nothing filling it, so the four standing rules would have reached the model as
+the literal string `{{standing_rules}}`. `render_prompt` checked that every value it holds has
+a placeholder and never the reverse. It now checks both directions, with a test.
 
 **The invariant parts of an authored prompt are written by code, not by the model.**
 `StepPromptDraft` has no field for the header, the four standing rules or section 6's closed
@@ -4165,6 +4179,14 @@ sets. K14 requires those rules copied word for word so seven prompts can be revi
 each other; a model asked to reproduce them paraphrases one eventually, and the paraphrase
 reads fine and checks differently. `model_tier` follows from the role under G6 — an agent that
 could choose its own tier would choose frontier.
+
+**A gap the architecture review named and nothing in the plan covers.** A generated use case
+has no golden questions. K14's checklist requires a set per skill so the next prompt edit is
+measurable, and R15's golden sets assume a person authored the use case — so a generated Inform
+ships with a prompt nobody has scored, and there is no way to detect a regression when its role
+template is edited. The review put it plainly: "generation makes creating use cases cheap. It
+does not make knowing whether they are right any cheaper." Filed as **K-12**; it needs a
+decision before generation is used for anything a customer sees.
 
 **What is NOT verified, and it is K15's stated primary evidence.** The delivery plan verifies
 this package by diffing the generated workflow against the one R10 built by hand, then
@@ -4174,7 +4196,7 @@ five-step `inform_skeleton`, R9's plan walker as an independent containment chec
 capability set difference. None of those is the same thing. Filed as **K-10**: re-run this
 cookbook against R10's RFQ workflow the week it merges.
 
-**Result:** PASS. 45 DB-free tests, mutation-checked (removing the missing-gate blanking and
+**Result:** PASS. 47 DB-free tests, mutation-checked (removing the missing-gate blanking and
 collapsing the template/authored origin each break a test). Cookbook runs with no warehouse, no
 Neo4j and no model. Nothing is publishable in any shape against the current registry, which is
 the correct answer and is the exact dependency list in `K15_BASELINE.md`.

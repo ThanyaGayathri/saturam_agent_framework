@@ -1,27 +1,33 @@
-"""K15's model half -- authoring the prompt for each model step a compiled workflow carries.
+"""K15's model half -- grounding the prompt for each model step a compiled workflow carries.
 
-The compiler decides which steps exist; this decides what the model steps among them are told.
-It is the part of K15 that needs judgment, and it is why the package sits in Lane K rather
-than beside the runtime: writing an explanation prompt that is grounded in *this* deployment's
-semantic layer and *this* use case's KPIs is not a template substitution.
+**The template is the shape, and that applies to prompts as much as to steps.** Two Inform use
+cases both carry an ``explanation`` step, and what that step does is the same in both: read the
+rows, state the movement, never judge significance. Authoring that from scratch twice would
+produce two prompts that differ in wording, drift apart under editing, and cannot be reviewed
+against each other -- for no gain, because nothing about the difference between the two use
+cases lives in those sentences.
 
-**What the model authors is only the part that varies.** The eight-section template (K14) has
-a header whose values follow from the step, four standing rules that must appear verbatim in
-every skill, and a section 6 whose closed sets are rendered from the vocabulary. None of that
-is a judgement, and all of it is what a model quietly drops or paraphrases. So
-:func:`assemble` writes those, and :class:`StepPromptDraft` has no field for any of them --
-the same construction guarantee K12 and K13 use, one level up. An authored prompt cannot omit
-a standing rule, because the agent that authored it was never asked for one.
+So the invariant part is a **role template** (:data:`ROLE_TEMPLATES`), written once and shared
+by every use case of that role, and the model supplies only what genuinely varies: what these
+particular metrics mean in this deployment, the rules that arise from them, and a worked
+example using them. That is the same template-plus-parameters discipline the compiler applies
+to steps, one level up.
 
-The header's ``model_tier`` follows from the step's role rather than from the model's opinion:
-K14 fixes explanation on the small tier and suggestion on the frontier tier under G6, and a
-proposal step is a suggestion. An agent that could choose its own tier would choose frontier.
+Three things a model is never asked for, because none is a judgement and all are what a model
+quietly drops or paraphrases: the header (whose values follow from the step), the four standing
+rules that must appear verbatim in every skill, and section 6's closed sets (rendered from the
+vocabulary). :class:`StepPromptDraft` has no field for any of them, so an authored prompt is
+conforming by construction rather than by the authoring agent having remembered.
+
+``model_tier`` follows from the role under G6 -- an agent that could pick its own tier would
+pick frontier.
 """
 
 from __future__ import annotations
 
 import asyncio
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -32,11 +38,12 @@ from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
 
 __all__ = [
     "PROMPT_PATH",
+    "ROLE_TEMPLATES",
     "SECTION_HEADINGS",
     "SKILL_VERSION",
     "STANDING_RULES",
-    "TIER_FOR_ROLE",
     "AuthoredPrompt",
+    "RoleTemplate",
     "StepPromptDraft",
     "aassemble",
     "arender_prompt",
@@ -82,7 +89,6 @@ STANDING_RULES = """- You produce output for a person or a calling executor to a
 - Every claim you make is traceable to a named input. If you cannot point at the table,
   column, concept or document a statement came from, do not make the statement."""
 
-
 #: What each role is permitted to write, for the header's ``writes`` field. Never "graph".
 _WRITES_FOR_ROLE: Mapping[str, str] = {
     "explanation": "nothing",
@@ -90,70 +96,167 @@ _WRITES_FOR_ROLE: Mapping[str, str] = {
 }
 
 
-class InputRow(BaseModel):
-    """One row of the authored prompt's section 3 table."""
+@dataclass(frozen=True)
+class InputSpec:
+    """One row of a role template's section 3 table."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(description="The input's name, as the step receives it.")
-    source: str = Field(description="Which package or step produces it.")
+    name: str
+    source: str
     required: bool
-    notes: str = Field(default="", description="What it contains, in a few words.")
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class RoleTemplate:
+    """Everything about a model step that is the same for every use case of its role.
+
+    Written once, by hand, reviewed once. The parts a specific use case changes are supplied
+    by :class:`StepPromptDraft` and slotted in around this.
+    """
+
+    role: str
+    identity: str
+    inputs: Tuple[InputSpec, ...]
+    phases: Tuple[str, ...]
+    rules: Tuple[str, ...]
+    output_notes: str
+    refusals: Tuple[str, ...]
+
+
+ROLE_TEMPLATES: Mapping[str, RoleTemplate] = {
+    "explanation": RoleTemplate(
+        role="explanation",
+        identity=(
+            "You explain how the numbers in this use case moved over the reported period. A "
+            "person reads what you write and decides what to do about it; you decide nothing.\n\n"
+            "You do not judge whether a movement is significant, whether the data is fresh "
+            "enough, or whether this use case should have run. Significance is a threshold "
+            "comparison and belongs to the Alert shape, where `evaluate_alert_condition` "
+            "computes it. Freshness was decided by `check_preflight` before you were called. "
+            "Both verdicts override anything you might infer, and your schema has no field for "
+            "either.\n\n"
+            "You are not the proposal agent. You never suggest a change to any system."
+        ),
+        inputs=(
+            InputSpec("rows", "read_gold", True, "One row per KPI per period."),
+            InputSpec("freshness", "read_gold", True, "How current gold is, per KPI."),
+            InputSpec(
+                "comparison", "compare_to_baseline", False, "The prior-period delta."
+            ),
+        ),
+        phases=(
+            "Read every row. Note which periods are present and which are absent.",
+            "State the movement in plain numbers: what it was, what it is, the difference.",
+            "Where a comparison is supplied, report it. Never compute one yourself from "
+            "rows the comparison step did not produce.",
+            "Emit the schema.",
+        ),
+        rules=(
+            "Never state a percentage change when the prior period's value is zero. Say the "
+            "prior period had none.",
+            "Never describe a movement as good, bad, concerning or significant. Report the "
+            "direction and the size, and stop.",
+            "Where a KPI's value is null, say the metric did not compute. Never report zero.",
+        ),
+        output_notes=(
+            "One paragraph per KPI, in the order the rows arrive. Numbers as they appear in "
+            "gold, with the units the KPI declares."
+        ),
+        refusals=(
+            "No rows for the reported period: return the empty schema and say gold held "
+            "nothing for it.",
+            "Rows present but every value null: return the empty schema and say the metrics "
+            "did not compute.",
+        ),
+    ),
+    "proposal": RoleTemplate(
+        role="proposal",
+        identity=(
+            "You propose changes for this use case to make, from the candidates and metrics "
+            "the earlier steps produced. Every proposal you make is then filtered by "
+            "deterministic steps, and in the Recommend shape a person approves it before "
+            "anything is written.\n\n"
+            "You do not decide which proposals stand. `apply_hard_limits` strikes the ones "
+            "that breach a guardrail and logs the rule that struck them; in the Act shape "
+            "`apply_per_run_cap` holds the overflow for the next run. Neither consults you, "
+            "and a proposal you rank highest is struck exactly as readily as any other.\n\n"
+            "You are not the explanation agent. Describing what happened is not your step."
+        ),
+        inputs=(
+            InputSpec("candidates", "select_candidates", True, "The rows in scope."),
+            InputSpec("rows", "read_gold", True, "The metric values per candidate."),
+            InputSpec(
+                "guardrails", "the spec", True, "The limits that will be applied."
+            ),
+        ),
+        phases=(
+            "Read the candidates and their metric values.",
+            "For each, decide whether a change is warranted and what change.",
+            "State the expected effect of each proposal in the metric's own units.",
+            "Emit the schema. Propose nothing you cannot tie to a candidate row.",
+        ),
+        rules=(
+            "Never propose a change to a candidate that is not in the input. A proposal "
+            "about a row nobody selected cannot be applied and cannot be audited.",
+            "Never omit a proposal because you expect a guardrail to strike it. The strike is "
+            "logged with its rule, and a proposal you suppressed is invisible.",
+            "State the expected effect as a number, not as a direction. 'Raises margin' is "
+            "not reviewable; 'raises margin by 1.4 points' is.",
+        ),
+        output_notes=(
+            "One entry per proposal, each naming its candidate, the change and the expected "
+            "effect. An empty list is a valid answer."
+        ),
+        refusals=(
+            "No candidates supplied: return the empty schema and say the selection step "
+            "produced nothing.",
+            "Guardrails absent from the input: return the empty schema and say so. Proposing "
+            "without knowing the limits invites a run where everything is struck.",
+        ),
+    ),
+}
 
 
 class StepPromptDraft(BaseModel):
-    """The judgement half of an authored prompt. Everything else is assembled.
+    """Only what this particular use case changes. The rest comes from the role template.
 
-    No header fields, no standing rules, no closed-set rendering: those are the parts a model
-    drops or paraphrases, and none of them is a judgement. ``extra="forbid"`` so a future
-    prompt edit inviting one of them fails here rather than producing a prompt whose rules
-    quietly differ from the other six.
+    Deliberately small. Everything a model could be asked for here that is the same across
+    two use cases of one role is in :data:`ROLE_TEMPLATES` instead -- authoring it per use
+    case would produce prompts that differ in wording and not in meaning, which is the
+    opposite of reviewable.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    identity: str = Field(
+    grounding: str = Field(
         description=(
-            "Section 2. Two or three paragraphs: what this step does, what it explicitly does "
-            "not decide, and which neighbouring agent it is not."
+            "What these particular metrics mean in this deployment, and anything about them a "
+            "reader of the numbers would otherwise get wrong. Two or three sentences, traceable "
+            "to the KPIs and semantic context supplied."
         )
     )
-    inputs: List[InputRow] = Field(
-        default_factory=list,
-        description="Section 3. Every input the step reads. Never empty.",
-    )
-    phases: List[str] = Field(
+    metric_rules: List[str] = Field(
         default_factory=list,
         description=(
-            "Section 4. Numbered working order, one line each, ending with emitting the "
-            "schema."
+            "Rules that arise from THESE metrics and would not apply to another use case of "
+            "the same role -- a ratio that is undefined at zero denominator, a count that "
+            "excludes cancellations. Empty where the role's own rules already cover it."
         ),
-    )
-    specific_rules: List[str] = Field(
-        default_factory=list,
-        description=(
-            "Section 5, after the four standing rules. The prohibitions particular to this "
-            "step -- what it must not infer, claim or compute."
-        ),
-    )
-    output_notes: str = Field(
-        default="",
-        description="Section 6. What the schema's fields mean here and how to fill them.",
     )
     worked_example: str = Field(
-        description="Section 7. A concrete input and the output it should produce."
+        description="A concrete input using these KPIs, and the output it should produce."
     )
     near_miss: str = Field(
-        description="Section 7. An output that looks right and is not."
+        description="An output that looks right and is not. A plausible failure, not an absurd one."
     )
     near_miss_reason: str = Field(
         description="Why the near miss is wrong, in one or two sentences."
     )
-    refusals: List[str] = Field(
+    extra_refusals: List[str] = Field(
         default_factory=list,
         description=(
-            "Section 8. One line per case where the step must return the empty schema with "
-            "notes rather than answer. Never empty."
+            "Refusal cases specific to this data, beyond the role's own. Empty is fine -- the "
+            "role template always supplies at least one."
         ),
     )
 
@@ -189,10 +292,10 @@ def missing_sections(markdown: str) -> List[str]:
             continue
         positions.append(match.start())
         body_start = match.end()
-        next_match = re.search(r"^##\s+\d\.", markdown[body_start:], re.MULTILINE)
+        following = re.search(r"^##\s+\d\.", markdown[body_start:], re.MULTILINE)
         body = (
-            markdown[body_start : body_start + next_match.start()]
-            if next_match
+            markdown[body_start : body_start + following.start()]
+            if following
             else markdown[body_start:]
         )
         if not body.strip():
@@ -215,43 +318,50 @@ def assemble(
     vocabularies: Optional[VocabularySet] = None,
     version: str = "1.0.0",
 ) -> AuthoredPrompt:
-    """Assemble one authored prompt in K14's eight-section shape.
-
-    The header, the four standing rules and section 6's closed sets are written here from
-    inputs the model never saw, so an authored prompt is conforming by construction rather
-    than by the authoring agent having remembered.
-    """
+    """Assemble one prompt: the role's template, this use case's grounding, K14's frame."""
     vocabularies = vocabularies or load_vocabulary_set()
     problems: List[str] = []
+
+    template = ROLE_TEMPLATES.get(role)
+    if template is None:
+        # A role with no template is a role nobody has written the invariant half for, and
+        # inventing one per use case is exactly what the role templates exist to prevent.
+        return AuthoredPrompt(
+            agent_id=agent_id,
+            role=role,
+            model_tier=TIER_FOR_ROLE.get(role, "unassigned"),
+            markdown="",
+            problems=[
+                f"role {role!r} has no entry in ROLE_TEMPLATES, so the invariant half of its "
+                "prompt does not exist. Write one and review it once, rather than having a "
+                "model author it per use case."
+            ],
+        )
+
     tier = TIER_FOR_ROLE.get(role)
     if tier is None:
-        # A role with no tier is a role K14 has no ruling on, and guessing one would put an
-        # agent on a tier nobody chose. G6 says the tier is a real decision; this refuses to
-        # make it silently.
         problems.append(
             f"role {role!r} has no model_tier ruling in K14 section 1; add one to "
             "TIER_FOR_ROLE with the G6 argument before publishing this step"
         )
         tier = "unassigned"
-    if not draft.inputs:
+    if not draft.grounding.strip():
         problems.append(
-            "section 3 names no inputs, so nothing the step says is traceable"
-        )
-    if not draft.refusals:
-        problems.append(
-            "section 8 lists no refusal case, so the step can only ever answer"
+            "the draft carries no grounding, so the prompt says nothing this use case's "
+            "metrics need that the role template did not already say"
         )
 
-    inputs_table = (
-        "\n".join(
-            f"| `{row.name}` | {row.source} | {'yes' if row.required else 'no'} | {row.notes} |"
-            for row in draft.inputs
-        )
-        or "| (none) | | | |"
+    inputs_table = "\n".join(
+        f"| `{row.name}` | {row.source} | {'yes' if row.required else 'no'} | {row.notes} |"
+        for row in template.inputs
     )
-    phases = "\n".join(f"{i}. {line}" for i, line in enumerate(draft.phases, start=1))
-    specific = "\n".join(f"- {rule}" for rule in draft.specific_rules)
-    refusals = "\n".join(f"- {line}" for line in draft.refusals)
+    phases = "\n".join(
+        f"{i}. {line}" for i, line in enumerate(template.phases, start=1)
+    )
+    rules = "\n".join(f"- {rule}" for rule in (*template.rules, *draft.metric_rules))
+    refusals = "\n".join(
+        f"- {line}" for line in (*template.refusals, *draft.extra_refusals)
+    )
     kpis = ", ".join(f"`{k}`" for k in kpi_identifiers) or "(none bound)"
 
     markdown = f"""```
@@ -265,12 +375,14 @@ owner:           Lane K
 
 ## 1. Header
 
-Authored by `step_prompt` {SKILL_VERSION} for the `{role}` step of use case `{use_case_id}`.
-The workflow definition reads the block above.
+Assembled by `step_prompt` {SKILL_VERSION} from the `{role}` role template, for use case
+`{use_case_id}`. The workflow definition reads the block above.
 
 ## 2. Identity
 
-{draft.identity.strip()}
+{template.identity.strip()}
+
+**In this use case specifically.** {draft.grounding.strip()}
 
 ## 3. Inputs
 
@@ -292,13 +404,13 @@ You may read **only** these.
 
 Specific to this step:
 
-{specific or "- (none beyond the four above)"}
+{rules}
 
 ## 6. Output
 
 Schema: `{output_schema}`.
 
-{draft.output_notes.strip()}
+{template.output_notes.strip()}
 
 **Business areas** -- the closed set, rendered from this deployment's vocabulary:
 {vocabularies["business_area"].render_for_prompt()}
@@ -376,6 +488,7 @@ def render_prompt(
 ) -> str:
     """The authoring agent's own instructions, with this step's context filled in."""
     vocabularies = vocabularies or load_vocabulary_set()
+    template = ROLE_TEMPLATES.get(role)
     prompt = prompt_path.read_text()
     filled: Dict[str, str] = {
         "role": role,
@@ -384,6 +497,7 @@ def render_prompt(
         "kpis": ", ".join(f"`{k}`" for k in kpi_identifiers) or "(none bound)",
         "semantic_context": semantic_context or "(none supplied)",
         "business_area": vocabularies["business_area"].render_for_prompt(),
+        "role_template": _render_role_template(template),
         "standing_rules": STANDING_RULES,
     }
     for name, value in filled.items():
@@ -394,6 +508,15 @@ def render_prompt(
                 "reach the model and it would invent a value."
             )
         prompt = prompt.replace(placeholder, value)
+    # The mirror of the check above, and it caught a real one: a placeholder present in the
+    # file but absent from `filled` reaches the model as the literal text `{{standing_rules}}`,
+    # which no exception and no eye-reading of the Python would have found.
+    unfilled = sorted(set(re.findall(r"\{\{[a-z_]+\}\}", prompt)))
+    if unfilled:
+        raise ValueError(
+            f"{prompt_path.name} still holds {', '.join(unfilled)} after rendering, so the "
+            "model would receive the placeholder as text. Add each to the filled mapping."
+        )
     return prompt
 
 
@@ -417,4 +540,17 @@ async def arender_prompt(
         semantic_context=semantic_context,
         vocabularies=vocabularies,
         prompt_path=prompt_path,
+    )
+
+
+def _render_role_template(template: Optional[RoleTemplate]) -> str:
+    """The role's invariant half, shown to the authoring agent so it does not repeat it."""
+    if template is None:
+        return "(no role template exists for this role -- see section 8)"
+    rules = "\n".join(f"  - {rule}" for rule in template.rules)
+    refusals = "\n".join(f"  - {line}" for line in template.refusals)
+    return (
+        f"**Identity, already written:**\n{template.identity}\n\n"
+        f"**Rules, already written:**\n{rules}\n\n"
+        f"**Refusals, already written:**\n{refusals}"
     )

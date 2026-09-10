@@ -18,6 +18,22 @@ shape has its own spec form, so the shape is chosen before the spec is filled an
 below are what that form asks for. R9's ``executors.gaps.shape_for`` derives a shape from
 ``autonomy`` and ``level`` instead, over three shapes with no Alert; that predates the
 per-shape forms and cannot express an Alert at all. See open item **K-8**.
+
+**Two different things are called a template, and conflating them is easy.**
+
+1. *The shape template.* The sense that matters to K15: **the shape is the template.** Two
+   Alert use cases are the same sequence with the same slots, and everything that
+   distinguishes them fills those slots. There is no artefact for this -- it is
+   :data:`SHAPE_PARAMETERS` and the compiler's stage table, nothing more. Nothing is
+   "created from" a shape template; a spec is written against one.
+2. *A starter use case.* The contract's ``UseCaseStatus.template`` and ``template_id``: a use
+   case that ships with the product, which a person copies to get a draft with its fields
+   already filled ("the draft is prefilled from it"). The prototype's catalog page holds
+   fifteen. This is a content and interface concept and it does not reach the compiler at
+   all -- by the time a spec exists, whether a person wrote it from scratch or copied a
+   starter is not a fact the workflow depends on.
+
+K13 may cite the second in a suggestion's ``template_id``. K15 uses only the first.
 """
 
 from __future__ import annotations

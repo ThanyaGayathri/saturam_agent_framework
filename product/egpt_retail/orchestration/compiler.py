@@ -62,19 +62,20 @@ class UnknownShape(ValueError):
 class ParameterOrigin(str, Enum):
     """Where a bound parameter's value came from.
 
-    The distinction the activation screen needs and nothing else records. A template ships
-    with its slots pre-filled -- that is what makes it a template -- so a draft created from
-    one arrives complete and looks exactly like a draft somebody thought about. Whether the
-    approver of an Act deliberately set its per-run cap, or accepted the number a template
-    shipped with, is not a detail: it is the difference between a considered limit and a
-    default nobody read.
+    **The template is the shape**, so there is nothing here for a template to have supplied.
+    Two Alert use cases share the Alert template -- the same sequence, the same slots -- and
+    differ only in what fills those slots. What varies between them is exactly this, and the
+    question worth recording is where each value came from.
+
+    The distinction the activation screen needs: a spec derived from a conversation and a
+    value a person typed are not the same evidence. On an Act, whether the per-run cap was
+    extracted by a model from what somebody said in chat, or set deliberately on the form, is
+    the difference between a limit that was chosen and one that was inferred.
     """
 
-    #: The author supplied it, or edited what the template offered.
+    #: The author supplied it on the shape's form, or edited what the chat proposed.
     AUTHORED = "authored"
-    #: Taken unchanged from the template the draft was created from.
-    TEMPLATE = "template"
-    #: Read off the frozen spec (the KPIs, grain and window the spec extractor captured).
+    #: Derived from the conversation by the spec extractor -- the KPIs, grain and window.
     SPEC = "spec"
 
 
@@ -260,9 +261,6 @@ class CompiledWorkflow:
     use_case_id: str
     shape: UseCaseShape
     autonomy: Optional[str] = None
-    #: The template this was created from, when it was. Carried so a compiled workflow can be
-    #: traced back to the shipped pattern it reuses -- the contract's ``template_id``.
-    template_id: Optional[str] = None
     #: The serialised workflow, in the shape ``plan_from_config`` walks.
     config: Dict[str, Any] = field(default_factory=lambda: {"steps": []})
     #: Stage name -> executor_ref, for stages whose executor this deployment does not have.
@@ -422,7 +420,6 @@ def compile_workflow(
     shape: Optional[Any] = None,
     autonomy: Optional[str] = None,
     draft: Optional[Mapping[str, Any]] = None,
-    template: Optional[Mapping[str, Any]] = None,
     use_case_id: Optional[str] = None,
 ) -> CompiledWorkflow:
     """Compile one frozen spec into a workflow definition. Pure; consults no model.
@@ -432,26 +429,17 @@ def compile_workflow(
     this pure and lets a caller compile against a deployment other than its own, which is what
     :func:`capability_report` does.
 
-    ``template`` is a shipped use case the draft was created from, in the contract's shape
-    (``id`` plus a ``parameters`` mapping). **A template supplies parameter values, never
-    steps.** The build plan's tractability argument is that the sequence follows from the
-    shape -- *"a new use case is not a new flow, it is one of four shapes with its slots
-    filled"* -- so a template that could add or reorder steps would be a fifth shape wearing
-    a different name, and every guarantee that rests on the four sequences would stop holding.
-    What a template genuinely reuses is the filling: which KPIs, which schedule, which
-    threshold, which guardrail amounts.
+    ``spec`` is what the interface's spec screen produced: the shape the person chose, plus
+    the values a conversation and a form filled into that shape's slots. That pairing is the
+    whole input -- **the shape is the template**, so two Alert use cases arrive here as the
+    same sequence with different slot values, and nothing else distinguishes them.
     """
     draft = draft or {}
-    template = template or {}
-    template_defaults: Mapping[str, Any] = template.get("parameters") or {}
     identifier = use_case_id or str(spec.get("use_case_id") or "use_case")
     resolved = _shape_of(spec, shape)
     known = set(registered_executors)
     compiled = CompiledWorkflow(
-        use_case_id=identifier,
-        shape=resolved,
-        autonomy=autonomy,
-        template_id=(template.get("id") or spec.get("template_id")) or None,
+        use_case_id=identifier, shape=resolved, autonomy=autonomy
     )
 
     steps: List[Dict[str, Any]] = []
@@ -506,31 +494,22 @@ def compile_workflow(
             )
         )
 
-    # Three layers, and the order is the point. The spec holds what the extractor captured
-    # from the author's own words; the draft holds what they typed into the shape's form; the
-    # template holds what shipped pre-filled. The author's entry wins over the template --
-    # otherwise editing a prefilled field would do nothing -- and the origin of whichever
-    # value won is recorded, because "the approver set this cap" and "the approver accepted
-    # the cap a template shipped with" are different facts about the same number.
+    # The shape declares the slots; the spec and the form fill them. A value the author typed
+    # wins over one the chat proposed -- otherwise editing a field the conversation had
+    # already filled would do nothing -- and the origin of whichever won is recorded, because
+    # "the approver set this cap" and "a model inferred this cap from a sentence" are
+    # different facts about the same number.
     for slot in SHAPE_PARAMETERS[resolved]:
         source, key = _SLOT_VALUES.get(slot, ("draft", _slug(slot)))
-        spec_value = spec.get(key) if source == "spec" else None
         authored = draft.get(key)
-        default = template_defaults.get(slot, template_defaults.get(key))
+        spec_value = spec.get(key) if source == "spec" else None
 
-        if _filled(spec_value):
+        if _filled(authored):
+            compiled.parameters[slot] = authored
+            compiled.parameter_origins[slot] = ParameterOrigin.AUTHORED
+        elif _filled(spec_value):
             compiled.parameters[slot] = spec_value
             compiled.parameter_origins[slot] = ParameterOrigin.SPEC
-        elif _filled(authored):
-            compiled.parameters[slot] = authored
-            compiled.parameter_origins[slot] = (
-                ParameterOrigin.TEMPLATE
-                if _filled(default) and authored == default
-                else ParameterOrigin.AUTHORED
-            )
-        elif _filled(default):
-            compiled.parameters[slot] = default
-            compiled.parameter_origins[slot] = ParameterOrigin.TEMPLATE
         else:
             compiled.unfilled_slots.append(slot)
 
@@ -561,7 +540,6 @@ async def acompile_workflow(
     shape: Optional[Any] = None,
     autonomy: Optional[str] = None,
     draft: Optional[Mapping[str, Any]] = None,
-    template: Optional[Mapping[str, Any]] = None,
     use_case_id: Optional[str] = None,
 ) -> CompiledWorkflow:
     """Async variant. Pure, so it exists to keep the calling convention uniform."""
@@ -572,7 +550,6 @@ async def acompile_workflow(
         shape=shape,
         autonomy=autonomy,
         draft=draft,
-        template=template,
         use_case_id=use_case_id,
     )
 

@@ -104,58 +104,82 @@ for step in normalise_config(inform.config):
 if inform.notes:
     print(f"  {inform.notes}")
 
-# --- 3. Template and parameters, kept apart ----------------------------------------------
+# --- 3. The shape IS the template: two Alerts, one sequence ------------------------------
 
-# A shipped template for the Act shape: the parameters arrive filled in. Steps are NOT part of
-# a template -- the sequence follows from the shape.
-TEMPLATE = {
-    "id": "tmpl_stalled_quote_chase",
-    "title": "Chase stalled quote requests",
-    "parameters": {
-        "candidates": "deals with no stage change in 7 days",
-        "guardrails": 5000,
-        "write target": "crm.deal.stage",
-        "per-run cap": 20,
-        "rollback": "stage snapshot taken before the write",
-        "schedule": "0 7 * * *",
-    },
+# Two different Alert use cases. Same shape, so the same template -- the same steps, the same
+# slots -- and everything that distinguishes them is a parameter.
+ALERT_A = {
+    **SPEC,
+    "shape": "alert",
+    "use_case_id": "stalled_quotes",
+    "question": "Tell me when a quote request stalls.",
+    "kpi_identifiers": ["k13_deal__stage_ageing_days"],
 }
-ACT_SPEC = {**SPEC, "shape": "act", "use_case_id": "chase_stalled_quotes"}
-# The author changed the guardrail, and left everything else as the template shipped it.
-ACT_DRAFT = {"guardrail_amount": 2000}
+ALERT_B = {
+    **SPEC,
+    "shape": "alert",
+    "use_case_id": "friction_spike",
+    "question": "Tell me when session friction spikes.",
+    "kpi_identifiers": ["k13_session__rage_click_rate"],
+}
+DRAFT_A = {**DRAFT, "operator": ">=", "threshold": 7, "severity": "high"}
+DRAFT_B = {**DRAFT, "operator": ">=", "threshold": 0.15, "severity": "medium"}
 
+alert_a = compile_workflow(ALERT_A, registered_executors=REGISTERED, draft=DRAFT_A)
+alert_b = compile_workflow(ALERT_B, registered_executors=REGISTERED, draft=DRAFT_B)
+
+print()
+print("3. Two Alert use cases: the shape is the template")
+print("-" * 78)
+seq_a = [s["name"] for s in normalise_config(alert_a.config)]
+seq_b = [s["name"] for s in normalise_config(alert_b.config)]
+print(f"  {alert_a.use_case_id:<16} {' -> '.join(seq_a) or '(no steps)'}")
+print(f"  {alert_b.use_case_id:<16} {' -> '.join(seq_b) or '(no steps)'}")
+print(f"  identical sequence: {seq_a == seq_b}")
+print()
+print("  What differs is only what fills the slots:")
+print(f"    {'slot':<12} {alert_a.use_case_id:<34} {alert_b.use_case_id}")
+for slot in SHAPE_PARAMETERS[UseCaseShape.ALERT]:
+    left = str(alert_a.parameters.get(slot, "(unfilled)"))[:32]
+    right = str(alert_b.parameters.get(slot, "(unfilled)"))[:24]
+    mark = " " if left == right else "*"
+    print(f"  {mark} {slot:<12} {left:<34} {right}")
+print()
+print(
+    "  Lines marked * are the whole difference between these two use cases. Everything"
+)
+print("  unmarked is the Alert template, and it was written once.")
+
+same_sequence = seq_a == seq_b
+differing_slots = [
+    slot
+    for slot in SHAPE_PARAMETERS[UseCaseShape.ALERT]
+    if alert_a.parameters.get(slot) != alert_b.parameters.get(slot)
+]
+
+# Where each value came from. Not decoration: on an Act, a per-run cap a model inferred from
+# a sentence and one a person typed on the form are not the same evidence.
 act = compile_workflow(
-    ACT_SPEC, registered_executors=REGISTERED, draft=ACT_DRAFT, template=TEMPLATE
+    {**SPEC, "shape": "act", "use_case_id": "chase_stalled_quotes"},
+    registered_executors=REGISTERED,
+    draft={
+        **DRAFT,
+        "candidates": "deals with no stage change in 7 days",
+        "guardrail_amount": 2000,
+        "write_target": "crm.deal.stage",
+        "per_run_cap": 20,
+        "rollback": "stage snapshot taken before the write",
+    },
 )
 print()
-print("3. An Act created from a template: what was templated, what was chosen")
-print("-" * 78)
-print(f"  template: {act.template_id}")
+print("  The same parameters on an Act, with where each value came from:")
 for slot in SHAPE_PARAMETERS[UseCaseShape.ACT]:
     if slot in act.parameters:
         origin = act.parameter_origins[slot].value
-        marker = "  <-- a person chose this" if origin == "authored" else ""
-        print(f"    {slot:<16} {str(act.parameters[slot])[:34]:<36} {origin}{marker}")
+        print(f"    {slot:<16} {str(act.parameters[slot])[:32]:<34} {origin}")
     else:
-        print(f"    {slot:<16} {'(unfilled)':<36} -")
-print()
-print(
-    "  On an Act, 'template' against per-run cap means nobody chose that number. It is"
-)
-print(
-    "  the number the pattern shipped with, and the approver accepted the form as it came."
-)
-
-templated = sum(1 for o in act.parameter_origins.values() if o.value == "template")
-authored = sum(1 for o in act.parameter_origins.values() if o.value == "authored")
-
-# A template supplies values, never steps: same sequence with and without it.
-without_template = compile_workflow(
-    ACT_SPEC, registered_executors=REGISTERED, draft=ACT_DRAFT
-)
-template_changed_steps = normalise_config(act.config) != normalise_config(
-    without_template.config
-)
+        print(f"    {slot:<16} {'(unfilled)':<34} -")
+origins = {o.value for o in act.parameter_origins.values()}
 
 # --- 4. Against R9's hand-built Inform skeleton -------------------------------------------
 
@@ -261,27 +285,23 @@ print("=" * 78)
 failures = []
 if not inform.config["steps"]:
     failures.append("the Inform spec compiled to no steps at all")
-if template_changed_steps:
+if not same_sequence:
     failures.append(
-        "the template changed the step sequence. A template supplies parameter values and "
-        "never steps -- one that could add a step would be a fifth shape wearing another "
-        "name, and every guarantee resting on the four sequences would stop holding."
+        "two use cases of one shape compiled to different sequences. The shape IS the "
+        "template -- if two Alerts can differ in their steps there is no Alert template, "
+        "only two workflows that happen to look alike."
     )
-if act.template_id != TEMPLATE["id"]:
+if not differing_slots:
     failures.append(
-        "the compiled workflow does not name the template it was created from"
+        "two different Alert use cases bound identical parameters, so this section compared "
+        "a use case with itself and proved nothing."
     )
-if not templated or not authored:
+if origins != {"authored", "spec"}:
     failures.append(
-        f"parameter origins did not separate: {templated} templated, {authored} authored. "
-        "If everything reads the same way, the activation screen cannot show which limits a "
-        "person actually chose."
+        f"parameter origins did not separate: saw {sorted(origins)}. If every value reads "
+        "the same way, the activation screen cannot show which limits a person set and "
+        "which a model inferred from a sentence."
     )
-if (
-    act.parameter_origins.get("guardrails")
-    and act.parameter_origins["guardrails"].value != "authored"
-):
-    failures.append("the author's edited guardrail was not recorded as authored")
 if walker_results.get("alert") != "accepted":
     failures.append(
         f"the Alert shape, which is executors end to end, did not pass R9's walker: "
@@ -300,13 +320,14 @@ if failures:
         print("  -", failure)
     raise SystemExit(1)
 print(
-    "Orchestration holds. The shape fixes the steps and the template fixes the values;"
+    "Orchestration holds. The shape IS the template -- two Alert use cases compile to one"
 )
 print(
-    "every parameter carries where it came from; a template cannot change a sequence; and"
+    "sequence and differ only in what fills its slots; every parameter carries where its"
 )
-print("the one shape that is executors end to end passes R9's plan walker.")
-print()
+print(
+    "value came from; and the shape that is executors end to end passes R9's plan walker."
+)
 print(
     "NOT verified here: the step-for-step diff against R10's hand-built RFQ workflow, and"
 )
