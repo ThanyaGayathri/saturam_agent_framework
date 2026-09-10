@@ -4030,3 +4030,78 @@ table counts) turned out to be a good adversary for a rule invented later. That 
 time this phase a cookbook has found a design error rather than a coding one.
 
 ---
+
+### K13_use_case_suggestion.py
+
+**Status:** PASS
+
+**Description:** K13 — use case candidates across all four shapes (Inform, Alert, Recommend,
+Act), with the shape proposed by the agent and its readiness decided by a set difference over
+what the deployment has configured. Three runs; baseline and judgements in `K13_BASELINE.md`.
+
+**Why the shape is on the draft at all.** A use case is a KPI plus what happens when it moves,
+and the shapes differ in exactly one thing: what the system does to the world. Suppressing the
+field would have left the most consequential fact about each suggestion unstated — an Alert and
+an Act are wildly different asks of a customer, and one of them touches their systems with
+nobody watching. So the agent proposes the shape, and `assess_shape_readiness` decides whether
+this deployment could run it. Same division as K11 and K12: the model proposes, arithmetic
+decides.
+
+**The gate is a set difference, and the requirements are deliberately not cumulative.**
+`delivery_channel` is universal. The write capabilities — approver, write target, guardrails,
+then per-run cap and rollback point — are cumulative from Recommend to Act, because an Act does
+everything a Recommend does and then stops waiting for the approver. But `alert_threshold`
+belongs to Alert alone: a Recommend can be produced on a schedule with nothing to watch, and
+requiring a threshold of it would block a use case that needs no such thing. My first test
+asserted a clean superset chain across all four and failed on exactly this, which is the test
+finding a wrong claim in the docstring rather than the other way round.
+
+**Three defects the run found, all mine.**
+
+*The first live run assembled nothing, and the agent was right.* Zero KPIs were registered, so
+it returned an empty list and named the eight metrics it would have needed — quote request
+count, ageing, rage click rate, and so on. That is section 8 working, but it made K13
+untestable standing alone. K13 sits downstream of K11 in the real pipeline, so the cookbook now
+seeds four KPIs over the real `silver` schema and removes them again. **Removal is registered
+with `atexit`, not written at the bottom** — a failing assertion exits before the bottom is
+reached, which is precisely how K05 and R05 left rows in the shared dev store and cost three
+debugging sessions. Verified: `semantic.kpi_definition` is empty again after a failing run.
+
+*Section 4's headline check could not fail.* The check this package needs most is "no suggestion
+is ready to Act where there is nowhere to write", and the agent proposed no Act at all — so the
+check passed over an empty set and proved nothing. Three tests that could not fail were the
+highest-value findings in PR #199's review, and this was a fourth of my own making. Fixed with a
+**control**: where the run produces no Act, the run's own top draft is promoted to `act` and
+pushed through the same `assemble` on both profiles. It is the real draft with one field
+changed, so it exercises the real path. Measured: blocked on bare, needing approver, write
+target, guardrails, per-run cap and rollback point; ready on configured.
+
+*An unready Act was nearly dropped rather than kept.* My first assembly discarded suggestions
+the deployment could not run. That hides the answer to "what would configuring a write target
+buy me", which is the question the discovery screen exists for. A blocked suggestion now travels
+with its verdict beside it, and a test asserts both profiles keep the same list.
+
+**One honest incompleteness, stated on the wire rather than hidden.** The contract's
+`UseCaseSuggestion` has no `shape` or `autonomy` field (open item **R-12**, Lane R). Rather than
+let the most consequential field vanish silently at the API boundary, `as_contract_list` puts
+the caveat in `notes` and a test asserts it is there. `assemble` is one line from carrying them
+once the contract has somewhere to put them. The draft schema carries both today and the gate
+uses both, so nothing downstream of me is waiting on R-12.
+
+**What three runs showed, and what needs the owner.** The Alert set was identical on all three
+runs; the Inform set varied by one; cardinality spread 1.2×, the same figure K12 measured on the
+same harvest. **No Recommend and no Act was proposed on any run**, which has two readings —
+correct restraint on a harvest with no write target in it, or the prompt's "choose the lower
+shape" thumb pressing too hard. This harvest cannot separate them, and doing so needs a run
+against a connector that can write. Filed as **K-7**.
+
+All three runs also declined cross-source use cases joining web sessions to quote requests,
+citing the harvest's own note that the two `session_id` columns are not joinable. Nothing asked
+it to check; it read the column comment K12.5 wrote. That is the harvest comment doing its job.
+
+**Result:** PASS. 30 DB-free tests, mutation-checked (a gate that always returns ready and an
+assembly that stops dropping unknown KPIs each break four of them). Three live runs, no Act ready
+on a deployment with nowhere to write, the control proving that check can fail, and the seeded
+registry rows removed.
+
+---
