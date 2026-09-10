@@ -214,6 +214,12 @@ class GapKind(Enum):
     Inform; candidates, guardrails, approver, write target and more for Recommend and Act. `subject`
     is the parameter name; `detail` says which builder field fills it, or that none exists yet.
 
+    `unknown_grain` (1.1.1, R9): `spec.grain` is not in this deployment's grain vocabulary.
+    The same ground truth `spec_extractor.validate_spec` checks at extraction time, re-checked
+    here so a coined value is caught deterministically whether or not that validator ran first.
+    `subject` is the coined value; `detail` says to add it to the customer overlay or pick a
+    listed one.
+
     """
 
     missing_table = "missing_table"
@@ -223,6 +229,7 @@ class GapKind(Enum):
     no_join_path = "no_join_path"
     unsupported_area = "unsupported_area"
     missing_parameter = "missing_parameter"
+    unknown_grain = "unknown_grain"
 
 
 class GuardDecision(Enum):

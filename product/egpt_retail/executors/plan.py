@@ -19,13 +19,14 @@ an executor nobody registered becomes visible, by name, before it is activated.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Collection, Dict, Iterator, List, Mapping, Optional
 
 from egpt.workflow.types import StepInput, StepOutput
 
 from egpt_retail.executors.metadata import EXECUTOR_METADATA
-from egpt_retail.routing.table import NO_MODEL_TIER, ROUTING_TABLE, model_tier_for
+from egpt_retail.routing.table import NO_MODEL_TIER, model_tier_for
 
 __all__ = [
     "UnknownPlanRef",
@@ -126,16 +127,16 @@ def plan_from_config(
                 }
             )
         elif agent_id:
-            if agent_id not in agent_ids and agent_id not in ROUTING_TABLE:
-                raise UnknownPlanRef(
-                    f"step {index} ({step.get('name')!r}) references agent {agent_id!r}, which is neither "
-                    "registered nor in R8's routing table"
-                )
+            # No separate "not in agent_ids and not in ROUTING_TABLE" guard here: whenever
+            # that would be true, ROUTING_TABLE lookup has already failed, so
+            # `model_tier_for` below returns NO_MODEL_TIER and the raise below already fires
+            # first -- confirmed by mutation (removing a standalone guard here left the full
+            # suite green). One raise, naming both reasons an agent step can be unplannable.
             tier = model_tier_for(agent_id)
             if tier == NO_MODEL_TIER:
                 raise UnknownPlanRef(
-                    f"step {index} ({step.get('name')!r}) references agent {agent_id!r}, which has no row in "
-                    "R8's routing table, so its model tier is unknown"
+                    f"step {index} ({step.get('name')!r}) references agent {agent_id!r}, which is neither "
+                    "registered nor has a row in R8's routing table, so its model tier is unknown"
                 )
             steps.append(
                 {
@@ -175,7 +176,16 @@ async def derive_plan(step_input: StepInput) -> StepOutput:
     """Load the stored workflow component named by ``additional_data["workflow_component_id"]``
     from the control plane and derive its plan. A config this deployment cannot resolve is a
     refusal (``success=False``) naming the reference -- the one thing this step blocks on, and
-    it blocks a *view*, not a run."""
+    it blocks a *view*, not a run.
+
+    ``additional_data`` may carry ``control_plane_db`` and ``agent_ids`` -- the ``PostgresDb``
+    and agent-id set a caller already built at startup (``app/factory.py``'s ``db``/
+    ``build_agents``). Passed through, this view reuses them instead of opening a fresh
+    control-plane engine and rebuilding the whole agent set (disk reads, provider
+    construction, a full routing-table validation) just to read two static ids. A caller that
+    has not wired that through yet -- there is no such caller until P5 -- still gets a
+    working view: the fallback builds them itself, off the event loop.
+    """
     from egpt_retail.app.components import build_agents, build_registry
     from egpt_retail.app.db import build_control_plane_db
     from egpt_retail.app.settings import RetailSettings
@@ -191,14 +201,19 @@ async def derive_plan(step_input: StepInput) -> StepOutput:
     from egpt.registry.hydrate import fetch_config_row
 
     settings = RetailSettings()
-    db = build_control_plane_db(settings)
+    db = options.get("control_plane_db")
+    if db is None:
+        db = build_control_plane_db(settings)
     tenant_id = (settings.retail_customer_slug or "").strip() or None
     version = options.get("version")
     # The same read the framework's own `get_workflow_by_id` starts with: the current version's
     # config row, scoped to the tenant. Hydration is deliberately not run -- a plan is a view
     # over the stored config, and hydrating would need every referenced agent and executor to
-    # resolve, which is exactly what this view reports rather than requires.
-    row = fetch_config_row(
+    # resolve, which is exactly what this view reports rather than requires. `fetch_config_row`
+    # has no async twin (`egpt.registry.hydrate`), so it is offloaded the same way
+    # `check_preflight` already offloads its own control-plane read.
+    row = await asyncio.to_thread(
+        fetch_config_row,
         db,
         str(component_id),
         "workflow",
@@ -215,7 +230,12 @@ async def derive_plan(step_input: StepInput) -> StepOutput:
         )
     config = row["config"]
     executor_names = {f.__name__ for f in build_registry().functions}
-    agent_ids = {a.id for a in build_agents(settings, db) if a.id}
+    agent_ids_override = options.get("agent_ids")
+    if agent_ids_override is not None:
+        agent_ids = set(agent_ids_override)
+    else:
+        agents = await asyncio.to_thread(build_agents, settings, db)
+        agent_ids = {a.id for a in agents if a.id}
     try:
         plan = plan_from_config(
             config,

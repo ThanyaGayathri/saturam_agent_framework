@@ -15,10 +15,11 @@ registry and the semantic layer from settings and calls it.
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from egpt.workflow.types import StepInput, StepOutput
 
@@ -140,12 +141,19 @@ def assess_gaps(
     autonomy: Optional[str] = None,
     level: Optional[int] = None,
     now: Optional[datetime] = None,
+    grains: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     """The contract's ``GapCheck`` for one spec. Pure given its inputs; consults no model.
 
-    ``kpis`` is the registry keyed by identifier. Gaps are emitted in the contract's kind
-    order -- data gaps first, then the shape's parameters -- and each is written for the
-    customer: what to connect or confirm.
+    ``kpis`` is the registry keyed by identifier. ``grains``, when given, is this deployment's
+    grain vocabulary (``VocabularySet["grain"].values``) -- the same ground truth ``grain`` is
+    checked against at extraction time (``spec_extractor.validate_spec``), re-checked here so
+    a coined ``grain`` is caught whether or not a caller ran that validator first. ``None``
+    (the default) skips the check rather than treating an empty vocabulary as "nothing is
+    valid" -- a caller that has not wired the vocabulary through yet should not have every
+    spec's grain rejected. Gaps are emitted in the contract's kind order -- data gaps first,
+    then the shape's parameters -- and each is written for the customer: what to connect or
+    confirm.
     """
     draft = draft or {}
     gaps: List[Dict[str, str]] = []
@@ -220,6 +228,21 @@ def assess_gaps(
             )
         )
 
+    # The grain, against the vocabulary -- the same closed set `validate_spec` checks at
+    # extraction time, re-checked here so a coined value is caught regardless of whether that
+    # validator ran first (see `grains`'s docstring above for why `None` skips this).
+    grain = spec.get("grain")
+    if grain and grains is not None and grain not in grains:
+        gaps.append(
+            _gap(
+                "unknown_grain",
+                str(grain),
+                "No accepted grain in the vocabulary matches this value. Add it to the "
+                "customer overlay if the business genuinely has it -- do not pick the "
+                "nearest term.",
+            )
+        )
+
     # Join paths between the source tables the referenced KPIs read, where both are present.
     for kpi in referenced:
         present = sorted(t for t in kpi.source_tables if t in tables)
@@ -262,29 +285,45 @@ def assess_gaps(
 async def check_spec_gaps(step_input: StepInput) -> StepOutput:
     """Run the gap check over ``additional_data["spec"]`` against this deployment's semantic
     layer and registry. Never refuses: a gap is the answer, not a failure -- and
-    ``permits_or_blocks`` is false for this step by the alignment rules."""
+    ``permits_or_blocks`` is false for this step by the alignment rules.
+
+    ``async def`` for the registry convention's exemption (every executor here does I/O), so
+    the KPI registry read, the vocabulary load and the semantic-layer round trip are each run
+    off the event loop through ``asyncio.to_thread`` -- the same pattern ``check_preflight``
+    already uses for its own blocking read.
+    """
     import psycopg
 
     from egpt_retail.app.db import psycopg_dsn
     from egpt_retail.app.semantic import open_semantic_reader
     from egpt_retail.app.settings import RetailSettings
+    from egpt_retail.contracts.vocabulary import load_vocabulary_set
     from egpt_retail.kpi.store import KpiRegistryStore
 
     options: Mapping[str, Any] = step_input.additional_data or {}
     spec: Mapping[str, Any] = options.get("spec") or {}
     settings = RetailSettings()
-    connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
-    try:
-        kpis = {kpi.identifier: kpi for kpi in KpiRegistryStore(connection).list()}
-    finally:
-        connection.close()
-    with open_semantic_reader(settings) as reader:
-        result = assess_gaps(
-            spec,
-            reader=reader,
-            kpis=kpis,
-            draft=options.get("draft"),
-            autonomy=options.get("autonomy"),
-            level=options.get("level"),
-        )
+
+    def _read_kpis_and_vocabulary() -> Tuple[Dict[str, KpiDefinition], Any]:
+        connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
+        try:
+            kpis = {kpi.identifier: kpi for kpi in KpiRegistryStore(connection).list()}
+        finally:
+            connection.close()
+        return kpis, load_vocabulary_set()
+
+    def _assess(kpis: Dict[str, KpiDefinition], vocabularies: Any) -> Dict[str, Any]:
+        with open_semantic_reader(settings) as reader:
+            return assess_gaps(
+                spec,
+                reader=reader,
+                kpis=kpis,
+                draft=options.get("draft"),
+                autonomy=options.get("autonomy"),
+                level=options.get("level"),
+                grains=vocabularies["grain"].values,
+            )
+
+    kpis, vocabularies = await asyncio.to_thread(_read_kpis_and_vocabulary)
+    result = await asyncio.to_thread(_assess, kpis, vocabularies)
     return StepOutput(content=result, success=True)

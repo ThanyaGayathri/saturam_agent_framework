@@ -7,6 +7,7 @@ everything deterministic around it is pinned here.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,7 @@ from egpt.workflow import Workflow
 from egpt.workflow.condition import Condition
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
 
 from egpt_retail.api.models._generated import GapCheck, Plan, Spec
 from egpt_retail.app.components import build_registry
@@ -293,6 +295,51 @@ def test_every_data_gap_kind_is_reachable_and_named_for_the_customer(reader, kpi
     assert _gaps(result, "missing_parameter") == []
 
 
+def test_a_coined_grain_is_a_gap_only_when_the_vocabulary_is_given(reader, kpis):
+    """`grain` is otherwise the one closed-set spec field with no ground-truth re-check --
+    Round-2 review, PR #203. `grains=None` (the default) must not reject every spec's grain
+    just because a caller has not wired the vocabulary through yet."""
+    sets = closed_sets_from(reader, kpis.values(), load_vocabulary_set())
+    assert "warehouse" not in sets.grains and "supplier" in sets.grains
+    spec = {
+        "use_case_id": "uc_0004",
+        "business_area": "supply_chain",
+        "grain": "warehouse",
+        "entities": [],
+        "kpi_identifiers": ["supplier__on_time_rate_30d"],
+        "time_window": {"length": 1, "unit": "day"},
+    }
+    draft = {"step8": {"schedule": "daily", "recipient": "x"}}
+
+    unchecked = assess_gaps(
+        spec, reader=reader, kpis=kpis, draft=draft, level=1, now=NOW
+    )
+    assert _gaps(unchecked, "unknown_grain") == []
+
+    checked = assess_gaps(
+        spec,
+        reader=reader,
+        kpis=kpis,
+        draft=draft,
+        level=1,
+        now=NOW,
+        grains=sets.grains,
+    )
+    GapCheck.model_validate(checked)
+    assert [g["subject"] for g in _gaps(checked, "unknown_grain")] == ["warehouse"]
+
+    clean = assess_gaps(
+        dict(spec, grain="supplier"),
+        reader=reader,
+        kpis=kpis,
+        draft=draft,
+        level=1,
+        now=NOW,
+        grains=sets.grains,
+    )
+    assert _gaps(clean, "unknown_grain") == []
+
+
 def test_no_join_path_is_reported_between_present_source_tables(reader, kpis):
     """product_reviews and supplier_deliveries are both in the fixture and the contract's own
     example says the graph holds no join between them."""
@@ -519,6 +566,94 @@ def test_a_step_with_neither_ref_is_refused():
             workflow_component_id=None,
             executor_names=_names(),
         )
+
+
+def test_derive_plan_reuses_a_threaded_db_and_agent_ids(monkeypatch):
+    """Round-2 review, PR #203: `derive_plan` rebuilt the whole agent set (and opened a
+    fresh control-plane db) on every call just to read two static ids. When a caller
+    threads them through `additional_data` -- the startup-built db/agents, once a caller
+    exists to do it -- neither must be rebuilt."""
+    import egpt.registry.hydrate as hydrate_module
+
+    import egpt_retail.app.components as components_module
+    import egpt_retail.app.db as db_module
+
+    config = _inform_config()
+
+    def _fake_fetch_config_row(db, component_id, component_type, **kwargs):
+        assert db == "sentinel-db"  # the threaded db, not a freshly built one
+        return {"config": config, "version": 1}
+
+    def _must_not_run(*args, **kwargs):
+        raise AssertionError(
+            "build_agents/build_control_plane_db must not run when threaded through"
+        )
+
+    monkeypatch.setattr(hydrate_module, "fetch_config_row", _fake_fetch_config_row)
+    monkeypatch.setattr(components_module, "build_agents", _must_not_run)
+    monkeypatch.setattr(db_module, "build_control_plane_db", _must_not_run)
+
+    output = asyncio.run(
+        derive_plan(
+            StepInput(
+                additional_data={
+                    "workflow_component_id": "cmp_x",
+                    "use_case_id": "uc_x",
+                    "control_plane_db": "sentinel-db",
+                    "agent_ids": {"funnel_explanation"},
+                }
+            )
+        )
+    )
+    assert output.success is True
+    assert [s["ref"] for s in output.content["steps"]] == plan_refs(config)
+
+
+def test_derive_plan_falls_back_to_building_when_nothing_is_threaded(monkeypatch):
+    """The other half of the fix above: a caller that has not wired the startup-built
+    db/agents through yet (there is no such caller until P5) still gets a working view --
+    the fallback builds them itself."""
+    import egpt.registry.hydrate as hydrate_module
+
+    import egpt_retail.app.components as components_module
+    import egpt_retail.app.db as db_module
+
+    config = _inform_config()
+    built_agents = [Agent(id="funnel_explanation", name="funnel_explanation")]
+    calls = {"build_agents": 0, "build_control_plane_db": 0}
+
+    def _fake_fetch_config_row(db, component_id, component_type, **kwargs):
+        assert db == "built-db"
+        return {"config": config, "version": 1}
+
+    def _fake_build_control_plane_db(settings):
+        calls["build_control_plane_db"] += 1
+        return "built-db"
+
+    def _fake_build_agents(settings, db):
+        calls["build_agents"] += 1
+        assert db == "built-db"
+        return built_agents
+
+    monkeypatch.setattr(hydrate_module, "fetch_config_row", _fake_fetch_config_row)
+    monkeypatch.setattr(
+        db_module, "build_control_plane_db", _fake_build_control_plane_db
+    )
+    monkeypatch.setattr(components_module, "build_agents", _fake_build_agents)
+
+    output = asyncio.run(
+        derive_plan(
+            StepInput(
+                additional_data={
+                    "workflow_component_id": "cmp_x",
+                    "use_case_id": "uc_x",
+                }
+            )
+        )
+    )
+    assert output.success is True
+    assert [s["ref"] for s in output.content["steps"]] == plan_refs(config)
+    assert calls == {"build_agents": 1, "build_control_plane_db": 1}
 
 
 # ---------------------------------------------------------------------------

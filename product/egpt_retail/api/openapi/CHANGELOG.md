@@ -94,3 +94,18 @@ negotiation and no major bump.
   and Act slots are P4's). A screen keyed on the enum gains one row to render; every existing
   value is unchanged.
 
+## 1.1.1 — 2026-09-09 — R9: `GapKind.unknown_grain` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump.
+
+- **`GapKind.unknown_grain`.** Round-2 review, PR #203: `spec.grain` was the one closed-set
+  spec field `assess_gaps` never re-checked against ground truth -- `business_area`, each
+  entity's `concept` and `kpi_identifiers` all did. `spec_extractor.validate_spec` catches a
+  coined grain at extraction time, but the deterministic gap check is meant to be the
+  backstop regardless of whether a caller ran that validator first, and until now it
+  structurally could not be: it never received the grain vocabulary. Fixed by threading the
+  vocabulary's `grain` terms into `assess_gaps` (a new, defaulted-`None` `grains` parameter
+  that skips the check when not supplied, so every existing caller is unchanged) and
+  `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
+  existing value is unchanged.
+
