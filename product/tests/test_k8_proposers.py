@@ -261,13 +261,39 @@ class TestUnresolvedCollisions:
 class TestNeitherAgentCanWrite:
     def test_no_proposer_module_imports_a_store(self) -> None:
         """The D10 guarantee is structural, not a promise in a prompt: these modules have no
-        write path to the graph, so no prompt injection or model error can produce one."""
-        import inspect
+        write path to the graph, so no prompt injection or model error can produce one.
+
+        Checked transitively, not by grepping the module's own text. Round 1 on the P3 PR
+        pointed out that a same-module substring search proves nothing about what the module
+        imports: a helper two hops away could hold the driver and the grep would pass. This
+        walks the actual import graph from each proposer and fails if a graph client is
+        reachable at all.
+        """
+        import sys
+
+        def reachable(root: str) -> set:
+            seen, stack = set(), [root]
+            while stack:
+                name = stack.pop()
+                if name in seen:
+                    continue
+                seen.add(name)
+                module = sys.modules.get(name)
+                for attribute in vars(module or object()).values():
+                    child = getattr(attribute, "__module__", None) or getattr(
+                        attribute, "__name__", None
+                    )
+                    if isinstance(child, str) and child.startswith("egpt"):
+                        stack.append(child)
+            return seen
 
         for module in (enrich, mapping):
-            source = inspect.getsource(module)
-            assert "SemanticGraphStore" not in source, module.__name__
-            assert "neo4j" not in source.lower(), module.__name__
+            names = reachable(module.__name__)
+            assert not any("neo4j" in name for name in names), (module.__name__, names)
+            assert not any(name.endswith("semantic.store") for name in names), (
+                module.__name__,
+                names,
+            )
 
     def test_every_produced_proposal_is_pending(self) -> None:
         response = mapping.MappingProposalSet(

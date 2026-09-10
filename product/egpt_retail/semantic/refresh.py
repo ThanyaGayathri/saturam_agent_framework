@@ -169,11 +169,16 @@ def refresh_semantic_layer(
         in_review = {item.kpi_identifier for item in review}
         if kpis is None:
             registry.mirror(driver, database=settings.retail_neo4j_database)
-            for kpi in definitions:
-                if kpi.identifier in in_review:
-                    continue
-                if kpi.source_tables <= {t.name.lower() for t in graph.list_tables()}:
-                    registry.stamp_validated(kpi.identifier, resolved)
+            available = {t.name.lower() for t in graph.list_tables()}
+            registry.stamp_validated(
+                [
+                    kpi.identifier
+                    for kpi in definitions
+                    if kpi.identifier not in in_review
+                    and kpi.source_tables <= available
+                ],
+                resolved,
+            )
         return RefreshReport(
             version=resolved,
             previous_version=previous,
@@ -193,12 +198,20 @@ async def arefresh_semantic_layer(
     *,
     schema: str = "silver",
     version: str = "",
-    kpis: Sequence[KpiDefinition] = (),
+    kpis: Optional[Sequence[KpiDefinition]] = None,
     warehouse: Any = None,
     control_plane: Any = None,
     driver: Any = None,
 ) -> RefreshReport:
-    """Async variant. Blocking I/O against three stores, run off the event loop."""
+    """Async variant. Blocking I/O against three stores, run off the event loop.
+
+    The ``kpis`` sentinel matches the sync twin exactly: ``None`` reads the registry, a
+    sequence overrides it. Review round 1 on the P3 PR found this defaulting to ``()`` after
+    the sync side moved to ``None`` -- which silently turned the registry read, the mirror
+    rebuild and the stamping off for every async caller. The two variants agreeing on their
+    sentinels is not a style point; a divergence here is a feature that exists on one path
+    and not the other, and nothing fails.
+    """
     return await asyncio.to_thread(
         refresh_semantic_layer,
         settings,

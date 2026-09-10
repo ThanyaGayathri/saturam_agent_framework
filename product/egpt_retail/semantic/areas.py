@@ -30,6 +30,7 @@ __all__ = [
     "areas_in_ontology",
     "detect_areas",
     "evidence_from_mappings",
+    "summary",
     "supported_areas",
 ]
 

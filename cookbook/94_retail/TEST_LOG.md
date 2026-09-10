@@ -3397,3 +3397,79 @@ that found these was not "does this work" but "who consumes this, and did I ever
 together?"
 
 ---
+
+---
+
+### PR #199 review round 1 — one real regression, one finding overtaken by Lane R
+
+**Status:** PASS — 535 unit (+19), 3759 framework, 33 live, cookbook sweep 22/23
+
+**The critical was mine and it was exactly the failure CLAUDE.md's sync/async rule exists to
+stop.** `refresh_semantic_layer` moved its `kpis` sentinel from `()` to `None`-means-read-the-
+registry and gated the new mirror/stamp block on `kpis is None`. `arefresh_semantic_layer`
+kept `()` and forwarded it — so every async caller got the *old* behaviour: no registry read,
+no mirror rebuild, no stamping, and nothing failing. The P3 verification wrote that fix and
+then shipped it on one of two paths. Both variants now share the sentinel, and the docstring
+says why a divergence here is not a style point.
+
+**The CI finding was right when written and had been fixed by Lane R before I read it.**
+Round 1 called `test_semantic_live.py` unreachable by any CI job — the same failure class the
+tests exist to close. That was true of the tree the reviewer read. It is no longer: Lane R
+closed **R-9** on 9 Sep, wiring the suite into `integration.yml` with services, an
+`egpt_warehouse` create, `warehouse-migrate`, and — impressively — a comment tracing my test's
+own `os.environ.get` calls to get the DSN variable names right.
+
+I had already drafted a PR-triggered `product-live` job for `ci.yml` before finding that.
+**Reverted it.** It duplicated about a hundred lines of services, install and warehouse setup
+Lane R had just written, in Lane R's file, and two copies of that setup drift. What survives
+the finding is narrower and is filed as **R-10**: `integration.yml` triggers only on schedule
+and dispatch, so the suite catches a regression within 24 hours rather than before merge. For
+a data-loss class guarantee — accepting an enrichment erasing accepted fields — that gap is
+worth closing, but the shape of the fix (a `pull_request` trigger pulls the whole 25-minute
+framework suite onto every PR) is a decision about Lane R's workflow, not mine to take.
+
+**The two majors, both fair.**
+
+*N+1 on the live query path.* `_semantic_results` called `get_table` once per table on every
+retrieval — a fifty-table warehouse meant fifty-one round trips to answer one question. Added
+`SemanticGraphStore.column_index()`, one query for the whole graph, reached through a
+`runtime_checkable` protocol so a reader without it (the P0 stub) takes a documented fallback
+rather than failing. Two tests: the indexed reader is asked once and `get_table` zero times;
+the unindexed one still answers correctly.
+
+*297 lines of `legs.py` with no unit coverage.* Now 19 tests: the ranking rule that makes
+`crm_deal` beat `crm_deal_stage_history` on "deal", column-only matching, the ontology leg's
+dedup across its store's two internal legs, `None`-means-no-leg, and the concept rendering
+that must match `promotable_text` or fusion can never corroborate.
+
+**Four test-quality minors, each a fair hit on a test that could not fail.**
+
+- The two "one leg fails, the sibling survives" tests asserted only that the exception
+  surfaced — they would pass unchanged against a fail-fast implementation that never called
+  the sibling, which is the entire property. Both now record what ran; the async one sleeps in
+  the surviving leg so "awaited to completion" is distinguishable from "started".
+- The "no proposer imports a store" check was a substring grep of the module's own text. A
+  helper two hops away could have held the driver. Now walks the import graph transitively.
+- The registered `detect_business_areas` executor had no determinism test, only the pure
+  helper it calls. Added, with the driver stubbed.
+
+**Three code minors:** `is_personal_data` matched an *unqualified* `personal_data_fields`
+entry against every table's same-named column — over-tagging, not a leak, but a compliance
+flag wrong in the safe direction still teaches a reviewer to stop reading it; now only a
+`table.column` entry naming this table counts. `stamp_validated` committed once per KPI in a
+loop and now takes the batch. `_ddl` is bound to `self._schema` instead of the module
+constant, so a store constructed with a different schema no longer creates its table in one
+place and reads it from another.
+
+**A pre-existing failure found by the sweep, not mine.** `R01_consolidator_no_work` fails on
+`main`: it asserts one scope with no work, and the consolidator now defaults to two agents.
+Verified by stashing every Lane K change — it fails identically — and by
+`git diff origin/main..HEAD`, which shows this branch touches neither the consolidator
+entrypoint nor settings. Filed as **R-11**; Lane R's cookbook, left alone.
+
+**Surprising:** the most useful thing in this round was discovering that a finding had already
+been fixed by someone else. I was one commit from shipping a duplicate CI job into a file I do
+not own, solving a problem that was solved the day before. Reading `open-items.md` after a
+merge — not just the review — is what caught it.
+
+---

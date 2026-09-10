@@ -6,7 +6,7 @@ returned its legs side by side rather than ranked together. These tests pin the 
 the fix -- a generic RRF core, and a fan-out that takes a deployment's own legs.
 """
 
-from typing import Sequence
+from typing import List, Sequence
 
 import pytest
 from egpt.memory.retrieval.fuse import DEFAULT_RRF_K, rrf_rank
@@ -162,14 +162,22 @@ class TestExtraLegsInTheFanOut:
         assert result.results == []
 
     def test_one_failing_leg_does_not_discard_another_s_results(self) -> None:
+        # The sibling must actually run. Asserting only that the exception surfaces would
+        # pass unchanged against a fail-fast implementation that never called it -- which is
+        # the property this test exists for. Round 1 on the P3 PR caught the gap.
+        ran: List[str] = []
+
         def good(query: MemoryQuery) -> Sequence[UnifiedResult]:
+            ran.append("semantic")
             return [_hit("found", "semantic")]
 
         def bad(query: MemoryQuery) -> Sequence[UnifiedResult]:
+            ran.append("ontology")
             raise RuntimeError("neo4j is down")
 
         with pytest.raises(RuntimeError, match="neo4j is down"):
             unified_read(SCOPE, MemoryQuery(text="q"), legs={"ontology": bad, "semantic": good})
+        assert ran == ["ontology", "semantic"], "the surviving leg never ran"
 
     @pytest.mark.asyncio
     async def test_the_async_path_runs_extra_legs_concurrently(self) -> None:
@@ -192,11 +200,20 @@ class TestExtraLegsInTheFanOut:
 
     @pytest.mark.asyncio
     async def test_an_async_leg_that_raises_still_lets_the_others_finish(self) -> None:
+        # Awaited to completion, not merely started: gather(return_exceptions=True) is what
+        # stops a raising leg leaving its sibling running with nobody to observe it.
+        import asyncio
+
+        finished: List[str] = []
+
         async def bad(query: MemoryQuery) -> Sequence[UnifiedResult]:
             raise RuntimeError("ontology is down")
 
         async def good(query: MemoryQuery) -> Sequence[UnifiedResult]:
+            await asyncio.sleep(0.02)
+            finished.append("semantic")
             return [_hit("found", "semantic")]
 
         with pytest.raises(RuntimeError, match="ontology is down"):
             await aunified_read(SCOPE, MemoryQuery(text="q"), legs={"ontology": bad, "semantic": good})
+        assert finished == ["semantic"], "the surviving leg was abandoned mid-flight"

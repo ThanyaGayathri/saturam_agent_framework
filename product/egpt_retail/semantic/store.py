@@ -725,6 +725,31 @@ class SemanticGraphStore:
         """Async variant."""
         return await asyncio.to_thread(self.mapped_concepts)
 
+    def column_index(self) -> Dict[str, List[str]]:
+        """Every accepted table's accepted column names, in one query.
+
+        Retrieval asks "which tables have a column matching these terms", which is one
+        question about the whole graph and was being answered with one round trip per table
+        -- on the live query path, not at harvest. Round 1 on the P3 PR caught it.
+
+        Keyed by qualified name, so a caller that harvested two schemas does not silently
+        merge their tables.
+        """
+        with self._driver.session(database=self._database) as session:
+            rows = session.run(
+                f"""
+                MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL})
+                WHERE coalesce(t.status, 'accepted') = 'accepted'
+                  AND coalesce(c.status, 'accepted') = 'accepted'
+                RETURN t.schema + '.' + t.name AS table, collect(c.name) AS columns
+                """
+            ).data()
+        return {row["table"]: sorted(row["columns"]) for row in rows}
+
+    async def acolumn_index(self) -> Dict[str, List[str]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.column_index)
+
     def business_area_evidence(self) -> Dict[str, Dict[str, List[str]]]:
         """Per area, the accepted concepts that have a table mapped to them, and those tables.
 
@@ -868,11 +893,18 @@ class SemanticGraphStore:
             # Accepted enrichment lists them as `table.column` or `schema.table.column`; the
             # flag was previously hardcoded False with a comment promising enrichment would
             # set it, and nothing ever did.
+            # Only a field qualified with *this* table counts. An unqualified entry --
+            # `email` rather than `crm_contact.email` -- names a column on some table and
+            # cannot say which, so it tags nothing: the first version matched it against
+            # every table's same-named column, over-tagging `analytics_event.email` because
+            # a different table's concept declared one. Over-tagging is not a leak, but a
+            # compliance flag that is wrong in the safe direction still teaches a reviewer
+            # to stop reading it.
             personal = {
                 field.split(".")[-1]
                 for row in concepts
                 for field in (row["pdf"] or ())
-                if field.split(".")[-2:-1] in ([bare], [])
+                if field.split(".")[-2:-1] == [bare]
             }
             return Table(
                 ref=TableRef(
