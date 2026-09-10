@@ -44,18 +44,20 @@ from egpt.workflow.step import Step
 from egpt.workflow.types import OnError
 
 from egpt_retail.app.settings import RetailSettings
-from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.areas import detect_business_areas
-from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold
-from egpt_retail.executors.kpi import assess_kpi_feasibility
+from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.gaps import check_spec_gaps
+from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold, read_gold
+from egpt_retail.executors.kpi import assess_kpi_feasibility
 from egpt_retail.executors.plan import derive_plan
 from egpt_retail.executors.preflight import check_preflight
 from egpt_retail.executors.provenance import record_provenance
 from egpt_retail.executors.registry import assert_registry_valid
+from egpt_retail.executors.rfq import sample_rows
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
 from egpt_retail.memory.config import build_memory_resolver
 from egpt_retail.routing.providers import build_tier_providers, route_agents
+from egpt_retail.skills.funnel_explanation import FunnelExplanation
 from egpt_retail.skills.join_path_explainer import JoinExplanation
 from egpt_retail.skills.synonym_proposer import SynonymProposalSet
 
@@ -64,8 +66,10 @@ __all__ = [
     "RegisteredWorkflow",
     "SYNONYM_PROPOSER_ID",
     "JOIN_PATH_EXPLAINER_ID",
+    "FUNNEL_EXPLANATION_ID",
     "LANDING_TO_SILVER_WORKFLOW_ID",
     "NIGHTLY_REFRESH_WORKFLOW_ID",
+    "RFQ_WORKFLOW_ID",
     "MEMORY_WRITING_AGENT_IDS",
     "build_agents",
     "build_workflows",
@@ -82,6 +86,12 @@ SYNONYM_PROPOSER_ID = "synonym_proposer"
 #: cookbook, because the routing table needs one small-tier agent that really exists.
 JOIN_PATH_EXPLAINER_ID = "join_path_explainer"
 
+#: Lane R's second agent from the K14 template (R10). The RFQ workflow's one model step --
+#: registered here, not only embedded in ``build_workflows``'s step, so it gets the same
+#: memory wiring and startup check every other agent gets (``memory_lifespan_for``,
+#: ``assert_memory_wired``) rather than a second, unwired object nobody drains.
+FUNNEL_EXPLANATION_ID = "funnel_explanation"
+
 #: R4's pipeline, kept registered for hand runs. Stable: stored workflows reference it by id.
 LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
 
@@ -89,14 +99,26 @@ LANDING_TO_SILVER_WORKFLOW_ID = "landing-to-silver"
 #: (``egpt-retail schedule-nightly``) targets this id, so it is the one that must not move.
 NIGHTLY_REFRESH_WORKFLOW_ID = "nightly-refresh"
 
+#: R10's RFQ chain (D12): explain-only, one model step. Named for the schedule that will
+#: target it once R9's activation route exists; stable for the same reason NIGHTLY's is.
+RFQ_WORKFLOW_ID = "rfq-funnel"
+
 #: The agents whose memory partitions the consolidator drains. Every registered agent: the
 #: lifespan hands each one the memory provider, so each one writes a partition.
-MEMORY_WRITING_AGENT_IDS: List[str] = [SYNONYM_PROPOSER_ID, JOIN_PATH_EXPLAINER_ID]
+MEMORY_WRITING_AGENT_IDS: List[str] = [
+    SYNONYM_PROPOSER_ID,
+    JOIN_PATH_EXPLAINER_ID,
+    FUNNEL_EXPLANATION_ID,
+]
 
 #: R7's three (G4). Unlike R4's six, these are not wired into a standalone registered
 #: workflow -- they exist to be composed into other packages' workflows (R10's RFQ chain,
 #: eventually), and R7's own verification is a throwaway workflow in the cookbook.
 R7_EXECUTORS = (check_preflight, record_provenance, deliver_in_app)
+
+#: R10's own (D12). ``sample_rows`` is the API contract's own example plan's third step,
+#: reserved there since R9 landed and refused as unregistered until now.
+R10_EXECUTORS = (sample_rows,)
 
 #: Lane K's two (K9, K11). Both are deterministic steps a workflow composes -- feasibility is
 #: a set difference and area detection is a graph query -- and both shipped unreachable:
@@ -110,6 +132,7 @@ R9_EXECUTORS = (check_spec_gaps, derive_plan)
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
 _JOIN_PATH_EXPLAINER_PROMPT = _SKILLS_DIR / "join_path_explainer.md"
+_FUNNEL_EXPLANATION_PROMPT = _SKILLS_DIR / "funnel_explanation.md"
 
 
 def build_memory_provider(settings: RetailSettings) -> Optional[MemoryProvider]:
@@ -150,7 +173,22 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
         output_schema=JoinExplanation,
         db=db,
     )
-    agents: List[RegisteredAgent] = [synonym_proposer, join_path_explainer]
+    funnel_explanation = Agent(
+        id=FUNNEL_EXPLANATION_ID,
+        name=FUNNEL_EXPLANATION_ID,
+        description=(
+            "Explains what moved in the RFQ quote funnel from numbers `read_gold` and "
+            "`sample_rows` already computed; never computes or ranks one itself (Lane R, R10)."
+        ),
+        instructions=_FUNNEL_EXPLANATION_PROMPT.read_text(),
+        output_schema=FunnelExplanation,
+        db=db,
+    )
+    agents: List[RegisteredAgent] = [
+        synonym_proposer,
+        join_path_explainer,
+        funnel_explanation,
+    ]
     # R8: tier per agent, from the table; refuses an unrouted or model-pinning agent.
     route_agents(agents, build_tier_providers(settings))
     return agents
@@ -172,12 +210,36 @@ def _chain(executors: tuple) -> List[Any]:
     ]
 
 
-def build_workflows(
-    settings: RetailSettings, db: PostgresDb
-) -> List[RegisteredWorkflow]:
-    """The registered workflows: R4's landing-to-silver, and R5's nightly-refresh on top of it.
+def _rfq_steps(funnel_explanation: Agent) -> List[Any]:
+    """R10's six, in the API contract's own example plan order (``paths/use-cases.yaml``,
+    ``runUseCasePreflight``): ``check_preflight``, ``read_gold``, ``sample_rows``, the one
+    model step, then R7's ``record_provenance`` and ``deliver_in_app``.
 
-    Two workflows, one executor list. ``nightly-refresh`` is R4's six steps followed by
+    Not built by :func:`_chain`, which only knows executors -- ``funnel_explanation`` is the
+    live, already-routed ``Agent`` object :func:`build_agents` returned, not a name the engine
+    resolves later, so this workflow must be assembled after ``build_agents`` has run.
+    """
+    executor_steps = _chain((check_preflight, read_gold, sample_rows))
+    return [
+        *executor_steps[:3],
+        Step(
+            name="funnel-explanation",
+            agent=funnel_explanation,
+            description="One model step. Explains the numbers; never decides anything.",
+        ),
+        *_chain((record_provenance, deliver_in_app)),
+    ]
+
+
+def build_workflows(
+    settings: RetailSettings,
+    db: PostgresDb,
+    agents: Optional[List[RegisteredAgent]] = None,
+) -> List[RegisteredWorkflow]:
+    """The registered workflows: R4's landing-to-silver, R5's nightly-refresh on top of it,
+    and R10's rfq-funnel.
+
+    Two of the three, one executor list. ``nightly-refresh`` is R4's six steps followed by
     ``materialise_gold``; ``landing-to-silver`` stays for hand runs that must not touch gold.
     Both are built from the same tuples, so the chain cannot drift between them, and
     ``assert_registry_valid`` checks ``registry.functions`` -- a name shared by two workflows
@@ -200,7 +262,25 @@ def build_workflows(
     and report a completed run that loaded nothing. ``on_error=OnError.fail`` below is the
     second half of that guard: the gates never raise, so it only bites on an unexpected
     failure, which must stop the chain rather than carry on toward gold.
+
+    ``rfq-funnel`` (R10, D12) is the third: ``check_preflight``, ``read_gold``,
+    ``sample_rows``, the ``funnel_explanation`` agent step, ``record_provenance``,
+    ``deliver_in_app`` -- the API contract's own example compiled plan. Its agent step needs
+    a real, already-routed ``Agent`` object, not a name, so ``agents`` defaults to a fresh
+    ``build_agents(settings, db)`` call when a caller (a cookbook, a test) does not already
+    have one; ``build_agent_os`` passes its own list so the workflow's step and the OS's
+    registered agent are the same object, which is what lets the memory lifespan's provider
+    assignment reach the one this workflow actually runs.
     """
+    agents = agents if agents is not None else build_agents(settings, db)
+    funnel_explanation = next(
+        agent for agent in agents if getattr(agent, "id", None) == FUNNEL_EXPLANATION_ID
+    )
+    if not isinstance(funnel_explanation, Agent):
+        raise TypeError(
+            f"{FUNNEL_EXPLANATION_ID!r} must be a concrete Agent to embed in a workflow "
+            f"step, got {type(funnel_explanation).__name__}"
+        )
     return [
         Workflow(
             id=LANDING_TO_SILVER_WORKFLOW_ID,
@@ -225,6 +305,17 @@ def build_workflows(
             db=db,
             steps=_chain(WAREHOUSE_EXECUTORS + (materialise_gold,)),
         ),
+        Workflow(
+            id=RFQ_WORKFLOW_ID,
+            name="RFQ funnel",
+            description=(
+                "The RFQ and Quote Pipeline (D12): explain-only, one model step. Reads the "
+                "funnel KPIs from gold, samples the movers and on-site friction supporting "
+                "them, explains what moved, records provenance and delivers in-app (R10)."
+            ),
+            db=db,
+            steps=_rfq_steps(funnel_explanation),
+        ),
     ]
 
 
@@ -233,16 +324,21 @@ def build_registry() -> Registry:
 
     R4's six, R7's three (``check_preflight``, ``record_provenance``, ``deliver_in_app``,
     G4), R5's two (``materialise_gold``, ``read_gold``), R9's two (``check_spec_gaps``,
-    ``derive_plan``) and Lane K's two (``assess_kpi_feasibility``, ``detect_business_areas``).
-    The check has run here since phase zero, when the list was empty; it now has
-    something to check, which is what makes the duplicate-name refusal real rather than
-    theoretical. Every name here is also a row in ``contracts/EXECUTOR_REGISTRY.md``, and
-    ``test_r4_executors.py``/``test_r7_executors.py`` assert the two agree so the document
-    cannot rot.
+    ``derive_plan``), R10's one (``sample_rows``) and Lane K's two
+    (``assess_kpi_feasibility``, ``detect_business_areas``). The check has run here since
+    phase zero, when the list was empty; it now has something to check, which is what makes
+    the duplicate-name refusal real rather than theoretical. Every name here is also a row in
+    ``contracts/EXECUTOR_REGISTRY.md``, and ``test_r4_executors.py``/``test_r7_executors.py``
+    assert the two agree so the document cannot rot.
     """
     registry = Registry()
     for executor in (
-        WAREHOUSE_EXECUTORS + R7_EXECUTORS + GOLD_EXECUTORS + R9_EXECUTORS + K_EXECUTORS
+        WAREHOUSE_EXECUTORS
+        + R7_EXECUTORS
+        + GOLD_EXECUTORS
+        + R9_EXECUTORS
+        + R10_EXECUTORS
+        + K_EXECUTORS
     ):
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)

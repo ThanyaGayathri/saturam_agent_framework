@@ -163,5 +163,17 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             False,
             1,
         ),
+        # R10 -- the RFQ chain's own
+        "sample_rows": ExecutorMetadata(
+            "Sample supporting rows",
+            "Pull a bounded sample through the SQL guard for the explanation to cite.",
+            ("rows",),
+            ("samples",),
+            # The API contract's own example plan (paths/use-cases.yaml): true, the same as
+            # check_preflight -- a guard refusal here must stop the chain before an
+            # explanation runs against rows nobody guaranteed were safe to read.
+            True,
+            2,
+        ),
     }
 )

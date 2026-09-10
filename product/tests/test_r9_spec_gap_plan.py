@@ -531,8 +531,10 @@ def test_dropping_a_branch_is_visible_in_the_plan():
 
 def test_an_unregistered_executor_is_refused_by_name():
     config = _inform_config()
-    config["steps"][1]["executor_ref"] = "sample_rows"  # R10's, not registered yet
-    with pytest.raises(UnknownPlanRef, match="sample_rows"):
+    # R10 landed and registered `sample_rows` (it was this test's own stand-in for "a name
+    # nobody registered yet" until then); a name genuinely nobody has claimed still refuses.
+    config["steps"][1]["executor_ref"] = "not_a_real_executor"
+    with pytest.raises(UnknownPlanRef, match="not_a_real_executor"):
         plan_from_config(
             config,
             use_case_id="uc",
@@ -674,7 +676,12 @@ def test_metadata_names_exactly_the_registered_executors():
     blocking = {
         name for name, meta in EXECUTOR_METADATA.items() if meta.permits_or_blocks
     }
-    assert blocking == {"decide_load_verdict", "check_preflight", "materialise_gold"}
+    assert blocking == {
+        "decide_load_verdict",
+        "check_preflight",
+        "materialise_gold",
+        "sample_rows",
+    }
 
 
 def test_every_reserved_agent_in_the_routing_table_can_be_planned():
