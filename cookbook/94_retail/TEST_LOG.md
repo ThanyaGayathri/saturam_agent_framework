@@ -3329,3 +3329,176 @@ KPI alone. The "failed" row keeps `last_computed_at` from the last good run, whi
 screen saying two true things at once.
 
 **Result:** Overall PASS.
+
+## Lane R — phase three
+
+### R08_model_routing.py
+
+**Status:** PASS (offline half, sections 1–2, on Python 3.12 and 3.10). Sections 3–4 (live,
+both Azure deployments) NOT RUN on this machine — there is no `azure_key.env` anywhere under
+`~/coe` or `~/code`, and nothing else names a second deployment. They are written, gated on
+`AZURE_OPENAI_API_KEY` + `EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT`, and exit non-zero on any
+failed check; the result belongs in this entry when someone with the credential runs them.
+
+**Description:** G6, "model routing". A routing table (`product/egpt_retail/routing/table.py`)
+names the tier per agent; `build_agents` builds every agent with `model=None` and
+`route_agents` installs a provider per row — the framework's `FrontierModelProvider` pinned
+to the tier's Azure deployment, wrapped for small-tier agents in the framework's
+`EscalatingModelProvider` with the frontier as target. An unrouted agent refuses assembly
+by name. The one product-side provider class, `TierModelProvider`, exists to declare a
+`context_window` (Mode B cannot state one) so `input_exceeds_context_window` can fire.
+The framework half: `resolve_run_model` narrowed `ModelResolveResult` to a bare `Model` and
+the run record never learned of an escalation; `resolve_run_model_detailed` twins now keep
+the detail and `_stamp_resolved_model` writes it to `RunOutput.metadata["egpt_escalation"]`,
+which `to_dict` persists. R7's `record_provenance` reads `model_tier` off the table by
+`StepOutput.executor_name` instead of warning and writing `none`.
+
+Section 1 prints the table, builds the registered agents against a dead control-plane URL
+(nothing connects), shows each with `model=None` and its provider, and shows the refusal
+for a ghost agent. Section 2 declares a 1 000-token window, drives the real per-run hook
+(`apply_run_model`) with an estimate of 999 then 1 001 tokens, and counts
+`resolve_detailed` calls per tier: 999 → `gpt-5.4-mini`, no key; 1 001 → `gpt-5.4`, record
+`{reason: input_exceeds_context_window, escalated_from: azure-openai, model_id: gpt-5.4,
+agent_id: join_path_explainer, escalation_level: 1}`, and the small tier resolved exactly
+once across both runs — the over-window request never reached it.
+
+**What surprised me:**
+
+1. **`AZURE_OPENAI_DEPLOYMENT` in the shell would have made both tiers one deployment.**
+   Azure routes a call by the *client's* deployment and ignores the request's `model`;
+   `AzureOpenAI._get_client_params` falls back to that env var when the client has none.
+   `AzureOpenAI(id=deployment)` — what `components.py` did before R8, and what every K14
+   cookbook does — therefore sends every call to whatever `azure_key.env` names, whatever
+   `id` says, and `RunOutput.model` reports the id. Two tiers built that way would have
+   been a label. `TierModelProvider` pins `azure_deployment` on the client
+   (`model_config`), and `test_the_resolved_model_is_pinned_to_its_tier_deployment_on_the_client`
+   sets the env var to something else and asserts both. Worth a line in K14's cookbooks; not
+   changed here.
+2. **`escalated_from` and `target` both read `azure-openai`.** `ModelResolveResult` records
+   provider *keys*, and two tiers on one provider share a key. `model_id` is what
+   distinguishes the record, and the log line (`small-tier -> frontier-tier`, from the
+   providers' names) carries the identity the record lacks. The base class's
+   `capabilities().provider_keys` is the whole frontier shortlist, so before narrowing it
+   the record would have said `escalated_from: anthropic` for an Azure tier — worse than
+   ambiguous, wrong. A `ModelResolveResult` that also carried the primary's model id is the
+   framework follow-up that would make the record self-sufficient.
+3. **`RunOutput.metadata` is the caller's dict.** `RunOutput` is built with
+   `metadata=run_context.metadata or {}`, and the same dict is forwarded to the provider as
+   the request's metadata, where `explicit_policy_flag` reads it. Appending the escalation
+   record in place would have written into the caller's `run(metadata=...)` object and into
+   the next re-resolve's rule input. The stamp replaces the dict;
+   `test_the_callers_metadata_dict_is_not_mutated` pins it and a mutation restoring the
+   in-place write fails it.
+4. **Provenance records the tier the step was *bound* to, not the one that served it.**
+   `StepOutput` has no metadata field, so a step's escalation stays on the `RunOutput` the
+   framework persists and does not reach `record_provenance`. Documented on `_model_tier`
+   rather than papered over: the run record has the escalation, the provenance row has the
+   binding, and PlanStep.model_tier is static plan metadata in the contract anyway.
+5. **A provider with only `resolve()` gets `(model, None)`, not a made-up result.**
+   `ModelResolveResult.mode` is required, and synthesising one for a Protocol-only provider
+   would have put a fact in the run record no provider stated. `resolve_via_detailed` returns
+   `None` for the detail there, and a test pins that such a provider still serves and
+   resolves exactly once.
+6. **`format.sh` reformatted 114 files outside this change**, as on every Lane R branch;
+   reverted. `validate.sh`'s product mypy is red on this branch with X-5
+   (`numpy/__init__.pyi:737`), fixed by #200 which is not on `main` yet; the framework mypy
+   red is X-2. Everything else green: ruff, 21 framework files mypy, API contract, 456
+   product tests, brand audit.
+
+**Result:** `pytest product/tests` — 456 passed, 27 skipped (20 new in `test_r8_routing.py`);
+`pytest libs/agno/tests/unit/providers` — 602 passed (7 new in
+`TestEscalationReachesTheRunRecord`, including the async twin and the pre-call count). Same
+counts on a Python 3.10 venv. Seven mutants, seven caught: escalation never stamped (4
+tests), metadata mutated in place (1), provenance ignores the table (2), client deployment
+not pinned (1), agents not routed (2), small window not declared (2), detailed path dropped
+for a plain `resolve` (3). Cookbook offline half PASS on 3.12 and 3.10.
+
+**Cross-lane, to raise:** the `AZURE_OPENAI_DEPLOYMENT` finding above for K14's cookbooks;
+`ROUTING_TABLE` reserves `enrichment_proposer`/`mapping_proposer` (K8) and `spec_extractor`
+(R9) / `funnel_explanation` (R10) — a package that registers one of those under another id
+refuses at startup, which is the point, but the name is the contract.
+
+### R09_spec_gap_plan.py
+
+**Status:** PASS (section 1, the deterministic gap check, on 3.12 and 3.10; no services).
+Section 2, the live extraction through the spec extractor on the small tier, NOT RUN on
+this machine — no `azure_key.env` and no second deployment named, as with R08. It is
+written, gated, and every check it makes is a `validate_spec` assertion over the lists
+rendered into the prompt, so a coined value fails it rather than a reviewer's eye.
+
+**Description:** R9's three Verify sentences — "Which brands' quote requests fell this
+month?", the same naming "average basket size" (no such KPI), the same ending "and pause
+the underperforming ones" (an action) — as hand-written *correct* specs through
+`assess_gaps` over the contract fixture and a three-KPI registry: all three feasible,
+nothing coined, the unknown metric a `questions` entry, the action verb a `questions`
+entry. Then the near-miss from the prompt's section 7 — a coined `brand__avg_basket_size`,
+an unknown `Carrier`, no schedule, Recommend shape — becomes `blocked_kpi`,
+`unknown_concept` and six `missing_parameter` gaps (`candidates`, `guardrails`, `approver`,
+`write target`, `timeout behaviour`, `schedule`), each saying which builder field fills
+it or that none exists yet. Every `GapCheck` and `Spec` validates against the generated
+models, including the two additive fields this package adds to the contract (1.1.0).
+
+**What surprised me:**
+
+1. **Most of this skill's closed sets cannot be enums.** Business areas, grains, concept
+   names and KPI identifiers vary by deployment (overlay, harvest, registry), so the
+   template's "render, do not hand-type" rule is the whole design: `render_closed_sets`
+   appends the deployment's lists under a fixed heading, and `validate_spec` checks an
+   output against exactly the lists that were rendered. Only `role`, `unit` and `delivery`
+   stay enums, and `closed_sets_match_prompt` keeps those three and the prompt agreeing.
+2. **`questions` needed to exist before the skill could be honest.** `notes` records what
+   the deployment cannot express; an unknown metric is not that — it is something the
+   author must answer. Without a field to ask in, the template's "never coin a value to
+   avoid asking" had no shape to take. Additive to `Spec`; announced in the CHANGELOG.
+3. **"For the chosen autonomy level" is a parameter list, and the build plan already has
+   it.** Section 07's table gives each shape its slots; `missing_parameter` is that table
+   applied to the draft and spec. Six of the Recommend/Act slots have no builder field
+   yet — they are reported as gaps naming P4 rather than silently passed, so a Recommend
+   draft cannot clear a check that only knew about Inform.
+4. **The fixture proves `no_join_path` for free.** The contract's own gap example names
+   `product_reviews -> supplier_deliveries`; a KPI reading both tables yields exactly that
+   gap from `find_join_path`, with nothing constructed for it.
+
+**Result:** Offline half PASS. Extraction pending a credential.
+
+---
+
+### R09_plan_view.py
+
+**Status:** PASS (six checks; 3.12 and 3.10; section 4 against the compose control plane).
+
+**Description:** The fourth Verify line — compare the plan on screen to the workflow
+definition. An Inform-shape workflow (`check_preflight → read_gold → funnel_explanation →
+record_provenance → deliver_in_app`) serialised the way the framework stores it
+(`Step.to_dict()`), derived with `plan_from_config`, validated against the contract's
+`Plan`, and compared ref for ref with `plan_refs` (a recursive walk of the same config):
+equal. A `Condition` with an `else_steps` branch and a `Router` with choices added: the
+walk reaches both, still equal, `materialise_gold` visible on the else branch. R10's
+`sample_rows` swapped in: refused, naming the executor and where to register it. Then the
+config stored as a component through `create_component_with_config` and derived by the
+`derive_plan` executor from the stored row via the framework's own `fetch_config_row`:
+the same five steps.
+
+**What surprised me:**
+
+1. **`create_component_with_config(component_type="workflow")` fails with `'str' object
+   has no attribute 'value'`.** The framework's own API wants the `ComponentType` enum and
+   does not coerce the string its `Literal` docstring suggests. One line in the cookbook;
+   worth a framework fix so the first product caller does not learn it from a traceback.
+2. **`Step` has no `agent_id` kwarg** — it takes `agent=` and `to_dict()` writes
+   `agent_id` from the agent's id. An agent step for a plan can be built with an
+   `Agent(id=..., name=...)` that has no model and never runs.
+3. **A plan is only trustworthy if the walker is.** The mutant that dropped `else_steps`
+   and `choices` from the walk still produced a *valid* `Plan` — shorter, not broken —
+   which is exactly the failure "every step on screen exists in the workflow and none is
+   missing" names. Two tests fail on it now, one of them a mutation written as a test.
+4. `validate.sh` on this branch: product mypy X-5, framework mypy X-2 (both pre-existing);
+   everything else green, including the API contract with the regenerated artefacts.
+
+**Result:** `pytest product/tests` — 573 passed, 40 skipped (21 new in
+`test_r9_spec_gap_plan.py`); framework touched suites 675 passed; same on 3.10. Ten
+mutants — walker skipping branches, unregistered executor accepted, unrouted agent
+accepted, agent step marked blocking, partial reported as blocked, unknown concept ignored,
+join path unchecked, shape ignoring autonomy, coined KPI passing `validate_spec`, metadata
+missing an executor — ten caught (two had to be re-applied after ruff wrapped the lines
+they targeted; recorded so the count is honest).

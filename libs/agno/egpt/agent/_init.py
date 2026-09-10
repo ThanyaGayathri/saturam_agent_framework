@@ -10,6 +10,7 @@ from typing import (
     Literal,
     Optional,
     Sequence,
+    Tuple,
     Union,
     cast,
 )
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 
     # Type-only: importing egpt.providers at module scope would give egpt.agent an
     # import-time edge to the provider seam, which the EGPT-3.1 no-op guarantee rules out.
-    from egpt.providers.model_provider import ModelProvider, ModelResolveRequest
+    from egpt.providers.model_provider import ModelProvider, ModelResolveRequest, ModelResolveResult
 
 from egpt.compression.manager import CompressionManager
 from egpt.culture.manager import CultureManager
@@ -189,10 +190,31 @@ def resolve_run_model(agent: Any, request: ModelResolveRequest) -> Optional[Mode
 
     Returns None when no provider is configured, leaving the caller on its current model.
     """
+    return resolve_run_model_detailed(agent, request)[0]
+
+
+def resolve_run_model_detailed(
+    agent: Any, request: ModelResolveRequest
+) -> Tuple[Optional[Model], Optional[ModelResolveResult]]:
+    """``resolve_run_model`` plus the provider's account of *why*, when it can give one.
+
+    ``resolve_run_model`` narrows to a bare ``Model`` and drops ``ModelResolveResult`` on the
+    floor -- with it, ``escalated_from`` and ``reason``. The escalation was logged by the
+    provider, but the run record never learned of it, so "every escalation is visible in the
+    run record" (G6) was true of the log and false of the record. The run path calls this
+    variant and stamps the detail onto the ``RunOutput``; see ``_stamp_resolved_model``.
+
+    Returns ``(None, None)`` when no provider is configured, ``(model, None)`` for a provider
+    that implements only ``resolve``, and ``(model, detail)`` otherwise -- never resolving
+    twice. See ``resolve_via_detailed`` for why the middle case is ``None`` and not a made-up
+    result.
+    """
+    from egpt.providers.model_provider import resolve_via_detailed
+
     provider = _model_provider_for(agent)
     if provider is None:
-        return None
-    return provider.resolve(request)
+        return None, None
+    return resolve_via_detailed(provider, request)
 
 
 async def aresolve_run_model(agent: Any, request: ModelResolveRequest) -> Optional[Model]:
@@ -204,12 +226,20 @@ async def aresolve_run_model(agent: Any, request: ModelResolveRequest) -> Option
     when it has one, and offloads to a thread when it does not -- so this is also the only path
     on which an ``AsyncModelProvider`` implementation is actually reached.
     """
-    from egpt.providers.model_provider import aresolve_via
+    return (await aresolve_run_model_detailed(agent, request))[0]
+
+
+async def aresolve_run_model_detailed(
+    agent: Any, request: ModelResolveRequest
+) -> Tuple[Optional[Model], Optional[ModelResolveResult]]:
+    """Async counterpart of ``resolve_run_model_detailed``; see ``aresolve_run_model`` for why
+    the async variant is load-bearing rather than decorative."""
+    from egpt.providers.model_provider import aresolve_via_detailed
 
     provider = _model_provider_for(agent)
     if provider is None:
-        return None
-    return await aresolve_via(provider, request)
+        return None, None
+    return await aresolve_via_detailed(provider, request)
 
 
 def set_default_model(agent: Agent, run_context: Optional[Any] = None) -> None:
