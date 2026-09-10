@@ -7,13 +7,18 @@ test_r7_provenance_adapter.py documents for record_provenance's own database wri
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 
 import pytest
 
 from egpt_retail.app.scopes import require_scopes
 from egpt_retail.contracts.playground import MAX_CUSTOM_RANGE_DAYS, ChatFilters, Period
-from egpt_retail.playground.modes import PlaygroundMode, resolve_mode_scope
+from egpt_retail.playground.modes import (
+    PlaygroundMode,
+    aresolve_mode_scope,
+    resolve_mode_scope,
+)
 from egpt_retail.skills.playground import AnswerBlockKind, closed_sets_match_prompt
 
 # ---------------------------------------------------------------------------
@@ -113,6 +118,33 @@ def test_use_case_mode_with_scope_id_resolves_two_tools():
 
 
 # ---------------------------------------------------------------------------
+# aresolve_mode_scope -- the async twin app/components.py::build_playground_agent
+# actually calls (round-1 review: this was previously unused, dead code)
+# ---------------------------------------------------------------------------
+
+
+def test_aresolve_mode_scope_agrees_with_the_sync_version():
+    async def _both():
+        return (
+            await aresolve_mode_scope(PlaygroundMode.BUSINESS_AREA, "inventory"),
+            resolve_mode_scope(PlaygroundMode.BUSINESS_AREA, "inventory"),
+        )
+
+    async_scope, sync_scope = asyncio.run(_both())
+    assert async_scope.refused == sync_scope.refused
+    assert [t.__name__ for t in async_scope.tools] == [
+        t.__name__ for t in sync_scope.tools
+    ]
+
+
+def test_aresolve_mode_scope_refuses_an_unknown_area_too():
+    scope = asyncio.run(
+        aresolve_mode_scope(PlaygroundMode.BUSINESS_AREA, "not_a_real_area")
+    )
+    assert scope.refused is not None
+
+
+# ---------------------------------------------------------------------------
 # skills/playground.py -- the closed set the prompt and the schema must agree on
 # ---------------------------------------------------------------------------
 
@@ -169,3 +201,34 @@ def test_require_scopes_refuses_a_caller_missing_a_scope():
     with pytest.raises(HTTPException) as excinfo:
         dependency(_FakeRequest(authorization_enabled=True, scopes=["other:read"]))
     assert excinfo.value.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# _owner -- round-1 review: a valid, scoped token with no `sub` claim must not
+# collapse onto the shared "local" owner
+# ---------------------------------------------------------------------------
+
+
+def test_owner_is_local_when_authorization_is_off():
+    from egpt_retail.api.routers.playground import _owner
+
+    assert _owner(_FakeRequest(authorization_enabled=False)) == "local"
+
+
+def test_owner_returns_the_authenticated_subject():
+    from egpt_retail.api.routers.playground import _owner
+
+    assert _owner(_FakeRequest(authorization_enabled=True, user_id="u1")) == "u1"
+
+
+def test_owner_refuses_a_scoped_token_with_no_subject_claim():
+    """JWTMiddleware sets user_id=None explicitly for a token that decodes and passes
+    scope checks but carries no `sub` claim -- falling back to a shared "local" here would
+    let every such caller read and mutate every other's saved prompts and reports."""
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.playground import _owner
+
+    with pytest.raises(HTTPException) as excinfo:
+        _owner(_FakeRequest(authorization_enabled=True, user_id=None))
+    assert excinfo.value.status_code == 401

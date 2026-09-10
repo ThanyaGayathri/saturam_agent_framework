@@ -21,7 +21,7 @@ from egpt.answer_provenance import aread_provenance
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from egpt_retail.api import models as wire
-from egpt_retail.app.db import build_control_plane_engine, psycopg_dsn
+from egpt_retail.app.db import build_control_plane_engine, pooled_control_plane_connection
 from egpt_retail.app.scopes import require_scopes
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.playground import (
@@ -44,12 +44,12 @@ router = APIRouter()
 
 
 def _playground_store() -> Iterator[PlaygroundStore]:
-    """One connection per request, opened and closed here -- schema provisioning happens
-    once at startup (``app/factory.py``'s lifespan), not on every call."""
-    import psycopg
-
+    """One connection per request, acquired from the process-wide pool
+    (``app/db.py::pooled_control_plane_connection``) and returned on close, not a fresh
+    ``psycopg.connect()`` per call. Schema provisioning happens once at startup
+    (``app/factory.py``'s lifespan), not on every call either."""
     settings = RetailSettings()
-    connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
+    connection = pooled_control_plane_connection(settings)
     try:
         yield PlaygroundStore(connection)
     finally:
@@ -58,9 +58,26 @@ def _playground_store() -> Iterator[PlaygroundStore]:
 
 def _owner(request: Request) -> str:
     """The caller's identity, scoping every playground resource -- this deployment is
-    single-tenant (D3), so ownership is per-user, not per-tenant. ``"local"`` is the
-    unauthenticated-dev fallback, matching ``require_scopes``'s own no-auth posture."""
-    return getattr(request.state, "user_id", None) or "local"
+    single-tenant (D3), so ownership is per-user, not per-tenant. With authorization off,
+    ``"local"`` stands in for the one local caller. With authorization on, ``user_id`` must
+    be present -- ``AuthMiddleware`` sets it to ``None`` *explicitly* (not merely omits it)
+    for a token that decodes and passes scope checks but carries no ``sub`` claim, and
+    collapsing that onto a shared ``"local"`` would let every such caller read and mutate
+    every other's saved prompts, filters and reports. Refuse instead: there is no other
+    identity in the token this router can safely key ownership on.
+    """
+    if not getattr(request.state, "authorization_enabled", False):
+        return "local"
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "This token carries no subject claim; the playground is scoped to a "
+                "caller identity and cannot be owned by an anonymous one."
+            ),
+        )
+    return user_id
 
 
 # --- wire conversions --------------------------------------------------------------------

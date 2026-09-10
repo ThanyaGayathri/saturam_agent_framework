@@ -6,15 +6,17 @@ outside its area.
 
 No model call is made here (no Azure credential is assumed) -- what this cookbook proves is
 the *deterministic* half: which tools each mode's agent would even be allowed to call, built
-by ``playground.modes.resolve_mode_scope`` and wired through the ``AgentFactory`` in
+by ``playground.modes.aresolve_mode_scope`` and wired through the ``AgentFactory`` in
 ``app.components.build_playground_agent_factory``. That half is where the guarantee lives
 ("declined or scoped, not answered from everything" cannot depend on the model choosing to
 behave); the model's prose on top of it is the interface's job, not this package's.
 
-Five sections:
+Six sections:
 
 1. Storage: saved prompts, chat filters, preferences, reports -- CRUD against the real
-   control-plane database, through ``PlaygroundStore``.
+   control-plane database, through ``PlaygroundStore``. Includes a concurrency check on
+   ``_ensure_default_report``'s advisory-lock guard: two concurrent first-ever calls for a
+   brand-new owner must produce exactly one report, not two.
 2. `data` mode: resolves to the gold-read tool. Verified via ``read_gold``'s own refusal
    when no warehouse is configured, which is the honest thing to show without one.
 3. `knowledge` mode: resolves to K10's unified retrieval tool, called live against Neo4j.
@@ -24,6 +26,9 @@ Five sections:
 5. `business_area` mode: scoped to `inventory`, from the shipped ontology (real Neo4j
    graph *not* required for this one -- the ontology is a local artifact). A concept inside
    the area resolves; a concept from `customer` is declined.
+6. The factory itself is `async def` (``build_playground_agent``) -- every call below goes
+   through it with `await`, which is also what proves the async wiring is real rather than
+   declared-but-dead (the round-1 review's own finding on ``aresolve_mode_scope``).
 
 Run:
     .venvs/demo/bin/python cookbook/94_retail/R11_playground.py
@@ -59,139 +64,160 @@ from egpt_retail.playground.store import PlaygroundStore  # noqa: E402
 from egpt_retail.routing.providers import build_tier_providers  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
-print("R11 -- the playground, four modes")
-print("=" * 78)
 
-settings = RetailSettings()
+async def main() -> None:
+    print("R11 -- the playground, four modes")
+    print("=" * 78)
 
-# --- 1. Storage --------------------------------------------------------------------------
+    settings = RetailSettings()
 
-print()
-print("1. Saved prompts, filters, preferences and reports -- real Postgres")
-print("-" * 78)
+    # --- 1. Storage ----------------------------------------------------------------------
 
-connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
-store = PlaygroundStore(connection)
-store.ensure_schema()
+    print()
+    print("1. Saved prompts, filters, preferences and reports -- real Postgres")
+    print("-" * 78)
 
-owner = "cookbook_r11"
-prompt = store.save_prompt(
-    owner, "Which suppliers are slipping on on-time delivery?", "Supplier watch"
-)
-same = store.save_prompt(
-    owner, "Which suppliers are slipping on on-time delivery?", "Supplier watch"
-)
-print(
-    "   OK " if prompt.id == same.id else "   FAIL",
-    "saving the same text twice is a no-op",
-)
+    connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
+    store = PlaygroundStore(connection)
+    store.ensure_schema()
 
-store.set_filters(store.get_filters(owner))  # exercises the upsert path with defaults
-active_report_id, reports = store.list_reports(owner)
-print(
-    "   OK " if reports else "   FAIL",
-    "a fresh owner gets one empty report, so pin has a target",
-)
-
-item = store.pin_block(
-    owner,
-    active_report_id,
-    block={"id": "blk_1", "kind": "finding", "title": "On-time rate fell"},
-)
-again = store.pin_block(
-    owner,
-    active_report_id,
-    block={"id": "blk_1", "kind": "finding", "title": "On-time rate fell"},
-)
-print(
-    "   OK " if item.id == again.id else "   FAIL",
-    "pinning a block already in the report is a no-op",
-)
-
-connection.close()
-
-# --- 2. `data` mode: resolves to the gold-read tool -------------------------------------------
-
-print()
-print("2. `data` mode resolves a real tool, backed by R6's guard and R5's read_gold")
-print("-" * 78)
-
-db = build_control_plane_db(settings)
-providers = build_tier_providers(settings)
-factory = build_playground_agent_factory(settings, db, providers)
-
-data_agent = factory.factory(
-    RequestContext(input=PlaygroundModeInput(mode=PlaygroundMode.DATA))
-)
-tool_names = {getattr(t, "__name__", "?") for t in (data_agent.tools or [])}
-print(
-    "   OK " if tool_names == {"read_kpi_data"} else "   FAIL",
-    "data mode:",
-    sorted(tool_names),
-)
-
-
-async def _try_read_kpi_data() -> str:
-    tool = data_agent.tools[0]
-    try:
-        await tool(["no_such_kpi__nope"])
-        return "read (unexpected in this environment -- a warehouse is configured)"
-    except RuntimeError as exc:
-        return f"refused, honestly: {str(exc).splitlines()[0][:88]}"
-
-
-print("   ", asyncio.run(_try_read_kpi_data()))
-
-# --- 3. `knowledge` mode: K10's unified retrieval, live ---------------------------------------
-
-print()
-print("3. `knowledge` mode resolves K10's unified retrieval, called live")
-print("-" * 78)
-
-knowledge_agent = factory.factory(
-    RequestContext(input=PlaygroundModeInput(mode=PlaygroundMode.KNOWLEDGE))
-)
-knowledge_tools = {
-    getattr(t, "__name__", "?"): t for t in (knowledge_agent.tools or [])
-}
-print(
-    "   OK " if "search_knowledge" in knowledge_tools else "   FAIL",
-    "knowledge mode:",
-    sorted(knowledge_tools),
-)
-try:
-    result = asyncio.run(knowledge_tools["search_knowledge"]("inventory replenishment"))
+    owner = "cookbook_r11"
+    prompt = store.save_prompt(
+        owner, "Which suppliers are slipping on on-time delivery?", "Supplier watch"
+    )
+    same = store.save_prompt(
+        owner, "Which suppliers are slipping on on-time delivery?", "Supplier watch"
+    )
     print(
-        "    live K10 call returned",
-        len(result["results"]),
-        "result(s) -- no exception",
+        "   OK " if prompt.id == same.id else "   FAIL",
+        "saving the same text twice is a no-op",
     )
-except (
-    Exception
-) as exc:  # pragma: no cover -- environment-dependent (Neo4j reachability)
-    print("    skipped (Neo4j unreachable in this environment):", str(exc)[:88])
 
-# --- 4. `use_case` mode: found by reference, not search ---------------------------------------
-
-print()
-print(
-    "4. `use_case` mode: a run is found by reference; another use case's run is declined"
-)
-print("-" * 78)
-
-engine = build_control_plane_engine(settings)
-# A clean slate before the baseline: write_provenance takes no ON CONFLICT (a second write
-# for a run_id that already has one is a defect, not something to overwrite silently), so a
-# second run of this cookbook against a database still holding the first run's rows would
-# otherwise fail on a duplicate key rather than re-demonstrate anything.
-with engine.begin() as connection:
-    connection.execute(
-        text("DELETE FROM egpt_answer_provenance WHERE run_id IN (:a, :b)"),
-        {"a": "r11_cookbook_run_a", "b": "r11_cookbook_run_b"},
+    store.set_filters(store.get_filters(owner))  # exercises the upsert path with defaults
+    active_report_id, reports = store.list_reports(owner)
+    print(
+        "   OK " if reports else "   FAIL",
+        "a fresh owner gets one empty report, so pin has a target",
     )
-now = datetime.now(timezone.utc)
-asyncio.run(
-    awrite_provenance(
+
+    item = store.pin_block(
+        owner,
+        active_report_id,
+        block={"id": "blk_1", "kind": "finding", "title": "On-time rate fell"},
+    )
+    again = store.pin_block(
+        owner,
+        active_report_id,
+        block={"id": "blk_1", "kind": "finding", "title": "On-time rate fell"},
+    )
+    print(
+        "   OK " if item.id == again.id else "   FAIL",
+        "pinning a block already in the report is a no-op",
+    )
+
+    # Concurrency check on the advisory-lock fix: two threads, each its own connection (a
+    # connection cannot be shared across threads), racing `list_reports` for the same
+    # brand-new owner. Without the lock in `_ensure_default_report`, both can pass the
+    # "does this owner have a report" check before either commits, and the owner ends up
+    # with two "My first report" rows instead of one.
+    race_owner = f"cookbook_r11_race_{datetime.now(timezone.utc).timestamp()}"
+
+    def _first_report_id() -> str:
+        import psycopg as _psycopg
+
+        race_connection = _psycopg.connect(psycopg_dsn(settings.retail_db_url))
+        try:
+            _, race_reports = PlaygroundStore(race_connection).list_reports(race_owner)
+            return race_reports[0].id
+        finally:
+            race_connection.close()
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_ids = list(pool.map(lambda _: _first_report_id(), range(2)))
+    _, race_reports_after = store.list_reports(race_owner)
+    print(
+        "   OK " if len(race_reports_after) == 1 and first_ids[0] == first_ids[1] else "   FAIL",
+        "two concurrent first-ever calls produce exactly one report, not two",
+    )
+
+    connection.close()
+
+    # --- 2. `data` mode: resolves to the gold-read tool -----------------------------------
+
+    print()
+    print("2. `data` mode resolves a real tool, backed by R6's guard and R5's read_gold")
+    print("-" * 78)
+
+    db = build_control_plane_db(settings)
+    providers = build_tier_providers(settings)
+    factory = build_playground_agent_factory(settings, db, providers)
+
+    data_agent = await factory.factory(
+        RequestContext(input=PlaygroundModeInput(mode=PlaygroundMode.DATA))
+    )
+    tool_names = {getattr(t, "__name__", "?") for t in (data_agent.tools or [])}
+    print(
+        "   OK " if tool_names == {"read_kpi_data"} else "   FAIL",
+        "data mode:",
+        sorted(tool_names),
+    )
+
+    try:
+        await data_agent.tools[0](["no_such_kpi__nope"])
+        print("    read (unexpected in this environment -- a warehouse is configured)")
+    except RuntimeError as exc:
+        print("    refused, honestly:", str(exc).splitlines()[0][:88])
+
+    # --- 3. `knowledge` mode: K10's unified retrieval, live -------------------------------
+
+    print()
+    print("3. `knowledge` mode resolves K10's unified retrieval, called live")
+    print("-" * 78)
+
+    knowledge_agent = await factory.factory(
+        RequestContext(input=PlaygroundModeInput(mode=PlaygroundMode.KNOWLEDGE))
+    )
+    knowledge_tools = {
+        getattr(t, "__name__", "?"): t for t in (knowledge_agent.tools or [])
+    }
+    print(
+        "   OK " if "search_knowledge" in knowledge_tools else "   FAIL",
+        "knowledge mode:",
+        sorted(knowledge_tools),
+    )
+    try:
+        result = await knowledge_tools["search_knowledge"]("inventory replenishment")
+        print(
+            "    live K10 call returned",
+            len(result["results"]),
+            "result(s) -- no exception",
+        )
+    except Exception as exc:  # pragma: no cover -- environment-dependent (Neo4j reachability)
+        print("    skipped (Neo4j unreachable in this environment):", str(exc)[:88])
+
+    # --- 4. `use_case` mode: found by reference, not search -------------------------------
+
+    print()
+    print(
+        "4. `use_case` mode: a run is found by reference; another use case's run is declined"
+    )
+    print("-" * 78)
+
+    engine = build_control_plane_engine(settings)
+    # A clean slate before the baseline: write_provenance takes no ON CONFLICT (a second
+    # write for a run_id that already has one is a defect, not something to overwrite
+    # silently), so a second run of this cookbook against a database still holding the
+    # first run's rows would otherwise fail on a duplicate key rather than re-demonstrate
+    # anything.
+    with engine.begin() as ddl_connection:
+        ddl_connection.execute(
+            text("DELETE FROM egpt_answer_provenance WHERE run_id IN (:a, :b)"),
+            {"a": "r11_cookbook_run_a", "b": "r11_cookbook_run_b"},
+        )
+    now = datetime.now(timezone.utc)
+    await awrite_provenance(
         engine,
         ProvenanceRecord(
             run_id="r11_cookbook_run_a",
@@ -201,9 +227,7 @@ asyncio.run(
             model_tier="none",
         ),
     )
-)
-asyncio.run(
-    awrite_provenance(
+    await awrite_provenance(
         engine,
         ProvenanceRecord(
             run_id="r11_cookbook_run_b",
@@ -213,20 +237,17 @@ asyncio.run(
             model_tier="none",
         ),
     )
-)
-engine.dispose()
+    engine.dispose()
 
-use_case_agent = factory.factory(
-    RequestContext(
-        input=PlaygroundModeInput(
-            mode=PlaygroundMode.USE_CASE, scope_id="r11_cookbook_uc_a"
+    use_case_agent = await factory.factory(
+        RequestContext(
+            input=PlaygroundModeInput(
+                mode=PlaygroundMode.USE_CASE, scope_id="r11_cookbook_uc_a"
+            )
         )
     )
-)
-uc_tools = {getattr(t, "__name__", "?"): t for t in use_case_agent.tools}
+    uc_tools = {getattr(t, "__name__", "?"): t for t in use_case_agent.tools}
 
-
-async def _use_case_checks() -> None:
     own_run = await uc_tools["get_run"]("r11_cookbook_run_a")
     other_run = await uc_tools["get_run"]("r11_cookbook_run_b")
     listed = await uc_tools["list_runs"]()
@@ -244,48 +265,49 @@ async def _use_case_checks() -> None:
         "list_runs sees only this use case's run(s)",
     )
 
+    # --- 5. `business_area` mode: structural refusal, no model involved -------------------
 
-asyncio.run(_use_case_checks())
+    print()
+    print("5. `business_area` mode: an out-of-area concept is declined, in the tool itself")
+    print("-" * 78)
 
-# --- 5. `business_area` mode: structural refusal, no model involved ---------------------------
-
-print()
-print("5. `business_area` mode: an out-of-area concept is declined, in the tool itself")
-print("-" * 78)
-
-area_agent = factory.factory(
-    RequestContext(
-        input=PlaygroundModeInput(
-            mode=PlaygroundMode.BUSINESS_AREA, scope_id="inventory"
+    area_agent = await factory.factory(
+        RequestContext(
+            input=PlaygroundModeInput(
+                mode=PlaygroundMode.BUSINESS_AREA, scope_id="inventory"
+            )
         )
     )
-)
-lookup = area_agent.tools[0]
-in_area = lookup("Inventory")
-out_of_area = lookup("Customer")
-print(
-    "   OK " if "description" in in_area else "   FAIL",
-    "in-area concept resolves:",
-    in_area.get("name"),
-)
-print(
-    "   OK " if "declined" in out_of_area else "   FAIL",
-    "out-of-area concept declined:",
-    out_of_area.get("declined"),
-)
+    lookup = area_agent.tools[0]
+    in_area = lookup("Inventory")
+    out_of_area = lookup("Customer")
+    print(
+        "   OK " if "description" in in_area else "   FAIL",
+        "in-area concept resolves:",
+        in_area.get("name"),
+    )
+    print(
+        "   OK " if "declined" in out_of_area else "   FAIL",
+        "out-of-area concept declined:",
+        out_of_area.get("declined"),
+    )
 
-unknown_area = factory.factory(
-    RequestContext(
-        input=PlaygroundModeInput(
-            mode=PlaygroundMode.BUSINESS_AREA, scope_id="not_a_real_area"
+    unknown_area = await factory.factory(
+        RequestContext(
+            input=PlaygroundModeInput(
+                mode=PlaygroundMode.BUSINESS_AREA, scope_id="not_a_real_area"
+            )
         )
     )
-)
-print(
-    "   OK " if not unknown_area.tools else "   FAIL",
-    "an unknown area refuses before any agent tooling exists",
-)
+    print(
+        "   OK " if not unknown_area.tools else "   FAIL",
+        "an unknown area refuses before any agent tooling exists",
+    )
 
-print()
-print("=" * 78)
-print("R11 cookbook complete.")
+    print()
+    print("=" * 78)
+    print("R11 cookbook complete.")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -14,10 +14,12 @@ to prevent. No framework table lives there and ``MigrationManager`` never touche
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 from egpt.integrations.db.postgres import PostgresDb
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import PoolProxiedConnection
 
 from egpt_retail.app.settings import RetailSettings
 
@@ -28,6 +30,7 @@ __all__ = [
     "build_control_plane_engine",
     "build_warehouse_engine",
     "build_warehouse_readonly_engine",
+    "pooled_control_plane_connection",
     "psycopg_dsn",
 ]
 
@@ -68,13 +71,42 @@ def build_control_plane_engine(settings: RetailSettings) -> Engine:
     than naming the setting here, at the one place both DDL callers construct their engine
     through.
     """
-    if not _SQLALCHEMY_DRIVER_SCHEME.match(settings.retail_db_url):
+    return _validated_engine(settings.retail_db_url)
+
+
+def _validated_engine(db_url: str) -> Engine:
+    if not _SQLALCHEMY_DRIVER_SCHEME.match(db_url):
         raise ValueError(
             f"EGPT_RETAIL_DB_URL must be a postgresql+<driver>:// DSN, got "
-            f"{settings.retail_db_url!r}. The control-plane database, including R7's "
+            f"{db_url!r}. The control-plane database, including R7's "
             "answer-provenance and delivery tables, is Postgres-only."
         )
-    return create_engine(settings.retail_db_url, pool_pre_ping=True, future=True)
+    return create_engine(db_url, pool_pre_ping=True, future=True)
+
+
+@lru_cache(maxsize=None)
+def _pooled_control_plane_engine(db_url: str) -> Engine:
+    """One pooled ``Engine`` per control-plane DSN, cached for the process's lifetime.
+
+    Keyed by the DSN string, not by ``RetailSettings`` (not hashable in a way ``lru_cache``
+    could use) -- the DSN does not change within one process's lifetime, so this is a
+    process-wide singleton in effect, the same posture a long-lived server holds its
+    connection pool for. Nothing here opens a connection; ``create_engine`` is lazy, same as
+    :func:`build_control_plane_engine`.
+    """
+    return _validated_engine(db_url)
+
+
+def pooled_control_plane_connection(settings: RetailSettings) -> PoolProxiedConnection:
+    """A raw DBAPI connection from the process-wide pooled engine above -- for a caller (a
+    store class) that expects a psycopg-shaped connection with ``.cursor()``/``.commit()``,
+    not a SQLAlchemy ``Connection``. Returns to the pool on ``.close()`` rather than actually
+    disconnecting, which is the entire difference from ``psycopg.connect(psycopg_dsn(...))``
+    -- the R11/R13 routers' per-request dependencies (``api/routers/playground.py``,
+    ``dashboards.py``) call this many times a second under real traffic, and a fresh TCP
+    connection per call is a real latency and connection-exhaustion risk.
+    """
+    return _pooled_control_plane_engine(settings.retail_db_url).raw_connection()
 
 
 def psycopg_dsn(sqlalchemy_url: str) -> str:

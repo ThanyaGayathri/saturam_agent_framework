@@ -9,12 +9,12 @@ semantic reader, which are concerns this store deliberately does not carry.
 from __future__ import annotations
 
 import uuid
-from typing import Iterator, List, Sequence
+from typing import FrozenSet, Iterator, List, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from egpt_retail.api import models as wire
-from egpt_retail.app.db import psycopg_dsn
+from egpt_retail.app.db import pooled_control_plane_connection
 from egpt_retail.app.scopes import require_scopes
 from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
@@ -27,13 +27,13 @@ from egpt_retail.contracts.dashboards import (
     TilePosition,
     Visibility,
 )
-from egpt_retail.contracts.kpi import FeasibilityVerdict, assess_registry
+from egpt_retail.contracts.kpi import FeasibilityVerdict, KpiDefinition, assess_registry
 from egpt_retail.contracts.semantic import available_tables
 from egpt_retail.dashboards.data import read_dashboard_data
 from egpt_retail.dashboards.store import UNSET, DashboardStore
 from egpt_retail.kpi.store import KpiRegistryStore
 
-__all__ = ["router"]
+__all__ = ["router", "tile_readiness_refusal"]
 
 router = APIRouter()
 
@@ -47,10 +47,8 @@ class DashboardValidationError(ValueError):
 
 
 def _dashboard_store() -> Iterator[DashboardStore]:
-    import psycopg
-
     settings = RetailSettings()
-    connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
+    connection = pooled_control_plane_connection(settings)
     try:
         yield DashboardStore(connection)
     finally:
@@ -58,19 +56,65 @@ def _dashboard_store() -> Iterator[DashboardStore]:
 
 
 def _owner(request: Request) -> str:
-    return getattr(request.state, "user_id", None) or "local"
+    """The caller's identity, scoping ownership and edit/delete rights. This deployment is
+    single-tenant (D3): with authorization off, ``"local"`` stands in for the one local
+    caller. With authorization on, ``user_id`` must be present -- ``AuthMiddleware`` sets it
+    to ``None`` *explicitly* (not merely omits it) for a token that decodes and passes scope
+    checks but carries no ``sub`` claim, and collapsing that onto a shared ``"local"`` would
+    let every such caller read and mutate every other's dashboards. Refuse instead: there is
+    no other identity in the token this router can safely key ownership on.
+    """
+    if not getattr(request.state, "authorization_enabled", False):
+        return "local"
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "This token carries no subject claim; dashboards are scoped to a caller "
+                "identity and cannot be owned by an anonymous one."
+            ),
+        )
+    return user_id
+
+
+def tile_readiness_refusal(
+    wanted: Sequence[str],
+    definitions: Sequence[KpiDefinition],
+    tables: FrozenSet[str],
+) -> Optional[str]:
+    """The 422 refusal message for a set of wanted KPI identifiers, or ``None`` if every one
+    is registered and ``ready``. Pure -- no I/O, no Postgres, no Neo4j -- so this decision
+    (R13's own headline guarantee) is unit-testable directly, the same way
+    ``assess_registry``/``FeasibilityVerdict`` already are. :func:`_check_tiles_ready` is the
+    thin I/O wrapper that gathers ``definitions`` and ``tables`` and calls this.
+    """
+    found = {d.identifier for d in definitions}
+    unregistered = set(wanted) - found
+    if unregistered:
+        return f"{sorted(unregistered)[0]} is not a registered KPI and cannot be tiled."
+
+    feasibility = assess_registry(definitions, tables)
+    for identifier in sorted(wanted):
+        result = feasibility[identifier]
+        if result.verdict is not FeasibilityVerdict.READY:
+            missing = ", ".join(sorted(result.missing_tables)) or "everything"
+            return (
+                f"{identifier} is {result.verdict.value} (missing: {missing}) and cannot "
+                "be tiled."
+            )
+    return None
 
 
 def _check_tiles_ready(tiles: Sequence[Tile], settings: RetailSettings) -> None:
     """Refuses (raising :class:`DashboardValidationError`) unless every tile's KPI is
-    registered and ``ready`` -- a blocked or partial KPI has nothing in gold to read."""
+    registered and ``ready`` -- a blocked or partial KPI has nothing in gold to read. Gathers
+    the inputs :func:`tile_readiness_refusal` needs and raises on its verdict."""
     if not tiles:
         return
     wanted = sorted({tile.kpi_identifier for tile in tiles})
 
-    import psycopg
-
-    connection = psycopg.connect(psycopg_dsn(settings.retail_db_url))
+    connection = pooled_control_plane_connection(settings)
     try:
         definitions = [
             d for d in KpiRegistryStore(connection).list() if d.identifier in wanted
@@ -78,23 +122,12 @@ def _check_tiles_ready(tiles: Sequence[Tile], settings: RetailSettings) -> None:
     finally:
         connection.close()
 
-    found = {d.identifier for d in definitions}
-    unregistered = set(wanted) - found
-    if unregistered:
-        raise DashboardValidationError(
-            f"{sorted(unregistered)[0]} is not a registered KPI and cannot be tiled."
-        )
-
     with open_semantic_reader(settings) as reader:
-        feasibility = assess_registry(definitions, available_tables(reader))
-    for identifier in wanted:
-        result = feasibility[identifier]
-        if result.verdict is not FeasibilityVerdict.READY:
-            missing = ", ".join(sorted(result.missing_tables)) or "everything"
-            raise DashboardValidationError(
-                f"{identifier} is {result.verdict.value} (missing: {missing}) and cannot "
-                "be tiled."
-            )
+        tables = available_tables(reader)
+
+    message = tile_readiness_refusal(wanted, definitions, tables)
+    if message is not None:
+        raise DashboardValidationError(message)
 
 
 # --- wire conversions ------------------------------------------------------------------------

@@ -70,23 +70,36 @@ def _status_for_missing(reason: str) -> KpiHealthStatus:
     return KpiHealthStatus.failed
 
 
+def _empty_tile_data(
+    tile: Tile,
+    status: KpiHealthStatus,
+    *,
+    as_of: Optional[datetime] = None,
+    computed_at: Optional[str] = None,
+    provenance_ref: Optional[str] = None,
+) -> TileData:
+    """The shape every "nothing to show" case renders as -- unavailable, never a broken
+    response and never mistaken for a genuinely current, empty tile."""
+    return TileData(
+        tile_id=tile.id,
+        kpi_identifier=tile.kpi_identifier,
+        status=status,
+        value=None,
+        unit="",
+        delta=None,
+        series=[],
+        rows=[],
+        as_of=as_of,
+        computed_at=computed_at,
+        provenance_ref=provenance_ref,
+    )
+
+
 def _tile_data(
     tile: Tile, result: Optional[Dict[str, Any]], missing_reason: str
 ) -> TileData:
     if result is None:
-        return TileData(
-            tile_id=tile.id,
-            kpi_identifier=tile.kpi_identifier,
-            status=_status_for_missing(missing_reason),
-            value=None,
-            unit="",
-            delta=None,
-            series=[],
-            rows=[],
-            as_of=None,
-            computed_at=None,
-            provenance_ref=None,
-        )
+        return _empty_tile_data(tile, _status_for_missing(missing_reason))
 
     rows: List[Dict[str, Any]] = result["rows"]
     if tile.grain_value is not None:
@@ -96,14 +109,27 @@ def _tile_data(
     else:
         target_row = None
 
+    # A table tile with no single target row shows the whole listing -- that is the tile's
+    # own configuration (no grain, more than one row), not a resolution failure. Every other
+    # shape expected exactly one value; finding none (a `grain_value` that matched no
+    # dimension row, or an ambiguous multi-row result with no grain to disambiguate) is a
+    # real gap, not "fresh and empty" -- reporting `fresh` here would be indistinguishable
+    # from a genuinely current, correctly empty tile.
+    if target_row is None and tile.chart is not ChartKind.TABLE:
+        return _empty_tile_data(
+            tile,
+            KpiHealthStatus.never_computed,
+            as_of=_end_of_business_day(result.get("as_of")),
+            computed_at=result.get("computed_at"),
+            provenance_ref=result.get("run_id"),
+        )
+
     value = (
         float(target_row["value"])
         if target_row is not None and target_row.get("value") is not None
         else None
     )
-    # A table tile with no single target row shows the whole listing; every other shape
-    # (number/line/bar, or a grain-scoped table row) shows the one value it resolved.
-    table_rows = rows if (tile.chart is ChartKind.TABLE and target_row is None) else []
+    table_rows = rows if target_row is None else []
 
     return TileData(
         tile_id=tile.id,

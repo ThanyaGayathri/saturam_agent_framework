@@ -20,6 +20,7 @@ from egpt_retail.contracts.dashboards import (
     TilePosition,
     Visibility,
 )
+from egpt_retail.contracts.kpi import KpiDefinition
 from egpt_retail.dashboards.data import _row_for_grain, _status_for_missing, _tile_data
 from egpt_retail.dashboards.store import (
     UNSET,
@@ -212,3 +213,146 @@ def test_tile_data_table_tile_with_multiple_rows_and_no_grain_lists_them():
     data = _tile_data(tile, result, "")
     assert data.value is None
     assert len(data.rows) == 2
+
+
+def test_tile_data_grain_mismatch_reports_never_computed_not_fresh():
+    """Round-1 review finding: a `grain_value` that matches no dimension row (a typo, or a
+    supplier that dropped out of the latest materialisation) must not render as `fresh` with
+    nothing to show -- that is indistinguishable from a genuinely current, correctly empty
+    tile. A number/line/bar tile that resolved no value is a real gap."""
+    tile = _tile(chart=ChartKind.NUMBER, grain_value="sup_999")
+    result = {
+        "as_of": "2026-09-06",
+        "computed_at": "2026-09-07T02:20:00Z",
+        "run_id": "run_gold_1",
+        "rows": [
+            {
+                "value": "0.71",
+                "supplier_id": "sup_014",
+                "as_of": "x",
+                "computed_at": "x",
+                "run_id": "x",
+            }
+        ],
+    }
+    data = _tile_data(tile, result, "")
+    assert data.status.value == "never_computed"
+    assert data.value is None
+    assert data.rows == []
+
+
+def test_tile_data_ambiguous_multi_row_non_table_reports_never_computed():
+    """No grain to disambiguate and more than one row: a number/line/bar tile still cannot
+    resolve a single value, and must say so rather than reporting `fresh`."""
+    tile = _tile(chart=ChartKind.LINE)  # no grain_value
+    result = {
+        "as_of": "2026-09-06",
+        "computed_at": "2026-09-07T02:20:00Z",
+        "run_id": "run_gold_1",
+        "rows": [
+            {"value": "0.71", "supplier_id": "sup_014", "as_of": "x", "computed_at": "x", "run_id": "x"},
+            {"value": "0.88", "supplier_id": "sup_003", "as_of": "x", "computed_at": "x", "run_id": "x"},
+        ],
+    }
+    data = _tile_data(tile, result, "")
+    assert data.status.value == "never_computed"
+    assert data.value is None
+
+
+# ---------------------------------------------------------------------------
+# tile_readiness_refusal -- R13's headline 422 guarantee, pure and DB-free
+# (round-1 review: this path previously had zero coverage that CI actually runs)
+# ---------------------------------------------------------------------------
+
+
+def _kpi(identifier: str, tables: frozenset) -> KpiDefinition:
+    return KpiDefinition(
+        identifier=identifier,
+        name=identifier,
+        description="",
+        sql=f"SELECT 1 FROM {next(iter(sorted(tables)))}" if tables else "SELECT 1",
+        grain="overall",
+        business_area="supply_chain",
+        source_tables=tables,
+    )
+
+
+def test_tile_readiness_refusal_for_an_unregistered_kpi():
+    from egpt_retail.api.routers.dashboards import tile_readiness_refusal
+
+    message = tile_readiness_refusal(["missing_kpi"], [], frozenset())
+    assert message is not None
+    assert "not a registered KPI" in message
+
+
+def test_tile_readiness_refusal_for_a_blocked_kpi():
+    from egpt_retail.api.routers.dashboards import tile_readiness_refusal
+
+    kpi = _kpi("k1", frozenset({"orders"}))
+    message = tile_readiness_refusal(["k1"], [kpi], frozenset())
+    assert message is not None
+    assert "blocked" in message
+    assert "orders" in message
+
+
+def test_tile_readiness_refusal_for_a_partial_kpi():
+    from egpt_retail.api.routers.dashboards import tile_readiness_refusal
+
+    kpi = KpiDefinition(
+        identifier="k1",
+        name="k1",
+        description="",
+        sql="SELECT 1 FROM orders JOIN customers ON orders.customer_id = customers.id",
+        grain="overall",
+        business_area="supply_chain",
+        source_tables=frozenset({"orders", "customers"}),
+    )
+    message = tile_readiness_refusal(["k1"], [kpi], frozenset({"orders"}))
+    assert message is not None
+    assert "partial" in message
+    assert "customers" in message
+
+
+def test_tile_readiness_refusal_is_none_when_every_tile_is_ready():
+    from egpt_retail.api.routers.dashboards import tile_readiness_refusal
+
+    kpi = _kpi("k1", frozenset({"orders"}))
+    assert tile_readiness_refusal(["k1"], [kpi], frozenset({"orders"})) is None
+
+
+# ---------------------------------------------------------------------------
+# _owner -- round-1 review: a valid, scoped token with no `sub` claim must not
+# collapse onto the shared "local" owner
+# ---------------------------------------------------------------------------
+
+
+class _FakeState:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+class _FakeRequest:
+    def __init__(self, **state_kwargs):
+        self.state = _FakeState(**state_kwargs)
+
+
+def test_dashboards_owner_is_local_when_authorization_is_off():
+    from egpt_retail.api.routers.dashboards import _owner
+
+    assert _owner(_FakeRequest(authorization_enabled=False)) == "local"
+
+
+def test_dashboards_owner_returns_the_authenticated_subject():
+    from egpt_retail.api.routers.dashboards import _owner
+
+    assert _owner(_FakeRequest(authorization_enabled=True, user_id="u1")) == "u1"
+
+
+def test_dashboards_owner_refuses_a_scoped_token_with_no_subject_claim():
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.dashboards import _owner
+
+    with pytest.raises(HTTPException) as excinfo:
+        _owner(_FakeRequest(authorization_enabled=True, user_id=None))
+    assert excinfo.value.status_code == 401

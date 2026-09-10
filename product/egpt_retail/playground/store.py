@@ -318,7 +318,19 @@ class PlaygroundStore:
         return await asyncio.to_thread(self.list_reports, owner)
 
     def _ensure_default_report(self, owner: str) -> None:
+        """Check-then-act, guarded by a per-owner advisory lock -- without it, two
+        concurrent first-ever calls for the same brand-new owner can both pass the
+        ``SELECT`` and each insert a "My first report" row, leaving one owner with two
+        where the docstring on :meth:`list_reports` promises one. The lock is transaction-
+        scoped (``pg_advisory_xact_lock``, the same primitive ``ensure_schema`` uses) and
+        held across both the check and :meth:`create_report`'s own commit below, so a second
+        caller blocked on it sees the first caller's committed row before it re-checks.
+        """
         with self._connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"egpt_retail.playground.default_report.{owner}",),
+            )
             cursor.execute(
                 f"SELECT 1 FROM {self._schema}.report WHERE owner = %s LIMIT 1",
                 (owner,),

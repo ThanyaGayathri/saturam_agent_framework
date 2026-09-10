@@ -57,7 +57,7 @@ from egpt_retail.executors.provenance import record_provenance
 from egpt_retail.executors.registry import assert_registry_valid
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
 from egpt_retail.memory.config import build_memory_resolver
-from egpt_retail.playground.modes import PlaygroundMode, resolve_mode_scope
+from egpt_retail.playground.modes import PlaygroundMode, aresolve_mode_scope
 from egpt_retail.routing.providers import (
     TierProviders,
     build_tier_providers,
@@ -202,8 +202,15 @@ def build_playground_agent_factory(
 ) -> AgentFactory:
     """R11's playground: a fresh, narrowly-tooled ``Agent`` per request rather than four
     static ones. ``ctx.input.mode``/``scope_id`` resolve through
-    ``playground.modes.resolve_mode_scope`` -- the deterministic router that decides what
+    ``playground.modes.aresolve_mode_scope`` -- the deterministic router that decides what
     the returned agent is even allowed to try -- before the agent is constructed at all.
+
+    ``build_playground_agent`` is itself ``async def``: ``AgentFactory.factory`` accepts
+    either a sync or an async callable (``BaseFactory.__init__``'s
+    ``Union[Callable[[RequestContext], T], Callable[[RequestContext], Awaitable[T]]]``), and
+    the async twin is what actually gets exercised this way -- ``business_area``'s ontology
+    file read is genuine (if small) blocking I/O, and a sync factory would run it inline on
+    the event loop thread rather than off it.
 
     Not covered by ``route_agents``: a factory has no ``model`` attribute of its own to pin
     or route, since the model belongs to the ``Agent`` it builds per call. The per-request
@@ -212,12 +219,12 @@ def build_playground_agent_factory(
     """
     prompt = _PLAYGROUND_PROMPT.read_text()
 
-    def build_playground_agent(ctx: RequestContext) -> Agent:
+    async def build_playground_agent(ctx: RequestContext) -> Agent:
         # `RequestContext.input` is typed as `BaseModel | dict | None` because a factory
         # can declare any schema; `input_schema=PlaygroundModeInput` below is what EgptOS
         # actually validates it against before this function ever runs.
         cfg = cast(PlaygroundModeInput, ctx.input)
-        scope = resolve_mode_scope(cfg.mode, cfg.scope_id, settings=settings)
+        scope = await aresolve_mode_scope(cfg.mode, cfg.scope_id, settings=settings)
         if scope.refused:
             instructions = (
                 f"{prompt}\n\n"
