@@ -82,11 +82,16 @@ from egpt_retail.app.settings import RetailSettings  # noqa: E402
 from egpt_retail.executors.delivery import deliver_in_app  # noqa: E402
 from egpt_retail.executors.gold import read_gold  # noqa: E402
 from egpt_retail.executors.provenance import record_provenance  # noqa: E402
-from egpt_retail.executors.rfq import sample_rows  # noqa: E402
+from egpt_retail.executors.rfq import (  # noqa: E402
+    check_explanation_grounding,
+    sample_rows,
+)
 from egpt_retail.kpi.rfq import RFQ_KPI_DEFINITIONS  # noqa: E402
 from egpt_retail.kpi.store import KpiRegistryStore  # noqa: E402
 from egpt_retail.semantic.harvest import harvest_schema  # noqa: E402
 from egpt_retail.skills.funnel_explanation import (  # noqa: E402
+    BrandMovement,
+    Direction,
     FunnelExplanation,
     citations_within_input,
 )
@@ -374,6 +379,65 @@ if matching and replay_session:
         and sum(r["sessions"] for r in populated["rows"]) == direct_friction
     )
 
+    # A second analytics_event row sharing the identity *and* the event name must not
+    # re-add the identity's already-aggregated click counts a second time -- the fan-out
+    # FRICTION_QUERY's own review comment named (distinct from the sessions-per-identity
+    # fan-out section 3 already covers above).
+    event_name = matching[0]["event_name"]
+    dup_row = query(
+        "SELECT user_id, session_id, event_name FROM silver.analytics_event "
+        "WHERE NOT (user_id = :u AND session_id = :s AND event_name = :e) LIMIT 1",
+        u=matching[0]["user_id"],
+        s=matching[0]["session_id"],
+        e=event_name,
+    )
+    if dup_row:
+        original_event_name = dup_row[0]["event_name"]
+        execute(
+            "UPDATE silver.analytics_event SET identity_key = :k, event_name = :e "
+            "WHERE user_id = :u AND session_id = :s",
+            k=shared_identity,
+            e=event_name,
+            u=dup_row[0]["user_id"],
+            s=dup_row[0]["session_id"],
+        )
+        duplicated = asyncio.run(
+            sample_rows(
+                StepInput(
+                    additional_data={"kpi_identifiers": identifiers},
+                    previous_step_content=read_output.content,
+                )
+            )
+        ).content["friction"]
+        print(
+            f"  with a duplicate {event_name!r} event on the same identity: {duplicated}"
+        )
+        dup_event_row = next(
+            (r for r in duplicated["rows"] if r["event_name"] == event_name), None
+        )
+        populated_event_row = next(
+            (r for r in populated["rows"] if r["event_name"] == event_name), None
+        )
+        checks[
+            "a duplicate event of the same name on one identity does not inflate friction counts"
+        ] = (
+            duplicated["available"] is True
+            and dup_event_row is not None
+            and dup_event_row["sessions"] == 1
+            and populated_event_row is not None
+            and dup_event_row["rage_clicks"] == populated_event_row["rage_clicks"]
+        )
+        # Revert the event name; the blanket identity_key revert below covers the rest.
+        execute(
+            "UPDATE silver.analytics_event SET event_name = :e "
+            "WHERE user_id = :u AND session_id = :s",
+            e=original_event_name,
+            u=dup_row[0]["user_id"],
+            s=dup_row[0]["session_id"],
+        )
+    else:
+        print("  skipped: no second analytics_event row available to duplicate")
+
     execute("UPDATE silver.analytics_event SET identity_key = NULL")
     execute("UPDATE silver.session_replay_session SET identity_key = NULL")
     reverted = asyncio.run(
@@ -449,16 +513,70 @@ else:
             )
         )
     )
+    top_movers = [
+        BrandMovement(
+            kpi_identifier=identifier,
+            brand=row["brand"],
+            current_value=row.get("current_value"),
+            prior_value=row.get("prior_value"),
+            delta=row.get("delta"),
+            direction=Direction(row["direction"]),
+        )
+        for identifier, rows in sampled.content["movers"].items()
+        for row in rows
+    ]
+    cited_brands = sorted({m.brand for m in top_movers})
+    summary_prefix = (
+        "Offline half: deterministic chain only, no model credentials configured."
+    )
     hand_built = FunnelExplanation(
         kpi_identifiers=sorted(identifiers),
-        top_movers=[],
+        top_movers=top_movers,
         friction_available=sampled.content["friction"]["available"],
         friction=[],
-        brands_cited=[],
-        summary="Offline half: deterministic chain only, no model credentials configured.",
+        brands_cited=cited_brands,
+        summary=(
+            f"{summary_prefix} {', '.join(cited_brands)} moved this period."
+            if cited_brands
+            else f"{summary_prefix} No data was available to compare this period."
+        ),
         likely_drivers=[],
-        snapshot_version="r10-cookbook-offline",
+        snapshot_version=sampled.content["snapshot_version"] or "r10-cookbook-offline",
     )
+
+    # check_explanation_grounding, by hand: the grounded hand-built explanation passes ...
+    grounding_input = StepInput(
+        additional_data=offline_options,
+        previous_step_content=hand_built.model_dump(),
+        previous_step_outputs={"sample-rows": sampled},
+    )
+    grounded = asyncio.run(check_explanation_grounding(grounding_input))
+    print(
+        f"  check_explanation_grounding (grounded hand-built explanation): "
+        f"success={grounded.success}"
+    )
+    checks["check_explanation_grounding passes a grounded hand-built explanation"] = (
+        grounded.success is True and not grounded.stop
+    )
+
+    # ... and a citation naming a brand absent from top_movers stops the chain.
+    tampered = hand_built.model_copy(
+        update={"brands_cited": [*cited_brands, "phantom-brand-not-in-movers"]}
+    )
+    tampered_input = StepInput(
+        additional_data=offline_options,
+        previous_step_content=tampered.model_dump(),
+        previous_step_outputs={"sample-rows": sampled},
+    )
+    stopped = asyncio.run(check_explanation_grounding(tampered_input))
+    print(
+        f"  check_explanation_grounding (an uncited brand): "
+        f"success={stopped.success} stop={stopped.stop}"
+    )
+    checks["check_explanation_grounding stops the chain on an uncited brand"] = (
+        stopped.success is False and stopped.stop is True
+    )
+
     prov_input = StepInput(
         additional_data={**offline_options, "explanation": hand_built.model_dump()},
         previous_step_content=hand_built.model_dump(),

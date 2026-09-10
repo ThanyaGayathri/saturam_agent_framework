@@ -53,7 +53,7 @@ from egpt_retail.executors.plan import derive_plan
 from egpt_retail.executors.preflight import check_preflight
 from egpt_retail.executors.provenance import record_provenance
 from egpt_retail.executors.registry import assert_registry_valid
-from egpt_retail.executors.rfq import sample_rows
+from egpt_retail.executors.rfq import check_explanation_grounding, sample_rows
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
 from egpt_retail.memory.config import build_memory_resolver
 from egpt_retail.routing.providers import build_tier_providers, route_agents
@@ -118,7 +118,10 @@ R7_EXECUTORS = (check_preflight, record_provenance, deliver_in_app)
 
 #: R10's own (D12). ``sample_rows`` is the API contract's own example plan's third step,
 #: reserved there since R9 landed and refused as unregistered until now.
-R10_EXECUTORS = (sample_rows,)
+#: ``check_explanation_grounding`` is not in that example plan -- it was added after review
+#: found the plan's own checkers (``citations_within_input``, ``movers_match_input``) were
+#: cookbook/test-only, reachable by nothing at run time.
+R10_EXECUTORS = (sample_rows, check_explanation_grounding)
 
 #: Lane K's two (K9, K11). Both are deterministic steps a workflow composes -- feasibility is
 #: a set difference and area detection is a graph query -- and both shipped unreachable:
@@ -211,9 +214,13 @@ def _chain(executors: tuple) -> List[Any]:
 
 
 def _rfq_steps(funnel_explanation: Agent) -> List[Any]:
-    """R10's six, in the API contract's own example plan order (``paths/use-cases.yaml``,
-    ``runUseCasePreflight``): ``check_preflight``, ``read_gold``, ``sample_rows``, the one
-    model step, then R7's ``record_provenance`` and ``deliver_in_app``.
+    """The API contract's own example plan order (``paths/use-cases.yaml``,
+    ``runUseCasePreflight``) -- ``check_preflight``, ``read_gold``, ``sample_rows``, the one
+    model step, then R7's ``record_provenance`` and ``deliver_in_app`` -- plus one step the
+    example plan does not yet name: ``check_explanation_grounding``, added between the model
+    step and delivery after review found the schema's own checkers
+    (``citations_within_input``, ``movers_match_input``) were reachable from nowhere at run
+    time. See that executor's docstring; ``paths/use-cases.yaml`` records the drift.
 
     Not built by :func:`_chain`, which only knows executors -- ``funnel_explanation`` is the
     live, already-routed ``Agent`` object :func:`build_agents` returned, not a name the engine
@@ -228,7 +235,7 @@ def _rfq_steps(funnel_explanation: Agent) -> List[Any]:
             description="One model step. Explains the numbers; never decides anything.",
             on_error=OnError.fail,
         ),
-        *_chain((record_provenance, deliver_in_app)),
+        *_chain((check_explanation_grounding, record_provenance, deliver_in_app)),
     ]
 
 
@@ -332,8 +339,8 @@ def build_registry() -> Registry:
 
     R4's six, R7's three (``check_preflight``, ``record_provenance``, ``deliver_in_app``,
     G4), R5's two (``materialise_gold``, ``read_gold``), R9's two (``check_spec_gaps``,
-    ``derive_plan``), R10's one (``sample_rows``) and Lane K's two
-    (``assess_kpi_feasibility``, ``detect_business_areas``). The check has run here since
+    ``derive_plan``), R10's two (``sample_rows``, ``check_explanation_grounding``) and Lane
+    K's two (``assess_kpi_feasibility``, ``detect_business_areas``). The check has run here since
     phase zero, when the list was empty; it now has something to check, which is what makes
     the duplicate-name refusal real rather than theoretical. Every name here is also a row in
     ``contracts/EXECUTOR_REGISTRY.md``, and ``test_r4_executors.py``/``test_r7_executors.py``

@@ -8,11 +8,12 @@ stack; what is pinned here is every rule that can be wrong without one -- the sa
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from pathlib import Path
 
 import pytest
-from egpt.workflow.types import OnError
+from egpt.workflow.types import OnError, StepInput, StepOutput
 
 from egpt_retail.app.components import (
     FUNNEL_EXPLANATION_ID,
@@ -32,6 +33,7 @@ from egpt_retail.executors.rfq import (
     DIRECTION_UNKNOWN,
     DIRECTION_UP,
     FRICTION_QUERY,
+    check_explanation_grounding,
     friction_unavailable,
     prior_period_statement,
     rank_movers,
@@ -166,6 +168,25 @@ def test_build_registry_includes_sample_rows():
     assert "sample_rows" in names
 
 
+def test_check_explanation_grounding_satisfies_the_registry_convention_and_is_async():
+    assert check_registry([check_explanation_grounding]) == ()
+    assert inspect.iscoroutinefunction(check_explanation_grounding)
+    assert list(inspect.signature(check_explanation_grounding).parameters) == [
+        "step_input"
+    ]
+
+
+def test_the_registry_document_lists_check_explanation_grounding():
+    assert f"| `{check_explanation_grounding.__name__}` |" in _REGISTRY_DOC.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_build_registry_includes_check_explanation_grounding():
+    names = {f.__name__ for f in build_registry().functions}
+    assert "check_explanation_grounding" in names
+
+
 # ---------------------------------------------------------------------------
 # The RFQ KPI definitions
 # ---------------------------------------------------------------------------
@@ -262,6 +283,21 @@ def test_citations_within_input_checks_summary_too():
     assert citations_within_input(bad) is False
 
 
+def test_citations_within_input_accepts_an_honest_no_data_summary():
+    """With no movers and no friction, there is nothing to cite from and nothing to check a
+    summary against -- a "nothing to report" summary must not be rejected just because it
+    names no grounded term, since there is no term to ground it against either."""
+    empty = _explanation(
+        top_movers=[],
+        brands_cited=[],
+        friction_available=False,
+        friction=[],
+        summary="No data was available to compare this period.",
+        likely_drivers=[],
+    )
+    assert citations_within_input(empty) is True
+
+
 def test_movers_match_input_requires_verbatim_copy():
     movers_input = {
         "rfq__quote_to_deal_rate": [
@@ -299,6 +335,78 @@ def test_friction_sample_round_trips():
 
 
 # ---------------------------------------------------------------------------
+# check_explanation_grounding -- the runtime guard between the model step and delivery
+# ---------------------------------------------------------------------------
+
+_GROUNDED_MOVERS_INPUT = {
+    "rfq__quote_to_deal_rate": [
+        {
+            "brand": "brand_a",
+            "current_value": "0.18",
+            "prior_value": "0.23",
+            "delta": "-0.05",
+            "direction": "down",
+        }
+    ]
+}
+
+
+def _grounding_input(explanation, movers_input=None):
+    return StepInput(
+        previous_step_content=explanation.model_dump(),
+        previous_step_outputs={
+            "sample-rows": StepOutput(
+                content={"movers": movers_input or _GROUNDED_MOVERS_INPUT}
+            )
+        },
+    )
+
+
+def test_check_explanation_grounding_passes_a_grounded_explanation():
+    output = asyncio.run(check_explanation_grounding(_grounding_input(_explanation())))
+    assert output.success is True
+    assert not output.stop
+
+
+def test_check_explanation_grounding_stops_the_chain_on_an_edited_mover():
+    bad_movers = {
+        "rfq__quote_to_deal_rate": [
+            {
+                "brand": "brand_a",
+                "current_value": "0.99",  # not what the explanation carries
+                "prior_value": "0.23",
+                "delta": "-0.05",
+                "direction": "down",
+            }
+        ]
+    }
+    output = asyncio.run(
+        check_explanation_grounding(_grounding_input(_explanation(), bad_movers))
+    )
+    assert output.success is False
+    assert output.stop is True
+
+
+def test_check_explanation_grounding_stops_the_chain_on_an_uncited_brand():
+    bad = _explanation(brands_cited=["brand_a", "brand_z"])
+    output = asyncio.run(check_explanation_grounding(_grounding_input(bad)))
+    assert output.success is False
+    assert output.stop is True
+
+
+def test_check_explanation_grounding_stops_the_chain_on_malformed_content():
+    step_input = StepInput(
+        previous_step_content={"not": "a funnel explanation"},
+        previous_step_outputs={
+            "sample-rows": StepOutput(content={"movers": _GROUNDED_MOVERS_INPUT})
+        },
+    )
+    output = asyncio.run(check_explanation_grounding(step_input))
+    assert output.success is False
+    assert output.stop is True
+
+
+# ---------------------------------------------------------------------------
 # Routing: funnel_explanation is reserved and routed to the small tier (R8, G6)
 # ---------------------------------------------------------------------------
 
@@ -313,7 +421,11 @@ def test_funnel_explanation_is_routed_to_the_small_tier():
 # ---------------------------------------------------------------------------
 
 
-def test_rfq_funnel_workflow_is_the_contracts_own_six_steps_in_order():
+def test_rfq_funnel_workflow_is_the_contracts_own_steps_in_order():
+    """Seven steps: the API contract's own six (`paths/use-cases.yaml`,
+    `runUseCasePreflight`) plus `check-explanation-grounding`, added between the model step
+    and delivery after review found the schema's own checkers were reachable from nowhere at
+    run time. `paths/use-cases.yaml`'s example plan records the drift."""
     settings = RetailSettings(
         retail_db_url="postgresql+psycopg://nobody:nope@127.0.0.1:1/none"
     )
@@ -327,6 +439,7 @@ def test_rfq_funnel_workflow_is_the_contracts_own_six_steps_in_order():
         "read-gold",
         "sample-rows",
         "funnel-explanation",
+        "check-explanation-grounding",
         "record-provenance",
         "deliver-in-app",
     ]

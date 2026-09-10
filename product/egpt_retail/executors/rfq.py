@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 from egpt.exceptions import SQLGuardRefusal
 from egpt.guardrails.sql_guard import SQLGuard
 from egpt.workflow.types import StepInput, StepOutput
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -46,6 +47,11 @@ from egpt_retail.executors.provenance import (
     note_row_sample,
     note_sql_execution,
 )
+from egpt_retail.skills.funnel_explanation import (
+    FunnelExplanation,
+    citations_within_input,
+    movers_match_input,
+)
 from egpt_retail.warehouse.schema import SILVER_SCHEMA, gold_view
 
 __all__ = [
@@ -55,6 +61,7 @@ __all__ = [
     "DIRECTION_UNKNOWN",
     "DIRECTION_UP",
     "FRICTION_QUERY",
+    "check_explanation_grounding",
     "friction_unavailable",
     "prior_period_statement",
     "rank_movers",
@@ -83,6 +90,10 @@ DIRECTION_UNKNOWN = (
 #: a returning visitor's `identity_key` can legitimately span multiple sessions, so joining
 #: the raw table directly against `analytics_event` (whose own primary key admits many rows
 #: per `identity_key`) would re-sum the same session's counts once per matching event row.
+#: `analytics_event` is deduplicated to one row per `(identity_key, event_name)` for the same
+#: reason on the other side: an identity firing the same event more than once must still
+#: contribute its already-aggregated click counts exactly once per event name, not once per
+#: matching event row.
 FRICTION_QUERY = (
     "WITH sessions_by_identity AS ("
     "SELECT identity_key, "
@@ -92,15 +103,19 @@ FRICTION_QUERY = (
     f"FROM {SILVER_SCHEMA}.session_replay_session "
     "WHERE identity_key IS NOT NULL "
     "GROUP BY identity_key"
+    "), "
+    "events_by_identity AS ("
+    "SELECT DISTINCT identity_key, event_name "
+    f"FROM {SILVER_SCHEMA}.analytics_event "
+    "WHERE identity_key IS NOT NULL"
     ") "
     "SELECT e.event_name AS event_name, "
     "sum(s.rage_clicks) AS rage_clicks, "
     "sum(s.dead_clicks) AS dead_clicks, "
     "sum(s.script_errors) AS script_errors, "
     "count(*) AS sessions "
-    f"FROM {SILVER_SCHEMA}.analytics_event e "
+    "FROM events_by_identity e "
     "JOIN sessions_by_identity s ON s.identity_key = e.identity_key "
-    "WHERE e.identity_key IS NOT NULL "
     "GROUP BY e.event_name"
 )
 
@@ -121,6 +136,22 @@ def prior_period_statement(kpi_identifier: str) -> str:
         f"SELECT DISTINCT ON (brand) brand, value, as_of "
         f"FROM gold.{view} WHERE as_of < :as_of ORDER BY brand, as_of DESC"
     )
+
+
+def _format_delta(delta: Decimal) -> str:
+    """``str(Decimal)`` in fixed-point, with no trailing zeros -- ``Decimal.normalize()``
+    keeps exact precision but switches to scientific notation once the exponent is large
+    enough (``Decimal("120.00") - Decimal("20.00")`` normalizes to ``"1E+2"``, not ``"100"``),
+    which is wrong for a delta a person reads. ``format(delta, "f")`` never uses scientific
+    notation; trailing zeros are stripped by hand afterwards, and an exact zero (Postgres's
+    own zero on a wide-scale ``numeric`` column round-trips through ``Decimal`` as
+    ``"0E-20"``) is special-cased rather than relying on the stripping to reach it."""
+    if delta == 0:
+        return "0"
+    text = format(delta, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
 
 
 def rank_movers(
@@ -154,12 +185,7 @@ def rank_movers(
         if prior_row is None:
             direction = DIRECTION_NEW
         elif current_value is not None and prior_value is not None:
-            # `.normalize()` strips the trailing zeros a wide-scale `numeric` column leaves
-            # behind (and turns Postgres's own zero, `Decimal("0E-20")`, into a plain "0")
-            # without touching the value -- `Decimal` alone, unlike `float`, keeps this exact.
-            delta = (
-                Decimal(str(current_value)) - Decimal(str(prior_value))
-            ).normalize()
+            delta = Decimal(str(current_value)) - Decimal(str(prior_value))
             direction = (
                 DIRECTION_UP
                 if delta > 0
@@ -172,7 +198,7 @@ def rank_movers(
                 "brand": brand,
                 "current_value": None if current_value is None else str(current_value),
                 "prior_value": None if prior_value is None else str(prior_value),
-                "delta": None if delta is None else str(delta),
+                "delta": None if delta is None else _format_delta(delta),
                 "direction": direction,
             }
         )
@@ -316,9 +342,24 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
         engine.dispose()
 
     kpi_identifiers = sorted(kpis)
-    snapshot_version = str(
-        kpis[kpi_identifiers[0]].get("source_snapshot", "") if kpi_identifiers else ""
-    )
+    if kpi_identifiers:
+        # Every KPI in one run normally shares one nightly snapshot. If they do not -- a
+        # partial materialisation, one KPI computed against a stale snapshot -- reporting
+        # only the alphabetically-first KPI's version would silently hide that split. Report
+        # every distinct version instead, so a mismatch is visible rather than guessed away.
+        snapshot_versions = sorted(
+            {
+                str(kpis[identifier].get("source_snapshot", ""))
+                for identifier in kpi_identifiers
+            }
+        )
+        snapshot_version = (
+            snapshot_versions[0]
+            if len(snapshot_versions) == 1
+            else ",".join(snapshot_versions)
+        )
+    else:
+        snapshot_version = ""
     return StepOutput(
         content={
             "movers": movers,
@@ -328,3 +369,59 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
             "snapshot_version": snapshot_version,
         }
     )
+
+
+async def check_explanation_grounding(step_input: StepInput) -> StepOutput:
+    """The runtime guard between the model step and delivery: runs the two deterministic
+    checkers the cookbook already exercises by hand -- ``movers_match_input``,
+    ``citations_within_input`` -- against the ``funnel-explanation`` agent's real output, and
+    ``stop=True``s the chain on either one's failure.
+
+    Before this executor existed, a hallucinated citation or an edited ``top_movers`` row
+    would flow straight through ``record_provenance``/``deliver_in_app`` to an actual
+    delivery screen, since the API contract's example plan (``paths/use-cases.yaml``) never
+    exercises the checkers at run time; they were cookbook/test-only.
+
+    Reads the agent step's output from ``step_input.previous_step_content`` (the immediately
+    preceding step, per the workflow engine's own ``get_last_step_content``), and reaches back
+    to ``sample_rows``'s output by name -- ``step_input.get_step_content("sample-rows")`` --
+    for the movers ``funnel_explanation`` was actually handed, since neither checker's input
+    survives past the one step directly after it.
+    """
+    try:
+        explanation = FunnelExplanation.model_validate(step_input.previous_step_content)
+    except ValidationError as exc:
+        return StepOutput(
+            content={"refused": f"funnel-explanation output did not conform: {exc}"},
+            success=False,
+            error=str(exc),
+            stop=True,
+        )
+
+    sample_content: Any = step_input.get_step_content("sample-rows")
+    movers_input: Mapping[str, Any] = (
+        sample_content.get("movers") if isinstance(sample_content, Mapping) else None
+    ) or {}
+
+    if not movers_match_input(explanation, movers_input):
+        return StepOutput(
+            content={
+                "refused": "top_movers does not match sample_rows's movers verbatim"
+            },
+            success=False,
+            error="the explanation's top_movers was edited, reordered or dropped a row "
+            "relative to what sample_rows computed",
+            stop=True,
+        )
+    if not citations_within_input(explanation):
+        return StepOutput(
+            content={
+                "refused": "the explanation cites a brand or friction event absent from "
+                "its own input"
+            },
+            success=False,
+            error="citations_within_input failed",
+            stop=True,
+        )
+
+    return StepOutput(content=step_input.previous_step_content)

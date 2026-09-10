@@ -171,7 +171,13 @@ def citations_within_input(explanation: FunnelExplanation) -> bool:
         return False
     allowed_events = {f.event_name for f in explanation.friction}
     allowed_terms = allowed_brands | allowed_events
-    if not _mentions_a_grounded_term(explanation.summary, allowed_terms):
+    # `summary` is required and non-empty even when there is nothing to report (no movers,
+    # no friction) -- unlike `likely_drivers`, which is just an empty list in that case and
+    # so never reaches this loop. With `allowed_terms` empty there is nothing to cite from
+    # and nothing to check against, so a "nothing moved" summary is honest, not ungrounded.
+    if allowed_terms and not _mentions_a_grounded_term(
+        explanation.summary, allowed_terms
+    ):
         return False
     for driver in explanation.likely_drivers:
         if not _mentions_a_grounded_term(driver, allowed_terms):

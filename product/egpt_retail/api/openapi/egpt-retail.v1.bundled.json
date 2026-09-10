@@ -8723,6 +8723,23 @@
                         {
                           "index": 5,
                           "kind": "executor",
+                          "ref": "check_explanation_grounding",
+                          "name": "Check explanation grounding",
+                          "description": "Verify the explanation cites only what sample_rows handed it; stop the chain before delivery otherwise.",
+                          "inputs": [
+                            "explanation",
+                            "movers"
+                          ],
+                          "outputs": [
+                            "explanation"
+                          ],
+                          "permits_or_blocks": true,
+                          "model_tier": null,
+                          "estimated_seconds": 1
+                        },
+                        {
+                          "index": 6,
+                          "kind": "executor",
                           "ref": "record_provenance",
                           "name": "Record provenance",
                           "description": "Write the provenance record for this run.",
@@ -8740,7 +8757,7 @@
                           "estimated_seconds": 1
                         },
                         {
-                          "index": 6,
+                          "index": 7,
                           "kind": "executor",
                           "ref": "deliver_in_app",
                           "name": "Deliver",

@@ -3990,4 +3990,36 @@ case, and a `StopIteration`→`ValueError` case for `build_workflows`). Re-run: 
 including the new ones; `pytest product/tests/test_r10_rfq.py` -- 30 passed;
 `pytest product/tests/` -- 631 passed, 41 skipped; `format.sh`/`validate.sh` both green.
 
+**Follow-up 2 (second review round, against the fixes above):** `FRICTION_QUERY`'s CTE fix
+deduped `session_replay_session` by `identity_key` but still fanned out through
+`analytics_event` when one identity fired the same `event_name` more than once -- added a
+second CTE deduping `analytics_event` to distinct `(identity_key, event_name)` pairs.
+`rank_movers`'s `.normalize()` fix (follow-up 1) turned round deltas into scientific notation
+(`Decimal("120.00") - Decimal("20.00")` normalized to `"1E+2"`, not `"100"`) -- replaced with
+fixed-point formatting (`format(delta, "f")`, trailing zeros stripped by hand, zero
+special-cased) that never uses scientific notation. `sample_rows`'s `snapshot_version` was
+silently taken from the alphabetically-first KPI identifier only, even when KPIs came from
+different snapshots -- now reports every distinct snapshot version across the run rather than
+picking one. Added `check_explanation_grounding` (new executor, `executors/rfq.py`), wired
+into `_rfq_steps` between the model step and `record_provenance`/`deliver_in_app`: re-runs
+`citations_within_input`/`movers_match_input` against the agent's real output and `stop=True`s
+the chain on either check's failure -- closing the gap where those checkers were previously
+cookbook/test-only and reachable by nothing at run time. This is a step the API contract's
+example plan (`paths/use-cases.yaml`) did not previously name; updated that example (now seven
+steps) and regenerated the bundled OpenAPI artifacts (`./scripts/gen_api_models.sh`) so the
+documented plan and the real one stay in sync. Testing this against the live cookbook (not
+just unit tests) surfaced one more bug before it shipped: `citations_within_input`'s
+summary-grounding check (follow-up 1) unconditionally required the summary to mention a
+grounded term, which spuriously rejected the legitimate "no data to report" case (nothing to
+ground against when `top_movers`/`friction` are both empty) -- fixed to skip that check when
+there is nothing to cite from. Left the deeper citation-grounding gap open (a driver sentence
+naming a real cited brand *alongside* a fabricated one still passes, since the check only
+requires one grounded term per sentence) -- closing it needs either a closed-vocabulary
+tokenizer (real false-positive risk on ordinary retail prose) or a stricter output contract
+(the model cites by reference instead of free prose); decided with the user to track as a
+follow-up rather than ship a fragile heuristic. Re-run: cookbook PASS twice in a row (14
+checks, including three new ones -- the friction duplicate-event case, and the grounding
+guard's pass/stop paths); `pytest product/tests/` -- 639 passed, 41 skipped;
+`format.sh`/`validate.sh` both green.
+
 ---

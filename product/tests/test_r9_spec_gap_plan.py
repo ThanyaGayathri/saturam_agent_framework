@@ -681,6 +681,7 @@ def test_metadata_names_exactly_the_registered_executors():
         "check_preflight",
         "materialise_gold",
         "sample_rows",
+        "check_explanation_grounding",
     }
 
 
