@@ -128,6 +128,9 @@ Grows through P4. Each entry: name, owner, one line, and what it refuses.
 | `check_key_null_rates` | Lane R (R4) | Measures missing, blank or uncoercible key and watermark columns per stream | Nothing. Measures and persists |
 | `check_referential_integrity` | Lane R (R4) | Counts orphans per declared edge over silver | Nothing. Measures and persists |
 | `decide_load_verdict` | Lane R (R4) | Aggregates every gate result, stamps `quality.load_run.verdict` and its one-paragraph reason | **Gold.** The only R4 executor that blocks: returns `stop=True`, which breaks the step loop before a gold step (R5) can run |
+| `check_preflight` | Lane R (R7) | Assesses every KPI a use case references via `egpt_retail.contracts.kpi.assess_feasibility` (a pure set difference); also carries `tables_exposed`/`gold_fresh`/`guard_role` as honest placeholders (`passed: true`, naming what is unbuilt) until K5/R5/R6-wiring land | **Any run whose `kpis_ready` check fails.** Returns `stop=True`, breaking the chain before a compiled plan's later steps (`read_gold`, `sample_rows`, an explanation) run against a KPI that cannot be computed |
+| `record_provenance` | Lane R (R7) | Writes one `egpt_answer_provenance` row per run (framework storage, `egpt.answer_provenance` — every deployment needs an answer it can trace), assembled from `additional_data["prov"]`. **Every executor in any lane that reads data or runs SQL on a path ending in `record_provenance` must populate this bag** via the exported helpers in `egpt_retail.executors.provenance`: `note_dataset_read`, `note_sql_execution` (accepts R6's `GuardDecision`), `note_row_sample`, `note_freshness`, `note_retrieval_hit` — a private per-package bag would hide exactly the data this step exists to collect | Nothing. Writes and returns `provenance_ref` |
+| `deliver_in_app` | Lane R (R7) | Writes one `retail_deliveries` row (retail storage — "delivering in-app" is not a generic framework concern the way provenance is) | Nothing. Under `additional_data["dry_run"]=True` it records what it would have sent instead of sending it (`deliver_in_app.DRY_RUN_KEY`) |
 
 Note the shape of those six: five measure and one decides. That is deliberate and worth
 copying. The alignment rule wants one clearly-named thing doing the blocking, which is easier
@@ -138,9 +141,16 @@ the second gate would never have run.
 `check_freshness` — this document's own worked example of a silent collision — is deliberately
 still unused.
 
-Lane R's R7 executor library is the next substantial batch: preflight checks, dry run,
-delivery, provenance. Lane K's first are feasibility (K11) and business-area detection (K9),
-both already deterministic by design.
+Lane R's R7 executor library landed next: `check_preflight`, `record_provenance`,
+`deliver_in_app` above. "Dry run" is not a fourth executor -- it is a flag
+(`additional_data["dry_run"]`) `deliver_in_app` alone reads; every other step in a compiled
+plan runs for real regardless. `read_gold` and `sample_rows`, named alongside R7's three in
+the API contract's own example compiled plan, belong to R5 and R10 respectively, not R7.
+`GET /runs/{run_id}/provenance`'s router is not built by R7 either -- no FastAPI router for
+`/use-cases`/`/playground`/`/runs` exists anywhere yet; R11 (the playground's citation panel)
+is the natural owner, and needs only `egpt.answer_provenance.aread_provenance` to wire it.
+Lane K's first are feasibility (K11) and business-area detection (K9), both already
+deterministic by design.
 
 Add a row when you add an executor. A registry nobody updates is one people stop reading, and
 then two lanes name the same step twice — which is the failure this whole document exists to
