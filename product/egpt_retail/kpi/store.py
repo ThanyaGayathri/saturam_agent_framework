@@ -62,9 +62,17 @@ KPI_LABEL = "SemanticKpi"
 _TABLE_LABEL = "SemanticTable"
 _CONCEPT_LABEL = "SemanticConcept"
 
-_DDL = (
-    f"CREATE SCHEMA IF NOT EXISTS {KPI_SCHEMA}",
-    f"""CREATE TABLE IF NOT EXISTS {KPI_SCHEMA}.kpi_definition (
+
+def _ddl(schema: str) -> Tuple[str, ...]:
+    """The table's DDL, bound to the schema this store was actually given.
+
+    The constant it replaced hardcoded :data:`KPI_SCHEMA`, so a store constructed with a
+    different schema created its table in one place and read it from another -- silently, and
+    only for a caller that passed the argument the constructor advertises.
+    """
+    return (
+        f"CREATE SCHEMA IF NOT EXISTS {schema}",
+        f"""CREATE TABLE IF NOT EXISTS {schema}.kpi_definition (
         identifier                 text PRIMARY KEY,
         name                       text        NOT NULL,
         description                text        NOT NULL DEFAULT '',
@@ -83,17 +91,17 @@ _DDL = (
         CONSTRAINT kpi_source_tables_not_empty
             CHECK (jsonb_array_length(source_tables) > 0)
     )""",
-    f"""CREATE INDEX IF NOT EXISTS kpi_definition_area
-        ON {KPI_SCHEMA}.kpi_definition (business_area)""",
-    f"""CREATE INDEX IF NOT EXISTS kpi_definition_concept
-        ON {KPI_SCHEMA}.kpi_definition (concept)""",
-    f"""COMMENT ON TABLE {KPI_SCHEMA}.kpi_definition IS
+        f"""CREATE INDEX IF NOT EXISTS kpi_definition_area
+        ON {schema}.kpi_definition (business_area)""",
+        f"""CREATE INDEX IF NOT EXISTS kpi_definition_concept
+        ON {schema}.kpi_definition (concept)""",
+        f"""COMMENT ON TABLE {schema}.kpi_definition IS
         'The KPI registry (K11). Authoritative; the graph holds a mirror rebuilt from here. '
         'Feasibility is deliberately absent -- it is a set difference computed at read time, '
         'and a cached verdict goes stale the moment a harvest runs. '
         'kpi_source_tables_not_empty makes a definition feasibility cannot be computed for '
         'unrepresentable rather than merely discouraged.'""",
-)
+    )
 
 
 @dataclass(frozen=True)
@@ -221,7 +229,7 @@ class KpiRegistryStore:
                 "SELECT pg_advisory_xact_lock(hashtext(%s))",
                 ("egpt_retail.semantic.ddl",),
             )
-            for statement in _DDL:
+            for statement in _ddl(self._schema):
                 cursor.execute(statement)
         self._connection.commit()
 
@@ -430,21 +438,34 @@ class KpiRegistryStore:
             unvalidated=tuple(sorted(unvalidated)),
         )
 
-    def stamp_validated(self, identifier: str, snapshot_version: str) -> None:
-        """Stamp one definition, for a caller that already decided it is computable and not
-        in review -- the refresh, which knows the diff and must not stamp what it touched."""
+    def stamp_validated(self, identifiers: Sequence[str], snapshot_version: str) -> int:
+        """Stamp definitions a caller has already decided are computable and not in review.
+
+        The refresh is that caller: it knows the diff, so it knows which KPIs a change
+        touched and must not stamp. One statement for the batch, matching ``revalidate``'s
+        own shape -- the first version took a single identifier and committed per call, so a
+        hundred-KPI registry meant a hundred round trips and a hundred fsyncs.
+        """
+        wanted = list(dict.fromkeys(identifiers))
+        if not wanted:
+            return 0
         with self._connection.cursor() as cursor:
             cursor.execute(
                 f"""UPDATE {self._schema}.kpi_definition
                     SET validated_against_snapshot = %s, updated_at = now()
-                    WHERE identifier = %s""",
-                (snapshot_version, identifier),
+                    WHERE identifier = ANY(%s)""",
+                (snapshot_version, wanted),
             )
         self._connection.commit()
+        return len(wanted)
 
-    async def astamp_validated(self, identifier: str, snapshot_version: str) -> None:
+    async def astamp_validated(
+        self, identifiers: Sequence[str], snapshot_version: str
+    ) -> int:
         """Async variant."""
-        await asyncio.to_thread(self.stamp_validated, identifier, snapshot_version)
+        return await asyncio.to_thread(
+            self.stamp_validated, identifiers, snapshot_version
+        )
 
     async def arevalidate(
         self, reader: SemanticRead, snapshot_version: str = ""

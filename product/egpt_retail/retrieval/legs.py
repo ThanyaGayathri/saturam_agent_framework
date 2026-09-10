@@ -25,7 +25,7 @@ table name, which a fuzzy embedded match over identifiers absolutely can.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.retrieval.unified import (
@@ -57,6 +57,19 @@ __all__ = [
 #: and a name typed twice in two files is a label that disagrees with itself.
 ONTOLOGY_LEG = "ontology"
 SEMANTIC_LEG = "semantic"
+
+
+@runtime_checkable
+class ColumnIndexed(Protocol):
+    """A reader that can hand over every table's columns in one call.
+
+    Not part of ``SemanticRead``: the contract is about what the layer *means*, and this is
+    an optimisation the concrete graph store offers. Declared as a protocol rather than
+    reached for with ``getattr`` so mypy checks the shape, and so a reader without it -- the
+    P0 stub -- takes the documented fallback instead of failing at runtime.
+    """
+
+    def column_index(self) -> Dict[str, List[str]]: ...
 
 
 def ontology_leg(store: Any, *, limit: Optional[int] = None) -> Leg:
@@ -143,13 +156,34 @@ def asemantic_leg(reader: SemanticRead, *, limit: Optional[int] = None) -> Async
     return leg
 
 
+def _column_index(reader: SemanticRead, tables: Sequence[Any]) -> Dict[str, List[str]]:
+    """Every table's columns, in one query where the reader supports it.
+
+    The fallback is one ``get_table`` per table, which is what this did for every reader --
+    on the live query path, once per retrieval call. Round 1 on the P3 PR caught it: a
+    fifty-table warehouse meant fifty-one round trips to answer one question.
+    """
+    if isinstance(reader, ColumnIndexed):
+        return reader.column_index()
+    index: Dict[str, List[str]] = {}
+    for ref in tables:
+        table = reader.get_table(ref.qualified)
+        index[ref.qualified] = [
+            column.name for column in (table.columns if table else ())
+        ]
+    return index
+
+
 def _semantic_results(
     reader: SemanticRead, query: MemoryQuery, limit: int
 ) -> List[UnifiedResult]:
     terms = [term for term in _terms(query.text) if len(term) > 2]
     results: List[UnifiedResult] = []
 
-    for ref in reader.list_tables():
+    tables = list(reader.list_tables())
+    index = _column_index(reader, tables)
+
+    for ref in tables:
         table_terms = set(_terms(ref.name))
         # Score by how much of the table's own name the query accounted for, so `crm_deal`
         # beats `crm_deal_stage_history` on the query "deal" -- the shorter name is the more
@@ -157,11 +191,10 @@ def _semantic_results(
         hits = sum(1 for term in terms if term in ref.name.lower())
         # Columns count too, at a lower weight and named in the result. "Which table has
         # email" is a question about a column, and the first version could not answer it.
-        table = reader.get_table(ref.qualified)
         matched_columns = [
-            column.name
-            for column in (table.columns if table else ())
-            if any(term in column.name.lower() for term in terms)
+            column
+            for column in index.get(ref.qualified, ())
+            if any(term in column.lower() for term in terms)
         ]
         if not hits and not matched_columns:
             continue
@@ -191,9 +224,7 @@ def _semantic_results(
                 continue
             # Rendered with the same function promotion uses to write memory's copy (K5).
             # Memory holds a copy derived from this very node; if the two legs rendered it
-            # differently, fusion by content could never recognise them as one finding --
-            # the P3 verification found exactly that, with the memory leg live and nothing
-            # corroborated. Same node, same function, same sentence, one hit from two legs.
+            # differently, fusion by content could never recognise them as one finding.
             results.append(
                 UnifiedResult(
                     content=promotable_text(concept),
@@ -267,18 +298,14 @@ async def aretail_unified_read(
     kb_filters: Any = None,
 ) -> UnifiedSlice:
     """Async variant. Every leg runs concurrently."""
-    legs: Mapping[str, AsyncLeg] = {
-        **(
-            {ONTOLOGY_LEG: aontology_leg(ontology, limit=query.limit)}
-            if ontology
-            else {}
-        ),
-        **(
-            {SEMANTIC_LEG: asemantic_leg(semantic, limit=query.limit)}
-            if semantic
-            else {}
-        ),
-    }
+    # `is not None`, matching the sync twin: a store object that happens to be falsy -- an
+    # empty collection-like stand-in in a test, say -- is still a wired leg, and dropping it
+    # would silently turn off a leg the caller passed.
+    legs: Dict[str, AsyncLeg] = {}
+    if ontology is not None:
+        legs[ONTOLOGY_LEG] = aontology_leg(ontology, limit=query.limit)
+    if semantic is not None:
+        legs[SEMANTIC_LEG] = asemantic_leg(semantic, limit=query.limit)
     return await aunified_read(
         scope,
         query,

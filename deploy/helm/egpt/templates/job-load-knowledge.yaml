@@ -1,0 +1,36 @@
+# Loads the shipped domain knowledge -- the retail ontology into Neo4j and the curated prose
+# into pgvector -- on every install and upgrade (open-items R-5). The entrypoint is Lane K's and
+# idempotent by design; the chart is Lane R's, which is why the hook lives here.
+#
+# post-install, not pre-: it writes through the application's own code paths and needs the
+# control-plane migration to have finished first. Post-hooks run after the release's own
+# resources exist, so unlike job-migrate.yaml this one can `envFrom` the ConfigMap and Secret --
+# and it has to, because the load needs Neo4j, pgvector, the embedder deployment and its key.
+# Never an initContainer: with N replicas that is N concurrent loads of the same content.
+#
+# Weight 5 puts it after warehouse-migrate (0); they do not depend on each other, but a
+# deterministic order is easier to read in `kubectl get jobs` when one of them fails.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-load-knowledge
+  labels: {{- include "egpt.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.loadKnowledge.backoffLimit }}
+  template:
+    metadata:
+      labels: {{- include "egpt.labels" . | nindent 8 }}
+        app: {{ .Release.Name }}-load-knowledge
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: load-knowledge
+          image: {{ include "egpt.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["load-knowledge"]
+          {{- include "egpt.envFrom" . | nindent 10 }}
+          securityContext: {{- include "egpt.securityContext" . | nindent 12 }}

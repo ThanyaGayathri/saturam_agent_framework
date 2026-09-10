@@ -202,6 +202,92 @@ def test_a_request_over_the_small_window_escalates_before_the_small_tier_is_aske
     )
 
 
+class _StubAgent:
+    """The attributes `apply_run_model` reads: the provider, `id`, and the pre-run `model`
+    (`run_model`'s fallback when a resolution is not attributed back to this component)."""
+
+    def __init__(
+        self, model_provider: object, agent_id: str = "join_path_explainer"
+    ) -> None:
+        self.id = agent_id
+        self.model_provider = model_provider
+        self.model = None
+
+
+class _StubRunOutput:
+    """The two attributes `_stamp_resolved_model`/`_stamp_escalation` write to."""
+
+    def __init__(self) -> None:
+        self.model = None
+        self.model_provider = None
+        self.metadata = None
+
+
+def test_an_escalated_run_is_recorded_in_the_run_metadata_through_the_real_tier_providers() -> (
+    None
+):
+    """Every other test in this file drives `resolve_detailed` directly. This drives a real
+    `TierModelProvider` pair -- the exact composition `build_agents` wires up for a small-tier
+    agent -- through `apply_run_model`, the per-run hook that writes
+    `RunOutput.metadata["egpt_escalation"]`, so a regression in that write path (or in R8's
+    provider-key collision resolving differently than expected) is caught here rather than
+    only by the hand-run cookbook (`cookbook/94_retail/R08_model_routing.py`)."""
+    from egpt.agent._run import ESCALATION_METADATA_KEY, apply_run_model
+    from egpt.run.base import RunContext
+
+    providers = build_tier_providers(_settings(retail_small_context_window=1_000))
+    composed = provider_for(Tier.SMALL, providers)
+
+    run_context = RunContext(run_id="r-1", session_id="s-1", user_id="u-1")
+    run_response = _StubRunOutput()
+
+    changed = apply_run_model(
+        _StubAgent(composed),
+        run_context,
+        tools=None,
+        run_response=run_response,
+        estimated_input_tokens=1_001,
+    )
+
+    assert changed
+    record = run_response.metadata[ESCALATION_METADATA_KEY]
+    assert record["reason"] == "input_exceeds_context_window"
+    # R8's known collision (see the PR's "Findings worth reading"): both tiers narrow to the
+    # same registry key, so `escalated_from` and `target` read identically here -- `model_id`
+    # is left to carry the small-vs-frontier distinction alone in the persisted record.
+    assert record["escalated_from"] == AZURE_PROVIDER_KEY == record["target"]
+    assert record["model_id"] == providers.frontier.model_id == run_response.model
+    assert record["escalation_level"] == 1
+
+
+def test_a_non_escalated_run_through_the_real_tier_providers_writes_no_record() -> None:
+    """Twin of the escalated case above: a request the small tier can serve must leave the run
+    record untouched, not write an empty/absent-reason entry."""
+    from egpt.agent._run import ESCALATION_METADATA_KEY, apply_run_model
+    from egpt.run.base import RunContext
+
+    providers = build_tier_providers(_settings(retail_small_context_window=1_000))
+    composed = provider_for(Tier.SMALL, providers)
+
+    run_context = RunContext(run_id="r-2", session_id="s-2", user_id="u-1")
+    run_response = _StubRunOutput()
+
+    changed = apply_run_model(
+        _StubAgent(composed),
+        run_context,
+        tools=None,
+        run_response=run_response,
+        estimated_input_tokens=999,
+    )
+
+    assert changed
+    assert (
+        run_response.metadata is None
+        or ESCALATION_METADATA_KEY not in run_response.metadata
+    )
+    assert run_response.model == providers.small.model_id
+
+
 def test_build_agents_pins_no_model_and_routes_each_agent() -> None:
     agents = {agent.id: agent for agent in _agents()}
     assert all(agent.model is None for agent in agents.values())

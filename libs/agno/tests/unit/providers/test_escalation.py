@@ -350,12 +350,23 @@ class TestResolution:
         assert result.reason == "vision_unsupported"
         assert result.provider_key == "anthropic"
         assert result.mode is ProviderMode.FRONTIER
+        # The depth this resolution actually reached, not re-derived by a caller from the
+        # pre-call request -- see `ModelResolveResult.escalation_level`.
+        assert result.escalation_level == 1
+
+    async def test_async_result_records_the_same_escalation_level(self, provider):
+        """Sync/async twin of the assertion above: `aresolve_detailed` must not drift from
+        `resolve_detailed` in what it reports for a resolution that actually escalated."""
+        result = await provider.aresolve_detailed(ModelResolveRequest(requires_vision=True))
+        assert result.escalated_from == "vllm"
+        assert result.escalation_level == 1
 
     def test_non_escalated_result_carries_no_escalation_marks(self, provider):
         result = provider.resolve_detailed(ModelResolveRequest())
         assert result.escalated_from is None
         assert result.reason is None
         assert result.mode is ProviderMode.LOCAL
+        assert result.escalation_level is None
 
     def test_escalated_request_reaches_the_target_one_level_higher(self, provider, frontier):
         provider.resolve(ModelResolveRequest(requires_vision=True))

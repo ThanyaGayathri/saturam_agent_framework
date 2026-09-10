@@ -9,6 +9,14 @@ data:
   EGPT_RETAIL_WAREHOUSE_DB_URL: {{ .Values.database.warehouseUrl | quote }}
   EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL: {{ .Values.database.warehouseReadonlyUrl | quote }}
   EGPT_RETAIL_CUSTOMER_SLUG: {{ .Values.customerSlug | quote }}
+  # The ontology / semantic-layer graph (D11). Read by load-knowledge, harvest, and from P3 by
+  # the api and pipelines pods (K5's reader, R5's feasibility, R9's gap check). These settings
+  # have existed since K1 and no template mapped them -- a fresh cluster's load-knowledge hook
+  # would have refused at startup on a missing password. Password is in the Secret.
+  EGPT_RETAIL_NEO4J_URI: {{ .Values.neo4j.ontologyUri | quote }}
+  EGPT_RETAIL_NEO4J_USER: {{ .Values.neo4j.user | quote }}
+  EGPT_RETAIL_NEO4J_DATABASE: {{ .Values.neo4j.databases.ontology | quote }}
+  EGPT_RETAIL_PROVIDER_MODE: {{ .Values.model.providerMode | quote }}
   # R4's raw drop. Credentials live in the Secret, never here.
   EGPT_RETAIL_STORAGE_PROVIDER: {{ .Values.storage.provider | quote }}
   EGPT_RETAIL_STORAGE_ENDPOINT: {{ .Values.storage.endpoint | quote }}

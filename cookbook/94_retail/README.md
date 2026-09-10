@@ -45,7 +45,6 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R07_preflight_blocked_kpi.py` | R7 | Preflight against a use case referencing a blocked KPI, reproducing the API contract's own worked example: blocks and names the missing table, then passes once it is exposed. No database, no model. |
 | `R05_gold_materialisation.py` | R5 | The Verify line against a real warehouse: the nightly chain by hand (R4's six steps, then gold) over K11's six definitions -- two materialise, three fail at compile with Postgres's own words in `gold.kpi_run`, one is skipped as blocked; gold versus the same number in SQL, and the stamp on every row; one good formula broken deliberately and failing alone while the other still materialises; `read_gold` through the guard; a blocked night as a COMPLETED run with no gold step and gold untouched; then `schedule-nightly` and a trigger through `ScheduleExecutor` against the in-process pipelines app, whose `additional_data` arrives as a dict. |
 | `R05_gold_health.py` | R5 | The contract's `KpiHealth` assembled in Python from the registry and gold: all five statuses reachable, every row validated against the generated model, and `gold_fresh` as preflight computes it. No services. |
-
 | `R08_model_routing.py` | R8 | The routing table covers every registered agent (an unrouted one refuses assembly by name); offline, an input over the small tier's declared context window escalates *before* the small tier is resolved and the reason lands in `RunOutput.metadata["egpt_escalation"]`; live, `join_path_explainer` on both tiers with `RunOutput.model` naming each deployment, then a deliberately small declared window forcing a real pre-call escalation. |
 | `R09_spec_gap_plan.py` | R9 | The three sentences of the Verify line -- plain, one naming a metric that does not exist, one ambiguous about acting -- as hand-written correct specs through the deterministic gap check over the contract fixture (feasible, nothing coined; a coined near-miss becomes gaps), then live through the spec extractor on the small tier with every closed-set value checked against the lists rendered into its prompt: the unknown metric is a question, the action verb is a question. |
 | `R09_plan_view.py` | R9 | The plan as a view: an Inform-shape workflow stored as `Workflow.to_dict()`, derived and compared ref for ref; a `Condition` with `else_steps` and a `Router` with choices still compared; an executor nobody registered refused by name; and, with the control plane up, the same plan derived by `derive_plan` from the stored component row. |
@@ -102,6 +101,10 @@ EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
 EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
   .venv/bin/python cookbook/94_retail/R07_executor_library.py
 
+# R8's table and pre-call escalation need no services or credential:
+.venv/bin/python cookbook/94_retail/R08_model_routing.py
+# add `set -a && source azure_key.env && set +a` and EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT=<a
+# second, cheaper deployment> to also run the two live sections
 # R5's health cookbook needs no services:
 .venv/bin/python cookbook/94_retail/R05_gold_health.py
 
@@ -110,16 +113,11 @@ EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
 docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
 .venv/bin/python cookbook/94_retail/R05_gold_materialisation.py
 
-# R8's table and pre-call escalation need no services or credential:
-.venv/bin/python cookbook/94_retail/R08_model_routing.py
-
 # R9's gap check and plan view need no services (R09_plan_view's last section also stores
 # the workflow in the control plane when EGPT_RETAIL_DB_URL is reachable):
 .venv/bin/python cookbook/94_retail/R09_spec_gap_plan.py
 .venv/bin/python cookbook/94_retail/R09_plan_view.py
 # add azure_key.env and EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT to also run the live extraction
-# add `set -a && source azure_key.env && set +a` and EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT=<a
-# second, cheaper deployment> to also run the two live sections
 
 # R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
 docker build -f deploy/Dockerfile -t egpt-retail:dev .

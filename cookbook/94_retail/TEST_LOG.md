@@ -2665,6 +2665,324 @@ shared store now gets the question "shared with what?" before "does it match?".
 
 ---
 
+### R07_preflight_blocked_kpi.py
+
+**Package:** R7 (P2, implements G4 — preflight against a blocked KPI)
+**Status:** PASS
+
+**Description:** Reproduces the API contract's own worked example
+(`api/openapi/paths/use-cases.yaml`'s `runUseCasePreflight`, `product__avg_rating` /
+`web_sessions`) directly against `check_preflight`, no workflow, no database, no live semantic
+layer needed — `assess_feasibility` is a pure set difference. Then re-runs the same use case
+with the missing table exposed.
+
+**Result:** Blocked case: `allowed=False`, `blocked_by=["kpis_ready"]`, `StepOutput.stop=True`,
+the `kpis_ready` check's reason reads `"product__avg_rating: partial -- missing from the
+semantic snapshot: web_sessions."` — the contract's own text, verbatim. The other three checks
+(`tables_exposed`, `gold_fresh`, `guard_role`) all pass, each naming what is unbuilt (K5, R5,
+R6-wiring) rather than pretending to be computed. Once `web_sessions` is added to
+`available_tables`, the same use case passes: `allowed=True`, `blocked_by=[]`.
+
+---
+
+### R07_executor_library.py
+
+**Package:** R7 (P2, implements G4 — the executor library, against a real control-plane DB)
+**Status:** PASS
+
+**Description:** The package's own Verify text, run end to end: a throwaway
+`Workflow(steps=[check_preflight, record_provenance, deliver_in_app])`, no agent step, driven
+only by `.arun()` against the real control-plane Postgres (`egpt-retail migrate` applies
+`egpt_answer_provenance` and `retail_deliveries` alongside `MigrationManager`'s own tables).
+After the run, the provenance record is read back by `run_id`. A second run demonstrates the
+dry-run flag.
+
+**Result:** Section 1 — three steps ran, zero of them an agent step; `check_preflight` allowed
+(the fixture KPI's one source table, `orders`, is in `available_tables`); `record_provenance`
+returned a `provenance_ref`; `deliver_in_app` returned `status: "delivered"`,
+`dry_run: false`. Section 2 — `aread_provenance(engine, provenance_ref)` returned a real row:
+`model_tier: "none"` (no agent step ran — exactly R7's "the workflow completes without a
+model" evidence), `semantic_snapshot`, `datasets_read` all present. Section 3 — the same
+workflow with `additional_data={"dry_run": True}`: `check_preflight` and `record_provenance`
+ran identically (a real `provenance_ref` was still written), but `deliver_in_app` returned
+`status: "previewed"`, `dry_run: true`, and a distinct `output_ref`. Confirmed directly in
+Postgres: two `egpt_answer_provenance` rows, two `retail_deliveries` rows, the dry-run row's
+`delivered_at` is `NULL` and the real row's is a real timestamp.
+
+**What surprised me, in order of how much it matters:**
+
+1. **R3's API contract had already fully specified R7's shapes**, down to naming
+   `check_preflight`/`record_provenance`/`deliver_in_app` verbatim in its own example compiled
+   workflow plan (`getUseCasePlan`), and fixing `Provenance`'s exact field set in
+   `common.yaml` months before this package existed. Building R7 was closer to transcription
+   than design — the one real design decision left was *where the provenance record lives*
+   (framework vs. product), and even that was answered directly by
+   `docs/plan/delivery-plan.md:98`'s own table.
+2. **`MigrationManager` genuinely must not be touched for these two tables**, and the
+   repository already explains why in two places independently (`warehouse/ddl.py`'s
+   docstring, `entrypoints/migrate.py`'s own comment) — tracker #178 hardened it specifically
+   against stamping a table it never migrated. Both new tables get the same hand-rolled
+   `CREATE TABLE IF NOT EXISTS` treatment R4's warehouse tables get, just against the
+   control-plane DSN via a new `build_control_plane_engine` (which did not exist before this
+   package — `db.py` had a bare-engine builder for the warehouse but not the control plane).
+3. **A private, R7-only `additional_data` bag would have been the wrong shape.** R4's
+   `"r4_load"` bag works because all six R4 steps are R4's own pipeline; `record_provenance`
+   sits downstream of steps other lanes own (R5's `read_gold`, R10's `sample_rows`, an agent
+   step) in the real compiled plan. The `additional_data["prov"]` convention plus the five
+   exported `note_*` helpers exist specifically so those future executors have a documented
+   contribution point rather than reaching into dict shape by hand — this is the one part of
+   R7 every future data-reading or SQL-executing executor in any lane needs to follow.
+
+**Deliberately not done:** the `GET /runs/{run_id}/provenance` FastAPI route — no router for
+`/use-cases`, `/playground` or `/runs` exists anywhere yet, and R11 (the playground's citation
+panel, P4) is the natural owner; wiring it is a one-import call to
+`egpt.answer_provenance.aread_provenance` once R11 exists. K11's real KPI registry (P3) also
+does not exist yet, so `check_preflight`'s `kpis`/`available_tables` are caller-supplied here,
+not resolved from a live registry — the `kpis_ready` check itself is fully real regardless,
+since `assess_feasibility` needs nothing else.
+
+---
+
+### R07 — PR #197 round-1 review fixes
+
+**Package:** R7 (P2, G4)
+**Status:** PASS
+
+**Description:** Both round-1 reviews (two independent reviewers plus an auditor pass on
+`07ec3df3`) agreed on two Major findings and one confirmed mutation-testing gap; a third Major
+and a Minor were fixed alongside them:
+
+1. **`record_provenance`'s `_run_id` fallback was dead code.** `WorkflowSession` has no
+   `run_id` field (confirmed by reading `egpt.session.workflow.WorkflowSession` directly —
+   it holds a list of past `runs`, each with its own, not a scalar for the run in progress),
+   and `Workflow._create_step_input` never threads the executing run's id into `StepInput`
+   either — the same dead pattern already exists, unnoticed, in R4's
+   `executors/warehouse.py`. Fixed by removing the dead branch, logging a warning on the
+   fresh-uuid fallback, and — since `Workflow.arun` does accept a `run_id` override that seeds
+   `WorkflowRunOutput.run_id` — updating `R07_executor_library.py` to generate one id and pass
+   it to both `arun(run_id=...)` and `additional_data["run_id"]`, then assert
+   `provenance_ref == output.run_id == run_id`. Confirmed against real Postgres below: this
+   assertion holds.
+2. **`_bag()`'s `setdefault` was a no-op once `"prov"` existed in any shape**, so an executor
+   that seeded `additional_data["prov"]` itself in a partial shape would turn a later `note_*`
+   call, or `record_provenance` itself, into a `KeyError` — contradicting its own "never
+   refuses" docstring. Fixed: each of the five lists is now filled in independently.
+3. **The DDL is Postgres-only with no dialect guard.** `build_control_plane_engine` now
+   refuses a non-`postgresql+<driver>://` DSN by name (reusing the existing
+   `_SQLALCHEMY_DRIVER_SCHEME` pattern already in `db.py`), rather than letting one reach
+   `JSONB`/`TIMESTAMPTZ`/`now()` and fail with an opaque driver error three calls downstream.
+4. **Zero automated tests called `deliver_in_app`/`record_provenance` directly** — only their
+   pure helpers were tested, which is exactly why a mutation bypassing the
+   `additional_data["prov"]` convention survived the whole suite in round 1. Added direct
+   async tests for both executors (monkeypatching `awrite_provenance`/`awrite_delivery` and
+   `build_control_plane_engine`, no database) asserting on what actually reaches the write
+   call — the bypass mutation now fails `test_record_provenance_writes_the_note_star_bag_not_a_bypass`.
+5. **Minor, confirmed by both reviews:** `check_preflight`'s aggregate `kpis_ready` reason
+   dropped every KPI after the first when several were all ready (`feasibilities[:1]`). Fixed
+   to join every KPI's reason, matching the already-correct all-blocked-or-partial case.
+6. **Minor:** `retail_deliveries`' DDL had no idempotency test at all, unlike the identical-
+   reasoning `answer_provenance` DDL. Added the same checks (`CREATE TABLE IF NOT EXISTS`, no
+   bare non-idempotent `CREATE`, the `dry_run`/`channel` defaults) to `test_r7_delivery.py`.
+7. **Minor, documented rather than changed:** `_bag()`'s docstring now states plainly that it
+   mutates the caller's `additional_data` in place with no reset (a reused dict across two
+   `arun()` calls leaks entries) and that the workflow engine's step-retry loop reuses the same
+   object across retries of one step (a `note_*` call before I/O that might fail double-appends
+   on retry) — both caller-discipline risks, not defects in this executor itself.
+
+**Result:** `pytest product/tests/test_r7_*.py` — 46 passed (12 new: 1 preflight, 7 delivery
+inc. 4 DDL, 4 provenance-adapter inc. 2 direct-executor, 4 in a new
+`test_r7_control_plane_engine.py`). `pytest libs/agno/tests/unit/answer_provenance/` — 13
+passed, unchanged. `./scripts/format.sh && ./scripts/validate.sh` — both clean (`product`:
+382 passed, 7 skipped; ruff, mypy, API contract all green). Both cookbooks re-run against the
+real control-plane Postgres (`EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai`,
+after re-running `egpt-retail migrate`): `R07_executor_library.py` — the new
+`provenance_ref == output.run_id == run_id` assertion held on both the real and dry-run
+sections; `R07_preflight_blocked_kpi.py` — unchanged behavior, still blocks and clears exactly
+as before.
+
+---
+
+## Lane R — phase three
+
+### Lane R chores (open-items R-5, R-6, R-9, X-5, X-6, and a hook R4 forgot)
+
+**Package:** none — the open-items tail closed ahead of P3, so no P3 package carries it
+**Status:** PASS — with one finding that changed the scope of R-5
+
+**Description:** Closed every Lane R row in `docs/plan/open-items.md` that was blocking or
+embarrassing before R5/R8/R9 start. Verified by rendering the chart both ways, running the
+repository gates, and running the product suite on the 3.10 floor.
+
+**Result:**
+
+- `helm lint` clean with and without the kind overlay. `helm template` renders four hook/cron
+  objects in a deterministic order — `migrate` (pre, −5), `warehouse-migrate` (post, 0),
+  `load-knowledge` (post, 5), `harvest` (CronJob, `0 3 * * *`, `Forbid`) — with
+  `EGPT_RETAIL_NEO4J_URI/USER/DATABASE` and `EGPT_RETAIL_PROVIDER_MODE` in the ConfigMap and
+  `EGPT_RETAIL_NEO4J_PASSWORD` in the Secret, omitted when empty.
+- `validate.sh`: product target green including mypy (74 files) — the first time on this
+  machine since numpy 2.5; 430 product tests. Product tests on a fresh **Python 3.10** venv:
+  436 passed. `egpt[demo]` resolves `unstructured==0.18.27` inside the existing `<0.18.31` pin.
+- `integration.yml` parses and carries the two new steps. Its real proof is a run, dispatched
+  on this branch after push; the result is appended below.
+
+**What surprised me, in order of how much it matters:**
+
+1. **R-5 was not a missing hook; it was a missing half of the chart.** The Helm ConfigMap and
+   Secret carried no `EGPT_RETAIL_NEO4J_*` and no `EGPT_RETAIL_PROVIDER_MODE` at all — Lane K's
+   P1 added the settings and no template ever mapped them. The `load-knowledge` entrypoint
+   refuses to start without a Neo4j password, so the hook as filed would have failed on every
+   fresh cluster with the settings' own "unset" message. Both are now mapped from `neo4j.*`,
+   `model.providerMode` and `secrets.values.neo4jPassword` (Key Vault object `neo4j-password`,
+   added to `AKS_CUTOVER.md`'s list). The api and pipelines pods get them too, via `envFrom`,
+   which R5's feasibility and R9's gap check will need in P3 anyway.
+2. **X-5 resists every per-module mypy lever.** `follow_imports = "skip"` and `ignore_errors`
+   on `numpy.*` both still parse the stub; so does skipping `neo4j.*`, the actual importer
+   (`neo4j/_work/summary.py` → numpy, found with `mypy -v`). mypy collects the stub before any
+   override applies. The fix is the product mypy target at `python_version = "3.12"`, with the
+   reasoning in the pyproject comment. The 3.10 floor is still enforced where it bites — ruff's
+   `target-version = py310`, and CI's real-3.10 product test job, which is what caught the
+   `tomllib` slip on #193; mypy never did.
+3. **R4 wrote `warehouse-migrate` and nothing in the chart ran it.** A fresh cluster came up
+   with an empty warehouse database and would have failed the first load on a missing table.
+   `job-warehouse-migrate.yaml`, post-install rather than pre-, so it can never block the
+   control-plane migration that gates the release.
+4. **`validate.sh`'s framework mypy step fails on this machine with two errors, and neither is
+   this branch.** One is environment staleness: `sqlglot`, added to the framework's extras by
+   R6 (#195), was absent from a `.venv` built before that PR — `uv pip install sqlglot` (or
+   re-running `dev_setup.sh`) clears it. The other is X-2 verbatim
+   (`integrations/knowledge/reader/llms_txt_reader.py:94`, a bs4 `Tag.find` overload pulled
+   in by an optional dependency CI does not install). Both identical with the branch stashed.
+   Recorded because "I ran validate.sh" is only a claim worth making if the environment is the
+   one the script assumes — and today, on a dev box, it is not, which is X-2's whole point.
+5. **CI's `helm-lint` job caught that the first push of this branch was missing five of its
+   own files.** The commit carried the three new templates but not the ConfigMap, Secret,
+   `values.yaml`, `values.local.yaml` or `AKS_CUTOVER.md` edits, so
+   `.Values.warehouseMigrate.backoffLimit` was nil and the chart failed to lint — on CI, not
+   here, because here it had been linted *before* the edits were lost. The reflog shows a
+   `reset: moving to HEAD` between the edits and the commit: the "identical with the branch
+   stashed" check in item 4 stashed the tree and the pop never restored those five. Re-applied
+   from the session record, re-linted, re-rendered both ways, amended. The lesson is the one
+   the chores entry already argues for R-9: a verification that ran once on a laptop is a
+   claim; the job that runs on every push is the evidence.
+6. **`integration.yml`'s own framework step is red on `main`'s schedule, and has been for
+   three days** (7–9 Sep: 132 failed / 1 645 passed on 9 Sep, in `test_per_request_isolation`,
+   `test_share_sessions`, `test_tool_generated_media`, `test_output_schema_override` — no
+   product test among them). The dispatch on this branch failed the same way (130 / 1 645),
+   which is how I learned that the two steps this PR adds were *skipped* rather than run:
+   GitHub skips later steps after a failure unless told otherwise. Both now carry
+   `if: ${{ !cancelled() }}`, so the semantic live suite reports on its own merits. The
+   framework failures are not this branch's and are not fixed here; they belong on `main`.
+
+**R-9 evidence (integration run 34361850622, dispatched on this branch):** step 8
+"Provision the warehouse for the semantic live suite" — success (database created,
+`warehouse-migrate` applied); step 9 "Run the semantic layer live suite" — success,
+`product/tests/test_semantic_live.py`: **20 passed**. Caveat added after review: that run
+predates the fix below and connected via `test_semantic_live.py`'s own hardcoded fallback
+DSNs (`postgresql://ai:ai@localhost:5532/{ai,egpt_warehouse}`), not the step's
+`EGPT_RETAIL_DB_URL`/`EGPT_RETAIL_WAREHOUSE_DB_URL` — those two names are not what the test
+reads (it reads `EGPT_RETAIL_CP_DSN`/`EGPT_RETAIL_WAREHOUSE_DSN`), so they had no effect; the
+fallback happened to match this job's Postgres port. The 20-pass result is real, but its
+Postgres connection was coincidence, not this step's env, until the rename below. Neo4j was
+correctly wired throughout (`EGPT_ONTOLOGY_NEO4J_URI`, read directly). The step's env now
+sets the names the test actually reads, so a future dispatch's connection is intentional
+rather than coincidental. Step 7, the framework's own integration tests, failed as it does on
+`main`'s schedule (item 6), which is why the two product steps are `if: ${{ !cancelled() }}`.
+7. **X-6 was already closed by R2** and nobody had struck it: `dev_setup.sh` installs
+   `product[dev]`, which carries `openapi-spec-validator`; the `.venv` has 0.9.0.
+
+**Deliberately not done:** `deploy/helm/egpt/templates/NOTES.txt` does not yet mention the
+hooks; the README's install text is Lane R's to revisit with R5's `schedule-nightly` hook, so
+one edit rather than two. R-8 (provider-mode re-embedding migration) stays open as SM-V2 #96 —
+a deployment concern, not a chore.
+
+---
+
+### R08_model_routing.py
+
+**Status:** PASS (offline half, sections 1–2, on Python 3.12 and 3.10). Sections 3–4 (live,
+both Azure deployments) NOT RUN on this machine — there is no `azure_key.env` anywhere under
+`~/coe` or `~/code`, and nothing else names a second deployment. They are written, gated on
+`AZURE_OPENAI_API_KEY` + `EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT`, and exit non-zero on any
+failed check; the result belongs in this entry when someone with the credential runs them.
+
+**Description:** G6, "model routing". A routing table (`product/egpt_retail/routing/table.py`)
+names the tier per agent; `build_agents` builds every agent with `model=None` and
+`route_agents` installs a provider per row — the framework's `FrontierModelProvider` pinned
+to the tier's Azure deployment, wrapped for small-tier agents in the framework's
+`EscalatingModelProvider` with the frontier as target. An unrouted agent refuses assembly
+by name. The one product-side provider class, `TierModelProvider`, exists to declare a
+`context_window` (Mode B cannot state one) so `input_exceeds_context_window` can fire.
+The framework half: `resolve_run_model` narrowed `ModelResolveResult` to a bare `Model` and
+the run record never learned of an escalation; `resolve_run_model_detailed` twins now keep
+the detail and `_stamp_resolved_model` writes it to `RunOutput.metadata["egpt_escalation"]`,
+which `to_dict` persists. R7's `record_provenance` reads `model_tier` off the table by
+`StepOutput.executor_name` instead of warning and writing `none`.
+
+Section 1 prints the table, builds the registered agents against a dead control-plane URL
+(nothing connects), shows each with `model=None` and its provider, and shows the refusal
+for a ghost agent. Section 2 declares a 1 000-token window, drives the real per-run hook
+(`apply_run_model`) with an estimate of 999 then 1 001 tokens, and counts
+`resolve_detailed` calls per tier: 999 → `gpt-5.4-mini`, no key; 1 001 → `gpt-5.4`, record
+`{reason: input_exceeds_context_window, escalated_from: azure-openai, model_id: gpt-5.4,
+agent_id: join_path_explainer, escalation_level: 1}`, and the small tier resolved exactly
+once across both runs — the over-window request never reached it.
+
+**What surprised me:**
+
+1. **`AZURE_OPENAI_DEPLOYMENT` in the shell would have made both tiers one deployment.**
+   Azure routes a call by the *client's* deployment and ignores the request's `model`;
+   `AzureOpenAI._get_client_params` falls back to that env var when the client has none.
+   `AzureOpenAI(id=deployment)` — what `components.py` did before R8, and what every K14
+   cookbook does — therefore sends every call to whatever `azure_key.env` names, whatever
+   `id` says, and `RunOutput.model` reports the id. Two tiers built that way would have
+   been a label. `TierModelProvider` pins `azure_deployment` on the client
+   (`model_config`), and `test_the_resolved_model_is_pinned_to_its_tier_deployment_on_the_client`
+   sets the env var to something else and asserts both. Worth a line in K14's cookbooks; not
+   changed here.
+2. **`escalated_from` and `target` both read `azure-openai`.** `ModelResolveResult` records
+   provider *keys*, and two tiers on one provider share a key. `model_id` is what
+   distinguishes the record, and the log line (`small-tier -> frontier-tier`, from the
+   providers' names) carries the identity the record lacks. The base class's
+   `capabilities().provider_keys` is the whole frontier shortlist, so before narrowing it
+   the record would have said `escalated_from: anthropic` for an Azure tier — worse than
+   ambiguous, wrong. A `ModelResolveResult` that also carried the primary's model id is the
+   framework follow-up that would make the record self-sufficient.
+3. **`RunOutput.metadata` is the caller's dict.** `RunOutput` is built with
+   `metadata=run_context.metadata or {}`, and the same dict is forwarded to the provider as
+   the request's metadata, where `explicit_policy_flag` reads it. Appending the escalation
+   record in place would have written into the caller's `run(metadata=...)` object and into
+   the next re-resolve's rule input. The stamp replaces the dict;
+   `test_the_callers_metadata_dict_is_not_mutated` pins it and a mutation restoring the
+   in-place write fails it.
+4. **Provenance records the tier the step was *bound* to, not the one that served it.**
+   `StepOutput` has no metadata field, so a step's escalation stays on the `RunOutput` the
+   framework persists and does not reach `record_provenance`. Documented on `_model_tier`
+   rather than papered over: the run record has the escalation, the provenance row has the
+   binding, and PlanStep.model_tier is static plan metadata in the contract anyway.
+5. **A provider with only `resolve()` gets `(model, None)`, not a made-up result.**
+   `ModelResolveResult.mode` is required, and synthesising one for a Protocol-only provider
+   would have put a fact in the run record no provider stated. `resolve_via_detailed` returns
+   `None` for the detail there, and a test pins that such a provider still serves and
+   resolves exactly once.
+6. **`format.sh` reformatted 114 files outside this change**, as on every Lane R branch;
+   reverted. `validate.sh`'s product mypy is red on this branch with X-5
+   (`numpy/__init__.pyi:737`), fixed by #200 which is not on `main` yet; the framework mypy
+   red is X-2. Everything else green: ruff, 21 framework files mypy, API contract, 456
+   product tests, brand audit.
+
+**Result:** `pytest product/tests` — 456 passed, 27 skipped (20 new in `test_r8_routing.py`);
+`pytest libs/agno/tests/unit/providers` — 602 passed (7 new in
+`TestEscalationReachesTheRunRecord`, including the async twin and the pre-call count). Same
+counts on a Python 3.10 venv. Seven mutants, seven caught: escalation never stamped (4
+tests), metadata mutated in place (1), provenance ignores the table (2), client deployment
+not pinned (1), agents not routed (2), small window not declared (2), detailed path dropped
+for a plain `resolve` (3). Cookbook offline half PASS on 3.12 and 3.10.
+
+**Cross-lane, to raise:** the `AZURE_OPENAI_DEPLOYMENT` finding above for K14's cookbooks;
+`ROUTING_TABLE` reserves `enrichment_proposer`/`mapping_proposer` (K8) and `spec_extractor`
+(R9) / `funnel_explanation` (R10) — a package that registers one of those under another id
+refuses at startup, which is the point, but the name is the contract.
 ---
 
 ### K11_kpi_registry_and_feasibility.py
@@ -3102,109 +3420,72 @@ R6-wiring) rather than pretending to be computed. Once `web_sessions` is added t
 
 ---
 
-### R07_executor_library.py
+### PR #199 review round 1 — one real regression, one finding overtaken by Lane R
 
-**Package:** R7 (P2, implements G4 — the executor library, against a real control-plane DB)
-**Status:** PASS
+**Status:** PASS — 535 unit (+19), 3759 framework, 33 live, cookbook sweep 22/23
 
-**Description:** The package's own Verify text, run end to end: a throwaway
-`Workflow(steps=[check_preflight, record_provenance, deliver_in_app])`, no agent step, driven
-only by `.arun()` against the real control-plane Postgres (`egpt-retail migrate` applies
-`egpt_answer_provenance` and `retail_deliveries` alongside `MigrationManager`'s own tables).
-After the run, the provenance record is read back by `run_id`. A second run demonstrates the
-dry-run flag.
+**The critical was mine and it was exactly the failure CLAUDE.md's sync/async rule exists to
+stop.** `refresh_semantic_layer` moved its `kpis` sentinel from `()` to `None`-means-read-the-
+registry and gated the new mirror/stamp block on `kpis is None`. `arefresh_semantic_layer`
+kept `()` and forwarded it — so every async caller got the *old* behaviour: no registry read,
+no mirror rebuild, no stamping, and nothing failing. The P3 verification wrote that fix and
+then shipped it on one of two paths. Both variants now share the sentinel, and the docstring
+says why a divergence here is not a style point.
 
-**Result:** Section 1 — three steps ran, zero of them an agent step; `check_preflight` allowed
-(the fixture KPI's one source table, `orders`, is in `available_tables`); `record_provenance`
-returned a `provenance_ref`; `deliver_in_app` returned `status: "delivered"`,
-`dry_run: false`. Section 2 — `aread_provenance(engine, provenance_ref)` returned a real row:
-`model_tier: "none"` (no agent step ran — exactly R7's "the workflow completes without a
-model" evidence), `semantic_snapshot`, `datasets_read` all present. Section 3 — the same
-workflow with `additional_data={"dry_run": True}`: `check_preflight` and `record_provenance`
-ran identically (a real `provenance_ref` was still written), but `deliver_in_app` returned
-`status: "previewed"`, `dry_run: true`, and a distinct `output_ref`. Confirmed directly in
-Postgres: two `egpt_answer_provenance` rows, two `retail_deliveries` rows, the dry-run row's
-`delivered_at` is `NULL` and the real row's is a real timestamp.
+**The CI finding was right when written and had been fixed by Lane R before I read it.**
+Round 1 called `test_semantic_live.py` unreachable by any CI job — the same failure class the
+tests exist to close. That was true of the tree the reviewer read. It is no longer: Lane R
+closed **R-9** on 9 Sep, wiring the suite into `integration.yml` with services, an
+`egpt_warehouse` create, `warehouse-migrate`, and — impressively — a comment tracing my test's
+own `os.environ.get` calls to get the DSN variable names right.
 
-**What surprised me, in order of how much it matters:**
+I had already drafted a PR-triggered `product-live` job for `ci.yml` before finding that.
+**Reverted it.** It duplicated about a hundred lines of services, install and warehouse setup
+Lane R had just written, in Lane R's file, and two copies of that setup drift. What survives
+the finding is narrower and is filed as **R-10**: `integration.yml` triggers only on schedule
+and dispatch, so the suite catches a regression within 24 hours rather than before merge. For
+a data-loss class guarantee — accepting an enrichment erasing accepted fields — that gap is
+worth closing, but the shape of the fix (a `pull_request` trigger pulls the whole 25-minute
+framework suite onto every PR) is a decision about Lane R's workflow, not mine to take.
 
-1. **R3's API contract had already fully specified R7's shapes**, down to naming
-   `check_preflight`/`record_provenance`/`deliver_in_app` verbatim in its own example compiled
-   workflow plan (`getUseCasePlan`), and fixing `Provenance`'s exact field set in
-   `common.yaml` months before this package existed. Building R7 was closer to transcription
-   than design — the one real design decision left was *where the provenance record lives*
-   (framework vs. product), and even that was answered directly by
-   `docs/plan/delivery-plan.md:98`'s own table.
-2. **`MigrationManager` genuinely must not be touched for these two tables**, and the
-   repository already explains why in two places independently (`warehouse/ddl.py`'s
-   docstring, `entrypoints/migrate.py`'s own comment) — tracker #178 hardened it specifically
-   against stamping a table it never migrated. Both new tables get the same hand-rolled
-   `CREATE TABLE IF NOT EXISTS` treatment R4's warehouse tables get, just against the
-   control-plane DSN via a new `build_control_plane_engine` (which did not exist before this
-   package — `db.py` had a bare-engine builder for the warehouse but not the control plane).
-3. **A private, R7-only `additional_data` bag would have been the wrong shape.** R4's
-   `"r4_load"` bag works because all six R4 steps are R4's own pipeline; `record_provenance`
-   sits downstream of steps other lanes own (R5's `read_gold`, R10's `sample_rows`, an agent
-   step) in the real compiled plan. The `additional_data["prov"]` convention plus the five
-   exported `note_*` helpers exist specifically so those future executors have a documented
-   contribution point rather than reaching into dict shape by hand — this is the one part of
-   R7 every future data-reading or SQL-executing executor in any lane needs to follow.
+**The two majors, both fair.**
 
-**Deliberately not done:** the `GET /runs/{run_id}/provenance` FastAPI route — no router for
-`/use-cases`, `/playground` or `/runs` exists anywhere yet, and R11 (the playground's citation
-panel, P4) is the natural owner; wiring it is a one-import call to
-`egpt.answer_provenance.aread_provenance` once R11 exists. K11's real KPI registry (P3) also
-does not exist yet, so `check_preflight`'s `kpis`/`available_tables` are caller-supplied here,
-not resolved from a live registry — the `kpis_ready` check itself is fully real regardless,
-since `assess_feasibility` needs nothing else.
+*N+1 on the live query path.* `_semantic_results` called `get_table` once per table on every
+retrieval — a fifty-table warehouse meant fifty-one round trips to answer one question. Added
+`SemanticGraphStore.column_index()`, one query for the whole graph, reached through a
+`runtime_checkable` protocol so a reader without it (the P0 stub) takes a documented fallback
+rather than failing. Two tests: the indexed reader is asked once and `get_table` zero times;
+the unindexed one still answers correctly.
 
----
+*297 lines of `legs.py` with no unit coverage.* Now 19 tests: the ranking rule that makes
+`crm_deal` beat `crm_deal_stage_history` on "deal", column-only matching, the ontology leg's
+dedup across its store's two internal legs, `None`-means-no-leg, and the concept rendering
+that must match `promotable_text` or fusion can never corroborate.
 
-### R07 — PR #197 round-1 review fixes
+**Four test-quality minors, each a fair hit on a test that could not fail.**
 
-**Package:** R7 (P2, G4)
-**Status:** PASS
+- The two "one leg fails, the sibling survives" tests asserted only that the exception
+  surfaced — they would pass unchanged against a fail-fast implementation that never called
+  the sibling, which is the entire property. Both now record what ran; the async one sleeps in
+  the surviving leg so "awaited to completion" is distinguishable from "started".
+- The "no proposer imports a store" check was a substring grep of the module's own text. A
+  helper two hops away could have held the driver. Now walks the import graph transitively.
+- The registered `detect_business_areas` executor had no determinism test, only the pure
+  helper it calls. Added, with the driver stubbed.
 
-**Description:** Both round-1 reviews (two independent reviewers plus an auditor pass on
-`07ec3df3`) agreed on two Major findings and one confirmed mutation-testing gap; a third Major
-and a Minor were fixed alongside them:
+**Three code minors:** `is_personal_data` matched an *unqualified* `personal_data_fields`
+entry against every table's same-named column — over-tagging, not a leak, but a compliance
+flag wrong in the safe direction still teaches a reviewer to stop reading it; now only a
+`table.column` entry naming this table counts. `stamp_validated` committed once per KPI in a
+loop and now takes the batch. `_ddl` is bound to `self._schema` instead of the module
+constant, so a store constructed with a different schema no longer creates its table in one
+place and reads it from another.
 
-1. **`record_provenance`'s `_run_id` fallback was dead code.** `WorkflowSession` has no
-   `run_id` field (confirmed by reading `egpt.session.workflow.WorkflowSession` directly —
-   it holds a list of past `runs`, each with its own, not a scalar for the run in progress),
-   and `Workflow._create_step_input` never threads the executing run's id into `StepInput`
-   either — the same dead pattern already exists, unnoticed, in R4's
-   `executors/warehouse.py`. Fixed by removing the dead branch, logging a warning on the
-   fresh-uuid fallback, and — since `Workflow.arun` does accept a `run_id` override that seeds
-   `WorkflowRunOutput.run_id` — updating `R07_executor_library.py` to generate one id and pass
-   it to both `arun(run_id=...)` and `additional_data["run_id"]`, then assert
-   `provenance_ref == output.run_id == run_id`. Confirmed against real Postgres below: this
-   assertion holds.
-2. **`_bag()`'s `setdefault` was a no-op once `"prov"` existed in any shape**, so an executor
-   that seeded `additional_data["prov"]` itself in a partial shape would turn a later `note_*`
-   call, or `record_provenance` itself, into a `KeyError` — contradicting its own "never
-   refuses" docstring. Fixed: each of the five lists is now filled in independently.
-3. **The DDL is Postgres-only with no dialect guard.** `build_control_plane_engine` now
-   refuses a non-`postgresql+<driver>://` DSN by name (reusing the existing
-   `_SQLALCHEMY_DRIVER_SCHEME` pattern already in `db.py`), rather than letting one reach
-   `JSONB`/`TIMESTAMPTZ`/`now()` and fail with an opaque driver error three calls downstream.
-4. **Zero automated tests called `deliver_in_app`/`record_provenance` directly** — only their
-   pure helpers were tested, which is exactly why a mutation bypassing the
-   `additional_data["prov"]` convention survived the whole suite in round 1. Added direct
-   async tests for both executors (monkeypatching `awrite_provenance`/`awrite_delivery` and
-   `build_control_plane_engine`, no database) asserting on what actually reaches the write
-   call — the bypass mutation now fails `test_record_provenance_writes_the_note_star_bag_not_a_bypass`.
-5. **Minor, confirmed by both reviews:** `check_preflight`'s aggregate `kpis_ready` reason
-   dropped every KPI after the first when several were all ready (`feasibilities[:1]`). Fixed
-   to join every KPI's reason, matching the already-correct all-blocked-or-partial case.
-6. **Minor:** `retail_deliveries`' DDL had no idempotency test at all, unlike the identical-
-   reasoning `answer_provenance` DDL. Added the same checks (`CREATE TABLE IF NOT EXISTS`, no
-   bare non-idempotent `CREATE`, the `dry_run`/`channel` defaults) to `test_r7_delivery.py`.
-7. **Minor, documented rather than changed:** `_bag()`'s docstring now states plainly that it
-   mutates the caller's `additional_data` in place with no reset (a reused dict across two
-   `arun()` calls leaks entries) and that the workflow engine's step-retry loop reuses the same
-   object across retries of one step (a `note_*` call before I/O that might fail double-appends
-   on retry) — both caller-discipline risks, not defects in this executor itself.
+**A pre-existing failure found by the sweep, not mine.** `R01_consolidator_no_work` fails on
+`main`: it asserts one scope with no work, and the consolidator now defaults to two agents.
+Verified by stashing every Lane K change — it fails identically — and by
+`git diff origin/main..HEAD`, which shows this branch touches neither the consolidator
+entrypoint nor settings. Filed as **R-11**; Lane R's cookbook, left alone.
 
 **Result:** `pytest product/tests/test_r7_*.py` — 46 passed (12 new: 1 preflight, 7 delivery
 inc. 4 DDL, 4 provenance-adapter inc. 2 direct-executor, 4 in a new
@@ -3329,6 +3610,12 @@ KPI alone. The "failed" row keeps `last_computed_at` from the last good run, whi
 screen saying two true things at once.
 
 **Result:** Overall PASS.
+**Surprising:** the most useful thing in this round was discovering that a finding had already
+been fixed by someone else. I was one commit from shipping a duplicate CI job into a file I do
+not own, solving a problem that was solved the day before. Reading `open-items.md` after a
+merge — not just the review — is what caught it.
+
+---
 
 ## Lane R — phase three
 

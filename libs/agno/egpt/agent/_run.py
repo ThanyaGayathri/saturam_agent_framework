@@ -377,16 +377,36 @@ def _stamp_escalation(
     key, so "was this run escalated?" is answerable by the key's presence alone. A run whose
     output object has no `metadata` attribute (a test double, an event) is left alone.
 
-    The metadata dict is *replaced*, not mutated. ``RunOutput`` is constructed with
-    ``metadata=run_context.metadata or {}`` -- the caller's own dict when one was passed to
-    ``run(metadata=...)`` -- and that dict is also what ``_run_model_request`` forwards to the
-    provider as the request's metadata. Appending to it in place would put the escalation record
-    into the *caller's* object, and into the next re-resolve's request, where the escalation
-    rules read ``metadata``. A fresh dict on the response keeps the record where it belongs.
+    The metadata dict is *replaced*, not mutated. ``ModelResolveRequest`` is built in
+    ``_run_model_request`` with ``metadata=run_context.metadata or {}`` -- the caller's own dict
+    when one was passed to ``run(metadata=...)`` -- and that same dict is what
+    ``_run_model_request`` forwards to the provider as the request's metadata. Appending to it
+    in place would put the escalation record into the *caller's* object, and into the next
+    re-resolve's request, where the escalation rules read ``metadata``. A fresh dict on the
+    response keeps the record where it belongs.
+
+    ``escalated_from``/``target`` are filled from ``detail.escalated_from``/``detail.provider_key``
+    -- both *registry keys* (``ModelResolveResult``'s own contract: "provider_key we escalated
+    away from"), not the provider *names* ``EscalationEvent`` documents on itself and that the
+    framework's own log line (``providers/escalation.py``'s ``log_escalation_event`` call) uses.
+    Two tiers that narrow to the same registry key -- R8's `TierModelProvider`, one Azure
+    deployment under `"azure-openai"` for both -- therefore read identically here even though
+    the log line distinguishes them by name; ``model_id`` is left to carry the distinction alone
+    in the persisted record. Giving this hook the provider *names* would need a provider identity
+    the seam does not carry today (`ModelResolveResult` has no name field, only `provider_key`),
+    which is the tracked framework follow-up, not a fix made here.
     """
     if detail is None or getattr(detail, "escalated_from", None) is None or not hasattr(run_response, "metadata"):
         return
     from egpt.providers.events import EscalationEvent
+
+    # Prefer the depth the resolution actually reached (`detail.escalation_level`, additive on
+    # `ModelResolveResult`) over re-deriving one hop from the pre-call request. A provider that
+    # does not populate the field (anything predating this) falls back to the old derivation,
+    # which only misreports once a chain is more than one hop -- nothing in this PR produces
+    # that yet.
+    detail_level: Optional[int] = getattr(detail, "escalation_level", None)
+    escalation_level = detail_level if detail_level is not None else (getattr(request, "escalation_level", 0) or 0) + 1
 
     event = EscalationEvent(
         reason=getattr(detail, "reason", None) or "unspecified",
@@ -394,7 +414,7 @@ def _stamp_escalation(
         # The registry key the escalation target resolved through -- the same identity the
         # detail carries for the primary, so the two sides of the record are comparable.
         target=getattr(detail, "provider_key", None) or getattr(resolved, "provider", None) or "unknown",
-        escalation_level=(getattr(request, "escalation_level", 0) or 0) + 1,
+        escalation_level=escalation_level,
         tenant_id=getattr(run_context, "tenant_id", None),
         user_id=getattr(run_context, "user_id", None),
         session_id=getattr(run_context, "session_id", None),

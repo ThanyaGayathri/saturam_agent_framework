@@ -111,7 +111,19 @@ target-version = "py310"
 [tool.mypy]
 # Run through ./scripts/validate.sh, which sets MYPYPATH=libs/agno: the framework is an editable
 # install behind an import-hook finder, invisible to mypy without an explicit source path.
-python_version = "3.10"
+#
+# python_version is 3.12, not the package's 3.10 floor, and that is a decision rather than an
+# oversight (open-items X-5). numpy 2.x ships stubs written with the `type` statement, which mypy
+# refuses to parse under any target below 3.12 -- and it parses them whatever per-module
+# override is set on numpy, or on the module that imports it (neo4j), because the stub is
+# collected before follow_imports applies. So under "3.10" the product target failed on every
+# dev box with a current numpy and passed in CI only by resolving an older one. The 3.10 floor
+# is still enforced where it bites: ruff's target-version = py310 for syntax, and CI running the
+# product tests on a real 3.10 interpreter (which is what caught the tomllib import, not mypy).
+# Caveat: ruff's target-version catches syntax-shape drift (PEP 695 `type`/generic syntax,
+# `except*`), not stdlib/typing-API-availability drift (e.g. `typing.override`) -- only the
+# real-3.10 CI job catches that class, and only for the code paths it exercises.
+python_version = "3.12"
 check_untyped_defs = true
 no_implicit_optional = true
 warn_unused_configs = true

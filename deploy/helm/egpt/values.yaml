@@ -35,6 +35,9 @@ secrets:
     internalServiceToken: "change-me-shared-across-pipelines-replicas"
     azureOpenAIApiKey: ""
     azureEmbedderApiKey: ""
+    # The ontology graph's password. Empty is refused by load-knowledge at startup, with the
+    # variable named -- the settings' own posture -- rather than defaulting to a guess.
+    neo4jPassword: ""
 
 auth:
   enabled: false
@@ -58,6 +61,11 @@ model:
   azureDeployment: gpt-5.4
   azureEndpoint: ""                      # https://<resource>.openai.azure.com/
   embedderDeployment: text-embedding-3-large
+  # Which embedder family memory AND the knowledge layers use (EGPT_RETAIL_PROVIDER_MODE).
+  # `frontier` is the deployment's truth (Azure text-embedding-3-large at 1024); `local` is a
+  # laptop with no Azure embedding deployment (bge-base-en-v1.5 at 768). Never mix on one
+  # deployment -- open-items R-8 records why a switch needs a re-embedding migration.
+  providerMode: frontier
 
 api:
   replicas: 2
@@ -87,6 +95,15 @@ consolidator:
 migrate:
   backoffLimit: 2
 
+# The three post-install hooks and the nightly CronJob (open-items R-5 and the warehouse hook
+# found planning P3). Each is an existing, idempotent `egpt-retail` command; see the templates.
+warehouseMigrate:
+  backoffLimit: 2
+loadKnowledge:
+  backoffLimit: 2
+harvest:
+  schedule: "0 3 * * *"                  # after the 01:00 nightly refresh (R5) has landed silver
+  backoffLimit: 1
 # The nightly-refresh schedule (R5, D7): registered by a post-install hook, run by the
 # pipelines Deployment's scheduler poller. 01:00 UTC is after the upstream exports land and
 # before the 03:00 harvest reads the silver it built.
@@ -108,6 +125,7 @@ neo4j:
   # Two databases in one Enterprise instance is the target. UNVERIFIED without a licence.
   memoryUri: bolt://egpt-neo4j-memory:7687
   ontologyUri: bolt://egpt-neo4j-ontology:7687
+  user: neo4j
   databases: {memory: neo4j, ontology: neo4j}
 
 redis:
