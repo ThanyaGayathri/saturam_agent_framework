@@ -159,10 +159,13 @@ print("   ", "OK " if checks[list(checks)[-1]] else "FAIL", list(checks)[-1])
 
 # --- 3. A reference nobody registered ------------------------------------------------------
 print()
-print("3. Swap in `sample_rows` (R10's, not registered yet): the view refuses, by name")
+print("3. Swap in a name nobody registered: the view refuses, by name")
 print("-" * 78)
+# R10 landed and registered `sample_rows` -- this section used to swap that name in as its
+# stand-in for "a name nobody registered yet"; a name genuinely nobody has claimed still
+# refuses the same way.
 broken = config_of(inform_skeleton())
-broken["steps"][1]["executor_ref"] = "sample_rows"
+broken["steps"][1]["executor_ref"] = "not_a_real_executor"
 try:
     plan_from_config(
         broken,
@@ -176,7 +179,7 @@ except UnknownPlanRef as exc:
     refused = str(exc)
 print(f"  refusal: {refused}")
 checks["an unregistered executor is refused, naming it"] = (
-    bool(refused) and "sample_rows" in refused
+    bool(refused) and "not_a_real_executor" in refused
 )
 print("   ", "OK " if checks[list(checks)[-1]] else "FAIL", list(checks)[-1])
 

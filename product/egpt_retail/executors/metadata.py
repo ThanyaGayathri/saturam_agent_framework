@@ -163,5 +163,30 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             False,
             1,
         ),
+        # R10 -- the RFQ chain's own
+        "sample_rows": ExecutorMetadata(
+            "Sample supporting rows",
+            "Pull a bounded sample through the SQL guard for the explanation to cite.",
+            ("rows",),
+            ("movers", "friction", "samples", "kpi_identifiers", "snapshot_version"),
+            # The API contract's own example plan (paths/use-cases.yaml): true, the same as
+            # check_preflight -- a guard refusal here must stop the chain before an
+            # explanation runs against rows nobody guaranteed were safe to read.
+            True,
+            2,
+        ),
+        "check_explanation_grounding": ExecutorMetadata(
+            "Check explanation grounding",
+            "Verify the funnel-explanation agent's output cites only what sample_rows "
+            "handed it; stop the chain before delivery otherwise.",
+            ("explanation", "movers"),
+            ("explanation",),
+            # Added after review found the schema's own checkers were reachable from nowhere
+            # at run time; paths/use-cases.yaml was updated in the same change to name it as
+            # step 5. True, the same as sample_rows: a failed check must stop the chain before
+            # record_provenance/deliver_in_app run against an explanation nobody verified.
+            True,
+            1,
+        ),
     }
 )

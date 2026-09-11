@@ -15,8 +15,8 @@ from pydantic import ValidationError
 
 from egpt_retail.api.models import Autonomy as ContractAutonomy
 from egpt_retail.api.models import Confidence, UseCaseSuggestionList
-from egpt_retail.contracts.vocabulary import load_vocabulary_set
 from egpt_retail.contracts.kpi import KpiDefinition
+from egpt_retail.contracts.vocabulary import load_vocabulary_set
 from egpt_retail.skills.use_case_suggestion import (
     PROMPT_PATH,
     SHAPE_REQUIREMENTS,

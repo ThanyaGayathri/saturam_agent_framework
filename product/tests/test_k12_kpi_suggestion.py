@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, List
 
 import pytest
+
 from egpt_retail.api.models import (
     Confidence,
     FeasibilityVerdict,

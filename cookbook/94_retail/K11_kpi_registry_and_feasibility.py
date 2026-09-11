@@ -30,11 +30,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 import psycopg  # noqa: E402
 from egpt_retail.contracts.kpi import (  # noqa: E402
     FeasibilityVerdict,
-    assess_feasibility,
-    assess_feasibility_with_joins,
     KpiDefinition,
     KpiParameter,
     ParameterKind,
+    assess_feasibility,
+    assess_feasibility_with_joins,
 )
 from egpt_retail.contracts.semantic import Concept, available_tables  # noqa: E402
 from egpt_retail.executors.kpi import feasibility_summary, verdict_rows  # noqa: E402

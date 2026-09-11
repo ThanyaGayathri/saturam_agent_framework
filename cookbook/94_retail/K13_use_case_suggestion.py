@@ -39,19 +39,22 @@ from egpt.metrics import ProviderMode  # noqa: E402
 from egpt.vectordb.pgvector import PgVector  # noqa: E402
 from egpt.vectordb.search import SearchType  # noqa: E402
 from egpt_retail.app.settings import RetailSettings  # noqa: E402
+from egpt_retail.contracts.kpi import KpiDefinition  # noqa: E402
+from egpt_retail.contracts.semantic import available_tables  # noqa: E402
 from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
+from egpt_retail.kpi.store import KpiRegistryStore  # noqa: E402
 from egpt_retail.ontology.store import OntologyStore  # noqa: E402
-from egpt_retail.suggestions import build_suggestion_agents, gather_context  # noqa: E402
+from egpt_retail.semantic.harvest import harvest_schema  # noqa: E402
+from egpt_retail.semantic.store import SemanticGraphStore  # noqa: E402
+from egpt_retail.skills import use_case_suggestion as k13  # noqa: E402
+from egpt_retail.suggestions import (  # noqa: E402
+    build_suggestion_agents,
+    gather_context,
+)
 from egpt_retail.suggestions.context import (  # noqa: E402
     render_context,
     samples_from_harvest,
 )
-from egpt_retail.contracts.kpi import KpiDefinition  # noqa: E402
-from egpt_retail.contracts.semantic import available_tables  # noqa: E402
-from egpt_retail.kpi.store import KpiRegistryStore  # noqa: E402
-from egpt_retail.semantic.harvest import harvest_schema  # noqa: E402
-from egpt_retail.semantic.store import SemanticGraphStore  # noqa: E402
-from egpt_retail.skills import use_case_suggestion as k13  # noqa: E402
 from neo4j import GraphDatabase  # noqa: E402
 
 if not os.environ.get("AZURE_OPENAI_API_KEY"):

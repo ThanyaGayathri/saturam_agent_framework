@@ -34,7 +34,10 @@ from egpt_retail.contracts.kpi import KpiDefinition  # noqa: E402
 from egpt_retail.entrypoints.suggest import suggest  # noqa: E402
 from egpt_retail.kpi.store import KpiRegistryStore  # noqa: E402
 from egpt_retail.semantic.proposals import PROPOSAL_SCHEMA  # noqa: E402
-from egpt_retail.suggestions import KPI_SUGGESTION_ID, USE_CASE_SUGGESTION_ID  # noqa: E402
+from egpt_retail.suggestions import (  # noqa: E402
+    KPI_SUGGESTION_ID,
+    USE_CASE_SUGGESTION_ID,
+)
 
 if not os.environ.get("AZURE_OPENAI_API_KEY"):
     raise SystemExit(

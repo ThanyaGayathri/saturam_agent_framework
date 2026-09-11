@@ -20,7 +20,6 @@ is an error at construction, in this process, rather than a blank on a screen.
 
 from __future__ import annotations
 
-
 import asyncio
 import re
 from enum import Enum

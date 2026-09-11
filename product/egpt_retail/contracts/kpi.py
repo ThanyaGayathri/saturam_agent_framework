@@ -28,13 +28,13 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import (
+    TYPE_CHECKING,
     Callable,
     FrozenSet,
     Iterator,
     Mapping,
     Optional,
     Sequence,
-    TYPE_CHECKING,
     Tuple,
 )
 
