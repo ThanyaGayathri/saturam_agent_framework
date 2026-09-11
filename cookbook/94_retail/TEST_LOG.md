@@ -4638,6 +4638,292 @@ cookbooks; product ruff and mypy clean under `validate.sh`. Open: R-15, R-16, K-
 
 ---
 
+### R14_monitoring.py
+
+**Package:** R14
+
+**Status:** PASS (14 checks, twice in a row -- idempotency verified by re-running -- against
+the compose stack's real Postgres; no Neo4j-specific data needed, no model credential).
+
+**Description:** The delivery plan's D14 Verify line, run against real run history: drive
+`nightly-refresh` to two real successes (R10's own hand-edit-yesterday's-gold technique, so
+today's real materialisation has a mover), then let a run fail for real (hold the
+landing-to-silver advisory lock `load_landing_files` itself takes, drive `nightly-refresh`
+again), register a real schedule whose cadence's most recent expected fire is months in the
+past with no run ever recorded, and hand-degrade a real mover row while keeping the delivered
+explanation text byte-for-byte identical. `assess_execution_health`, `list_silent_schedules`
+and `assess_quality` (`executors/monitoring.py`, three new deterministic executors, registered
+alongside Lane K's K9/K11 as read-only reports -- none returns `stop=True`, so
+`permits_or_blocks` is `False` for all three) are then called for real and must show the right
+numbers.
+
+**Scope, as actually drawn.** This package owns execution health (from run history) and the
+input-drift half of the quality assessment; R15 (golden question sets, the rehearsal/publish
+gate) is a sibling package building concurrently in its own worktree and was not touched.
+`UseCaseQuality.golden_pass_rate` is accepted here as a plain input — R15's number, passed
+through unmodified — never computed; every scenario in this cookbook exercises the shape
+`golden_pass_rate` takes before R15 has run for a use case (`None`), which is also the
+contract's own worked `unknown` example.
+
+**A real framework finding the failure scenario surfaced, not a hypothetical one.** The plan
+was to hold `load_landing_files`'s own advisory lock and let `nightly-refresh`'s `arun()`
+persist a `RunStatus.error` run the way `WorkflowRunOutput.status = RunStatus.error` (set right
+before the exception is re-raised, `workflow.py`'s own non-streaming `_aexecute`) suggests it
+would. It does not: the `except Exception` branch that stamps that status re-raises immediately,
+unwinding past the `workflow_session.upsert_run`/`save_session` calls that follow it in the
+same method — confirmed directly against this database (`select ... from egpt_sessions where
+workflow_id = 'nightly-refresh'` after the forced failure showed only the two prior successes,
+never the failed run). A hard step failure under `on_error=OnError.fail`, driven through
+`arun()` directly, is therefore invisible to execution health's primary source
+(`get_sessions(session_type=WORKFLOW, ...)`) — not a corner case, the exact scenario this
+package's own Verify line asks for. In production this is covered: the real poller
+(`egpt.scheduler.executor.ScheduleExecutor`) calls a scheduled workflow over HTTP and, on any
+exception from that call, writes `ScheduleRun.status = "failed"` in its own `except` clause —
+a different ledger than `WorkflowSession`, written by a different code path, for exactly this
+failure mode. No HTTP router exists yet to drive that path here (interface wiring is phase
+five per the delivery plan), so the cookbook drives the same two `PostgresDb` primitives the
+poller itself calls (`create_schedule_run`/`update_schedule_run`) by hand, around a real raised
+exception from a real run — everything is real except the network hop. Fixed properly rather
+than worked around in the cookbook alone: `assess_execution_health` now merges a named
+schedule's real `ScheduleRun` history into its `RunRecord`s (`schedule_run_records`, new), so a
+scheduled use case's execution health is not blind to a hard failure just because
+`WorkflowSession` never saw it. Filed nowhere else because there is nowhere else in this
+package's scope to file it — it is the reason `schedule_run_records` exists.
+
+**A second, smaller correction the same scenario forced.** `is_silent`'s first draft compared
+a schedule's expected fire only against its *successful* run history, on the reasoning that a
+failed-but-attempted run should not read as "it fired". Building the failure scenario above
+made the bug in that reasoning obvious immediately: with `last_success_at` sourced only from
+`RunStatus.completed`/`"success"` records, the newly-recorded `ScheduleRun` failure did not
+count as a fire at all, and `nightly-refresh` reported `silent: true` in the same breath as
+`failures_7d: 1` — indistinguishable from a schedule that had never run. The D14 evidence line
+is explicit that these are different findings ("the silent schedule is flagged, which failure
+monitoring alone would miss"), so conflating "never fired" with "fired and failed" would make
+a broken-but-firing schedule invisible to the one check meant to catch a schedule that stopped
+being triggered at all. Fixed before this cookbook ever ran clean: `is_silent`/
+`assess_execution_health`/`list_silent_schedules` all now compare against the last *fired*
+timestamp (any status, any attempt), never only the last success.
+
+**Result, scenario by scenario:**
+
+```
+1. nightly-refresh, two real runs   COMPLETED, COMPLETED -- a real mover forced by hand-editing
+                                     yesterday's gold, the same technique R05/R10 use
+2. let a run fail                   held the real advisory lock; nightly-refresh raised for a
+                                     real reason (lock contention); recorded as a real
+                                     ScheduleRun failure (status=failed, error message intact)
+3. assess_execution_health          uc_nightly_refresh: runs_7d=3, failures_7d=1,
+                                     last_run_status=failed, silent=false (it fired; the last
+                                     fire failed); uc_rfq_0001 (no Azure credentials, so
+                                     rfq-funnel was never driven through arun(), the same
+                                     posture R10's own offline half takes): runs_7d=0,
+                                     last_run_status=null -- the contract's own uc_0002 shape
+4. disable a schedule, past window  a real schedule (cron "0 0 1 1 *", months in the past,
+                                     zero ScheduleRuns) flagged by list_silent_schedules while
+                                     enabled, and identically once manager.disable()d
+5. degrade input, output unchanged  one real mover row's current_value hand-shifted from 1 to
+                                     700; the delivered explanation string is the same Python
+                                     object in both calls; assess_quality: healthy/drift 0.0
+                                     unchanged vs degraded/drift 0.5/"degraded" with a filled
+                                     reason, golden_pass_rate null throughout (R15 has not run)
+```
+
+**Deliberately not exercised live.** `gates_waiting` (an approval gate paused past its wait
+threshold): neither `nightly-refresh` nor `rfq-funnel` has a HITL confirmation step in this
+codebase today, so no real paused run exists to count -- covered instead by
+`test_r14_monitoring.py`'s `summarize_execution_health` unit tests against a synthetic paused
+`RunRecord`, the same posture R13's `TEST_LOG` takes for `delta`/`series`. `cost_7d` token
+counts: real, but zero in this environment for the same reason -- no Azure credentials, so no
+agent run ever produced `RunMetrics` to sum.
+
+**Result:** PASS, twice in a row. `pytest product/tests/test_r14_monitoring.py` -- 45 passed
+(pure unit tests over every helper: `map_run_status`, `extract_run_records`,
+`schedule_run_records`, `cost_drift_pct`, `summarize_execution_health`, `expected_previous_fire`,
+`is_silent` including the deliberately-disabled-schedule case, `input_signature`, `drift_score`
+across numeric/categorical/null-rate/kind-change/no-shared-fields shapes, `quality_verdict`
+across every signal combination, plus the three executors' wiring against a mocked db/
+`ScheduleManager`); `pytest product/tests/` -- 889 passed, 41 skipped;
+`format.sh`/`validate.sh` both green (`format.sh` rewrote ~120 unrelated files repo-wide, per
+this document's own standing note; pruned to the four files this package actually touched
+before staging).
+
+---
+
+### PR #211 review round 1 -- eight findings (dedup, N+1, missing notes branch, unordered
+### LIMIT, batch isolation, concurrency, boundary test), all addressed in
+### `product/egpt_retail/executors/monitoring.py`
+
+**Findings and fixes:**
+
+1. **High -- double-counted successful scheduled runs.** `assess_execution_health` merged
+   session-derived and `ScheduleRun`-derived records with no dedup; since a successful
+   scheduled run is persisted through *both* paths (`WorkflowSession` via `workflow.arun()`'s
+   normal path, and a `ScheduleRun` row `ScheduleExecutor.execute()` writes for every
+   attempt), the same run counted twice. Fixed: the merge now tracks `run_id`s already seen
+   from the session side and skips any `ScheduleRun` whose `run_id` already appears there.
+   New test: `test_assess_execution_health_dedups_a_run_seen_via_both_session_and_schedule_run`
+   -- the same run_id via a `WorkflowSession` and a `ScheduleRun`, counted once.
+2. **Medium/Major (two reviewers, same finding) -- N+1 `manager.list`.** `manager.list(None,
+   1000, 1)` ran inside the per-use-case loop, re-querying up to 1000 schedule rows per use
+   case. Fixed: hoisted above the loop into a `{schedule.name: schedule}` map built once, the
+   same pattern `list_silent_schedules` already uses. New test:
+   `test_assess_execution_health_resolves_schedules_via_one_hoisted_list_call` -- three use
+   cases, two with distinct schedules, `manager.list_calls == 1`.
+3. **Low-Medium -- `notes` blank when degraded by `golden_pass_rate` alone.** Added an
+   `elif verdict == "degraded" and golden_pass_rate is not None` branch in `assess_quality`
+   mirroring the existing drift-driven message. New test:
+   `test_assess_quality_degraded_by_golden_pass_rate_alone_fills_notes`.
+4. **Major -- unordered `LIMIT 500`.** `db.get_sessions(..., limit=500)` passed no
+   `sort_by`/`sort_order`; `apply_sorting()` is a no-op when `sort_by is None`, so a use case
+   with more than 500 sessions could get an arbitrary subset instead of its most recent runs.
+   Fixed: `sort_by="created_at", sort_order="desc"`, matching every other `limit`-bounded
+   `get_sessions` call site in the codebase. New assertion in
+   `test_assess_execution_health_reads_the_named_workflows_run_history` on the exact
+   `get_sessions` call args (sort_by/sort_order/limit) issued.
+5. **Minor -- one malformed `use_cases` entry aborted the whole batch.** Bracket access on
+   `workflow_id`/`use_case_id` raised `KeyError` for one bad entry and lost every other use
+   case's report. Fixed: each use case's processing is now isolated in
+   `_assess_one_use_case_health`, with a new `_execution_health_error_record` helper reporting
+   a degraded/error record (contract-shaped defaults plus an `error` field) for the one
+   malformed entry instead of raising. New test:
+   `test_assess_execution_health_isolates_a_malformed_use_case_entry` -- one entry missing
+   `workflow_id`, one good entry after it; the good one still reports normally.
+6. **Minor -- sequential per-use-case I/O.** Attempted first with `asyncio.gather` across use
+   cases (fix #2's schedule-map hoist already removed one await from inside the loop). This
+   was **reverted after it broke the real cookbook run**: `PostgresDb.get_sessions` lazily
+   reflects and caches its `Table` object onto the shared `db` instance
+   (`self.session_table`), and `ScheduleManager` shares the same `db`; gathering concurrently
+   races that lazy reflection across `asyncio.to_thread` worker threads. This reproduced live
+   against the real control-plane Postgres in `cookbook/94_retail/R14_monitoring.py` as a
+   stray `AttributeError: workflow_id` on the second use case in a batch of two, from a
+   `Table` object one thread was still constructing while another thread's query read a
+   column off it -- not a theoretical race. **Deferred, honestly, per the reviewer's own
+   escape hatch**: fixing it properly needs a `db`/`manager` per task or a lock around the
+   lazy reflection, either larger than this fix's scope; `assess_execution_health` stays
+   sequential (correct and safe) with the isolation from fix #5 intact, and the docstring
+   spells out why.
+7. **Nit -- no exact-equality boundary test for `is_silent`.** New test:
+   `test_is_silent_false_at_the_exact_expected_fire_boundary` -- `last_fired_at == expected_at`
+   asserts `is_silent` is `False`. The `<` comparison itself needed no code change.
+
+**Re-verification:**
+
+- `cookbook/94_retail/R14_monitoring.py` against the R14 worktree's own isolated stack
+  (Postgres 5733, Neo4j 7693, `egpt-retail-r14-*` containers, migrations re-applied
+  idempotently) -- **PASS**, all thirteen Verify/Evidence assertions green, including the
+  fix-#1/#4 exercised paths (`last_run_status` reports the real failure via the
+  `ScheduleRun` merge, `runs_7d`/`failures_7d` real counts). The concurrency regression from
+  fix #6's first attempt was caught here, not in the unit suite -- the mocked fakes in
+  `test_r14_monitoring.py` are simple enough to be inherently thread-safe and would not have
+  shown the race; only the real Postgres reflection did.
+- `pytest product/tests/test_r14_monitoring.py` -- 50 passed (the prior 45 plus 5 new: the
+  dedup test, the hoisted-list-call test, the malformed-entry-isolation test, the
+  golden-pass-rate-notes test, and the exact-equality `is_silent` boundary test).
+- `pytest product/tests/` -- 894 passed, 41 skipped.
+- `format.sh`/`validate.sh` both green (`format.sh` rewrote ~120 unrelated files repo-wide,
+  same standing note as above; pruned to the two files this round actually touched --
+  `product/egpt_retail/executors/monitoring.py` and `product/tests/test_r14_monitoring.py`
+  -- before staging). `validate.sh`: ruff/mypy clean across `egpt`, `egptctl`, `cookbook`,
+  `product`; API contract check passed; brand audit passed; `pytest product/tests/` --
+  894 passed, 41 skipped, in 201s total.
+
+### Round-3: four further review comments, PR #211 (2026-09-11)
+
+**Findings addressed, all in `product/egpt_retail/executors/monitoring.py`:**
+
+1. **Minor -- false drift note on a healthy drift score.** The `notes`-fill branch fired on
+   `drift is not None` alone, not on whether drift actually breached
+   `DRIFT_SCORE_THRESHOLD` -- a use case degraded by a low `golden_pass_rate` alone, with a
+   healthy (below-threshold) drift score, got a **false** note claiming drift was "at or
+   above the threshold." Fixed: the branch now also requires
+   `drift >= DRIFT_SCORE_THRESHOLD`. New test:
+   `test_assess_quality_degraded_by_golden_alone_with_healthy_drift_notes_the_right_cause`.
+2. **Minor -- no regression guard for the sequential-not-gathered decision.** Round-2's fakes
+   (`_FakeControlPlaneDb`) have no shared lazy-reflection state to race on, so a reintroduced
+   `asyncio.gather` over the per-use-case loop would pass CI silently. Added
+   `_RaceDetectingControlPlaneDb`, a fake that raises if a second `get_sessions` call arrives
+   while an earlier one is still "in flight" (held via a short `time.sleep`) -- proven to
+   pass sequential access and raise on concurrent access with a standalone script before
+   trusting it, then wired into
+   `test_assess_execution_health_processes_use_cases_sequentially_not_concurrently`.
+3. **Nit -- schedule-name-collision resolution order.** The hoisted `manager.list()` map
+   (a plain dict comprehension) resolves the *last*-listed schedule on a name collision,
+   where the pre-hoist `next(...)` resolved the *first* -- reachable, not just theoretical,
+   since schedule-name uniqueness is only a TOCTOU-racy check inside `ScheduleManager.create`,
+   never a DB constraint. Fixed via `setdefault` to restore first-match semantics. New test:
+   `test_assess_execution_health_schedule_name_collision_resolves_to_the_first_listed`
+   (distinguishes the two candidate schedules by which one's cron makes the result silent).
+4. **Nit -- `UseCaseExecutionHealth.error` undeclared in the API contract.** The isolated
+   per-use-case error record's `error` key had no home in the schema -- a caller validating
+   through the generated Pydantic model would silently drop it. Additive contract change:
+   `error` (nullable string) added to `UseCaseExecutionHealth` in
+   `api/openapi/schemas/monitoring.yaml`; recorded in `api/openapi/CHANGELOG.md` (1.1.2);
+   `./scripts/gen_api_models.sh` re-run.
+
+**A fifth bug found during this round's own re-verification, not one of the four reported
+comments:** `summarize_execution_health`'s `last = max(records, key=lambda r: r.created_at)`
+breaks a tie on `created_at` by insertion order. Both real sources
+(`run.created_at`, `ScheduleRun.triggered_at`) are only second-granularity, and the live
+cookbook run below hit an exact tie for real: the forced lock-contention failure landed in
+the same wall-clock second as the prior successful run, and `max()` silently picked the
+tied success -- `last_run_status` reported `"succeeded"` with the real failure invisible,
+reproduced deterministically on two consecutive runs, not a one-off. Fixed with a
+`_TIE_BREAK_RANK` secondary sort key so a non-`completed` outcome (error, cancelled, paused)
+always wins a same-second tie over an ordinary success. New test:
+`test_summarize_execution_health_a_same_second_failure_beats_a_tied_success`.
+
+**Re-verification:**
+
+- `cookbook/94_retail/R14_monitoring.py` against the same isolated stack (Postgres 5733,
+  Neo4j 7693) -- first attempt caught the tie-break bug above (`FAIL` on "execution health:
+  last_run_status reports the real failure, not the prior success", reproduced twice);
+  after the fix, **PASS**, all thirteen Verify/Evidence assertions green, including that
+  exact assertion.
+- `pytest product/tests/test_r14_monitoring.py` -- 54 passed (50 from round-2 plus 4 new:
+  the false-drift-note test, the concurrency regression guard, the schedule-collision test,
+  and the same-second tie-break test).
+- `pytest product/tests/` -- 898 passed, 41 skipped.
+- `format.sh`/`validate.sh` both green a second time after the tie-break fix (format.sh's
+  ~121 unrelated rewrites pruned to the six files this round actually touched before
+  staging). `validate.sh`: ruff/mypy clean (1748/21/123 source files across `egpt`/
+  `egptctl`/`product`), API contract check passed (contract regenerated after the additive
+  `error` field), brand audit passed, `pytest product/tests/` -- 898 passed, 41 skipped, in
+  217s total.
+
+### Round-4: two further review comments, PR #211 (2026-09-11)
+
+**Findings addressed, both in `product/egpt_retail/executors/monitoring.py`:**
+
+1. **Minor -- `list_silent_schedules`'s own `by_name` still resolved the *last*-listed
+   schedule on a name collision**, inconsistent with `assess_execution_health`'s
+   `schedules_by_name`, fixed to first-match one round ago -- the two endpoints could
+   disagree about which schedule a shared name means, confirmed directly (not just read)
+   for the identical input shape before this fix. Fixed the same way: `setdefault` instead
+   of a dict comprehension. New test:
+   `test_list_silent_schedules_name_collision_resolves_to_the_first_listed` (reads
+   `silent["schedule_id"]` directly rather than inferring which schedule won from a side
+   effect).
+2. **Minor -- the CHANGELOG's 1.1.2 entry was never paired with an `info.version` bump** in
+   `egpt-retail.v1.yaml` (still 1.1.1, so the bundled spec was too) -- every earlier entry in
+   the changelog paired 1:1 with a version bump; this one didn't, and
+   `check_api_contract.py`'s staleness check doesn't compare the CHANGELOG heading against
+   `info.version`, so `validate.sh` stayed green despite the drift. Fixed: `version: 1.1.2`
+   in `egpt-retail.v1.yaml`, `./scripts/gen_api_models.sh` re-run.
+
+**A mypy regression caught by `validate.sh`, not a review comment:** the collision fix's
+`for schedule in ...: by_name.setdefault(schedule.name, schedule)` reused the loop variable
+name `schedule` in a scope where it's reassigned again a few lines later from
+`by_name.get(...)` (an `Any | None`) -- mypy unified the two as one variable and refused the
+second assignment against the loop's narrowed `Schedule` type. Renamed the loop variable to
+`candidate`; no behavior change.
+
+**Re-verification:** `cookbook/94_retail/R14_monitoring.py` against the same isolated stack
+-- **PASS**, all thirteen assertions green. `pytest product/tests/test_r14_monitoring.py` --
+55 passed (54 from round-3 plus the new collision test). `pytest product/tests/` -- 899
+passed, 41 skipped. `format.sh`/`validate.sh` both green (121 unrelated rewrites pruned to
+the four files this round touched -- `executors/monitoring.py`, `test_r14_monitoring.py`,
+`egpt-retail.v1.yaml`, `egpt-retail.v1.bundled.json` -- before staging; the mypy failure
+above was caught and fixed on the first `validate.sh` attempt, not shipped).
 ### R15_golden_sets.py
 
 **Package:** R15 (P4, implements D14, G13)

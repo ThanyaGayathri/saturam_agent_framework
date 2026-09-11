@@ -188,6 +188,35 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             True,
             1,
         ),
+        # R14 -- monitoring: execution health, silent schedules, the quality/drift pass
+        "assess_execution_health": ExecutorMetadata(
+            "Assess execution health",
+            "Per use case, real run history reduced to last status, 7-day runs/failures, "
+            "gates waiting on a person, and token-cost drift.",
+            ("use_cases",),
+            ("use_cases",),
+            # Reports, never gates -- a monitoring pass has no chain to stop.
+            False,
+            3,
+        ),
+        "list_silent_schedules": ExecutorMetadata(
+            "List silent schedules",
+            "Schedules whose cron cadence implies a fire this run history does not show, "
+            "independent of whether the schedule is currently enabled.",
+            ("schedules",),
+            ("silent_schedules",),
+            False,
+            2,
+        ),
+        "assess_quality": ExecutorMetadata(
+            "Assess quality",
+            "Verdict from R15's golden pass rate and this package's input-drift score, "
+            "whichever are available -- a use case can run green and still be flagged.",
+            ("use_cases",),
+            ("use_cases",),
+            False,
+            2,
+        ),
         # R15 -- the publish gate
         "check_golden_gate": ExecutorMetadata(
             "Check the publish gate",
