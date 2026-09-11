@@ -54,6 +54,12 @@ _DELTA_OPERATORS = frozenset({"delta_gt", "delta_lt"})
 #: any realistic KPI's meaningful precision (a rate or a percentage cares about the 3rd or 4th
 #: decimal place at most) and far larger than the float noise a NUMERIC->float cast introduces,
 #: so it closes the gap the cast opens without opening a new one of its own.
+#:
+#: Sized for a rate or percentage, not a large-magnitude KPI: an absolute ``1e-9`` is below
+#: ``float64``'s own precision floor once a value runs into the millions (a revenue total,
+#: say), where it adds nothing beyond what plain ``==`` already gave -- not a new bug at that
+#: scale, just not the improvement this tolerance is for. ``eq`` on such a KPI inherits the
+#: same "essentially never fires" problem this constant exists to fix for smaller ones.
 _EQ_TOLERANCE = Decimal("1e-9")
 
 

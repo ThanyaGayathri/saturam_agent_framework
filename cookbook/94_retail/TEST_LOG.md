@@ -4826,4 +4826,18 @@ unchanged elsewhere. `./scripts/gen_api_models.sh` re-run for `AlertScope.grain_
 (CHANGELOG 1.1.2); `scripts/check_api_contract.py` confirms generated artifacts match the
 source. `format.sh`/`validate.sh` both green.
 
+### Round-3: one further review comment, PR #210 (2026-09-11)
+
+**Finding addressed:** Nit -- `_EQ_TOLERANCE`'s fixed absolute `1e-9` is correctly sized for
+the rate/percentage KPIs this module targets, but is below `float64`'s own precision floor
+for a large-magnitude KPI (a revenue total in the millions), where it adds nothing beyond
+plain `==`. Not a bug at that scale, just not the improvement the tolerance is for. Added a
+docstring caveat naming the limitation, so `eq` on such a KPI isn't mistaken for
+tolerance-protected when it inherits the same near-never-fires problem this constant exists
+to fix for smaller-magnitude KPIs.
+
+**Re-verification:** `pytest product/tests/test_r12_alerts.py` -- 46 passed (unchanged,
+docstring-only change). `pytest product/tests/` -- 890 passed, 41 skipped. `format.sh`/
+`validate.sh` both green.
+
 ---
