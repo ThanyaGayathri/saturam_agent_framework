@@ -28,12 +28,13 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import (
-    TYPE_CHECKING,
+    Callable,
     FrozenSet,
     Iterator,
     Mapping,
     Optional,
     Sequence,
+    TYPE_CHECKING,
     Tuple,
 )
 
@@ -44,7 +45,9 @@ __all__ = [
     "CONTRACT_VERSION",
     "Dialect",
     "Feasibility",
+    "FeasibilityReason",
     "FeasibilityVerdict",
+    "assess_feasibility_with_joins",
     "KpiDefinition",
     "KpiRegistry",
     "KpiParameter",
@@ -276,6 +279,32 @@ class FeasibilityVerdict(str, Enum):
     BLOCKED = "blocked"
 
 
+class FeasibilityReason(str, Enum):
+    """*Why* a KPI is not ready, which is a different question from whether it is.
+
+    A verdict tells a customer they cannot have the number. A reason tells them what to do
+    about it, and the two cases are days apart in effort: a missing table needs a connector
+    configured and data landed; an unjoinable pair needs one join proposal reviewed. Rendering
+    them identically -- which is what a single ``rationale`` string built only from
+    ``missing_tables`` did -- makes the cheap fix look as expensive as the dear one.
+    """
+
+    #: Nothing blocks it.
+    NONE = "none"
+    #: A source table is not in the semantic snapshot. Connect a source.
+    MISSING_TABLES = "missing_tables"
+    #: Every table is present, and review has recorded that two of them **must not** be
+    #: joined -- a shared column name in two different id spaces, which is the case K4's
+    #: collision detection finds and K8's mapping agent resolves. One review away, not one
+    #: connector away, and until then the formula joins two unrelated keys and returns a
+    #: number rather than an error, which is the expensive way to find out.
+    #:
+    #: Absence of a join edge is **not** this. A formula that states its own ``ON`` clause
+    #: over a pair nobody has ruled on is an ordinary hand-written join; blocking it would
+    #: make most multi-table KPIs unusable to enforce a rule nobody stated.
+    NOT_JOINABLE = "not_joinable"
+
+
 @dataclass(frozen=True)
 class Feasibility:
     """The result of a set difference, not an opinion."""
@@ -283,9 +312,32 @@ class Feasibility:
     kpi_identifier: str
     verdict: FeasibilityVerdict
     missing_tables: FrozenSet[str] = field(default_factory=frozenset)
+    #: Why, when it is not ready. Defaulted so every existing construction still works and
+    #: infers the reason it already implied.
+    reason: Optional[FeasibilityReason] = None
+    #: The table pairs the formula needs joined and the layer cannot join. Empty unless
+    #: ``reason`` is ``NO_JOIN_PATH``.
+    unjoinable: Tuple[Tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.reason is None:
+            inferred = (
+                FeasibilityReason.NONE
+                if self.verdict is FeasibilityVerdict.READY
+                else FeasibilityReason.MISSING_TABLES
+            )
+            object.__setattr__(self, "reason", inferred)
 
     @property
     def rationale(self) -> str:
+        if self.reason is FeasibilityReason.NOT_JOINABLE:
+            pairs = "; ".join(f"{a} and {b}" for a, b in sorted(self.unjoinable))
+            return (
+                f"Every source table is present, but review has recorded that {pairs} must "
+                "not be joined -- the shared column names are different id spaces. Resolve "
+                "that pair before this can be computed; until then the formula would join "
+                "two unrelated keys and return a number rather than fail."
+            )
         if self.verdict is FeasibilityVerdict.READY:
             return "Every source table is present in the semantic snapshot."
         missing = ", ".join(sorted(self.missing_tables))
@@ -356,6 +408,58 @@ def assess_feasibility(
         kpi_identifier=kpi.identifier,
         verdict=verdict,
         missing_tables=frozenset(missing),
+    )
+
+
+def assess_feasibility_with_joins(
+    kpi: KpiDefinition,
+    available_tables: FrozenSet[str],
+    known_unjoinable: Callable[[str, str], bool],
+) -> Feasibility:
+    """:func:`assess_feasibility`, plus the joins review has ruled out.
+
+    The set difference cannot see this: a formula over ``analytics_event`` and
+    ``session_replay_session`` has both tables present, so it reports ``ready`` -- and then
+    joins two ``session_id`` columns that are different id spaces, which the harvest's own
+    column comment says outright. It returns a number rather than an error, and the number is
+    wrong.
+
+    **Only pairs review has ruled out.** ``known_unjoinable`` answers "has someone recorded
+    that these must not be joined", not "is there a join edge". The first version asked the
+    second question and blocked every multi-table KPI whose pair nobody had proposed a join
+    for -- including formulas that state a correct ``ON`` clause of their own. Absence of a
+    proposal is not a prohibition, and treating it as one would make most multi-table KPIs
+    unusable to enforce a rule nobody stated. K11's own cookbook caught that: three of its six
+    KPIs went blocked on a check that should not have had an opinion about them.
+
+    A callable rather than a reader, so this stays a function over data. Deterministic, and
+    with nothing to be persuaded by.
+
+    A missing table is reported ahead of an unjoinable pair. Both may be true, and "connect
+    this source" comes first -- there is no point reviewing a join to a table nobody landed.
+    """
+    base = assess_feasibility(kpi, available_tables)
+    if base.verdict is not FeasibilityVerdict.READY:
+        return base
+
+    tables = sorted({t.lower() for t in kpi.source_tables})
+    if len(tables) < 2:
+        return base
+
+    unjoinable = tuple(
+        (left, right)
+        for index, left in enumerate(tables)
+        for right in tables[index + 1 :]
+        if known_unjoinable(left, right)
+    )
+    if not unjoinable:
+        return base
+    return Feasibility(
+        kpi_identifier=kpi.identifier,
+        verdict=FeasibilityVerdict.BLOCKED,
+        missing_tables=frozenset(),
+        reason=FeasibilityReason.NOT_JOINABLE,
+        unjoinable=unjoinable,
     )
 
 
