@@ -4023,3 +4023,398 @@ guard's pass/stop paths); `pytest product/tests/` -- 639 passed, 41 skipped;
 `format.sh`/`validate.sh` both green.
 
 ---
+
+### K12_kpi_suggestion.py
+
+**Status:** PASS
+
+**Description:** K12 — candidate KPIs proposed from the harvest, the ontology and the curated
+catalogue, with feasibility stamped by the executor. Three runs on identical input; baseline
+and judgements in `K12_BASELINE.md`.
+
+**The guarantee is structural, not a promise in the prompt.** `KpiSuggestionDraft` has no
+feasibility field and sets `extra="forbid"`, so the agent cannot express a verdict even if a
+future prompt edit invited one — and `assemble` calls `assess_feasibility`, which takes two
+frozensets and has no argument a model's opinion could travel through. Measured across every
+run: **0 disagreements** with an independent assessment.
+
+**Drift with the discovery screen is impossible by construction.** `assemble` returns
+`egpt_retail.api.models.KpiSuggestion` — the model generated from the OpenAPI schema the
+screen renders — rather than a hand-written copy. The plan requires these to render "without
+transformation", so a field the agent invents is a construction error in this process instead
+of a blank cell in front of a customer.
+
+**Three defects the live runs found, all mine.**
+
+*Every suggestion was dropped by my own validator.* The first run produced ten drafts and
+assembled zero: "formula reads `['crm_deal']` which source_tables does not list". The harvest
+text shows tables qualified (`silver.crm_deal`), so the agent listed them that way, while
+`referenced_tables` reads bare names out of the SQL and `available_tables` returns bare names
+from the graph. Three spellings of one table, and the agent was right every time. Normalised
+in one place, with three tests over the qualified case.
+
+*I trusted the agent's business area — the exact defect I fixed in K9 one package earlier.*
+Three baseline runs placed `WebSession` in `customer`, `operations` and `marketing`. Which
+area a concept belongs to is shipped knowledge, and K9's P3 verification already concluded
+that. `assemble` now takes the ontology's mapping and it wins wherever a concept is named;
+areas are identical across runs by construction. **Having fixed a class of defect once is not
+the same as having internalised it.**
+
+*My stability gate was a coin toss.* Pairwise overlap between two runs measured 67%, 100% and
+40% on three consecutive pairs, and my threshold sat at 50% — so the cookbook failed roughly
+one run in three on unchanged code. The fix was not to lower the threshold. Three runs, a
+stable core, and the judgement recorded rather than gated: the plan's third evidence line is
+*"wild variation means the prompt is underspecified"*, which is a reading, not a number.
+
+**Result:**
+
+```
+1. inputs                5 tables, 2 concepts, 295 catalogue metrics, 0 registered
+2. suggestions           5, all ready, all traceable
+3. verdicts checked      5 checked, 0 disagreements with the executor
+4. three runs            core 5 identifiers (71% of union); grain/shape drift 0
+                         cardinality 5,6,6 (1.2x); business areas identical
+5. traceability          0 cite the catalogue (with a correct reason); 0 name no table
+```
+
+**Two things the agent did that I did not ask for and would not have thought to test.** It
+refused every cross-source metric, citing the harvest's own comment that
+`analytics_event.session_id` is not joinable to `session_replay_session.session_id` — reading
+K4's harvested comment and honouring G19 unprompted. And it explained the empty catalogue
+citation rather than padding: the catalogue needs revenue, orders and transactions, and this
+harvest has none. Both are in `notes`, which is the field the K14 template insists on and
+which keeps earning its place.
+
+**Tests:** 31 DB-free in `product/tests/test_k12_kpi_suggestion.py` — the draft schema having
+no verdict field and refusing one, every verdict matching an independent `assess_feasibility`
+call, the assembled object being the generated contract type with every required field
+populated, qualified table names, and the drop-one-keep-the-rest rule.
+
+**Surprising:** the prompt work that mattered was not about metrics at all. Mandating the
+identifier convention the registry already had (`<concept>__<name>`, from
+`contracts.kpi.kpi_identifier`) removed a whole axis of apparent instability — two runs were
+proposing the same metric and disagreeing only about what to call it.
+
+---
+
+---
+
+### K12.5 — feasibility reasons, and a gap the set difference could not see
+
+**Status:** PASS — recorded in `K11_kpi_registry_and_feasibility.py` section 4b
+
+**Description:** Lane K's slice of X-7. A KPI blocked for a missing table and one blocked
+because two of its tables must not be joined rendered identically: one `rationale` string
+built only from `missing_tables`. The two are days apart — a missing table needs a connector
+configured and data landed; a ruled-out pair needs that pair resolved.
+
+**It turned out not to be a rendering gap.** `assess_feasibility` subtracts tables, so a
+formula over `analytics_event` and `session_replay_session` — both present — reported
+**ready**, and would then have joined two `session_id` columns that are different id spaces,
+returning a number rather than an error. Wrong numbers, no failure, nothing upstream to catch
+it. That is worse than a badge that reads poorly.
+
+**A design error of mine, caught by K11's own cookbook.** The first version asked "is there a
+join path between these tables" and blocked when there was none. That blocked three of K11's
+six fixture KPIs, including `crm_deal` + `crm_deal_stage_history`, whose formula states a
+correct `ON` clause of its own. **Absence of a proposal is not a prohibition**, and treating
+it as one would make most multi-table KPIs unusable to enforce a rule nobody stated. The check
+now asks the narrower question — *has review recorded that this pair must not be joined* —
+answered from the `joinable = false` column meanings K8's mapping agent produces.
+
+That narrowing is what makes the scenario an end-to-end chain rather than a rule invented
+here: K4 detects `session_id` on two tables → K8 resolves each side from the harvest's own
+column comment and marks it not joinable → a person accepts → feasibility can finally see it.
+Every link already existed; nothing consumed the last one.
+
+**Result** (section 4b):
+
+```
+tables alone:   ready (none)          <- the set difference cannot see it
+with the join:  blocked (not_joinable)
+  "Every source table is present, but review has recorded that analytics_event and
+   session_replay_session must not be joined -- the shared column names are different id
+   spaces. ... until then the formula would join two unrelated keys and return a number
+   rather than fail."
+```
+
+**Shape of the change.** `assess_feasibility` keeps its signature and its purity — two
+frozensets in, a verdict out — and a test asserts that. The join check *composes*:
+`assess_feasibility_with_joins` takes a `(left, right) -> bool` callable, so it stays a
+function over data and a test supplies a dictionary where the store supplies a memoised graph
+read. `Feasibility` gains `reason` and `unjoinable`, both defaulted, so every existing
+construction keeps the meaning it already had — with a test for that too.
+
+**Tests:** 13 DB-free in `product/tests/test_k12_5_feasibility_reasons.py`. The one worth
+naming keeps the old behaviour visible: *"the set difference alone calls it ready"* — the
+thing that produced the wrong number, kept as a test so the reason for the new function does
+not get lost.
+
+**Surprising:** I wrote the over-broad version, and the cookbook that caught it was K11's —
+the package this change extends. A fixture built for one purpose (six KPIs across various
+table counts) turned out to be a good adversary for a rule invented later. That is the second
+time this phase a cookbook has found a design error rather than a coding one.
+
+---
+
+### K13_use_case_suggestion.py
+
+**Status:** PASS
+
+**Description:** K13 — use case candidates across all four shapes (Inform, Alert, Recommend,
+Act), with the shape proposed by the agent and its readiness decided by a set difference over
+what the deployment has configured. Three runs; baseline and judgements in `K13_BASELINE.md`.
+
+**Why the shape is on the draft at all.** A use case is a KPI plus what happens when it moves,
+and the shapes differ in exactly one thing: what the system does to the world. Suppressing the
+field would have left the most consequential fact about each suggestion unstated — an Alert and
+an Act are wildly different asks of a customer, and one of them touches their systems with
+nobody watching. So the agent proposes the shape, and `assess_shape_readiness` decides whether
+this deployment could run it. Same division as K11 and K12: the model proposes, arithmetic
+decides.
+
+**The gate is a set difference, and the requirements are deliberately not cumulative.**
+`delivery_channel` is universal. The write capabilities — approver, write target, guardrails,
+then per-run cap and rollback point — are cumulative from Recommend to Act, because an Act does
+everything a Recommend does and then stops waiting for the approver. But `alert_threshold`
+belongs to Alert alone: a Recommend can be produced on a schedule with nothing to watch, and
+requiring a threshold of it would block a use case that needs no such thing. My first test
+asserted a clean superset chain across all four and failed on exactly this, which is the test
+finding a wrong claim in the docstring rather than the other way round.
+
+**Three defects the run found, all mine.**
+
+*The first live run assembled nothing, and the agent was right.* Zero KPIs were registered, so
+it returned an empty list and named the eight metrics it would have needed — quote request
+count, ageing, rage click rate, and so on. That is section 8 working, but it made K13
+untestable standing alone. K13 sits downstream of K11 in the real pipeline, so the cookbook now
+seeds four KPIs over the real `silver` schema and removes them again. **Removal is registered
+with `atexit`, not written at the bottom** — a failing assertion exits before the bottom is
+reached, which is precisely how K05 and R05 left rows in the shared dev store and cost three
+debugging sessions. Verified: `semantic.kpi_definition` is empty again after a failing run.
+
+*Section 4's headline check could not fail.* The check this package needs most is "no suggestion
+is ready to Act where there is nowhere to write", and the agent proposed no Act at all — so the
+check passed over an empty set and proved nothing. Three tests that could not fail were the
+highest-value findings in PR #199's review, and this was a fourth of my own making. Fixed with a
+**control**: where the run produces no Act, the run's own top draft is promoted to `act` and
+pushed through the same `assemble` on both profiles. It is the real draft with one field
+changed, so it exercises the real path. Measured: blocked on bare, needing approver, write
+target, guardrails, per-run cap and rollback point; ready on configured.
+
+*An unready Act was nearly dropped rather than kept.* My first assembly discarded suggestions
+the deployment could not run. That hides the answer to "what would configuring a write target
+buy me", which is the question the discovery screen exists for. A blocked suggestion now travels
+with its verdict beside it, and a test asserts both profiles keep the same list.
+
+**One honest incompleteness, stated on the wire rather than hidden.** The contract's
+`UseCaseSuggestion` has no `shape` or `autonomy` field (open item **R-12**, Lane R). Rather than
+let the most consequential field vanish silently at the API boundary, `as_contract_list` puts
+the caveat in `notes` and a test asserts it is there. `assemble` is one line from carrying them
+once the contract has somewhere to put them. The draft schema carries both today and the gate
+uses both, so nothing downstream of me is waiting on R-12.
+
+**What three runs showed, and what needs the owner.** The Alert set was identical on all three
+runs; the Inform set varied by one; cardinality spread 1.2×, the same figure K12 measured on the
+same harvest. **No Recommend and no Act was proposed on any run**, which has two readings —
+correct restraint on a harvest with no write target in it, or the prompt's "choose the lower
+shape" thumb pressing too hard. This harvest cannot separate them, and doing so needs a run
+against a connector that can write. Filed as **K-7**.
+
+All three runs also declined cross-source use cases joining web sessions to quote requests,
+citing the harvest's own note that the two `session_id` columns are not joinable. Nothing asked
+it to check; it read the column comment K12.5 wrote. That is the harvest comment doing its job.
+
+**Result:** PASS. 30 DB-free tests, mutation-checked (a gate that always returns ready and an
+assembly that stops dropping unknown KPIs each break four of them). Three live runs, no Act ready
+on a deployment with nowhere to write, the control proving that check can fail, and the seeded
+registry rows removed.
+
+---
+
+### K15_orchestration.py
+
+**Status:** PASS, with K15's primary evidence explicitly outstanding — see the last section.
+
+**Description:** K15 — a frozen spec compiled into a workflow definition plus the prompts its
+model steps carry. Two halves: `egpt_retail.orchestration.compiler` is deterministic and
+consults no model; `egpt_retail.skills.step_prompt` authors the model steps' instructions.
+Baseline and judgements in `K15_BASELINE.md`.
+
+**The shape IS the template, and my first cut got that wrong.** I read "template plus
+parameters" as a catalog of named templates layered over the shapes, and built one — a
+`template` argument, a `template_id`, defaults merged under the author's entries. That is not
+the design. The architecture review settles it: the orchestration agent emits *"a shape plus
+parameters, something like an alert shape with these metrics, this threshold, this scope, this
+recipient"*, and the interface has a spec form per shape. Two Alert use cases are the same
+sequence with the same slots; everything distinguishing them fills those slots. The catalog
+layer is removed.
+
+Measured in the run: `stalled_quotes` and `friction_spike` compile to an identical sequence and
+differ in three of seven slots.
+
+**The same correction applies to the prompts, and that was the more valuable half.** Two Inform
+use cases both carry an `explanation` step doing the same job, so authoring its prompt twice
+from scratch produces two prompts differing in wording and not in meaning — unreviewable, and
+they drift under editing. The invariant half is now a **role template** in `ROLE_TEMPLATES`,
+written once by hand; `StepPromptDraft` shrank to what actually varies: the grounding for these
+metrics, any rule arising from them, and a worked example using them. A test asserts two
+prompts of one role differ only in their grounding and identifiers.
+
+**What survived the correction** is the parameter origin. Each bound value records whether it
+came from the spec (derived from the conversation) or was authored on the form. On an Act, a
+per-run cap a model inferred from a sentence and one a person set deliberately are not the same
+evidence, and nothing else on the activation screen tells them apart.
+
+**Two findings from code I did not write.**
+
+*R9's plan walker refuses every generated model step.* `plan_from_config` resolves an agent
+step's tier from R8's `ROUTING_TABLE`, a static literal keyed by agent id — and K15 mints an id
+per use case, because the contract says a use case carries its own skill prompts. So no
+hand-written table can contain one, and a generated Inform, Recommend or Act is unplannable
+today. The refusal is correct: an unrouted step has no model. `required_routing_rows` now names
+the agent id and tier each step needs, so the fix is a registration path at activation rather
+than a redesign. Filed as **K-9**, and a test asserts the refusal so it fails when the gap
+closes.
+
+*The Inform shape declares a parameter no step consumes.* Diffing against R9's hand-built
+`inform_skeleton` surfaced that neither sequence carries `compare_to_baseline` — R9 dropped it
+silently, the compiler reports it missing. The shape binds a `comparison` parameter from
+`spec.time_window` and nothing reads it, so a use case saying "versus the previous four weeks"
+compiles to a workflow that never compares. Not a difference of opinion; a declared parameter
+with no consumer is a gap in the shape.
+
+**Two corrections the owner made mid-build, both right.** First: I had built `SHAPE_STAGES`
+around R9's `AutonomyShape` — three shapes, inferred from `autonomy` and `level`. The interface
+has a spec form per shape, so the shape is chosen before the spec is filled and there are four
+of them. `UseCaseShape` and the per-shape parameter table now live in `contracts/use_case.py`,
+read by both K13 and K15. R9's three-shape enum is left alone and the divergence filed as
+**K-8**, because changing Lane R's under them is not mine to do. Second: the template sense,
+above. `contracts/use_case.py` now names both senses explicitly — the shape template, and the
+*starter use case* the contract's `template_id` refers to — because conflating them is what I
+did and the two are unrelated.
+
+**A defect the correction surfaced.** Rewriting the authoring prompt left `{{standing_rules}}`
+in the file with nothing filling it, so the four standing rules would have reached the model as
+the literal string `{{standing_rules}}`. `render_prompt` checked that every value it holds has
+a placeholder and never the reverse. It now checks both directions, with a test.
+
+**The invariant parts of an authored prompt are written by code, not by the model.**
+`StepPromptDraft` has no field for the header, the four standing rules or section 6's closed
+sets. K14 requires those rules copied word for word so seven prompts can be reviewed against
+each other; a model asked to reproduce them paraphrases one eventually, and the paraphrase
+reads fine and checks differently. `model_tier` follows from the role under G6 — an agent that
+could choose its own tier would choose frontier.
+
+**A gap the architecture review named and nothing in the plan covers.** A generated use case
+has no golden questions. K14's checklist requires a set per skill so the next prompt edit is
+measurable, and R15's golden sets assume a person authored the use case — so a generated Inform
+ships with a prompt nobody has scored, and there is no way to detect a regression when its role
+template is edited. The review put it plainly: "generation makes creating use cases cheap. It
+does not make knowing whether they are right any cheaper." Filed as **K-12**; it needs a
+decision before generation is used for anything a customer sees.
+
+**What is NOT verified, and it is K15's stated primary evidence.** The delivery plan verifies
+this package by diffing the generated workflow against the one R10 built by hand, then
+repeating for a second use case, and calls that "the only honest test available". **R10 has not
+landed** — Lane R is at R9 — so neither diff exists. What was done instead: a diff against R9's
+five-step `inform_skeleton`, R9's plan walker as an independent containment check, and the
+capability set difference. None of those is the same thing. Filed as **K-10**: re-run this
+cookbook against R10's RFQ workflow the week it merges.
+
+**Result:** PASS. 47 DB-free tests, mutation-checked (removing the missing-gate blanking and
+collapsing the template/authored origin each break a test). Cookbook runs with no warehouse, no
+Neo4j and no model. Nothing is publishable in any shape against the current registry, which is
+the correct answer and is the exact dependency list in `K15_BASELINE.md`.
+
+---
+
+### Phase 4 and 5 alignment pass — K12_kpi_suggestion.py, K13_use_case_suggestion.py, K13_suggest_on_connect.py, K15_orchestration.py
+
+**Status:** PASS (all four), with three open items filed for what a cookbook cannot fix.
+
+**Description:** P4 and P5 validated against the "Enterprise GPT architecture review" session
+and the tracked plan it produced, the gaps listed, and each fixed or filed. Eight gaps; six
+fixed here, two contract gaps filed for Lane R with proposed schemas.
+
+**Gap 1 — suggestions never became proposals.** Build plan §06: candidates "are proposals, so
+they carry an adopt action and enter the registry only when a person accepts them." K7 had the
+`KPI` and `USE_CASE` kinds and the registry adopted accepted KPI proposals; nothing produced
+one. Both assembly reports now carry `as_proposals()`. A KPI proposal is the whole definition —
+K7's validator builds a `KpiDefinition` from it and adoption saves that unread — so only
+suggestions carrying a formula become proposals; the rest are listed in `without_formula` and
+still shown. Measured: 13 of 14 KPI suggestions adoptable, every payload round-trips through
+`validate_payload`.
+
+**Gap 2 — suggestions did not run when the semantic layer completed.** The review's sequence is
+connect, build the layer, *then immediately suggest*; `harvest` refreshed and exited. New
+`egpt-retail suggest` entrypoint and `harvest --suggest`, behind `egpt_retail.suggestions`:
+gather the harvest, the ontology and K10's prose; run both agents; assemble; file proposals.
+Live: 5 tables, 6 prose passages, 16 proposals filed, 0 → 16 rows by proposer, all removed at
+exit.
+
+**Gap 3 — K12 and K13 were not deployable agents.** No routing rows; the cookbooks pinned
+`AzureOpenAI`, which `route_agents` refuses on purpose. Rows added on the frontier tier (G6),
+both agents registered in `build_agents` through one builder the entrypoint reuses with the
+live registry, both cookbooks re-routed. `test_r8_routing` caught that every registered agent
+must be in `MEMORY_WRITING_AGENT_IDS`, because the lifespan hands each one the provider —
+correct, and added.
+
+**Gap 4 — curated-vs-inferred provenance was dropped at assembly.** The review wants "from the
+curated registry — vetted" badged differently from "inferred from your schema — a guess".
+Carried on the report and in the proposal payload; contract field filed as **R-16**. This run:
+1 of 14 cited the catalogue.
+
+**Gap 5 — K13 had no data-feasibility aggregate.** Shape readiness answers "can this deployment
+run it"; the review's badge answers "can the data compute it": ready / mostly ready (n of m
+metrics) / blocked, plus "connect X to unlock N". Now computed from K11's per-KPI set
+difference; blocked suggestions are **kept**, not dropped, because a dropped one cannot say what
+would unlock it. Filed with R-16.
+
+**Gap 6 — neither agent received domain prose.** The review names the inputs as domain
+knowledge (doc and graph) *and* the semantic graph; nothing asked K10. `gather_context` now
+reads one K10 pass per concept and keeps the prose leg's hits. Six passages reached the agents.
+The cookbooks had to be pointed at the corpus K02 loads for cookbooks
+(`egpt_retail_domain_prose_bge`); a deployment's `load-knowledge` fills the settings default.
+
+**Gap 7 — no contract carries the shape with its per-shape parameters.** Filed as **R-15** with
+the field list from `SHAPE_PARAMETERS`. K15 now reads the draft keys the interface actually
+writes (`step8.schedule`, `step8.recipient`, `step8.guardrail_amount`) with a flat fallback, so
+it consumes the form the day it lands.
+
+**Gap 8 — K15 emitted no agent component.** The review's second artifact — prompt, tools
+("declared skeleton, agentic interior"), memory scope per K1 — is now `as_component()`. Role
+templates declare their tools as a closed set, none of which writes.
+
+**Two findings the live runs produced, both worth more than the fixes.**
+
+*Without example values the KPI agent falls apart.* The graph never holds row values — *rows
+stay in the warehouse* — and `write_harvest` strips `sampled_values` on every write. The old
+cookbook had read the warehouse directly, samples included. Run from the graph alone, K12's
+three runs proposed 2, 10 and 18 KPIs with an empty stable core, against the baseline's core of
+five at 1.2×. With samples read transiently from the warehouse (the entrypoint does this when a
+warehouse URL is set; the graph is untouched), the core returned: the same five identifiers,
+2.1× spread. The harvest text is not enough; what a column *contains* is what anchors the agent.
+
+*K7's dedupe does not hold across model calls.* The idempotence section first tested "run the
+pass twice" and 15 rephrased duplicates landed as new rows: K7 keys a proposal by payload
+content, and a second model call retitles and rephrases. Re-filing the *identical* assembled
+proposals is a no-op (16 offered, 0 new), which is what K7 promises. What it does not promise is
+what a nightly pass needs, and a rejected suggestion would return the next morning under new
+wording. Filed as **K-13**: identity by `(kind, target)` for the two suggestion kinds.
+
+**One operational finding, mine.** The first live run of the entrypoint cookbook sat for forty
+minutes at 1.5s of CPU: it seeded the registry inside an open transaction on one connection,
+then `suggest()` opened a second connection and waited on the first's locks —
+`pg_stat_activity` showed the `ALTER TABLE` queued behind an idle-in-transaction `SELECT`. A
+cookbook that opens a second connection to the same database must commit or use autocommit.
+
+**Also observed:** with prose in the message, K13 proposed a **Recommend** for the first time
+across every run to date ("review of long-stalled quote requests" — blocked on approver, write
+target, guardrails, as it should be). Partial evidence on K-7: the shape gate was not the only
+reason Recommend never appeared; the agent had not had the domain grounding to propose one.
+
+**Result:** PASS. 750 product tests (51 new), mutation-checked where the logic gates; four live
+cookbooks; product ruff and mypy clean under `validate.sh`. Open: R-15, R-16, K-13.
+
+---

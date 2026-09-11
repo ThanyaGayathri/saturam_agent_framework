@@ -39,7 +39,7 @@ from egpt_retail.contracts.kpi import (
     ResultShape,
     TimeWindow,
     TimeWindowUnit,
-    assess_registry,
+    assess_feasibility_with_joins,
 )
 from egpt_retail.contracts.semantic import SemanticRead, available_tables
 from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
@@ -412,7 +412,16 @@ class KpiRegistryStore:
         callable to be persuaded by, and that is the entire guarantee behind the ready and
         blocked badges a customer sees.
         """
-        return assess_registry(self.list(), available_tables(reader))
+        tables = available_tables(reader)
+        # Part of the SemanticRead contract, not an optional extra: a reader with no join
+        # rulings answers False for every pair, and a reader that has them gets asked. The
+        # first version probed with getattr and fell back to the plain set difference for the
+        # stub -- silently weaker than production, with nothing to say so.
+        oracle = reader.unjoinable_oracle()
+        return {
+            kpi.identifier: assess_feasibility_with_joins(kpi, tables, oracle)
+            for kpi in self.list()
+        }
 
     async def afeasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
         """Async variant."""

@@ -779,6 +779,44 @@ class SemanticGraphStore:
         """Async variant."""
         return await asyncio.to_thread(self.column_index)
 
+    def unjoinable_oracle(self) -> Any:
+        """A ``(left, right) -> bool`` callable: has review ruled this pair out?
+
+        True only where an accepted column meaning says so -- the two tables share a column
+        name and K8's mapping review marked it ``joinable = false``, which is the
+        ``session_id``-in-two-id-spaces case K4's collision detection surfaces. Everything
+        else answers False, including a pair nobody has ruled on: absence of a proposal is
+        not a prohibition, and a formula stating its own ``ON`` clause over such a pair is an
+        ordinary hand-written join.
+
+        Read once and memoised: feasibility over a registry asks about the same pairs
+        repeatedly, and this is one query for the whole graph rather than one per pair.
+        """
+        with self._driver.session(database=self._database) as session:
+            rows = session.run(
+                f"""
+                MATCH (c:{COLUMN_LABEL})-[:OF_TABLE]->(t:{TABLE_LABEL})
+                WHERE c.joinable = false AND c.meaning IS NOT NULL
+                RETURN c.name AS column, collect(DISTINCT t.name) AS tables
+                """
+            ).data()
+        ruled_out: set = set()
+        for row in rows:
+            names = sorted(row["tables"])
+            for index, left in enumerate(names):
+                for right in names[index + 1 :]:
+                    ruled_out.add((left.lower(), right.lower()))
+
+        def known_unjoinable(left: str, right: str) -> bool:
+            key = (left.lower(), right.lower())
+            return (key if key[0] <= key[1] else (key[1], key[0])) in ruled_out
+
+        return known_unjoinable
+
+    async def aunjoinable_oracle(self) -> Any:
+        """Async variant. One graph read, off the event loop."""
+        return await asyncio.to_thread(self.unjoinable_oracle)
+
     def business_area_evidence(self) -> Dict[str, Dict[str, List[str]]]:
         """Per area, the accepted concepts that have a table mapped to them, and those tables.
 

@@ -20,6 +20,7 @@ COMMANDS = (
     "warehouse-migrate",
     "load-knowledge",
     "harvest",
+    "suggest",
     "schedule-nightly",
 )
 
@@ -90,6 +91,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     harvest.add_argument("--schema", default="silver")
     harvest.add_argument("--version", default="")
+    harvest.add_argument(
+        "--suggest",
+        action="store_true",
+        help="After the refresh, run the KPI and use case suggestion pass and file proposals.",
+    )
+
+    # The "then immediately suggest" half of connect -> build the layer -> suggest. Separate
+    # from `harvest` so a deployment can re-suggest without re-harvesting, e.g. after a KPI
+    # is enabled or the prose corpus is reloaded.
+    suggest = sub.add_parser(
+        "suggest",
+        help="Propose KPIs and use cases over the current semantic layer, then exit.",
+    )
+    suggest.add_argument("--dry-run", action="store_true")
+    suggest.add_argument("--no-prose", action="store_true")
 
     # Control plane only, like `migrate`: it writes the schedule row and exits, and the
     # pipelines pod's poller does the rest. See entrypoints/schedule_nightly.py.
@@ -142,7 +158,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command == "harvest":
         from egpt_retail.entrypoints.harvest import main as run_harvest
 
-        return run_harvest(["--schema", args.schema, "--version", args.version])
+        argv_harvest = ["--schema", args.schema, "--version", args.version]
+        if args.suggest:
+            argv_harvest.append("--suggest")
+        return run_harvest(argv_harvest)
+    if args.command == "suggest":
+        from egpt_retail.entrypoints.suggest import main as run_suggest
+
+        argv_suggest: List[str] = []
+        if args.dry_run:
+            argv_suggest.append("--dry-run")
+        if args.no_prose:
+            argv_suggest.append("--no-prose")
+        return run_suggest(argv_suggest)
     if args.command == "schedule-nightly":
         from egpt_retail.entrypoints.schedule_nightly import main as run_schedule
 
