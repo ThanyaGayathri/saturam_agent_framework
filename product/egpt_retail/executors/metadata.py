@@ -188,6 +188,38 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             True,
             1,
         ),
+        # R12 -- alerts
+        "evaluate_alert_condition": ExecutorMetadata(
+            "Evaluate the alert condition",
+            "Compare one KPI's current gold value to its threshold; stop the chain when the "
+            "condition is not met, logging the outcome either way.",
+            ("kpi_identifier", "operator", "threshold", "rows"),
+            ("fired", "value", "detail"),
+            # The same posture as decide_load_verdict and check_preflight: the one thing that
+            # decides whether write_alert/deliver_in_app run afterward.
+            True,
+            1,
+        ),
+        "write_alert": ExecutorMetadata(
+            "Write the alert",
+            "Write one alert_events row in the contract's AlertEvent shape; only reached "
+            "once evaluate_alert_condition did not stop the chain.",
+            ("fired", "value", "severity", "recipients"),
+            ("alert_event",),
+            False,
+            1,
+        ),
+        "evaluate_alerts": ExecutorMetadata(
+            "Evaluate alerts",
+            "Every enabled alert definition, checked against gold once per pass; fires and "
+            "delivers through R7's own path, and bumps last_evaluated_at either way.",
+            ("as_of",),
+            ("evaluated", "fired", "events"),
+            # Never itself refuses the run -- an individual definition's own KPI being
+            # missing or unevaluable is reported per-definition, not a stop.
+            False,
+            5,
+        ),
         # R14 -- monitoring: execution health, silent schedules, the quality/drift pass
         "assess_execution_health": ExecutorMetadata(
             "Assess execution health",

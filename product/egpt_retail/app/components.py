@@ -46,6 +46,7 @@ from egpt.workflow.types import OnError
 from pydantic import BaseModel
 
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.executors.alerts import ALERT_EXECUTORS, evaluate_alerts
 from egpt_retail.executors.areas import detect_business_areas
 from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.gaps import check_spec_gaps
@@ -88,6 +89,7 @@ __all__ = [
     "LANDING_TO_SILVER_WORKFLOW_ID",
     "NIGHTLY_REFRESH_WORKFLOW_ID",
     "RFQ_WORKFLOW_ID",
+    "ALERT_EVALUATION_WORKFLOW_ID",
     "MEMORY_WRITING_AGENT_IDS",
     "build_agents",
     "build_playground_agent_factory",
@@ -125,6 +127,14 @@ NIGHTLY_REFRESH_WORKFLOW_ID = "nightly-refresh"
 #: target it once R9's activation route exists; stable for the same reason NIGHTLY's is.
 RFQ_WORKFLOW_ID = "rfq-funnel"
 
+#: R12's alert pass (G7): every enabled ``alert_definitions`` row evaluated against gold,
+#: then ``record_provenance``. Named for the schedule R9's activation route will eventually
+#: target -- "an evaluation executor running after materialisation" (delivery-plan.md) means
+#: after ``nightly-refresh``, not inside it: a second registered workflow rather than a
+#: seventh step appended to NIGHTLY_REFRESH_WORKFLOW_ID, so an alert-only re-run never
+#: re-triggers a gold rebuild and a gold-only re-run is never blocked on alert delivery.
+ALERT_EVALUATION_WORKFLOW_ID = "alert-evaluation"
+
 #: The agents whose memory partitions the consolidator drains. The three static agents: the
 #: lifespan hands each one the memory provider, so each one writes a partition.
 #: ``PLAYGROUND_AGENT_ID`` is deliberately absent -- ``memory_lifespan_for`` iterates the
@@ -143,6 +153,12 @@ MEMORY_WRITING_AGENT_IDS: List[str] = [
 #: workflow -- they exist to be composed into other packages' workflows (R10's RFQ chain,
 #: eventually), and R7's own verification is a throwaway workflow in the cookbook.
 R7_EXECUTORS = (check_preflight, record_provenance, deliver_in_app)
+
+#: R12's three (G7): ``evaluate_alert_condition`` and ``write_alert`` are the names K15
+#: already reserved for the Alert shape's own stages before R12 existed to build them;
+#: ``evaluate_alerts`` is the nightly batch pass that calls both. See
+#: ``executors/alerts.py``.
+R12_EXECUTORS = ALERT_EXECUTORS
 
 #: R10's own (D12). ``sample_rows`` is the API contract's own example plan's third step,
 #: reserved there since R9 landed and refused as unregistered until now.
@@ -471,6 +487,18 @@ def build_workflows(
             db=db,
             steps=_rfq_steps(funnel_explanation),
         ),
+        Workflow(
+            id=ALERT_EVALUATION_WORKFLOW_ID,
+            name="Alert evaluation",
+            description=(
+                "Every enabled alert definition, checked against gold (G7): fires and "
+                "delivers through R7's own path when its threshold is crossed, and records "
+                "that it ran either way so a quiet week reads as quiet rather than broken "
+                "(R12)."
+            ),
+            db=db,
+            steps=_chain((evaluate_alerts, record_provenance)),
+        ),
     ]
 
 
@@ -479,9 +507,10 @@ def build_registry() -> Registry:
 
     R4's six, R7's three (``check_preflight``, ``record_provenance``, ``deliver_in_app``,
     G4), R5's two (``materialise_gold``, ``read_gold``), R9's two (``check_spec_gaps``,
-    ``derive_plan``), R10's two (``sample_rows``, ``check_explanation_grounding``), R14's
-    three (``assess_execution_health``, ``list_silent_schedules``, ``assess_quality``), Lane
-    K's two (``assess_kpi_feasibility``, ``detect_business_areas``) and R15's one
+    ``derive_plan``), R10's two (``sample_rows``, ``check_explanation_grounding``), R12's
+    three (``evaluate_alert_condition``, ``write_alert``, ``evaluate_alerts``), R14's three
+    (``assess_execution_health``, ``list_silent_schedules``, ``assess_quality``), Lane K's two
+    (``assess_kpi_feasibility``, ``detect_business_areas``) and R15's one
     (``check_golden_gate``). The check has run here since phase zero, when the list was empty;
     it now has something to check, which is what makes the duplicate-name refusal real rather
     than theoretical. Every name here is also a row in ``contracts/EXECUTOR_REGISTRY.md``, and
@@ -498,6 +527,7 @@ def build_registry() -> Registry:
         + GOLD_EXECUTORS
         + R9_EXECUTORS
         + R10_EXECUTORS
+        + R12_EXECUTORS
         + R14_EXECUTORS
         + K_EXECUTORS
         + GOLDEN_EXECUTORS

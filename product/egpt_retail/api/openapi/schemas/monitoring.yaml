@@ -279,6 +279,14 @@ AlertScope:
     business_area:
       $ref: './common.yaml#/BusinessAreaId'
     grain_value: {type: [string, "null"]}
+    grain_column:
+      type: [string, "null"]
+      description: |
+        Which gold-view column `grain_value` is matched against, when the KPI's rows carry
+        more than one dimension column (e.g. both `region` and `channel`) and a bare
+        `grain_value` could equal more than one of them. Optional and additive (CHANGELOG
+        1.1.2): a legacy definition with no `grain_column` is matched only when the result
+        set is unambiguous on shape alone -- refused, not guessed, when it is not.
 
 AlertEventKpi:
   type: object
