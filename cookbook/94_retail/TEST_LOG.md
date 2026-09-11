@@ -4637,3 +4637,159 @@ reason Recommend never appeared; the agent had not had the domain grounding to p
 cookbooks; product ruff and mypy clean under `validate.sh`. Open: R-15, R-16, K-13.
 
 ---
+
+### R15_golden_sets.py
+
+**Package:** R15 (P4, implements D14, G13)
+
+**Description:** A golden question set per real agent skill, run through `egpt.eval.suite`
+(`Case`/`run_cases`, reused rather than reimplemented — G13 asks for "the existing eval
+suite"), a new deterministic executor `check_golden_gate` (never calls a model; reads an
+already-computed pass rate and a `RehearsalReview`) and a new `RehearsalReviewStore`
+(Postgres-backed, modelled on K7's `ProposalStore`: a fresh golden run always reopens review
+to `pending`, so yesterday's approval of a different score is never read as approval of
+today's).
+
+Nine real skills exist in `product/egpt_retail/skills/` today: the seven SKILL_TEMPLATE.md
+names as "the agents in the system" (`enrichment_proposer`, `mapping_proposer` — K8;
+`kpi_suggestion` — K12; `use_case_suggestion` — K13; `spec_extractor` — R9;
+`funnel_explanation` — R10; `playground` — R11) plus K14's own two template-verification
+agents (`synonym_proposer`, `join_path_explainer`). All nine got a golden set; `step_prompt`
+(K15) was excluded — it authors other skills' prompts at compile time and ships no worked
+answer a golden question could check against.
+
+**No API contract change.** `PreflightResult.checks[].name` (`use-cases.yaml`) is already an
+open string, so `check_golden_gate`'s two checks (`golden_set_passed`, `rehearsal_reviewed`)
+slot into the existing shape without a schema edit — the publish-time gate hook point the
+task asked me to look for already exists in the contract. Nothing in `RehearsalReviewStore`
+is API-exposed either, matching K7's own `ProposalStore` precedent (interface wiring is phase
+five).
+
+**Environment note, load-bearing for what follows:** this sandbox has no Azure/OpenAI
+credentials (no `azure_key.env`, no env vars). Ollama was already installed with
+`qwen2.5-coder:7b`/`14b` pulled, so every live call in this run went through a **local**
+model (`egpt.integrations.models.ollama.Ollama`) rather than Azure — a real, live model call
+throughout, never a mock, but a much weaker and slower one than the `gpt-5.5`-class deployment
+every other R-cookbook in this repo assumes. `R15_golden_sets.py` prefers Azure automatically
+when `AZURE_OPENAI_API_KEY`/`AZURE_OPENAI_DEPLOYMENT` are set and falls back to Ollama
+otherwise, printing which it used.
+
+**Result, baseline (all nine skills, scored live):**
+
+| Skill | Version | Pass rate | Note |
+|---|---|---|---|
+| `enrichment_proposer` | 1.0.0 | 0/1 | Judge (also the local 7B model) called `pii` an invented compliance tag; it is actually in the shipped vocabulary. Fixed by replacing that clause with a deterministic `teardown` against `load_vocabulary_set()` — see "What surprised me" below. |
+| `mapping_proposer` | 1.0.0 | 0/1 | Genuine catch: the proposal's rationale called its own mapping "authoritative", which section 5's rules forbid — a real proposer, only a person decides that. |
+| `kpi_suggestion` | 1.0.0 | 0/1 | The model refused outright ("no catalogue supplied") instead of proposing from the harvest alone, which the rendered prompt explicitly permits. Weak instruction-following on the small model, not a golden-set defect. |
+| `use_case_suggestion` | 1.0.0 | 1/1 | Passed: proposed a supplier-watch Alert grounded in `supplier_deliveries.on_time`. |
+| `spec_extractor` | 1.0.0 | 0/2 | One case timed out at 240s; the other left `kpi_identifiers` empty for an unknown metric (correct per the template) but the local judge misread that as a failure — another judge-reliability artifact. |
+| `funnel_explanation` | 1.0.0 | 0/1 | Timeout at 240s. |
+| `playground` | 0.1.0 | 0/1 | Genuine catch, deterministic: with no tool available, the model fabricated answer blocks instead of returning empty blocks with `notes` — exactly the failure the template's refusal rule exists to catch. |
+| `synonym_proposer` | 1.0.0 | 1/2 | Refusal case passed; the generative case timed out. |
+| `join_path_explainer` | 1.0.0 | 1/3 | See Verify below. |
+
+Every score was written to `retail_evals.rehearsal_review` via `RehearsalReviewStore.record_run`
+(confirmed by querying the table directly afterward) and every skill defaulted to
+`status=pending` — nobody had reviewed any of them yet, which is the gate's intended starting
+state.
+
+**Result, the gate (`join_path_explainer`, real Postgres, real executor call):**
+
+- Unreviewed: `allowed=False`, `blocked_by=['golden_set_passed', 'rehearsal_reviewed']` — a
+  33% baseline blocks on its own merits, and no review exists yet either.
+- After `nandhakumar@saturam.com` approves via `RehearsalReviewStore.approve`: `allowed=False`,
+  `blocked_by=['golden_set_passed']` — approval alone does not overcome a score under the 80%
+  threshold. `rehearsal_reviewed` reports `PASS` correctly.
+
+**Result, Verify (deliberately weaken, publish, watch, restore):** Targeted the exact
+"specific to this agent" rule in `join_path_explainer.md` — never emit `joinable` for a null
+path because the tables "look" joinable — and replaced it with a plausible "be more helpful"
+edit encouraging the model to explain a plausible join anyway; bumped `version: 1.0.0` to
+`1.1.0` in the same edit, on disk, for the duration of the run only.
+
+- Baseline: 1/3 (33%). Weakened: 1/3 (33%). **The raw pass rate did not drop.**
+- The failure *shape* did change: the found-path case went from a 240s timeout to a
+  deterministic failure (`unexpected route []` — the model stopped describing a real join it
+  had described correctly seconds of prompt-editing earlier), and the null-path case stayed
+  `unknown` rather than becoming the invented `joinable` I'd expected the edit to provoke.
+  With only three cases and a baseline already at 33%, there was little room left to show a
+  further numeric drop on the one case (null-path) the edit actually targets.
+- **The gate still blocked the weakened version**, `allowed=False`,
+  `blocked_by=['golden_set_passed', 'rehearsal_reviewed']` — because `record_run` unconditionally
+  reopens review to `pending` on every new version, `nandhakumar@saturam.com`'s approval of
+  1.0.0's score is never read as approval of 1.1.0's. That structural guarantee held
+  regardless of what the numeric score did.
+- Prompt restored afterward; confirmed byte-for-byte via `git diff` (empty) after the run,
+  not just by the script's own claim.
+- Per the script's own exit code (and the package's stated evidence bar): **the golden-set
+  pass-rate signal specifically did not show an attributable drop**, so by the letter of "if
+  it passes, the golden set is too easy" this leg is not clean evidence on its own.
+
+**Status:** PASS on the mechanism (golden sets exist and run on publish for every real skill;
+the deterministic gate correctly blocks an unreviewed score, a reviewed-but-failing score, and
+a freshly-edited version regardless of prior approval; `RehearsalReviewStore` proven against
+real Postgres) — **open** on a clean numeric score-drop demonstration, which this sandbox's
+lack of Azure/OpenAI credentials could not produce: a 7B local model's baseline was already so
+weak (33% on 3 cases, several results decided by coin-flip-grade instruction-following and by
+timeouts rather than by the rule under test) that there was no clean signal to move. The
+mechanism that *did* catch the edit — the version-reopens-review structural guarantee — is
+arguably the more important half of "rehearsal review by a person still gates activation" and
+held perfectly. Re-running `R15_golden_sets.py` with `azure_key.env` sourced (same script, no
+code change) is the natural next step to get the clean pass/fail delta this package's evidence
+bar asks for; I did not have that credential in this environment.
+
+**What surprised me, in order of how much it matters:**
+
+1. **A judge model can fail a closed-set check for not actually holding the closed set.**
+   `enrichment_proposer`'s golden case originally asked the judge to confirm "any compliance_tag
+   is a real retail vocabulary term" in plain English. The local judge confidently declared
+   `pii` invented; `load_vocabulary_set()["compliance_tag"].values` shows it is not. This is the
+   alignment rules' own "anything that permits or blocks is an executor, never a model" applied
+   one level up, to scoring itself — closed-set membership must be a deterministic `teardown`
+   against the real vocabulary, never a natural-language judge criterion, however obvious the
+   term looks to a person reading the transcript. Fixed in `golden_sets.py` before finalizing;
+   the fix is why `enrichment_proposer_golden_cases` now carries a `_teardown_vocab` instead of
+   a vocabulary clause in `criteria`.
+
+2. **The publish gate and the golden-set score are two independent lines of defence, and only
+   discovered that by testing them separately.** I had assumed a bad edit would always show up
+   as a lower pass rate. It does not have to: `record_run`'s unconditional reopen-to-pending
+   means a version bump alone blocks publish, even when three noisy cases against a weak model
+   fail to move the needle. Both matter; the pass rate names *what* is wrong, the review gate
+   is what actually stops it.
+
+3. **Building golden cases from a skill's own worked example and near-miss (SKILL_TEMPLATE.md
+   section 7) is cheap and load-bearing.** `join_path_explainer`'s three cases are lifted
+   directly from `K14_join_path_explainer.py`'s own three hand-checked scenarios (found path,
+   null path, missing input) and `funnel_explanation`'s from `movers_match_input`/
+   `citations_within_input`, the skill's own deterministic oracles. Every skill that ships a
+   `checked_against`-style function got a `teardown` for free; the ones that don't
+   (`enrichment_proposer`, `mapping_proposer`, `kpi_suggestion`, `use_case_suggestion`) are
+   exactly the ones where a criteria-only judge call turned out to be the least reliable piece
+   of the whole exercise.
+
+4. **`docker compose`'s port list merges rather than replaces across `-f` files.** The task's
+   suggested `deploy/local-r15.override.yaml` (`ports: ["5834:5432"]` alongside the base
+   compose file's `5532:5432`) does not suppress the base port — Compose concatenates the list,
+   so it tried to bind 5532 too and collided with a sibling agent's stack already using it. Used
+   a plain `docker run` (same image, env, and init scripts) on port 5834 instead; removed the
+   override file since it was never actually load-bearing.
+
+5. **An async model client is bound to the event loop it was first used on.** Reusing one
+   `Ollama`/`Model` instance across two separate `egpt.eval.suite.run_cases()` calls (each its
+   own `asyncio.run()`) broke the second call with "Event loop is closed" rather than a timeout
+   or a clear error. Fixed by making every model a factory (`() -> Model`) called fresh for each
+   golden-set run rather than a shared singleton — the opposite of "never construct an agent in
+   a loop", and worth a comment in the cookbook since the two rules look alike but aren't.
+
+**`./scripts/format.sh` and `./scripts/validate.sh`: both clean.** format.sh rewrote ~121
+unrelated files repo-wide (import-sort drift, the same effect K11's and other entries note);
+reverted everything outside this package's own files before staging. validate.sh: egpt mypy
+1748 files clean, product mypy 127 files clean, product pytest 858 passed / 41 skipped (this
+package's 14 new tests among them), API contract still valid (confirms the "no contract
+change" call above did not silently drift anything), brand audit clean. An earlier ad-hoc
+`mypy product/` invocation of mine (missing `--config-file`) reported 307 errors in
+framework files this package never touched — that was my own invocation missing the project's
+mypy config, not real drift; `validate.sh`'s own invocation is the arbiter and it is clean.
+
+---
