@@ -188,5 +188,18 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             True,
             1,
         ),
+        # R15 -- the publish gate
+        "check_golden_gate": ExecutorMetadata(
+            "Check the publish gate",
+            "Confirm the golden-set score is over threshold and a person has approved this "
+            "exact (skill, version, score); block naming which check failed otherwise.",
+            ("skill_version", "golden_pass_rate", "rehearsal_review"),
+            ("gate_result",),
+            # Same shape as check_preflight/sample_rows/check_explanation_grounding: a failing
+            # check must stop the chain before a prompt version publishes on an unreviewed or
+            # under-threshold score.
+            True,
+            1,
+        ),
     }
 )
