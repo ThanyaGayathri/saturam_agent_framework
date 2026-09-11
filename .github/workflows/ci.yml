@@ -148,7 +148,11 @@ jobs:
     needs: changes
     if: (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')) && needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # egpt's own suite (py3.10 and py3.12 both) has been observed at 23-25m on a slow runner,
+    # tipping over the old 25m ceiling and failing the job with nothing actually wrong --
+    # egptctl/egpt-infra finish in under a minute regardless, so raising this for the whole
+    # matrix costs them nothing.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -446,7 +450,9 @@ jobs:
     needs: changes
     if: (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')) && needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Normally ~13m, but seen at 25m18s (canceled at the old ceiling) on a slow runner --
+    # same class of false failure as test-and-build's egpt legs above.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 

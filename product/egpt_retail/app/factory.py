@@ -174,7 +174,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
         description="Retail intelligence on EgptOS. Phase zero: one registered agent, no workflows.",
         db=db,
         agents=agents,
-        workflows=build_workflows(settings, db),
+        workflows=build_workflows(settings, db, agents),
         registry=build_registry(),
         authorization=settings.authorization_enabled,
         authorization_config=authorization_config,

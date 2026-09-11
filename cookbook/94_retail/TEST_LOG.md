@@ -4115,6 +4115,134 @@ a one-off.
 
 ---
 
+### R10_rfq_workflow.py
+
+**Package:** R10
+
+**Status:** PASS (8 checks, live against compose Postgres + Neo4j; offline half for the model
+step -- no Azure OpenAI credentials on this machine).
+
+**Description:** The delivery plan's Verify line for R10, run in order of risk: seed the
+warehouse and semantic layer, register the RFQ template's two KPIs
+(`rfq__quote_requests_by_brand`, `rfq__quote_to_deal_rate`, `kpi/rfq.py`); materialise gold
+for a synthetic "yesterday", hand-edit that gold the way R05's cookbook forces a broken
+formula (here to force a real mover, since the sample data does not change day to day);
+materialise "today" for real; run `read_gold` then the new `sample_rows` executor by hand and
+check the top mover's delta against a direct SQL query; populate `identity_key` on two
+matching rows and show the friction join becomes available, then remove it again and show the
+honest-unavailable state returns; then drive the registered `rfq-funnel` workflow
+(`check_preflight → read_gold → sample_rows → funnel_explanation → record_provenance →
+deliver_in_app`, the API contract's own example plan) with `arun` end to end.
+
+**What surprised me:**
+
+1. **The obvious "break the friction join" scenario is already the deployed state.**
+   `silver.analytics_event.session_id` and `silver.session_replay_session.session_id` are two
+   vendors' own id spaces (the column's own comment says so), and the shared `identity_key` is
+   reserved and unpopulated pending privacy sign-off (build plan, "Blocked, and not by
+   engineering"). So `sample_rows` reports `friction.available = False` by default over the
+   real sample data, with no code path needed to force it -- the interesting direction to test
+   was the reverse: populate `identity_key` on two rows and show friction becomes available,
+   then remove it and show the honest gap returns rather than a cached stale answer.
+2. **A zero delta between two known values was reported as `direction: "unknown"`**, the same
+   label documented as meaning "could not be compared (either side missing/None)". Caught by
+   this cookbook's `quote_to_deal_rate` row, whose current and prior values happened to be
+   identical (1.0) -- a real, computed comparison, mislabelled as a gap. Added `flat` as a
+   fifth `Direction` outcome (`executors/rfq.py`, `skills/funnel_explanation.py` and its
+   `.md`), reserving `unknown` for an actually-missing value.
+3. **The cookbook was not re-runnable the first time.** `record_provenance` writes one row
+   keyed by `run_id` alone, and this cookbook's fixed ids (`r10-cookbook-e2e`,
+   `r10-cookbook-offline`) collided with the previous run's row on a second execution --
+   `UniqueViolation`. The R05/K05 leak-cleanup lesson generalises to a rerun of the *same*
+   script, not only to a sibling cookbook reading a shared store: section 0 now clears both
+   ids from `egpt_answer_provenance` and `retail_deliveries` before seeding.
+4. **The first design mixed exception-driven and credential-driven branching for the model
+   step**, and it broke exactly the way mixing them tends to: `workflow.arun()` did not raise
+   with no Azure credentials configured (the agent step's own failure was swallowed and the
+   workflow still reported `COMPLETED`), so the `except` branch was reached only later, from
+   `FunnelExplanation.model_validate()` failing on the step's non-conforming content -- by
+   which point the live run had already written a provenance row under the run id the offline
+   fallback then tried to reuse. Replaced with an upfront `AZURE_OPENAI_API_KEY` check, so the
+   two halves never share a run id or a code path.
+5. **`materialise_gold` needs a semantic snapshot before the first load, not after.** Harvesting
+   silver's *schema* (tables and columns, zero rows) is enough -- the DDL creates empty tables,
+   and `harvest_schema` reads structure, not data -- but the harvest has to run before the
+   first `nightly-refresh`, not after it the way an initial reading of R05's cookbook suggested.
+   Running it after left `materialise_gold` refusing every attempt with "the semantic layer
+   holds no snapshot" for four retries before the run failed outright.
+
+**Result:** All 8 checks PASS, twice in a row (idempotency verified by re-running). `pytest
+product/tests/test_r10_rfq.py` -- 22 passed (pure `rank_movers`/`friction_unavailable`/
+`prior_period_statement`/`FRICTION_QUERY` checks, registry and metadata conformance, the RFQ
+KPI definitions against the shipped vocabularies, `funnel_explanation`'s schema and its
+`citations_within_input`/`movers_match_input`/`closed_sets_match_prompt` checkers, the routing
+table, and the `rfq-funnel` workflow's step order and shared-agent-object wiring). Two stale
+tests fixed as part of landing this package: `test_r9_spec_gap_plan.py`'s
+`test_an_unregistered_executor_is_refused_by_name` used `sample_rows` as its own stand-in for
+"a name nobody registered yet" and needed a different name now that R10 registered it, and its
+`test_metadata_names_exactly_the_registered_executors` needed `sample_rows` added to the
+expected `permits_or_blocks` set -- `format.sh` and `validate.sh` both green afterward
+(`product`: ruff, mypy, API contract and 627 tests; `egpt`/`egptctl`: unchanged).
+
+**Follow-up (code review fixes):** A multi-model code review of the PR found a fan-out bug in
+`QUOTE_TO_DEAL_RATE` (the `LEFT JOIN` to `crm_deal_stage_history` counted joined rows, not
+distinct deals -- masked in the original run because the one qualifying brand happened to have
+exactly one matching deal) and the same fan-out shape in `FRICTION_QUERY`'s join to
+`session_replay_session`; a missing `on_error=OnError.fail` on the `funnel-explanation` step
+(the only step in `_rfq_steps` not built through `_chain`, so a model failure was silently
+skipped rather than stopping the chain); `rank_movers` computing `delta` through `float`
+instead of `Decimal`, reintroducing the binary-rounding error `read_gold` deliberately avoids;
+`sample_rows` storing the unbounded `movers` list rather than the `sample_size`-bounded slice,
+and dropping `read_gold`'s `kpi_identifiers`/`source_snapshot` entirely -- both required fields
+on `FunnelExplanation` the model therefore had no real data to populate; `_run_guarded` called
+synchronously from the `async def` executor instead of through `asyncio.to_thread`; and a
+`citations_within_input` grounding gap (unanchored substring matching, and `summary` never
+checked). Added `Decimal.normalize()` after switching `rank_movers` off `float`: Postgres's
+wide-scale `numeric` zero round-trips through `Decimal` as `0E-20`, not `0`, and normalizing
+fixes that without losing precision -- found by re-running this cookbook after the `Decimal`
+change, not by the review itself. Fixed all of the above; added `1b.` (a direct-SQL
+distinct-deal cross-check for `quote_to_deal_rate`) and two `sample_rows`-content checks
+(`kpi_identifiers`/`snapshot_version` forwarded, `movers` bounded) to this cookbook, and new
+unit tests to `test_r10_rfq.py` (a `Decimal`-precision case using the review's own `0.18`/`0.23`
+worked example, a word-boundary `citations_within_input` counterexample, a `summary`-grounding
+case, and a `StopIteration`→`ValueError` case for `build_workflows`). Re-run: all checks PASS,
+including the new ones; `pytest product/tests/test_r10_rfq.py` -- 30 passed;
+`pytest product/tests/` -- 631 passed, 41 skipped; `format.sh`/`validate.sh` both green.
+
+**Follow-up 2 (second review round, against the fixes above):** `FRICTION_QUERY`'s CTE fix
+deduped `session_replay_session` by `identity_key` but still fanned out through
+`analytics_event` when one identity fired the same `event_name` more than once -- added a
+second CTE deduping `analytics_event` to distinct `(identity_key, event_name)` pairs.
+`rank_movers`'s `.normalize()` fix (follow-up 1) turned round deltas into scientific notation
+(`Decimal("120.00") - Decimal("20.00")` normalized to `"1E+2"`, not `"100"`) -- replaced with
+fixed-point formatting (`format(delta, "f")`, trailing zeros stripped by hand, zero
+special-cased) that never uses scientific notation. `sample_rows`'s `snapshot_version` was
+silently taken from the alphabetically-first KPI identifier only, even when KPIs came from
+different snapshots -- now reports every distinct snapshot version across the run rather than
+picking one. Added `check_explanation_grounding` (new executor, `executors/rfq.py`), wired
+into `_rfq_steps` between the model step and `record_provenance`/`deliver_in_app`: re-runs
+`citations_within_input`/`movers_match_input` against the agent's real output and `stop=True`s
+the chain on either check's failure -- closing the gap where those checkers were previously
+cookbook/test-only and reachable by nothing at run time. This is a step the API contract's
+example plan (`paths/use-cases.yaml`) did not previously name; updated that example (now seven
+steps) and regenerated the bundled OpenAPI artifacts (`./scripts/gen_api_models.sh`) so the
+documented plan and the real one stay in sync. Testing this against the live cookbook (not
+just unit tests) surfaced one more bug before it shipped: `citations_within_input`'s
+summary-grounding check (follow-up 1) unconditionally required the summary to mention a
+grounded term, which spuriously rejected the legitimate "no data to report" case (nothing to
+ground against when `top_movers`/`friction` are both empty) -- fixed to skip that check when
+there is nothing to cite from. Left the deeper citation-grounding gap open (a driver sentence
+naming a real cited brand *alongside* a fabricated one still passes, since the check only
+requires one grounded term per sentence) -- closing it needs either a closed-vocabulary
+tokenizer (real false-positive risk on ordinary retail prose) or a stricter output contract
+(the model cites by reference instead of free prose); decided with the user to track as a
+follow-up rather than ship a fragile heuristic. Re-run: cookbook PASS twice in a row (14
+checks, including three new ones -- the friction duplicate-event case, and the grounding
+guard's pass/stop paths); `pytest product/tests/` -- 639 passed, 41 skipped;
+`format.sh`/`validate.sh` both green.
+
+---
+
 ### K12_kpi_suggestion.py
 
 **Status:** PASS
