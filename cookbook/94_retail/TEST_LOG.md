@@ -4702,3 +4702,128 @@ check -- no contract change was needed; `AlertDefinition`/`AlertEvent`/etc. were
 generated).
 
 ---
+
+### R12_alerts.py -- round-2 review fixes (PR #210)
+
+**Package:** R12
+
+**Status:** PASS (38 checks, live against the isolated compose stack: Postgres on 5633, Neo4j
+on 7692 -- this worktree's own ports).
+
+**Description:** Addressed all fourteen round-2 review comments on PR #210
+(`product/egpt_retail/executors/alerts.py`, `alerts/{ddl,store,condition}.py`, and the
+README). Each fix and its evidence:
+
+1. **`as_of` leak across definitions in one batch** (id=3988588573). `evaluate_alerts` used to
+   read `options.get("as_of")` inside the per-definition loop -- but `options` and `shared`
+   alias the same `additional_data` dict, so a `delta_*` definition's own prior-period shift
+   (`shared["as_of"] = prior_as_of.isoformat()`) leaked into the *next* definition's
+   current-period read. Fixed by capturing `caller_as_of = shared.get("as_of")` once, before
+   the loop, and threading that captured value explicitly into every `read_gold` call instead
+   of re-reading the (now also cache-keying) mutable bag. New cookbook section 2b and unit test
+   `test_evaluate_alerts_as_of_does_not_leak_across_definitions` (a `delta_gt` definition ahead
+   of a plain `gt` one sharing a KPI): the second definition's resolved value is the caller's
+   own current-period value (10.0), never the first definition's shifted prior-period one
+   (3.0).
+2. **No per-definition isolation** (id=3988588581). A malformed recipient (missing `channel`)
+   used to raise an uncaught `KeyError` that aborted the whole batch. Fixed with an outer
+   `try`/`except` around each definition's evaluation (recording the failure and continuing,
+   `amark_evaluated(fired=False)` so `last_evaluated_at` still advances) plus per-recipient
+   delivery isolation via `asyncio.gather(..., return_exceptions=True)`. Cookbook section 5 and
+   unit test `test_evaluate_alerts_isolates_a_malformed_recipient`: a bad-recipient definition
+   and a good one after it both evaluate, fire and record; only the good recipient is actually
+   delivered to.
+3+3b. **No duplicate-fire guard** (id=3988588585, id=3988649689). Two concurrent (or retried,
+   or manually re-run) evaluations of the same still-breaching definition used to write two
+   `alert_events` rows and page recipients twice. Fixed at the database level: a new `as_of`
+   column on `alert_events` plus a `UNIQUE(alert_id, as_of)` index
+   (`alert_events_alert_id_as_of_uidx`, `alerts/ddl.py`, added `IF NOT EXISTS` so an
+   already-migrated table picks it up), and `AlertEventStore.create_or_get` (`INSERT ... ON
+   CONFLICT (alert_id, as_of) DO NOTHING RETURNING *`, falling back to a lookup on conflict) --
+   race-safe under real concurrency, not a check-then-insert. `write_alert` now returns
+   `newly_fired`; `evaluate_alerts` skips delivery when it is `False`. Cookbook section 2b and
+   unit test `test_evaluate_alerts_does_not_re_fire_or_re_deliver_a_duplicate_window`: one
+   `alert_events` row and one delivery, not two.
+4. **`run_id` fallback not pinned back** (id=3988588589). `evaluate_alerts`'s own `_run_id`
+   fallback (`uuid4()`) was never written back into `additional_data`, so the chained
+   `record_provenance` step minted an independent, different fallback -- `alert_events.run_id`
+   and the persisted `ProvenanceRecord.run_id` disagreed. Fixed: `shared.setdefault("run_id",
+   run_id)` immediately after computing the fallback. Cookbook section 2's own
+   `event["run_id"] == fire_run_id and event["provenance_ref"] == fire_run_id` check plus new
+   unit test `test_evaluate_alerts_pins_its_run_id_fallback_back_into_additional_data`.
+5+6. **`_select_row` scanned any column, not a named one** (id=3988588595, id=3988588627). A
+   gold row with two grain-key columns (`region` and `channel`) where `grain_value` happened to
+   equal both used to silently match whichever column the dict-iteration order found first.
+   Fixed with an **additive contract change**: `AlertScope.grain_column` (optional string,
+   CHANGELOG 1.1.2, `./scripts/gen_api_models.sh` re-run). `_select_row` matches the named
+   column when given; with no `grain_column` (a legacy definition), it matches only when the
+   KPI's rows carry exactly one grain-key column to begin with -- refused, not guessed,
+   otherwise. Extracted the shared metadata-key set and the old loose-match behaviour into
+   `executors/gold.py` (`GOLD_ROW_METADATA_KEYS`, `grain_key_columns`, `row_for_grain_value`),
+   which `dashboards/data.py`'s `_row_for_grain` now delegates to instead of carrying its own
+   copy. Cookbook section 4b and unit tests
+   `test_select_row_refuses_to_guess_when_two_columns_could_match`,
+   `test_select_row_uses_the_named_grain_column_not_a_coincidental_match`,
+   `test_select_row_matches_the_lone_grain_column_when_none_is_named`,
+   `test_alerts_grain_key_columns_is_the_shared_gold_helper_not_a_copy`.
+7+7b. **`eq` did bit-for-bit float equality** (id=3988588602, id=3988650910). Comparing two
+   independent `float()` casts of `NUMERIC` columns meant `eq` essentially never fired for a
+   continuous KPI (this module's own `supplier__on_time_rate_30d`). Fixed in
+   `condition.py`: both operands go through `Decimal(str(x))` and are compared with a `1e-9`
+   tolerance (`_EQ_TOLERANCE`) -- Decimal comparison per the review's own "preferred, most
+   correct" option, with the tolerance layered on top so genuine float-cast noise (not just
+   representation) is absorbed too; docstring notes the tolerance is far below "1 count" so an
+   integer/count `eq` is unaffected. Cookbook section 4c and unit tests
+   `test_eq_fires_on_realistic_decimal_values_a_bare_float_cast_would_miss`,
+   `test_eq_still_refuses_a_real_difference_not_just_float_noise`.
+8+8b. **A fresh `Engine` per fired alert** (id=3988588606, id=3988651251). `write_alert` and
+   `evaluate_alerts`'s delivery loop each built and disposed a new `control_plane_engine` per
+   fired alert. Fixed: `write_alert` accepts an optional `control_plane_engine` in
+   `additional_data` (falls back to building its own for a standalone call, unchanged);
+   `evaluate_alerts` passes its one already-open engine and the delivery loop reuses it too,
+   with any per-loop engine construction hoisted above the `for definition in definitions`
+   loop entirely. Unit tests `test_evaluate_alerts_reuses_one_control_plane_engine_for_the_whole_batch`
+   (one `build_control_plane_engine` call for a multi-definition, multi-fire batch) and
+   `test_write_alert_does_not_build_an_engine_when_one_is_given`.
+9. **Sequential recipient delivery** (id=3988588614). Replaced the `for recipient in ...:
+   await awrite_delivery(...)` loop with `asyncio.gather` over the per-recipient deliveries of
+   one fired alert (`return_exceptions=True`, doubling as finding 2's isolation mechanism).
+10. **No `read_gold` caching** (id=3988588620). Several definitions sharing one
+   `kpi_identifier` each re-issued `read_gold`. Fixed with an in-`evaluate_alerts` cache keyed
+   by `(kpi_identifier, as_of)`, reused across definitions and across the current/previous-period
+   reads. Same unit test as finding 1 asserts exactly the two distinct `(kpi_identifier, as_of)`
+   pairs a two-definition batch actually needs are read, not three.
+11. **README's R12 instructions used the wrong ports** (id=3988650099, from
+   rasiksuhailali). The README told a reader to start the *standard* shared stack
+   (5532/7687) but never exported the env vars `R12_alerts.py` needs to actually target it --
+   the script's own defaults are this worktree's isolated ports (5633/7692), a build-time
+   convenience. Judgment call: rather than pointing the merged README at this throwaway
+   worktree's `deploy/local-r12.override.yaml`, fixed the README to export
+   `EGPT_RETAIL_DB_URL`/`EGPT_RETAIL_WAREHOUSE_DB_URL`/`EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL`/
+   `EGPT_RETAIL_NEO4J_URI` at the standard 5532/7687 ports before running `R12_alerts.py`,
+   matching every other R0x/R1x section in this same README.
+12. **No `update`/`aupdate` on `AlertDefinitionStore`** (id=3988650526, from
+   rasiksuhailali). The store's own docstring claimed `validate_alert_target` runs "at
+   creation (and at update)", but no update method existed -- the cookbook fell back to raw SQL
+   to change a threshold, bypassing validation entirely. Fixed: `AlertDefinitionStore.update`/
+   `.aupdate` (partial-update, only given fields change), re-validating against
+   `validate_alert_target` exactly when `kpi_identifier` is being changed (`kpi=` required
+   alongside it, or `ValueError`). Cookbook section 3 now uses `definition_store.update(...)`
+   for the threshold edit and demonstrates the refusal to retarget to a rowset KPI; unit tests
+   `test_update_with_no_kpi_change_does_not_revalidate`,
+   `test_update_with_kpi_identifier_but_no_kpi_is_a_caller_error`,
+   `test_update_refuses_retargeting_to_a_rowset_kpi`,
+   `test_update_revalidates_and_succeeds_when_retargeting_to_a_scalar_kpi`,
+   `test_update_with_no_fields_given_is_a_no_op_read`.
+
+**Result:** 38/38 cookbook checks PASS, twice in a row (idempotency re-verified). New sections
+2b (duplicate-fire), 4b (grain_column), 4c (eq tolerance), 5 (malformed-recipient isolation);
+section 3 now uses `AlertDefinitionStore.update`. `pytest product/tests/test_r12_alerts.py` --
+46 passed (25 pre-existing plus 21 new, all DB-free -- every DB-touching name `evaluate_alerts`
+imports is monkeypatched, following `test_r7_delivery.py`'s own no-database pattern; the
+live-database proof is the cookbook above). `pytest product/tests/` -- 890 passed, 41 skipped,
+unchanged elsewhere. `./scripts/gen_api_models.sh` re-run for `AlertScope.grain_column`
+(CHANGELOG 1.1.2); `scripts/check_api_contract.py` confirms generated artifacts match the
+source. `format.sh`/`validate.sh` both green.
+
+---

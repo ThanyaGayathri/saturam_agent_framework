@@ -73,6 +73,7 @@ from egpt_retail.alerts import (  # noqa: E402
     AlertDefinitionStore,
     AlertEventStore,
 )
+from egpt_retail.alerts.condition import condition_met  # noqa: E402
 from egpt_retail.app.components import (  # noqa: E402
     ALERT_EVALUATION_WORKFLOW_ID,
     NIGHTLY_REFRESH_WORKFLOW_ID,
@@ -236,15 +237,17 @@ with control_plane.cursor() as cursor:
     # A re-run of this script must not collide with its own previous run's rows -- the same
     # "a cookbook must remove everything it writes to a store another run reads" rule R05/R10
     # both follow, applied here to alert_definitions/alert_events/deliveries/provenance.
-    cursor.execute("DELETE FROM alert_events WHERE alert_id = %s", (ALERT_ID,))
-    cursor.execute("DELETE FROM alert_definitions WHERE id = %s", (ALERT_ID,))
+    cursor.execute("DELETE FROM alert_events WHERE alert_id LIKE 'alr_r12%'")
+    cursor.execute("DELETE FROM alert_definitions WHERE id LIKE 'alr_r12%'")
     cursor.execute(
         "DELETE FROM egpt_answer_provenance WHERE run_id IN "
-        "('r12-cookbook-fires', 'r12-cookbook-silent', 'r12-cookbook-standalone')"
+        "('r12-cookbook-fires', 'r12-cookbook-fires-again', 'r12-cookbook-silent', "
+        "'r12-cookbook-standalone', 'r12-cookbook-isolation')"
     )
     cursor.execute(
         "DELETE FROM retail_deliveries WHERE run_id IN "
-        "('r12-cookbook-fires', 'r12-cookbook-silent', 'r12-cookbook-standalone')"
+        "('r12-cookbook-fires', 'r12-cookbook-fires-again', 'r12-cookbook-silent', "
+        "'r12-cookbook-standalone', 'r12-cookbook-isolation')"
     )
 control_plane.commit()
 print(
@@ -385,19 +388,80 @@ checks["record_provenance wrote one row naming the gold dataset read_gold notes"
 )
 print()
 
+# --- 2b. The same still-breaching definition, evaluated again: no duplicate fire ---------------
+print(
+    "2b. Evaluated again while still breaching -- no second event, recipients not paged "
+    "twice (round 2 review, PR #210)"
+)
+print("-" * 78)
+refire_run_id = "r12-cookbook-fires-again"
+refire_output = run_alert_evaluation(refire_run_id)
+refire_evaluate = evaluate_step(refire_output, "evaluate-alerts")
+print(f"  run {refire_output.run_id}: {refire_output.status.value}")
+print(f"  evaluate_alerts content: {refire_evaluate.content}")
+refire_entry = next(
+    e for e in refire_evaluate.content["evaluated"] if e["alert_id"] == ALERT_ID
+)
+checks["a repeat evaluation still honestly reports the condition as fired"] = (
+    refire_entry["fired"] is True
+)
+checks["but this pass created no new event"] = (
+    len(refire_evaluate.content["events"]) == 0
+)
+events_after_refire = event_store.list(alert_id=ALERT_ID)
+checks["alert_events still holds exactly the one row from the first firing"] = (
+    len(events_after_refire) == 1 and events_after_refire[0]["id"] == event["id"]
+)
+refire_deliveries = cp_query(
+    "SELECT channel FROM retail_deliveries WHERE run_id = :run_id", run_id=refire_run_id
+)
+checks["recipients are not paged a second time for the same window"] = (
+    len(refire_deliveries) == 0
+)
+print(
+    "  -> the UNIQUE(alert_id, as_of) index on alert_events (alerts/ddl.py) makes this a "
+    "database guarantee, not just an in-process check"
+)
+# Refreshed: this pass still fired (honestly), so last_fired_at moved again even though no
+# new event was written -- section 3's "did NOT advance on the silent run" comparison must
+# be against this run's stamp, the most recent actual firing, not section 2's earlier one.
+after_fire = definition_store.get(ALERT_ID)
+print()
+
 # --- 3. Threshold above the current value: it must stay silent, but still record the run -------
 print(
     "3. Threshold above the current value -- it must stay silent, but the run is recorded"
 )
 print("-" * 78)
 silent_threshold = current_value + 1
-with control_plane_engine.begin() as connection:
-    connection.execute(
-        text("UPDATE alert_definitions SET threshold = :t WHERE id = :id"),
-        {"t": silent_threshold, "id": ALERT_ID},
-    )
+updated_definition = definition_store.update(ALERT_ID, threshold=silent_threshold)
 print(
-    f"  updated threshold to {silent_threshold} ({REACHABLE_CONTACTS.identifier} > {silent_threshold})"
+    f"  updated threshold to {silent_threshold} via AlertDefinitionStore.update "
+    f"({REACHABLE_CONTACTS.identifier} > {silent_threshold})"
+)
+checks["AlertDefinitionStore.update wrote the new threshold"] = (
+    updated_definition is not None
+    and updated_definition["threshold"] == silent_threshold
+)
+
+try:
+    definition_store.update(
+        ALERT_ID,
+        kpi_identifier=REORDER_URGENCY_LIST.identifier,
+        kpi=REORDER_URGENCY_LIST,
+    )
+    retarget_rejected = None
+except AlertDefinitionRejected as exc:
+    retarget_rejected = exc
+print(
+    f"  retargeting to a rowset KPI refused: code={getattr(retarget_rejected, 'code', None)!r} "
+    f"message={retarget_rejected}"
+)
+checks["update() re-validates and refuses retargeting to a rowset KPI"] = (
+    retarget_rejected is not None and retarget_rejected.code == "kpi_not_scalar"
+)
+checks["the refused retarget did not change the definition's kpi_identifier"] = (
+    definition_store.get(ALERT_ID)["kpi_identifier"] == REACHABLE_CONTACTS.identifier
 )
 
 silent_run_id = "r12-cookbook-silent"
@@ -537,6 +601,159 @@ checks["write_alert is a documented no-op when the condition did not fire"] = (
 )
 print()
 
+# --- 4b. scope.grain_column disambiguates a KPI whose rows carry two dimension columns ---------
+print(
+    "4b. scope.grain_column picks the named column, not a coincidental match on another "
+    "(round 2 review, PR #210)"
+)
+print("-" * 78)
+ambiguous_content = {
+    "kpis": {
+        "r12__two_dimension_kpi": {
+            "rows": [
+                {
+                    "as_of": TODAY.isoformat(),
+                    "value": 42.0,
+                    "computed_at": f"{TODAY.isoformat()}T00:00:00Z",
+                    "source_snapshot": "s1",
+                    "run_id": "seed",
+                    "region": "5",
+                    "channel": "9",
+                },
+                {
+                    "as_of": TODAY.isoformat(),
+                    "value": 99.0,
+                    "computed_at": f"{TODAY.isoformat()}T00:00:00Z",
+                    "source_snapshot": "s1",
+                    "run_id": "seed",
+                    "region": "9",
+                    "channel": "5",
+                },
+            ]
+        }
+    },
+    "missing": [],
+}
+
+
+def _condition_for(scope):
+    return asyncio.run(
+        evaluate_alert_condition(
+            StepInput(
+                additional_data={
+                    "kpi_identifier": "r12__two_dimension_kpi",
+                    "operator": "gt",
+                    "threshold": 0,
+                    "scope": scope,
+                },
+                previous_step_content=ambiguous_content,
+            )
+        )
+    )
+
+
+no_column = _condition_for({"grain_value": "5"})
+print(f"  no grain_column, both region and channel could mean '5': {no_column.content}")
+checks["no grain_column: an ambiguous two-column match refuses rather than guesses"] = (
+    no_column.content["value"] is None and "no gold row" in no_column.content["reason"]
+)
+
+by_region = _condition_for({"grain_value": "5", "grain_column": "region"})
+print(f"  grain_column=region: {by_region.content}")
+checks["grain_column=region picks the row where region=5 (value 42), not channel=5"] = (
+    by_region.content["value"] == 42.0
+)
+
+by_channel = _condition_for({"grain_value": "5", "grain_column": "channel"})
+print(f"  grain_column=channel: {by_channel.content}")
+checks[
+    "grain_column=channel picks the row where channel=5 (value 99), not region=5"
+] = by_channel.content["value"] == 99.0
+print()
+
+# --- 4c. eq tolerates float()-cast noise from a NUMERIC column ---------------------------------
+print(
+    "4c. eq compares as Decimal with a small tolerance, so a realistic continuous KPI's "
+    "eq alert actually fires (round 2 review, PR #210)"
+)
+print("-" * 78)
+float_noise = condition_met("eq", 0.3, 0.1 + 0.2)
+print(f"  condition_met('eq', 0.3, 0.1 + 0.2) -> {float_noise}")
+checks["eq fires when two float casts represent the same decimal (0.1+0.2 == 0.3)"] = (
+    float_noise.met is True
+)
+real_difference = condition_met("eq", 0.9, 0.87)
+print(f"  condition_met('eq', 0.9, 0.87) -> {real_difference}")
+checks["eq still refuses a real difference, not just float noise"] = (
+    real_difference.met is False
+)
+print()
+
+# --- 5. A malformed recipient never aborts the batch --------------------------------------------
+print(
+    "5. A malformed recipient (missing channel) on one definition never stops the "
+    "definition after it from evaluating and firing (round 2 review, PR #210)"
+)
+print("-" * 78)
+BAD_RECIPIENT_ID = "alr_r12_bad_recipient"
+GOOD_RECIPIENT_ID = "alr_r12_good_recipient"
+definition_store.create(
+    id=BAD_RECIPIENT_ID,
+    kpi=REACHABLE_CONTACTS,
+    name="Bad recipient (R12 cookbook)",
+    kpi_identifier=REACHABLE_CONTACTS.identifier,
+    operator="gt",
+    threshold=fire_threshold,
+    severity="warning",
+    recipients=[{"address": "no-channel-here"}],  # missing "channel" -- malformed
+)
+definition_store.create(
+    id=GOOD_RECIPIENT_ID,
+    kpi=REACHABLE_CONTACTS,
+    name="Good recipient after a bad one (R12 cookbook)",
+    kpi_identifier=REACHABLE_CONTACTS.identifier,
+    operator="gt",
+    threshold=fire_threshold,
+    severity="warning",
+    recipients=[{"channel": "in_app", "address": ""}],
+)
+
+isolation_run_id = "r12-cookbook-isolation"
+isolation_output = run_alert_evaluation(
+    isolation_run_id, alert_ids=[BAD_RECIPIENT_ID, GOOD_RECIPIENT_ID]
+)
+isolation_evaluate = evaluate_step(isolation_output, "evaluate-alerts")
+print(f"  run {isolation_output.run_id}: {isolation_output.status.value}")
+print(f"  evaluate_alerts content: {isolation_evaluate.content}")
+checks["the run completes even though one definition has a malformed recipient"] = (
+    isolation_output.status.value == "COMPLETED"
+)
+isolation_fired = {
+    e["alert_id"] for e in isolation_evaluate.content["evaluated"] if e["fired"]
+}
+checks["both the bad-recipient and good-recipient definitions fired"] = (
+    isolation_fired
+    == {
+        BAD_RECIPIENT_ID,
+        GOOD_RECIPIENT_ID,
+    }
+)
+isolation_deliveries = cp_query(
+    "SELECT channel FROM retail_deliveries WHERE run_id = :run_id",
+    run_id=isolation_run_id,
+)
+print(
+    f"  retail_deliveries for this run: {[d['channel'] for d in isolation_deliveries]}"
+)
+checks["only the good definition's recipient was actually delivered to"] = (
+    len(isolation_deliveries) == 1 and isolation_deliveries[0]["channel"] == "in_app"
+)
+bad_after = definition_store.get(BAD_RECIPIENT_ID)
+checks["the bad-recipient definition's last_evaluated_at still advanced"] = (
+    bad_after["last_evaluated_at"] is not None
+)
+print()
+
 # --- Summary -------------------------------------------------------------------------------
 print("=" * 78)
 print("Checks")
@@ -557,11 +774,13 @@ with control_plane.cursor() as cursor:
     cursor.execute("DELETE FROM semantic.kpi_definition WHERE identifier LIKE 'r12__%'")
     cursor.execute(
         "DELETE FROM egpt_answer_provenance WHERE run_id IN "
-        "('r12-cookbook-fires', 'r12-cookbook-silent', 'r12-cookbook-standalone')"
+        "('r12-cookbook-fires', 'r12-cookbook-fires-again', 'r12-cookbook-silent', "
+        "'r12-cookbook-standalone', 'r12-cookbook-isolation')"
     )
     cursor.execute(
         "DELETE FROM retail_deliveries WHERE run_id IN "
-        "('r12-cookbook-fires', 'r12-cookbook-silent', 'r12-cookbook-standalone')"
+        "('r12-cookbook-fires', 'r12-cookbook-fires-again', 'r12-cookbook-silent', "
+        "'r12-cookbook-standalone', 'r12-cookbook-isolation')"
     )
 control_plane.commit()
 control_plane.close()

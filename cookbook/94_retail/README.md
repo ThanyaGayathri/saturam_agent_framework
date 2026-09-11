@@ -53,7 +53,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R09_spec_gap_plan.py` | R9 | The three sentences of the Verify line -- plain, one naming a metric that does not exist, one ambiguous about acting -- as hand-written correct specs through the deterministic gap check over the contract fixture (feasible, nothing coined; a coined near-miss becomes gaps), then live through the spec extractor on the small tier with every closed-set value checked against the lists rendered into its prompt: the unknown metric is a question, the action verb is a question. |
 | `R09_plan_view.py` | R9 | The plan as a view: an Inform-shape workflow stored as `Workflow.to_dict()`, derived and compared ref for ref; a `Condition` with `else_steps` and a `Router` with choices still compared; an executor nobody registered refused by name; and, with the control plane up, the same plan derived by `derive_plan` from the stored component row. |
 | `R10_rfq_workflow.py` | R10 | The RFQ chain end to end against a real warehouse and semantic layer: a real mover forced by hand-editing a prior gold value, `sample_rows`'s movers checked against direct SQL, friction honestly unavailable over the sample data then made available by populating `identity_key` on two rows and unavailable again once it is removed; then the registered `rfq-funnel` workflow driven with `arun`, live when Azure credentials are configured and against a hand-built explanation otherwise. |
-| `R12_alerts.py` | R12 | Alert definitions and evaluation against a real warehouse and control plane: a rowset KPI refused at creation (`kpi_not_scalar`, 422); a threshold set below a real materialised gold value fires through the registered `alert-evaluation` workflow (`evaluate_alerts` then `record_provenance`), writes one `alert_events` row and delivers through R7's own `retail_deliveries` table; the threshold raised above the value stays silent -- no new event, no delivery -- but `last_evaluated_at` still advances and its own provenance record still exists, so a quiet week is legible; then the same two cases again through `evaluate_alert_condition`/`write_alert` called directly with `read_gold`'s own output. |
+| `R12_alerts.py` | R12 | Alert definitions and evaluation against a real warehouse and control plane: a rowset KPI refused at creation (`kpi_not_scalar`, 422); a threshold set below a real materialised gold value fires through the registered `alert-evaluation` workflow (`evaluate_alerts` then `record_provenance`), writes one `alert_events` row and delivers through R7's own `retail_deliveries` table; the threshold raised above the value stays silent -- no new event, no delivery -- but `last_evaluated_at` still advances and its own provenance record still exists, so a quiet week is legible; then the same two cases again through `evaluate_alert_condition`/`write_alert` called directly with `read_gold`'s own output. Round-2 review, PR #210: re-evaluating the same still-breaching definition for the same window a second time writes no second `alert_events` row and pages recipients once, not twice; a malformed recipient on one definition never stops the definition after it from evaluating and firing; `AlertDefinitionStore.update` re-validates and refuses retargeting to a rowset KPI, and the threshold-edit scenario goes through it rather than raw SQL. |
 
 Run:
 
@@ -132,11 +132,18 @@ docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
 .venv/bin/python cookbook/94_retail/R10_rfq_workflow.py
 
 # R12 needs the same Postgres (control plane migrated -- migrate also applies
-# alert_definitions/alert_events -- and egpt_warehouse migrated) and Neo4j as R5/R10:
+# alert_definitions/alert_events -- and egpt_warehouse migrated) and Neo4j as R5/R10, on this
+# repo's standard compose ports (5532/7687) -- R12_alerts.py itself only defaults to the
+# isolated worktree ports (5633/7692) a build-time convenience of this PR's own branch, so a
+# reviewer running against the standard stack must export the standard URLs explicitly:
 docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
 EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
   .venv/bin/python -m egpt_retail.entrypoints migrate
-.venv/bin/python cookbook/94_retail/R12_alerts.py
+EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
+EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse \
+EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse \
+EGPT_RETAIL_NEO4J_URI=bolt://localhost:7687 \
+  .venv/bin/python cookbook/94_retail/R12_alerts.py
 
 # R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
 docker build -f deploy/Dockerfile -t egpt-retail:dev .
