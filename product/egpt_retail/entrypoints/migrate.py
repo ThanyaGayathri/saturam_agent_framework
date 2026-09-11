@@ -19,7 +19,8 @@ What it does and does not touch:
   after ``MigrationManager.up()``, over a bare ``Engine`` rather than through the manager --
   the same reasoning as the warehouse bullet above: neither is one of
   ``MigrationManager._TABLE_TYPE_TO_ATTR``'s curated types, and it should stay that way
-  (tracker #178).
+  (tracker #178). R12's two (``alert_definitions``, ``alert_events``) are applied the same way,
+  for the same reason.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ import logging
 from egpt.answer_provenance import aapply_provenance_ddl
 from egpt.db.migrations.manager import MigrationManager
 
+from egpt_retail.alerts import aapply_alerts_ddl
 from egpt_retail.app.db import build_control_plane_db, build_control_plane_engine
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.delivery import aapply_delivery_ddl
@@ -56,6 +58,8 @@ async def amain() -> int:
         for name in await aapply_provenance_ddl(engine):
             log.info("migrate: applied %s", name)
         for name in await aapply_delivery_ddl(engine):
+            log.info("migrate: applied %s", name)
+        for name in await aapply_alerts_ddl(engine):
             log.info("migrate: applied %s", name)
     finally:
         engine.dispose()

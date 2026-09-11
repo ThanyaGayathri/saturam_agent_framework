@@ -4637,3 +4637,68 @@ reason Recommend never appeared; the agent had not had the domain grounding to p
 cookbooks; product ruff and mypy clean under `validate.sh`. Open: R-15, R-16, K-13.
 
 ---
+
+### R12_alerts.py
+
+**Package:** R12
+
+**Status:** PASS (22 checks, live against the isolated compose stack: Postgres on 5633,
+Neo4j on 7692 -- this worktree's own ports, per the R14/R15 sibling-agent port isolation).
+
+**Description:** The delivery plan's Verify line for R12, run against a real warehouse and
+control plane: seed the warehouse and semantic layer, register one real scalar KPI
+(`r12__reachable_contacts`, grain `overall`, the same proven-working formula R05's own
+`k11_contact__reachable` uses) plus one rowset KPI never materialised, and run
+`nightly-refresh` to get a real gold value (2.0 over the sample fixtures). Section 1
+reproduces the API contract's own 422 worked example verbatim: creating a definition against
+the rowset KPI is refused by `AlertDefinitionStore.create` with `code=kpi_not_scalar`, before
+any row is written. Section 2 creates one enabled definition with its threshold (1.0) below
+the real value and drives the registered `alert-evaluation` workflow (`evaluate_alerts` then
+`record_provenance`) with `arun`: it fires, writes one `alert_events` row shaped exactly like
+the contract's `AlertEvent`, delivers through R7's own `retail_deliveries` table once per
+recipient (`in_app` and `email`), and stamps both `last_evaluated_at` and `last_fired_at`.
+Section 3 raises the threshold to 3.0 (above the value) and runs again: the run still
+completes through `record_provenance`, `evaluate_alerts`'s own content still names the alert
+as evaluated with `fired: False`, `last_evaluated_at` advances again while `last_fired_at`
+does not, no second `alert_events` row appears, and the run's own provenance record still
+exists -- the quiet week is legible rather than indistinguishable from a broken pass. Section
+4 repeats both cases one level down, calling `evaluate_alert_condition` and `write_alert`
+directly with `read_gold`'s own, unmodified output as `previous_step_content` -- the shape a
+future single-alert compiled Alert-shape workflow (K15's `SHAPE_STAGES[UseCaseShape.ALERT]`)
+would call them with, rather than a batch-only code path.
+
+**What surprised me:**
+
+1. **`window` is a reserved word in Postgres DDL.** `CREATE TABLE alert_definitions (... window
+   JSONB ...)` fails with a syntax error naming the column itself; unquoted `window` parses as
+   the start of a window-function clause. Renamed the column to `time_window` (the exact name
+   `semantic.kpi_definition` already uses for the same concept), keeping the Python-level dict
+   key `window` so the contract's own field name is what every caller of the store sees.
+2. **K15 had already reserved this package's executor names.** `orchestration/compiler.py`'s
+   `SHAPE_STAGES[UseCaseShape.ALERT]` and `test_k15_orchestration.py`'s `FULL` executor set
+   both named `evaluate_alert_condition` and `write_alert` before R12 existed to build them,
+   including the exact behaviour ("Deterministic... Logs the outcome either way") and the note
+   that a separate "compute metrics" stage is unnecessary once gold holds the computed value.
+   Built to that spec rather than inventing a second name: `evaluate_alerts` (the actual
+   nightly batch pass this package delivers) calls both of them per definition, so a future
+   single-alert compiled Alert-shape workflow resolves the same functions this batch path uses.
+3. **`test_r9_spec_gap_plan.py::test_metadata_names_exactly_the_registered_executors`** pins an
+   explicit set of every executor with `permits_or_blocks=True`, hand-written, the same way
+   R10 had to add `sample_rows`/`check_explanation_grounding` to it. Added
+   `evaluate_alert_condition` (the one of R12's three that stops the chain).
+4. **Delivery needed no new mechanism.** `egpt_retail.delivery.awrite_delivery` -- the exact
+   function `deliver_in_app` itself calls -- writes to `retail_deliveries` from any caller;
+   `evaluate_alerts` calls it once per recipient on a fired alert rather than wrapping
+   `deliver_in_app`'s single-answer `StepInput`/`StepOutput` shape around what is, per alert, a
+   fan-out over recipients.
+
+**Result:** 22/22 checks PASS, twice in a row (idempotency verified by re-running against the
+same stack with no manual cleanup between runs). `pytest product/tests/test_r12_alerts.py` --
+25 passed (the pure `condition_met`/`shift_date`/`render_rule_sentence` logic, the registry
+naming/signature/doc conventions, and `validate_alert_target`'s `kpi_not_scalar`/`kpi_not_found`
+refusals). `pytest product/tests/` -- 869 passed, 41 skipped, unchanged elsewhere.
+`format.sh`/`validate.sh` both green (ruff, mypy under `MYPYPATH=libs/agno`, API contract
+check -- no contract change was needed; `AlertDefinition`/`AlertEvent`/etc. were already
+generated).
+
+---
