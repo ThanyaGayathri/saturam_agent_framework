@@ -53,6 +53,7 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R09_spec_gap_plan.py` | R9 | The three sentences of the Verify line -- plain, one naming a metric that does not exist, one ambiguous about acting -- as hand-written correct specs through the deterministic gap check over the contract fixture (feasible, nothing coined; a coined near-miss becomes gaps), then live through the spec extractor on the small tier with every closed-set value checked against the lists rendered into its prompt: the unknown metric is a question, the action verb is a question. |
 | `R09_plan_view.py` | R9 | The plan as a view: an Inform-shape workflow stored as `Workflow.to_dict()`, derived and compared ref for ref; a `Condition` with `else_steps` and a `Router` with choices still compared; an executor nobody registered refused by name; and, with the control plane up, the same plan derived by `derive_plan` from the stored component row. |
 | `R10_rfq_workflow.py` | R10 | The RFQ chain end to end against a real warehouse and semantic layer: a real mover forced by hand-editing a prior gold value, `sample_rows`'s movers checked against direct SQL, friction honestly unavailable over the sample data then made available by populating `identity_key` on two rows and unavailable again once it is removed; then the registered `rfq-funnel` workflow driven with `arun`, live when Azure credentials are configured and against a hand-built explanation otherwise. |
+| `R15_golden_sets.py` | R15 | A golden question set for every real agent skill in `product/egpt_retail/skills/` (K8's two proposers, K12, K13, R9's spec extractor, R10's explanation, R11's playground, plus K14's own `synonym_proposer`/`join_path_explainer`), scored live and each recording a rehearsal-review row; `check_golden_gate` blocking an unreviewed score and allowing a reviewed, passing one; then the Verify scenario -- `join_path_explainer`'s prompt deliberately weakened (the exact rule against inventing a join for a null path), republished, the score drop and the gate's block both observed, then the prompt restored and the score confirmed recovered. Live against Azure when configured, otherwise a local Ollama model -- a real model call either way, never a mock. |
 
 Run:
 
@@ -129,6 +130,15 @@ docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
 # deterministic chain runs and the model step is reported as skipped:
 docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
 .venv/bin/python cookbook/94_retail/R10_rfq_workflow.py
+
+# R15 needs a Postgres for the rehearsal-review table (self-provisioning, like K7's
+# ProposalStore -- any reachable Postgres works, this repo's compose one included) and a
+# model: Azure if configured, otherwise a local Ollama model (`ollama pull qwen2.5-coder:7b`):
+EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
+  .venv/bin/python -m egpt_retail.entrypoints migrate
+EGPT_RETAIL_R15_DSN=postgresql://ai:ai@localhost:5532/ai \
+  .venvs/demo/bin/python cookbook/94_retail/R15_golden_sets.py
+# add `set -a && source azure_key.env && set +a` first to score against Azure instead
 
 # R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
 docker build -f deploy/Dockerfile -t egpt-retail:dev .

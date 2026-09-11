@@ -205,10 +205,18 @@ jobs:
           # reading the test's own os.environ.get calls, lines 47-52.
           EGPT_RETAIL_CP_DSN: postgresql://ai:ai@localhost:5532/ai
           EGPT_RETAIL_WAREHOUSE_DSN: postgresql://ai:ai@localhost:5532/egpt_warehouse
+          # R-15. test_r15_rehearsal_live.py -- RehearsalReviewStore against a real Postgres,
+          # its own DSN var (EGPT_RETAIL_R15_DSN), same "ai" control-plane database this job
+          # already provisions. Round-2 review, PR #212: this file's safety-critical coverage
+          # (the pending-only re-decide guard, record_run's conditional-reset CASE WHEN, the
+          # RETURNING-based fix for the commit/read-back race) was previously never named in
+          # any CI invocation, so EGPT_INTEGRATION_POSTGRES being unset elsewhere skipped it
+          # silently everywhere.
+          EGPT_RETAIL_R15_DSN: postgresql://ai:ai@localhost:5532/ai
         run: |
           set -e
           source .venv/bin/activate
-          python -m pytest product/tests/test_semantic_live.py -v --tb=short
+          python -m pytest product/tests/test_semantic_live.py product/tests/test_r15_rehearsal_live.py -v --tb=short
 
   system:
     name: system (py3.12)
