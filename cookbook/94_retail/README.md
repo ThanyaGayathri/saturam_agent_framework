@@ -54,6 +54,8 @@ outside the published `egpt` wheel, so each script puts `product/` on `sys.path`
 | `R09_plan_view.py` | R9 | The plan as a view: an Inform-shape workflow stored as `Workflow.to_dict()`, derived and compared ref for ref; a `Condition` with `else_steps` and a `Router` with choices still compared; an executor nobody registered refused by name; and, with the control plane up, the same plan derived by `derive_plan` from the stored component row. |
 | `R10_rfq_workflow.py` | R10 | The RFQ chain end to end against a real warehouse and semantic layer: a real mover forced by hand-editing a prior gold value, `sample_rows`'s movers checked against direct SQL, friction honestly unavailable over the sample data then made available by populating `identity_key` on two rows and unavailable again once it is removed; then the registered `rfq-funnel` workflow driven with `arun`, live when Azure credentials are configured and against a hand-built explanation otherwise. |
 | `R12_alerts.py` | R12 | Alert definitions and evaluation against a real warehouse and control plane: a rowset KPI refused at creation (`kpi_not_scalar`, 422); a threshold set below a real materialised gold value fires through the registered `alert-evaluation` workflow (`evaluate_alerts` then `record_provenance`), writes one `alert_events` row and delivers through R7's own `retail_deliveries` table; the threshold raised above the value stays silent -- no new event, no delivery -- but `last_evaluated_at` still advances and its own provenance record still exists, so a quiet week is legible; then the same two cases again through `evaluate_alert_condition`/`write_alert` called directly with `read_gold`'s own output. Round-2 review, PR #210: re-evaluating the same still-breaching definition for the same window a second time writes no second `alert_events` row and pages recipients once, not twice; a malformed recipient on one definition never stops the definition after it from evaluating and firing; `AlertDefinitionStore.update` re-validates and refuses retargeting to a rowset KPI, and the threshold-edit scenario goes through it rather than raw SQL. |
+| `R14_monitoring.py` | R14 | Execution health from real run history, plus the input-drift half of the quality assessment (golden pass rate is R15's): `nightly-refresh` driven to two real successes then a real lock-contention failure, recorded as a real `ScheduleRun` the same way the poller itself would (no HTTP router is wired up yet); a real schedule whose cadence's window closed long ago flagged silent, and flagged the same way once disabled; a real mover's row hand-degraded while the delivered explanation text stays byte-for-byte the same, flagged by `assess_quality` on drift alone. |
+| `R15_golden_sets.py` | R15 | A golden question set for every real agent skill in `product/egpt_retail/skills/` (K8's two proposers, K12, K13, R9's spec extractor, R10's explanation, R11's playground, plus K14's own `synonym_proposer`/`join_path_explainer`), scored live and each recording a rehearsal-review row; `check_golden_gate` blocking an unreviewed score and allowing a reviewed, passing one; then the Verify scenario -- `join_path_explainer`'s prompt deliberately weakened (the exact rule against inventing a join for a null path), republished, the score drop and the gate's block both observed, then the prompt restored and the score confirmed recovered. Live against Azure when configured, otherwise a local Ollama model -- a real model call either way, never a mock. |
 
 Run:
 
@@ -144,6 +146,20 @@ EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_ware
 EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse \
 EGPT_RETAIL_NEO4J_URI=bolt://localhost:7687 \
   .venv/bin/python cookbook/94_retail/R12_alerts.py
+
+# R14 needs the same Postgres (control plane migrated, egpt_warehouse migrated) as R05/R10;
+# no Neo4j-specific data, no model credential:
+docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
+.venv/bin/python cookbook/94_retail/R14_monitoring.py
+
+# R15 needs a Postgres for the rehearsal-review table (self-provisioning, like K7's
+# ProposalStore -- any reachable Postgres works, this repo's compose one included) and a
+# model: Azure if configured, otherwise a local Ollama model (`ollama pull qwen2.5-coder:7b`):
+EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
+  .venv/bin/python -m egpt_retail.entrypoints migrate
+EGPT_RETAIL_R15_DSN=postgresql://ai:ai@localhost:5532/ai \
+  .venvs/demo/bin/python cookbook/94_retail/R15_golden_sets.py
+# add `set -a && source azure_key.env && set +a` first to score against Azure instead
 
 # R2 needs Docker, kind, helm and kubectl (brew install kind helm kubectl):
 docker build -f deploy/Dockerfile -t egpt-retail:dev .

@@ -683,6 +683,7 @@ def test_metadata_names_exactly_the_registered_executors():
         "sample_rows",
         "check_explanation_grounding",
         "evaluate_alert_condition",
+        "check_golden_gate",
     }
 
 

@@ -4839,5 +4839,655 @@ to fix for smaller-magnitude KPIs.
 **Re-verification:** `pytest product/tests/test_r12_alerts.py` -- 46 passed (unchanged,
 docstring-only change). `pytest product/tests/` -- 890 passed, 41 skipped. `format.sh`/
 `validate.sh` both green.
+### R14_monitoring.py
+
+**Package:** R14
+
+**Status:** PASS (14 checks, twice in a row -- idempotency verified by re-running -- against
+the compose stack's real Postgres; no Neo4j-specific data needed, no model credential).
+
+**Description:** The delivery plan's D14 Verify line, run against real run history: drive
+`nightly-refresh` to two real successes (R10's own hand-edit-yesterday's-gold technique, so
+today's real materialisation has a mover), then let a run fail for real (hold the
+landing-to-silver advisory lock `load_landing_files` itself takes, drive `nightly-refresh`
+again), register a real schedule whose cadence's most recent expected fire is months in the
+past with no run ever recorded, and hand-degrade a real mover row while keeping the delivered
+explanation text byte-for-byte identical. `assess_execution_health`, `list_silent_schedules`
+and `assess_quality` (`executors/monitoring.py`, three new deterministic executors, registered
+alongside Lane K's K9/K11 as read-only reports -- none returns `stop=True`, so
+`permits_or_blocks` is `False` for all three) are then called for real and must show the right
+numbers.
+
+**Scope, as actually drawn.** This package owns execution health (from run history) and the
+input-drift half of the quality assessment; R15 (golden question sets, the rehearsal/publish
+gate) is a sibling package building concurrently in its own worktree and was not touched.
+`UseCaseQuality.golden_pass_rate` is accepted here as a plain input — R15's number, passed
+through unmodified — never computed; every scenario in this cookbook exercises the shape
+`golden_pass_rate` takes before R15 has run for a use case (`None`), which is also the
+contract's own worked `unknown` example.
+
+**A real framework finding the failure scenario surfaced, not a hypothetical one.** The plan
+was to hold `load_landing_files`'s own advisory lock and let `nightly-refresh`'s `arun()`
+persist a `RunStatus.error` run the way `WorkflowRunOutput.status = RunStatus.error` (set right
+before the exception is re-raised, `workflow.py`'s own non-streaming `_aexecute`) suggests it
+would. It does not: the `except Exception` branch that stamps that status re-raises immediately,
+unwinding past the `workflow_session.upsert_run`/`save_session` calls that follow it in the
+same method — confirmed directly against this database (`select ... from egpt_sessions where
+workflow_id = 'nightly-refresh'` after the forced failure showed only the two prior successes,
+never the failed run). A hard step failure under `on_error=OnError.fail`, driven through
+`arun()` directly, is therefore invisible to execution health's primary source
+(`get_sessions(session_type=WORKFLOW, ...)`) — not a corner case, the exact scenario this
+package's own Verify line asks for. In production this is covered: the real poller
+(`egpt.scheduler.executor.ScheduleExecutor`) calls a scheduled workflow over HTTP and, on any
+exception from that call, writes `ScheduleRun.status = "failed"` in its own `except` clause —
+a different ledger than `WorkflowSession`, written by a different code path, for exactly this
+failure mode. No HTTP router exists yet to drive that path here (interface wiring is phase
+five per the delivery plan), so the cookbook drives the same two `PostgresDb` primitives the
+poller itself calls (`create_schedule_run`/`update_schedule_run`) by hand, around a real raised
+exception from a real run — everything is real except the network hop. Fixed properly rather
+than worked around in the cookbook alone: `assess_execution_health` now merges a named
+schedule's real `ScheduleRun` history into its `RunRecord`s (`schedule_run_records`, new), so a
+scheduled use case's execution health is not blind to a hard failure just because
+`WorkflowSession` never saw it. Filed nowhere else because there is nowhere else in this
+package's scope to file it — it is the reason `schedule_run_records` exists.
+
+**A second, smaller correction the same scenario forced.** `is_silent`'s first draft compared
+a schedule's expected fire only against its *successful* run history, on the reasoning that a
+failed-but-attempted run should not read as "it fired". Building the failure scenario above
+made the bug in that reasoning obvious immediately: with `last_success_at` sourced only from
+`RunStatus.completed`/`"success"` records, the newly-recorded `ScheduleRun` failure did not
+count as a fire at all, and `nightly-refresh` reported `silent: true` in the same breath as
+`failures_7d: 1` — indistinguishable from a schedule that had never run. The D14 evidence line
+is explicit that these are different findings ("the silent schedule is flagged, which failure
+monitoring alone would miss"), so conflating "never fired" with "fired and failed" would make
+a broken-but-firing schedule invisible to the one check meant to catch a schedule that stopped
+being triggered at all. Fixed before this cookbook ever ran clean: `is_silent`/
+`assess_execution_health`/`list_silent_schedules` all now compare against the last *fired*
+timestamp (any status, any attempt), never only the last success.
+
+**Result, scenario by scenario:**
+
+```
+1. nightly-refresh, two real runs   COMPLETED, COMPLETED -- a real mover forced by hand-editing
+                                     yesterday's gold, the same technique R05/R10 use
+2. let a run fail                   held the real advisory lock; nightly-refresh raised for a
+                                     real reason (lock contention); recorded as a real
+                                     ScheduleRun failure (status=failed, error message intact)
+3. assess_execution_health          uc_nightly_refresh: runs_7d=3, failures_7d=1,
+                                     last_run_status=failed, silent=false (it fired; the last
+                                     fire failed); uc_rfq_0001 (no Azure credentials, so
+                                     rfq-funnel was never driven through arun(), the same
+                                     posture R10's own offline half takes): runs_7d=0,
+                                     last_run_status=null -- the contract's own uc_0002 shape
+4. disable a schedule, past window  a real schedule (cron "0 0 1 1 *", months in the past,
+                                     zero ScheduleRuns) flagged by list_silent_schedules while
+                                     enabled, and identically once manager.disable()d
+5. degrade input, output unchanged  one real mover row's current_value hand-shifted from 1 to
+                                     700; the delivered explanation string is the same Python
+                                     object in both calls; assess_quality: healthy/drift 0.0
+                                     unchanged vs degraded/drift 0.5/"degraded" with a filled
+                                     reason, golden_pass_rate null throughout (R15 has not run)
+```
+
+**Deliberately not exercised live.** `gates_waiting` (an approval gate paused past its wait
+threshold): neither `nightly-refresh` nor `rfq-funnel` has a HITL confirmation step in this
+codebase today, so no real paused run exists to count -- covered instead by
+`test_r14_monitoring.py`'s `summarize_execution_health` unit tests against a synthetic paused
+`RunRecord`, the same posture R13's `TEST_LOG` takes for `delta`/`series`. `cost_7d` token
+counts: real, but zero in this environment for the same reason -- no Azure credentials, so no
+agent run ever produced `RunMetrics` to sum.
+
+**Result:** PASS, twice in a row. `pytest product/tests/test_r14_monitoring.py` -- 45 passed
+(pure unit tests over every helper: `map_run_status`, `extract_run_records`,
+`schedule_run_records`, `cost_drift_pct`, `summarize_execution_health`, `expected_previous_fire`,
+`is_silent` including the deliberately-disabled-schedule case, `input_signature`, `drift_score`
+across numeric/categorical/null-rate/kind-change/no-shared-fields shapes, `quality_verdict`
+across every signal combination, plus the three executors' wiring against a mocked db/
+`ScheduleManager`); `pytest product/tests/` -- 889 passed, 41 skipped;
+`format.sh`/`validate.sh` both green (`format.sh` rewrote ~120 unrelated files repo-wide, per
+this document's own standing note; pruned to the four files this package actually touched
+before staging).
+
+---
+
+### PR #211 review round 1 -- eight findings (dedup, N+1, missing notes branch, unordered
+### LIMIT, batch isolation, concurrency, boundary test), all addressed in
+### `product/egpt_retail/executors/monitoring.py`
+
+**Findings and fixes:**
+
+1. **High -- double-counted successful scheduled runs.** `assess_execution_health` merged
+   session-derived and `ScheduleRun`-derived records with no dedup; since a successful
+   scheduled run is persisted through *both* paths (`WorkflowSession` via `workflow.arun()`'s
+   normal path, and a `ScheduleRun` row `ScheduleExecutor.execute()` writes for every
+   attempt), the same run counted twice. Fixed: the merge now tracks `run_id`s already seen
+   from the session side and skips any `ScheduleRun` whose `run_id` already appears there.
+   New test: `test_assess_execution_health_dedups_a_run_seen_via_both_session_and_schedule_run`
+   -- the same run_id via a `WorkflowSession` and a `ScheduleRun`, counted once.
+2. **Medium/Major (two reviewers, same finding) -- N+1 `manager.list`.** `manager.list(None,
+   1000, 1)` ran inside the per-use-case loop, re-querying up to 1000 schedule rows per use
+   case. Fixed: hoisted above the loop into a `{schedule.name: schedule}` map built once, the
+   same pattern `list_silent_schedules` already uses. New test:
+   `test_assess_execution_health_resolves_schedules_via_one_hoisted_list_call` -- three use
+   cases, two with distinct schedules, `manager.list_calls == 1`.
+3. **Low-Medium -- `notes` blank when degraded by `golden_pass_rate` alone.** Added an
+   `elif verdict == "degraded" and golden_pass_rate is not None` branch in `assess_quality`
+   mirroring the existing drift-driven message. New test:
+   `test_assess_quality_degraded_by_golden_pass_rate_alone_fills_notes`.
+4. **Major -- unordered `LIMIT 500`.** `db.get_sessions(..., limit=500)` passed no
+   `sort_by`/`sort_order`; `apply_sorting()` is a no-op when `sort_by is None`, so a use case
+   with more than 500 sessions could get an arbitrary subset instead of its most recent runs.
+   Fixed: `sort_by="created_at", sort_order="desc"`, matching every other `limit`-bounded
+   `get_sessions` call site in the codebase. New assertion in
+   `test_assess_execution_health_reads_the_named_workflows_run_history` on the exact
+   `get_sessions` call args (sort_by/sort_order/limit) issued.
+5. **Minor -- one malformed `use_cases` entry aborted the whole batch.** Bracket access on
+   `workflow_id`/`use_case_id` raised `KeyError` for one bad entry and lost every other use
+   case's report. Fixed: each use case's processing is now isolated in
+   `_assess_one_use_case_health`, with a new `_execution_health_error_record` helper reporting
+   a degraded/error record (contract-shaped defaults plus an `error` field) for the one
+   malformed entry instead of raising. New test:
+   `test_assess_execution_health_isolates_a_malformed_use_case_entry` -- one entry missing
+   `workflow_id`, one good entry after it; the good one still reports normally.
+6. **Minor -- sequential per-use-case I/O.** Attempted first with `asyncio.gather` across use
+   cases (fix #2's schedule-map hoist already removed one await from inside the loop). This
+   was **reverted after it broke the real cookbook run**: `PostgresDb.get_sessions` lazily
+   reflects and caches its `Table` object onto the shared `db` instance
+   (`self.session_table`), and `ScheduleManager` shares the same `db`; gathering concurrently
+   races that lazy reflection across `asyncio.to_thread` worker threads. This reproduced live
+   against the real control-plane Postgres in `cookbook/94_retail/R14_monitoring.py` as a
+   stray `AttributeError: workflow_id` on the second use case in a batch of two, from a
+   `Table` object one thread was still constructing while another thread's query read a
+   column off it -- not a theoretical race. **Deferred, honestly, per the reviewer's own
+   escape hatch**: fixing it properly needs a `db`/`manager` per task or a lock around the
+   lazy reflection, either larger than this fix's scope; `assess_execution_health` stays
+   sequential (correct and safe) with the isolation from fix #5 intact, and the docstring
+   spells out why.
+7. **Nit -- no exact-equality boundary test for `is_silent`.** New test:
+   `test_is_silent_false_at_the_exact_expected_fire_boundary` -- `last_fired_at == expected_at`
+   asserts `is_silent` is `False`. The `<` comparison itself needed no code change.
+
+**Re-verification:**
+
+- `cookbook/94_retail/R14_monitoring.py` against the R14 worktree's own isolated stack
+  (Postgres 5733, Neo4j 7693, `egpt-retail-r14-*` containers, migrations re-applied
+  idempotently) -- **PASS**, all thirteen Verify/Evidence assertions green, including the
+  fix-#1/#4 exercised paths (`last_run_status` reports the real failure via the
+  `ScheduleRun` merge, `runs_7d`/`failures_7d` real counts). The concurrency regression from
+  fix #6's first attempt was caught here, not in the unit suite -- the mocked fakes in
+  `test_r14_monitoring.py` are simple enough to be inherently thread-safe and would not have
+  shown the race; only the real Postgres reflection did.
+- `pytest product/tests/test_r14_monitoring.py` -- 50 passed (the prior 45 plus 5 new: the
+  dedup test, the hoisted-list-call test, the malformed-entry-isolation test, the
+  golden-pass-rate-notes test, and the exact-equality `is_silent` boundary test).
+- `pytest product/tests/` -- 894 passed, 41 skipped.
+- `format.sh`/`validate.sh` both green (`format.sh` rewrote ~120 unrelated files repo-wide,
+  same standing note as above; pruned to the two files this round actually touched --
+  `product/egpt_retail/executors/monitoring.py` and `product/tests/test_r14_monitoring.py`
+  -- before staging). `validate.sh`: ruff/mypy clean across `egpt`, `egptctl`, `cookbook`,
+  `product`; API contract check passed; brand audit passed; `pytest product/tests/` --
+  894 passed, 41 skipped, in 201s total.
+
+### Round-3: four further review comments, PR #211 (2026-09-11)
+
+**Findings addressed, all in `product/egpt_retail/executors/monitoring.py`:**
+
+1. **Minor -- false drift note on a healthy drift score.** The `notes`-fill branch fired on
+   `drift is not None` alone, not on whether drift actually breached
+   `DRIFT_SCORE_THRESHOLD` -- a use case degraded by a low `golden_pass_rate` alone, with a
+   healthy (below-threshold) drift score, got a **false** note claiming drift was "at or
+   above the threshold." Fixed: the branch now also requires
+   `drift >= DRIFT_SCORE_THRESHOLD`. New test:
+   `test_assess_quality_degraded_by_golden_alone_with_healthy_drift_notes_the_right_cause`.
+2. **Minor -- no regression guard for the sequential-not-gathered decision.** Round-2's fakes
+   (`_FakeControlPlaneDb`) have no shared lazy-reflection state to race on, so a reintroduced
+   `asyncio.gather` over the per-use-case loop would pass CI silently. Added
+   `_RaceDetectingControlPlaneDb`, a fake that raises if a second `get_sessions` call arrives
+   while an earlier one is still "in flight" (held via a short `time.sleep`) -- proven to
+   pass sequential access and raise on concurrent access with a standalone script before
+   trusting it, then wired into
+   `test_assess_execution_health_processes_use_cases_sequentially_not_concurrently`.
+3. **Nit -- schedule-name-collision resolution order.** The hoisted `manager.list()` map
+   (a plain dict comprehension) resolves the *last*-listed schedule on a name collision,
+   where the pre-hoist `next(...)` resolved the *first* -- reachable, not just theoretical,
+   since schedule-name uniqueness is only a TOCTOU-racy check inside `ScheduleManager.create`,
+   never a DB constraint. Fixed via `setdefault` to restore first-match semantics. New test:
+   `test_assess_execution_health_schedule_name_collision_resolves_to_the_first_listed`
+   (distinguishes the two candidate schedules by which one's cron makes the result silent).
+4. **Nit -- `UseCaseExecutionHealth.error` undeclared in the API contract.** The isolated
+   per-use-case error record's `error` key had no home in the schema -- a caller validating
+   through the generated Pydantic model would silently drop it. Additive contract change:
+   `error` (nullable string) added to `UseCaseExecutionHealth` in
+   `api/openapi/schemas/monitoring.yaml`; recorded in `api/openapi/CHANGELOG.md` (1.1.2);
+   `./scripts/gen_api_models.sh` re-run.
+
+**A fifth bug found during this round's own re-verification, not one of the four reported
+comments:** `summarize_execution_health`'s `last = max(records, key=lambda r: r.created_at)`
+breaks a tie on `created_at` by insertion order. Both real sources
+(`run.created_at`, `ScheduleRun.triggered_at`) are only second-granularity, and the live
+cookbook run below hit an exact tie for real: the forced lock-contention failure landed in
+the same wall-clock second as the prior successful run, and `max()` silently picked the
+tied success -- `last_run_status` reported `"succeeded"` with the real failure invisible,
+reproduced deterministically on two consecutive runs, not a one-off. Fixed with a
+`_TIE_BREAK_RANK` secondary sort key so a non-`completed` outcome (error, cancelled, paused)
+always wins a same-second tie over an ordinary success. New test:
+`test_summarize_execution_health_a_same_second_failure_beats_a_tied_success`.
+
+**Re-verification:**
+
+- `cookbook/94_retail/R14_monitoring.py` against the same isolated stack (Postgres 5733,
+  Neo4j 7693) -- first attempt caught the tie-break bug above (`FAIL` on "execution health:
+  last_run_status reports the real failure, not the prior success", reproduced twice);
+  after the fix, **PASS**, all thirteen Verify/Evidence assertions green, including that
+  exact assertion.
+- `pytest product/tests/test_r14_monitoring.py` -- 54 passed (50 from round-2 plus 4 new:
+  the false-drift-note test, the concurrency regression guard, the schedule-collision test,
+  and the same-second tie-break test).
+- `pytest product/tests/` -- 898 passed, 41 skipped.
+- `format.sh`/`validate.sh` both green a second time after the tie-break fix (format.sh's
+  ~121 unrelated rewrites pruned to the six files this round actually touched before
+  staging). `validate.sh`: ruff/mypy clean (1748/21/123 source files across `egpt`/
+  `egptctl`/`product`), API contract check passed (contract regenerated after the additive
+  `error` field), brand audit passed, `pytest product/tests/` -- 898 passed, 41 skipped, in
+  217s total.
+
+### Round-4: two further review comments, PR #211 (2026-09-11)
+
+**Findings addressed, both in `product/egpt_retail/executors/monitoring.py`:**
+
+1. **Minor -- `list_silent_schedules`'s own `by_name` still resolved the *last*-listed
+   schedule on a name collision**, inconsistent with `assess_execution_health`'s
+   `schedules_by_name`, fixed to first-match one round ago -- the two endpoints could
+   disagree about which schedule a shared name means, confirmed directly (not just read)
+   for the identical input shape before this fix. Fixed the same way: `setdefault` instead
+   of a dict comprehension. New test:
+   `test_list_silent_schedules_name_collision_resolves_to_the_first_listed` (reads
+   `silent["schedule_id"]` directly rather than inferring which schedule won from a side
+   effect).
+2. **Minor -- the CHANGELOG's 1.1.2 entry was never paired with an `info.version` bump** in
+   `egpt-retail.v1.yaml` (still 1.1.1, so the bundled spec was too) -- every earlier entry in
+   the changelog paired 1:1 with a version bump; this one didn't, and
+   `check_api_contract.py`'s staleness check doesn't compare the CHANGELOG heading against
+   `info.version`, so `validate.sh` stayed green despite the drift. Fixed: `version: 1.1.2`
+   in `egpt-retail.v1.yaml`, `./scripts/gen_api_models.sh` re-run.
+
+**A mypy regression caught by `validate.sh`, not a review comment:** the collision fix's
+`for schedule in ...: by_name.setdefault(schedule.name, schedule)` reused the loop variable
+name `schedule` in a scope where it's reassigned again a few lines later from
+`by_name.get(...)` (an `Any | None`) -- mypy unified the two as one variable and refused the
+second assignment against the loop's narrowed `Schedule` type. Renamed the loop variable to
+`candidate`; no behavior change.
+
+**Re-verification:** `cookbook/94_retail/R14_monitoring.py` against the same isolated stack
+-- **PASS**, all thirteen assertions green. `pytest product/tests/test_r14_monitoring.py` --
+55 passed (54 from round-3 plus the new collision test). `pytest product/tests/` -- 899
+passed, 41 skipped. `format.sh`/`validate.sh` both green (121 unrelated rewrites pruned to
+the four files this round touched -- `executors/monitoring.py`, `test_r14_monitoring.py`,
+`egpt-retail.v1.yaml`, `egpt-retail.v1.bundled.json` -- before staging; the mypy failure
+above was caught and fixed on the first `validate.sh` attempt, not shipped).
+### R15_golden_sets.py
+
+**Package:** R15 (P4, implements D14, G13)
+
+**Description:** A golden question set per real agent skill, run through `egpt.eval.suite`
+(`Case`/`run_cases`, reused rather than reimplemented — G13 asks for "the existing eval
+suite"), a new deterministic executor `check_golden_gate` (never calls a model; reads an
+already-computed pass rate and a `RehearsalReview`) and a new `RehearsalReviewStore`
+(Postgres-backed, modelled on K7's `ProposalStore`: a fresh golden run always reopens review
+to `pending`, so yesterday's approval of a different score is never read as approval of
+today's).
+
+Nine real skills exist in `product/egpt_retail/skills/` today: the seven SKILL_TEMPLATE.md
+names as "the agents in the system" (`enrichment_proposer`, `mapping_proposer` — K8;
+`kpi_suggestion` — K12; `use_case_suggestion` — K13; `spec_extractor` — R9;
+`funnel_explanation` — R10; `playground` — R11) plus K14's own two template-verification
+agents (`synonym_proposer`, `join_path_explainer`). All nine got a golden set; `step_prompt`
+(K15) was excluded — it authors other skills' prompts at compile time and ships no worked
+answer a golden question could check against.
+
+**No API contract change.** `PreflightResult.checks[].name` (`use-cases.yaml`) is already an
+open string, so `check_golden_gate`'s two checks (`golden_set_passed`, `rehearsal_reviewed`)
+slot into the existing shape without a schema edit — the publish-time gate hook point the
+task asked me to look for already exists in the contract. Nothing in `RehearsalReviewStore`
+is API-exposed either, matching K7's own `ProposalStore` precedent (interface wiring is phase
+five).
+
+**Environment note, load-bearing for what follows:** this sandbox has no Azure/OpenAI
+credentials (no `azure_key.env`, no env vars). Ollama was already installed with
+`qwen2.5-coder:7b`/`14b` pulled, so every live call in this run went through a **local**
+model (`egpt.integrations.models.ollama.Ollama`) rather than Azure — a real, live model call
+throughout, never a mock, but a much weaker and slower one than the `gpt-5.5`-class deployment
+every other R-cookbook in this repo assumes. `R15_golden_sets.py` prefers Azure automatically
+when `AZURE_OPENAI_API_KEY`/`AZURE_OPENAI_DEPLOYMENT` are set and falls back to Ollama
+otherwise, printing which it used.
+
+**Result, baseline (all nine skills, scored live):**
+
+| Skill | Version | Pass rate | Note |
+|---|---|---|---|
+| `enrichment_proposer` | 1.0.0 | 0/1 | Judge (also the local 7B model) called `pii` an invented compliance tag; it is actually in the shipped vocabulary. Fixed by replacing that clause with a deterministic `teardown` against `load_vocabulary_set()` — see "What surprised me" below. |
+| `mapping_proposer` | 1.0.0 | 0/1 | Genuine catch: the proposal's rationale called its own mapping "authoritative", which section 5's rules forbid — a real proposer, only a person decides that. |
+| `kpi_suggestion` | 1.0.0 | 0/1 | The model refused outright ("no catalogue supplied") instead of proposing from the harvest alone, which the rendered prompt explicitly permits. Weak instruction-following on the small model, not a golden-set defect. |
+| `use_case_suggestion` | 1.0.0 | 1/1 | Passed: proposed a supplier-watch Alert grounded in `supplier_deliveries.on_time`. |
+| `spec_extractor` | 1.0.0 | 0/2 | One case timed out at 240s; the other left `kpi_identifiers` empty for an unknown metric (correct per the template) but the local judge misread that as a failure — another judge-reliability artifact. |
+| `funnel_explanation` | 1.0.0 | 0/1 | Timeout at 240s. |
+| `playground` | 0.1.0 | 0/1 | Genuine catch, deterministic: with no tool available, the model fabricated answer blocks instead of returning empty blocks with `notes` — exactly the failure the template's refusal rule exists to catch. |
+| `synonym_proposer` | 1.0.0 | 1/2 | Refusal case passed; the generative case timed out. |
+| `join_path_explainer` | 1.0.0 | 1/3 | See Verify below. |
+
+Every score was written to `retail_evals.rehearsal_review` via `RehearsalReviewStore.record_run`
+(confirmed by querying the table directly afterward) and every skill defaulted to
+`status=pending` — nobody had reviewed any of them yet, which is the gate's intended starting
+state.
+
+**Result, the gate (`join_path_explainer`, real Postgres, real executor call):**
+
+- Unreviewed: `allowed=False`, `blocked_by=['golden_set_passed', 'rehearsal_reviewed']` — a
+  33% baseline blocks on its own merits, and no review exists yet either.
+- After `nandhakumar@saturam.com` approves via `RehearsalReviewStore.approve`: `allowed=False`,
+  `blocked_by=['golden_set_passed']` — approval alone does not overcome a score under the 80%
+  threshold. `rehearsal_reviewed` reports `PASS` correctly.
+
+**Result, Verify (deliberately weaken, publish, watch, restore):** Targeted the exact
+"specific to this agent" rule in `join_path_explainer.md` — never emit `joinable` for a null
+path because the tables "look" joinable — and replaced it with a plausible "be more helpful"
+edit encouraging the model to explain a plausible join anyway; bumped `version: 1.0.0` to
+`1.1.0` in the same edit, on disk, for the duration of the run only.
+
+- Baseline: 1/3 (33%). Weakened: 1/3 (33%). **The raw pass rate did not drop.**
+- The failure *shape* did change: the found-path case went from a 240s timeout to a
+  deterministic failure (`unexpected route []` — the model stopped describing a real join it
+  had described correctly seconds of prompt-editing earlier), and the null-path case stayed
+  `unknown` rather than becoming the invented `joinable` I'd expected the edit to provoke.
+  With only three cases and a baseline already at 33%, there was little room left to show a
+  further numeric drop on the one case (null-path) the edit actually targets.
+- **The gate still blocked the weakened version**, `allowed=False`,
+  `blocked_by=['golden_set_passed', 'rehearsal_reviewed']` — because `record_run` unconditionally
+  reopens review to `pending` on every new version, `nandhakumar@saturam.com`'s approval of
+  1.0.0's score is never read as approval of 1.1.0's. That structural guarantee held
+  regardless of what the numeric score did.
+- Prompt restored afterward; confirmed byte-for-byte via `git diff` (empty) after the run,
+  not just by the script's own claim.
+- Per the script's own exit code (and the package's stated evidence bar): **the golden-set
+  pass-rate signal specifically did not show an attributable drop**, so by the letter of "if
+  it passes, the golden set is too easy" this leg is not clean evidence on its own.
+
+**Status:** PASS on the mechanism (golden sets exist and run on publish for every real skill;
+the deterministic gate correctly blocks an unreviewed score, a reviewed-but-failing score, and
+a freshly-edited version regardless of prior approval; `RehearsalReviewStore` proven against
+real Postgres) — **open** on a clean numeric score-drop demonstration, which this sandbox's
+lack of Azure/OpenAI credentials could not produce: a 7B local model's baseline was already so
+weak (33% on 3 cases, several results decided by coin-flip-grade instruction-following and by
+timeouts rather than by the rule under test) that there was no clean signal to move. The
+mechanism that *did* catch the edit — the version-reopens-review structural guarantee — is
+arguably the more important half of "rehearsal review by a person still gates activation" and
+held perfectly. Re-running `R15_golden_sets.py` with `azure_key.env` sourced (same script, no
+code change) is the natural next step to get the clean pass/fail delta this package's evidence
+bar asks for; I did not have that credential in this environment.
+
+**What surprised me, in order of how much it matters:**
+
+1. **A judge model can fail a closed-set check for not actually holding the closed set.**
+   `enrichment_proposer`'s golden case originally asked the judge to confirm "any compliance_tag
+   is a real retail vocabulary term" in plain English. The local judge confidently declared
+   `pii` invented; `load_vocabulary_set()["compliance_tag"].values` shows it is not. This is the
+   alignment rules' own "anything that permits or blocks is an executor, never a model" applied
+   one level up, to scoring itself — closed-set membership must be a deterministic `teardown`
+   against the real vocabulary, never a natural-language judge criterion, however obvious the
+   term looks to a person reading the transcript. Fixed in `golden_sets.py` before finalizing;
+   the fix is why `enrichment_proposer_golden_cases` now carries a `_teardown_vocab` instead of
+   a vocabulary clause in `criteria`.
+
+2. **The publish gate and the golden-set score are two independent lines of defence, and only
+   discovered that by testing them separately.** I had assumed a bad edit would always show up
+   as a lower pass rate. It does not have to: `record_run`'s unconditional reopen-to-pending
+   means a version bump alone blocks publish, even when three noisy cases against a weak model
+   fail to move the needle. Both matter; the pass rate names *what* is wrong, the review gate
+   is what actually stops it.
+
+3. **Building golden cases from a skill's own worked example and near-miss (SKILL_TEMPLATE.md
+   section 7) is cheap and load-bearing.** `join_path_explainer`'s three cases are lifted
+   directly from `K14_join_path_explainer.py`'s own three hand-checked scenarios (found path,
+   null path, missing input) and `funnel_explanation`'s from `movers_match_input`/
+   `citations_within_input`, the skill's own deterministic oracles. Every skill that ships a
+   `checked_against`-style function got a `teardown` for free; the ones that don't
+   (`enrichment_proposer`, `mapping_proposer`, `kpi_suggestion`, `use_case_suggestion`) are
+   exactly the ones where a criteria-only judge call turned out to be the least reliable piece
+   of the whole exercise.
+
+4. **`docker compose`'s port list merges rather than replaces across `-f` files.** The task's
+   suggested `deploy/local-r15.override.yaml` (`ports: ["5834:5432"]` alongside the base
+   compose file's `5532:5432`) does not suppress the base port — Compose concatenates the list,
+   so it tried to bind 5532 too and collided with a sibling agent's stack already using it. Used
+   a plain `docker run` (same image, env, and init scripts) on port 5834 instead; removed the
+   override file since it was never actually load-bearing.
+
+5. **An async model client is bound to the event loop it was first used on.** Reusing one
+   `Ollama`/`Model` instance across two separate `egpt.eval.suite.run_cases()` calls (each its
+   own `asyncio.run()`) broke the second call with "Event loop is closed" rather than a timeout
+   or a clear error. Fixed by making every model a factory (`() -> Model`) called fresh for each
+   golden-set run rather than a shared singleton — the opposite of "never construct an agent in
+   a loop", and worth a comment in the cookbook since the two rules look alike but aren't.
+
+**`./scripts/format.sh` and `./scripts/validate.sh`: both clean.** format.sh rewrote ~121
+unrelated files repo-wide (import-sort drift, the same effect K11's and other entries note);
+reverted everything outside this package's own files before staging. validate.sh: egpt mypy
+1748 files clean, product mypy 127 files clean, product pytest 858 passed / 41 skipped (this
+package's 14 new tests among them), API contract still valid (confirms the "no contract
+change" call above did not silently drift anything), brand audit clean. An earlier ad-hoc
+`mypy product/` invocation of mine (missing `--config-file`) reported 307 errors in
+framework files this package never touched — that was my own invocation missing the project's
+mypy config, not real drift; `validate.sh`'s own invocation is the arbiter and it is clean.
+
+---
+
+### PR #212 review round 1 — 1 critical issue-level finding + 11 inline findings, all fixed
+
+**Reviewers:** nandha-saturam, rasiksuhailali.
+
+**Issue-level, Critical (id=5633623224).** `check_golden_gate` was fully implemented and
+documented in `EXECUTOR_REGISTRY.md` but never imported into `product/egpt_retail/app/
+components.py` and never added to the tuple sum `Registry()` is built from — no
+`GOLDEN_EXECUTORS` tuple existed at all. A `Step` referencing `executor_ref='check_golden_gate'`
+would fail at resolution time; the publish gate this whole package builds was unreachable
+through real workflow composition. Fixed: imported `check_golden_gate`, added
+`GOLDEN_EXECUTORS = (check_golden_gate,)`, included it in `build_registry()`'s sum. Also added
+`product/tests/test_executor_registry_doc_coverage.py`, which parses every row of
+`EXECUTOR_REGISTRY.md`'s "The list" table and asserts each documented name resolves via
+`build_registry().get_function(...)` — the direction `test_r4_executors.py`/
+`test_r7_executors.py` did not check (documented-but-unregistered), now caught for every
+package, not only R15's. Verified the new test fails without the `components.py` fix (by
+stashing it) and passes with it. Fixing the registry gap also surfaced a second, pre-existing
+instance of the same failure mode one layer up: `executors/metadata.py`'s `EXECUTOR_METADATA`
+table is asserted (`test_r9_spec_gap_plan.py::test_metadata_names_exactly_the_registered_executors`)
+to name exactly the same executors `build_registry()` holds, and `check_golden_gate` had no
+entry there either — `derive_plan`'s plan view would have raised the moment a real workflow
+referenced it. Added the missing `ExecutorMetadata` row (`permits_or_blocks=True`, matching
+`check_preflight`/`sample_rows`/`check_explanation_grounding`) and updated that test's
+expected `blocking` set.
+
+**Finding 1 (id=3988596560 Critical + id=3988653658 Major, same finding).**
+`check_golden_gate`/`_review_check` checked only `review.status`, never `review.skill_identifier`
+/`review.skill_version` against the identity being gated, nor `review.golden_pass_rate`/
+`review.total_cases` against the caller-supplied score. Fixed in `executors/golden_gate.py`:
+`_review_check` now takes `skill_identifier`/`skill_version`/`pass_rate`/`total_cases` and
+fails `rehearsal_reviewed` on any mismatch (score compared with a `1e-9` float-round-trip
+epsilon, not a judgment call) before ever consulting `.status`. New tests in
+`test_r15_golden_gate.py`: an approved review for a different version, a different identifier,
+and a different score, each proven to still block.
+
+**Finding 2 (id=3988596555 High + id=3988655156 Minor, same finding).** `_decide` only raised
+"already decided" when `changed == 0 and current.status is not status` — re-deciding to the
+*same* status silently no-opped, discarding the second caller's reviewer/note. **Chosen
+precedent: any re-decide of an already-decided row raises**, including same-status/
+same-reviewer — dropped the `current.status is not status` qualifier entirely rather than
+gating the exception on `current.reviewer == reviewer`. Matches K7's `ProposalStore._decide`
+in spirit (an already-decided item is never silently re-accepted) more closely than a
+same-reviewer carve-out would. Proven live: `test_r15_rehearsal_live.py::
+test_redecide_with_a_different_reviewer_raises` and `test_redecide_to_the_same_status_by_the_same_reviewer_also_raises`.
+
+**Finding 3 (id=3988596564 Medium) + finding 7 (id=3988596592 Low, same fix).** `_decide` and
+`record_run` each did write-commit-then-separate-`SELECT`. Rewrote both to `UPDATE .../INSERT
+... ON CONFLICT ... RETURNING`, building the return value straight from the returned row —
+one round trip instead of two per call, and no window between commit and read-back for a
+concurrent write (a re-triggered CI run) to land in. A shared `_row_from_tuple` builds a
+`RehearsalReview` from a `_ROW_COLUMNS`-shaped row for `get`/`record_run`/`_decide` alike.
+
+**Finding 4 (id=3988596568 Medium).** The deterministic vocabulary teardown (added because a
+7B local judge hallucinated `'pii'` was invented when it is real) was applied only to
+`enrichment_proposer`. Extracted `assert_terms_in_vocabulary(result, terms, vocabulary, *,
+label)` in `evals/golden_sets.py` and wired it as a `teardown` into `mapping_proposer`
+(against the concept list its prompt was rendered with), `kpi_suggestion` and
+`use_case_suggestion` (against `business_area`/`grain` from `load_vocabulary_set()`).
+`spec_extractor` already ships its own equivalent oracle, `validate_spec(spec, sets)`, over
+the same claim (closed-set-only `business_area`/`grain`/`entities[].concept`/
+`kpi_identifiers`) — reused that directly rather than reimplementing it as several
+`assert_terms_in_vocabulary` calls, the same "re-run the skill's own deterministic checker"
+pattern `join_path_explainer`'s and `funnel_explanation`'s teardowns already use. Verified all
+five teardowns by hand-constructing bad and good fake response payloads and confirming the
+teardown flags the bad one and leaves the good one clean (mapping_proposer, kpi_suggestion,
+use_case_suggestion, spec_extractor all checked this way before the live run).
+
+**Finding 5 (id=3988596574 Medium).** `record_run`'s `ON CONFLICT` unconditionally reset
+`reviewer=NULL, note='', decided_at=NULL` on every call, including an identical same-score
+re-run — destroying a prior approval's audit trail. Fixed: the `DO UPDATE`'s `status`/
+`reviewer`/`note`/`decided_at` columns now use `CASE WHEN <table>.golden_pass_rate =
+EXCLUDED.golden_pass_rate AND <table>.total_cases = EXCLUDED.total_cases THEN <unchanged>
+ELSE <reset>` — a real re-measurement still reopens review exactly as before; only a truly
+identical re-run preserves the prior decision. Proven live in `test_r15_rehearsal_live.py`:
+`test_identical_rerun_preserves_the_approval_and_its_audit_trail`,
+`test_a_different_score_rerun_reopens_review_to_pending`,
+`test_a_different_total_cases_rerun_also_reopens_review`,
+`test_record_run_on_a_pending_row_does_not_disturb_it`. This interacts with
+`R15_golden_sets.py` itself: a *repeat run of the cookbook* could now find `join_path_explainer`
+already approved from a previous run if the local judge happened to land on the same
+discretised pass rate twice, which would silently skip past step 3's "before review: blocked"
+demonstration. Added a one-time `DELETE FROM retail_evals.rehearsal_review WHERE
+skill_identifier = ANY(...)` for this script's own nine skill identifiers right after
+`ensure_schema()`, so the demo is deterministic regardless of what an earlier run left behind.
+
+**Finding 6 (id=3988596585 Low).** The 3-line guard `response = result.response` / `if
+response is None or response.content is None: return` was copy-pasted into all 8 teardown
+closures in `golden_sets.py`. Extracted `_response_content(result) -> Optional[Any]` and
+replaced all 8 call sites (`join_path_explainer` x3, `synonym_proposer` x2,
+`enrichment_proposer`, `funnel_explanation`, `playground`).
+
+**Finding 8 (id=3988596598 Low).** `RehearsalReviewStore.ensure_schema` re-implemented the
+advisory-lock-then-DDL-then-commit boilerplate five other stores (`ProposalStore`,
+`SnapshotStore`, `KpiStore`, `PlaygroundStore`, `DashboardsStore`) also copy by hand, despite
+this module's own docstring pointing at `ProposalStore.ensure_schema` as its model. Extracted
+a shared `ensure_schema(connection, ddl_statements, lock_key)`/`aensure_schema(...)` pair into
+a new `product/egpt_retail/db/schema_utils.py`, and wired only `RehearsalReviewStore` to it.
+**Deliberately left `semantic/proposals.py` (K7's `ProposalStore`) — and the other four
+stores — untouched.** K7's file is Lane K's; an out-of-lane refactor landing unreviewed in an
+R15 PR is not appropriate even for a low-severity cleanup, and the same reasoning extends to
+the three other stores this PR does not otherwise touch. The shared helper now exists for each
+owner to adopt independently, on their own schedule. New DB-free tests in
+`test_db_schema_utils.py` cover the helper's own sequencing (lock before DDL, one commit,
+lock key passed through verbatim, async variant).
+
+**Finding 9 (id=3988596605 Low).** `GoldenSet.skill_identifier`/`skill_version` were never
+actually read by `run_golden_set`/`arun_golden_set` — every caller, including the cookbook,
+tracked those identifiers separately by hand instead. Chose the contained fix over modifying
+the framework's `SuiteResult` (which would ripple into every `egpt.eval` caller for a
+retail-only need): in `R15_golden_sets.py`, all three `record_run(...)` call sites now pass
+`golden.skill_identifier`/`golden.skill_version` (reading them off the `GoldenSet` instance
+that was just built) instead of the separately-tracked `identifier`/`version` loop variables —
+so the attribution fields do real work rather than merely agreeing with a hand-carried copy by
+construction.
+
+**Finding 10 (id=3988654357 Nit).** `float(options.get("golden_pass_rate", 0.0))`/
+`int(options.get("total_cases", 0))` in `golden_gate.py` raised uncaught `ValueError`/
+`TypeError` on malformed input instead of producing a structured blocked `StepOutput`,
+inconsistent with the "block rather than raise" treatment already given to *missing* data.
+Added a `_coerce(options, key, default, kind)` helper used for `golden_pass_rate`,
+`total_cases` and `threshold` alike; a coercion failure now fails `golden_set_passed` with a
+reason naming the bad value (and `rehearsal_reviewed` with "score could not be read"), rather
+than raising. New tests: malformed `golden_pass_rate`/`total_cases`/`threshold`, each proven
+to degrade to a blocked `StepOutput`.
+
+**Finding 11 (id=3988656144 Minor).** The weakened-prompt Verify scenario in
+`R15_golden_sets.py` wrote the weakened text straight over the checked-in
+`join_path_explainer.md` and relied on a `finally` block to restore it — a narrow but real
+risk (SIGKILL/OOM/power loss, or two concurrent runs) of leaving a corrupted production prompt
+on disk. The script never actually needed the on-disk file mutated: `weakened_agent` was
+already built from the in-memory `weakened_text` string. Removed the `JOIN_MD.write_text(...)`
+call entirely; the `finally` block now asserts `JOIN_MD.read_text() == original_text` (proof
+the file was never touched) instead of writing-then-restoring.
+
+**Re-verification against the isolated stack** (`egpt-retail-r15-postgres`, port 5834, reused
+from the original build — still running; Postgres 18/pgvector, `docker ps` confirmed before
+touching anything). `R15_golden_sets.py` re-run end to end with the same local Ollama fallback
+(`qwen2.5-coder:7b`, no `azure_key.env` in this worktree either):
+
+- **`checked-in prompt file untouched on disk: OK`** — finding 11's fix confirmed: no write
+  to `join_path_explainer.md` occurred, `git status`/`git diff` on that file stayed empty
+  throughout the run.
+- Step 3's "before review" state correctly showed `allowed=False,
+  blocked_by=['golden_set_passed', 'rehearsal_reviewed']` (the clean-slate `DELETE` from
+  finding 5's follow-up worked: no stale approval from a previous run leaked in).
+  After `nandhakumar@saturam.com`'s approval, `rehearsal_reviewed` flipped to `PASS` and only
+  `golden_set_passed` still blocked — exactly the two-independent-checks behavior finding 1
+  exists to keep honest.
+- The weakened-version publish attempt: `blocked_by=['golden_set_passed',
+  'rehearsal_reviewed']` — `rehearsal_reviewed` correctly failed again because the version
+  bump (1.0.0 -> 1.1.0) reopened review to pending, the structural guarantee holding
+  independently of what the numeric score did.
+- **Numeric score**: baseline 33% (1/3), weakened 33% (1/3) — no attributable drop, so the
+  script's own exit code is non-zero ("R15 did not hold"). This is the same environment
+  limitation already on record in this file's `R15_golden_sets.py` entry above (no Azure/
+  OpenAI credentials in this sandbox; the local 7B judge's noise floor swamps the one-case
+  signal `null-path` is supposed to carry — `found-path` timed out both times and `null-path`
+  answered `unknown` both times, the same pattern as the original run, not a new failure mode
+  introduced by this change). Re-running with `azure_key.env` sourced remains the natural next
+  step to get a clean pass/fail delta; not available in this worktree either.
+- `identity/score match in the gate`, `re-decide rejection`, `RETURNING`-based updates and
+  `preserved audit trail on identical re-run` are exercised directly by
+  `test_r15_golden_gate.py` and `test_r15_rehearsal_live.py` (both passing against this same
+  Postgres container, `EGPT_INTEGRATION_POSTGRES=1`) rather than by the cookbook's own
+  single-pass-per-score flow, which never re-decides or re-runs an identical score by design.
+
+**`./scripts/format.sh` and `./scripts/validate.sh`: both clean.** format.sh rewrote 121
+unrelated files repo-wide (the same known import-sort drift prior entries in this log note);
+reverted everything outside this round's own files before staging (diffed the file list
+before/after format.sh and `git checkout --`'d exactly the unrelated ones). validate.sh: egpt
+mypy 1748 files clean, egptctl mypy 21 files clean, product mypy 129 files clean, cookbook
+import/pattern checks clean, product pytest **870 passed / 51 skipped** (this round's 4 new
+test files among them: `test_executor_registry_doc_coverage.py`,
+`test_r15_rehearsal_live.py`, `test_db_schema_utils.py`, plus additions to
+`test_r15_golden_gate.py` and one updated assertion in `test_r9_spec_gap_plan.py`), API
+contract still valid, brand audit clean (1615 references, 0 findings).
+
+### Round-3: two further review comments, PR #212 (2026-09-11)
+
+**Findings addressed:**
+
+1. **Major -- `test_r15_rehearsal_live.py` never actually ran in CI.** The file (round-2's
+   own live-Postgres coverage for the pending-only re-decide guard, `record_run`'s
+   conditional-reset `CASE WHEN`, and the `RETURNING`-based fix for the commit/read-back
+   race) is gated on `EGPT_INTEGRATION_POSTGRES`, which nothing in `ci.yml` sets -- so it was
+   silently skipped on every PR, and `integration.yml`'s live-Postgres job never named it
+   even though it already runs a sibling suite (`test_semantic_live.py`) with exactly the
+   env vars this one needs. Fixed: added `product/tests/test_r15_rehearsal_live.py` to that
+   same pytest invocation in `.github/workflows/integration.yml`, with
+   `EGPT_RETAIL_R15_DSN` pointed at the job's existing "ai" control-plane database. Verified
+   live against a real isolated Postgres before committing: all 10 tests in the file pass.
+2. **Nit -- exact-float-equality vs. `check_golden_gate`'s epsilon, unexplained.**
+   `record_run`'s SQL decides "did the score change" with exact `NUMERIC` equality, while
+   `check_golden_gate._review_check` decides "does this review match this score" with an
+   explicit `1e-9` epsilon -- both correct for their own inputs (one compares the same Python
+   float against its own earlier persisted value with no independent computation on either
+   side; the other compares two independently-derived floats), but nothing said so. Added a
+   docstring paragraph to `record_run` explaining the distinction and naming the condition
+   (a lossy round trip for `pass_rate`) under which it should be revisited.
+
+**Re-verification:** `pytest product/tests/` -- 870 passed, 51 skipped (unchanged from
+round-2 -- this round added no new unit-visible behavior, only CI wiring and a docstring).
+`format.sh`/`validate.sh` both green a second time (121 unrelated rewrites pruned to the two
+files this round touched -- `.github/workflows/integration.yml` and
+`product/egpt_retail/evals/rehearsal.py`). `test_r15_rehearsal_live.py` run directly against
+the isolated stack (`EGPT_INTEGRATION_POSTGRES=1 EGPT_RETAIL_R15_DSN=postgresql://ai:ai@
+localhost:5834/ai`) to confirm the CI wiring points at real, passing tests before relying on
+CI to prove it.
 
 ---

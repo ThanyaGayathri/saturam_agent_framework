@@ -710,6 +710,10 @@ class UseCaseExecutionHealth(BaseModel):
         description="Approval gates waiting on a person longer than their threshold.",
     )
     cost_7d: ExecutionCost | None = None
+    error: str | None = Field(
+        None,
+        description="Set instead of a real health snapshot when this one use case's own entry was malformed (e.g. a missing workflow_id) and its processing was isolated rather than aborting every other use case's report. Absent/null for a genuinely-run or genuinely-never-run use case.",
+    )
 
 
 class UseCaseQuality(BaseModel):

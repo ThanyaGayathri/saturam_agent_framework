@@ -51,7 +51,13 @@ from egpt_retail.executors.areas import detect_business_areas
 from egpt_retail.executors.delivery import deliver_in_app
 from egpt_retail.executors.gaps import check_spec_gaps
 from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold, read_gold
+from egpt_retail.executors.golden_gate import check_golden_gate
 from egpt_retail.executors.kpi import assess_kpi_feasibility
+from egpt_retail.executors.monitoring import (
+    assess_execution_health,
+    assess_quality,
+    list_silent_schedules,
+)
 from egpt_retail.executors.plan import derive_plan
 from egpt_retail.executors.preflight import check_preflight
 from egpt_retail.executors.provenance import record_provenance
@@ -170,6 +176,19 @@ K_EXECUTORS = (assess_kpi_feasibility, detect_business_areas)
 #: R9's two: the deterministic gap check and the plan view. Composed into the builder's
 #: routes in P5; neither is a step of a registered workflow.
 R9_EXECUTORS = (check_spec_gaps, derive_plan)
+
+#: R14's three (D14): execution health from run history, silent-schedule detection, and the
+#: input-drift assessment pass. Like Lane K's two above, none is a step of a registered
+#: workflow -- they read run history and schedule state directly, composed into the builder's
+#: `/monitoring/*` routes in P5. None permits or blocks: a monitoring pass reports.
+R14_EXECUTORS = (assess_execution_health, list_silent_schedules, assess_quality)
+
+#: R15's one (D14, G13): the publish gate. Documented in EXECUTOR_REGISTRY.md since it landed,
+#: but omitted from this sum until a review caught it -- an unreachable executor is exactly the
+#: "documented but unregistered" drift the registry doc exists to prevent, and now
+#: ``test_executor_registry_doc_coverage.py`` walks every row of that document and asserts it
+#: resolves via ``build_registry()``, so this direction of drift fails CI for every package.
+GOLDEN_EXECUTORS = (check_golden_gate,)
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -489,12 +508,17 @@ def build_registry() -> Registry:
     R4's six, R7's three (``check_preflight``, ``record_provenance``, ``deliver_in_app``,
     G4), R5's two (``materialise_gold``, ``read_gold``), R9's two (``check_spec_gaps``,
     ``derive_plan``), R10's two (``sample_rows``, ``check_explanation_grounding``), R12's
-    three (``evaluate_alert_condition``, ``write_alert``, ``evaluate_alerts``) and Lane K's
-    two (``assess_kpi_feasibility``, ``detect_business_areas``). The check has run here since
-    phase zero, when the list was empty; it now has something to check, which is what makes
-    the duplicate-name refusal real rather than theoretical. Every name here is also a row in
-    ``contracts/EXECUTOR_REGISTRY.md``, and ``test_r4_executors.py``/``test_r7_executors.py``
-    assert the two agree so the document cannot rot.
+    three (``evaluate_alert_condition``, ``write_alert``, ``evaluate_alerts``), R14's three
+    (``assess_execution_health``, ``list_silent_schedules``, ``assess_quality``), Lane K's two
+    (``assess_kpi_feasibility``, ``detect_business_areas``) and R15's one
+    (``check_golden_gate``). The check has run here since phase zero, when the list was empty;
+    it now has something to check, which is what makes the duplicate-name refusal real rather
+    than theoretical. Every name here is also a row in ``contracts/EXECUTOR_REGISTRY.md``, and
+    ``test_r4_executors.py``/``test_r7_executors.py`` assert the two agree for their own
+    executors so the document cannot rot in that direction; the other direction (documented but
+    never added to this sum -- exactly how ``check_golden_gate`` shipped unreachable)
+    is caught for every package by ``test_executor_registry_doc_coverage.py``, which walks
+    every row of the document and asserts it resolves via this function.
     """
     registry = Registry()
     for executor in (
@@ -504,7 +528,9 @@ def build_registry() -> Registry:
         + R9_EXECUTORS
         + R10_EXECUTORS
         + R12_EXECUTORS
+        + R14_EXECUTORS
         + K_EXECUTORS
+        + GOLDEN_EXECUTORS
     ):
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)
