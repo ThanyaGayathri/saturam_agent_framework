@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+from egpt.agent import AgentFactory
 from egpt.providers.escalation import EscalatingModelProvider
 from egpt.providers.model_provider import ModelResolveRequest
 from egpt.workflow.types import StepInput, StepOutput
@@ -19,6 +20,7 @@ from egpt.workflow.types import StepInput, StepOutput
 from egpt_retail.app.components import (
     JOIN_PATH_EXPLAINER_ID,
     MEMORY_WRITING_AGENT_IDS,
+    PLAYGROUND_AGENT_ID,
     SYNONYM_PROPOSER_ID,
     build_agents,
 )
@@ -52,6 +54,14 @@ def _settings(**overrides: object) -> RetailSettings:
 def _agents(settings: RetailSettings | None = None) -> list:
     settings = settings or _settings()
     return build_agents(settings, build_control_plane_db(settings))
+
+
+def _static_agents(settings: RetailSettings | None = None) -> list:
+    """``build_agents`` also returns R11's ``AgentFactory`` (``PLAYGROUND_AGENT_ID``), which
+    has no ``model``/``initialize_agent`` of its own -- routing tests that are specifically
+    about a static ``Agent``'s pinned-model/tier-resolution wiring exclude it here rather
+    than special-casing every assertion below."""
+    return [agent for agent in _agents(settings) if not isinstance(agent, AgentFactory)]
 
 
 # ---------------------------------------------------------------------------
@@ -289,13 +299,23 @@ def test_a_non_escalated_run_through_the_real_tier_providers_writes_no_record() 
 
 
 def test_build_agents_pins_no_model_and_routes_each_agent() -> None:
-    agents = {agent.id: agent for agent in _agents()}
+    agents = {agent.id: agent for agent in _static_agents()}
     assert all(agent.model is None for agent in agents.values())
     assert isinstance(
         agents[JOIN_PATH_EXPLAINER_ID].model_provider, EscalatingModelProvider
     )
     assert isinstance(agents[SYNONYM_PROPOSER_ID].model_provider, TierModelProvider)
     assert agents[SYNONYM_PROPOSER_ID].model_provider.tier is Tier.FRONTIER
+
+
+def test_build_agents_also_registers_the_playground_factory() -> None:
+    """R11: not a static agent, so it is excluded from `_static_agents()` above and from
+    every assertion in this module that assumes `.model`/`.initialize_agent()` -- it still
+    has to have a row in the routing table, same as any other agent id."""
+    agents = _agents()
+    factories = [agent for agent in agents if isinstance(agent, AgentFactory)]
+    assert [factory.id for factory in factories] == [PLAYGROUND_AGENT_ID]
+    assert PLAYGROUND_AGENT_ID in ROUTING_TABLE
 
 
 def test_route_agents_refuses_an_unrouted_agent() -> None:
@@ -324,7 +344,7 @@ def test_the_registered_agents_resolve_their_tier_deployment_at_startup() -> Non
     settings = _settings(
         retail_azure_small_deployment="tiny", retail_azure_deployment="huge"
     )
-    agents = {agent.id: agent for agent in _agents(settings)}
+    agents = {agent.id: agent for agent in _static_agents(settings)}
     for agent in agents.values():
         agent.initialize_agent()
     assert agents[JOIN_PATH_EXPLAINER_ID].model.id == "tiny"
@@ -332,9 +352,14 @@ def test_the_registered_agents_resolve_their_tier_deployment_at_startup() -> Non
 
 
 def test_every_registered_agent_is_a_memory_writer() -> None:
-    """The lifespan hands every agent the memory provider, so every agent writes a partition
-    the consolidator must drain."""
-    assert set(MEMORY_WRITING_AGENT_IDS) == {agent.id for agent in _agents()}
+    """The lifespan hands every *static* agent the memory provider, so each writes a
+    partition the consolidator must drain. R11's playground factory is the one registered
+    agent id deliberately absent from `MEMORY_WRITING_AGENT_IDS` -- see its own docstring in
+    app/components.py for why: the lifespan iterates the factory object, not the fresh
+    `Agent` it builds per request, so wiring memory into it is separate, undone work."""
+    assert set(MEMORY_WRITING_AGENT_IDS) == {agent.id for agent in _static_agents()}
+    all_ids = {agent.id for agent in _agents()}
+    assert all_ids - set(MEMORY_WRITING_AGENT_IDS) == {PLAYGROUND_AGENT_ID}
 
 
 # ---------------------------------------------------------------------------

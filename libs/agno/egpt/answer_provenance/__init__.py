@@ -11,16 +11,25 @@ that assembles and writes one from a running workflow (``record_provenance``) is
 
 from egpt.answer_provenance.ddl import PROVENANCE_TABLE, aapply_provenance_ddl, apply_provenance_ddl
 from egpt.answer_provenance.record import MODEL_TIERS, ProvenanceRecord
-from egpt.answer_provenance.store import aread_provenance, awrite_provenance, read_provenance, write_provenance
+from egpt.answer_provenance.store import (
+    alist_provenance_by_use_case,
+    aread_provenance,
+    awrite_provenance,
+    list_provenance_by_use_case,
+    read_provenance,
+    write_provenance,
+)
 
 __all__ = [
     "MODEL_TIERS",
     "PROVENANCE_TABLE",
     "ProvenanceRecord",
     "aapply_provenance_ddl",
+    "alist_provenance_by_use_case",
     "apply_provenance_ddl",
     "aread_provenance",
     "awrite_provenance",
+    "list_provenance_by_use_case",
     "read_provenance",
     "write_provenance",
 ]

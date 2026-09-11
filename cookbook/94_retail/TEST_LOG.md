@@ -3896,6 +3896,225 @@ review finding.
 
 ---
 
+### R11_playground.py
+
+**Status:** PASS
+
+**Description:** R11 — the playground's four grounding modes (`data`, `knowledge`,
+`use_case`, `business_area`) plus storage (saved prompts, chat filters, preferences,
+reports) and the citation panel (`GET /runs/{run_id}/provenance`). Built to the delivery
+plan's full scope rather than `EXECUTOR_REGISTRY.md`'s narrower "citation panel only"
+framing, since R11's own Verify bullet exercises all four modes.
+
+The router is `playground.modes.resolve_mode_scope`, a deterministic function from
+`(mode, scope_id)` to a bounded tuple of tools — no model ever decides scope. It is wired
+into an `AgentFactory` (`app.components.build_playground_agent_factory`), so "skills loaded
+on demand" is request-time parameterisation of one shared agent identity, not four static
+agents; the framework's own `factory_input` mechanism carries `mode`/`scope_id` per request,
+and chat transport itself (SSE runs, session history) stays a framework concern this package
+never touches.
+
+**Result:**
+
+```
+1. saved prompts/filters/reports  real Postgres, idempotent save, auto-created first report
+2. data mode                      resolves read_kpi_data; refuses honestly with no warehouse
+3. knowledge mode                 resolves search_knowledge; live K10 call, 0 results (empty
+                                   semantic snapshot in this dev environment, no exception)
+4. use_case mode                  two runs, two use cases, real provenance rows: own run
+                                   found by reference; the other use case's run declined
+5. business_area mode             'inventory' concept resolves; 'Customer' (in 'customer')
+                                   declined by the tool itself; an unknown area refuses
+                                   before any agent tooling is built
+```
+
+All five sections ran against the real control-plane Postgres; sections 3-4 also touched a
+real Neo4j graph (`EGPT_RETAIL_NEO4J_URI=neo4j://localhost:7687`, the container already
+running in this environment). Every `OK`/`FAIL` line in the script's own output read `OK`.
+
+**A genuine gap in R11's own EXECUTOR_REGISTRY.md note.** `egpt.answer_provenance` had only
+`read_provenance(run_id)` — no way to list a use case's runs at all, which "found by
+reference, not search" needs. Added `list_provenance_by_use_case`/
+`alist_provenance_by_use_case` plus a partial index (`use_case_id, produced_at DESC WHERE
+use_case_id IS NOT NULL`) to the framework module (`libs/agno/egpt/answer_provenance/`),
+verified live against real Postgres before wiring it into `playground/modes.py`. This is a
+framework fix, not a retail workaround, for the same reason R7's provenance record itself
+is: every deployment that scopes an answer to a use case needs this query, not only retail's.
+
+**Deliberately not built here, and said so rather than guessed at.** The `knowledge` mode's
+tool wires K10's semantic leg only; the ontology leg additionally needs a resolved embedder
+(`ontology/store.py`'s `OntologyStore`), which is a real, separate piece of wiring this
+package does not do. `data` mode's tool delegates straight to `read_gold` and inherits its
+refusal when no warehouse is configured — this environment has none, so section 2 shows the
+refusal rather than a real read, which is the honest thing to demonstrate without one.
+
+**One design decision worth recording.** The business-area lookup tool refuses an
+out-of-area concept *inside the tool*, returning a decline rather than the concept's
+description — not a prompt instruction asking the model to decline.
+`test_r11_playground.py`'s `test_business_area_lookup_declines_a_concept_outside_the_area`
+calls the tool directly, with no model involved, and gets the decline — the same posture
+R6's guard and K11's feasibility take: the guarantee is structural, not requested.
+
+---
+
+### R13_dashboards.py
+
+**Status:** PASS
+
+**Description:** R13 — dashboards as a named set of KPI references (layout, filters,
+refresh schedule, visibility) in the control-plane database, with reads going to gold only.
+Every tile's `kpi_identifier` must be a registered, `ready` KPI at write time (K11's
+feasibility, the same set difference `materialise_gold` already uses) — checked in the
+router, not the store, since it needs the KPI registry and an open semantic reader.
+
+`GET /dashboards/{id}/data` calls `read_gold` (R5's own executor, a plain function, not
+workflow-engine-only) directly, once per dashboard covering every tile's KPI in one call —
+`executors/gold.py`'s own docstring names this exact seam ("the seam an interactive
+playground reads through"). The mapping from `read_gold`'s `values`/`missing` shape into
+each tile's `TileData` lives in `dashboards/data.py`.
+
+**Result:**
+
+```
+1. unregistered KPI tile      422, refused at creation, before anything is written
+2. registered KPI tile        this dev environment's KPI happened to be ready (a real
+                               semantic snapshot is loaded); created successfully
+3. tileless dashboard         201 on create, 200 with an empty tile list on load
+4. visibility + ownership     bob sees alice's `team` dashboard; bob cannot edit or delete
+                               it; alice can
+```
+
+Ran against the real control-plane Postgres and the real Neo4j graph for the readiness
+gate. `test_r13_dashboards.py` adds 13 DB-free unit tests over the pure conversion and
+mapping helpers (`_tile_to_json`/`_tile_from_json` round-trips, `Dashboard.visible_to`,
+`_row_for_grain`, `_status_for_missing`, `_tile_data`'s three tile shapes).
+
+**A real bug those unit tests caught, that the live run in this environment could not.**
+`_tile_data` originally passed `read_gold`'s `as_of` (a bare business date, `date.isoformat()`
+— gold's own `KpiRunResult`/`note_freshness` shape) straight into `TileData.as_of`, which the
+generated Pydantic model types as a strict `AwareDatetime`. A unit test constructed with
+`read_gold`'s actual documented output shape failed construction immediately
+(`pydantic_core.ValidationError: as_of ... Input should have timezone info`). Fixed with
+`_end_of_business_day`, which stamps the business date at `T23:59:59Z` — the same convention
+`common.yaml`'s and `dashboards.yaml`'s own worked examples use for a gold freshness stamp,
+not midnight, which would read as a different moment. This environment has no configured
+warehouse (`EGPT_RETAIL_WAREHOUSE_DB_URL` unset), so `read_gold` refuses before ever reaching
+this code on a live call here — the unit test is the only verification this fix has had, and
+that gap is recorded rather than papered over.
+
+**Deliberately not built here.** `delta` (period-over-period change) ships `null`; `series`
+(for `line`/`bar` tiles) ships empty — `read_gold` returns only the latest materialised
+value, not a history across `as_of` dates, and neither is exercised by R13's own Verify or
+Evidence bullet. Both are present in the schema and absent in the value, the same posture
+R7's `tables_exposed`/`guard_role` placeholders take.
+
+---
+
+### PR #207 review round 1 — 7 findings (4 major, 2 minor, 1 nit), all fixed
+
+Reviewed by `rasiksuhailali` (Claude Code's automated review). All seven addressed:
+
+- **`_owner()` fallback to `"local"`** (`api/routers/{playground,dashboards}.py`, major):
+  collapsed *any* falsy `request.state.user_id` onto a shared owner, including the case
+  `AuthMiddleware` sets deliberately — `user_id=None` for a token that decodes and passes
+  scope checks but carries no `sub` claim. With authorization on, every such caller's
+  prompts/filters/reports/dashboards became one shared, mutable pool. Now refuses (401).
+  Verified live over HTTP with a fake auth middleware forcing `user_id=None`.
+- **`_tile_data` grain-mismatch bug** (`dashboards/data.py`, major): a `grain_value` that
+  matched no row reported `status=fresh, value=None` — indistinguishable from a genuinely
+  current, empty tile. Now reports `never_computed`. See the live re-verification below —
+  this is the fix the previous entry's "unit test is the only verification" gap now closes.
+- **Readiness-gate coverage gap** (`api/routers/dashboards.py`, major): extracted the 422
+  decision into `tile_readiness_refusal(wanted, definitions, tables)`, pure and DB-free, unit
+  -tested directly (unregistered / blocked / partial / ready) — `.github/workflows/ci.yml`'s
+  `test-and-build` has no Postgres/Neo4j service, so before this fix a regression in the
+  verdict logic would have passed CI clean.
+- **Unpooled `psycopg.connect()` per request** (minor): added
+  `app/db.py::pooled_control_plane_connection` (a cached, process-wide pooled `Engine`'s
+  `raw_connection()`); both routers and the readiness gate use it now.
+- **`aresolve_mode_scope` dead code** (minor): `build_playground_agent` is now `async def`
+  and actually calls it (`AgentFactory.factory` accepts an async callable by its own type
+  contract). Direct tests added for the async twin.
+- **`_ensure_default_report` TOCTOU race** (nit): guarded with a per-owner
+  `pg_advisory_xact_lock`, the same primitive `ensure_schema()` already uses. The R11
+  cookbook adds a live concurrency check (two threads racing a brand-new owner's first
+  `list_reports` call) rather than only asserting the fix by reading the code.
+
+14 new unit tests (44 → 58 across the two files); `product/tests` at 650 passing.
+
+### Full live re-verification against a real materialised warehouse
+
+The previous entries both recorded an honest gap: "this environment has no configured
+warehouse." It turns out the local `deploy/compose.yaml` Postgres container already had one
+— `warehouse-migrate` and a real gold materialisation (R10's RFQ fixture KPIs) had already
+run in this environment from earlier work. Re-ran both cookbooks with
+`EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse` and
+`EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL=postgresql+psycopg://egpt_reader:egpt_reader@localhost:5532/egpt_warehouse`:
+
+```
+R11, data mode, real read_kpi_data(['rfq__quote_to_deal_rate', 'no_such_kpi__nope']):
+  kpis:    {'rfq__quote_to_deal_rate': {value row for dimension {"brand": "Blodgett"}, ...}}
+  missing: [{'kpi_identifier': 'no_such_kpi__nope', 'reason': 'never materialised'}]
+
+R13, section 5 (new), a dashboard with two tiles over the same real materialised KPI:
+  grain_value='Blodgett' (matches)      -> status=fresh, value=1.0
+  grain_value='no_such_dimension_value' -> status=never_computed, value=None
+```
+
+The second line is the exact scenario the round-1 review reproduced synthetically
+(`_tile_data` reporting `fresh` with nothing to show) — now confirmed against a genuinely
+materialised gold row, not a constructed fixture. R11's cookbook was also updated to report
+`read_gold`'s real "missing" shape when a warehouse is configured, rather than assuming the
+refusal path is the only honest thing to show (both cookbooks still degrade gracefully and
+say so when no warehouse is configured, which is the more common case for a fresh clone).
+
+One flake noted, not chased: on one of several re-runs, R13's new section 5 found zero rows
+in `gold.kpi_value` and skipped, immediately reproducible as present again on the very next
+run. The row count in the warehouse (checked directly via `psql`) never actually changed
+across these runs, so this reads as a transient condition in this specific shared,
+long-lived local Postgres container — not a defect in `read_dashboard_data` or its mapping,
+which produced the correct result every time data was actually visible to it. The section's
+existing "skip and say why" behavior on an empty result is exactly the right response to
+that regardless of cause.
+
+---
+
+### PR #207 review rounds 2-3 — 2 carried-over findings, both fixed
+
+Round 2 (`89f1591`) confirmed all 7 round-1 findings fixed and raised 2 new, non-blocking
+ones; round 3 (`ffe89bf`) confirmed neither had been touched yet (both files byte-for-byte
+unchanged in that commit). Both addressed now:
+
+- **`dashboards/data.py:132`** — the round-1 fix's gap-check only fired for non-`TABLE`
+  charts, so a `TABLE` tile with a `grain_value` that matched no row still fell through to
+  showing the entire *unfiltered* listing (an unrelated dimension's rows) rather than
+  reporting a gap. Fixed: the "show everything" exemption now applies only to a `TABLE`
+  tile configured with no `grain_value` at all (`table_showing_everything = tile.chart is
+  ChartKind.TABLE and tile.grain_value is None`); a `TABLE` tile *with* a `grain_value`
+  that resolves nothing now reports `never_computed`, same as every other chart kind.
+  Verified live against the same real materialised KPI (`rfq__quote_to_deal_rate`) used in
+  the round-1 fix's own live check: a `TABLE` tile with `grain_value='Blodgett'` reads
+  `status=fresh, value=1.0`; the same KPI with a non-matching `grain_value` now reads
+  `status=never_computed, rows=[]` instead of silently showing the `Blodgett` row under an
+  unrelated tile. New unit test:
+  `test_tile_data_table_tile_with_grain_mismatch_reports_never_computed_too`.
+- **`app/db.py:100`** — `pooled_control_plane_connection`/`_pooled_control_plane_engine` had
+  no regression test; a future revert to a fresh `psycopg.connect()` per call, or a change
+  breaking the `lru_cache` keying, would not have been caught. Added three DB-free tests to
+  `test_r7_control_plane_engine.py`: same DSN returns the same cached `Engine` object,
+  different DSNs return different objects, and `pooled_control_plane_connection` actually
+  calls `.raw_connection()` on the cached engine and `.close()`s it (via a monkeypatched
+  fake engine -- no database needed, matching this file's existing DB-free convention).
+
+4 new tests; `product/tests` at 654 passing. Docker had restarted between review rounds
+(same session, different point in time) -- `docker start egpt-retail-postgres-1
+egpt-retail-neo4j-1` brought both containers back with their volumes, and the warehouse's
+materialised gold data from the previous entry's live run was still there, confirming the
+compose stack's named volumes are what make this reproducible across restarts rather than
+a one-off.
+
+---
+
 ### R10_rfq_workflow.py
 
 **Package:** R10

@@ -51,6 +51,7 @@ ROUTING_TABLE: Mapping[str, Tier] = MappingProxyType(
         "join_path_explainer": Tier.SMALL,  # K14's second half: mirrors a deterministic input
         "spec_extractor": Tier.SMALL,  # R9: "spec extraction on the small tier"
         "funnel_explanation": Tier.SMALL,  # R10: "explanation on the small tier"
+        "playground": Tier.SMALL,  # R11: grounded chat, same posture as R10's explanation
         # Lane K's agents: proposals a reviewer approves, where the frontier's judgement is
         # the point and volume is a handful per refresh.
         "synonym_proposer": Tier.FRONTIER,

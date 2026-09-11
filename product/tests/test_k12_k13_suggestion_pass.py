@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Tuple
 
 import pytest
 
+from egpt_retail.app.db import build_control_plane_db
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import KpiDefinition
 from egpt_retail.routing.table import ROUTING_TABLE, Tier
@@ -411,9 +412,9 @@ def test_the_suggestion_agents_are_not_on_the_generic_run_route():
     `egpt-retail suggest`, which always assembles."""
     from egpt_retail.app.components import MEMORY_WRITING_AGENT_IDS, build_agents
 
+    settings = RetailSettings(retail_customer_slug="t")
     registered = {
-        agent.id
-        for agent in build_agents(RetailSettings(retail_customer_slug="t"), db=None)
+        agent.id for agent in build_agents(settings, build_control_plane_db(settings))
     }
     assert not registered & {KPI_SUGGESTION_ID, USE_CASE_SUGGESTION_ID}
     assert not set(MEMORY_WRITING_AGENT_IDS) & {
