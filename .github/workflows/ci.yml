@@ -450,7 +450,9 @@ jobs:
     needs: changes
     if: (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')) && needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Normally ~13m, but seen at 25m18s (canceled at the old ceiling) on a slow runner --
+    # same class of false failure as test-and-build's egpt legs above.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
