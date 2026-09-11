@@ -144,6 +144,17 @@ class RehearsalReviewStore:
         Uses ``RETURNING`` rather than a separate ``SELECT`` after commit -- one round trip
         instead of two, and no window between commit and read-back for a concurrent write
         (e.g. a re-triggered CI run for the same skill/version) to change the row first.
+
+        The "did the score actually change" check below is exact ``NUMERIC`` equality, not the
+        epsilon comparison ``check_golden_gate._review_check`` uses for "does this review match
+        this score" -- deliberately: both sides of *that* comparison are two independently
+        derived floats (a caller-supplied score, a store-persisted one), where floating-point
+        round-trip noise is a real risk. Here, ``EXCLUDED.golden_pass_rate`` is the exact same
+        Python ``pass_rate`` argument as it went into this one ``INSERT``, compared only against
+        whatever ``NUMERIC`` value Postgres already stored from an *earlier* call with the same
+        argument -- no independent computation on either side, so no epsilon is needed. If
+        ``pass_rate`` ever starts arriving via a lossy path (e.g. a JSON round trip) rather than
+        a direct Python float, revisit this alongside ``check_golden_gate``'s tolerance.
         """
         table = f"{self._schema}.rehearsal_review"
         with self._connection.cursor() as cursor:

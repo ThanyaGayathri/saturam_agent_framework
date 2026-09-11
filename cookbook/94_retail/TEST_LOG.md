@@ -4971,4 +4971,36 @@ test files among them: `test_executor_registry_doc_coverage.py`,
 `test_r15_golden_gate.py` and one updated assertion in `test_r9_spec_gap_plan.py`), API
 contract still valid, brand audit clean (1615 references, 0 findings).
 
+### Round-3: two further review comments, PR #212 (2026-09-11)
+
+**Findings addressed:**
+
+1. **Major -- `test_r15_rehearsal_live.py` never actually ran in CI.** The file (round-2's
+   own live-Postgres coverage for the pending-only re-decide guard, `record_run`'s
+   conditional-reset `CASE WHEN`, and the `RETURNING`-based fix for the commit/read-back
+   race) is gated on `EGPT_INTEGRATION_POSTGRES`, which nothing in `ci.yml` sets -- so it was
+   silently skipped on every PR, and `integration.yml`'s live-Postgres job never named it
+   even though it already runs a sibling suite (`test_semantic_live.py`) with exactly the
+   env vars this one needs. Fixed: added `product/tests/test_r15_rehearsal_live.py` to that
+   same pytest invocation in `.github/workflows/integration.yml`, with
+   `EGPT_RETAIL_R15_DSN` pointed at the job's existing "ai" control-plane database. Verified
+   live against a real isolated Postgres before committing: all 10 tests in the file pass.
+2. **Nit -- exact-float-equality vs. `check_golden_gate`'s epsilon, unexplained.**
+   `record_run`'s SQL decides "did the score change" with exact `NUMERIC` equality, while
+   `check_golden_gate._review_check` decides "does this review match this score" with an
+   explicit `1e-9` epsilon -- both correct for their own inputs (one compares the same Python
+   float against its own earlier persisted value with no independent computation on either
+   side; the other compares two independently-derived floats), but nothing said so. Added a
+   docstring paragraph to `record_run` explaining the distinction and naming the condition
+   (a lossy round trip for `pass_rate`) under which it should be revisited.
+
+**Re-verification:** `pytest product/tests/` -- 870 passed, 51 skipped (unchanged from
+round-2 -- this round added no new unit-visible behavior, only CI wiring and a docstring).
+`format.sh`/`validate.sh` both green a second time (121 unrelated rewrites pruned to the two
+files this round touched -- `.github/workflows/integration.yml` and
+`product/egpt_retail/evals/rehearsal.py`). `test_r15_rehearsal_live.py` run directly against
+the isolated stack (`EGPT_INTEGRATION_POSTGRES=1 EGPT_RETAIL_R15_DSN=postgresql://ai:ai@
+localhost:5834/ai`) to confirm the CI wiring points at real, passing tests before relying on
+CI to prove it.
+
 ---
