@@ -33,6 +33,8 @@ from egpt_retail.contracts.kpi import (  # noqa: E402
     KpiDefinition,
     KpiParameter,
     ParameterKind,
+    assess_feasibility,
+    assess_feasibility_with_joins,
 )
 from egpt_retail.contracts.semantic import Concept, available_tables  # noqa: E402
 from egpt_retail.executors.kpi import feasibility_summary, verdict_rows  # noqa: E402
@@ -249,6 +251,69 @@ print(
     "  A KPI cannot conjure the concept it names. Concepts enter through review (D10)."
 )
 
+# --- 4b. Present, and still not computable (K12.5) -----------------------------------------
+
+# The case the set difference cannot see. Both tables are in the snapshot, so
+# `source_tables - available_tables` is empty and feasibility said `ready` -- and the formula
+# would then join two id spaces the harvest's own comment says are not joinable, returning a
+# cross product rather than an error. Wrong numbers, no failure, nothing upstream to catch it.
+CROSS_SOURCE = KpiDefinition(
+    identifier="k11_session__replay_coverage_joined",
+    name="Replay coverage, joined",
+    description="Analytics sessions that also have a replay, which needs the two joined.",
+    sql=(
+        "SELECT count(*) FROM analytics_event e "
+        "JOIN session_replay_session s ON s.session_id = e.session_id"
+    ),
+    grain="overall",
+    business_area="marketing",
+    source_tables=frozenset({"analytics_event", "session_replay_session"}),
+    concept="K11Session",
+)
+# The ruling itself, as accepted review writes it. End of a chain: K4 detects that
+# `session_id` is carried by two tables, K8's mapping agent resolves each side and marks it
+# not joinable from the harvest's own column comment, a person accepts that, and only then
+# can feasibility see it. Written directly because K8 is a separate package; what matters is
+# that the ruling reached the graph through review and not through a formula's assertion.
+for _table in ("silver.analytics_event", "silver.session_replay_session"):
+    graph.write_column_meaning(
+        _table,
+        "session_id",
+        concept="K11Session",
+        meaning=f"{_table.split('.')[-1]}'s own session id, in its own id space",
+        joinable=False,
+    )
+
+tables_only = assess_feasibility(CROSS_SOURCE, available_tables(graph))
+with_joins = assess_feasibility_with_joins(
+    CROSS_SOURCE, available_tables(graph), graph.unjoinable_oracle()
+)
+print()
+print("4b. Present, and still not computable")
+print("-" * 78)
+print(f"  tables alone:      {tables_only.verdict.value} ({tables_only.reason.value})")
+print(f"  with the join:     {with_joins.verdict.value} ({with_joins.reason.value})")
+print(f"  {with_joins.rationale}")
+print(
+    "  A missing table needs a connector. This needs that pair resolved. Rendering them"
+)
+print("  the same way makes the cheap fix look as expensive as the dear one.")
+print(
+    "  Note what had to be true: only an ACCEPTED column meaning makes this visible. A"
+)
+print(
+    "  pair nobody ruled on stays ready -- absence of a proposal is not a prohibition."
+)
+
+# This scenario's ruling, removed. It is a fact about the shared graph, and the sections
+# below measure the same registry against it -- leaving it would fail section 6's restore
+# check on a change this section made deliberately.
+with driver.session() as _session:
+    _session.run(
+        "MATCH (c:SemanticColumn {name: 'session_id'}) "
+        "REMOVE c.concept, c.meaning, c.joinable"
+    )
+
 # --- 5. Remove one table from the snapshot, and re-run --------------------------------------
 
 reduced = harvest_schema(
@@ -293,6 +358,10 @@ with driver.session() as session:
     left_behind = session.run(
         "MATCH (k:SemanticKpi) WHERE k.identifier STARTS WITH 'k11_' RETURN count(k) AS n"
     ).single()["n"]
+    session.run(
+        "MATCH (c:SemanticColumn {name: 'session_id'}) "
+        "REMOVE c.concept, c.meaning, c.joinable"
+    )
     session.run(
         "MATCH (c:SemanticConcept) WHERE c.name STARTS WITH 'K11' DETACH DELETE c"
     )
@@ -348,6 +417,23 @@ if second["k11_deal__pipeline_by_contact"].verdict is not FeasibilityVerdict.PAR
     )
 if second["k11_deal__won_value"].verdict is not FeasibilityVerdict.READY:
     failures.append("a KPI untouched by the removal changed verdict")
+if tables_only.verdict is not FeasibilityVerdict.READY:
+    failures.append(
+        "the fixture for the join case is wrong: both tables should be present so the set "
+        "difference alone says ready"
+    )
+if with_joins.verdict is not FeasibilityVerdict.BLOCKED:
+    failures.append(
+        "two present but unjoinable tables were not blocked; the formula would return a "
+        "cross product at run time with nothing reporting it (K12.5)"
+    )
+if not with_joins.unjoinable:
+    failures.append("a no-join-path verdict did not name the pair it could not join")
+if tables_only.rationale == with_joins.rationale:
+    failures.append(
+        "a missing table and an unjoinable pair render identically -- the distinction K12.5 "
+        "exists to draw"
+    )
 if restored != first:
     failures.append("restoring the snapshot did not restore the original assessment")
 if left_behind:

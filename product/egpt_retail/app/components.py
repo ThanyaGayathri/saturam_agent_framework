@@ -186,6 +186,13 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
     providers = build_tier_providers(settings)
     # R8: tier per agent, from the table; refuses an unrouted or model-pinning agent.
     route_agents(agents, providers)
+    # K12 and K13 are deliberately NOT registered here. A registered agent sits on the
+    # framework's generic run route, and a caller hitting it would get the raw draft set with
+    # none of assemble()'s discipline -- no dedup against the registry, no vocabulary check,
+    # no definition self-consistency -- from a prompt whose closed sets were rendered at
+    # startup. They run only through `egpt-retail suggest`, which builds them with the live
+    # registry via `build_suggestion_agents` and always assembles. Routing rows still exist
+    # and the builder still routes; `test_k12_k13_suggestion_pass` pins both.
 
     # The playground agent is built per request by an AgentFactory (R11), not statically
     # like the two above -- `route_agents` only ever sees the two static agents, so its own

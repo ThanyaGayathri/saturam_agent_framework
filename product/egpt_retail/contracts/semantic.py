@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import FrozenSet, Optional, Tuple
+from typing import Callable, FrozenSet, Optional, Tuple
 
 try:  # pragma: no cover -- Protocol is 3.8+, runtime_checkable 3.8+
     from typing import Protocol, runtime_checkable
@@ -273,6 +273,19 @@ class SemanticRead(Protocol):
         ...
 
     async def asnapshot(self) -> Snapshot: ...
+
+    def unjoinable_oracle(self) -> Callable[[str, str], bool]:
+        """A ``(left, right) -> bool`` callable: has review ruled this table pair out?
+
+        Part of the contract rather than a duck-typed extra, because feasibility asks it and
+        a reader without it would silently fall back to the plain set difference -- reporting
+        ``ready`` for a formula that joins two id spaces review has marked unjoinable. A
+        backend that records no such rulings returns a callable that always answers False:
+        absence of a ruling is not a prohibition.
+        """
+        ...
+
+    async def aunjoinable_oracle(self) -> Callable[[str, str], bool]: ...
 
     def list_tables(self, *, include_proposed: bool = False) -> Tuple[TableRef, ...]:
         """Every table the semantic layer exposes.
