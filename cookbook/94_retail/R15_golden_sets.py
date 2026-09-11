@@ -12,11 +12,16 @@ This script:
 3. Shows the deterministic gate (``check_golden_gate``) blocking an unreviewed score and
    allowing a reviewed, passing one -- for ``join_path_explainer``.
 4. The Verify scenario itself: deliberately weakens ``join_path_explainer``'s prompt (the exact
-   rule that forbids inventing a join for a null path), re-runs its golden set, and checks the
-   score actually dropped and the gate actually caught it -- then restores the prompt file and
-   confirms recovery. If the weakened prompt does not produce a measurable drop, this script
-   exits non-zero: per the package's own evidence bar, a golden set that cannot catch this is
-   too easy and has to be strengthened before R15 is done.
+   rule that forbids inventing a join for a null path) **in memory only** -- the checked-in
+   ``join_path_explainer.md`` is read once for its text and never written -- re-runs the
+   golden set against an agent built from the weakened text, and checks the score actually
+   dropped and the gate actually caught it. A ``finally`` block then confirms the file on disk
+   still matches what was read at the start, rather than writing the weakened text over it and
+   restoring it afterwards (the original approach's failure mode: a SIGKILL, OOM or power loss
+   between the write and the restore, or two people running this cookbook at once, could leave
+   a corrupted production prompt on disk). If the weakened prompt does not produce a measurable
+   drop, this script exits non-zero: per the package's own evidence bar, a golden set that
+   cannot catch this is too easy and has to be strengthened before R15 is done.
 
 Needs a Postgres for the rehearsal-review table (self-provisioning, like K7's ``ProposalStore``)
 and a model. Azure is used if configured (matching every other cookbook in this repository);
@@ -170,6 +175,20 @@ connection.autocommit = False
 store = RehearsalReviewStore(connection)
 store.ensure_schema()
 
+# A clean slate for a repeatable demo: record_run() now preserves a prior decision when a
+# re-run reproduces the identical (pass_rate, total_cases) -- correct (a CI re-run must not
+# wipe out who approved this exact score), but it means a *repeat run of this very script*
+# could find join_path_explainer already approved from last time if the local judge happens
+# to land on the same discretised pass rate twice, and step 3 below would then not
+# demonstrate the "before review: blocked" state it exists to show. Clearing this script's
+# own rows first keeps the demo deterministic regardless of what an earlier run left behind.
+with connection.cursor() as cursor:
+    cursor.execute(
+        "DELETE FROM retail_evals.rehearsal_review WHERE skill_identifier = ANY(%s)",
+        (list(gs.SKILL_BUILDERS.keys()),),
+    )
+connection.commit()
+
 baseline: dict = {}
 for identifier, (build_agent, build_cases, prompt_file) in gs.SKILL_BUILDERS.items():
     agent = build_agent(model_factory())
@@ -182,8 +201,14 @@ for identifier, (build_agent, build_cases, prompt_file) in gs.SKILL_BUILDERS.ite
     )
     rate = golden_pass_rate(result)
     baseline[identifier] = (version, rate, result)
+    # golden.skill_identifier/skill_version, not the identifier/version loop variables --
+    # the GoldenSet's own attribution fields are what gets recorded, not a hand-carried copy
+    # of them that merely happens to agree by construction.
     review = store.record_run(
-        identifier, version, pass_rate=rate, total_cases=result.total
+        golden.skill_identifier,
+        golden.skill_version,
+        pass_rate=rate,
+        total_cases=result.total,
     )
     print(
         f"  {identifier:<24} v{version}  {result.passed}/{result.total} passed ({rate:.0%})"
@@ -255,8 +280,17 @@ assert weakened_text != original_text and "1.1.0" in weakened_text
 
 exit_code = 0
 try:
-    JOIN_MD.write_text(weakened_text)
-    print("  prompt weakened on disk; version bumped 1.0.0 -> 1.1.0")
+    # The weakened prompt lives only in memory -- join_path_explainer.md, the checked-in
+    # production skill file, is never written. An earlier revision of this scenario wrote the
+    # weakened text to disk and restored it in a `finally`, which works but carries a narrow,
+    # real risk (SIGKILL/OOM/power loss between the write and the restore, or two people
+    # running this cookbook concurrently) of leaving a corrupted production prompt on disk.
+    # Nothing below actually needs the on-disk file mutated -- the agent is built directly
+    # from `weakened_text` -- so the `finally` block instead proves the file was never
+    # touched, rather than writing over it and restoring it.
+    print(
+        "  prompt weakened in memory only (not written to disk); version bumped 1.0.0 -> 1.1.0"
+    )
 
     weakened_agent = Agent(
         name="join_path_explainer",
@@ -286,8 +320,8 @@ try:
     _print_suite(weakened_result)
 
     weakened_review = store.record_run(
-        "join_path_explainer",
-        weakened_version,
+        weakened_golden.skill_identifier,
+        weakened_golden.skill_version,
         pass_rate=weakened_rate,
         total_cases=weakened_result.total,
     )
@@ -322,11 +356,13 @@ try:
         print("  the gate is fine as shipped.")
         exit_code = 1
 finally:
-    JOIN_MD.write_text(original_text)
-    restored_ok = JOIN_MD.read_text() == original_text
+    # Proof the checked-in file was never touched, rather than a write-then-restore.
+    untouched = JOIN_MD.read_text() == original_text
     print()
-    print(f"  prompt restored to its original text: {'OK' if restored_ok else 'FAIL'}")
-    if not restored_ok:
+    print(
+        f"  checked-in prompt file untouched on disk: {'OK' if untouched else 'FAIL'}"
+    )
+    if not untouched:
         exit_code = 1
 
 # --- 5. Confirm recovery: the restored prompt passes again --------------------------------
@@ -358,8 +394,8 @@ if exit_code == 0:
     )
     _print_suite(restored_result)
     restored_review = store.record_run(
-        "join_path_explainer",
-        jp_version,
+        restored_golden.skill_identifier,
+        restored_golden.skill_version,
         pass_rate=restored_rate,
         total_cases=restored_result.total,
     )
