@@ -711,10 +711,14 @@ async def list_silent_schedules(step_input: StepInput) -> StepOutput:
     db = build_control_plane_db(settings)
     manager = ScheduleManager(db)
     try:
-        by_name = {
-            schedule.name: schedule
-            for schedule in await asyncio.to_thread(manager.list, None, 1000, 1)
-        }
+        # `setdefault`, not a dict comprehension: same first-match reasoning
+        # `assess_execution_health`'s `schedules_by_name` documents just above -- `name` has
+        # no DB uniqueness constraint (`SCHEDULE_TABLE_SCHEMA["name"]` only indexes it), so a
+        # collision is reachable, and the two executors must not silently disagree about
+        # which schedule a shared name resolves to.
+        by_name: Dict[str, Any] = {}
+        for candidate in await asyncio.to_thread(manager.list, None, 1000, 1):
+            by_name.setdefault(candidate.name, candidate)
         silent: List[Dict[str, Any]] = []
         for entry in wanted:
             schedule = by_name.get(entry["name"])

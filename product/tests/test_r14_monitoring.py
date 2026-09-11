@@ -912,6 +912,35 @@ def test_list_silent_schedules_flags_a_disabled_schedule_past_its_window(monkeyp
     assert silent["last_fired_at"] is None
 
 
+def test_list_silent_schedules_name_collision_resolves_to_the_first_listed(monkeypatch):
+    """Round-4 review, PR #211: `by_name` must resolve a name collision the same way
+    `assess_execution_health`'s `schedules_by_name` does, or the two executors can disagree
+    about which schedule a shared name means. Verified directly which one was resolved via
+    `silent["schedule_id"]`, not inferred from a side effect."""
+    import egpt_retail.executors.monitoring as monitoring_module
+
+    first = _FakeSchedule("sch_first", "shared-name", "0 1 * * *")
+    second = _FakeSchedule("sch_second", "shared-name", "0 2 * * *")
+    fake_manager = _FakeScheduleManager([first, second], runs_by_id={})
+    monkeypatch.setattr(
+        monitoring_module, "build_control_plane_db", lambda settings: object()
+    )
+    monkeypatch.setattr(monitoring_module, "ScheduleManager", lambda db: fake_manager)
+
+    output = asyncio.run(
+        list_silent_schedules(
+            StepInput(
+                additional_data={
+                    "now": NOW.isoformat(),
+                    "schedules": [{"name": "shared-name", "use_case_id": "uc_x"}],
+                }
+            )
+        )
+    )
+    [silent] = output.content["silent_schedules"]
+    assert silent["schedule_id"] == "sch_first"
+
+
 def test_list_silent_schedules_is_quiet_once_a_success_lands(monkeypatch):
     import egpt_retail.executors.monitoring as monitoring_module
 

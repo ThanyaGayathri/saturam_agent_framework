@@ -4890,4 +4890,39 @@ always wins a same-second tie over an ordinary success. New test:
   `error` field), brand audit passed, `pytest product/tests/` -- 898 passed, 41 skipped, in
   217s total.
 
+### Round-4: two further review comments, PR #211 (2026-09-11)
+
+**Findings addressed, both in `product/egpt_retail/executors/monitoring.py`:**
+
+1. **Minor -- `list_silent_schedules`'s own `by_name` still resolved the *last*-listed
+   schedule on a name collision**, inconsistent with `assess_execution_health`'s
+   `schedules_by_name`, fixed to first-match one round ago -- the two endpoints could
+   disagree about which schedule a shared name means, confirmed directly (not just read)
+   for the identical input shape before this fix. Fixed the same way: `setdefault` instead
+   of a dict comprehension. New test:
+   `test_list_silent_schedules_name_collision_resolves_to_the_first_listed` (reads
+   `silent["schedule_id"]` directly rather than inferring which schedule won from a side
+   effect).
+2. **Minor -- the CHANGELOG's 1.1.2 entry was never paired with an `info.version` bump** in
+   `egpt-retail.v1.yaml` (still 1.1.1, so the bundled spec was too) -- every earlier entry in
+   the changelog paired 1:1 with a version bump; this one didn't, and
+   `check_api_contract.py`'s staleness check doesn't compare the CHANGELOG heading against
+   `info.version`, so `validate.sh` stayed green despite the drift. Fixed: `version: 1.1.2`
+   in `egpt-retail.v1.yaml`, `./scripts/gen_api_models.sh` re-run.
+
+**A mypy regression caught by `validate.sh`, not a review comment:** the collision fix's
+`for schedule in ...: by_name.setdefault(schedule.name, schedule)` reused the loop variable
+name `schedule` in a scope where it's reassigned again a few lines later from
+`by_name.get(...)` (an `Any | None`) -- mypy unified the two as one variable and refused the
+second assignment against the loop's narrowed `Schedule` type. Renamed the loop variable to
+`candidate`; no behavior change.
+
+**Re-verification:** `cookbook/94_retail/R14_monitoring.py` against the same isolated stack
+-- **PASS**, all thirteen assertions green. `pytest product/tests/test_r14_monitoring.py` --
+55 passed (54 from round-3 plus the new collision test). `pytest product/tests/` -- 899
+passed, 41 skipped. `format.sh`/`validate.sh` both green (121 unrelated rewrites pruned to
+the four files this round touched -- `executors/monitoring.py`, `test_r14_monitoring.py`,
+`egpt-retail.v1.yaml`, `egpt-retail.v1.bundled.json` -- before staging; the mypy failure
+above was caught and fixed on the first `validate.sh` attempt, not shipped).
+
 ---
