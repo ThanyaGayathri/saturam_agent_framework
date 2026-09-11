@@ -109,3 +109,16 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.2 — 2026-09-11 — R14: `UseCaseExecutionHealth.error` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump.
+
+- **`UseCaseExecutionHealth.error`** (string, nullable, optional). Round-2 review, PR #211:
+  `assess_execution_health` isolates one malformed use-case entry (a missing `workflow_id`,
+  say) so it can't abort every other use case's report, and returns an error record in its
+  place -- but that record's `error` key had nowhere to go in the schema, so a caller
+  validating through the generated model would have silently dropped it, making a
+  genuinely-errored use case indistinguishable from one that has simply never run. Latent
+  today (`UseCaseExecutionHealth` has no live instantiation site yet -- `/monitoring/execution-health`
+  isn't wired into a router until P5), fixed now so the gap isn't rediscovered once it is.
+

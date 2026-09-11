@@ -79,6 +79,15 @@ DRIFT_SCORE_THRESHOLD = 0.3
 #: Below this, R15's golden set says the use case is answering worse than its own baseline.
 GOLDEN_PASS_THRESHOLD = 0.8
 
+#: `summarize_execution_health`'s tie-break when two records share a `created_at` second:
+#: lower rank wins a tie. Anything not listed (`completed`/`regenerated`/etc.) ranks lowest,
+#: so a real problem never loses a same-second tie to an ordinary success.
+_TIE_BREAK_RANK: Dict[RunStatus, int] = {
+    RunStatus.error: 0,
+    RunStatus.cancelled: 1,
+    RunStatus.paused: 2,
+}
+
 #: `UseCaseExecutionHealth.silent`/`SilentSchedule`: how long past a schedule's expected fire
 #: the window has to be closed before flagging it, so a schedule two minutes late (the poller
 #: is still mid-cycle) is not reported as silent.
@@ -192,7 +201,21 @@ def summarize_execution_health(
     current_window = [r for r in records if window_start <= r.created_at <= now]
     prior_window = [r for r in records if prior_start <= r.created_at < window_start]
 
-    last = max(records, key=lambda r: r.created_at) if records else None
+    # `created_at` is second-granularity (both the framework's `run.created_at` and
+    # `ScheduleRun.triggered_at` are stored as epoch seconds), so two genuinely distinct
+    # events -- a scheduled retry landing in the same wall-clock second as the run before it,
+    # easily reproduced when a retry follows immediately on failure -- can tie exactly. A bare
+    # `max()` breaks that tie by insertion order, which happens to put session-derived records
+    # before schedule-derived ones and so silently prefers a tied success over a tied failure --
+    # exactly backwards for an executor whose job is to surface trouble, not default to hiding
+    # it under ambiguous ordering. `_TIE_BREAK_RANK` makes the non-`completed`/`succeeded`
+    # outcome win a tie instead, on the same "the glance costs less than the miss" reasoning
+    # `drift_score` documents for its own review heuristic.
+    last = (
+        max(records, key=lambda r: (r.created_at, -_TIE_BREAK_RANK.get(r.status, 99)))
+        if records
+        else None
+    )
     gate_cutoff = now - timedelta(minutes=gate_wait_minutes)
     gates_waiting = sum(
         1
@@ -645,10 +668,13 @@ async def assess_execution_health(step_input: StepInput) -> StepOutput:
     manager = ScheduleManager(db)
 
     try:
-        schedules_by_name = {
-            schedule.name: schedule
-            for schedule in await asyncio.to_thread(manager.list, None, 1000, 1)
-        }
+        # `setdefault` keeps the first-listed schedule on a name collision, matching the
+        # pre-hoist `next((s for s in ... if s.name == schedule_name), None)` this replaced --
+        # schedule names are unique only by a TOCTOU-racy check inside `ScheduleManager.create`,
+        # not a DB constraint, so collisions are reachable even if presumed rare by convention.
+        schedules_by_name: Dict[str, Any] = {}
+        for schedule in await asyncio.to_thread(manager.list, None, 1000, 1):
+            schedules_by_name.setdefault(schedule.name, schedule)
         window_days = int(options.get("window_days", 7))
         results = [
             await _assess_one_use_case_health(
@@ -762,7 +788,12 @@ async def assess_quality(step_input: StepInput) -> StepOutput:
         verdict = quality_verdict(golden_pass_rate, drift)
 
         notes = use_case.get("notes", "")
-        if not notes and verdict == "degraded" and drift is not None:
+        if (
+            not notes
+            and verdict == "degraded"
+            and drift is not None
+            and drift >= DRIFT_SCORE_THRESHOLD
+        ):
             notes = (
                 f"input distribution drift_score={drift:.2f}, at or above the "
                 f"{DRIFT_SCORE_THRESHOLD} threshold, against this version's baseline rows; "

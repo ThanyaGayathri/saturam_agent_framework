@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -165,6 +166,22 @@ def test_summarize_execution_health_counts_the_7d_window_and_last_status():
     assert summary["last_run_at"] == records[0].created_at.isoformat()
     assert summary["runs_7d"] == 2
     assert summary["failures_7d"] == 1
+
+
+def test_summarize_execution_health_a_same_second_failure_beats_a_tied_success():
+    """`created_at` is second-granularity in both real sources (`run.created_at`,
+    `ScheduleRun.triggered_at`), so a retry landing in the same wall-clock second as the
+    run before it is a real, reproducible tie -- not a hypothetical one (round-2
+    verification of PR #211 hit it directly: a forced lock-contention failure landed in the
+    same second as the prior successful run). A bare `max()` would resolve the tie by
+    insertion order and could report the tied success, hiding the failure entirely."""
+    same_second = NOW - timedelta(hours=1)
+    records = [
+        RunRecord("r1", RunStatus.completed, same_second),
+        RunRecord("r2", RunStatus.error, same_second),
+    ]
+    summary = summarize_execution_health(records, now=NOW)
+    assert summary["last_run_status"] == "failed"
 
 
 def test_summarize_execution_health_with_no_runs_reports_nulls_and_zeros():
@@ -703,6 +720,122 @@ def test_assess_execution_health_resolves_schedules_via_one_hoisted_list_call(
     assert set(results_by_id) == {"uc_a", "uc_b", "uc_c"}
 
 
+def test_assess_execution_health_schedule_name_collision_resolves_to_the_first_listed(
+    monkeypatch,
+):
+    """Round-2 review, PR #211: the hoisted `manager.list()` map must preserve the same
+    first-match resolution the pre-hoist `next((s for s in ... if s.name == name), None)`
+    gave, not silently flip to last-match. Reachable, not just theoretical: schedule name
+    uniqueness is only a TOCTOU-racy check inside `ScheduleManager.create`, never a DB
+    constraint (`SCHEDULE_TABLE_SCHEMA["name"]` has no `unique: True`)."""
+    import egpt_retail.executors.monitoring as monitoring_module
+
+    session = SimpleNamespace(
+        runs=[_fake_run("r1", RunStatus.completed, NOW - timedelta(hours=3))]
+    )
+    fake_db = _FakeControlPlaneDb({"wf-a": [session]})
+    # Distinguishable by silence, not just identity: NOW is 11:50. "sch_first" is due daily at
+    # 10:00 (1h50m ago) -- after the 3-hour-old session's last fire, past the 60-minute grace
+    # -- silent=True if resolved. "sch_second" is due daily at 08:00 (3h50m ago) -- before the
+    # session's fire -- silent=False if resolved. First-match semantics means "sch_first" wins.
+    first = _FakeSchedule("sch_first", "shared-name", "0 10 * * *")
+    second = _FakeSchedule("sch_second", "shared-name", "0 8 * * *")
+    fake_manager = _FakeScheduleManager([first, second], runs_by_id={})
+    monkeypatch.setattr(
+        monitoring_module, "build_control_plane_db", lambda settings: fake_db
+    )
+    monkeypatch.setattr(monitoring_module, "ScheduleManager", lambda db: fake_manager)
+
+    output = asyncio.run(
+        assess_execution_health(
+            StepInput(
+                additional_data={
+                    "now": NOW.isoformat(),
+                    "use_cases": [
+                        {
+                            "use_case_id": "uc_a",
+                            "version": 1,
+                            "workflow_id": "wf-a",
+                            "schedule_name": "shared-name",
+                        }
+                    ],
+                }
+            )
+        )
+    )
+    [health] = output.content["use_cases"]
+    assert (
+        health["silent"] is True
+    )  # only true if "sch_first" (first-listed) was resolved
+
+
+class _RaceDetectingControlPlaneDb(_FakeControlPlaneDb):
+    """Models the hazard `assess_execution_health`'s docstring documents: `PostgresDb`'s
+    lazy `Table` reflection is not thread-safe when the db is shared across concurrently
+    gathered use cases. Raises if a second `get_sessions` call arrives while an earlier one
+    is still "in flight" (held open via a short sleep) -- so a regression to
+    `asyncio.gather(*(_assess_one_use_case_health(...) for uc in use_cases))` fails this
+    test in CI, not only in a manual run against real Postgres."""
+
+    def __init__(self, sessions_by_workflow, hold_seconds=0.05):
+        super().__init__(sessions_by_workflow)
+        self._busy = False
+        self._hold_seconds = hold_seconds
+
+    def get_sessions(self, **kwargs):
+        if self._busy:
+            raise AssertionError(
+                "get_sessions was called concurrently with another in-flight call -- "
+                "assess_execution_health must process use cases sequentially, not via "
+                "asyncio.gather, per its own docstring."
+            )
+        self._busy = True
+        try:
+            time.sleep(self._hold_seconds)
+            return super().get_sessions(**kwargs)
+        finally:
+            self._busy = False
+
+
+def test_assess_execution_health_processes_use_cases_sequentially_not_concurrently(
+    monkeypatch,
+):
+    """Regression guard for round-2 review, PR #211: nothing else in this suite would catch
+    a reintroduced `asyncio.gather` over the per-use-case loop, since the plain
+    `_FakeControlPlaneDb` has no shared lazy-reflection state to race on."""
+    import egpt_retail.executors.monitoring as monitoring_module
+
+    session = SimpleNamespace(
+        runs=[_fake_run("r1", RunStatus.completed, NOW - timedelta(hours=1))]
+    )
+    fake_db = _RaceDetectingControlPlaneDb(
+        {"wf-a": [session], "wf-b": [session], "wf-c": [session]}
+    )
+    fake_manager = _FakeScheduleManager([], runs_by_id={})
+    monkeypatch.setattr(
+        monitoring_module, "build_control_plane_db", lambda settings: fake_db
+    )
+    monkeypatch.setattr(monitoring_module, "ScheduleManager", lambda db: fake_manager)
+
+    output = asyncio.run(
+        assess_execution_health(
+            StepInput(
+                additional_data={
+                    "now": NOW.isoformat(),
+                    "use_cases": [
+                        {"use_case_id": "uc_a", "version": 1, "workflow_id": "wf-a"},
+                        {"use_case_id": "uc_b", "version": 1, "workflow_id": "wf-b"},
+                        {"use_case_id": "uc_c", "version": 1, "workflow_id": "wf-c"},
+                    ],
+                }
+            )
+        )
+    )
+    results_by_id = {r["use_case_id"]: r for r in output.content["use_cases"]}
+    assert set(results_by_id) == {"uc_a", "uc_b", "uc_c"}
+    assert all(r.get("error") is None for r in results_by_id.values())
+
+
 def test_assess_execution_health_isolates_a_malformed_use_case_entry(monkeypatch):
     """One entry missing `workflow_id` must not abort the batch -- the good entry after it
     still reports normally, and the bad one comes back as an isolated error record naming its
@@ -915,6 +1048,47 @@ def test_assess_quality_degraded_by_golden_pass_rate_alone_fills_notes():
     assert quality["drift_score"] is None
     assert quality["notes"]
     assert "golden_pass_rate" in quality["notes"]
+
+
+def test_assess_quality_degraded_by_golden_alone_with_healthy_drift_notes_the_right_cause():
+    """Round-2 review, PR #211: the drift-note branch used to fire on `drift is not None`
+    alone, not on whether drift actually breached the threshold. A use case with a healthy
+    drift score *and* a low golden_pass_rate that alone makes the verdict degraded must get
+    the golden-pass-rate explanation, never a false claim that drift was at/above threshold
+    when it plainly was not."""
+    baseline_rows = [
+        {"brand": "acme", "value": "90"},
+        {"brand": "acme", "value": "100"},
+        {"brand": "acme", "value": "110"},
+    ]
+    current_rows = [  # mean shifted by 1 std-fraction, well under the 0.3 threshold
+        {"brand": "acme", "value": "96"},
+        {"brand": "acme", "value": "101"},
+        {"brand": "acme", "value": "106"},
+    ]
+    output = asyncio.run(
+        assess_quality(
+            StepInput(
+                additional_data={
+                    "now": NOW.isoformat(),
+                    "use_cases": [
+                        {
+                            "use_case_id": "uc_rfq_0003",
+                            "version": 5,
+                            "baseline_rows": baseline_rows,
+                            "current_rows": current_rows,
+                            "golden_pass_rate": 0.4,
+                        }
+                    ],
+                }
+            )
+        )
+    )
+    [quality] = output.content["use_cases"]
+    assert quality["verdict"] == "degraded"
+    assert quality["drift_score"] < DRIFT_SCORE_THRESHOLD
+    assert "golden_pass_rate" in quality["notes"]
+    assert "drift_score" not in quality["notes"]
 
 
 def test_assess_quality_unknown_with_no_golden_set_and_nothing_to_diff():

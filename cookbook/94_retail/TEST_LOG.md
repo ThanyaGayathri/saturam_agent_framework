@@ -4827,4 +4827,67 @@ before staging).
   `product`; API contract check passed; brand audit passed; `pytest product/tests/` --
   894 passed, 41 skipped, in 201s total.
 
+### Round-3: four further review comments, PR #211 (2026-09-11)
+
+**Findings addressed, all in `product/egpt_retail/executors/monitoring.py`:**
+
+1. **Minor -- false drift note on a healthy drift score.** The `notes`-fill branch fired on
+   `drift is not None` alone, not on whether drift actually breached
+   `DRIFT_SCORE_THRESHOLD` -- a use case degraded by a low `golden_pass_rate` alone, with a
+   healthy (below-threshold) drift score, got a **false** note claiming drift was "at or
+   above the threshold." Fixed: the branch now also requires
+   `drift >= DRIFT_SCORE_THRESHOLD`. New test:
+   `test_assess_quality_degraded_by_golden_alone_with_healthy_drift_notes_the_right_cause`.
+2. **Minor -- no regression guard for the sequential-not-gathered decision.** Round-2's fakes
+   (`_FakeControlPlaneDb`) have no shared lazy-reflection state to race on, so a reintroduced
+   `asyncio.gather` over the per-use-case loop would pass CI silently. Added
+   `_RaceDetectingControlPlaneDb`, a fake that raises if a second `get_sessions` call arrives
+   while an earlier one is still "in flight" (held via a short `time.sleep`) -- proven to
+   pass sequential access and raise on concurrent access with a standalone script before
+   trusting it, then wired into
+   `test_assess_execution_health_processes_use_cases_sequentially_not_concurrently`.
+3. **Nit -- schedule-name-collision resolution order.** The hoisted `manager.list()` map
+   (a plain dict comprehension) resolves the *last*-listed schedule on a name collision,
+   where the pre-hoist `next(...)` resolved the *first* -- reachable, not just theoretical,
+   since schedule-name uniqueness is only a TOCTOU-racy check inside `ScheduleManager.create`,
+   never a DB constraint. Fixed via `setdefault` to restore first-match semantics. New test:
+   `test_assess_execution_health_schedule_name_collision_resolves_to_the_first_listed`
+   (distinguishes the two candidate schedules by which one's cron makes the result silent).
+4. **Nit -- `UseCaseExecutionHealth.error` undeclared in the API contract.** The isolated
+   per-use-case error record's `error` key had no home in the schema -- a caller validating
+   through the generated Pydantic model would silently drop it. Additive contract change:
+   `error` (nullable string) added to `UseCaseExecutionHealth` in
+   `api/openapi/schemas/monitoring.yaml`; recorded in `api/openapi/CHANGELOG.md` (1.1.2);
+   `./scripts/gen_api_models.sh` re-run.
+
+**A fifth bug found during this round's own re-verification, not one of the four reported
+comments:** `summarize_execution_health`'s `last = max(records, key=lambda r: r.created_at)`
+breaks a tie on `created_at` by insertion order. Both real sources
+(`run.created_at`, `ScheduleRun.triggered_at`) are only second-granularity, and the live
+cookbook run below hit an exact tie for real: the forced lock-contention failure landed in
+the same wall-clock second as the prior successful run, and `max()` silently picked the
+tied success -- `last_run_status` reported `"succeeded"` with the real failure invisible,
+reproduced deterministically on two consecutive runs, not a one-off. Fixed with a
+`_TIE_BREAK_RANK` secondary sort key so a non-`completed` outcome (error, cancelled, paused)
+always wins a same-second tie over an ordinary success. New test:
+`test_summarize_execution_health_a_same_second_failure_beats_a_tied_success`.
+
+**Re-verification:**
+
+- `cookbook/94_retail/R14_monitoring.py` against the same isolated stack (Postgres 5733,
+  Neo4j 7693) -- first attempt caught the tie-break bug above (`FAIL` on "execution health:
+  last_run_status reports the real failure, not the prior success", reproduced twice);
+  after the fix, **PASS**, all thirteen Verify/Evidence assertions green, including that
+  exact assertion.
+- `pytest product/tests/test_r14_monitoring.py` -- 54 passed (50 from round-2 plus 4 new:
+  the false-drift-note test, the concurrency regression guard, the schedule-collision test,
+  and the same-second tie-break test).
+- `pytest product/tests/` -- 898 passed, 41 skipped.
+- `format.sh`/`validate.sh` both green a second time after the tie-break fix (format.sh's
+  ~121 unrelated rewrites pruned to the six files this round actually touched before
+  staging). `validate.sh`: ruff/mypy clean (1748/21/123 source files across `egpt`/
+  `egptctl`/`product`), API contract check passed (contract regenerated after the additive
+  `error` field), brand audit passed, `pytest product/tests/` -- 898 passed, 41 skipped, in
+  217s total.
+
 ---
