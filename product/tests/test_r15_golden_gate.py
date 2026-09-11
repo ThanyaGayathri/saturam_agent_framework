@@ -28,15 +28,22 @@ def check_golden_gate(step_input):
 
 
 def _review(
-    status: RehearsalStatus, *, reviewer=None, note: str = ""
+    status: RehearsalStatus,
+    *,
+    reviewer=None,
+    note: str = "",
+    skill_identifier: str = "join_path_explainer",
+    skill_version: str = "1.0.0",
+    pass_rate: float = 1.0,
+    total_cases: int = 3,
 ) -> RehearsalReview:
     now = datetime.now(timezone.utc)
     return RehearsalReview(
-        skill_identifier="join_path_explainer",
-        skill_version="1.0.0",
+        skill_identifier=skill_identifier,
+        skill_version=skill_version,
         status=status,
-        golden_pass_rate=1.0,
-        total_cases=3,
+        golden_pass_rate=pass_rate,
+        total_cases=total_cases,
         reviewer=reviewer,
         note=note,
         recorded_at=now,
@@ -65,7 +72,12 @@ def test_no_review_blocks_even_a_perfect_score():
 
 
 def test_approved_and_passing_allows():
-    review = _review(RehearsalStatus.APPROVED, reviewer="nandhakumar@saturam.com")
+    review = _review(
+        RehearsalStatus.APPROVED,
+        reviewer="nandhakumar@saturam.com",
+        pass_rate=0.9,
+        total_cases=10,
+    )
 
     output = check_golden_gate(_gate_input(rate=0.9, total=10, review=review))
 
@@ -78,7 +90,11 @@ def test_approved_and_passing_allows():
 
 def test_rejected_review_blocks_regardless_of_score():
     review = _review(
-        RehearsalStatus.REJECTED, reviewer="nandhakumar@saturam.com", note="Too easy."
+        RehearsalStatus.REJECTED,
+        reviewer="nandhakumar@saturam.com",
+        note="Too easy.",
+        pass_rate=1.0,
+        total_cases=10,
     )
 
     output = check_golden_gate(_gate_input(rate=1.0, total=10, review=review))
@@ -88,7 +104,7 @@ def test_rejected_review_blocks_regardless_of_score():
 
 
 def test_pending_review_blocks():
-    review = _review(RehearsalStatus.PENDING)
+    review = _review(RehearsalStatus.PENDING, pass_rate=1.0, total_cases=10)
 
     output = check_golden_gate(_gate_input(rate=1.0, total=10, review=review))
 
@@ -97,7 +113,12 @@ def test_pending_review_blocks():
 
 
 def test_score_under_threshold_blocks_even_when_approved():
-    review = _review(RehearsalStatus.APPROVED, reviewer="nandhakumar@saturam.com")
+    review = _review(
+        RehearsalStatus.APPROVED,
+        reviewer="nandhakumar@saturam.com",
+        pass_rate=0.6,
+        total_cases=10,
+    )
 
     output = check_golden_gate(_gate_input(rate=0.6, total=10, review=review))
 
@@ -110,7 +131,12 @@ def test_empty_golden_set_fails_the_score_check_regardless_of_the_rate():
     """A pass rate with no cases behind it is not evidence -- golden_pass_rate() itself already
     returns 0.0 for an empty suite, but the gate must refuse to be fooled by a caller passing a
     stale nonzero rate with total_cases=0."""
-    review = _review(RehearsalStatus.APPROVED, reviewer="nandhakumar@saturam.com")
+    review = _review(
+        RehearsalStatus.APPROVED,
+        reviewer="nandhakumar@saturam.com",
+        pass_rate=1.0,
+        total_cases=0,
+    )
 
     output = check_golden_gate(_gate_input(rate=1.0, total=0, review=review))
 
@@ -123,7 +149,12 @@ def test_default_threshold_is_eighty_percent():
 
 
 def test_custom_threshold_is_read_from_additional_data():
-    review = _review(RehearsalStatus.APPROVED, reviewer="nandhakumar@saturam.com")
+    review = _review(
+        RehearsalStatus.APPROVED,
+        reviewer="nandhakumar@saturam.com",
+        pass_rate=0.5,
+        total_cases=10,
+    )
     step_input = StepInput(
         additional_data={
             "skill_identifier": "join_path_explainer",
@@ -145,6 +176,112 @@ def test_no_additional_data_blocks_rather_than_raising():
 
     assert output.content["allowed"] is False
     assert output.content["blocked_by"] == ["golden_set_passed", "rehearsal_reviewed"]
+
+
+def test_malformed_golden_pass_rate_blocks_rather_than_raising():
+    """id=3988654357: a non-numeric value must degrade like a missing one, not crash the
+    executor with an uncaught ValueError/TypeError."""
+    step_input = StepInput(
+        additional_data={
+            "skill_identifier": "join_path_explainer",
+            "skill_version": "1.0.0",
+            "golden_pass_rate": "not-a-number",
+            "total_cases": 10,
+            "review": _review(RehearsalStatus.APPROVED, reviewer="a@b.com"),
+        }
+    )
+
+    output = check_golden_gate(step_input)
+
+    assert output.content["allowed"] is False
+    assert output.content["blocked_by"] == ["golden_set_passed", "rehearsal_reviewed"]
+    assert "not-a-number" in output.content["checks"][0]["reason"]
+
+
+def test_malformed_total_cases_blocks_rather_than_raising():
+    step_input = StepInput(
+        additional_data={
+            "skill_identifier": "join_path_explainer",
+            "skill_version": "1.0.0",
+            "golden_pass_rate": 0.9,
+            "total_cases": None,
+            "review": _review(RehearsalStatus.APPROVED, reviewer="a@b.com"),
+        }
+    )
+
+    output = check_golden_gate(step_input)
+
+    assert output.content["allowed"] is False
+    assert output.content["blocked_by"] == ["golden_set_passed", "rehearsal_reviewed"]
+
+
+def test_malformed_threshold_blocks_rather_than_raising():
+    step_input = StepInput(
+        additional_data={
+            "skill_identifier": "join_path_explainer",
+            "skill_version": "1.0.0",
+            "golden_pass_rate": 0.9,
+            "total_cases": 10,
+            "threshold": {"not": "a number"},
+            "review": _review(RehearsalStatus.APPROVED, reviewer="a@b.com"),
+        }
+    )
+
+    output = check_golden_gate(step_input)
+
+    assert output.content["allowed"] is False
+
+
+# --- id=3988596560 / id=3988653658: the review must match this exact (skill, version, score) --
+
+
+def test_approved_review_for_a_different_skill_version_does_not_allow():
+    """A caller bug (stale review object, wrong loop variable in a batch) must not pair an
+    approval for join_path_explainer 1.0.0 with a passing score for 1.1.0."""
+    review = _review(RehearsalStatus.APPROVED, reviewer="nandhakumar@saturam.com")
+    step_input = StepInput(
+        additional_data={
+            "skill_identifier": "join_path_explainer",
+            "skill_version": "1.1.0",  # review above is for 1.0.0
+            "golden_pass_rate": 0.9,
+            "total_cases": 10,
+            "review": review,
+        }
+    )
+
+    output = check_golden_gate(step_input)
+
+    assert output.content["allowed"] is False
+    assert "rehearsal_reviewed" in output.content["blocked_by"]
+
+
+def test_approved_review_for_a_different_skill_identifier_does_not_allow():
+    review = _review(RehearsalStatus.APPROVED, reviewer="nandhakumar@saturam.com")
+    step_input = StepInput(
+        additional_data={
+            "skill_identifier": "spec_extractor",  # review above is for join_path_explainer
+            "skill_version": "1.0.0",
+            "golden_pass_rate": 0.9,
+            "total_cases": 10,
+            "review": review,
+        }
+    )
+
+    output = check_golden_gate(step_input)
+
+    assert output.content["allowed"] is False
+    assert "rehearsal_reviewed" in output.content["blocked_by"]
+
+
+def test_approved_review_recorded_against_a_different_score_does_not_allow():
+    """The review (rate=1.0, total=3, from ``_review``) must not be trusted for a caller-
+    supplied score it was never recorded against, even for the same (skill, version)."""
+    review = _review(RehearsalStatus.APPROVED, reviewer="nandhakumar@saturam.com")
+
+    output = check_golden_gate(_gate_input(rate=0.9, total=10, review=review))
+
+    assert output.content["allowed"] is False
+    assert "rehearsal_reviewed" in output.content["blocked_by"]
 
 
 # --- golden.py -------------------------------------------------------------------------------
