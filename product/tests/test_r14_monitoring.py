@@ -236,6 +236,13 @@ def test_is_silent_false_once_a_success_lands_at_or_after_the_expected_fire():
     assert is_silent(expected_at, fresh_success, now=NOW, grace_minutes=60) is False
 
 
+def test_is_silent_false_at_the_exact_expected_fire_boundary():
+    """A fire landing at exactly `expected_at` (not a moment after) still reads as "fired,
+    not silent" -- the boundary the `<` (not `<=`) comparison in `is_silent` is for."""
+    expected_at = NOW - timedelta(hours=2)
+    assert is_silent(expected_at, expected_at, now=NOW, grace_minutes=60) is False
+
+
 def test_is_silent_respects_the_grace_period():
     # Expected two minutes ago -- the window has not really closed yet.
     expected_at = NOW - timedelta(minutes=2)
@@ -399,8 +406,24 @@ class _FakeControlPlaneDb:
         self._sessions_by_workflow = sessions_by_workflow
         self.calls: List[dict] = []
 
-    def get_sessions(self, *, session_type=None, component_id=None, limit=None):
-        self.calls.append({"session_type": session_type, "component_id": component_id})
+    def get_sessions(
+        self,
+        *,
+        session_type=None,
+        component_id=None,
+        limit=None,
+        sort_by=None,
+        sort_order=None,
+    ):
+        self.calls.append(
+            {
+                "session_type": session_type,
+                "component_id": component_id,
+                "limit": limit,
+                "sort_by": sort_by,
+                "sort_order": sort_order,
+            }
+        )
         assert session_type == SessionType.WORKFLOW
         return self._sessions_by_workflow.get(component_id, [])
 
@@ -412,9 +435,11 @@ def test_assess_execution_health_reads_the_named_workflows_run_history(monkeypat
         runs=[_fake_run("r1", RunStatus.completed, NOW - timedelta(hours=1))]
     )
     fake_db = _FakeControlPlaneDb({"rfq-funnel": [session]})
+    fake_manager = _FakeScheduleManager([], runs_by_id={})
     monkeypatch.setattr(
         monitoring_module, "build_control_plane_db", lambda settings: fake_db
     )
+    monkeypatch.setattr(monitoring_module, "ScheduleManager", lambda db: fake_manager)
 
     output = asyncio.run(
         assess_execution_health(
@@ -434,7 +459,13 @@ def test_assess_execution_health_reads_the_named_workflows_run_history(monkeypat
         )
     )
     assert fake_db.calls == [
-        {"session_type": SessionType.WORKFLOW, "component_id": "rfq-funnel"}
+        {
+            "session_type": SessionType.WORKFLOW,
+            "component_id": "rfq-funnel",
+            "limit": 500,
+            "sort_by": "created_at",
+            "sort_order": "desc",
+        }
     ]
     [health] = output.content["use_cases"]
     assert health["use_case_id"] == "uc_rfq_0001"
@@ -447,9 +478,11 @@ def test_assess_execution_health_flags_silent_from_a_stale_cadence(monkeypatch):
     import egpt_retail.executors.monitoring as monitoring_module
 
     fake_db = _FakeControlPlaneDb({"nightly-refresh": []})
+    fake_manager = _FakeScheduleManager([], runs_by_id={})
     monkeypatch.setattr(
         monitoring_module, "build_control_plane_db", lambda settings: fake_db
     )
+    monkeypatch.setattr(monitoring_module, "ScheduleManager", lambda db: fake_manager)
 
     output = asyncio.run(
         assess_execution_health(
@@ -537,9 +570,10 @@ class _FakeSchedule:
 
 
 class _FakeScheduleRun:
-    def __init__(self, status, triggered_at):
+    def __init__(self, status, triggered_at, run_id=None):
         self.status = status
         self.triggered_at = triggered_at
+        self.run_id = run_id
 
 
 class _FakeScheduleManager:
@@ -547,8 +581,10 @@ class _FakeScheduleManager:
         self._schedules = schedules
         self._runs_by_id = runs_by_id
         self.closed = False
+        self.list_calls = 0
 
     def list(self, enabled=None, limit=100, page=1):
+        self.list_calls += 1
         return self._schedules
 
     def get_runs(self, schedule_id, limit=20, page=1):
@@ -556,6 +592,159 @@ class _FakeScheduleManager:
 
     def close(self):
         self.closed = True
+
+
+def test_assess_execution_health_dedups_a_run_seen_via_both_session_and_schedule_run(
+    monkeypatch,
+):
+    """The realistic success-path overlap: `ScheduleExecutor.execute()` writes a `ScheduleRun`
+    row for *every* attempt, including successes, and a successful `workflow.arun()` also
+    persists the `WorkflowSession` normally -- only the error path skips that persistence. So
+    the same run_id legitimately shows up on both sides, and merging them without dedup would
+    double-count it."""
+    import egpt_retail.executors.monitoring as monitoring_module
+
+    session = SimpleNamespace(
+        runs=[_fake_run("wf-run-shared", RunStatus.completed, NOW - timedelta(hours=3))]
+    )
+    fake_db = _FakeControlPlaneDb({"nightly-refresh": [session]})
+    schedule = _FakeSchedule("sch_nightly", "nightly-refresh", "0 1 * * *")
+    fake_manager = _FakeScheduleManager(
+        [schedule],
+        runs_by_id={
+            "sch_nightly": [
+                _FakeScheduleRun(
+                    "success",
+                    int((NOW - timedelta(hours=3)).timestamp()),
+                    run_id="wf-run-shared",
+                )
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        monitoring_module, "build_control_plane_db", lambda settings: fake_db
+    )
+    monkeypatch.setattr(monitoring_module, "ScheduleManager", lambda db: fake_manager)
+
+    output = asyncio.run(
+        assess_execution_health(
+            StepInput(
+                additional_data={
+                    "now": NOW.isoformat(),
+                    "use_cases": [
+                        {
+                            "use_case_id": "uc_nightly_refresh",
+                            "title": "Nightly refresh",
+                            "version": 1,
+                            "workflow_id": "nightly-refresh",
+                            "schedule_name": "nightly-refresh",
+                        }
+                    ],
+                }
+            )
+        )
+    )
+    [health] = output.content["use_cases"]
+    assert health["runs_7d"] == 1  # the same run_id, not one from each source
+    assert health["last_run_status"] == "succeeded"
+
+
+def test_assess_execution_health_resolves_schedules_via_one_hoisted_list_call(
+    monkeypatch,
+):
+    """`manager.list` must be queried once for the whole batch, not once per use case --
+    the same map-before-the-loop pattern `list_silent_schedules` already uses."""
+    import egpt_retail.executors.monitoring as monitoring_module
+
+    session = SimpleNamespace(
+        runs=[_fake_run("r1", RunStatus.completed, NOW - timedelta(hours=1))]
+    )
+    fake_db = _FakeControlPlaneDb(
+        {"wf-a": [session], "wf-b": [session], "wf-c": [session]}
+    )
+    schedule_a = _FakeSchedule("sch_a", "schedule-a", "0 1 * * *")
+    schedule_b = _FakeSchedule("sch_b", "schedule-b", "0 2 * * *")
+    fake_manager = _FakeScheduleManager([schedule_a, schedule_b], runs_by_id={})
+    monkeypatch.setattr(
+        monitoring_module, "build_control_plane_db", lambda settings: fake_db
+    )
+    monkeypatch.setattr(monitoring_module, "ScheduleManager", lambda db: fake_manager)
+
+    output = asyncio.run(
+        assess_execution_health(
+            StepInput(
+                additional_data={
+                    "now": NOW.isoformat(),
+                    "use_cases": [
+                        {
+                            "use_case_id": "uc_a",
+                            "version": 1,
+                            "workflow_id": "wf-a",
+                            "schedule_name": "schedule-a",
+                        },
+                        {
+                            "use_case_id": "uc_b",
+                            "version": 1,
+                            "workflow_id": "wf-b",
+                            "schedule_name": "schedule-b",
+                        },
+                        {
+                            "use_case_id": "uc_c",
+                            "version": 1,
+                            "workflow_id": "wf-c",
+                        },
+                    ],
+                }
+            )
+        )
+    )
+    assert fake_manager.list_calls == 1
+    results_by_id = {r["use_case_id"]: r for r in output.content["use_cases"]}
+    assert set(results_by_id) == {"uc_a", "uc_b", "uc_c"}
+
+
+def test_assess_execution_health_isolates_a_malformed_use_case_entry(monkeypatch):
+    """One entry missing `workflow_id` must not abort the batch -- the good entry after it
+    still reports normally, and the bad one comes back as an isolated error record naming its
+    own use_case_id."""
+    import egpt_retail.executors.monitoring as monitoring_module
+
+    session = SimpleNamespace(
+        runs=[_fake_run("r1", RunStatus.completed, NOW - timedelta(hours=1))]
+    )
+    fake_db = _FakeControlPlaneDb({"rfq-funnel": [session]})
+    fake_manager = _FakeScheduleManager([], runs_by_id={})
+    monkeypatch.setattr(
+        monitoring_module, "build_control_plane_db", lambda settings: fake_db
+    )
+    monkeypatch.setattr(monitoring_module, "ScheduleManager", lambda db: fake_manager)
+
+    output = asyncio.run(
+        assess_execution_health(
+            StepInput(
+                additional_data={
+                    "now": NOW.isoformat(),
+                    "use_cases": [
+                        {"use_case_id": "uc_malformed", "version": 1},  # no workflow_id
+                        {
+                            "use_case_id": "uc_rfq_0001",
+                            "title": "RFQ funnel",
+                            "version": 3,
+                            "workflow_id": "rfq-funnel",
+                        },
+                    ],
+                }
+            )
+        )
+    )
+    results_by_id = {r["use_case_id"]: r for r in output.content["use_cases"]}
+    assert set(results_by_id) == {"uc_malformed", "uc_rfq_0001"}
+    assert "error" in results_by_id["uc_malformed"]
+    assert results_by_id["uc_malformed"]["runs_7d"] == 0
+    good = results_by_id["uc_rfq_0001"]
+    assert "error" not in good
+    assert good["last_run_status"] == "succeeded"
+    assert good["runs_7d"] == 1
 
 
 def test_list_silent_schedules_flags_a_disabled_schedule_past_its_window(monkeypatch):
@@ -700,6 +889,32 @@ def test_assess_quality_healthy_with_no_baseline_to_compare_and_a_good_golden_ra
     [quality] = output.content["use_cases"]
     assert quality["verdict"] == "healthy"
     assert quality["drift_score"] is None
+
+
+def test_assess_quality_degraded_by_golden_pass_rate_alone_fills_notes():
+    """Degraded purely by a low `golden_pass_rate` with no drift baseline to compare
+    (`drift=None`) must still get a filled-in reason -- not just the drift-driven case."""
+    output = asyncio.run(
+        assess_quality(
+            StepInput(
+                additional_data={
+                    "now": NOW.isoformat(),
+                    "use_cases": [
+                        {
+                            "use_case_id": "uc_rfq_0002",
+                            "version": 2,
+                            "golden_pass_rate": 0.4,
+                        }
+                    ],
+                }
+            )
+        )
+    )
+    [quality] = output.content["use_cases"]
+    assert quality["verdict"] == "degraded"
+    assert quality["drift_score"] is None
+    assert quality["notes"]
+    assert "golden_pass_rate" in quality["notes"]
 
 
 def test_assess_quality_unknown_with_no_golden_set_and_nothing_to_diff():

@@ -4748,3 +4748,83 @@ this document's own standing note; pruned to the four files this package actuall
 before staging).
 
 ---
+
+### PR #211 review round 1 -- eight findings (dedup, N+1, missing notes branch, unordered
+### LIMIT, batch isolation, concurrency, boundary test), all addressed in
+### `product/egpt_retail/executors/monitoring.py`
+
+**Findings and fixes:**
+
+1. **High -- double-counted successful scheduled runs.** `assess_execution_health` merged
+   session-derived and `ScheduleRun`-derived records with no dedup; since a successful
+   scheduled run is persisted through *both* paths (`WorkflowSession` via `workflow.arun()`'s
+   normal path, and a `ScheduleRun` row `ScheduleExecutor.execute()` writes for every
+   attempt), the same run counted twice. Fixed: the merge now tracks `run_id`s already seen
+   from the session side and skips any `ScheduleRun` whose `run_id` already appears there.
+   New test: `test_assess_execution_health_dedups_a_run_seen_via_both_session_and_schedule_run`
+   -- the same run_id via a `WorkflowSession` and a `ScheduleRun`, counted once.
+2. **Medium/Major (two reviewers, same finding) -- N+1 `manager.list`.** `manager.list(None,
+   1000, 1)` ran inside the per-use-case loop, re-querying up to 1000 schedule rows per use
+   case. Fixed: hoisted above the loop into a `{schedule.name: schedule}` map built once, the
+   same pattern `list_silent_schedules` already uses. New test:
+   `test_assess_execution_health_resolves_schedules_via_one_hoisted_list_call` -- three use
+   cases, two with distinct schedules, `manager.list_calls == 1`.
+3. **Low-Medium -- `notes` blank when degraded by `golden_pass_rate` alone.** Added an
+   `elif verdict == "degraded" and golden_pass_rate is not None` branch in `assess_quality`
+   mirroring the existing drift-driven message. New test:
+   `test_assess_quality_degraded_by_golden_pass_rate_alone_fills_notes`.
+4. **Major -- unordered `LIMIT 500`.** `db.get_sessions(..., limit=500)` passed no
+   `sort_by`/`sort_order`; `apply_sorting()` is a no-op when `sort_by is None`, so a use case
+   with more than 500 sessions could get an arbitrary subset instead of its most recent runs.
+   Fixed: `sort_by="created_at", sort_order="desc"`, matching every other `limit`-bounded
+   `get_sessions` call site in the codebase. New assertion in
+   `test_assess_execution_health_reads_the_named_workflows_run_history` on the exact
+   `get_sessions` call args (sort_by/sort_order/limit) issued.
+5. **Minor -- one malformed `use_cases` entry aborted the whole batch.** Bracket access on
+   `workflow_id`/`use_case_id` raised `KeyError` for one bad entry and lost every other use
+   case's report. Fixed: each use case's processing is now isolated in
+   `_assess_one_use_case_health`, with a new `_execution_health_error_record` helper reporting
+   a degraded/error record (contract-shaped defaults plus an `error` field) for the one
+   malformed entry instead of raising. New test:
+   `test_assess_execution_health_isolates_a_malformed_use_case_entry` -- one entry missing
+   `workflow_id`, one good entry after it; the good one still reports normally.
+6. **Minor -- sequential per-use-case I/O.** Attempted first with `asyncio.gather` across use
+   cases (fix #2's schedule-map hoist already removed one await from inside the loop). This
+   was **reverted after it broke the real cookbook run**: `PostgresDb.get_sessions` lazily
+   reflects and caches its `Table` object onto the shared `db` instance
+   (`self.session_table`), and `ScheduleManager` shares the same `db`; gathering concurrently
+   races that lazy reflection across `asyncio.to_thread` worker threads. This reproduced live
+   against the real control-plane Postgres in `cookbook/94_retail/R14_monitoring.py` as a
+   stray `AttributeError: workflow_id` on the second use case in a batch of two, from a
+   `Table` object one thread was still constructing while another thread's query read a
+   column off it -- not a theoretical race. **Deferred, honestly, per the reviewer's own
+   escape hatch**: fixing it properly needs a `db`/`manager` per task or a lock around the
+   lazy reflection, either larger than this fix's scope; `assess_execution_health` stays
+   sequential (correct and safe) with the isolation from fix #5 intact, and the docstring
+   spells out why.
+7. **Nit -- no exact-equality boundary test for `is_silent`.** New test:
+   `test_is_silent_false_at_the_exact_expected_fire_boundary` -- `last_fired_at == expected_at`
+   asserts `is_silent` is `False`. The `<` comparison itself needed no code change.
+
+**Re-verification:**
+
+- `cookbook/94_retail/R14_monitoring.py` against the R14 worktree's own isolated stack
+  (Postgres 5733, Neo4j 7693, `egpt-retail-r14-*` containers, migrations re-applied
+  idempotently) -- **PASS**, all thirteen Verify/Evidence assertions green, including the
+  fix-#1/#4 exercised paths (`last_run_status` reports the real failure via the
+  `ScheduleRun` merge, `runs_7d`/`failures_7d` real counts). The concurrency regression from
+  fix #6's first attempt was caught here, not in the unit suite -- the mocked fakes in
+  `test_r14_monitoring.py` are simple enough to be inherently thread-safe and would not have
+  shown the race; only the real Postgres reflection did.
+- `pytest product/tests/test_r14_monitoring.py` -- 50 passed (the prior 45 plus 5 new: the
+  dedup test, the hoisted-list-call test, the malformed-entry-isolation test, the
+  golden-pass-rate-notes test, and the exact-equality `is_silent` boundary test).
+- `pytest product/tests/` -- 894 passed, 41 skipped.
+- `format.sh`/`validate.sh` both green (`format.sh` rewrote ~120 unrelated files repo-wide,
+  same standing note as above; pruned to the two files this round actually touched --
+  `product/egpt_retail/executors/monitoring.py` and `product/tests/test_r14_monitoring.py`
+  -- before staging). `validate.sh`: ruff/mypy clean across `egpt`, `egptctl`, `cookbook`,
+  `product`; API contract check passed; brand audit passed; `pytest product/tests/` --
+  894 passed, 41 skipped, in 201s total.
+
+---

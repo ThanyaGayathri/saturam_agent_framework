@@ -459,6 +459,127 @@ def _now(options: Mapping[str, Any]) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
+def _execution_health_error_record(use_case: Any, exc: BaseException) -> Dict[str, Any]:
+    """The record :func:`assess_execution_health` reports for one use case whose own
+    processing raised -- a malformed ``use_cases`` entry (a missing ``workflow_id`` or
+    ``use_case_id``, say) isolated to that entry rather than aborting the whole batch, the
+    same "isolate per-item failures" posture a batch loop over independently-fallible entries
+    needs generally."""
+    try:
+        use_case_id = use_case.get("use_case_id", "<unknown>")
+    except AttributeError:
+        use_case_id = "<unknown>"
+    try:
+        title = use_case.get("title", use_case_id)
+    except AttributeError:
+        title = use_case_id
+    try:
+        version = int(use_case.get("version", 1))
+    except (AttributeError, TypeError, ValueError):
+        version = 1
+    return {
+        "use_case_id": use_case_id,
+        "title": title,
+        "version": version,
+        "silent": False,
+        "last_run_status": None,
+        "last_run_at": None,
+        "runs_7d": 0,
+        "failures_7d": 0,
+        "gates_waiting": 0,
+        "cost_7d": {"input_tokens": 0, "output_tokens": 0, "drift_pct": None},
+        "error": f"{type(exc).__name__}: {exc}",
+    }
+
+
+async def _assess_one_use_case_health(
+    use_case: Mapping[str, Any],
+    *,
+    db: Any,
+    manager: ScheduleManager,
+    schedules_by_name: Mapping[str, Any],
+    now: datetime,
+    window_days: int,
+) -> Dict[str, Any]:
+    """One use case's slice of :func:`assess_execution_health`, isolated so one malformed
+    entry (a bracket access on a missing key, e.g. ``workflow_id``) cannot abort every other
+    use case's report. Not gathered concurrently with its siblings -- see
+    :func:`assess_execution_health`'s own docstring for why the shared, lazily-reflecting
+    ``db``/``manager`` make that unsafe here."""
+    try:
+        workflow_id = use_case["workflow_id"]
+        sessions = await asyncio.to_thread(
+            db.get_sessions,
+            session_type=SessionType.WORKFLOW,
+            component_id=workflow_id,
+            sort_by="created_at",
+            sort_order="desc",
+            limit=500,
+        )
+        records: List[RunRecord] = []
+        seen_run_ids: set[str] = set()
+        for session in sessions or []:
+            for record in extract_run_records(session):
+                records.append(record)
+                if record.run_id is not None:
+                    seen_run_ids.add(record.run_id)
+
+        cron = use_case.get("schedule_cron")
+        cron_timezone = use_case.get("schedule_timezone", "UTC")
+        schedule_name = use_case.get("schedule_name")
+        if schedule_name:
+            schedule = schedules_by_name.get(schedule_name)
+            if schedule is not None:
+                cron = schedule.cron_expr
+                cron_timezone = schedule.timezone
+                schedule_runs = await asyncio.to_thread(
+                    manager.get_runs, schedule.id, 100, 1
+                )
+                # `schedule_run_records` stamps `run_id` from the same run a successful
+                # `workflow.arun()` also persists as a `WorkflowSession` -- only the error
+                # path skips that persistence -- so a run_id already seen from the session
+                # side is the same attempt, not a second one, and would double-count
+                # `runs_7d`/`cost_7d` if merged in again.
+                for record in schedule_run_records(schedule_runs):
+                    if record.run_id is not None and record.run_id in seen_run_ids:
+                        continue
+                    records.append(record)
+
+        summary = summarize_execution_health(
+            records,
+            now=now,
+            window_days=window_days,
+            gate_wait_minutes=int(
+                use_case.get("gate_wait_minutes", _DEFAULT_GATE_WAIT_MINUTES)
+            ),
+        )
+
+        silent = False
+        if cron:
+            expected_at = expected_previous_fire(cron, cron_timezone, now)
+            # Any attempt counts as "fired", not only a successful one -- see
+            # `is_silent`'s own docstring on why silence and failure stay distinct.
+            last_fired_at = max((r.created_at for r in records), default=None)
+            silent = is_silent(
+                expected_at,
+                last_fired_at,
+                now=now,
+                grace_minutes=int(
+                    use_case.get("silent_grace_minutes", _DEFAULT_SILENT_GRACE_MINUTES)
+                ),
+            )
+
+        return {
+            "use_case_id": use_case["use_case_id"],
+            "title": use_case.get("title", use_case["use_case_id"]),
+            "version": int(use_case.get("version", 1)),
+            "silent": silent,
+            **summary,
+        }
+    except Exception as exc:  # noqa: BLE001 -- isolate this entry, keep the batch going
+        return _execution_health_error_record(use_case, exc)
+
+
 async def assess_execution_health(step_input: StepInput) -> StepOutput:
     """`GET /monitoring/execution-health`'s data, assembled from real run history.
 
@@ -467,17 +588,25 @@ async def assess_execution_health(step_input: StepInput) -> StepOutput:
     silent_grace_minutes}`` -- the mapping from a use case to the workflow whose sessions
     carry its runs, and (when it has one) the schedule that promises it a cadence.
 
-    ``schedule_name``, when given, is looked up through the real `ScheduleManager` (the same
-    one ``egpt-retail schedule-nightly`` writes through) for two things: its `cron_expr`/
-    `timezone` (used for the silent check below, taking precedence over an explicitly passed
-    ``schedule_cron``/``schedule_timezone``), and -- the reason it matters here rather than
-    only in :func:`list_silent_schedules` -- its `ScheduleRun` history, merged in via
-    :func:`schedule_run_records`. That merge is not optional decoration: a hard step failure
-    under `on_error=OnError.fail` unwinds straight past the code that would persist a
-    `WorkflowSession`, so a *scheduled* use case's failures are visible here only through its
-    `ScheduleRun` ledger, which the real poller writes on exactly that exception. A use case
-    with neither ``schedule_name`` nor ``schedule_cron`` is never silent by definition, not by
-    a missing-data coincidence, and its execution health comes from `WorkflowSession` history
+    ``schedule_name``, when given, is resolved against a name -> schedule map built **once**
+    from the real `ScheduleManager` (the same one ``egpt-retail schedule-nightly`` writes
+    through) before the per-use-case pass starts, the same ``list_silent_schedules`` pattern
+    -- not re-queried per use case, which would otherwise be N redundant round trips against a
+    table that does not change during the pass. Resolving a schedule gets two things: its
+    `cron_expr`/`timezone` (used for the silent check below, taking precedence over an
+    explicitly passed ``schedule_cron``/``schedule_timezone``), and -- the reason it matters
+    here rather than only in :func:`list_silent_schedules` -- its `ScheduleRun` history,
+    merged in via :func:`schedule_run_records`. That merge is not optional decoration: a hard
+    step failure under `on_error=OnError.fail` unwinds straight past the code that would
+    persist a `WorkflowSession`, so a *scheduled* use case's failures are visible here only
+    through its `ScheduleRun` ledger, which the real poller writes on exactly that exception.
+    Because a *successful* scheduled run is persisted through **both** paths -- the
+    `WorkflowSession` (`workflow.arun()`'s normal path) and the `ScheduleRun` row
+    (`ScheduleExecutor.execute()` writes one for every attempt) -- the merge dedups by
+    ``run_id``: a `ScheduleRun` whose ``run_id`` already appears in the session-derived
+    records is the same attempt seen twice, not two runs. A use case with neither
+    ``schedule_name`` nor ``schedule_cron`` is never silent by definition, not by a
+    missing-data coincidence, and its execution health comes from `WorkflowSession` history
     alone -- the honest limitation for an on-demand use case nothing schedules.
 
     ``additional_data["now"]`` overrides the clock, the same convention ``gold.py``'s
@@ -487,8 +616,26 @@ async def assess_execution_health(step_input: StepInput) -> StepOutput:
     Reads every session for each workflow id through the control-plane db's synchronous
     ``get_sessions`` (offloaded via ``asyncio.to_thread`` -- an ``async def`` executor is
     awaited directly by the engine with no automatic thread offload, the same reasoning
-    ``read_gold`` documents for its own warehouse round-trips), then reduces them to
-    :class:`RunRecord`\\ s and hands the aggregation to the pure functions above.
+    ``read_gold`` documents for its own warehouse round-trips), sorted ``created_at`` descending
+    so a use case with more than the 500-row ``limit`` gets its most recent sessions rather
+    than an arbitrary, unordered subset, then reduces them to :class:`RunRecord`\\ s and hands
+    the aggregation to the pure functions above.
+
+    Each use case is still processed one at a time, deliberately not gathered concurrently
+    with `asyncio.gather` even though each one's own I/O is logically independent of every
+    other's: `PostgresDb.get_sessions` lazily reflects and caches its `Table` object onto
+    ``self`` (``self.session_table``) on first use, and this control-plane ``db`` -- like
+    ``manager`` -- is one instance shared across every use case in the batch. Gathering
+    concurrently sends that lazy reflection racing across `asyncio.to_thread` worker threads,
+    and it is not thread-safe: this was not a theoretical concern, it reproduced against the
+    real control-plane Postgres in ``cookbook/94_retail/R14_monitoring.py`` as a stray
+    `AttributeError` on the *second* use case in a batch of two, from a `Table` object one
+    thread was still constructing while another thread's query already tried to read a column
+    off it. Fixing that properly means either a `db`/`manager` per task or a lock around the
+    lazy reflection, and either is a larger change than this fix's scope -- so the
+    concurrency optimisation is deferred here, sequential is correct and safe, and a use case
+    whose own processing raises (a malformed entry -- see :func:`_assess_one_use_case_health`)
+    still reports an isolated error record instead of aborting every other use case's report.
     """
     options = _options(step_input)
     now = _now(options)
@@ -498,74 +645,22 @@ async def assess_execution_health(step_input: StepInput) -> StepOutput:
     manager = ScheduleManager(db)
 
     try:
-        results: List[Dict[str, Any]] = []
-        for use_case in use_cases:
-            workflow_id = use_case["workflow_id"]
-            sessions = await asyncio.to_thread(
-                db.get_sessions,
-                session_type=SessionType.WORKFLOW,
-                component_id=workflow_id,
-                limit=500,
-            )
-            records: List[RunRecord] = []
-            for session in sessions or []:
-                records.extend(extract_run_records(session))
-
-            cron = use_case.get("schedule_cron")
-            cron_timezone = use_case.get("schedule_timezone", "UTC")
-            schedule_name = use_case.get("schedule_name")
-            if schedule_name:
-                schedule = next(
-                    (
-                        s
-                        for s in await asyncio.to_thread(manager.list, None, 1000, 1)
-                        if s.name == schedule_name
-                    ),
-                    None,
-                )
-                if schedule is not None:
-                    cron = schedule.cron_expr
-                    cron_timezone = schedule.timezone
-                    schedule_runs = await asyncio.to_thread(
-                        manager.get_runs, schedule.id, 100, 1
-                    )
-                    records.extend(schedule_run_records(schedule_runs))
-
-            summary = summarize_execution_health(
-                records,
+        schedules_by_name = {
+            schedule.name: schedule
+            for schedule in await asyncio.to_thread(manager.list, None, 1000, 1)
+        }
+        window_days = int(options.get("window_days", 7))
+        results = [
+            await _assess_one_use_case_health(
+                use_case,
+                db=db,
+                manager=manager,
+                schedules_by_name=schedules_by_name,
                 now=now,
-                window_days=int(options.get("window_days", 7)),
-                gate_wait_minutes=int(
-                    use_case.get("gate_wait_minutes", _DEFAULT_GATE_WAIT_MINUTES)
-                ),
+                window_days=window_days,
             )
-
-            silent = False
-            if cron:
-                expected_at = expected_previous_fire(cron, cron_timezone, now)
-                # Any attempt counts as "fired", not only a successful one -- see
-                # `is_silent`'s own docstring on why silence and failure stay distinct.
-                last_fired_at = max((r.created_at for r in records), default=None)
-                silent = is_silent(
-                    expected_at,
-                    last_fired_at,
-                    now=now,
-                    grace_minutes=int(
-                        use_case.get(
-                            "silent_grace_minutes", _DEFAULT_SILENT_GRACE_MINUTES
-                        )
-                    ),
-                )
-
-            results.append(
-                {
-                    "use_case_id": use_case["use_case_id"],
-                    "title": use_case.get("title", use_case["use_case_id"]),
-                    "version": int(use_case.get("version", 1)),
-                    "silent": silent,
-                    **summary,
-                }
-            )
+            for use_case in use_cases
+        ]
 
         return StepOutput(content={"as_of": now.isoformat(), "use_cases": results})
     finally:
@@ -672,6 +767,14 @@ async def assess_quality(step_input: StepInput) -> StepOutput:
                 f"input distribution drift_score={drift:.2f}, at or above the "
                 f"{DRIFT_SCORE_THRESHOLD} threshold, against this version's baseline rows; "
                 "the run itself completed."
+            )
+        elif not notes and verdict == "degraded" and golden_pass_rate is not None:
+            # No drift baseline to compare against (or none given) -- the golden set alone
+            # is why this use case is degraded, and that reason deserves the same explanation
+            # the drift-driven branch above gives, not a blank string.
+            notes = (
+                f"golden_pass_rate={golden_pass_rate:.2f} is below threshold; the run "
+                "itself completed."
             )
 
         results.append(
