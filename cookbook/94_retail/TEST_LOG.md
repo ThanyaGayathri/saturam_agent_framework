@@ -4637,3 +4637,114 @@ reason Recommend never appeared; the agent had not had the domain grounding to p
 cookbooks; product ruff and mypy clean under `validate.sh`. Open: R-15, R-16, K-13.
 
 ---
+
+### R14_monitoring.py
+
+**Package:** R14
+
+**Status:** PASS (14 checks, twice in a row -- idempotency verified by re-running -- against
+the compose stack's real Postgres; no Neo4j-specific data needed, no model credential).
+
+**Description:** The delivery plan's D14 Verify line, run against real run history: drive
+`nightly-refresh` to two real successes (R10's own hand-edit-yesterday's-gold technique, so
+today's real materialisation has a mover), then let a run fail for real (hold the
+landing-to-silver advisory lock `load_landing_files` itself takes, drive `nightly-refresh`
+again), register a real schedule whose cadence's most recent expected fire is months in the
+past with no run ever recorded, and hand-degrade a real mover row while keeping the delivered
+explanation text byte-for-byte identical. `assess_execution_health`, `list_silent_schedules`
+and `assess_quality` (`executors/monitoring.py`, three new deterministic executors, registered
+alongside Lane K's K9/K11 as read-only reports -- none returns `stop=True`, so
+`permits_or_blocks` is `False` for all three) are then called for real and must show the right
+numbers.
+
+**Scope, as actually drawn.** This package owns execution health (from run history) and the
+input-drift half of the quality assessment; R15 (golden question sets, the rehearsal/publish
+gate) is a sibling package building concurrently in its own worktree and was not touched.
+`UseCaseQuality.golden_pass_rate` is accepted here as a plain input — R15's number, passed
+through unmodified — never computed; every scenario in this cookbook exercises the shape
+`golden_pass_rate` takes before R15 has run for a use case (`None`), which is also the
+contract's own worked `unknown` example.
+
+**A real framework finding the failure scenario surfaced, not a hypothetical one.** The plan
+was to hold `load_landing_files`'s own advisory lock and let `nightly-refresh`'s `arun()`
+persist a `RunStatus.error` run the way `WorkflowRunOutput.status = RunStatus.error` (set right
+before the exception is re-raised, `workflow.py`'s own non-streaming `_aexecute`) suggests it
+would. It does not: the `except Exception` branch that stamps that status re-raises immediately,
+unwinding past the `workflow_session.upsert_run`/`save_session` calls that follow it in the
+same method — confirmed directly against this database (`select ... from egpt_sessions where
+workflow_id = 'nightly-refresh'` after the forced failure showed only the two prior successes,
+never the failed run). A hard step failure under `on_error=OnError.fail`, driven through
+`arun()` directly, is therefore invisible to execution health's primary source
+(`get_sessions(session_type=WORKFLOW, ...)`) — not a corner case, the exact scenario this
+package's own Verify line asks for. In production this is covered: the real poller
+(`egpt.scheduler.executor.ScheduleExecutor`) calls a scheduled workflow over HTTP and, on any
+exception from that call, writes `ScheduleRun.status = "failed"` in its own `except` clause —
+a different ledger than `WorkflowSession`, written by a different code path, for exactly this
+failure mode. No HTTP router exists yet to drive that path here (interface wiring is phase
+five per the delivery plan), so the cookbook drives the same two `PostgresDb` primitives the
+poller itself calls (`create_schedule_run`/`update_schedule_run`) by hand, around a real raised
+exception from a real run — everything is real except the network hop. Fixed properly rather
+than worked around in the cookbook alone: `assess_execution_health` now merges a named
+schedule's real `ScheduleRun` history into its `RunRecord`s (`schedule_run_records`, new), so a
+scheduled use case's execution health is not blind to a hard failure just because
+`WorkflowSession` never saw it. Filed nowhere else because there is nowhere else in this
+package's scope to file it — it is the reason `schedule_run_records` exists.
+
+**A second, smaller correction the same scenario forced.** `is_silent`'s first draft compared
+a schedule's expected fire only against its *successful* run history, on the reasoning that a
+failed-but-attempted run should not read as "it fired". Building the failure scenario above
+made the bug in that reasoning obvious immediately: with `last_success_at` sourced only from
+`RunStatus.completed`/`"success"` records, the newly-recorded `ScheduleRun` failure did not
+count as a fire at all, and `nightly-refresh` reported `silent: true` in the same breath as
+`failures_7d: 1` — indistinguishable from a schedule that had never run. The D14 evidence line
+is explicit that these are different findings ("the silent schedule is flagged, which failure
+monitoring alone would miss"), so conflating "never fired" with "fired and failed" would make
+a broken-but-firing schedule invisible to the one check meant to catch a schedule that stopped
+being triggered at all. Fixed before this cookbook ever ran clean: `is_silent`/
+`assess_execution_health`/`list_silent_schedules` all now compare against the last *fired*
+timestamp (any status, any attempt), never only the last success.
+
+**Result, scenario by scenario:**
+
+```
+1. nightly-refresh, two real runs   COMPLETED, COMPLETED -- a real mover forced by hand-editing
+                                     yesterday's gold, the same technique R05/R10 use
+2. let a run fail                   held the real advisory lock; nightly-refresh raised for a
+                                     real reason (lock contention); recorded as a real
+                                     ScheduleRun failure (status=failed, error message intact)
+3. assess_execution_health          uc_nightly_refresh: runs_7d=3, failures_7d=1,
+                                     last_run_status=failed, silent=false (it fired; the last
+                                     fire failed); uc_rfq_0001 (no Azure credentials, so
+                                     rfq-funnel was never driven through arun(), the same
+                                     posture R10's own offline half takes): runs_7d=0,
+                                     last_run_status=null -- the contract's own uc_0002 shape
+4. disable a schedule, past window  a real schedule (cron "0 0 1 1 *", months in the past,
+                                     zero ScheduleRuns) flagged by list_silent_schedules while
+                                     enabled, and identically once manager.disable()d
+5. degrade input, output unchanged  one real mover row's current_value hand-shifted from 1 to
+                                     700; the delivered explanation string is the same Python
+                                     object in both calls; assess_quality: healthy/drift 0.0
+                                     unchanged vs degraded/drift 0.5/"degraded" with a filled
+                                     reason, golden_pass_rate null throughout (R15 has not run)
+```
+
+**Deliberately not exercised live.** `gates_waiting` (an approval gate paused past its wait
+threshold): neither `nightly-refresh` nor `rfq-funnel` has a HITL confirmation step in this
+codebase today, so no real paused run exists to count -- covered instead by
+`test_r14_monitoring.py`'s `summarize_execution_health` unit tests against a synthetic paused
+`RunRecord`, the same posture R13's `TEST_LOG` takes for `delta`/`series`. `cost_7d` token
+counts: real, but zero in this environment for the same reason -- no Azure credentials, so no
+agent run ever produced `RunMetrics` to sum.
+
+**Result:** PASS, twice in a row. `pytest product/tests/test_r14_monitoring.py` -- 45 passed
+(pure unit tests over every helper: `map_run_status`, `extract_run_records`,
+`schedule_run_records`, `cost_drift_pct`, `summarize_execution_health`, `expected_previous_fire`,
+`is_silent` including the deliberately-disabled-schedule case, `input_signature`, `drift_score`
+across numeric/categorical/null-rate/kind-change/no-shared-fields shapes, `quality_verdict`
+across every signal combination, plus the three executors' wiring against a mocked db/
+`ScheduleManager`); `pytest product/tests/` -- 889 passed, 41 skipped;
+`format.sh`/`validate.sh` both green (`format.sh` rewrote ~120 unrelated files repo-wide, per
+this document's own standing note; pruned to the four files this package actually touched
+before staging).
+
+---
