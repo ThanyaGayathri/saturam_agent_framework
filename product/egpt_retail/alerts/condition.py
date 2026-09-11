@@ -14,7 +14,8 @@ from __future__ import annotations
 import calendar
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
+from decimal import Decimal
+from typing import Optional, Union
 
 from egpt_retail.contracts.kpi import TimeWindow, TimeWindowUnit
 
@@ -41,6 +42,31 @@ OPERATOR_SYMBOLS = {
 }
 
 _DELTA_OPERATORS = frozenset({"delta_gt", "delta_lt"})
+
+#: ``eq``'s tolerance, in the KPI's own unit. A gold ``value`` is a ``float()`` cast of a
+#: Postgres ``NUMERIC`` column (``executors/alerts.py``'s ``evaluate_alert_condition``); a
+#: threshold is the same cast of a ``NUMERIC`` column in ``alert_definitions``
+#: (``alerts/store.py``'s ``_row_to_definition``). Comparing the two casts with plain ``==``
+#: means an alert on a realistic continuous KPI -- a rate, a percentage, this module's own
+#: worked example ``supplier__on_time_rate_30d`` -- essentially never fires: the two casts
+#: rarely land on the exact same double even when the underlying decimals agree. Widening the
+#: comparison past bit-for-bit float equality needs *some* tolerance; 1e-9 is far smaller than
+#: any realistic KPI's meaningful precision (a rate or a percentage cares about the 3rd or 4th
+#: decimal place at most) and far larger than the float noise a NUMERIC->float cast introduces,
+#: so it closes the gap the cast opens without opening a new one of its own.
+_EQ_TOLERANCE = Decimal("1e-9")
+
+
+def _as_decimal(value: Union[float, int, Decimal, str]) -> Decimal:
+    """``value`` as an exact :class:`Decimal`, via its string form.
+
+    Never ``Decimal(a_float)`` directly -- that imports the float's *exact* binary value (a
+    ~55-digit decimal expansion essentially unrelated to what anyone typed or what Postgres
+    computed), not the decimal it was meant to represent. Going through ``str()`` recovers the
+    shortest decimal that round-trips to that float, which is what both a human-entered
+    threshold and a ``NUMERIC`` column's ``float()`` cast actually mean.
+    """
+    return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
 class ConditionUnavailable(ValueError):
@@ -76,6 +102,13 @@ def condition_met(
     ``met=False``, which would be indistinguishable from a fired-never-fires. K11's contract
     of never inventing a plausible value for missing data applies to a threshold check
     exactly as it applies to a formula: an unanswerable comparison must say so, not guess "no".
+
+    ``eq`` compares as :class:`~decimal.Decimal`, via each operand's own decimal string, and
+    tolerates a difference of ``1e-9`` (:data:`_EQ_TOLERANCE`) rather than requiring bit-for-bit
+    float equality -- see that constant's own comment for why plain ``==`` on two independent
+    ``NUMERIC``-to-``float`` casts essentially never fires for a continuous KPI. An ``eq``
+    alert over a pure integer or count KPI (no cast noise to absorb) is unaffected: the
+    tolerance is many orders of magnitude below "1 count".
     """
     if operator not in OPERATOR_SYMBOLS:
         raise ConditionUnavailable(
@@ -96,7 +129,7 @@ def condition_met(
     elif operator == "lte":
         met = value <= threshold
     elif operator == "eq":
-        met = value == threshold
+        met = abs(_as_decimal(value) - _as_decimal(threshold)) <= _EQ_TOLERANCE
     elif operator == "delta_gt":
         met = (value - previous_value) > threshold  # type: ignore[operator]
     else:  # delta_lt

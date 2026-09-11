@@ -867,6 +867,10 @@ class AlertScope(BaseModel):
         examples=["inventory", "sales", "supply_chain"],
     )
     grain_value: str | None = None
+    grain_column: str | None = Field(
+        None,
+        description="Which gold-view column `grain_value` is matched against, when the KPI's rows carry\nmore than one dimension column (e.g. both `region` and `channel`) and a bare\n`grain_value` could equal more than one of them. Optional and additive (CHANGELOG\n1.1.2): a legacy definition with no `grain_column` is matched only when the result\nset is unambiguous on shape alone -- refused, not guessed, when it is not.\n",
+    )
 
 
 class AnswerBlock(BaseModel):

@@ -54,9 +54,58 @@ from egpt_retail.warehouse.gold import (
 from egpt_retail.warehouse.loads import LoadLock
 from egpt_retail.warehouse.schema import GOLD_SCHEMA, SILVER_SCHEMA, gold_view
 
-__all__ = ["GOLD_EXECUTORS", "materialise_gold", "read_gold", "last_load_verdict"]
+__all__ = [
+    "GOLD_EXECUTORS",
+    "materialise_gold",
+    "read_gold",
+    "last_load_verdict",
+    "GOLD_ROW_METADATA_KEYS",
+    "grain_key_columns",
+    "row_for_grain_value",
+]
 
 log = logging.getLogger(__name__)
+
+#: Every column a gold view row carries besides whatever grain-key columns the view itself
+#: projects for a given KPI (``warehouse/gold.py``'s ``view_statements``/``classify_result_
+#: columns``). One definition, shared by every consumer of a ``read_gold`` row that needs to
+#: tell a dimension column apart from bookkeeping -- ``executors/dashboards/data.py``'s tile
+#: rendering and ``executors/alerts.py``'s scope matching both used to carry their own copy of
+#: this set; a new metadata column here (``executors/gold.py``'s own row shape) now only needs
+#: updating once.
+GOLD_ROW_METADATA_KEYS = frozenset(
+    {"as_of", "value", "computed_at", "source_snapshot", "run_id"}
+)
+
+
+def grain_key_columns(rows: Sequence[Mapping[str, Any]]) -> List[str]:
+    """The non-metadata (grain-key) column names the first of ``rows`` carries -- assumes
+    every row of one KPI's result set shares the same shape, true for a gold view's rows."""
+    if not rows:
+        return []
+    return [key for key in rows[0] if key not in GOLD_ROW_METADATA_KEYS]
+
+
+def row_for_grain_value(
+    rows: Sequence[Mapping[str, Any]], grain_value: Any
+) -> Optional[Mapping[str, Any]]:
+    """The first row where any non-metadata column equals ``grain_value``, whichever column
+    that turns out to be.
+
+    This is the loose match every caller used before a caller could name the column outright
+    (``AlertScope.grain_column``, R12): ambiguous when a row carries more than one grain-key
+    column, since a value that happens to match two different columns silently picks whichever
+    is found first. Kept for callers with no way to name the column (``dashboards/data.py``'s
+    tile rendering, whose ``Tile`` contract has no ``grain_column``); a caller that can name
+    the column should match against it directly instead (``executors/alerts.py``'s own
+    ``_select_row``).
+    """
+    target = str(grain_value)
+    for row in rows:
+        for key, value in row.items():
+            if key not in GOLD_ROW_METADATA_KEYS and str(value) == target:
+                return row
+    return None
 
 
 def _options(step_input: StepInput) -> Mapping[str, Any]:

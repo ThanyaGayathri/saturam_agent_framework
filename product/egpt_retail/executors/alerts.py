@@ -38,9 +38,10 @@ import asyncio
 import logging
 import uuid
 from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from egpt.workflow.types import StepInput, StepOutput
+from sqlalchemy.engine import Engine
 
 from egpt_retail.alerts.condition import (
     ConditionUnavailable,
@@ -59,7 +60,7 @@ from egpt_retail.contracts.kpi import (
     TimeWindowUnit,
 )
 from egpt_retail.delivery import awrite_delivery
-from egpt_retail.executors.gold import read_gold
+from egpt_retail.executors.gold import grain_key_columns, read_gold
 from egpt_retail.kpi.store import KpiRegistryStore
 
 __all__ = [
@@ -70,12 +71,6 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
-
-#: Row columns ``read_gold``'s per-KPI rows always carry, alongside whatever grain-key
-#: columns the view projects (``warehouse/gold.py``'s ``view_statements``).
-_STANDARD_ROW_COLUMNS = frozenset(
-    {"as_of", "value", "computed_at", "source_snapshot", "run_id"}
-)
 
 
 def _options(step_input: StepInput) -> Mapping[str, Any]:
@@ -98,9 +93,17 @@ def _select_row(
 
     A KPI at grain ``overall`` (or one materialised for only one dimension) has exactly one
     row and there is nothing to choose between. A KPI with several dimension rows needs
-    ``scope.grain_value`` to say which -- returned only on an exact match against one of the
-    row's non-standard (grain-key) columns, never guessed, because picking the wrong brand's
-    row and calling it a fired alert is worse than refusing to evaluate at all.
+    ``scope.grain_value`` to say which, matched against ``scope.grain_column`` when the
+    definition names one -- an additive ``AlertScope`` field precisely so this never has to
+    guess: a gold row can carry more than one dimension column (``region`` *and* ``channel``),
+    and a ``grain_value`` that happens to equal both is exactly the "picked the wrong brand's
+    row and called it a fired alert" failure naming the column exists to prevent.
+
+    A legacy definition with no ``grain_column`` (authored before this field existed) is
+    matched only when the result set is unambiguous on shape alone -- exactly one grain-key
+    column across every row, so there is only one column a bare value could mean. Two or more
+    grain-key columns with no named column to choose between is refused, not guessed: logged
+    and reported as no row available, the same as any other "cannot evaluate" reason.
     """
     if not rows:
         return None
@@ -110,10 +113,30 @@ def _select_row(
     if grain_value is None:
         return None
     target = str(grain_value)
-    for row in rows:
-        for key, value in row.items():
-            if key not in _STANDARD_ROW_COLUMNS and str(value) == target:
+
+    grain_column = (scope or {}).get("grain_column")
+    if grain_column is not None:
+        for row in rows:
+            if grain_column in row and str(row[grain_column]) == target:
                 return row
+        return None
+
+    columns = grain_key_columns(rows)
+    if len(columns) != 1:
+        log.warning(
+            "_select_row: scope.grain_value=%r given with no scope.grain_column, and this "
+            "KPI's rows carry %d grain-key columns (%s) -- refusing to guess which one to "
+            "match, since a value that matches more than one column would silently select "
+            "the wrong row. Set scope.grain_column on this alert definition.",
+            target,
+            len(columns),
+            columns,
+        )
+        return None
+    (only_column,) = columns
+    for row in rows:
+        if str(row.get(only_column)) == target:
+            return row
     return None
 
 
@@ -221,7 +244,23 @@ async def write_alert(step_input: StepInput) -> StepOutput:
     event: this codebase's convention is that the two agree (``record_provenance``'s own
     return value is ``{"provenance_ref": record.run_id}``), and this step runs *before*
     ``record_provenance`` in K15's own Alert sequence, so it cannot wait for that step's
-    output to learn its own run's id.
+    output to learn its own run's id. ``control_plane_engine`` (optional, an already-open
+    ``sqlalchemy.engine.Engine``) lets a batch caller (:func:`evaluate_alerts`) share the one
+    engine it already holds open for the whole run rather than this step opening and disposing
+    a fresh one per fired alert; a standalone call (a future single-alert compiled Alert-shape
+    workflow, or this package's own cookbook) omits it and gets one built and disposed here,
+    exactly as before.
+
+    The returned content is the persisted ``alert_events`` row (the contract's own
+    ``AlertEvent`` shape) plus one orchestration-only key, ``newly_fired``: ``True`` when this
+    call inserted a new row, ``False`` when a row already existed for the same
+    ``(alert_id, as_of)`` evaluation window and that existing row was returned instead --
+    R12's own duplicate-fire guard (``alert_events_alert_id_as_of_uidx``,
+    ``alerts/ddl.py``), so a repeated evaluation of a still-breaching condition (two
+    concurrent runs, one retried after a partial failure, a manual re-run) never inserts a
+    second event or pages recipients twice. :func:`evaluate_alerts` pops that key before using
+    the event as a delivery payload; a caller that does not care about the distinction can
+    simply ignore it.
     """
     options = _options(step_input)
     previous = step_input.previous_step_content
@@ -270,16 +309,24 @@ async def write_alert(step_input: StepInput) -> StepOutput:
         "recommended_actions": list(options.get("recommended_actions") or []),
         "run_id": run_id,
         "provenance_ref": run_id,
+        # The evaluation window this firing belongs to -- not part of the public `AlertEvent`
+        # shape, only the dedup key `create_or_get` matches on.
+        "as_of": previous.get("as_of"),
     }
 
-    settings = RetailSettings()
-    engine = build_control_plane_engine(settings)
+    engine: Optional[Engine] = options.get("control_plane_engine")
+    owns_engine = engine is None
+    if owns_engine:
+        settings = RetailSettings()
+        engine = build_control_plane_engine(settings)
+    assert engine is not None  # either given, or just built above
     try:
-        saved = await AlertEventStore(engine).acreate(event)
+        saved, newly_fired = await AlertEventStore(engine).acreate_or_get(event)
     finally:
-        engine.dispose()
+        if owns_engine:
+            engine.dispose()
 
-    return StepOutput(content=saved, success=True)
+    return StepOutput(content={**saved, "newly_fired": newly_fired}, success=True)
 
 
 def _run_id(options: Mapping[str, Any]) -> str:
@@ -309,6 +356,36 @@ def _fetch_kpi_definitions(
         connection.close()
 
 
+async def _deliver_one(
+    engine: Engine,
+    *,
+    run_id: str,
+    use_case_id: Optional[str],
+    event: Mapping[str, Any],
+    recipient: Mapping[str, Any],
+    dry_run: bool,
+    now: datetime,
+) -> None:
+    """One recipient's delivery of one fired event.
+
+    Deliberately allowed to raise (a malformed recipient -- e.g. missing ``channel`` --
+    raises ``KeyError`` here): the caller runs every recipient of one alert through
+    ``asyncio.gather(..., return_exceptions=True)``, so one bad recipient never prevents
+    another recipient of the *same* alert, or any other definition in the batch, from being
+    delivered.
+    """
+    await awrite_delivery(
+        engine,
+        id=str(uuid.uuid4()),
+        run_id=run_id,
+        use_case_id=use_case_id,
+        channel=recipient["channel"],
+        dry_run=dry_run,
+        content={"kind": "alert_event", "alert_event": event, "recipient": recipient},
+        delivered_at=None if dry_run else now,
+    )
+
+
 async def evaluate_alerts(step_input: StepInput) -> StepOutput:
     """R12's own deliverable: every enabled ``alert_definitions`` row, evaluated against
     gold, once, after materialisation.
@@ -319,7 +396,10 @@ async def evaluate_alerts(step_input: StepInput) -> StepOutput:
     than copied per call), then this module's own ``evaluate_alert_condition`` and
     ``write_alert`` for each definition -- the same three functions a future single-alert
     compiled Alert-shape workflow would call, so the batch path is not a second
-    implementation of the condition or the event shape.
+    implementation of the condition or the event shape. ``read_gold`` is called at most once
+    per distinct ``(kpi_identifier, as_of)`` pair for the whole batch -- several definitions
+    sharing one ``kpi_identifier`` (a common case: a warning and a critical threshold over the
+    same metric) share the read rather than each re-issuing it.
 
     A ``delta_*`` operator's previous-period value is looked up here (a second ``read_gold``
     call at ``as_of`` shifted back by the definition's ``window``) because that decision
@@ -330,15 +410,25 @@ async def evaluate_alerts(step_input: StepInput) -> StepOutput:
     alert was created, is not re-validated at creation time here -- it is reported as
     "cannot evaluate" and its own ``last_evaluated_at`` still advances, which is the same
     "ran, and here is why nothing more happened" the Verify scenario's silent case needs.
+    The same is true of any other unexpected failure evaluating one definition (a malformed
+    ``window``, a KPI whose row shape changed underneath it, a delivery failure for one
+    recipient): caught, recorded against *that* definition, and the batch continues -- one
+    bad definition must never abort every definition after it in the same pass, the same
+    per-item isolation ``materialise_gold``/``amaterialise_registry`` already give each KPI.
+
+    A definition that fires when an ``alert_events`` row already exists for the same
+    ``(alert_id, as_of)`` window (a retried or concurrent evaluation, or a manual re-run
+    while the KPI is still over threshold) does not insert a second row or re-page
+    recipients -- see :meth:`AlertEventStore.create_or_get`'s own docstring.
 
     ``additional_data``: ``as_of`` (default: latest per KPI, via ``read_gold``'s own
     default), ``alert_ids`` (a subset; default every enabled definition), ``dry_run``
-    (forwarded to delivery, same flag ``deliver_in_app`` reads), ``run_id``.
+    (forwarded to delivery, same flag ``deliver_in_app`` reads), ``run_id``. When ``run_id``
+    is not pre-pinned, the fallback minted here is written back into ``additional_data``
+    immediately (the same dict ``record_provenance`` reads next in the ``alert-evaluation``
+    workflow), so both steps agree on one id rather than each minting their own.
     """
-    options = _options(step_input)
     settings = RetailSettings()
-    run_id = _run_id(options)
-    dry_run = bool(options.get("dry_run", False))
     now = datetime.now(timezone.utc)
 
     shared: Dict[str, Any]
@@ -348,11 +438,36 @@ async def evaluate_alerts(step_input: StepInput) -> StepOutput:
     else:
         shared = step_input.additional_data
 
+    run_id = _run_id(shared)
+    shared.setdefault("run_id", run_id)
+    dry_run = bool(shared.get("dry_run", False))
+    # Captured once, before any read_gold call below mutates `shared["as_of"]` for a
+    # delta_* operator's previous-period read -- `shared` is this run's one mutable bag
+    # (aliased with whatever `step_input.additional_data` already held), so reading
+    # `shared.get("as_of")` *inside* the loop after the first delta_* definition would see
+    # that definition's shifted prior-period date leak into every definition after it.
+    caller_as_of: Optional[str] = shared.get("as_of")
+
+    gold_cache: Dict[Tuple[str, Optional[str]], StepOutput] = {}
+
+    async def cached_read_gold(kpi_identifier: str, as_of: Optional[str]) -> StepOutput:
+        key = (kpi_identifier, as_of)
+        cached = gold_cache.get(key)
+        if cached is None:
+            shared["kpi_identifiers"] = [kpi_identifier]
+            if as_of:
+                shared["as_of"] = as_of
+            else:
+                shared.pop("as_of", None)
+            cached = await read_gold(StepInput(additional_data=shared))
+            gold_cache[key] = cached
+        return cached
+
     control_plane_engine = build_control_plane_engine(settings)
     definition_store = AlertDefinitionStore(control_plane_engine)
     try:
         definitions = await definition_store.alist(enabled=True)
-        wanted = options.get("alert_ids")
+        wanted = shared.get("alert_ids")
         if wanted:
             keep = {str(identifier) for identifier in wanted}
             definitions = [d for d in definitions if d["id"] in keep]
@@ -367,123 +482,167 @@ async def evaluate_alerts(step_input: StepInput) -> StepOutput:
         fired_events: List[Dict[str, Any]] = []
 
         for definition in definitions:
-            kpi_identifier = definition["kpi_identifier"]
-            kpi = kpi_definitions.get(kpi_identifier)
-            if kpi is None or kpi.result_shape != ResultShape.SCALAR:
-                reason = (
-                    "KPI no longer in the registry"
-                    if kpi is None
-                    else f"{kpi_identifier} is a rowset and cannot be thresholded"
-                )
-                evaluated.append(
-                    {
-                        "alert_id": definition["id"],
-                        "kpi_identifier": kpi_identifier,
-                        "fired": False,
-                        "value": None,
-                        "reason": reason,
-                    }
-                )
-                await definition_store.amark_evaluated(
-                    definition["id"], at=now, fired=False
-                )
-                continue
-
-            shared["kpi_identifiers"] = [kpi_identifier]
-            if options.get("as_of"):
-                shared["as_of"] = options["as_of"]
-            else:
-                shared.pop("as_of", None)
-            current_output = await read_gold(StepInput(additional_data=shared))
-
-            previous_value: Optional[float] = None
-            window = definition.get("window")
-            time_window = _time_window(window)
-            if (
-                requires_previous_period(definition["operator"])
-                and time_window is not None
-            ):
-                rows = (
-                    _content_dict(current_output)["kpis"]
-                    .get(kpi_identifier, {})
-                    .get("rows", [])
-                )
-                row = _select_row(rows, definition.get("scope"))
-                if row is not None:
-                    prior_as_of = shift_date(
-                        date.fromisoformat(row["as_of"]), time_window
+            alert_id = definition["id"]
+            kpi_identifier: Optional[str] = definition.get("kpi_identifier")
+            try:
+                kpi = kpi_definitions.get(kpi_identifier) if kpi_identifier else None
+                if kpi is None or kpi.result_shape != ResultShape.SCALAR:
+                    reason = (
+                        "KPI no longer in the registry"
+                        if kpi is None
+                        else f"{kpi_identifier} is a rowset and cannot be thresholded"
                     )
-                    shared["kpi_identifiers"] = [kpi_identifier]
-                    shared["as_of"] = prior_as_of.isoformat()
-                    previous_output = await read_gold(StepInput(additional_data=shared))
-                    previous_rows = (
-                        _content_dict(previous_output)["kpis"]
+                    evaluated.append(
+                        {
+                            "alert_id": alert_id,
+                            "kpi_identifier": kpi_identifier,
+                            "fired": False,
+                            "value": None,
+                            "reason": reason,
+                        }
+                    )
+                    await definition_store.amark_evaluated(
+                        alert_id, at=now, fired=False
+                    )
+                    continue
+                # `kpi` came from `kpi_definitions.get(kpi_identifier) if kpi_identifier
+                # else None`, so `kpi` being non-None here already proves `kpi_identifier`
+                # was a real string -- this just narrows the type for mypy.
+                assert kpi_identifier is not None
+
+                current_output = await cached_read_gold(kpi_identifier, caller_as_of)
+
+                previous_value: Optional[float] = None
+                window = definition.get("window")
+                time_window = _time_window(window)
+                if (
+                    requires_previous_period(definition["operator"])
+                    and time_window is not None
+                ):
+                    rows = (
+                        _content_dict(current_output)["kpis"]
                         .get(kpi_identifier, {})
                         .get("rows", [])
                     )
-                    previous_row = _select_row(previous_rows, definition.get("scope"))
-                    if previous_row is not None:
-                        previous_value = float(previous_row["value"])
-
-            condition_input = StepInput(
-                additional_data={
-                    "kpi_identifier": kpi_identifier,
-                    "operator": definition["operator"],
-                    "threshold": definition["threshold"],
-                    "scope": definition.get("scope"),
-                    "previous_value": previous_value,
-                },
-                previous_step_content=current_output.content,
-            )
-            condition_output = await evaluate_alert_condition(condition_input)
-            condition_content = _content_dict(condition_output)
-            fired = bool(condition_content.get("fired"))
-            evaluated.append({"alert_id": definition["id"], **condition_content})
-
-            if fired:
-                write_input = StepInput(
-                    additional_data={
-                        "alert_id": definition["id"],
-                        "alert_name": definition["name"],
-                        "kpi_name": kpi.name,
-                        "unit": "",
-                        "window": window,
-                        "scope": definition.get("scope"),
-                        "severity": definition["severity"],
-                        "recommended_actions": definition.get("recommended_actions"),
-                        "use_case_id": definition.get("use_case_id"),
-                        "process_id": definition.get("process_id"),
-                        "run_id": run_id,
-                    },
-                    previous_step_content=condition_content,
-                )
-                write_output = await write_alert(write_input)
-                event = _content_dict(write_output)
-                fired_events.append(event)
-
-                delivery_engine = build_control_plane_engine(settings)
-                try:
-                    for recipient in definition.get("recipients") or []:
-                        await awrite_delivery(
-                            delivery_engine,
-                            id=str(uuid.uuid4()),
-                            run_id=run_id,
-                            use_case_id=definition.get("use_case_id"),
-                            channel=recipient["channel"],
-                            dry_run=dry_run,
-                            content={
-                                "kind": "alert_event",
-                                "alert_event": event,
-                                "recipient": recipient,
-                            },
-                            delivered_at=None if dry_run else now,
+                    row = _select_row(rows, definition.get("scope"))
+                    if row is not None:
+                        prior_as_of = shift_date(
+                            date.fromisoformat(row["as_of"]), time_window
                         )
-                finally:
-                    delivery_engine.dispose()
+                        previous_output = await cached_read_gold(
+                            kpi_identifier, prior_as_of.isoformat()
+                        )
+                        previous_rows = (
+                            _content_dict(previous_output)["kpis"]
+                            .get(kpi_identifier, {})
+                            .get("rows", [])
+                        )
+                        previous_row = _select_row(
+                            previous_rows, definition.get("scope")
+                        )
+                        if previous_row is not None:
+                            previous_value = float(previous_row["value"])
 
-            await definition_store.amark_evaluated(
-                definition["id"], at=now, fired=fired
-            )
+                condition_input = StepInput(
+                    additional_data={
+                        "kpi_identifier": kpi_identifier,
+                        "operator": definition["operator"],
+                        "threshold": definition["threshold"],
+                        "scope": definition.get("scope"),
+                        "previous_value": previous_value,
+                    },
+                    previous_step_content=current_output.content,
+                )
+                condition_output = await evaluate_alert_condition(condition_input)
+                condition_content = _content_dict(condition_output)
+                fired = bool(condition_content.get("fired"))
+                evaluated.append({"alert_id": alert_id, **condition_content})
+
+                if fired:
+                    write_input = StepInput(
+                        additional_data={
+                            "alert_id": alert_id,
+                            "alert_name": definition["name"],
+                            "kpi_name": kpi.name,
+                            "unit": "",
+                            "window": window,
+                            "scope": definition.get("scope"),
+                            "severity": definition["severity"],
+                            "recommended_actions": definition.get(
+                                "recommended_actions"
+                            ),
+                            "use_case_id": definition.get("use_case_id"),
+                            "process_id": definition.get("process_id"),
+                            "run_id": run_id,
+                            "control_plane_engine": control_plane_engine,
+                        },
+                        previous_step_content=condition_content,
+                    )
+                    write_output = await write_alert(write_input)
+                    event = _content_dict(write_output)
+                    newly_fired = bool(event.pop("newly_fired", True))
+
+                    if newly_fired:
+                        fired_events.append(event)
+                        recipients = definition.get("recipients") or []
+                        if recipients:
+                            results = await asyncio.gather(
+                                *(
+                                    _deliver_one(
+                                        control_plane_engine,
+                                        run_id=run_id,
+                                        use_case_id=definition.get("use_case_id"),
+                                        event=event,
+                                        recipient=recipient,
+                                        dry_run=dry_run,
+                                        now=now,
+                                    )
+                                    for recipient in recipients
+                                ),
+                                return_exceptions=True,
+                            )
+                            for recipient, result in zip(recipients, results):
+                                if isinstance(result, BaseException):
+                                    log.exception(
+                                        "evaluate_alerts: delivery failed for "
+                                        "alert_id=%s recipient=%r",
+                                        alert_id,
+                                        recipient,
+                                        exc_info=result,
+                                    )
+                    else:
+                        log.info(
+                            "evaluate_alerts: alert_id=%s already has an alert_events row "
+                            "for as_of=%s (event %s); not re-firing or re-delivering",
+                            alert_id,
+                            condition_content.get("as_of"),
+                            event.get("id"),
+                        )
+
+                await definition_store.amark_evaluated(alert_id, at=now, fired=fired)
+            except Exception as exc:
+                log.exception(
+                    "evaluate_alerts: definition %s failed to evaluate", alert_id
+                )
+                evaluated.append(
+                    {
+                        "alert_id": alert_id,
+                        "kpi_identifier": kpi_identifier,
+                        "fired": False,
+                        "value": None,
+                        "reason": f"evaluation failed: {exc}",
+                    }
+                )
+                try:
+                    await definition_store.amark_evaluated(
+                        alert_id, at=now, fired=False
+                    )
+                except Exception:
+                    log.exception(
+                        "evaluate_alerts: definition %s also failed to record "
+                        "last_evaluated_at after the evaluation error above",
+                        alert_id,
+                    )
     finally:
         control_plane_engine.dispose()
 

@@ -109,3 +109,19 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.2 — 2026-09-11 — R12: `AlertScope.grain_column` (additive)
+
+Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump.
+
+- **`AlertScope.grain_column`** (string, optional). Round-2 review, PR #210: a gold row can
+  carry more than one grain-key column (a KPI materialised with both `region` and `channel`
+  dimensions, say), and `scope.grain_value` alone cannot say which one a definition means --
+  a value that happens to equal both silently picked whichever column
+  `executors/alerts.py`'s row scan found first, which is "the wrong brand's row, reported as
+  a fired alert" with no signal anything went wrong. `grain_column` names the column outright.
+  A legacy definition authored before this field existed (`grain_column` absent) is matched
+  only when the KPI's rows carry exactly one grain-key column to begin with -- unambiguous on
+  shape alone; two or more with no column named is refused rather than guessed, logged and
+  reported the same way any other "cannot evaluate" reason is. A screen rendering
+  `AlertScope`/`AlertDefinitionWrite` gains one optional field; every existing definition
+  (and every existing single-dimension KPI) is unaffected.

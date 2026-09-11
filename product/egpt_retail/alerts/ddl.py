@@ -80,13 +80,33 @@ CREATE TABLE IF NOT EXISTS {ALERT_EVENTS_TABLE} (
     resolved_at          TIMESTAMPTZ,
     snooze_until         TIMESTAMPTZ,
     run_id               TEXT,
-    provenance_ref       TEXT
+    provenance_ref       TEXT,
+    as_of                TEXT
 )
 """.strip()
+
+# For a table created before `as_of` existed. Idempotent, like the rest.
+_EVENTS_ADD_AS_OF_DDL = (
+    f"ALTER TABLE {ALERT_EVENTS_TABLE} ADD COLUMN IF NOT EXISTS as_of TEXT"
+)
 
 _EVENTS_ALERT_ID_INDEX_DDL = (
     f"CREATE INDEX IF NOT EXISTS {ALERT_EVENTS_TABLE}_alert_id_idx "
     f"ON {ALERT_EVENTS_TABLE} (alert_id)"
+)
+
+#: One fire per definition per evaluation window. ``as_of`` is the KPI's own business-date
+#: reading the firing row's value came from (``evaluate_alert_condition``'s own content),
+#: never ``fired_at`` -- ``fired_at`` is wall-clock and would let a retried or concurrent
+#: ``evaluate_alerts`` pass for the *same* window insert a second row and page recipients
+#: twice. Postgres never treats two NULLs as equal, so an event with no ``as_of`` (no KPI
+#: window to key on at all) is simply never deduplicated against another -- the same "refuse
+#: to guess" posture ``executors/alerts.py``'s ``_select_row`` takes, rather than a wrong
+#: guess. A ``UNIQUE`` index rather than a table constraint, so it can be added
+#: ``IF NOT EXISTS`` the same idempotent way as everything else here.
+_EVENTS_ALERT_ID_AS_OF_UNIQUE_DDL = (
+    f"CREATE UNIQUE INDEX IF NOT EXISTS {ALERT_EVENTS_TABLE}_alert_id_as_of_uidx "
+    f"ON {ALERT_EVENTS_TABLE} (alert_id, as_of)"
 )
 
 
@@ -96,7 +116,9 @@ def apply_alerts_ddl(engine: Engine) -> Tuple[str, ...]:
         connection.exec_driver_sql(_DEFINITIONS_DDL)
         connection.exec_driver_sql(_DEFINITIONS_INDEX_DDL)
         connection.exec_driver_sql(_EVENTS_DDL)
+        connection.exec_driver_sql(_EVENTS_ADD_AS_OF_DDL)
         connection.exec_driver_sql(_EVENTS_ALERT_ID_INDEX_DDL)
+        connection.exec_driver_sql(_EVENTS_ALERT_ID_AS_OF_UNIQUE_DDL)
     return (ALERT_DEFINITIONS_TABLE, ALERT_EVENTS_TABLE)
 
 

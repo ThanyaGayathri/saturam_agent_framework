@@ -29,24 +29,25 @@ from egpt.workflow.types import StepInput
 
 from egpt_retail.api.models import DashboardData, KpiHealthStatus, TileData
 from egpt_retail.contracts.dashboards import ChartKind, Dashboard, Tile
-from egpt_retail.executors.gold import read_gold
+from egpt_retail.executors.gold import read_gold, row_for_grain_value
 
 __all__ = ["read_dashboard_data"]
-
-#: Every column a gold view row carries besides the grain keys -- the rest, whatever their
-#: name, are the dimension a ``grain_value`` addresses.
-_ROW_METADATA_KEYS = {"as_of", "value", "computed_at", "source_snapshot", "run_id"}
 
 
 def _row_for_grain(
     rows: Sequence[Dict[str, Any]], grain_value: str
 ) -> Optional[Dict[str, Any]]:
-    for row in rows:
-        if any(
-            v == grain_value for key, v in row.items() if key not in _ROW_METADATA_KEYS
-        ):
-            return row
-    return None
+    """Thin alias over ``executors.gold.row_for_grain_value`` -- kept so this module's own
+    call sites read the same as before. See that function's own docstring for the ambiguity
+    it accepts: a ``Tile`` has no ``grain_column`` to disambiguate with, unlike R12's
+    ``AlertScope``.
+
+    The ``cast`` is only a type narrowing: ``row_for_grain_value`` returns one of ``rows``
+    unchanged, and every row this module ever passes in is already a ``Dict``, not merely a
+    ``Mapping`` -- ``row_for_grain_value``'s own signature is the wider ``Mapping`` because
+    ``executors/alerts.py``'s caller passes rows it never mutates.
+    """
+    return cast(Optional[Dict[str, Any]], row_for_grain_value(rows, grain_value))
 
 
 def _end_of_business_day(value: Optional[str]) -> Optional[datetime]:

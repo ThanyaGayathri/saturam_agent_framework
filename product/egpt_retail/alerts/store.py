@@ -19,7 +19,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -200,6 +200,92 @@ class AlertDefinitionStore:
         """Async variant."""
         return await asyncio.to_thread(lambda: self.create(**kwargs))
 
+    def update(
+        self,
+        id: str,
+        *,
+        kpi: Optional[KpiDefinition] = None,
+        kpi_identifier: Optional[str] = None,
+        name: Optional[str] = None,
+        operator: Optional[str] = None,
+        threshold: Optional[float] = None,
+        window: Optional[Dict[str, Any]] = None,
+        scope: Optional[Dict[str, Any]] = None,
+        severity: Optional[str] = None,
+        recipients: Optional[List[Dict[str, Any]]] = None,
+        recommended_actions: Optional[List[str]] = None,
+        enabled: Optional[bool] = None,
+        use_case_id: Optional[str] = None,
+        process_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Edit an existing definition -- the contract's own ``updateAlertDefinition``
+        (P5's HTTP path; this is the store method it will call). Every field is optional and
+        only a field actually passed overwrites the stored one, the same partial-update shape
+        the contract's ``AlertDefinitionWrite`` implies for a PATCH-like edit.
+
+        Re-runs :func:`validate_alert_target` exactly when ``kpi_identifier`` is being
+        changed -- refusing a retarget to a KPI that cannot be alerted on
+        (``AlertDefinitionRejected``, ``code=kpi_not_scalar``/``kpi_not_found``) the same way
+        :meth:`create` refuses one at authoring time. The caller looks the new KPI up and
+        passes it as ``kpi``, matching :meth:`create`'s own division of labour (this store
+        never reaches into the KPI registry itself); passing ``kpi_identifier`` without ``kpi``
+        is a caller error and raises ``ValueError``, since skipping the lookup would silently
+        skip the one check this method exists to enforce.
+
+        A threshold-only edit -- this package's own worked example, a person tightening a
+        rule after a quiet week -- passes neither ``kpi`` nor ``kpi_identifier`` and is never
+        re-validated, since the KPI did not change.
+        """
+        if kpi_identifier is not None and kpi is None:
+            raise ValueError(
+                "update(kpi_identifier=...) requires kpi=<the looked-up KpiDefinition>, so "
+                "validate_alert_target can run against it -- the same way create() does"
+            )
+        if kpi is not None:
+            validate_alert_target(kpi)
+
+        fields: Dict[str, Any] = {
+            "name": name,
+            "kpi_identifier": kpi_identifier,
+            "operator": operator,
+            "threshold": threshold,
+            "window": window,
+            "scope": scope,
+            "severity": severity,
+            "recipients": recipients,
+            "recommended_actions": recommended_actions,
+            "enabled": enabled,
+            "use_case_id": use_case_id,
+            "process_id": process_id,
+        }
+        given = {key: value for key, value in fields.items() if value is not None}
+        if not given:
+            return self.get(id)
+
+        set_clauses = []
+        params: Dict[str, Any] = {"id": id}
+        for key, value in given.items():
+            if key in ("window", "scope", "recipients", "recommended_actions"):
+                set_clauses.append(f"{key} = CAST(:{key} AS jsonb)")
+                params[key] = _dumps(value)
+            else:
+                set_clauses.append(f"{key} = :{key}")
+                params[key] = value
+
+        with self._engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"UPDATE {ALERT_DEFINITIONS_TABLE} SET {', '.join(set_clauses)} "
+                    "WHERE id = :id"
+                ),
+                params,
+            )
+        return self.get(id)
+
+    async def aupdate(self, id: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        """Async variant."""
+        return await asyncio.to_thread(lambda: self.update(id, **kwargs))
+
     def mark_evaluated(
         self, id: str, *, at: datetime, fired: bool
     ) -> Optional[Dict[str, Any]]:
@@ -361,6 +447,79 @@ class AlertEventStore:
         """Async variant."""
         return await asyncio.to_thread(self.create, event)
 
+    def create_or_get(self, event: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+        """Insert one event, unless ``(alert_id, as_of)`` already has one -- the same
+        evaluation window already recorded a firing. Returns ``(row, True)`` when this call
+        inserted the row, or ``(row, False)`` when an existing row was returned instead.
+
+        Race-safe under concurrent callers: this relies on the database's own
+        ``alert_events_alert_id_as_of_uidx`` UNIQUE index (``alerts/ddl.py``) via
+        ``INSERT ... ON CONFLICT ... DO NOTHING``, not a check-then-insert -- two concurrent
+        ``evaluate_alerts`` runs (or one retried after a partial failure, or a manual re-run
+        while the KPI is still over threshold) racing on the same definition and the same
+        ``as_of`` can never both win the insert, so recipients are never paged twice for one
+        logical firing. ``event["as_of"]`` absent (``None``) never conflicts with anything --
+        Postgres never treats two NULLs as equal -- so an event with no evaluation-window date
+        to key on is simply never deduplicated, the same "no signal, no guess" the index's own
+        comment describes.
+        """
+        row_id = event.get("id") or f"aev_{uuid.uuid4().hex[:12]}"
+        fired_at = event.get("fired_at") or datetime.now(timezone.utc)
+        as_of = event.get("as_of")
+        params = {
+            "id": row_id,
+            "alert_id": event["alert_id"],
+            "alert_name": event.get("alert_name"),
+            "severity": event["severity"],
+            "status": event.get("status", "new"),
+            "title": event["title"],
+            "summary": event["summary"],
+            "business_area_id": event.get("business_area_id"),
+            "process_id": event.get("process_id"),
+            "use_case_id": event.get("use_case_id"),
+            "kpi": _dumps(event["kpi"]),
+            "rule": event.get("rule"),
+            "recommended_actions": _dumps(event.get("recommended_actions") or []),
+            "fired_at": fired_at,
+            "run_id": event.get("run_id"),
+            "provenance_ref": event.get("provenance_ref"),
+            "as_of": as_of,
+        }
+        with self._engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        f"INSERT INTO {ALERT_EVENTS_TABLE} "
+                        "(id, alert_id, alert_name, severity, status, title, summary, "
+                        "business_area_id, process_id, use_case_id, kpi, rule, "
+                        "recommended_actions, fired_at, run_id, provenance_ref, as_of) "
+                        "VALUES (:id, :alert_id, :alert_name, :severity, :status, :title, "
+                        ":summary, :business_area_id, :process_id, :use_case_id, "
+                        "CAST(:kpi AS jsonb), :rule, CAST(:recommended_actions AS jsonb), "
+                        ":fired_at, :run_id, :provenance_ref, :as_of) "
+                        "ON CONFLICT (alert_id, as_of) DO NOTHING RETURNING *"
+                    ),
+                    params,
+                )
+                .mappings()
+                .first()
+            )
+            if row is not None:
+                return _row_to_event(row), True
+        existing = self.get_by_alert_and_as_of(event["alert_id"], as_of)
+        assert existing is not None, (
+            "create_or_get: the insert conflicted, but no existing row was found for the "
+            "same (alert_id, as_of) -- the unique index and this lookup have fallen out of "
+            "agreement"
+        )
+        return existing, False
+
+    async def acreate_or_get(
+        self, event: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], bool]:
+        """Async variant."""
+        return await asyncio.to_thread(self.create_or_get, event)
+
     def update_status(
         self,
         id: str,
@@ -431,6 +590,32 @@ class AlertEventStore:
     async def aget(self, id: str) -> Optional[Dict[str, Any]]:
         """Async variant."""
         return await asyncio.to_thread(self.get, id)
+
+    def get_by_alert_and_as_of(
+        self, alert_id: str, as_of: Optional[str]
+    ) -> Optional[Dict[str, Any]]:
+        """The event (if any) already recorded for this definition's evaluation window --
+        :meth:`create_or_get`'s own lookup after an ``ON CONFLICT`` no-op, exposed separately
+        since a caller may want to check without also being prepared to insert."""
+        with self._engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        f"SELECT * FROM {ALERT_EVENTS_TABLE} "
+                        "WHERE alert_id = :alert_id AND as_of IS NOT DISTINCT FROM :as_of"
+                    ),
+                    {"alert_id": alert_id, "as_of": as_of},
+                )
+                .mappings()
+                .first()
+            )
+        return _row_to_event(row) if row is not None else None
+
+    async def aget_by_alert_and_as_of(
+        self, alert_id: str, as_of: Optional[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Async variant."""
+        return await asyncio.to_thread(self.get_by_alert_and_as_of, alert_id, as_of)
 
     def list(
         self,
