@@ -33,6 +33,17 @@ Inputs are built from the shipped retail ontology and the R3 contract fixture
 (``egpt_retail.contracts.fixture_builder.CONTRACT_FIXTURE_PATH``) -- never from a customer's
 harvest, per the template's own worked-example rule (section 7): product fixtures are fair
 game, a customer's warehouse is not.
+
+**Closed-set claims get a deterministic backstop, not just judge criteria.** A model asked
+whether a term "sounds like" real vocabulary is not reliable evidence -- a live 7B local judge,
+tried against ``enrichment_proposer``, hallucinated that ``'pii'`` was invented when the
+vocabulary said otherwise. :func:`assert_terms_in_vocabulary` is the reusable check this
+package uses instead, and every skill whose schema claims closed-set-only output
+(``enrichment_proposer``, ``mapping_proposer``, ``kpi_suggestion``, ``use_case_suggestion``,
+``spec_extractor``) wires it (or, where the skill already ships its own oracle over the same
+claim -- ``spec_extractor``'s ``validate_spec`` -- reuses that instead) into a ``teardown``
+rather than trusting criteria text alone. :func:`_response_content` is the other shared
+helper: the "was there anything to check" guard every teardown below opens with.
 """
 
 from __future__ import annotations
@@ -63,6 +74,7 @@ from egpt_retail.skills.join_path_explainer import (
 
 __all__ = [
     "SKILL_BUILDERS",
+    "assert_terms_in_vocabulary",
     "build_join_path_explainer_agent",
     "join_path_explainer_golden_cases",
     "build_synonym_proposer_agent",
@@ -90,6 +102,38 @@ def _append_case_error(result: CaseResult, message: str) -> None:
     """Mirrors ``egpt.eval.suite``'s own private ``_append_error``: join rather than clobber,
     so a deterministic teardown failure and a judge failure both survive in ``result.error``."""
     result.error = "; ".join(part for part in (result.error, message) if part)
+
+
+def _response_content(result: CaseResult) -> Optional[Any]:
+    """The model's structured output to check, or ``None`` when the run produced nothing to
+    check (an error, a timeout, a skip) -- shared by every teardown below rather than
+    copy-pasted, since the case's own run failure already covers that outcome and a teardown
+    has nothing to add."""
+    response = result.response
+    if response is None or response.content is None:
+        return None
+    return response.content
+
+
+def assert_terms_in_vocabulary(
+    result: CaseResult, terms: Any, vocabulary: Any, *, label: str
+) -> None:
+    """Deterministic closed-set backstop: fails ``result`` for any non-empty term in ``terms``
+    absent from ``vocabulary``.
+
+    Membership is checked here, not left to the judge criteria, for the reason
+    ``enrichment_proposer``'s own teardown was added: a live 7B local judge, asked whether a
+    term "sounds like" real vocabulary, hallucinated that ``'pii'`` was invented when it is
+    actually real. A model's opinion about a closed set is never as reliable as checking the
+    closed set itself, so every golden case that claims closed-set-only output gets this same
+    check rather than trusting judge criteria text alone.
+    """
+    allowed = set(vocabulary)
+    for term in terms:
+        if term and term not in allowed:
+            _append_case_error(
+                result, f"deterministic: {label} {term!r} is not in the vocabulary"
+            )
 
 
 # --- join_path_explainer (K14, second half) -------------------------------------------------
@@ -150,10 +194,9 @@ def join_path_explainer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
     found_expected = verdict_for_path(found_path)
 
     def _teardown_found(context: Any, result: CaseResult) -> None:
-        response = result.response
-        if response is None or response.content is None:
+        explanation = _response_content(result)
+        if explanation is None:
             return
-        explanation = response.content
         if explanation.verdict is not found_expected:
             _append_case_error(
                 result,
@@ -169,10 +212,9 @@ def join_path_explainer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
     null_path = _join_payload(*null_path_tables)
 
     def _teardown_null(context: Any, result: CaseResult) -> None:
-        response = result.response
-        if response is None or response.content is None:
+        explanation = _response_content(result)
+        if explanation is None:
             return
-        explanation = response.content
         if explanation.verdict is not JoinVerdict.NOT_JOINABLE:
             _append_case_error(
                 result,
@@ -184,10 +226,9 @@ def join_path_explainer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
             )
 
     def _teardown_refusal(context: Any, result: CaseResult) -> None:
-        response = result.response
-        if response is None or response.content is None:
+        explanation = _response_content(result)
+        if explanation is None:
             return
-        explanation = response.content
         if (
             explanation.verdict is not JoinVerdict.UNKNOWN
             or not explanation.notes.strip()
@@ -247,10 +288,9 @@ def build_synonym_proposer_agent(model: Model) -> Agent:
 
 def synonym_proposer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
     def _teardown_proposal(context: Any, result: CaseResult) -> None:
-        response = result.response
-        if response is None or response.content is None:
+        proposal_set = _response_content(result)
+        if proposal_set is None:
             return
-        proposal_set = response.content
         if len(proposal_set.proposals) > 8:
             _append_case_error(result, "deterministic: more than eight proposals")
         if any(
@@ -259,10 +299,9 @@ def synonym_proposer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
             _append_case_error(result, "deterministic: re-proposed an existing synonym")
 
     def _teardown_refusal(context: Any, result: CaseResult) -> None:
-        response = result.response
-        if response is None or response.content is None:
+        proposal_set = _response_content(result)
+        if proposal_set is None:
             return
-        proposal_set = response.content
         if proposal_set.proposals or not proposal_set.notes.strip():
             _append_case_error(
                 result, "deterministic: refusal must be an empty list plus notes"
@@ -333,27 +372,25 @@ def enrichment_proposer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
     vocab = load_vocabulary_set()
 
     def _teardown_vocab(context: Any, result: CaseResult) -> None:
-        response = result.response
-        if response is None or response.content is None:
+        proposal_set = _response_content(result)
+        if proposal_set is None:
             return
-        proposal_set = response.content
-        if (
-            proposal_set.business_area
-            and proposal_set.business_area not in vocab["business_area"].values
-        ):
-            _append_case_error(
-                result,
-                f"deterministic: business_area {proposal_set.business_area!r} is not in the vocabulary",
-            )
-        for proposal in proposal_set.proposals:
-            if (
-                proposal.kind is _enrichment.EnrichmentKind.COMPLIANCE_TAG
-                and proposal.value not in vocab["compliance_tag"].values
-            ):
-                _append_case_error(
-                    result,
-                    f"deterministic: compliance_tag {proposal.value!r} is not in the vocabulary",
-                )
+        assert_terms_in_vocabulary(
+            result,
+            [proposal_set.business_area],
+            vocab["business_area"].values,
+            label="business_area",
+        )
+        assert_terms_in_vocabulary(
+            result,
+            (
+                proposal.value
+                for proposal in proposal_set.proposals
+                if proposal.kind is _enrichment.EnrichmentKind.COMPLIANCE_TAG
+            ),
+            vocab["compliance_tag"].values,
+            label="compliance_tag",
+        )
 
     return (
         Case(
@@ -376,13 +413,16 @@ def enrichment_proposer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
 
 # --- mapping_proposer (K8) --------------------------------------------------------------------
 
+#: The closed set this agent's prompt is rendered with (``render_prompt(concepts=...)``) --
+#: shared between the builder and the golden case's teardown so the two cannot drift apart.
+_MAPPING_CONCEPTS = ("Quote", "Contact", "Supplier")
+
 
 def build_mapping_proposer_agent(model: Model) -> Agent:
-    concepts = ("Quote", "Contact", "Supplier")
     return Agent(
         name="mapping_proposer",
         model=model,
-        instructions=_mapping.render_prompt(concepts=concepts),
+        instructions=_mapping.render_prompt(concepts=_MAPPING_CONCEPTS),
         output_schema=_mapping.MappingProposalSet,
     )
 
@@ -402,6 +442,21 @@ def mapping_proposer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
         "concepts: [Quote, Contact, Supplier]\n"
         "collisions: []\n"
     )
+
+    # Deterministic closed-set backstop (id=3988596568): the criteria already says "from the
+    # supplied concept list only", but a judge model's opinion about that is exactly the weak
+    # link enrichment_proposer's own teardown exists to route around.
+    def _teardown_concepts(context: Any, result: CaseResult) -> None:
+        proposal_set = _response_content(result)
+        if proposal_set is None:
+            return
+        assert_terms_in_vocabulary(
+            result,
+            (proposal.concept for proposal in proposal_set.proposals),
+            _MAPPING_CONCEPTS,
+            label="concept",
+        )
+
     return (
         Case(
             name="mapping_proposer-crm-deal-is-a-quote",
@@ -413,6 +468,7 @@ def mapping_proposer_golden_cases(agent: Agent) -> Tuple[Case, ...]:
                 "the requested_amount or stage column as evidence. It never claims this mapping "
                 "is accepted or authoritative -- that is a person's decision, not this agent's."
             ),
+            teardown=_teardown_concepts,
         ),
     )
 
@@ -439,6 +495,29 @@ def kpi_suggestion_golden_cases(agent: Agent) -> Tuple[Case, ...]:
         "ontology_concepts: [SupplierReliability]\n"
         "prose_excerpts: []\n"
     )
+
+    # Deterministic closed-set backstop (id=3988596568): business_area and grain are each
+    # claimed to be "a term from the ... vocabulary in section 6" (kpi_suggestion.py's own
+    # field descriptions) -- checked against the real vocabulary, not a judge's opinion of it.
+    vocab = load_vocabulary_set()
+
+    def _teardown_vocab(context: Any, result: CaseResult) -> None:
+        draft_set = _response_content(result)
+        if draft_set is None:
+            return
+        assert_terms_in_vocabulary(
+            result,
+            (draft.business_area for draft in draft_set.suggestions),
+            vocab["business_area"].values,
+            label="business_area",
+        )
+        assert_terms_in_vocabulary(
+            result,
+            (draft.grain for draft in draft_set.suggestions),
+            vocab["grain"].values,
+            label="grain",
+        )
+
     return (
         Case(
             name="kpi_suggestion-supplier-on-time-rate",
@@ -452,6 +531,7 @@ def kpi_suggestion_golden_cases(agent: Agent) -> Tuple[Case, ...]:
                 "deterministic set difference computed elsewhere, and this schema has no field "
                 "for it."
             ),
+            teardown=_teardown_vocab,
         ),
     )
 
@@ -477,6 +557,22 @@ def use_case_suggestion_golden_cases(agent: Agent) -> Tuple[Case, ...]:
         "  columns: [supplier_id, promised_date, delivered_date, on_time]\n"
         "business_context: A buying team wants to know which suppliers are slipping.\n"
     )
+
+    # Deterministic closed-set backstop (id=3988596568), same rationale as kpi_suggestion's:
+    # business_area is claimed to be "a term from the business_area vocabulary in section 6".
+    vocab = load_vocabulary_set()
+
+    def _teardown_vocab(context: Any, result: CaseResult) -> None:
+        draft_set = _response_content(result)
+        if draft_set is None:
+            return
+        assert_terms_in_vocabulary(
+            result,
+            (draft.business_area for draft in draft_set.suggestions),
+            vocab["business_area"].values,
+            label="business_area",
+        )
+
     return (
         Case(
             name="use_case_suggestion-supplier-watch",
@@ -489,21 +585,25 @@ def use_case_suggestion_golden_cases(agent: Agent) -> Tuple[Case, ...]:
                 "run or that anything is wired up to deliver it -- readiness is a deterministic "
                 "check this agent's schema does not carry."
             ),
+            teardown=_teardown_vocab,
         ),
     )
 
 
 # --- spec_extractor (R9) -----------------------------------------------------------------------
 
+#: The closed sets the agent's prompt is rendered with -- shared between the builder and the
+#: golden case's teardown so the two cannot drift apart.
+_SPEC_SETS = _spec.ClosedSets(
+    business_areas=("supply_chain", "customer"),
+    grains=("brand", "supplier", "overall"),
+    concepts=("SupplierReliability", "Quote", "Contact"),
+    kpi_identifiers=("supplier__on_time_rate_30d",),
+)
+
 
 def build_spec_extractor_agent(model: Model) -> Agent:
-    sets = _spec.ClosedSets(
-        business_areas=("supply_chain", "customer"),
-        grains=("brand", "supplier", "overall"),
-        concepts=("SupplierReliability", "Quote", "Contact"),
-        kpi_identifiers=("supplier__on_time_rate_30d",),
-    )
-    agent = _spec.build_spec_extractor(sets)
+    agent = _spec.build_spec_extractor(_SPEC_SETS)
     agent.model = model
     return agent
 
@@ -519,6 +619,19 @@ def spec_extractor_golden_cases(agent: Agent) -> Tuple[Case, ...]:
         question="What is our average basket size by supplier this quarter?",
         snapshot_version=_SNAPSHOT_VERSION,
     )
+
+    # Deterministic closed-set backstop (id=3988596568). spec_extractor.py already ships its
+    # own oracle for exactly this claim -- validate_spec(spec, sets) -- so it is reused directly
+    # rather than reimplemented as a second assert_terms_in_vocabulary call per field, the same
+    # "re-run the skill's own deterministic checker" pattern join_path_explainer's teardown uses
+    # for verdict_for_path.
+    def _teardown_closed_sets(context: Any, result: CaseResult) -> None:
+        spec = _response_content(result)
+        if spec is None:
+            return
+        for problem in _spec.validate_spec(spec, _SPEC_SETS):
+            _append_case_error(result, f"deterministic: {problem}")
+
     return (
         Case(
             name="spec_extractor-plain-question",
@@ -531,6 +644,7 @@ def spec_extractor_golden_cases(agent: Agent) -> Tuple[Case, ...]:
                 "supplier__on_time_rate_30d) -- never a coined value. kpi_identifiers names "
                 "supplier__on_time_rate_30d given the question is about on-time delivery."
             ),
+            teardown=_teardown_closed_sets,
         ),
         Case(
             name="spec_extractor-unknown-metric",
@@ -542,6 +656,7 @@ def spec_extractor_golden_cases(agent: Agent) -> Tuple[Case, ...]:
                 "it and adds a question naming the missing metric, rather than coining a new "
                 "kpi_identifier or silently substituting a different one."
             ),
+            teardown=_teardown_closed_sets,
         ),
     )
 
@@ -601,10 +716,9 @@ def funnel_explanation_golden_cases(agent: Agent) -> Tuple[Case, ...]:
     )
 
     def _teardown(context: Any, result: CaseResult) -> None:
-        response = result.response
-        if response is None or response.content is None:
+        explanation = _response_content(result)
+        if explanation is None:
             return
-        explanation = response.content
         if not _funnel.movers_match_input(explanation, movers_input):
             _append_case_error(
                 result,
@@ -652,10 +766,9 @@ def build_playground_agent(model: Model) -> Agent:
 
 def playground_golden_cases(agent: Agent) -> Tuple[Case, ...]:
     def _teardown(context: Any, result: CaseResult) -> None:
-        response = result.response
-        if response is None or response.content is None:
+        answer = _response_content(result)
+        if answer is None:
             return
-        answer = response.content
         if answer.blocks and not answer.notes.strip():
             _append_case_error(
                 result,
