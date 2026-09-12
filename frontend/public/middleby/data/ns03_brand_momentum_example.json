@@ -1,0 +1,12 @@
+[
+  {"brand":"Southbend","momentum_index":"142","wow_change":"+42%","sessions":"845","quotes":"13","direction":"up","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"Follett","momentum_index":"128","wow_change":"+28%","sessions":"596","quotes":"27","direction":"up","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"TurboChef","momentum_index":"118","wow_change":"+18%","sessions":"2124","quotes":"15","direction":"up","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"Blodgett","momentum_index":"109","wow_change":"+9%","sessions":"2149","quotes":"12","direction":"up","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"Concordia","momentum_index":"103","wow_change":"+3%","sessions":"1079","quotes":"9","direction":"flat","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"U-Line","momentum_index":"98","wow_change":"-2%","sessions":"961","quotes":"7","direction":"flat","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"Star","momentum_index":"84","wow_change":"-16%","sessions":"1332","quotes":"1","direction":"down","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"Globe","momentum_index":"76","wow_change":"-24%","sessions":"2236","quotes":"3","direction":"down","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"Pitco","momentum_index":"71","wow_change":"-29%","sessions":"629","quotes":"2","direction":"down","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"brand":"Wells","momentum_index":"63","wow_change":"-37%","sessions":"983","quotes":"0","direction":"down","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"}
+]

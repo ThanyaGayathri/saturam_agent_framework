@@ -1,0 +1,8 @@
+[
+  {"entry_page":"/","sessions":"8200","bounce_rate":"41%","avg_pages":"2.1","avg_duration_sec":"98","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"entry_page":"/brands/turbochef","sessions":"2100","bounce_rate":"36%","avg_pages":"2.8","avg_duration_sec":"142","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"entry_page":"/products/commercial-fryers","sessions":"1640","bounce_rate":"33%","avg_pages":"3.2","avg_duration_sec":"168","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"entry_page":"/brands/blodgett","sessions":"1480","bounce_rate":"38%","avg_pages":"2.6","avg_duration_sec":"131","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"entry_page":"/search","sessions":"920","bounce_rate":"52%","avg_pages":"1.4","avg_duration_sec":"54","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"entry_page":"/quote","sessions":"610","bounce_rate":"28%","avg_pages":"3.9","avg_duration_sec":"210","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"}
+]

@@ -1,0 +1,9 @@
+[
+  {"stage":"Closed Won","count":"118","share":"34%","lost_reason":"","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"stage":"Closed Lost","count":"118","share":"34%","lost_reason":"Price / budget","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"stage":"Closed Lost","count":"39","share":"11%","lost_reason":"Chose competitor","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"stage":"Closed Lost","count":"20","share":"6%","lost_reason":"Timing / project delayed","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"stage":"Closed Lost","count":"12","share":"3%","lost_reason":"Spec mismatch","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"stage":"Closed Lost","count":"6","share":"2%","lost_reason":"No response","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"stage":"Open pipeline","count":"34","share":"10%","lost_reason":"","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"}
+]

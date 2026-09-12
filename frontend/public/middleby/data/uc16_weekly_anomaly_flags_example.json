@@ -1,0 +1,8 @@
+[
+  {"week_start":"2026-06-01","signal":"RFQ submissions","direction":"down","detail":"742 quotes, down 11% week over week, driven by Globe and Star brands","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"week_start":"2026-06-01","signal":"Add-to-quote errors","direction":"up","detail":"2,015 sessions hit the unresponsive Add to Quote button on iOS Safari, up 34%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"week_start":"2026-06-01","signal":"Site traffic","direction":"up","detail":"38,400 sessions, up 8%, led by paid search on commercial fryers","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"week_start":"2026-06-01","signal":"Browse to quote gap","direction":"up","detail":"Globe reached 2,236 sessions with only 3 quotes, widest gap this week","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"week_start":"2026-06-01","signal":"Consultation requests","direction":"up","detail":"31% of quotes requested a consultation, up from 24%, higher-intent mix","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"week_start":"2026-06-01","signal":"Quote pipeline value","direction":"flat","detail":"Estimated pipeline held at $4.6M, stalled deals offsetting new quotes","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"}
+]

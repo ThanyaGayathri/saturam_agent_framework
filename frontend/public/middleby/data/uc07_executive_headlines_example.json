@@ -1,0 +1,9 @@
+[
+  {"metric":"Site sessions","value":"38,400","source":"GA4","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Quotes submitted","value":"742","source":"HubSpot","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Opportunities opened","value":"705","source":"Salesforce","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Open pipeline value","value":"$4.6M","source":"Salesforce","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Sessions hitting an error","value":"4,135","source":"LogRocket","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Top quote brand","value":"Follett / 27","source":"HubSpot","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Headline","value":"Quote volume down while errors rose: fix the Add to Quote button on iOS Safari","source":"Enterprise GPT","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"}
+]

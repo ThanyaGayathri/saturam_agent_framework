@@ -1,9 +1,19 @@
 # frontend/
 
-The Enterprise GPT interface lands here in phase five, from the Vite application in
-`Retail-GPT-prototype`, after design approval. Nothing is wired before then.
+The Enterprise GPT interface: the Vite application from `Retail-GPT-prototype`, landed here from
+`feat/egpt-ui-revamp` (`e6b55b3`) as a flat copy of that repo's `frontend/` directory. Not yet
+wired to the API -- the seams below are unchanged and still hold.
 
-What is already decided about it:
+    cd frontend && npm ci && npm run dev        # http://localhost:5173
+    npm run build                               # dist/, gitignored
+
+Left behind on purpose: `src/figma_data/` (109 MB of raw Figma frame exports, imported by
+nothing) and the prototype's root `docs/`, `scripts/` and `CLAUDE.md`, which this repository
+already has its own versions of. Still carried and still to decide: `api/`, `middleware.js` and
+`vercel.json` are the prototype's Vercel-style API layer, which the delivery plan says "mostly
+disappears rather than moving" once tokens come from the identity provider.
+
+What was already decided about it, and still applies:
 
 - **The API it calls is fixed now**: `product/egpt_retail/api/openapi/egpt-retail.v1.yaml`
   (R3), with a stub server that renders every screen's examples. The prototype's `KpiRegistry`

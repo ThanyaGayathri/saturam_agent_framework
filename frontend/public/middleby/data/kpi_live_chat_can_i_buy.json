@@ -1,0 +1,6 @@
+[
+  {"week_start":"2026-06-01","chat_intent":"Can I buy / Buy Now Online","inquiries":"48","converted_to_quote":"19","conversion_rate":"40%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"week_start":"2026-06-01","chat_intent":"Pricing question","inquiries":"62","converted_to_quote":"14","conversion_rate":"23%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"week_start":"2026-06-01","chat_intent":"Dealer / service","inquiries":"31","converted_to_quote":"6","conversion_rate":"19%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"week_start":"2026-06-01","chat_intent":"Product availability","inquiries":"27","converted_to_quote":"9","conversion_rate":"33%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"}
+]

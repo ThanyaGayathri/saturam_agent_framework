@@ -1,0 +1,7 @@
+[
+  {"step_id":"1_view_product","step_label":"View product page","session_count_example":"18420","drop_off_from_prior_step":"0%","conversion_from_top":"100%","data_source":"GA4 + RFQ cart events","example_data":"mixed"},
+  {"step_id":"2_add_to_quote","step_label":"Add to Quote click","session_count_example":"6240","drop_off_from_prior_step":"66%","conversion_from_top":"34%","data_source":"GA4 + RFQ cart events","example_data":"mixed"},
+  {"step_id":"3_open_quote_cart","step_label":"Open quote cart","session_count_example":"3180","drop_off_from_prior_step":"49%","conversion_from_top":"17%","data_source":"GA4 + RFQ cart events","example_data":"mixed"},
+  {"step_id":"4_start_quote_form","step_label":"Start quote form","session_count_example":"1760","drop_off_from_prior_step":"45%","conversion_from_top":"10%","data_source":"GA4 + RFQ cart events","example_data":"mixed"},
+  {"step_id":"5_submit_quote","step_label":"Submit quote","session_count_example":"742","drop_off_from_prior_step":"58%","conversion_from_top":"4%","data_source":"GA4 + HubSpot deal","example_data":"mixed"}
+]

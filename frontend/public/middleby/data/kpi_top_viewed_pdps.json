@@ -1,0 +1,8 @@
+[
+  {"sku":"TCO-ENCORE","product":"TurboChef Encore","brand":"TurboChef","category":"Ovens","page_views":"1840","unique_users":"1320","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"sku":"BLD-MARKV","product":"Blodgett Mark V","brand":"Blodgett","category":"Ovens","page_views":"1560","unique_users":"1105","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"sku":"PIT-SG14","product":"Pitco Solstice SG14","brand":"Pitco","category":"Fryers","page_views":"1420","unique_users":"980","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"sku":"FOL-7SERIES","product":"Follett 7 Series Ice","brand":"Follett","category":"Ice","page_views":"1280","unique_users":"910","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"sku":"SB-S36","product":"Southbend S36 Range","brand":"Southbend","category":"Ranges","page_views":"1110","unique_users":"840","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"sku":"GLB-C12","product":"Globe C12 Slicer","brand":"Globe","category":"Food Prep","page_views":"980","unique_users":"720","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"}
+]

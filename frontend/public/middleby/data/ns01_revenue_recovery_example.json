@@ -1,0 +1,8 @@
+[
+  {"fix":"Fix Magento RequireJS failure (iOS Safari)","recoverable_pipeline_usd":"123079","quotes_recovered":"37","effort":"Medium","owner":"Digital / Magento","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"fix":"Recover Globe and Star browse gap (content + pricing)","recoverable_pipeline_usd":"88000","quotes_recovered":"20","effort":"Medium","owner":"Merchandising","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"fix":"Fix Add to Quote button","recoverable_pipeline_usd":"64303","quotes_recovered":"18","effort":"Low","owner":"Digital / RFQ","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"fix":"Fix quote form validation error","recoverable_pipeline_usd":"45696","quotes_recovered":"14","effort":"Low","owner":"Digital / RFQ","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"fix":"Fix checkout cart state desync","recoverable_pipeline_usd":"36222","quotes_recovered":"11","effort":"Medium","owner":"Digital / RFQ","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"fix":"Fix mobile layout shift on PDP","recoverable_pipeline_usd":"25683","quotes_recovered":"8","effort":"Low","owner":"Digital / UX","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"}
+]

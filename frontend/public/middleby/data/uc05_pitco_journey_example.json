@@ -1,0 +1,9 @@
+[
+  {"step_order":"1","step_label":"Land on shop.middleby.com","event_type_example":"session_start","session_count_example":"4820","notes":"Entry from paid search and direct","example_data":"mixed"},
+  {"step_order":"2","step_label":"Browse Pitco brand page","event_type_example":"page_view","session_count_example":"2140","notes":"Brand landing engagement","example_data":"mixed"},
+  {"step_order":"3","step_label":"Open Commercial Fryers category","event_type_example":"page_view","session_count_example":"1510","notes":"Category browse","example_data":"mixed"},
+  {"step_order":"4","step_label":"View open-pot fryer product page","event_type_example":"page_view","session_count_example":"980","notes":"Product detail engagement","example_data":"mixed"},
+  {"step_order":"5","step_label":"Click Add to Quote","event_type_example":"add_to_quote","session_count_example":"470","notes":"Quote intent signal","example_data":"mixed"},
+  {"step_order":"6","step_label":"Open quote cart","event_type_example":"cart_view","session_count_example":"305","notes":"Cart review before submit","example_data":"mixed"},
+  {"step_order":"7","step_label":"Submit quote to HubSpot deal","event_type_example":"quote_submit","session_count_example":"128","notes":"Converts to HubSpot deal, routed to rep","example_data":"mixed"}
+]

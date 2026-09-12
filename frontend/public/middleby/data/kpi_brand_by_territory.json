@@ -1,0 +1,22 @@
+[
+  {"brand":"TurboChef","territory":"Northeast","quotes":"24","share_of_territory":"25%","closed_won_rate":"41%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"TurboChef","territory":"Southeast","quotes":"18","share_of_territory":"16%","closed_won_rate":"33%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"TurboChef","territory":"West","quotes":"26","share_of_territory":"26%","closed_won_rate":"44%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"TurboChef","territory":"Midwest","quotes":"14","share_of_territory":"16%","closed_won_rate":"37%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"TurboChef","territory":"Southwest","quotes":"11","share_of_territory":"15%","closed_won_rate":"31%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Blodgett","territory":"Northeast","quotes":"22","share_of_territory":"23%","closed_won_rate":"38%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Blodgett","territory":"Southeast","quotes":"28","share_of_territory":"25%","closed_won_rate":"32%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Blodgett","territory":"Midwest","quotes":"20","share_of_territory":"23%","closed_won_rate":"35%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Blodgett","territory":"West","quotes":"14","share_of_territory":"14%","closed_won_rate":"36%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Follett","territory":"Southeast","quotes":"24","share_of_territory":"21%","closed_won_rate":"42%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Follett","territory":"West","quotes":"18","share_of_territory":"18%","closed_won_rate":"44%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Follett","territory":"Northeast","quotes":"14","share_of_territory":"15%","closed_won_rate":"39%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Southbend","territory":"Southeast","quotes":"20","share_of_territory":"18%","closed_won_rate":"30%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Southbend","territory":"Midwest","quotes":"18","share_of_territory":"20%","closed_won_rate":"33%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Southbend","territory":"Southwest","quotes":"14","share_of_territory":"19%","closed_won_rate":"27%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Pitco","territory":"Southwest","quotes":"18","share_of_territory":"24%","closed_won_rate":"31%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Pitco","territory":"West","quotes":"14","share_of_territory":"14%","closed_won_rate":"36%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Pitco","territory":"Midwest","quotes":"12","share_of_territory":"14%","closed_won_rate":"32%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Globe","territory":"Midwest","quotes":"8","share_of_territory":"9%","closed_won_rate":"24%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"brand":"Globe","territory":"Northeast","quotes":"6","share_of_territory":"6%","closed_won_rate":"29%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"}
+]

@@ -1,0 +1,22 @@
+[
+  {"customer_segment":"Restaurant / QSR","l1_category":"Commercial Cooking Equipment","quotes":"96","share_of_segment":"52%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Restaurant / QSR","l1_category":"Commercial Refrigeration","quotes":"32","share_of_segment":"17%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Restaurant / QSR","l1_category":"Warewashing Equipment","quotes":"22","share_of_segment":"12%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Restaurant / QSR","l1_category":"Ventilation & Hoods","quotes":"18","share_of_segment":"10%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Restaurant / QSR","l1_category":"Commercial Ice Equipment","quotes":"10","share_of_segment":"5%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Hotel / Hospitality","l1_category":"Commercial Cooking Equipment","quotes":"48","share_of_segment":"39%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Hotel / Hospitality","l1_category":"Commercial Refrigeration","quotes":"28","share_of_segment":"23%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Hotel / Hospitality","l1_category":"Commercial Beverage Equipment","quotes":"18","share_of_segment":"15%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Hotel / Hospitality","l1_category":"Food Warming and Holding","quotes":"14","share_of_segment":"11%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Institutional / Education","l1_category":"Commercial Cooking Equipment","quotes":"32","share_of_segment":"33%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Institutional / Education","l1_category":"Warewashing Equipment","quotes":"24","share_of_segment":"24%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Institutional / Education","l1_category":"Commercial Refrigeration","quotes":"20","share_of_segment":"20%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Institutional / Education","l1_category":"Food Warming and Holding","quotes":"14","share_of_segment":"14%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Dealer / Distributor","l1_category":"Commercial Cooking Equipment","quotes":"58","share_of_segment":"41%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Dealer / Distributor","l1_category":"Commercial Refrigeration","quotes":"34","share_of_segment":"24%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Dealer / Distributor","l1_category":"Commercial Ice Equipment","quotes":"22","share_of_segment":"15%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Dealer / Distributor","l1_category":"Warewashing Equipment","quotes":"18","share_of_segment":"13%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Healthcare","l1_category":"Commercial Refrigeration","quotes":"24","share_of_segment":"36%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Healthcare","l1_category":"Commercial Cooking Equipment","quotes":"18","share_of_segment":"27%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Healthcare","l1_category":"Warewashing Equipment","quotes":"14","share_of_segment":"21%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"}
+]

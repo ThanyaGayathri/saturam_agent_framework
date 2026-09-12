@@ -1,0 +1,8 @@
+[
+  {"customer_segment":"Restaurant / QSR","quotes":"186","share":"28%","closed_won_rate":"32%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Hotel / Hospitality","quotes":"124","share":"19%","closed_won_rate":"35%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Institutional / Education","quotes":"98","share":"15%","closed_won_rate":"29%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Dealer / Distributor","quotes":"142","share":"21%","closed_won_rate":"41%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Healthcare","quotes":"66","share":"10%","closed_won_rate":"27%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"customer_segment":"Other / Unclassified","quotes":"48","share":"7%","closed_won_rate":"22%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"}
+]

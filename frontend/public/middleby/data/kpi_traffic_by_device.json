@@ -1,0 +1,12 @@
+[
+  {"channel":"Organic Search","device":"desktop","sessions":"9200","quotes":"210","conversion_rate":"2.3%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Organic Search","device":"mobile","sessions":"6100","quotes":"88","conversion_rate":"1.4%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Paid Search","device":"desktop","sessions":"3400","quotes":"96","conversion_rate":"2.8%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Paid Search","device":"mobile","sessions":"2800","quotes":"41","conversion_rate":"1.5%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Direct","device":"desktop","sessions":"4100","quotes":"120","conversion_rate":"2.9%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Direct","device":"mobile","sessions":"1900","quotes":"32","conversion_rate":"1.7%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Referral","device":"desktop","sessions":"1500","quotes":"45","conversion_rate":"3.0%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Referral","device":"tablet","sessions":"420","quotes":"9","conversion_rate":"2.1%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Email","device":"desktop","sessions":"980","quotes":"38","conversion_rate":"3.9%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"},
+  {"channel":"Email","device":"mobile","sessions":"740","quotes":"18","conversion_rate":"2.4%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"GA4"}
+]

@@ -1,0 +1,10 @@
+[
+  {"week":"2026-04-13","quotes_example":"78","errors_example":"140","example_data":"mixed"},
+  {"week":"2026-04-20","quotes_example":"74","errors_example":"155","example_data":"mixed"},
+  {"week":"2026-04-27","quotes_example":"70","errors_example":"168","example_data":"mixed"},
+  {"week":"2026-05-04","quotes_example":"66","errors_example":"180","example_data":"mixed"},
+  {"week":"2026-05-11","quotes_example":"61","errors_example":"205","example_data":"mixed"},
+  {"week":"2026-05-18","quotes_example":"55","errors_example":"228","example_data":"mixed"},
+  {"week":"2026-05-25","quotes_example":"49","errors_example":"244","example_data":"mixed"},
+  {"week":"2026-06-01","quotes_example":"42","errors_example":"262","example_data":"mixed"}
+]

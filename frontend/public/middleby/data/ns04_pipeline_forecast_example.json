@@ -1,0 +1,18 @@
+[
+  {"week":"W-11","projected_quotes":"690","phase":"history","example_data":"mixed"},
+  {"week":"W-10","projected_quotes":"705","phase":"history","example_data":"mixed"},
+  {"week":"W-9","projected_quotes":"712","phase":"history","example_data":"mixed"},
+  {"week":"W-8","projected_quotes":"728","phase":"history","example_data":"mixed"},
+  {"week":"W-7","projected_quotes":"740","phase":"history","example_data":"mixed"},
+  {"week":"W-6","projected_quotes":"733","phase":"history","example_data":"mixed"},
+  {"week":"W-5","projected_quotes":"751","phase":"history","example_data":"mixed"},
+  {"week":"W-4","projected_quotes":"768","phase":"history","example_data":"mixed"},
+  {"week":"W-3","projected_quotes":"774","phase":"history","example_data":"mixed"},
+  {"week":"W-2","projected_quotes":"788","phase":"history","example_data":"mixed"},
+  {"week":"W-1","projected_quotes":"760","phase":"history","example_data":"mixed"},
+  {"week":"This week","projected_quotes":"742","phase":"history","example_data":"mixed"},
+  {"week":"+1w","projected_quotes":"812","phase":"projected","example_data":"mixed"},
+  {"week":"+2w","projected_quotes":"845","phase":"projected","example_data":"mixed"},
+  {"week":"+3w","projected_quotes":"878","phase":"projected","example_data":"mixed"},
+  {"week":"+4w","projected_quotes":"910","phase":"projected","example_data":"mixed"}
+]

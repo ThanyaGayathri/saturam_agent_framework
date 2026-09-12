@@ -1,0 +1,191 @@
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useMemo } from "react";
+import { useKpiRegistry } from "../hooks/useKpiRegistry";
+import { catalogStats } from "../domain/kpi-data-catalog";
+import TourLaunchButton from "../tours/TourLaunchButton";
+import {
+  catalogPageShell,
+  catalogPageInner,
+  catalogHeaderRow,
+  catalogHeaderText,
+  catalogH1,
+  catalogSubtitle,
+  catalogSectionBelowNav,
+  catalogPrimaryAction,
+} from "./shared/useCaseCatalogPageStyles";
+
+const TAB_BASE =
+  "relative inline-flex items-center gap-2 pb-3 pt-2 text-base font-semibold transition-colors";
+const TAB_ACTIVE = "text-primary";
+const TAB_IDLE = "text-text-muted hover:text-text-secondary";
+const TAB_UNDERLINE_ACTIVE = "bg-primary";
+const TAB_UNDERLINE_IDLE = "bg-transparent";
+
+const TAB_COUNT_BASE = "rounded-full px-2 py-0.5 text-[11px] font-medium";
+const TAB_COUNT_ACTIVE =
+  "bg-primary-light text-primary dark:bg-surface-tertiary dark:text-primary dark:ring-1 dark:ring-primary/30";
+const TAB_COUNT_IDLE = "bg-surface-secondary text-text-muted dark:bg-surface/[0.08]";
+
+const TAB_COPY = {
+  discover: {
+    title: "What my data supports",
+    description:
+      "Metrics your connected data can actually measure, ranked for the areas you care about. Pick the ones you want and build a dashboard from them.",
+    tourId: "kpi-registry",
+    tourLabel: "Take a quick tour",
+  },
+  gallery: {
+    title: "Data catalog",
+    description:
+      "Browse datasets and attributes that power KPIs. This is a read-only view — add or edit datasets from Configure.",
+    tourId: "kpi-gallery",
+    tourLabel: "Take a quick Data catalog tour",
+  },
+  dashboards: {
+    title: "Dashboards",
+    description:
+      "Dashboards you have built from selected metrics. Every figure is computed against the definition in Configure — change it there and every dashboard follows.",
+    tourId: "kpi-dashboard",
+    tourLabel: "Take a quick tour",
+  },
+  dashboard: {
+    title: "KPI health",
+    description:
+      "View health, trends, and AI-flagged signals for enabled KPIs. Open linked actions in Co-Pilot, Monitor, or the use case builder when you are ready.",
+    tourId: "kpi-dashboard",
+    tourLabel: "Take a quick KPI Dashboard tour",
+  },
+};
+
+function tabKeyFromPath(pathname) {
+  if (pathname.includes("/gallery")) return "gallery";
+  if (pathname.includes("/dashboards")) return "dashboards";
+  if (pathname.includes("/dashboard")) return "dashboard";
+  return "discover";
+}
+
+function flattenKpiCount(categories) {
+  let n = 0;
+  for (const cat of categories || []) {
+    for (const sec of cat.sections || []) {
+      n += sec.kpis?.length || 0;
+    }
+  }
+  return { total: n };
+}
+
+export default function KpisHubLayout() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { data, hydrated } = useKpiRegistry();
+  const { total } = useMemo(() => flattenKpiCount(data?.categories), [data?.categories]);
+  const { datasetCount } = catalogStats();
+  const activeAnomalies = 3;
+
+  const tab = tabKeyFromPath(pathname);
+  const { title, description, tourId, tourLabel } = TAB_COPY[tab];
+
+  return (
+    <div className={catalogPageShell}>
+      <div className={catalogPageInner}>
+        <div className={catalogHeaderRow}>
+          <div className={catalogHeaderText}>
+            <div className="flex items-center gap-3">
+              <h1 className={catalogH1}>{title}</h1>
+              <TourLaunchButton tourId={tourId} label={tourLabel} />
+            </div>
+            <p className={catalogSubtitle}>{description}</p>
+          </div>
+          {tab === "gallery" ? (
+            <div className={catalogPrimaryAction} data-tour-kpi="connect">
+              <button
+                type="button"
+                onClick={() => navigate("/kpis/sources/new")}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"
+              >
+                + Add KPI source
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mb-8 flex items-center gap-6 border-b border-border" role="tablist" data-tour-kpi="tabs">
+          <NavLink
+            to="/kpis/discover"
+            className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}
+          >
+            {({ isActive }) => (
+              <>
+                What my data supports
+                <span
+                  aria-hidden
+                  className={`absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors ${
+                    isActive ? TAB_UNDERLINE_ACTIVE : TAB_UNDERLINE_IDLE
+                  }`}
+                />
+              </>
+            )}
+          </NavLink>
+          <NavLink
+            to="/kpis/gallery"
+            className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}
+          >
+            {({ isActive }) => (
+              <>
+                Data catalog
+                <span className={`${TAB_COUNT_BASE} ${isActive ? TAB_COUNT_ACTIVE : TAB_COUNT_IDLE}`}>
+                  {datasetCount} datasets
+                </span>
+                <span
+                  aria-hidden
+                  className={`absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors ${
+                    isActive ? TAB_UNDERLINE_ACTIVE : TAB_UNDERLINE_IDLE
+                  }`}
+                />
+              </>
+            )}
+          </NavLink>
+          <NavLink
+            to="/kpis/dashboards"
+            className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}
+          >
+            {({ isActive }) => (
+              <>
+                Dashboards
+                <span
+                  aria-hidden
+                  className={`absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors ${
+                    isActive ? TAB_UNDERLINE_ACTIVE : TAB_UNDERLINE_IDLE
+                  }`}
+                />
+              </>
+            )}
+          </NavLink>
+          <NavLink
+            to="/kpis/dashboard"
+            className={({ isActive }) => `${TAB_BASE} ${isActive ? TAB_ACTIVE : TAB_IDLE}`}
+          >
+            {({ isActive }) => (
+              <>
+                KPI health
+                <span className={`${TAB_COUNT_BASE} ${isActive ? TAB_COUNT_ACTIVE : TAB_COUNT_IDLE}`}>
+                  {activeAnomalies} active
+                </span>
+                <span
+                  aria-hidden
+                  className={`absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors ${
+                    isActive ? TAB_UNDERLINE_ACTIVE : TAB_UNDERLINE_IDLE
+                  }`}
+                />
+              </>
+            )}
+          </NavLink>
+        </div>
+
+        <div className={catalogSectionBelowNav}>
+          <Outlet />
+        </div>
+      </div>
+    </div>
+  );
+}
