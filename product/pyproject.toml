@@ -38,6 +38,12 @@ dependencies = [
   # SDK (only the aws-bedrock extra does), and the framework's own S3Config cannot serve --
   # it has no endpoint_url, so it cannot address MinIO, and no get-object surface at all.
   "boto3",
+  # AZ-A: R4 reads the raw drop from Azure Blob Storage (Azurite locally, real Azure Blob in
+  # production). Not inherited: egpt[os] carries no Azure SDK at all.
+  "azure-storage-blob",
+  # The ambient/managed-identity credential path AzureBlobObjectStore falls back to when no
+  # explicit account key is configured -- the Container Apps analogue of workload identity.
+  "azure-identity",
   "sqlalchemy",
   # R6's SQL guard (product/egpt_retail/app/sql_guard.py imports egpt.guardrails.sql_guard,
   # which imports sqlglot unconditionally). Not inherited: egpt[os] carries no sqlglot, only

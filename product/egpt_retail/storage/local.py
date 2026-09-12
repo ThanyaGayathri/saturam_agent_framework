@@ -12,7 +12,7 @@ import asyncio
 from pathlib import Path
 from typing import Tuple
 
-from egpt_retail.storage.base import NDJSON_SUFFIX, RAW_PREFIX
+from egpt_retail.storage.base import NDJSON_SUFFIX, RAW_PREFIX, validate_object_path
 
 __all__ = ["LocalDirectoryStore"]
 
@@ -40,7 +40,14 @@ class LocalDirectoryStore:
         A landed path comes from object storage, which is to say from outside this process.
         ``raw/../../etc/passwd`` parses as a path and would resolve outside the root, so the
         containment check is here rather than trusted to the caller.
+
+        The shared ``validate_object_path`` runs first so all three backends refuse the same
+        set: containment alone still accepts ``raw/../crm`` (it lands back inside the root)
+        while the object backends' flat key spaces cannot, and ``resolve()`` would collapse a
+        ``//`` or ``.`` that Azure Blob and S3 treat as a different key. Containment stays
+        behind it as the filesystem-specific floor.
         """
+        validate_object_path(path, str(self._root))
         candidate = (self._root / path).resolve()
         if candidate != self._root and self._root not in candidate.parents:
             raise ValueError(f"{path!r} resolves outside the landing root {self._root}")

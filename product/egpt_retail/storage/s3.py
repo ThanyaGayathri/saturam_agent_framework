@@ -10,12 +10,10 @@ pretending to await it, which is the idiom ``DatabaseContextProvider.astatus`` a
 ``aioboto3`` would be a second AWS SDK in the image to save a thread hop on a job that is
 waiting on a network anyway.
 
-**Azure ADLS Gen2 is not implemented**, and that is a stated deferral rather than an
-oversight: nothing on AKS has run a load yet, MinIO is the only store any verification in
-this repository can reach, and a backend nobody exercises is precisely the "NEVER EXECUTED"
-category the Helm values already flag. It is one more class behind
-:class:`~egpt_retail.storage.base.ObjectStore`; ``deploy/AKS_CUTOVER.md`` carries it as a
-cutover blocker.
+**Azure Blob Storage** is implemented separately, in
+:mod:`egpt_retail.storage.azure_blob` (``AzureBlobObjectStore``) -- the Azure migration
+plan's AZ-A package. It is a distinct class rather than a mode of this one because the two
+SDKs share nothing: different client, different credential shapes, different pagination.
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional, Tuple
 
-from egpt_retail.storage.base import NDJSON_SUFFIX, RAW_PREFIX
+from egpt_retail.storage.base import NDJSON_SUFFIX, RAW_PREFIX, validate_object_path
 
 __all__ = ["S3ObjectStore"]
 
@@ -87,6 +85,10 @@ class S3ObjectStore:
         return f"S3ObjectStore(container={self._container!r}, prefix={self._prefix!r})"
 
     def _to_key(self, path: str) -> str:
+        # Same shared check the Azure Blob and local backends run: S3's key space is flat too,
+        # so nothing escapes, but a path that is not a plain relative path must not become a
+        # different, unvalidated key on one backend and a ValueError on another.
+        validate_object_path(path, f"{self._container}/{self._prefix}")
         return f"{self._prefix}{path}"
 
     def _to_path(self, key: str) -> str:

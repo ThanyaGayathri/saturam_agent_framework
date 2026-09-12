@@ -35,9 +35,9 @@ Role = Literal["api", "pipelines"]
 
 #: Where the raw drop lives. ``s3`` covers MinIO as well as AWS -- MinIO speaks the S3 API,
 #: which is why the Helm chart's ``storage.provider`` reads ``s3`` rather than ``minio``.
-#: Azure ADLS Gen2 is the AKS target and is a stated deferral; adding it is a third member
-#: here and one more backend behind ``egpt_retail.storage.ObjectStore``.
-StorageProvider = Literal["local", "s3"]
+#: ``azure_blob`` is the Azure Container Apps target (AZ-A,
+#: ``docs/plan/azure-migration-plan.md``), backed by ``egpt_retail.storage.AzureBlobObjectStore``.
+StorageProvider = Literal["local", "s3", "azure_blob"]
 
 #: The cookbook and CI Postgres: ``agnohq/pgvector:18`` on host port 5532, database ``ai``.
 DEFAULT_DB_URL = "postgresql+psycopg://ai:ai@localhost:5532/ai"
@@ -176,9 +176,9 @@ class RetailSettings(BrandedSettings):
     retail_storage_provider: Optional[StorageProvider] = Field(
         default=None,
         description="Where the raw drop lives: 'local' a directory, 's3' any S3-compatible endpoint "
-        "including MinIO (EGPT_RETAIL_STORAGE_PROVIDER). Unset is refused when a load runs, rather than "
-        "defaulting to 'local' and silently reading an empty directory. Azure ADLS Gen2 is the AKS target "
-        "and is not implemented yet -- see deploy/AKS_CUTOVER.md.",
+        "including MinIO, 'azure_blob' Azure Blob Storage or Azurite (EGPT_RETAIL_STORAGE_PROVIDER). "
+        "Unset is refused when a load runs, rather than defaulting to 'local' and silently reading an "
+        "empty directory.",
     )
     retail_storage_endpoint: Optional[str] = Field(
         default=None,
@@ -212,6 +212,34 @@ class RetailSettings(BrandedSettings):
         default=None,
         description="Directory holding the 'raw/' subtree when the provider is 'local' "
         "(EGPT_RETAIL_STORAGE_LOCAL_ROOT). Used by the R4 cookbook against C1's committed fixtures.",
+    )
+    retail_storage_account_url: Optional[str] = Field(
+        default=None,
+        description="Azure Blob account URL when the provider is 'azure_blob' "
+        "(EGPT_RETAIL_STORAGE_ACCOUNT_URL), e.g. https://<account>.blob.core.windows.net or "
+        "Azurite's http://127.0.0.1:10000/devstoreaccount1. Derived from "
+        "retail_storage_account_name when unset and a name is given.",
+    )
+    retail_storage_account_name: Optional[str] = Field(
+        default=None,
+        description="Azure Blob storage account name (EGPT_RETAIL_STORAGE_ACCOUNT_NAME). Paired with "
+        "retail_storage_account_key for shared-key auth; either both or neither is set, the same rule "
+        "retail_storage_access_key/_secret_key enforce for S3.",
+    )
+    retail_storage_account_key: Optional[str] = Field(
+        default=None,
+        description="Azure Blob storage account key (EGPT_RETAIL_STORAGE_ACCOUNT_KEY). Unset, with "
+        "retail_storage_account_name also unset, falls back to the SDK's ambient credential chain "
+        "(DefaultAzureCredential), which is how managed identity is meant to work on Container Apps.",
+    )
+    retail_storage_connection_string: Optional[str] = Field(
+        default=None,
+        description="A full Azure Blob connection string (EGPT_RETAIL_STORAGE_CONNECTION_STRING), "
+        "bundling account, endpoint and key together. Azurite's well-known development connection "
+        "string is the common local value. Takes precedence over account_name/account_key when set, "
+        "since it is unambiguous about which account it addresses. A separate field rather than "
+        "overloading retail_storage_account_url: a connection string is not a URL and mixing the two "
+        "shapes in one field would make the 'both or neither' credential-pair check unreadable.",
     )
     retail_internal_service_token: Optional[str] = Field(
         default=None,
