@@ -122,11 +122,28 @@ class AuthorizationConfig(BaseModel):
     """Configuration for the JWT middleware"""
 
     verification_keys: Optional[List[str]] = None
+    # A local file path (the original behaviour, unchanged) or an ``http://``/``https://`` URL.
+    # A URL is fetched and cached via PyJWT's own ``PyJWKClient`` -- including automatic
+    # re-fetch on an unrecognized ``kid`` -- so a rotated signing key (Entra, or any OIDC
+    # issuer) does not require a manual file re-mount. See ``JWTValidator.__init__``.
     jwks_file: Optional[str] = None
     algorithm: Optional[str] = None
     verify_audience: Optional[bool] = None
     audience: Optional[str] = None
     admin_scope: Optional[str] = None
+    # JWT claim naming the caller's scopes. None (the default) means the framework's own
+    # default of "scopes" -- unchanged behaviour for every existing caller. Set it to
+    # whatever claim your issuer uses ("roles", "scp", ...) to read scopes from elsewhere.
+    scopes_claim: Optional[str] = None
+    # How the ``scopes_claim`` value is turned into a list of scope tokens.
+    #   "list" (default): today's exact behaviour -- a list claim is used as-is, a bare string
+    #     becomes a single one-element list (matches Entra's `roles`, a JSON list of names).
+    #   "space_delimited": a string claim is split on whitespace into real scope tokens
+    #     (matches Entra's `scp`, a single space-delimited string of scope names). A claim
+    #     that is already a list is never split, regardless of format.
+    # A claim value that is neither a list nor a string always resolves to [] under either
+    # format -- unchanged from today.
+    scopes_claim_format: Literal["list", "space_delimited"] = "list"
     # Opt-in per-user data isolation. When True, EgptOS:
     #   - threads the JWT sub as ``user_id`` on every user-scoped DB read
     #     (sessions, memory, traces) for non-admin callers

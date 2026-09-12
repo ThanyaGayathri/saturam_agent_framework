@@ -5,7 +5,7 @@ import hmac
 import json
 import re
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Literal, Optional, Union
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -25,9 +25,12 @@ from egpt.settings import jwt_is_configured, resolve
 from egpt.utils.log import log_debug, log_warning
 
 if TYPE_CHECKING:
-    from jwt import PyJWK
+    from jwt import PyJWK, PyJWKClient
 
     from egpt.os.service_accounts import ServiceAccountVerifier
+
+# The scopes-claim expansion format. See ``coerce_scopes_claim``.
+ScopesClaimFormat = Literal["list", "space_delimited"]
 
 # The user_id the internal scheduler token authenticates as. Reserved: a JWT must never
 # be allowed to claim it (see is_reserved_principal).
@@ -69,6 +72,37 @@ def is_reserved_principal(user_id: Any) -> bool:
     return isinstance(user_id, str) and (
         user_id.startswith(SERVICE_ACCOUNT_PRINCIPAL_PREFIX) or user_id == INTERNAL_SCHEDULER_USER_ID
     )
+
+
+def coerce_scopes_claim(value: Any, scopes_claim_format: ScopesClaimFormat = "list") -> List[str]:
+    """Turn a raw scopes-claim value into a list of scope tokens.
+
+    The single derivation for both claim-extraction paths (``JWTValidator.extract_claims``
+    and ``AuthMiddleware.dispatch``, which used to duplicate this inline) so they cannot
+    drift -- a token that resolves to a given scope set through one resolves to the same
+    set through the other.
+
+    - A list value is used as-is regardless of format (Entra's ``roles`` claim: a JSON list
+      of role/scope names). Never split, even under "space_delimited".
+    - A string value becomes a single one-element list under the default ``"list"`` format --
+      today's exact, unchanged behaviour -- or is split on whitespace into real scope tokens
+      under ``"space_delimited"`` (Entra's ``scp`` claim: one space-delimited string).
+    - Anything else (missing claim default aside, an int, ``None``, a dict, ...) resolves to
+      ``[]`` under either format. A malformed/unexpected claim shape must never crash the auth
+      path -- it must refuse cleanly to no scopes, exactly as before this change.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        if scopes_claim_format == "space_delimited":
+            return value.split()
+        return [value]
+    return []
+
+
+def _is_jwks_url(value: str) -> bool:
+    """Whether a ``jwks_file`` value is a URL rather than a local file path."""
+    return value.startswith("http://") or value.startswith("https://")
 
 
 class TokenSource(str, Enum):
@@ -117,6 +151,7 @@ class JWTValidator:
         algorithm: str = "RS256",
         validate: bool = True,
         scopes_claim: str = "scopes",
+        scopes_claim_format: ScopesClaimFormat = "list",
         user_id_claim: str = "sub",
         session_id_claim: str = "session_id",
         audience_claim: str = "aud",
@@ -129,10 +164,19 @@ class JWTValidator:
             verification_keys: List of keys for verifying JWT signatures.
                               For asymmetric algorithms (RS256, ES256), these should be public keys.
                               For symmetric algorithms (HS256), these are shared secrets.
-            jwks_file: Path to a static JWKS (JSON Web Key Set) file containing public keys.
+            jwks_file: Path to a static JWKS (JSON Web Key Set) file, OR an ``http://``/``https://``
+                      URL to a JWKS document. A URL is fetched and cached via PyJWT's own
+                      ``PyJWKClient``, which re-fetches automatically when a token presents a
+                      ``kid`` it hasn't seen -- so a rotated signing key (Entra, or any OIDC
+                      issuer) is picked up without a restart.
             algorithm: JWT algorithm (default: RS256).
             validate: Whether to validate the JWT token (default: True).
             scopes_claim: JWT claim name for scopes (default: "scopes").
+            scopes_claim_format: How the scopes claim value is turned into scope tokens.
+                "list" (default) is today's exact behaviour: a list is used as-is, a string
+                becomes a one-element list. "space_delimited" splits a string claim on
+                whitespace (Entra's `scp` claim shape) -- a claim that is already a list is
+                never split, regardless of format. See ``coerce_scopes_claim``.
             user_id_claim: JWT claim name for user ID (default: "sub").
             session_id_claim: JWT claim name for session ID (default: "session_id").
             audience_claim: JWT claim name for audience (default: "aud").
@@ -141,6 +185,7 @@ class JWTValidator:
         self.algorithm = algorithm
         self.validate = validate
         self.scopes_claim = scopes_claim
+        self.scopes_claim_format = scopes_claim_format
         self.user_id_claim = user_id_claim
         self.session_id_claim = session_id_claim
         self.audience_claim = audience_claim
@@ -156,25 +201,39 @@ class JWTValidator:
         if env_key and env_key not in self.verification_keys:
             self.verification_keys.append(env_key)
 
-        # JWKS configuration - load keys from JWKS file or environment variable.
+        # JWKS configuration - load keys from a JWKS file/URL or environment variable.
         self.jwks_keys: "Dict[str, PyJWK]" = {}
+        # Set instead of self.jwks_keys when jwks_file (or the env var) is a URL -- PyJWKClient
+        # owns its own fetch + TTL cache + re-fetch-on-unrecognized-kid, so there is nothing to
+        # hand-roll here. See _configure_jwks.
+        self._jwks_client: "Optional[PyJWKClient]" = None
 
         # Try jwks_file parameter first
         if jwks_file:
-            self._load_jwks_file(jwks_file)
+            self._configure_jwks(jwks_file)
         else:
-            # Try JWT_JWKS_FILE env var (path to file)
+            # Try JWT_JWKS_FILE env var (path to file, or a URL)
             jwks_file_env = resolve("jwt_jwks_file")
             if jwks_file_env:
-                self._load_jwks_file(jwks_file_env)
+                self._configure_jwks(jwks_file_env)
 
         # Validate that at least one key source is provided if validate=True
-        if self.validate and not self.verification_keys and not self.jwks_keys:
+        if self.validate and not self.verification_keys and not self.jwks_keys and not self._jwks_client:
             raise ValueError(
                 "At least one JWT verification key or JWKS file is required when validate=True. "
                 "Set via verification_keys parameter, JWT_VERIFICATION_KEY environment variable, "
                 "jwks_file parameter or JWT_JWKS_FILE environment variable."
             )
+
+    def _configure_jwks(self, jwks_source: str) -> None:
+        """Configure JWKS keys from ``jwks_source``: a URL (PyJWKClient) or a local file path."""
+        if _is_jwks_url(jwks_source):
+            from jwt import PyJWKClient
+
+            self._jwks_client = PyJWKClient(jwks_source)
+            log_debug(f"Configured JWKS URL (fetched and cached via PyJWKClient): {jwks_source}")
+        else:
+            self._load_jwks_file(jwks_source)
 
     def _load_jwks_file(self, file_path: str) -> None:
         """
@@ -262,25 +321,35 @@ class JWTValidator:
         last_exception: Optional[Exception] = None
         payload: Optional[Dict[str, Any]] = None
 
-        # Try JWKS keys first if configured
-        if self.jwks_keys:
+        # Try JWKS keys first if configured (a static file's keys, or a URL's live client)
+        if self.jwks_keys or self._jwks_client is not None:
+            from jwt import PyJWKClientError
+
             try:
-                # Get the kid from the token header to find the right key
-                unverified_header = jwt.get_unverified_header(token)
-                kid = unverified_header.get("kid")
+                if self._jwks_client is not None:
+                    # PyJWKClient reads the token's own kid, serves it from its TTL cache, and
+                    # re-fetches the JWKS document when the kid is unrecognized -- the refresh
+                    # behaviour a rotated Entra signing key needs. That cache/refresh policy is
+                    # PyJWT's own tested responsibility, not reimplemented here.
+                    signing_key = self._jwks_client.get_signing_key_from_jwt(token)
+                    payload = jwt.decode(token, signing_key.key, **decode_kwargs)
+                else:
+                    # Get the kid from the token header to find the right key
+                    unverified_header = jwt.get_unverified_header(token)
+                    kid = unverified_header.get("kid")
 
-                jwk = None
-                if kid and kid in self.jwks_keys:
-                    jwk = self.jwks_keys[kid]
-                elif "_default" in self.jwks_keys:
-                    # Fall back to default key if no kid match
-                    jwk = self.jwks_keys["_default"]
+                    jwk = None
+                    if kid and kid in self.jwks_keys:
+                        jwk = self.jwks_keys[kid]
+                    elif "_default" in self.jwks_keys:
+                        # Fall back to default key if no kid match
+                        jwk = self.jwks_keys["_default"]
 
-                if jwk:
-                    payload = jwt.decode(token, jwk.key, **decode_kwargs)
+                    if jwk:
+                        payload = jwt.decode(token, jwk.key, **decode_kwargs)
             except jwt.ExpiredSignatureError:
                 raise
-            except jwt.InvalidTokenError as e:
+            except (jwt.InvalidTokenError, PyJWKClientError) as e:
                 if not self.verification_keys:
                     raise
                 last_exception = e
@@ -345,11 +414,7 @@ class JWTValidator:
         Returns:
             Dictionary with user_id, session_id, scopes, and audience
         """
-        scopes = payload.get(self.scopes_claim, [])
-        if isinstance(scopes, str):
-            scopes = [scopes]
-        elif not isinstance(scopes, list):
-            scopes = []
+        scopes = coerce_scopes_claim(payload.get(self.scopes_claim, []), self.scopes_claim_format)
 
         return {
             "user_id": payload.get(self.user_id_claim),
@@ -431,6 +496,8 @@ def build_jwt_middleware_kwargs(
     admin_scope: Optional[str] = None
     user_isolation = False
     tenant_id_claim: Optional[str] = None
+    scopes_claim: Optional[str] = None
+    scopes_claim_format: Optional[str] = None
 
     if authorization_config:
         algorithm = authorization_config.algorithm or "RS256"
@@ -441,6 +508,8 @@ def build_jwt_middleware_kwargs(
         admin_scope = authorization_config.admin_scope
         user_isolation = authorization_config.user_isolation
         tenant_id_claim = authorization_config.tenant_id_claim
+        scopes_claim = authorization_config.scopes_claim
+        scopes_claim_format = authorization_config.scopes_claim_format
 
     kwargs: Dict[str, Any] = {
         "verification_keys": verification_keys,
@@ -458,6 +527,13 @@ def build_jwt_middleware_kwargs(
         kwargs["user_isolation"] = True
     if tenant_id_claim:
         kwargs["tenant_id_claim"] = tenant_id_claim
+    if scopes_claim:
+        kwargs["scopes_claim"] = scopes_claim
+    # Only forwarded when it diverges from the middleware's own default ("list"), matching
+    # the "optional flags only included when set" convention above -- a manual
+    # app.add_middleware(JWTMiddleware, ...) setup's own default keeps applying otherwise.
+    if scopes_claim_format and scopes_claim_format != "list":
+        kwargs["scopes_claim_format"] = scopes_claim_format
     if service_account_verifier is not None:
         kwargs["service_account_verifier"] = service_account_verifier
     return kwargs
@@ -561,6 +637,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         token_header_key: str = "Authorization",
         cookie_name: str = "access_token",
         scopes_claim: str = "scopes",
+        scopes_claim_format: ScopesClaimFormat = "list",
         user_id_claim: str = "sub",
         session_id_claim: str = "session_id",
         audience_claim: str = "aud",
@@ -603,6 +680,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             token_header_key: Header key for Authorization (default: "Authorization")
             cookie_name: Cookie name for JWT token (default: "access_token")
             scopes_claim: JWT claim name for scopes (default: "scopes")
+            scopes_claim_format: How the scopes claim value is turned into scope tokens.
+                "list" (default) is today's exact behaviour: a list is used as-is, a string
+                becomes a one-element list. "space_delimited" splits a string claim on
+                whitespace (Entra's `scp` claim shape) -- a claim that is already a list is
+                never split, regardless of format. See ``coerce_scopes_claim``.
             user_id_claim: JWT claim name for user ID (default: "sub")
             session_id_claim: JWT claim name for session ID (default: "session_id")
             audience_claim: JWT claim name for audience/OS ID (default: "aud")
@@ -673,6 +755,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 algorithm=algorithm,
                 validate=validate,
                 scopes_claim=scopes_claim,
+                scopes_claim_format=scopes_claim_format,
                 user_id_claim=user_id_claim,
                 session_id_claim=session_id_claim,
                 audience_claim=audience_claim,
@@ -688,6 +771,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self.token_header_key = token_header_key
         self.cookie_name = cookie_name
         self.scopes_claim = scopes_claim
+        self.scopes_claim_format = scopes_claim_format
         self.user_id_claim = user_id_claim
         self.session_id_claim = session_id_claim
         self.audience_claim = audience_claim
@@ -1078,7 +1162,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # Extract standard claims and store in request.state
             user_id = payload.get(self.user_id_claim)
             session_id = payload.get(self.session_id_claim)
-            scopes = payload.get(self.scopes_claim, [])
+            scopes = coerce_scopes_claim(payload.get(self.scopes_claim, []), self.scopes_claim_format)
             audience = payload.get(self.audience_claim)
 
             # A JWT must not be able to claim a service-account (sa:...) or scheduler
@@ -1088,12 +1172,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if is_reserved_principal(user_id):
                 log_warning(f"Rejected JWT claiming a reserved principal via {self.user_id_claim}: {user_id!r}")
                 return self._create_error_response(401, "Invalid token subject", origin, cors_allowed_origins)
-
-            # Ensure scopes is a list
-            if isinstance(scopes, str):
-                scopes = [scopes]
-            elif not isinstance(scopes, list):
-                scopes = []
 
             # Resolve the tenant before anything is written to request.state, so a malformed
             # claim cannot leave a half-populated identity behind on the rejection path.

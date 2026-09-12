@@ -7,10 +7,15 @@ produces the same code path with a scope claim we control. This is stronger evid
 login flow, because the scopes on the token are explicit.
 
 Nothing here is used in production. ``AKS_CUTOVER.md`` replaces the mounted file with the
-identity provider's JWKS *document*, re-applied on rotation -- the framework has no JWKS URL
-option (``AuthorizationConfig.jwks_file`` only), which is a named Lane R framework item.
+identity provider's JWKS *document*, re-applied on rotation -- ``AuthorizationConfig.jwks_file``
+now also accepts an ``http://``/``https://`` URL, fetched and cached via ``PyJWKClient`` with
+automatic re-fetch on an unrecognized ``kid`` (AZ-D / gap #2), so a rotated key no longer needs
+a manual re-mount.
 
 Claims follow the middleware's defaults: ``sub``, ``scopes`` (a list), ``aud``, ``exp``.
+``mint_token``'s ``scopes_claim``/``scopes_claim_format`` parameters can shape those claims like
+a real Entra token instead (``roles`` a list, or ``scp`` a space-delimited string -- AZ-D / gap
+#1); see ``cookbook/95_azure_migration/AZ_D_entra_scopes.py``.
 """
 
 from __future__ import annotations
@@ -94,14 +99,29 @@ def mint_token(
     audience: Optional[str] = None,
     kid: str = DEFAULT_KID,
     ttl_seconds: int = 3600,
+    scopes_claim: str = "scopes",
+    scopes_claim_format: str = "list",
 ) -> str:
-    """An RS256 token the middleware will accept against the matching JWKS. Pure construction."""
+    """An RS256 token the middleware will accept against the matching JWKS. Pure construction.
+
+    ``scopes_claim``/``scopes_claim_format`` let a caller mint a token shaped like a real Entra
+    one instead of the framework's own default ``scopes`` list (AZ-D / gap #1):
+      - ``scopes_claim="roles", scopes_claim_format="list"`` (the default format) emits
+        ``roles`` as a JSON list -- Entra's app-role claim shape.
+      - ``scopes_claim="scp", scopes_claim_format="space_delimited"`` emits ``scp`` as one
+        space-delimited string -- Entra's delegated-scope claim shape.
+    The default (``scopes_claim="scopes"``, ``scopes_claim_format="list"``) is byte-for-byte
+    what this function emitted before these parameters existed.
+    """
     import jwt
 
     now = int(time.time())
+    scopes_value: object = (
+        " ".join(scopes) if scopes_claim_format == "space_delimited" else list(scopes)
+    )
     claims: Dict[str, object] = {
         "sub": subject,
-        "scopes": list(scopes),
+        scopes_claim: scopes_value,
         "iat": now,
         "exp": now + ttl_seconds,
     }
