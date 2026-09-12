@@ -4,8 +4,12 @@ The Enterprise GPT interface: the Vite application from `Retail-GPT-prototype`, 
 `feat/egpt-ui-revamp` (`e6b55b3`) as a flat copy of that repo's `frontend/` directory. Not yet
 wired to the API -- the seams below are unchanged and still hold.
 
-    cd frontend && npm ci && npm run dev        # http://localhost:5173
+    cd frontend && npm ci && npm run dev        # http://localhost:3000
     npm run build                               # dist/, gitignored
+
+`vite.config.js` pins the dev port to 3000 - it's also the only origin the real API's default
+CORS allow-list covers (`libs/agno/egpt/os/utils.py:resolve_origins`), so a different local port
+needs `CORS_ORIGIN_LIST` set on the API (see `deploy/README.md`).
 
 Left behind on purpose: `src/figma_data/` (109 MB of raw Figma frame exports, imported by
 nothing) and the prototype's root `docs/`, `scripts/` and `CLAUDE.md`, which this repository
