@@ -19,6 +19,7 @@ from egpt.os.config import AuthorizationConfig
 from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware
 from fastapi import FastAPI
 
+from egpt_retail.api.routers.business_areas import router as business_areas_router
 from egpt_retail.api.routers.dashboards import router as dashboards_router
 from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.app.components import (
@@ -163,12 +164,13 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     if slug:
         base_app.add_middleware(FixedTenantMiddleware, tenant_id=slug)
 
-    # R11's and R13's real routers -- the first non-stub, non-framework routes in the
-    # product. Mounted on the base app, same as the middleware above and for the same
-    # reason: they need to exist on the app AuthMiddleware wraps, which EgptOS builds on
-    # top of this one.
+    # R11's and R13's real routers, and the business hierarchy (K9 over HTTP) -- the
+    # non-stub, non-framework routes in the product. Mounted on the base app, same as the
+    # middleware above and for the same reason: they need to exist on the app
+    # AuthMiddleware wraps, which EgptOS builds on top of this one.
     base_app.include_router(playground_router)
     base_app.include_router(dashboards_router)
+    base_app.include_router(business_areas_router)
 
     os_app = EgptOS(
         id=OS_ID,

@@ -160,5 +160,41 @@
         "description": "Nothing restricts sharing this. Stated rather than left blank, so an unreviewed field is distinguishable from a reviewed one."
       }
     ]
+  },
+  "business_area_hierarchy": {
+    "_comment": [
+      "What a business_area term does not carry: the label a screen shows and the subject",
+      "areas beneath the area (the retail hierarchy the API contract's BusinessArea renders).",
+      "Keyed by term value. A missing label is derived from the id. An overlay may add subject",
+      "areas to a core area and label an area it adds; it may not relabel a core area (G10)."
+    ],
+    "customer": {
+      "label": "Customer",
+      "subject_areas": ["Customer Satisfaction", "Returns Management", "Contact Centre"]
+    },
+    "product": {
+      "label": "Product",
+      "subject_areas": ["Assortment Planning", "Category Performance", "Markdown Optimisation"]
+    },
+    "inventory": {
+      "label": "Inventory",
+      "subject_areas": ["Stock Health", "Replenishment", "Shrinkage & Loss"]
+    },
+    "supply_chain": {
+      "label": "Supply Chain",
+      "subject_areas": ["Supplier Management", "Delivery Management"]
+    },
+    "marketing": {
+      "label": "Marketing",
+      "subject_areas": ["Traffic Sources", "Promotions"]
+    },
+    "sales": {
+      "label": "Sales",
+      "subject_areas": ["Revenue", "Conversion", "Order Fulfillment"]
+    },
+    "operations": {
+      "label": "Operations",
+      "subject_areas": ["Labor & Staffing", "Foot Traffic", "Task Compliance"]
+    }
   }
 }
