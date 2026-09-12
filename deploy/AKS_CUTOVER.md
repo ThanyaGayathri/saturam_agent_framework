@@ -1,3 +1,25 @@
+# AKS cutover — superseded
+
+**This document is no longer the target.** The standing compute decision moved from AKS to Azure
+Functions Flex Consumption (for `api`) + Azure Container Apps (for Neo4j, `pipelines`,
+`consolidator`, and the one-shot jobs) — see `docs/plan/build-plan.md`'s decision D15 and the full
+gap analysis and phased plan in `docs/plan/azure-migration-plan.md`.
+
+The current cutover checklist is **`deploy/AZURE_CUTOVER.md`**.
+
+This file is kept, not deleted, because it recorded real decision history worth being able to
+find later: an earlier draft of the reference Azure architecture named Container Apps, the plan
+moved to AKS for a period (see `docs/plan/build-plan.md`'s "Azure alignment" section, "Compute
+platform" row), and D15 is that decision reversing back — for the operational-cost reason
+`build-plan.md`'s own "What AKS costs two people" callout already named. Nothing in the original
+AKS-era content below should be treated as current; it is preserved for that history, not as
+instructions.
+
+---
+
+<details>
+<summary>Original content (superseded)</summary>
+
 # AKS cutover — the checklist for the day the cluster exists
 
 Written in phase zero, while the scenarios are fresh, so that AKS day is execution rather than
@@ -54,3 +76,5 @@ each row from NEVER to yes as it passes — and not before.
 Front Door and API Management (streaming routes unbuffered, sticky sessions on the streaming
 path only) are edge configuration outside this chart. Observability: traces to Postgres in
 phase one; Application Insights for infrastructure only.
+
+</details>

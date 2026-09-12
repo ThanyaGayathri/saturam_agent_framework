@@ -24,6 +24,7 @@ Settled in the planning session. Each is cited by identifier in the sections bel
 | D12 | **RFQ is an explain-only use case.** | The first use case proves the chain without needing guardrails, approval gates or write-back. |
 | D13 | **Results are delivered in-app with an email pointer.** | No new integration. Provenance stays attached to the answer. |
 | D14 | **Monitoring is a separate pipeline**, and **golden questions plus rehearsal gate publish**. | Execution health and answer quality are measured separately. A use case that runs green but answers worse is caught. |
+| D15 | **Compute is Azure Functions Flex Consumption (`api`) + Azure Container Apps (Neo4j, `pipelines`, `consolidator`, one-shot jobs), not AKS.** Reverses the "Compute platform" row this doc's own Azure-alignment section settled on AKS for. Vector retrieval moves from pgvector to Azure AI Search alongside it. Full gap analysis and phasing: `docs/plan/azure-migration-plan.md`; the day-of checklist: `deploy/AZURE_CUTOVER.md` (`deploy/AKS_CUTOVER.md` is kept only as superseded history). | Resolves the exact concern the "What AKS costs two people" callout below already raised, rather than accepting it as an unavoidable cost. `deploy/helm/egpt/`'s Kubernetes-shaped templates do not carry forward as-is — Container Apps and Functions need their own deploy artifacts, IaC tooling (Bicep vs. Terraform) undecided. Neo4j moves from "Enterprise, one cluster, two databases, licence required" to Community on Container Apps, two instances — which is what local dev already ran, so nothing new to rehearse there. |
 
 > **Open**
 >
@@ -74,29 +75,30 @@ A use case is three artifacts: a stored workflow component, the skill prompts it
 
 ## 02 Foundation
 
-Nothing in this section exists today. Platform choices follow the Azure deployment architecture, which is AKS-first and resilience-first; this section states what that costs a team of two and what the architecture leaves out.
+Nothing in this section exists today. Platform choices followed the Azure deployment architecture through an AKS-first, resilience-first period; **D15 reverses that** back to the architecture's own earlier Functions/Container Apps shape, for the operational-cost reason the "What AKS costs two people" callout below already named. The table rows below reflect the post-D15 state; where a row's earlier AKS-era reasoning is still worth keeping as context, it is kept rather than deleted.
 
 | Piece | State | Work |
 |---|---|---|
-| **Application image** | Build | One `egptos` image with three entrypoints: API, memory consolidator, pipelines worker. Plus a `main.py` constructing `EgptOS` with agents, workflows, database and scheduler |
-| **Cluster** | Build | AKS, one VNet, per the Azure architecture. Helm chart authored by us. API pods scale on HTTP concurrency; the consolidator is pinned to one replica because it has no distributed lock |
-| **Control-plane database** | Exists | Azure Database for PostgreSQL Flexible Server with pgvector, zone-redundant, behind PgBouncer. Agent state, components, knowledge vectors, traces, KPI definitions, dashboards |
-| **Raw drop zone** | Build | Azure Storage account, ADLS Gen2, private endpoint. Where connectors write **(D4)**. Absent from the Azure architecture and must be added |
-| **Warehouse** | Build | Separate PostgreSQL database for landing, silver and gold **(D5, D6)**. Separate server preferred so nightly transforms never contend with agent state. Absent from the Azure architecture and must be added |
-| **Graph** | Exists | Neo4j Enterprise on AKS as a StatefulSet, per the architecture. Two databases inside it: memory with the semantic layer, and the domain ontology. Enterprise is required for multi-database and carries a licence |
+| **Application image** | Build | One `egptos` image with three entrypoints: API, memory consolidator, pipelines worker. Plus a `main.py` constructing `EgptOS` with agents, workflows, database and scheduler. The image is unchanged by D15 — only where each entrypoint runs moves |
+| **Compute** | Build | **D15.** `api` on Azure Functions Flex Consumption, via the Python ASGI adapter over the same `egptos` image's ASGI app — no code change to the entrypoint itself. `pipelines` (its in-process scheduler poller), `consolidator` (Postgres-advisory-lock-guarded, `--once` mode already fits a cron trigger with no redesign), and the one-shot jobs (`migrate`, `warehouse_migrate`, `schedule_nightly`) run as Azure Container Apps — regular App for `pipelines`, Jobs for the rest. No `libs/agno/egpt/scheduler/` redesign needed; see `docs/plan/azure-migration-plan.md` for why |
+| **Control-plane database** | Exists | Azure Database for PostgreSQL Flexible Server, zone-redundant, behind PgBouncer. **Scoped down by D15**: agent state, components, traces, KPI definitions, dashboards — knowledge and memory vectors are planned to move to Azure AI Search, so pgvector stops being a dependency of this server once AZ-B (PR #216, open and unmerged) and AZ-C (P2, not started) land. Neither has; `product/egpt_retail/memory/config.py` still reads `"backend": "pgvector"` today |
+| **Raw drop zone** | Build | Azure Storage account, Blob Storage, private endpoint. Where connectors write **(D4)**. Access is planned to go through `AzureBlobObjectStore` (AZ-A, PR #213, open and unmerged) — not S3-compatible, a genuine new backend rather than a config change |
+| **Warehouse** | Build | Separate PostgreSQL database for landing, silver and gold **(D5, D6)**. Separate server preferred so nightly transforms never contend with agent state. Unaffected by D15 |
+| **Vector retrieval** | Build | **D15.** Azure AI Search replaces pgvector for K1 memory-vector and K2 knowledge-prose retrieval (AZ-B, PR #216 open and unmerged; AZ-C, P2, not started). K3 ontology stays on Neo4j's own native vector index, unaffected — it was never on pgvector |
+| **Graph** | Exists | Neo4j **Community** on Azure Container Apps, two logical instances: memory with the semantic layer, and the domain ontology. **This is what local dev already runs** — the earlier AKS-era "Enterprise, one cluster, two databases, licence required" row is gone; there is nothing left to prove on this row that wasn't already proven locally |
 | **Cache** | Exists | Azure Cache for Redis for budget counters and cross-replica run cancellation. Standard tier is enough for one customer |
 | **Models** | Exists | Azure OpenAI over a private endpoint, two deployments: a small tier and a frontier tier, composed through the existing escalation provider. The GPU node pool for in-cluster serving is deferred; see the Azure alignment section |
-| **Identity** | Exists | Microsoft Entra ID issuing tokens; app roles mapped to scope sets at issuance; EgptOS pointed at Entra's JWKS. User isolation on, tenancy flags off, and a fixed customer identifier stamped on every run from configuration **(G1)** |
-| **Edge** | Exists | Front Door and API Management per the architecture. Streaming routes pass through unbuffered; sticky sessions only on the streaming path |
-| **Secrets and settings** | Exists | Key Vault and App Configuration through workload identity. Every setting is already an environment variable, so no code change |
+| **Identity** | Exists | Microsoft Entra ID issuing tokens; app roles mapped to scope sets at issuance; EgptOS pointed at Entra's JWKS. **The framework gaps this needs are still open**: AZ-D is PR #214, open and unmerged, carrying an unresolved Critical finding (a blocking JWKS fetch on the event loop). Once it merges, `AuthorizationConfig.scopes_claim`/`scopes_claim_format` will handle Entra's `roles`/`scp` claims and JWKS will accept a URL with auto-refresh instead of only a static file; today `AuthorizationConfig` has neither, which is why `deploy/helm/egpt/README.md`'s ledger still marks both rows **NEVER**. User isolation on, tenancy flags off, and a fixed customer identifier stamped on every run from configuration **(G1)** |
+| **Edge** | Exists | Front Door Premium + WAF, per the architecture. Streaming routes pass through unbuffered; sticky sessions only on the streaming path |
+| **Secrets and settings** | Exists | Key Vault through workload identity / managed identity. Every setting is already an environment variable, so no code change |
 | **Observability** | Exists | Traces to Postgres in phase one, Application Insights for infrastructure only. There is no native Azure Monitor exporter; Langfuse with a collector bridge is the phase-two path |
 | **Email** | Build | Azure Communication Services for **D13**. The built-in email tools target other clouds |
-| **Backups** | Build | Managed for Postgres and Redis. Neo4j is self-hosted, so a backup job to the storage account is ours, on its own cadence |
+| **Backups** | Build | Managed for Postgres and Redis. Neo4j is self-hosted (on Container Apps now, not AKS), so a backup job to the storage account is ours, on its own cadence |
 | **API contract** | Build | Written now, wired last. Unblocks the backend and defines the interface task in section 11 |
 
-> **What AKS costs two people**
+> **What AKS costs two people — resolved by D15, not just noted**
 >
-> A managed Kubernetes cluster with three node pools, a self-hosted graph cluster, PgBouncer, KEDA and a Helm chart is more platform than the product needs in phase one, and every piece of it is operated by the same two people building the product. The architecture is sound and it is the standing decision, so the plan follows it. The mitigation is in the alignment section: keep the number of things we author small, and defer the GPU pool and the event bus until something needs them.
+> A managed Kubernetes cluster with three node pools, a self-hosted graph cluster, PgBouncer, KEDA and a Helm chart is more platform than the product needs in phase one, and every piece of it is operated by the same two people building the product. This paragraph originally concluded "the architecture is sound and it is the standing decision, so the plan follows it" — kept here as the honest record of that call, since D15 is this exact concern being acted on rather than accepted. The mitigation this callout already named — keep the number of things we author small, defer the GPU pool and the event bus — still applies unchanged; D15 just removes the Kubernetes operational surface underneath it too.
 
 ## 03 Data platform
 
@@ -379,10 +381,10 @@ Two people, two lanes, ordered by dependency rather than by date. Lane A owns th
 #### P0 — Foundation · no dependencies
 
 - **Lane A — platform**
-  - Image with three entrypoints, Helm chart, AKS
+  - Image with three entrypoints; Functions app (`api`) + Container Apps environment (`pipelines`, `consolidator`, one-shot jobs) **(D15)**, not Helm/AKS
   - Control-plane database, PgBouncer, migrations
-  - Storage account and warehouse database
-  - Neo4j StatefulSet, two databases
+  - Storage account (Blob) and warehouse database
+  - Neo4j Community on Container Apps, two instances
   - Entra roles, fixed customer identifier **(G1)**
 - **Lane B — agents**
   - API contract, written and agreed
@@ -615,11 +617,11 @@ PostgreSQL Flexible Server with pgvector as the only vector store that needs no 
 | **Semantic layer home** | Pipeline output lands in governed Postgres tables, never in memory, because decay and consolidation are wrong for a definition | Semantic model in Neo4j with its own labels, then selected facts promoted into semantic memory **(D11)** | **Compatible once stated precisely, and D11 is reworded.** The authoritative semantic model lives in Neo4j under its own labels, outside memory's decay semantics; versioned snapshots and KPI definitions live in the governed Postgres tables. What enters memory is a derived, re-promotable copy, never the source of truth. The Azure document should list Neo4j as a semantic layer home alongside Postgres |
 | **Small model tier** | Dedicated GPU node pool, two A100 nodes, vLLM, model family open | A routing policy **(G6)** naming which tier runs which step | **This plan defers the GPU pool.** The escalation provider composes any two providers, so two Azure OpenAI deployments, small and frontier, exercise the same code path as in-cluster serving. Two A100 nodes for one customer's phase-one demo is the single most expensive line in the architecture. Add the pool when an in-network inference requirement is real, not before. Needs your confirmation |
 | **Interface topology** | The prototype's Node API layer is kept, and its run handler drains the whole event stream server-side before responding | Screens call EgptOS directly through the contract in section 02, with conversations on server-sent events | **Both change.** Once Entra issues tokens, the bespoke auth routes go away and the Node layer shrinks to almost nothing. Stream directly from the EgptOS run endpoints through the edge; never drain a stream in a proxy. Keep a thin layer only if a cookie-to-token exchange is genuinely needed |
-| **Two Neo4j databases** | One causal cluster, Enterprise edition | Two databases in that cluster | **Azure document adds a line.** Enterprise supports multiple databases, so this is configuration. Note the licence |
+| **Two Neo4j databases** | One causal cluster, Enterprise edition | Two databases in that cluster | **Superseded by D15.** No longer one Enterprise cluster with two databases inside it — two separate Community instances on Container Apps, which is what local dev already runs. The licence question this row raised no longer applies |
 | **Memory under single tenancy** | Tenancy flags off in phase one | **G1**: with no tenant on the run, memory silently no-ops | **Azure document adds a setting.** A fixed customer identifier in App Configuration, stamped on every run context by middleware. Without it the deployment is memoryless and nothing reports it |
 | **Email** | Not mentioned | In-app plus email **(D13)** | Add Azure Communication Services |
 | **Neo4j backups** | Full control over backup, no mechanism | Three stores on three cadences | A backup job writing to the storage account |
-| **Compute platform** | AKS | Previously said Container Apps | **This plan changed.** Section 02 now follows AKS |
+| **Compute platform** | AKS | Previously said Container Apps | **This plan changed twice now, and the second change is the current state.** Section 02 followed AKS for a period; **D15 reverses to Functions (`api`) + Container Apps (everything else)** — the architecture's own original position, not a fresh third option. See D15 above and `docs/plan/azure-migration-plan.md` for why the reversal, not just that it happened |
 
 > **Net effect on the architecture**
 >
@@ -635,5 +637,5 @@ PostgreSQL Flexible Server with pgvector as the only vector store that needs no 
 | **The graph substrate cannot express a semantic layer** | Its labels are fixed and its query filters are refused | Resolved by **D11**, at the cost of a second write path and a promotion step |
 | **Enterprise GPT is becoming a data platform** | **D6** brings scheduling, backfills, late-arriving data and correctness into our scope | Accepted deliberately. Keep transformations as inspectable SQL, never as code, so they can be handed over later |
 | **The interface is the largest single body of work** | Every prototype screen must work, and charting does not exist at all | Contract first, wiring last, and the seam through the storage helpers keeps it mechanical |
-| **The platform surface exceeds the team** | AKS with three node pools, a self-hosted graph cluster, KEDA, PgBouncer and a Helm chart are operated by the same two people writing the product | Author as little as possible. Defer the GPU pool and the event bus. Revisit if operations start displacing build time |
+| **The platform surface exceeds the team** *(resolved by D15)* | AKS with three node pools, a self-hosted graph cluster, KEDA, PgBouncer and a Helm chart are operated by the same two people writing the product | This risk is what D15 acted on rather than continuing to accept — Functions and Container Apps remove the cluster, node-pool and KEDA surface entirely. Author as little as possible still applies to what remains; defer the GPU pool and the event bus |
 | **Two people, no slack** | Both lanes converge at P2 and again at P5 | Those two points are where a slip propagates. Protect them, and let breadth in P4 absorb pressure instead |

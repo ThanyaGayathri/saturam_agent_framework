@@ -8,14 +8,18 @@ deploy/
 ├── Dockerfile                 one image, four entrypoints: api · pipelines · consolidator · migrate
 ├── compose.yaml               the local stack R1 verifies against (Postgres only by default)
 ├── postgres/init/             first-boot SQL: creates the warehouse database (D5)
-├── kind/cluster.yaml          the local verification cluster (R2)
-├── helm/egpt-local-infra/     Postgres+pgvector, PgBouncer, Neo4j x2, Redis, MinIO -- installed first, never on AKS
-├── helm/egpt/                 the application chart; values.yaml Azure-shaped, values.local.yaml runs on kind
-└── AKS_CUTOVER.md             the checklist for the day the cluster exists
+├── kind/cluster.yaml          the local verification cluster (R2) -- AKS-era, see below
+├── helm/egpt-local-infra/     Postgres+pgvector, PgBouncer, Neo4j x2, Redis, MinIO -- AKS-era local stand-in
+├── helm/egpt/                 the AKS-era application chart -- superseded by D15, kept as reference
+├── AKS_CUTOVER.md             superseded -- points to AZURE_CUTOVER.md
+└── AZURE_CUTOVER.md           the current checklist: Functions (api) + Container Apps (everything else) (D15)
 ```
 
-Phase zero has no AKS. The chart is built for it and proven on kind; `helm/egpt/README.md`
-carries the ledger of which values paths have executed and which never have.
+**D15 moved the standing compute decision from AKS to Azure Functions Flex Consumption + Azure
+Container Apps** — see `docs/plan/build-plan.md`'s D15 and `docs/plan/azure-migration-plan.md`
+for the gap analysis and phasing. The Helm chart, `kind/` cluster, and `egpt-local-infra` chart
+above are kept as reference/history rather than deleted, but are not the current target; new
+deploy work follows `AZURE_CUTOVER.md`.
 
 ## Build and run locally
 
@@ -61,7 +65,9 @@ do; all are needed the moment a model is called or a memory row is written.
 
 - Authorization is on exactly when `EGPT_RETAIL_AUTH_JWKS_FILE` is set. Locally that file comes
   from `python -m egpt_retail.app.devauth keygen <dir>` (an offline RS256 key pair; `mint` issues
-  tokens) mounted through a ConfigMap; on AKS it is the identity provider's JWKS. RS256 needs
+  tokens) mounted through a ConfigMap. On Azure it is Entra's JWKS, reaching the app through Key
+  Vault / app settings rather than a ConfigMap (**D15** — Functions and Container Apps, not AKS);
+  it stays a file until AZ-D (PR #214, open and unmerged) adds the URL mode. RS256 needs
   `cryptography`, which `egpt[os]` does not bring — the product declares it.
 
 Do not name a file here `*.config.*` — the repository `.gitignore` carries a blanket `*.config*`
