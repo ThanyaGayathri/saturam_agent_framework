@@ -11,9 +11,19 @@ mid-sentence and carried no indication of which section it came from. A reader h
 chunk cannot tell what it is about, and neither can a model.
 
 The settings below were chosen by measurement rather than taste; ``chunking_evidence()``
-reproduces the comparison. Every chunk begins with its own heading, and no section is ever
-split by size -- raising the cap from 12,000 to 20,000 characters changes nothing, which is
-what proves the cap never binds on this corpus.
+reproduces the comparison. Every chunk begins with its own heading, enforced rather than
+merely typical (``BodiedChunking`` drops any that does not, see below). **The size cap is not
+inert**: 18 raw sections across 13 of the 31 corpus files exceed 12,000 characters before
+size-splitting, up to 22,604 characters in one case. Raising the cap to 20,000 measurably
+changes the output -- the heading splitter's 1,457 chunks become 1,436, which is 1,049 rather
+than 1,028 once ``BodiedChunking`` has dropped the shells -- so the cap genuinely binds for
+long sections rather than sitting unused as a defensive bound. It stays at 12,000 because that
+value, not 20,000, is what the corpus was reviewed and mutation-tested against.
+
+Every number in the paragraph above is asserted against the real corpus by
+``product/tests/test_k02_k03_pure_logic.py``, so it fails a test rather than merely reading
+wrong when the corpus changes. It read "8 of the 31" for two review rounds before that test
+existed; a count nobody executes is a count that drifts.
 
 **Tagged by origin.** Shipped prose and a customer's own documents land in the same store and
 are told apart by ``origin`` in metadata, so a provenance record can say which of the two an
@@ -41,6 +51,7 @@ __all__ = [
     "aingest_corpus",
     "build_chunker",
     "has_body",
+    "starts_at_heading",
     "chunking_evidence",
     "ingest_corpus",
     "read_corpus",
@@ -50,9 +61,11 @@ __all__ = [
 #: explicitly because the library default is ``False`` and silently produces size-based chunks.
 SPLIT_ON_HEADINGS = 3
 
-#: Large enough that no section in the retail corpus is ever split by size. Measured, not
-#: guessed: at 12,000 and at 20,000 the corpus chunks identically, so the cap never binds. It
-#: stays as a bound against a pathologically long section rather than as a chunking strategy.
+#: Measured, not guessed -- but the cap does bind: 18 raw sections across 13 of the 31 corpus
+#: files exceed 12,000 characters, and raising the cap to 20,000 measurably changes the output
+#: (the splitter's 1,457 chunks become 1,436). It stays at 12,000 because that is the value the
+#: corpus was reviewed and mutation-tested against, not because the cap never fires. Asserted
+#: in ``product/tests/test_k02_k03_pure_logic.py``.
 CHUNK_SIZE = 12_000
 
 #: Our own curated writing, delivered with every deployment.
@@ -102,7 +115,18 @@ class IngestionReport:
         return f"{self.documents} {self.origin} document(s) ingested"
 
 
-_HEADING_LINE = re.compile(r"^\s*#{1,6}\s+.*$", re.MULTILINE)
+#: Anchored at column zero, with no leading ``\s*``: CommonMark makes four-space-indented text
+#: a code block, so ``    # count the rows`` is a Python comment and not a heading. With the
+#: leading ``\s*`` it matched, which made ``has_body`` strip real code as though it were a
+#: heading and made ``starts_at_heading`` accept a chunk that starts inside a code block
+#: (review round 1 of PR #204). Verified corpus-neutral: every count asserted in
+#: ``test_k02_k03_pure_logic.py`` is unchanged by the anchoring, because the shipped corpus has
+#: no indented ``#`` line.
+_HEADING_LINE = re.compile(r"^#{1,6}\s+.*$", re.MULTILINE)
+
+#: Leading blank lines only. ``content.lstrip()`` would also strip a first line's indentation,
+#: which re-admits the indented-``#`` case the anchor above exists to exclude.
+_LEADING_BLANK_LINES = re.compile(r"\A(?:[ \t]*\r?\n)+")
 
 
 def has_body(content: str) -> bool:
@@ -113,12 +137,31 @@ def has_body(content: str) -> bool:
     corpus that was 410 of 1,457 chunks -- twenty-eight percent -- each embedded, each matching
     on its title alone, each returning nothing a reader can use. *"who are our repeat buyers"*
     was answered by the chunk ``## 12. Key Metrics and Benchmarks`` and nothing else.
+
+    This checks only what remains after the chunk's own heading is stripped -- it does not
+    check that the chunk *starts* at a heading in the first place. Use
+    :func:`starts_at_heading` for that; :class:`BodiedChunking` enforces both.
     """
     return bool(_HEADING_LINE.sub("", content).strip())
 
 
+def starts_at_heading(content: str) -> bool:
+    """Whether a chunk's first non-blank line is itself a heading.
+
+    Every shipped corpus file happens to start with ``#``, so a leading chunk containing
+    prose before the first heading never occurs today -- but nothing about the shipped
+    corpus's formatting is guaranteed of a customer's own document (``ORIGIN_CUSTOMER``),
+    which is ingested through this same chunker. Without this check, a document with prose
+    before its first heading would produce a leading chunk that ``has_body`` keeps (it has
+    real content) but that starts mid-prose with no heading at all, silently breaking the
+    "every chunk begins with its own heading" guarantee this module exists to provide.
+    """
+    stripped = _LEADING_BLANK_LINES.sub("", content)
+    return bool(stripped.strip()) and bool(_HEADING_LINE.match(stripped))
+
+
 class BodiedChunking(ChunkingStrategy):
-    """A chunking strategy that drops chunks with no body.
+    """A chunking strategy that drops chunks with no body, or that do not start at a heading.
 
     Wraps the heading-split strategy rather than subclassing it, so the filter is one small
     thing with one reason to change and the heading split stays the library's.
@@ -130,7 +173,11 @@ class BodiedChunking(ChunkingStrategy):
 
     def chunk(self, document: Any) -> List[Any]:
         chunks = self.inner.chunk(document)
-        kept = [chunk for chunk in chunks if has_body(chunk.content)]
+        kept = [
+            chunk
+            for chunk in chunks
+            if has_body(chunk.content) and starts_at_heading(chunk.content)
+        ]
         self.dropped += len(chunks) - len(kept)
         return kept
 

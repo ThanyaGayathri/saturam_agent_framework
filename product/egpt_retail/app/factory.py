@@ -22,8 +22,8 @@ from fastapi import FastAPI
 from egpt_retail.api.routers.dashboards import router as dashboards_router
 from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.app.components import (
+    abuild_memory_provider,
     build_agents,
-    build_memory_provider,
     build_registry,
     build_workflows,
 )
@@ -52,13 +52,16 @@ def memory_lifespan_for(settings: RetailSettings, agents: List[Any]) -> Any:
 
     @asynccontextmanager
     async def _lifespan(app: Any, agent_os: Any):
-        provider = build_memory_provider(settings)
+        # Awaited, not called: construction opens the pgvector engine and provisions its
+        # schema, and this coroutine is the event loop's own startup hook -- the sync call
+        # blocked the loop for a database round trip on every boot.
+        provider = await abuild_memory_provider(settings)
         for agent in agents:
             if getattr(agent, "memory_provider", None) is None:
                 agent.memory_provider = provider
-        # Every fault at once, so a misconfigured deployment is fixed in one pass.
-        assert_memory_wired(agents, tenant_id=settings.retail_customer_slug)
         try:
+            # Every fault at once, so a misconfigured deployment is fixed in one pass.
+            assert_memory_wired(agents, tenant_id=settings.retail_customer_slug)
             yield
         finally:
             if provider is not None:

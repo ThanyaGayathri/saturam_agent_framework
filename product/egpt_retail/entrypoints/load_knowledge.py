@@ -63,6 +63,11 @@ def load_knowledge(
 
     ``driver`` and ``knowledge`` are injectable so a test can drive this without a database;
     left unset, both are built from settings.
+
+    Each step's lines are logged as that step completes, not only once every step has
+    finished -- a ``SystemExit`` from the second step must not erase the record of what the
+    first one already did. A caller wanting only the return value still gets it; this adds
+    logging, not a second reporting path.
     """
     settings = settings or RetailSettings()
     report: List[str] = []
@@ -72,13 +77,17 @@ def load_knowledge(
     log.info("Knowledge embedder resolved: %s", embedder)
 
     if ontology:
-        report.extend(
-            _load_ontology(
-                settings, embedder, rebuild_indexes=rebuild_indexes, driver=driver
-            )
+        ontology_lines = _load_ontology(
+            settings, embedder, rebuild_indexes=rebuild_indexes, driver=driver
         )
+        for line in ontology_lines:
+            log.info("%s", line)
+        report.extend(ontology_lines)
     if prose:
-        report.extend(_load_prose(settings, embedder, knowledge=knowledge))
+        prose_lines = _load_prose(settings, embedder, knowledge=knowledge)
+        for line in prose_lines:
+            log.info("%s", line)
+        report.extend(prose_lines)
     return report
 
 
@@ -200,8 +209,8 @@ def _load_prose(
         raise SystemExit(f"{corpus} holds no markdown documents.")
 
     if knowledge is None:
+        from egpt.integrations.vectordb.pgvector import PgVector
         from egpt.knowledge.knowledge import Knowledge
-        from egpt.vectordb.pgvector import PgVector
         from egpt.vectordb.search import SearchType
 
         knowledge = Knowledge(
@@ -246,11 +255,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.ontology_only and args.prose_only:
         raise SystemExit("--ontology-only and --prose-only are mutually exclusive.")
-    lines = load_knowledge(
+    # load_knowledge logs each step's lines as that step completes; nothing left to log here.
+    load_knowledge(
         ontology=not args.prose_only,
         prose=not args.ontology_only,
         rebuild_indexes=args.rebuild_indexes,
     )
-    for line in lines:
-        log.info("%s", line)
     return 0

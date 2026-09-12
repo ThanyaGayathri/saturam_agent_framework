@@ -31,9 +31,9 @@ import psycopg  # noqa: E402
 from egpt.integrations.knowledge.reader.markdown_reader import (
     MarkdownReader,  # noqa: E402
 )
+from egpt.integrations.vectordb.pgvector import PgVector  # noqa: E402
 from egpt.knowledge.knowledge import Knowledge  # noqa: E402
 from egpt.metrics import ProviderMode  # noqa: E402
-from egpt.vectordb.pgvector import PgVector  # noqa: E402
 from egpt.vectordb.search import SearchType  # noqa: E402
 from egpt_retail.knowledge.embedding import resolve_knowledge_embedder  # noqa: E402
 from egpt_retail.knowledge.prose import (  # noqa: E402
@@ -96,7 +96,8 @@ print(
     f"  The chosen setting starts {chosen_row['start_at_heading']}/{chosen_row['chunks']} at a heading, and"
 )
 print(
-    f"  raising the cap to 20k changes nothing ({wide_row['chunks']} chunks), so no section is split by size."
+    f"  raising the cap to 20k leaves this sample unchanged ({wide_row['chunks']} chunks) -- "
+    "but the cap does bind elsewhere in the corpus: see prose.py's module docstring."
 )
 print(
     f"  {chosen_row['shells']} of those {chosen_row['chunks']} are heading-only shells, dropped before ingest."

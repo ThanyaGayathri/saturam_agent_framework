@@ -861,9 +861,16 @@ end-of-season stock"* returns `### 2.4 Markdown Cadence and Off-Price Channels`.
 **The documented trap is real, and now measured.** With `MarkdownChunking` left at its
 default, one document produced 24 chunks of which **zero** began at a heading — every one
 started mid-sentence carrying no indication of its section. `split_on_headings=3` with
-`chunk_size=12000` gives 55/55 starting at their heading. Identical output at 20,000
-characters proves the size cap never binds, so no section is ever split by size. The settings
-were chosen from that measurement and `chunking_evidence()` reproduces it.
+`chunk_size=12000` gives 55/55 starting at their heading. This sample document chunks
+identically at 20,000 characters, but that does not generalize: a later, corpus-wide check
+(review round 2, `prose.py`) found 18 raw sections across 13 of the 31 files exceed 12,000
+characters, and the cap does measurably bind there (the splitter's 1,457 → 1,436 chunks at
+20,000; 1,049 → 1,028 after `BodiedChunking` drops the shells). The "8" written here and in
+`prose.py` on the first attempt was itself wrong, caught by review round 2 of PR #204 and now
+asserted by `product/tests/test_k02_k03_pure_logic.py` rather than only claimed.
+Corrected here and in `prose.py`'s docstring, which made the same over-generalization from
+this one sample. The settings were chosen from that measurement and `chunking_evidence()`
+reproduces it per-document.
 
 **What surprised me:** `MarkdownReader`'s own default is `MarkdownChunking(chunk_size=...)`,
 which leaves `split_on_headings` unset — so the trap propagates through the reader too, and

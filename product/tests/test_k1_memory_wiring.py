@@ -51,6 +51,58 @@ def test_lifespan_refuses_to_start_without_a_customer_slug():
     assert "no customer identifier is configured" in str(excinfo.value)
 
 
+def test_lifespan_closes_the_provider_when_the_wiring_check_refuses(monkeypatch):
+    """The provider is built before the check runs, so a refusal must not leak it.
+
+    ``assert_memory_wired`` used to sit *outside* the ``try``, which meant a ``MemoryNotWired``
+    raised from it skipped ``finally``'s ``aclose()`` and leaked the pgvector engine on every
+    refused boot. The one pre-existing lifespan test passes ``retail_customer_slug=None``, for
+    which no provider is built at all -- ``provider is None`` and the ``finally`` branch is
+    never entered either way, so it cannot see this. This one builds a real (fake) provider and
+    fails the check for an *unrelated* reason: an agent with neither id nor name.
+    """
+
+    class _FakeProvider:
+        def __init__(self):
+            self.closed = False
+
+        async def aclose(self):
+            self.closed = True
+
+    class _AnonymousAgent:
+        id = None
+        name = None
+        memory_provider = None
+
+    provider = _FakeProvider()
+    monkeypatch.setattr(
+        "egpt_retail.app.factory.abuild_memory_provider",
+        _make_async(provider),
+    )
+
+    lifespan = memory_lifespan_for(
+        RetailSettings(retail_customer_slug="middleby"), [_AnonymousAgent()]
+    )
+
+    async def _boot():
+        async with lifespan(app=None, agent_os=None):
+            pass
+
+    with pytest.raises(MemoryNotWired) as excinfo:
+        asyncio.run(_boot())
+    assert "neither id nor name" in str(excinfo.value), (
+        "the unrelated fault, not the slug"
+    )
+    assert provider.closed, "the provider built before the refusal must still be closed"
+
+
+def _make_async(result):
+    async def _builder(_settings):
+        return result
+
+    return _builder
+
+
 def test_assert_memory_wired_reports_every_fault_at_once():
     class _A:
         def __init__(self, id=None, memory_provider=None):
@@ -61,7 +113,23 @@ def test_assert_memory_wired_reports_every_fault_at_once():
     faults = [
         ln for ln in str(excinfo.value).splitlines() if ln.strip().startswith("- ")
     ]
+    # Count alone lets a pair of offsetting regressions (one real fault silently stops being
+    # detected while an unrelated false one starts) keep the total at 3 and pass undetected --
+    # assert on which three, not just how many.
+    #
+    # Per line, not against the joined block: substring checks over `"\n".join(faults)` pass
+    # when the fault text and the agent it names come from *different* lines, so swapping which
+    # message carries `missing` and which carries `unstable` -- an operator being told the wrong
+    # agent has the wrong problem -- went undetected (review round 2 of PR #204). The agent
+    # label is asserted immediately after its own colon for the same reason.
     assert len(faults) == 3
+    tenant_line, provider_line, identity_line = faults
+    assert "no customer identifier is configured" in tenant_line
+    assert "1 agent(s) have no memory provider: b." in provider_line
+    assert (
+        "1 agent(s) write memory but have neither id nor name: <agent #0>."
+        in identity_line
+    )
 
 
 class _State:
@@ -98,6 +166,48 @@ def test_middleware_never_overrides_a_verified_claim():
     request = _dispatch(_Request(tenant_id="acme", claims={"tenant_id": "acme"}))
     assert request.state.tenant_id == "acme"
     assert request.state.claims["tenant_id"] == "acme"
+
+
+def test_middleware_reads_the_claim_name_live_on_every_request(monkeypatch):
+    """The middleware is constructed once per process (``build_agent_os``), so a claim name
+    resolved in ``__init__`` is frozen for the process lifetime while ``resolve_tenant_id``
+    re-reads the setting on the very same request -- the two-copies drift this middleware's
+    own docstring cites (PR #53, PR #121). Set the setting *after* construction, as a
+    configuration change or a later test would, and dispatch must pick it up."""
+    monkeypatch.delenv("EGPT_TENANT_CLAIM", raising=False)
+    middleware = FixedTenantMiddleware(app=None, tenant_id="middleby")
+
+    async def _next(_):
+        return None
+
+    monkeypatch.setenv("EGPT_TENANT_CLAIM", "tid")
+    request = _Request()
+    asyncio.run(middleware.dispatch(request, _next))
+    assert request.state.claims == {"tid": "middleby"}, (
+        "a claim resolved at construction would still say tenant_id here"
+    )
+
+    # And back again: nothing is memoised on the first read either.
+    monkeypatch.setenv("EGPT_TENANT_CLAIM", "org_id")
+    second = _Request()
+    asyncio.run(middleware.dispatch(second, _next))
+    assert second.state.claims == {"org_id": "middleby"}
+
+
+def test_an_explicit_claim_name_is_not_overridden_by_the_setting(monkeypatch):
+    """The live read is the *default*. A caller that names the claim explicitly has pinned it,
+    and an environment change must not move it underneath them."""
+    middleware = FixedTenantMiddleware(
+        app=None, tenant_id="middleby", tenant_id_claim="pinned"
+    )
+
+    async def _next(_):
+        return None
+
+    monkeypatch.setenv("EGPT_TENANT_CLAIM", "tid")
+    request = _Request()
+    asyncio.run(middleware.dispatch(request, _next))
+    assert request.state.claims == {"pinned": "middleby"}
 
 
 def test_middleware_refuses_an_empty_tenant():
@@ -172,6 +282,54 @@ def test_factory_places_tenant_middleware_inside_egptos_stack(monkeypatch):
 
     body = TestClient(app).get("/__k1_probe").json()
     assert body == {"tenant": "middleby", "claim": "middleby"}
+
+
+def test_factory_places_tenant_middleware_inside_egptos_stack_with_real_auth_on(
+    monkeypatch, tmp_path
+):
+    """The same ordering hazard, proven with JWT auth actually enabled.
+
+    The test above proves the ordering against the real assembly with auth off; the
+    synthetic ``_ReplacingAuth`` test above proves the direction of the hazard. Neither runs
+    both together: real `EgptOS`/`build_agent_os`, with a real `AuthMiddleware` verifying a
+    real token, which is exactly the path whose `request.state.claims` replacement
+    (`os/middleware/jwt.py:1111`) this PR's tenant-middleware placement exists to survive.
+    """
+    from starlette.responses import JSONResponse
+    from starlette.testclient import TestClient
+
+    from egpt_retail.app.devauth import mint_token, write_dev_jwks
+
+    private_path, jwks_path = write_dev_jwks(tmp_path / "auth")
+    private_pem = private_path.read_text()
+    audience = "api://egpt-retail"
+    token = mint_token(private_pem, scopes=["config:read"], audience=audience)
+
+    monkeypatch.setenv("EGPT_RETAIL_CUSTOMER_SLUG", "middleby")
+    monkeypatch.setenv("EGPT_RETAIL_AUTH_JWKS_FILE", str(jwks_path))
+    monkeypatch.setenv("EGPT_RETAIL_AUTH_AUDIENCE", audience)
+    settings = RetailSettings()
+    assert settings.authorization_enabled, (
+        "the JWKS file above must actually turn auth on"
+    )
+    app = build_agent_os(settings).get_app()
+
+    @app.get("/__k1_probe_authed")
+    async def probe(request: Request):
+        return JSONResponse(
+            {
+                "tenant": getattr(request.state, "tenant_id", None),
+                "claim": (getattr(request.state, "claims", None) or {}).get(
+                    "tenant_id"
+                ),
+            }
+        )
+
+    response = TestClient(app).get(
+        "/__k1_probe_authed", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"tenant": "middleby", "claim": "middleby"}
 
 
 def test_no_slug_means_no_tenant_middleware(monkeypatch):

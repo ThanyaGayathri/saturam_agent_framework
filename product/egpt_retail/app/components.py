@@ -30,6 +30,7 @@ factory. Provider and tenant are two halves of one fix; either alone leaves memo
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, List, Optional, Union, cast
 
@@ -91,10 +92,12 @@ __all__ = [
     "RFQ_WORKFLOW_ID",
     "ALERT_EVALUATION_WORKFLOW_ID",
     "MEMORY_WRITING_AGENT_IDS",
+    "abuild_memory_provider",
     "build_agents",
+    "build_memory_provider",
     "build_playground_agent_factory",
-    "build_workflows",
     "build_registry",
+    "build_workflows",
 ]
 
 #: Exactly what ``EgptOS(agents=..., workflows=...)`` accepts. ``list`` is invariant, so the
@@ -217,6 +220,19 @@ def build_memory_provider(settings: RetailSettings) -> Optional[MemoryProvider]:
     if not slug:
         return None
     return build_memory_provider_for(build_memory_resolver(settings), tenant_id=slug)
+
+
+async def abuild_memory_provider(settings: RetailSettings) -> Optional[MemoryProvider]:
+    """Async variant, and the one ``factory.memory_lifespan_for`` actually calls.
+
+    ``build_memory_provider_for`` opens a pgvector connection and provisions its schema, and
+    has no async sibling of its own (``egpt/memory/config.py``), so the blocking construction
+    runs off the event loop with ``asyncio.to_thread``. The single caller is an ASGI lifespan
+    (``async def _lifespan``): calling the sync function there blocked the event loop for the
+    length of a database round trip at every boot, which is the whole reason this variant
+    exists rather than the sync/async convention on its own.
+    """
+    return await asyncio.to_thread(build_memory_provider, settings)
 
 
 def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAgent]:

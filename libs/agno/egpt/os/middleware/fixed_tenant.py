@@ -32,6 +32,8 @@ from typing import Any, Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from egpt.settings.providers import resolve_provider_setting
+
 __all__ = ["FixedTenantMiddleware"]
 
 
@@ -45,13 +47,21 @@ class FixedTenantMiddleware(BaseHTTPMiddleware):
             that would restore the silent-no-memory behaviour, so it is refused here rather
             than at the first run.
         tenant_id_claim: The claim name to inject under, matching what the auth middleware
-            reads. Defaults to ``tenant_id``.
+            reads. Left unset (the default), it is **not** a value at all: the
+            :attr:`tenant_id_claim` property below resolves
+            ``resolve_provider_setting("tenant_claim")`` on every dispatch, which is the same
+            source read the same way ``resolve_tenant_id`` (``os/utils.py``) uses on the
+            run-context path. Passing a string pins the claim name explicitly and no setting
+            is read. This field has drifted out of sync with a hardcoded default twice before
+            (see ``os/utils.py``'s own comments on PR #53 and PR #121); resolving per request
+            closes that class of drift instead of adding a third independently-configured
+            copy -- a value cached at construction is a third copy, just a later one.
 
     Ordering matters: install this **after** the auth middleware in the chain, so a verified
     claim is already on the request when this runs and can be left alone.
     """
 
-    def __init__(self, app: Any, tenant_id: str, tenant_id_claim: str = "tenant_id") -> None:
+    def __init__(self, app: Any, tenant_id: str, tenant_id_claim: Optional[str] = None) -> None:
         super().__init__(app)
         if not isinstance(tenant_id, str) or not tenant_id.strip():
             raise ValueError(
@@ -59,7 +69,26 @@ class FixedTenantMiddleware(BaseHTTPMiddleware):
                 "every run without a tenant, and memory then does nothing without reporting it."
             )
         self.tenant_id = tenant_id.strip()
-        self.tenant_id_claim = tenant_id_claim
+        #: An explicitly passed claim name, or ``None`` for "read the setting on every
+        #: request". Nothing is resolved here: this middleware is constructed once per process
+        #: (``build_agent_os``), so a value computed in ``__init__`` would be fixed for the
+        #: process lifetime while ``resolve_tenant_id`` re-read the setting on the very same
+        #: request -- the two-copies drift this class was written to avoid.
+        self.tenant_id_claim_override = tenant_id_claim
+
+    @property
+    def tenant_id_claim(self) -> str:
+        """The claim name to inject under, resolved live unless one was passed explicitly.
+
+        Live, not cached, so this matches ``resolve_provider_setting``'s own documented
+        contract (``settings/providers.py``: *"Live, not cached... a test that sets the
+        variable after an earlier call still sees the new value"*) and, through it,
+        ``resolve_tenant_id``'s behaviour on the run-context path. The cost is one
+        environment read per request, which is what that function is built for.
+        """
+        if self.tenant_id_claim_override is not None:
+            return self.tenant_id_claim_override
+        return resolve_provider_setting("tenant_claim") or "tenant_id"
 
     async def dispatch(self, request: Any, call_next: Any) -> Any:
         state = request.state
@@ -73,7 +102,10 @@ class FixedTenantMiddleware(BaseHTTPMiddleware):
         if claims is None:
             claims = {}
             state.claims = claims
-        if isinstance(claims, dict) and not claims.get(self.tenant_id_claim):
-            claims[self.tenant_id_claim] = self.tenant_id
+        # One read per request, not one per use: the property is live, so reading it twice
+        # here could see two different names if the setting changed mid-dispatch.
+        claim = self.tenant_id_claim
+        if isinstance(claims, dict) and not claims.get(claim):
+            claims[claim] = self.tenant_id
 
         return await call_next(request)
