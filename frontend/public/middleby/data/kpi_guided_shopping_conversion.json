@@ -1,0 +1,6 @@
+[
+  {"tool":"Fryer selector","started":"420","completed_tool":"336","submitted_quote":"105","tool_completion_rate":"80%","quote_conversion_rate":"25%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"LogRocket"},
+  {"tool":"Oven configurator","started":"310","completed_tool":"186","submitted_quote":"46","tool_completion_rate":"60%","quote_conversion_rate":"15%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"LogRocket"},
+  {"tool":"Ice machine finder","started":"180","completed_tool":"95","submitted_quote":"20","tool_completion_rate":"53%","quote_conversion_rate":"11%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"LogRocket"},
+  {"tool":"Brand comparison guide","started":"260","completed_tool":"104","submitted_quote":"18","tool_completion_rate":"40%","quote_conversion_rate":"7%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"LogRocket"}
+]

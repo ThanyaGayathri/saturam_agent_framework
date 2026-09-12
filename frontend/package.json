@@ -1,0 +1,38 @@
+{
+  "name": "retailgpt-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "export-seeds": "vite-node ../scripts/export-seed-data.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
+    "@vercel/edge": "^1.2.2",
+    "@xyflow/react": "^12.10.2",
+    "d3-scale": "^4.0.2",
+    "html2canvas": "^1.4.1",
+    "jose": "^6.2.2",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "lucide-react": "^1.7.0",
+    "pptxgenjs": "^4.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.13.1",
+    "react-simple-maps": "^3.0.0",
+    "simple-icons": "^16.14.0",
+    "us-atlas": "^3.0.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "vite": "^5.4.19",
+    "xlsx": "^0.18.5"
+  }
+}

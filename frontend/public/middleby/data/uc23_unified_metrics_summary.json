@@ -1,0 +1,7 @@
+[
+  {"source":"GA4","metric":"Site sessions","value":"38,400","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"source":"LogRocket","metric":"Sessions hitting an error","value":"4,135","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"source":"HubSpot","metric":"Quotes submitted","value":"742","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"source":"Salesforce","metric":"Opportunities opened","value":"705","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"source":"Enterprise GPT","metric":"Unified read","value":"Traffic up 8%, quotes down 11%: Add to Quote errors are the driver","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"}
+]

@@ -1,0 +1,8 @@
+[
+  {"metric":"Site sessions","value":"38,400","source":"GA4","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Quotes submitted","value":"742","source":"HubSpot","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Opportunities opened","value":"705","source":"Salesforce","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Open pipeline","value":"$4.6M","source":"Salesforce","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"Error sessions","value":"4,135","source":"LogRocket","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"},
+  {"metric":"View to quote rate","value":"4%","source":"GA4 + HubSpot","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed"}
+]

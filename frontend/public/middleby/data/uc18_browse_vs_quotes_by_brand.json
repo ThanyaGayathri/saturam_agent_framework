@@ -1,0 +1,22 @@
+[
+  {"brand":"Globe","ga_sessions":"2236","hubspot_quotes":"3","gap_index":"745","demo_window":"Week of Jun 1 to 7, 2026","notes":"High traffic, very low quote capture","example_data":"mixed"},
+  {"brand":"Blodgett","ga_sessions":"2149","hubspot_quotes":"12","gap_index":"179","demo_window":"Week of Jun 1 to 7, 2026","notes":"Strong traffic, moderate quote capture","example_data":"mixed"},
+  {"brand":"TurboChef","ga_sessions":"2124","hubspot_quotes":"15","gap_index":"142","demo_window":"Week of Jun 1 to 7, 2026","notes":"Healthy traffic to quote ratio","example_data":"mixed"},
+  {"brand":"Star","ga_sessions":"1332","hubspot_quotes":"1","gap_index":"1332","demo_window":"Week of Jun 1 to 7, 2026","notes":"Traffic not converting to quotes","example_data":"mixed"},
+  {"brand":"Wells","ga_sessions":"983","hubspot_quotes":"2","gap_index":"492","demo_window":"Week of Jun 1 to 7, 2026","notes":"Heavy traffic barely converts — check PDP quote flow and brand tagging","example_data":"mixed"},
+  {"brand":"Imperial","ga_sessions":"881","hubspot_quotes":"1","gap_index":"881","demo_window":"Week of Jun 1 to 7, 2026","notes":"Traffic not converting to quotes","example_data":"mixed"},
+  {"brand":"Varimixer","ga_sessions":"846","hubspot_quotes":"1","gap_index":"846","demo_window":"Week of Jun 1 to 7, 2026","notes":"Traffic not converting to quotes","example_data":"mixed"},
+  {"brand":"Firex","ga_sessions":"688","hubspot_quotes":"1","gap_index":"688","demo_window":"Week of Jun 1 to 7, 2026","notes":"Traffic barely converts — check PDP quote flow and brand tagging","example_data":"mixed"},
+  {"brand":"Pitco","ga_sessions":"629","hubspot_quotes":"2","gap_index":"315","demo_window":"Week of Jun 1 to 7, 2026","notes":"Traffic not converting to quotes","example_data":"mixed"},
+  {"brand":"Bakers Pride","ga_sessions":"988","hubspot_quotes":"7","gap_index":"141","demo_window":"Week of Jun 1 to 7, 2026","notes":"Moderate quote capture","example_data":"mixed"},
+  {"brand":"U-Line","ga_sessions":"961","hubspot_quotes":"7","gap_index":"137","demo_window":"Week of Jun 1 to 7, 2026","notes":"Moderate quote capture","example_data":"mixed"},
+  {"brand":"Concordia","ga_sessions":"1079","hubspot_quotes":"9","gap_index":"120","demo_window":"Week of Jun 1 to 7, 2026","notes":"Healthy quote capture","example_data":"mixed"},
+  {"brand":"Middleby Marshall","ga_sessions":"667","hubspot_quotes":"2","gap_index":"334","demo_window":"Week of Jun 1 to 7, 2026","notes":"Traffic not converting to quotes","example_data":"mixed"},
+  {"brand":"Crown","ga_sessions":"370","hubspot_quotes":"2","gap_index":"185","demo_window":"Week of Jun 1 to 7, 2026","notes":"Low traffic, low quotes","example_data":"mixed"},
+  {"brand":"Southbend","ga_sessions":"845","hubspot_quotes":"13","gap_index":"65","demo_window":"Week of Jun 1 to 7, 2026","notes":"Strong quote capture","example_data":"mixed"},
+  {"brand":"Doyon","ga_sessions":"396","hubspot_quotes":"6","gap_index":"66","demo_window":"Week of Jun 1 to 7, 2026","notes":"Efficient quote capture","example_data":"mixed"},
+  {"brand":"Icetro","ga_sessions":"163","hubspot_quotes":"6","gap_index":"27","demo_window":"Week of Jun 1 to 7, 2026","notes":"Efficient quote capture","example_data":"mixed"},
+  {"brand":"Follett","ga_sessions":"596","hubspot_quotes":"27","gap_index":"22","demo_window":"Week of Jun 1 to 7, 2026","notes":"Best-in-class quote capture","example_data":"mixed"},
+  {"brand":"Wunder-Bar","ga_sessions":"139","hubspot_quotes":"2","gap_index":"70","demo_window":"Week of Jun 1 to 7, 2026","notes":"Low traffic brand","example_data":"mixed"},
+  {"brand":"Kloppenberg","ga_sessions":"66","hubspot_quotes":"0","gap_index":"66","demo_window":"Week of Jun 1 to 7, 2026","notes":"Low traffic, no quotes","example_data":"mixed"}
+]

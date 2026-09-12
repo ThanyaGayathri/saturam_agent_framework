@@ -1,0 +1,502 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── App shell ────────────────────────────────────────────────────────────
+   Light/dark UI chrome: layout, cards, typography. Overrides under `html.dark`. */
+:root {
+  --app-surface-page: #f8f9ff;
+  --app-surface-page-top: #f5f7ff;
+  --app-surface-default: #ffffff;
+  --app-surface-secondary: #fafafa;
+  --app-surface-tertiary: #f7f7f7;
+  --app-text-primary: #181d27;
+  --app-text-secondary: #535862;
+  --app-text-tertiary: #414651;
+  --app-text-muted: #717680;
+  --app-border: #e9e9eb;
+  --app-border-light: #d5d7da;
+  /* Toggle track off: readable on white table rows (Switch component). */
+  --switch-track-off-bg: #cdd3df;
+  --switch-track-off-border: #afb7c9;
+
+  /* Fallbacks before JS (`applyTheme` overwrites per preset; default is Classic) */
+  --theme-status-success: #05a8aa;
+  --theme-status-success-light: #e6fffe;
+  --theme-status-success-border: #5eead4;
+  --theme-status-success-muted: #ccfbf1;
+  --theme-status-success-dot: #0d9488;
+  --theme-status-warning: #d97706;
+  --theme-status-warning-light: #fffbeb;
+  --theme-status-warning-border: #fde68a;
+  --theme-status-warning-ring: #fcd34d;
+  --theme-status-warning-dot: #d97706;
+  --theme-status-warning-accent: #fcd34d;
+  --theme-status-critical: #dc2626;
+  --theme-status-critical-light: #fef2f2;
+  --theme-status-critical-border: #fecaca;
+  --theme-status-critical-ring: #f87171;
+  --theme-status-critical-dot: #dc2626;
+  --theme-status-critical-accent: #ef4444;
+  --theme-status-info: #5271ff;
+  --theme-status-info-light: #f0f4ff;
+  --theme-status-info-border: #b4c4ff;
+  --theme-status-info-accent: #4361ee;
+  --theme-status-info-dot: #5271ff;
+}
+
+html.dark {
+  --app-surface-page: #0f1117;
+  --app-surface-page-top: #14161f;
+  --app-surface-default: #161922;
+  --app-surface-secondary: #1c2030;
+  --app-surface-tertiary: #252a38;
+  --app-text-primary: #eef0fd;
+  --app-text-secondary: #aeb4c5;
+  --app-text-tertiary: #c5cbd9;
+  --app-text-muted: #8f97ab;
+  --app-border: #2a3042;
+  --app-border-light: #383f54;
+  --switch-track-off-bg: #353b4e;
+  --switch-track-off-border: #484f67;
+
+  color-scheme: dark;
+}
+
+/* ─── Theme: color presets ─────────────────────────────────────────────────
+   `--theme-brand` … `--theme-info` presets; status tokens overwritten by preset. */
+:root {
+  --theme-brand:             #731dd8;
+  --theme-brand-hover:       #5d18ad;
+  --theme-brand-light:       #f3e9ff;
+  --theme-brand-light-hover: #e9d6ff;
+  --theme-success:           #05a8aa;
+  --theme-warning:           #ffae03;
+  --theme-danger:            #f44708;
+  --theme-info:              #5271ff;
+}
+
+/* Classic preset: remap legacy purple literals to the saturated brand. */
+html[data-theme="classic"] .bg-\[\#6941c6\]              { background-color: #731DD8 !important; }
+html[data-theme="classic"] .hover\:bg-\[\#6941c6\]:hover { background-color: #731DD8 !important; }
+html[data-theme="classic"] .text-\[\#6941c6\]            { color: #731DD8 !important; }
+html[data-theme="classic"] .hover\:text-\[\#6941c6\]:hover { color: #731DD8 !important; }
+html[data-theme="classic"] .border-\[\#6941c6\]          { border-color: #731DD8 !important; }
+html[data-theme="classic"] .hover\:border-\[\#6941c6\]:hover { border-color: #731DD8 !important; }
+html[data-theme="classic"] .ring-\[\#6941c6\]            { --tw-ring-color: #731DD8 !important; }
+html[data-theme="classic"] .focus\:ring-\[\#6941c6\]:focus { --tw-ring-color: #731DD8 !important; }
+html[data-theme="classic"] .fill-\[\#6941c6\]            { fill: #731DD8 !important; }
+html[data-theme="classic"] .stroke-\[\#6941c6\]          { stroke: #731DD8 !important; }
+
+html[data-theme="classic"] .bg-\[\#5b35b3\]              { background-color: #5d18ad !important; }
+html[data-theme="classic"] .hover\:bg-\[\#5b35b3\]:hover { background-color: #5d18ad !important; }
+html[data-theme="classic"] .text-\[\#5b35b3\]            { color: #5d18ad !important; }
+
+html[data-theme="classic"] .bg-\[\#f4f4ff\]              { background-color: #f3e9ff !important; }
+html[data-theme="classic"] .hover\:bg-\[\#f4f4ff\]:hover { background-color: #f3e9ff !important; }
+html[data-theme="classic"] .bg-\[\#f9f5ff\]              { background-color: #f3e9ff !important; }
+html[data-theme="classic"] .bg-\[\#ede9fe\]              { background-color: #ebd6ff !important; }
+html[data-theme="classic"] .text-\[\#ede9fe\]            { color: #ebd6ff !important; }
+html[data-theme="classic"] .bg-\[\#faf5ff\]              { background-color: #f7eaff !important; }
+html[data-theme="classic"] .hover\:bg-\[\#faf5ff\]:hover { background-color: #f7eaff !important; }
+html[data-theme="classic"] .bg-\[\#f0f0ff\]              { background-color: #f3e9ff !important; }
+html[data-theme="classic"] .bg-\[\#ebe5ff\]              { background-color: #e9d6ff !important; }
+
+html[data-theme="classic"] .text-\[\#d6bbfb\]            { color: #c79dff !important; }
+html[data-theme="classic"] .ring-\[\#d6bbfb\]            { --tw-ring-color: #c79dff !important; }
+html[data-theme="classic"] .border-\[\#d6bbfb\]          { border-color: #c79dff !important; }
+
+/* ─── Classic: extended brand shade overrides ─────────────────────────── */
+html[data-theme="classic"] .bg-\[\#6840c6\]              { background-color: #731DD8 !important; }
+html[data-theme="classic"] .text-\[\#6840c6\]            { color: #731DD8 !important; }
+html[data-theme="classic"] .border-\[\#6840c6\]          { border-color: #731DD8 !important; }
+
+html[data-theme="classic"] .bg-\[\#7e56d8\]              { background-color: #8a3df0 !important; }
+html[data-theme="classic"] .text-\[\#7e56d8\]            { color: #8a3df0 !important; }
+html[data-theme="classic"] .border-\[\#7e56d8\]          { border-color: #8a3df0 !important; }
+html[data-theme="classic"] .bg-\[\#7f56d9\]              { background-color: #8a3df0 !important; }
+html[data-theme="classic"] .text-\[\#7f56d9\]            { color: #8a3df0 !important; }
+html[data-theme="classic"] .border-\[\#7f56d9\]          { border-color: #8a3df0 !important; }
+
+html[data-theme="classic"] .bg-\[\#e9d7fe\]              { background-color: #e9d6ff !important; }
+html[data-theme="classic"] .border-\[\#e9d7fe\]          { border-color: #e9d6ff !important; }
+html[data-theme="classic"] .ring-\[\#e9d7fe\]            { --tw-ring-color: #e9d6ff !important; }
+
+/* ─── Classic: status literal overrides ───────────────────────────────────
+   Re-tints alert/KPI badges that hardcode green/red/orange. */
+html[data-theme="classic"] .text-\[\#067647\]            { color: #05A8AA !important; }
+html[data-theme="classic"] .bg-\[\#067647\]              { background-color: #05A8AA !important; }
+html[data-theme="classic"] .text-\[\#12b76a\]            { color: #05A8AA !important; }
+html[data-theme="classic"] .bg-\[\#12b76a\]              { background-color: #05A8AA !important; }
+html[data-theme="classic"] .bg-\[\#ecfdf3\]              { background-color: #e6fffe !important; }
+
+html[data-theme="classic"] .text-\[\#b42318\]            { color: #F44708 !important; }
+html[data-theme="classic"] .bg-\[\#b42318\]              { background-color: #F44708 !important; }
+html[data-theme="classic"] .text-\[\#d92d20\]            { color: #F44708 !important; }
+html[data-theme="classic"] .bg-\[\#d92d20\]              { background-color: #F44708 !important; }
+html[data-theme="classic"] .bg-\[\#fef3f2\]              { background-color: #fff4ee !important; }
+
+html[data-theme="classic"] .text-\[\#b54708\]            { color: #FFAE03 !important; }
+html[data-theme="classic"] .bg-\[\#b54708\]              { background-color: #FFAE03 !important; }
+html[data-theme="classic"] .text-\[\#b93815\]            { color: #FFAE03 !important; }
+html[data-theme="classic"] .bg-\[\#fffaeb\]              { background-color: #fff8e6 !important; }
+
+/* Notification bell badge + sundry status hex.
+   `#dc6803` is the bell badge (non-critical), `#f79009` is the bell ring,
+   `#15803d` is a green text used in some chips. */
+html[data-theme="classic"] .bg-\[\#dc6803\]              { background-color: #F44708 !important; }
+html[data-theme="classic"] .text-\[\#dc6803\]            { color: #F44708 !important; }
+html[data-theme="classic"] .bg-\[\#f79009\]              { background-color: #FFAE03 !important; }
+html[data-theme="classic"] .text-\[\#f79009\]            { color: #FFAE03 !important; }
+html[data-theme="classic"] .text-\[\#15803d\]            { color: #05A8AA !important; }
+html[data-theme="classic"] .bg-\[\#15803d\]              { background-color: #05A8AA !important; }
+html[data-theme="classic"] .text-\[\#dc2626\]            { color: #F44708 !important; }
+html[data-theme="classic"] .bg-\[\#dc2626\]              { background-color: #F44708 !important; }
+
+/* ─── Dark mode: neutral literal overrides ────────────────────────────────
+   Most components were built with hardcoded light-mode colors before the
+   theme system existed. Rather than touch each file, we remap the dominant
+   neutral literals to the dark-surface CSS variables when `.dark` is active.
+   Only safe semantics are overridden (text/bg/border surfaces). */
+
+/* Text colors — semantic neutrals only */
+html.dark .text-\[\#181d27\]     { color: var(--app-text-primary) !important; }
+html.dark .text-\[\#535862\]     { color: var(--app-text-secondary) !important; }
+html.dark .text-\[\#535861\]     { color: var(--app-text-secondary) !important; }
+html.dark .text-\[\#717680\]     { color: var(--app-text-muted) !important; }
+html.dark .text-\[\#414651\]     { color: var(--app-text-tertiary) !important; }
+html.dark .text-\[\#9da4ae\]     { color: var(--app-text-muted) !important; }
+html.dark .text-\[\#a0a6b1\]     { color: var(--app-text-muted) !important; }
+html.dark .hover\:text-\[\#181d27\]:hover { color: var(--app-text-primary) !important; }
+html.dark .hover\:text-\[\#535862\]:hover { color: var(--app-text-secondary) !important; }
+html.dark .placeholder\:text-\[\#717680\]::placeholder { color: var(--app-text-muted) !important; }
+
+/* Surface backgrounds (cards, panels) */
+html.dark .bg-white                { background-color: var(--app-surface-default) !important; }
+html.dark .bg-\[\#ffffff\]         { background-color: var(--app-surface-default) !important; }
+html.dark .bg-\[\#fafafa\]         { background-color: var(--app-surface-secondary) !important; }
+html.dark .bg-\[\#f7f7f7\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#f4f4f6\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#f2f2f5\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#f2f4f7\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#f8f9ff\]         { background-color: var(--app-surface-page) !important; }
+html.dark .bg-\[\#f5f7ff\]         { background-color: var(--app-surface-page-top) !important; }
+html.dark .hover\:bg-white:hover    { background-color: var(--app-surface-default) !important; }
+html.dark .hover\:bg-\[\#fafafa\]:hover { background-color: var(--app-surface-secondary) !important; }
+html.dark .hover\:bg-\[\#f7f7f7\]:hover { background-color: var(--app-surface-tertiary) !important; }
+html.dark .hover\:bg-\[\#f4f4f6\]:hover { background-color: var(--app-surface-tertiary) !important; }
+html.dark .hover\:bg-\[\#f2f2f5\]:hover { background-color: var(--app-surface-tertiary) !important; }
+
+/* Borders */
+html.dark .border-\[\#e9e9eb\]     { border-color: var(--app-border) !important; }
+html.dark .border-\[\#d5d7da\]     { border-color: var(--app-border-light) !important; }
+html.dark .border-\[\#d5d6d9\]     { border-color: var(--app-border-light) !important; }
+html.dark .border-\[\#e8e8e8\]     { border-color: var(--app-border) !important; }
+html.dark .border-\[\#f2f2f5\]     { border-color: var(--app-border) !important; }
+html.dark .border-\[\#f4f4f6\]     { border-color: var(--app-border) !important; }
+html.dark .border-\[\#f2f4f7\]     { border-color: var(--app-border) !important; }
+html.dark .hover\:border-\[\#e9e9eb\]:hover { border-color: var(--app-border) !important; }
+html.dark .hover\:border-\[\#d5d7da\]:hover { border-color: var(--app-border-light) !important; }
+
+/* Divide (sibling separators) */
+html.dark .divide-\[\#e9e9eb\] > :not([hidden]) ~ :not([hidden]) { border-color: var(--app-border) !important; }
+html.dark .divide-\[\#f2f2f5\] > :not([hidden]) ~ :not([hidden]) { border-color: var(--app-border) !important; }
+html.dark .divide-\[\#d5d7da\] > :not([hidden]) ~ :not([hidden]) { border-color: var(--app-border-light) !important; }
+
+/* Ring */
+html.dark .ring-\[\#e9e9eb\]       { --tw-ring-color: var(--app-border) !important; }
+html.dark .ring-\[\#d5d7da\]       { --tw-ring-color: var(--app-border-light) !important; }
+html.dark .ring-white              { --tw-ring-color: var(--app-surface-default) !important; }
+
+/* Misc light surfaces commonly used as dropdown menus / popovers */
+html.dark .bg-\[\#d8e2ef\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#EFF2FF\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#eff2ff\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .hover\:bg-\[\#E4E8FF\]:hover,
+html.dark .hover\:bg-\[\#e4e8ff\]:hover { background-color: var(--app-surface-secondary) !important; }
+
+/* Status-light surfaces stay readable on dark by lowering their lightness */
+html.dark .bg-\[\#ecfdf3\]         { background-color: rgba(5, 168, 170, 0.18) !important; }
+html.dark .bg-\[\#fef3f2\]         { background-color: rgba(244, 71, 8, 0.18) !important; }
+html.dark .bg-\[\#fffaeb\]         { background-color: rgba(255, 174, 3, 0.18) !important; }
+html.dark .bg-\[\#fff7ed\]         { background-color: rgba(255, 174, 3, 0.18) !important; }
+html.dark .bg-\[\#ffedd5\]         { background-color: rgba(244, 71, 8, 0.18) !important; }
+html.dark .bg-\[\#fff6ed\]         { background-color: rgba(255, 174, 3, 0.18) !important; }
+
+/* Additional neutral literals discovered across alerts/processes/KPI pages */
+html.dark .bg-\[\#e8e8e8\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#c2c2c2\]         { background-color: var(--app-border-light) !important; }
+html.dark .bg-\[\#fafbff\]         { background-color: var(--app-surface-page) !important; }
+html.dark .bg-\[\#c7d0ff\]         { background-color: rgba(199, 208, 255, 0.18) !important; }
+html.dark .bg-\[\#E0EAFF\]         { background-color: rgba(224, 234, 255, 0.16) !important; }
+html.dark .text-\[\#344054\]       { color: var(--app-text-secondary) !important; }
+html.dark .text-\[\#667085\]       { color: var(--app-text-muted) !important; }
+html.dark .text-\[\#98a1b0\]       { color: var(--app-text-muted) !important; }
+html.dark .text-\[\#252B37\]       { color: var(--app-text-primary) !important; }
+html.dark .text-\[\#3f3f46\]       { color: var(--app-text-tertiary) !important; }
+html.dark .text-\[\#2a2a37\]       { color: var(--app-text-primary) !important; }
+html.dark .border-\[\#d0d5da\]     { border-color: var(--app-border-light) !important; }
+html.dark .border-\[\#c8cdd8\]     { border-color: var(--app-border-light) !important; }
+html.dark .bg-\[\#F5F5F5\]         { background-color: rgba(255, 255, 255, 0.06) !important; }
+
+/* Belt-and-suspenders: make sure the body and the page canvas truly flip.
+   In rare cases other CSS in the cascade can leave a light-mode tint. */
+html.dark body {
+  background-color: var(--app-surface-page) !important;
+  color: var(--app-text-primary) !important;
+}
+
+/* ─── Dark mode: comprehensive literal coverage (final pass) ───────────────
+   Adds the remaining hex literals discovered across alerts/processes/KPI/
+   playground/integrations/configure pages. Each maps to the closest dark
+   semantic token; status surfaces use translucent tints for legibility. */
+
+/* Light surfaces */
+html.dark .bg-\[\#f9f9fb\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#f0eeff\]         { background-color: rgba(126, 86, 216, 0.18) !important; }
+html.dark .bg-\[\#fff1f0\]         { background-color: rgba(244, 71, 8, 0.16) !important; }
+html.dark .bg-\[\#fff4e6\]         { background-color: rgba(255, 174, 3, 0.16) !important; }
+html.dark .bg-\[\#fef0c7\]         { background-color: rgba(255, 174, 3, 0.20) !important; }
+html.dark .bg-\[\#fee4e2\]         { background-color: rgba(244, 71, 8, 0.18) !important; }
+html.dark .bg-\[\#d1fadf\]         { background-color: rgba(5, 168, 170, 0.20) !important; }
+html.dark .bg-\[\#dbeafe\]         { background-color: rgba(67, 97, 238, 0.20) !important; }
+html.dark .bg-\[\#eef4ff\]         { background-color: rgba(67, 97, 238, 0.14) !important; }
+html.dark .bg-\[\#eaebf5\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#e4e4e9\]         { background-color: var(--app-border) !important; }
+html.dark .bg-\[\#f5f5f5\]         { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#f0f1f3\]         { background-color: var(--app-border) !important; }
+
+/* Status text — readable on dark surfaces */
+html.dark .text-\[\#067647\]       { color: #7BD0C4 !important; }
+html.dark .text-\[\#027a48\]       { color: #7BD0C4 !important; }
+html.dark .text-\[\#b54708\]       { color: #FFC857 !important; }
+html.dark .text-\[\#b93815\]       { color: #FFB07A !important; }
+html.dark .text-\[\#b42318\]       { color: #FF8A6E !important; }
+html.dark .text-\[\#d92d20\]       { color: #FF8A6E !important; }
+html.dark .text-\[\#f04437\]       { color: #FF8A6E !important; }
+html.dark .text-\[\#fa4616\]       { color: #FF8A6E !important; }
+html.dark .text-\[\#15803d\]       { color: #7BD0C4 !important; }
+html.dark .text-\[\#12b76a\]       { color: #7BD0C4 !important; }
+html.dark .text-\[\#53389e\]       { color: #C7B2FF !important; }
+html.dark .text-\[\#1d4ed8\]       { color: #93B4FF !important; }
+html.dark .text-\[\#2563eb\]       { color: #93B4FF !important; }
+html.dark .text-\[\#dc6803\]       { color: #FFC857 !important; }
+
+/* Borders — light status borders fade on dark surfaces */
+html.dark .border-\[\#a7f3d0\]     { border-color: rgba(5, 168, 170, 0.45) !important; }
+html.dark .border-\[\#fca5a5\]     { border-color: rgba(244, 71, 8, 0.45) !important; }
+html.dark .border-\[\#fde68a\]     { border-color: rgba(255, 174, 3, 0.45) !important; }
+html.dark .border-\[\#fed7aa\]     { border-color: rgba(255, 174, 3, 0.45) !important; }
+html.dark .border-\[\#d8e2ef\]     { border-color: var(--app-border) !important; }
+html.dark .border-\[\#c7d0ff\]     { border-color: rgba(67, 97, 238, 0.30) !important; }
+html.dark .border-\[\#d6bbfb\]     { border-color: rgba(196, 145, 255, 0.30) !important; }
+html.dark .border-\[\#e9d7fe\]     { border-color: rgba(196, 145, 255, 0.20) !important; }
+html.dark .border-\[\#f0f1f3\]     { border-color: var(--app-border) !important; }
+html.dark .border-\[\#ffffff\]     { border-color: var(--app-surface-default) !important; }
+
+/* Gradient stops — `to-white` overlays look wrong on dark surfaces */
+html.dark .to-white                { --tw-gradient-to: var(--app-surface-page) !important; }
+html.dark .from-white              { --tw-gradient-from: var(--app-surface-page) !important; }
+html.dark .via-white               { --tw-gradient-via: var(--app-surface-default) !important; }
+html.dark .from-\[\#fafbff\]       { --tw-gradient-from: var(--app-surface-page-top) !important; }
+html.dark .via-white\/25           { --tw-gradient-via: rgba(255,255,255,0.05) !important; }
+
+/* ─── Classic: extended supporting purple shades (dark mode literals) ─── */
+html[data-theme="classic"] .bg-\[\#7e56d8\]              { background-color: #8A3DF0 !important; }
+html[data-theme="classic"] .text-\[\#7e56d8\]            { color: #8A3DF0 !important; }
+html[data-theme="classic"] .border-\[\#7e56d8\]          { border-color: #8A3DF0 !important; }
+html[data-theme="classic"] .bg-\[\#53389e\]              { background-color: #5d18ad !important; }
+html[data-theme="classic"] .text-\[\#53389e\]            { color: #5d18ad !important; }
+html[data-theme="classic"] .text-\[\#1d4ed8\]            { color: #4361EE !important; }
+html[data-theme="classic"] .text-\[\#2563eb\]            { color: #5271ff !important; }
+html[data-theme="classic"] .bg-\[\#f0eeff\]              { background-color: #f3e9ff !important; }
+
+/* ─── Light + dark: keep intentionally-dark UI legible in dark mode ──────
+   Buttons / composers like the "Ask anything" bar and the avatar camera use
+   `bg-[#181d27]` intentionally. In dark mode they blend into the page bg.
+   Lift them to surface-secondary so they read as a tinted card on dark. */
+html.dark .bg-\[\#181d27\]         { background-color: var(--app-surface-secondary) !important; }
+html.dark .hover\:bg-\[\#353642\]:hover { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-\[\#353642\]         { background-color: var(--app-surface-tertiary) !important; }
+
+/* ─── Dark mode: stock Tailwind grays ────────────────────────────────────
+   Playground cards and other surfaces use stock `bg-gray-50`, `border-gray-200`
+   etc. These don't auto-flip. Map them to dark semantic tokens. */
+html.dark .bg-gray-50              { background-color: var(--app-surface-secondary) !important; }
+html.dark .bg-gray-100             { background-color: var(--app-surface-tertiary) !important; }
+html.dark .bg-gray-200             { background-color: var(--app-border) !important; }
+html.dark .hover\:bg-gray-50:hover { background-color: var(--app-surface-secondary) !important; }
+html.dark .hover\:bg-gray-100:hover{ background-color: var(--app-surface-tertiary) !important; }
+html.dark .border-gray-200         { border-color: var(--app-border) !important; }
+html.dark .border-gray-300         { border-color: var(--app-border-light) !important; }
+html.dark .text-gray-300           { color: var(--app-text-muted) !important; }
+html.dark .text-gray-500           { color: var(--app-text-muted) !important; }
+html.dark .text-gray-900           { color: var(--app-text-primary) !important; }
+
+/* ─── Appearance: dark mode ────────────────────────────────────────────────
+   Structural tokens above drive NavBar/layout; body follows for scroll regions. */
+
+/* Reserve a constant viewport width so the page cannot jump horizontally
+   when list content changes (e.g. filtering /alerts causes the vertical
+   scrollbar to appear or disappear). We apply BOTH techniques because
+   neither is 100% sufficient on its own:
+     - `scrollbar-gutter: stable` (modern) reserves the scrollbar track.
+     - `overflow-y: scroll` (universally supported) forces the scrollbar
+       to always be present so its width is already baked in.
+   `!important` guards against later cascade order surprises. */
+html {
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable;
+  min-height: 100%;
+}
+
+#root {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  flex-direction: column;
+  background-color: var(--app-surface-page);
+}
+
+html.dark #root {
+  background-color: var(--app-surface-page) !important;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--app-surface-page);
+  color: var(--app-text-primary);
+  /* Prevent accidental horizontal scroll from shifting/clipping the sticky header */
+  overflow-x: clip;
+}
+
+/* Playground input — animated rainbow gradient border */
+@keyframes playground-gradient-slide {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* Playground use-case carousel */
+@keyframes carousel-rtl {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.use-case-carousel {
+  animation: carousel-rtl 35s linear infinite;
+  will-change: transform;
+}
+
+.use-case-carousel:hover {
+  animation-play-state: paused;
+}
+
+/* Mobile: disable carousel animation, enable horizontal scroll */
+@media (max-width: 767px) {
+  .use-case-carousel-outer {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .use-case-carousel-outer::-webkit-scrollbar { display: none; }
+  .use-case-carousel {
+    animation: none;
+    width: max-content;
+    scroll-snap-type: x mandatory;
+  }
+  .use-case-carousel > * {
+    scroll-snap-align: start;
+  }
+}
+
+/* Mic recording ripple rings */
+@keyframes mic-ring {
+  0%   { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+.playground-gradient-border {
+  background: linear-gradient(
+    to left,
+    #31BCFF,
+    #9676FF 10%,
+    #BE64FE 25%,
+    #EF5794 50%,
+    #FD683F 75%,
+    #FFA10B 87%,
+    #31BCFF 100%
+  );
+  background-size: 200% 100%;
+  animation: playground-gradient-slide 8s linear infinite;
+  padding: 2px;
+  border-radius: 16px;
+}
+
+.playground-gradient-border:hover {
+  animation-play-state: paused;
+}
+
+/* Dark UI: neon rainbow rim clashes with charcoal surfaces; keep a subtle brand edge, no marquee. */
+html.dark .playground-gradient-border {
+  background: linear-gradient(
+    132deg,
+    rgba(148, 120, 255, 0.55) 0%,
+    rgba(105, 65, 198, 0.75) 42%,
+    rgba(71, 99, 230, 0.5) 100%
+  );
+  background-size: 100% 100%;
+  animation: none;
+  box-shadow: 0 0 0 1px rgba(238, 240, 253, 0.08),
+    0 12px 42px rgba(0, 0, 0, 0.45);
+}
+
+html.dark .playground-gradient-border:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playground-gradient-border {
+    animation: none;
+  }
+}
+
+/* Playground composers (hub + area page): soft outer lift when anything inside is focused */
+.playground-hub-composer-shell {
+  transition: box-shadow 0.22s ease;
+}
+
+.playground-hub-composer-shell:focus-within {
+  box-shadow:
+    0px 9px 9px 0px rgba(0, 0, 0, 0.01),
+    0 10px 36px rgba(105, 65, 198, 0.07),
+    0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+html.dark .playground-hub-composer-shell:focus-within {
+  box-shadow:
+    0 0 0 1px rgba(238, 240, 253, 0.1),
+    0 14px 48px rgba(0, 0, 0, 0.48),
+    0 6px 28px rgba(148, 120, 255, 0.12);
+}
+
+/* NavBar logo: simple hover lift (flat SVG looks wrong with 3D rotateY flip) */
+.retailgpt-nav-logo-img {
+  transition: transform 0.28s ease;
+}
+
+.retailgpt-nav-brand:hover .retailgpt-nav-logo-img {
+  transform: scale(1.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .retailgpt-nav-logo-img {
+    transition: none;
+  }
+
+  .retailgpt-nav-brand:hover .retailgpt-nav-logo-img {
+    transform: none;
+  }
+}

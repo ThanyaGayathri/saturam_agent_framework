@@ -1,0 +1,22 @@
+[
+  {"state":"CA","state_name":"California","territory":"West","quotes":"62","closed_won_rate":"40%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"TX","state_name":"Texas","territory":"Southwest","quotes":"52","closed_won_rate":"27%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"FL","state_name":"Florida","territory":"Southeast","quotes":"38","closed_won_rate":"30%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"NY","state_name":"New York","territory":"Northeast","quotes":"34","closed_won_rate":"36%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"PA","state_name":"Pennsylvania","territory":"Northeast","quotes":"26","closed_won_rate":"34%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"IL","state_name":"Illinois","territory":"Midwest","quotes":"24","closed_won_rate":"33%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"WA","state_name":"Washington","territory":"West","quotes":"24","closed_won_rate":"36%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"AZ","state_name":"Arizona","territory":"Southwest","quotes":"22","closed_won_rate":"32%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"GA","state_name":"Georgia","territory":"Southeast","quotes":"22","closed_won_rate":"33%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"NC","state_name":"North Carolina","territory":"Southeast","quotes":"20","closed_won_rate":"31%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"OH","state_name":"Ohio","territory":"Midwest","quotes":"20","closed_won_rate":"35%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"MA","state_name":"Massachusetts","territory":"Northeast","quotes":"18","closed_won_rate":"38%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"NJ","state_name":"New Jersey","territory":"Northeast","quotes":"18","closed_won_rate":"32%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"VA","state_name":"Virginia","territory":"Southeast","quotes":"18","closed_won_rate":"32%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"MI","state_name":"Michigan","territory":"Midwest","quotes":"16","closed_won_rate":"32%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"CO","state_name":"Colorado","territory":"West","quotes":"15","closed_won_rate":"38%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"TN","state_name":"Tennessee","territory":"Southeast","quotes":"14","closed_won_rate":"29%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"IN","state_name":"Indiana","territory":"Midwest","quotes":"12","closed_won_rate":"36%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"MN","state_name":"Minnesota","territory":"Midwest","quotes":"8","closed_won_rate":"37%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"state":"MO","state_name":"Missouri","territory":"Midwest","quotes":"8","closed_won_rate":"30%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"}
+]

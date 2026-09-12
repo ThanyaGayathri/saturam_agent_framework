@@ -1,0 +1,8 @@
+[
+  {"territory":"Northeast","rep_group":"NE-1","quotes":"96","closed_won_rate":"36%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"territory":"Southeast","rep_group":"SE-2","quotes":"112","closed_won_rate":"31%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"territory":"Midwest","rep_group":"MW-1","quotes":"88","closed_won_rate":"34%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"territory":"Southwest","rep_group":"SW-3","quotes":"74","closed_won_rate":"29%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"territory":"West","rep_group":"W-1","quotes":"101","closed_won_rate":"38%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"},
+  {"territory":"Canada","rep_group":"CA-1","quotes":"42","closed_won_rate":"33%","demo_window":"Week of Jun 1 to 7, 2026","example_data":"mixed","source":"HubSpot"}
+]
