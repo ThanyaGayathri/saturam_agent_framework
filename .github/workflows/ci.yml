@@ -502,6 +502,7 @@ jobs:
             aiosqlite \
             asyncmy \
             asyncpg \
+            azure-search-documents \
             boto3 \
             botocore \
             chromadb \

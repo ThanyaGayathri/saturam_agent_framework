@@ -19,6 +19,7 @@ from egpt.registry.discovery import SOURCE_BUILTIN, register
 
 _ROWS = {
     "pgvector": ("egpt.integrations.memory.vector.pgvector", "PgVectorMemorySubstrate"),
+    "azure_ai_search": ("egpt.integrations.memory.vector.azure_ai_search", "AzureAISearchMemorySubstrate"),
 }
 
 
