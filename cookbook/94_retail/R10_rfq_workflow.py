@@ -92,8 +92,13 @@ from egpt_retail.semantic.harvest import harvest_schema  # noqa: E402
 from egpt_retail.skills.funnel_explanation import (  # noqa: E402
     BrandMovement,
     Direction,
+    Driver,
+    DriverKind,
+    DriverReason,
+    FrictionSample,
     FunnelExplanation,
     citations_within_input,
+    render_summary,
 )
 from egpt_retail.warehouse.ddl import apply_warehouse_ddl  # noqa: E402
 from sqlalchemy import text  # noqa: E402
@@ -494,7 +499,7 @@ if has_credentials:
         s for s in output.step_results if s.step_name == "funnel-explanation"
     )
     explanation = FunnelExplanation.model_validate(explanation_step.content)
-    print(f"  explanation.summary: {explanation.summary}")
+    print(f"  render_summary(explanation): {render_summary(explanation)}")
     checks["the end-to-end run completed"] = output.status.value == "COMPLETED"
     checks["the live explanation cites only what the input carried"] = (
         citations_within_input(explanation)
@@ -525,26 +530,33 @@ else:
         for identifier, rows in sampled.content["movers"].items()
         for row in rows
     ]
-    cited_brands = sorted({m.brand for m in top_movers})
-    summary_prefix = (
-        "Offline half: deterministic chain only, no model credentials configured."
+    drivers = [
+        Driver(
+            kind=DriverKind.BRAND,
+            ref=m.brand,
+            kpi_identifier=m.kpi_identifier,
+            reason=DriverReason.LARGEST_MOVE,
+        )
+        for m in top_movers[:1]
+    ]
+    friction_available = bool(sampled.content["friction"]["available"])
+    friction_rows = (
+        [FrictionSample(**row) for row in sampled.content["friction"].get("rows") or []]
+        if friction_available
+        else []
     )
     hand_built = FunnelExplanation(
         kpi_identifiers=sorted(identifiers),
         top_movers=top_movers,
-        friction_available=sampled.content["friction"]["available"],
-        friction=[],
-        brands_cited=cited_brands,
-        summary=(
-            f"{summary_prefix} {', '.join(cited_brands)} moved this period."
-            if cited_brands
-            else (
-                f"{summary_prefix} No gold rows were available for "
-                f"{', '.join(sorted(identifiers))} this run."
-            )
-        ),
-        likely_drivers=[],
+        friction_available=friction_available,
+        friction=friction_rows,
+        friction_reason=sampled.content["friction"].get("reason", ""),
+        drivers=drivers,
         snapshot_version=sampled.content["snapshot_version"] or "r10-cookbook-offline",
+    )
+    print(
+        "  Offline half: deterministic chain only, no model credentials configured. "
+        f"render_summary(hand_built): {render_summary(hand_built)}"
     )
 
     # check_explanation_grounding, by hand: the grounded hand-built explanation passes ...
@@ -562,9 +574,19 @@ else:
         grounded.success is True and not grounded.stop
     )
 
-    # ... and a citation naming a brand absent from top_movers stops the chain.
+    # ... and a driver referencing a brand absent from top_movers stops the chain.
     tampered = hand_built.model_copy(
-        update={"brands_cited": [*cited_brands, "phantom-brand-not-in-movers"]}
+        update={
+            "drivers": [
+                *drivers,
+                Driver(
+                    kind=DriverKind.BRAND,
+                    ref="phantom-brand-not-in-movers",
+                    kpi_identifier=drivers[0].kpi_identifier,
+                    reason=DriverReason.OTHER,
+                ),
+            ]
+        }
     )
     tampered_input = StepInput(
         additional_data=offline_options,

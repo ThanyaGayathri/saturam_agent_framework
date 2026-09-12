@@ -220,7 +220,14 @@ def _model_tier(step_input: StepInput, options: Dict[str, Any]) -> str:
 
 async def record_provenance(step_input: StepInput) -> StepOutput:
     """Write one provenance record for this run. Never refuses -- ``permits_or_blocks: false``
-    in the API contract's example plan."""
+    in the API contract's example plan.
+
+    Forwards the immediately-preceding step's content under ``explanation`` alongside
+    ``provenance_ref`` -- every use-case shape's own compiled plan places this step directly
+    after the one producing the answer (the model step, ``write_alert``, ...), so this is the
+    one place that can generically carry that answer forward to ``deliver_in_app`` without
+    that executor needing to know which shape produced it.
+    """
     options: Dict[str, Any] = step_input.additional_data or {}
     bag = _bag(step_input)
 
@@ -245,4 +252,9 @@ async def record_provenance(step_input: StepInput) -> StepOutput:
     finally:
         engine.dispose()
 
-    return StepOutput(content={"provenance_ref": record.run_id})
+    return StepOutput(
+        content={
+            "provenance_ref": record.run_id,
+            "explanation": step_input.previous_step_content,
+        }
+    )

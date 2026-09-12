@@ -44,11 +44,16 @@ from egpt_retail.routing.table import ROUTING_TABLE, Tier, tier_for
 from egpt_retail.skills.funnel_explanation import (
     BrandMovement,
     Direction,
+    Driver,
+    DriverKind,
+    DriverReason,
     FrictionSample,
     FunnelExplanation,
     citations_within_input,
     closed_sets_match_prompt,
+    friction_matches_input,
     movers_match_input,
+    render_summary,
 )
 
 _REGISTRY_DOC = (
@@ -223,9 +228,8 @@ def _explanation(**overrides):
         ],
         friction_available=False,
         friction=[],
-        brands_cited=["brand_a"],
-        summary="brand_a fell.",
-        likely_drivers=[],
+        friction_reason="",
+        drivers=[],
         snapshot_version="r10-test.1",
     )
     defaults.update(overrides)
@@ -233,7 +237,11 @@ def _explanation(**overrides):
 
 
 def test_closed_sets_match_prompt():
-    assert closed_sets_match_prompt() == {"direction": True}
+    assert closed_sets_match_prompt() == {
+        "direction": True,
+        "kind": True,
+        "reason": True,
+    }
 
 
 def test_citations_within_input_accepts_a_clean_explanation():
@@ -241,14 +249,23 @@ def test_citations_within_input_accepts_a_clean_explanation():
 
 
 def test_citations_within_input_rejects_a_brand_the_input_never_carried():
-    bad = _explanation(brands_cited=["brand_a", "brand_z"])
+    bad = _explanation(
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_z",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.OTHER,
+            )
+        ]
+    )
     assert citations_within_input(bad) is False
 
 
 def test_citations_within_input_rejects_a_driver_naming_a_friction_event_never_carried():
-    """A driver sentence naming neither a cited brand nor a friction event actually present
-    in the input -- the citation-grounding half of the fourth standing rule, checkable
-    because `friction.rows` names its events explicitly rather than being free text."""
+    """A driver referencing neither a real brand nor a friction event actually present in the
+    input -- the citation-grounding half of the fourth standing rule, checkable by exact
+    equality now that a driver's subject is a reference, never free text."""
     bad = _explanation(
         friction_available=True,
         friction=[
@@ -256,65 +273,276 @@ def test_citations_within_input_rejects_a_driver_naming_a_friction_event_never_c
                 event_name="form_start", rage_clicks=1, dead_clicks=0, script_errors=0
             )
         ],
-        likely_drivers=["The submit page saw a spike in dead clicks."],
+        drivers=[
+            Driver(
+                kind=DriverKind.FRICTION_EVENT,
+                ref="submit_page",
+                reason=DriverReason.ELEVATED_FRICTION,
+            )
+        ],
     )
     assert citations_within_input(bad) is False
 
 
 def test_citations_within_input_accepts_a_driver_naming_a_cited_brand():
-    ok = _explanation(likely_drivers=["brand_a's drop is the whole story this period."])
+    ok = _explanation(
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_a",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.LARGEST_MOVE,
+            )
+        ]
+    )
     assert citations_within_input(ok) is True
 
 
-def test_citations_within_input_rejects_a_driver_matching_only_as_a_substring():
-    """A real brand that is a *prefix* of a fabricated one must not count as a citation --
-    `"brand_a" in "...brand_ab..."` is true as plain substring containment but `brand_ab` is
-    not a term this input ever carried."""
+def test_citations_within_input_rejects_a_driver_matching_only_as_a_near_miss():
+    """A real brand's name being a *prefix* of the reference must not count as a match --
+    `ref` is checked by exact equality, not substring containment, so `brand_ab` is not
+    `brand_a` even though the old text-search implementation could have been fooled by it."""
     bad = _explanation(
-        likely_drivers=["Something about brand_ab happened this period."]
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_ab",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.OTHER,
+            )
+        ]
     )
     assert citations_within_input(bad) is False
 
 
-def test_citations_within_input_checks_summary_too():
-    """`summary` is prose a person reads first and the module's own rule requires every brand
-    or event name it names to be grounded, same as `likely_drivers`."""
-    bad = _explanation(summary="evilbrand had a rough quarter.")
+def test_citations_within_input_rejects_the_issue_209_repro_shape():
+    """The exact gap issue #209 found: a sentence citing one real brand alongside a
+    fabricated one used to pass, because the old free-text checker only required one
+    grounded hit per sentence. There is no free-text field left to smuggle a second entity
+    into -- even folding the old exploit sentence into `ref` itself is refused, since `ref`
+    is checked for exact equality against `top_movers`/`friction`, not "mentions"."""
+    bad = _explanation(
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_a's drop was driven by rival evilbrand entering the market",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.OTHER,
+            )
+        ]
+    )
     assert citations_within_input(bad) is False
 
 
-def test_citations_within_input_accepts_an_honest_no_data_summary():
-    """With no movers and no friction, there is nothing brand- or event-shaped to cite --
-    but the honest "nothing to report" summary names the KPI it's reporting on instead
-    (funnel_explanation.md's own documented example), and the check now grounds against
-    `kpi_identifiers` in that case rather than skipping outright."""
+def test_citations_within_input_rejects_a_mix_of_grounded_and_fabricated_drivers():
+    """The N-1-grounded-plus-one-fabricated shape issue #209 found, exercised with multiple
+    `Driver` entries rather than folding the whole exploit into a single `ref` -- every
+    driver must be grounded, not just most of them."""
+    bad = _explanation(
+        friction_available=True,
+        friction=[
+            FrictionSample(
+                event_name="form_start", rage_clicks=1, dead_clicks=0, script_errors=0
+            )
+        ],
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_a",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.LARGEST_MOVE,
+            ),
+            Driver(
+                kind=DriverKind.FRICTION_EVENT,
+                ref="form_start",
+                reason=DriverReason.ELEVATED_FRICTION,
+            ),
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="evilbrand",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.OTHER,
+            ),
+        ],
+    )
+    assert citations_within_input(bad) is False
+
+
+def test_citations_within_input_accepts_no_drivers_with_no_data():
+    """With no movers and no friction, there is nothing to reference -- an empty `drivers`
+    list is honest, not a violation."""
     empty = _explanation(
-        top_movers=[],
-        brands_cited=[],
-        friction_available=False,
-        friction=[],
-        summary="No gold rows were available for rfq__quote_to_deal_rate this run.",
-        likely_drivers=[],
+        top_movers=[], friction_available=False, friction=[], drivers=[]
     )
     assert citations_within_input(empty) is True
 
 
-def test_citations_within_input_rejects_a_fabricated_no_data_summary():
-    """The gap this closes: with no movers and no friction, a summary that names neither a
-    grounded term nor the KPI it claims to be about must be rejected, not waved through just
-    because `allowed_terms` is empty."""
+# ---------------------------------------------------------------------------
+# render_summary -- the deterministic renderer that replaced model-authored prose
+# ---------------------------------------------------------------------------
+
+
+def test_render_summary_reports_honest_no_data():
+    """With no movers and no friction, the rendered summary names the KPI it's reporting on
+    (funnel_explanation.md's own documented example) -- built from `kpi_identifiers`, never
+    from anything the model wrote."""
     empty = _explanation(
-        top_movers=[],
-        brands_cited=[],
-        friction_available=False,
-        friction=[],
-        summary=(
-            "Sales exploded because of a secret alliance with mars_corp, a brand never "
-            "mentioned anywhere."
-        ),
-        likely_drivers=[],
+        top_movers=[], friction_available=False, friction=[], drivers=[]
     )
-    assert citations_within_input(empty) is False
+    assert render_summary(empty) == (
+        "No gold rows were available for rfq__quote_to_deal_rate this run."
+    )
+
+
+def test_render_summary_builds_a_sentence_from_a_grounded_brand_driver():
+    ok = _explanation(
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_a",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.LARGEST_MOVE,
+            )
+        ]
+    )
+    assert (
+        render_summary(ok)
+        == "brand_a's rfq__quote_to_deal_rate fell to 0.18 from 0.23."
+    )
+
+
+def test_render_summary_builds_a_sentence_from_a_grounded_friction_driver():
+    ok = _explanation(
+        friction_available=True,
+        friction=[
+            FrictionSample(
+                event_name="form_start", rage_clicks=12, dead_clicks=3, script_errors=1
+            )
+        ],
+        drivers=[
+            Driver(
+                kind=DriverKind.FRICTION_EVENT,
+                ref="form_start",
+                reason=DriverReason.ELEVATED_FRICTION,
+            )
+        ],
+    )
+    assert render_summary(ok) == (
+        "form_start carried elevated friction this period "
+        "(12 rage clicks, 3 dead clicks, 1 script error)."
+    )
+
+
+def test_render_summary_falls_back_to_the_first_mover_with_no_drivers():
+    """A model that named no drivers still gets an honest, grounded headline -- the largest
+    mover, since `top_movers` is already ranked by size of change."""
+    ok = _explanation(drivers=[])
+    assert (
+        render_summary(ok)
+        == "brand_a's rfq__quote_to_deal_rate fell to 0.18 from 0.23."
+    )
+
+
+def test_render_summary_falls_back_to_the_first_friction_row_with_no_resolved_drivers():
+    """Real friction data with no `top_movers` and no driver that resolves must still render
+    something, not silently return an empty string."""
+    ok = _explanation(
+        top_movers=[],
+        friction_available=True,
+        friction=[
+            FrictionSample(
+                event_name="form_start", rage_clicks=12, dead_clicks=3, script_errors=1
+            )
+        ],
+        drivers=[],
+    )
+    assert render_summary(ok) == (
+        "form_start carried elevated friction this period "
+        "(12 rage clicks, 3 dead clicks, 1 script error)."
+    )
+
+
+def test_render_summary_singularizes_a_friction_count_of_one():
+    ok = _explanation(
+        friction_available=True,
+        friction=[
+            FrictionSample(
+                event_name="form_start", rage_clicks=1, dead_clicks=1, script_errors=1
+            )
+        ],
+        drivers=[
+            Driver(
+                kind=DriverKind.FRICTION_EVENT,
+                ref="form_start",
+                reason=DriverReason.ELEVATED_FRICTION,
+            )
+        ],
+    )
+    assert render_summary(ok) == (
+        "form_start carried elevated friction this period "
+        "(1 rage click, 1 dead click, 1 script error)."
+    )
+
+
+def test_render_summary_deduplicates_repeated_driver_references():
+    ok = _explanation(
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_a",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.LARGEST_MOVE,
+            ),
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_a",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.LARGEST_MOVE,
+            ),
+        ]
+    )
+    assert (
+        render_summary(ok)
+        == "brand_a's rfq__quote_to_deal_rate fell to 0.18 from 0.23."
+    )
+
+
+def test_render_summary_disambiguates_a_brand_on_two_brand_grain_kpis():
+    """The same brand can legitimately be a top mover on two different brand-grain KPIs in
+    the same run -- a `Driver` must disambiguate by `kpi_identifier`, not just `brand`, or one
+    KPI's movement silently overwrites the other's in the rendered summary."""
+    ok = _explanation(
+        top_movers=[
+            BrandMovement(
+                kpi_identifier="rfq__quote_to_deal_rate",
+                brand="brand_a",
+                current_value="0.18",
+                prior_value="0.23",
+                delta="-0.05",
+                direction=Direction.DOWN,
+            ),
+            BrandMovement(
+                kpi_identifier="rfq__quote_requests_by_brand",
+                brand="brand_a",
+                current_value="41",
+                prior_value="30",
+                delta="11",
+                direction=Direction.UP,
+            ),
+        ],
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_a",
+                kpi_identifier="rfq__quote_requests_by_brand",
+                reason=DriverReason.LARGEST_MOVE,
+            )
+        ],
+    )
+    assert (
+        render_summary(ok)
+        == "brand_a's rfq__quote_requests_by_brand rose to 41 from 30."
+    )
 
 
 def test_movers_match_input_requires_verbatim_copy():
@@ -353,6 +581,127 @@ def test_friction_sample_round_trips():
     assert explanation.friction[0].event_name == "form_start"
 
 
+def test_funnel_explanation_rejects_friction_available_disagreeing_with_friction():
+    with pytest.raises(ValueError):
+        _explanation(friction_available=True, friction=[])
+    with pytest.raises(ValueError):
+        _explanation(
+            friction_available=False,
+            friction=[
+                FrictionSample(
+                    event_name="form_start",
+                    rage_clicks=1,
+                    dead_clicks=0,
+                    script_errors=0,
+                )
+            ],
+        )
+
+
+def test_driver_rejects_a_brand_kind_with_no_kpi_identifier():
+    with pytest.raises(ValueError):
+        Driver(kind=DriverKind.BRAND, ref="brand_a", reason=DriverReason.LARGEST_MOVE)
+
+
+def test_driver_accepts_a_friction_event_kind_with_no_kpi_identifier():
+    """`kpi_identifier` is meaningless for a friction driver -- only `kind=brand` requires
+    it."""
+    driver = Driver(
+        kind=DriverKind.FRICTION_EVENT,
+        ref="form_start",
+        reason=DriverReason.ELEVATED_FRICTION,
+    )
+    assert driver.kpi_identifier == ""
+
+
+def test_friction_matches_input_accepts_a_verbatim_copy():
+    friction_input = {
+        "available": True,
+        "reason": "",
+        "rows": [
+            {
+                "event_name": "form_start",
+                "rage_clicks": 12,
+                "dead_clicks": 3,
+                "script_errors": 1,
+            }
+        ],
+    }
+    ok = _explanation(
+        friction_available=True,
+        friction=[
+            FrictionSample(
+                event_name="form_start", rage_clicks=12, dead_clicks=3, script_errors=1
+            )
+        ],
+    )
+    assert friction_matches_input(ok, friction_input) is True
+
+
+def test_friction_matches_input_rejects_a_fabricated_row():
+    friction_input = {"available": False, "reason": "no join yet", "rows": []}
+    bad = _explanation(
+        friction_available=True,
+        friction=[
+            FrictionSample(
+                event_name="form_start", rage_clicks=12, dead_clicks=3, script_errors=1
+            )
+        ],
+    )
+    assert friction_matches_input(bad, friction_input) is False
+
+
+def test_friction_matches_input_rejects_a_suppressed_availability():
+    friction_input = {
+        "available": True,
+        "reason": "",
+        "rows": [
+            {
+                "event_name": "form_start",
+                "rage_clicks": 12,
+                "dead_clicks": 3,
+                "script_errors": 1,
+            }
+        ],
+    }
+    bad = _explanation(friction_reason="nothing to attribute")
+    assert friction_matches_input(bad, friction_input) is False
+
+
+def test_friction_matches_input_rejects_an_ungrounded_reason():
+    friction_input = {"available": False, "reason": "the real reason", "rows": []}
+    bad = _explanation(friction_reason="an invented reason")
+    assert friction_matches_input(bad, friction_input) is False
+
+
+def test_friction_matches_input_rejects_a_fabricated_reason_alongside_real_rows():
+    """`friction_reason` must be checked even when `friction_available` is true and the real
+    rows are copied verbatim -- otherwise a model can smuggle fabricated prose into the one
+    field this same check exists to close off, right alongside an otherwise-honest response."""
+    friction_input = {
+        "available": True,
+        "reason": "",
+        "rows": [
+            {
+                "event_name": "form_start",
+                "rage_clicks": 12,
+                "dead_clicks": 3,
+                "script_errors": 1,
+            }
+        ],
+    }
+    bad = _explanation(
+        friction_available=True,
+        friction=[
+            FrictionSample(
+                event_name="form_start", rage_clicks=12, dead_clicks=3, script_errors=1
+            )
+        ],
+        friction_reason="brand_a's drop was driven by rival evilbrand entering the market",
+    )
+    assert friction_matches_input(bad, friction_input) is False
+
+
 # ---------------------------------------------------------------------------
 # check_explanation_grounding -- the runtime guard between the model step and delivery
 # ---------------------------------------------------------------------------
@@ -370,12 +719,16 @@ _GROUNDED_MOVERS_INPUT = {
 }
 
 
-def _grounding_input(explanation, movers_input=None):
+def _grounding_input(explanation, movers_input=None, friction_input=None):
     return StepInput(
         previous_step_content=explanation.model_dump(),
         previous_step_outputs={
             "sample-rows": StepOutput(
-                content={"movers": movers_input or _GROUNDED_MOVERS_INPUT}
+                content={
+                    "movers": movers_input or _GROUNDED_MOVERS_INPUT,
+                    "friction": friction_input
+                    or {"available": False, "reason": "", "rows": []},
+                }
             )
         },
     )
@@ -385,6 +738,29 @@ def test_check_explanation_grounding_passes_a_grounded_explanation():
     output = asyncio.run(check_explanation_grounding(_grounding_input(_explanation())))
     assert output.success is True
     assert not output.stop
+
+
+def test_check_explanation_grounding_attaches_the_real_render_summary_output():
+    """The success-path content must carry `render_summary`'s actual rendered string, not
+    just any `"summary"` key -- this is what `record_provenance`/`deliver_in_app` forward to
+    the delivery record, so a stale or placeholder value here would silently break the claim
+    that the delivery screen shows the deterministic headline."""
+    explanation = _explanation()
+    output = asyncio.run(check_explanation_grounding(_grounding_input(explanation)))
+    assert output.content["summary"] == render_summary(explanation)
+
+
+def test_check_explanation_grounding_drops_notes_from_what_it_forwards():
+    """`notes` is the one field this schema leaves genuinely free text with no grounding
+    check at all -- it must not reach the delivery record now that `check_explanation_
+    grounding`'s output is actually wired through `record_provenance`/`deliver_in_app`."""
+    explanation = _explanation(
+        notes="brand_a's drop was driven by rival evilbrand entering the market"
+    )
+    output = asyncio.run(check_explanation_grounding(_grounding_input(explanation)))
+    assert output.success is True
+    assert "notes" not in output.content
+    assert "summary" in output.content
 
 
 def test_check_explanation_grounding_stops_the_chain_on_an_edited_mover():
@@ -407,8 +783,74 @@ def test_check_explanation_grounding_stops_the_chain_on_an_edited_mover():
 
 
 def test_check_explanation_grounding_stops_the_chain_on_an_uncited_brand():
-    bad = _explanation(brands_cited=["brand_a", "brand_z"])
+    bad = _explanation(
+        drivers=[
+            Driver(
+                kind=DriverKind.BRAND,
+                ref="brand_z",
+                kpi_identifier="rfq__quote_to_deal_rate",
+                reason=DriverReason.OTHER,
+            )
+        ]
+    )
     output = asyncio.run(check_explanation_grounding(_grounding_input(bad)))
+    assert output.success is False
+    assert output.stop is True
+
+
+def test_check_explanation_grounding_stops_the_chain_on_a_fabricated_friction_row():
+    bad = _explanation(
+        friction_available=True,
+        friction=[
+            FrictionSample(
+                event_name="checkout_error",
+                rage_clicks=99,
+                dead_clicks=0,
+                script_errors=0,
+            )
+        ],
+    )
+    output = asyncio.run(check_explanation_grounding(_grounding_input(bad)))
+    assert output.success is False
+    assert output.stop is True
+
+
+def test_check_explanation_grounding_stops_the_chain_on_a_suppressed_friction_available():
+    """A model that sets `friction_available=False` while the real input's friction was
+    available -- hiding a real signal from the reader while substituting a `friction_reason`
+    narrative -- must be refused, not silently pass through."""
+    bad = _explanation(friction_reason="nothing to attribute this run")
+    real_friction = {
+        "available": True,
+        "reason": "",
+        "rows": [
+            {
+                "event_name": "checkout_error",
+                "rage_clicks": 4,
+                "dead_clicks": 1,
+                "script_errors": 2,
+            }
+        ],
+    }
+    output = asyncio.run(
+        check_explanation_grounding(_grounding_input(bad, friction_input=real_friction))
+    )
+    assert output.success is False
+    assert output.stop is True
+
+
+def test_check_explanation_grounding_stops_the_chain_on_an_ungrounded_friction_reason():
+    """`friction_reason` is free text -- it must match the real input's `friction.reason`
+    verbatim when friction is genuinely unavailable, not carry a model-invented narrative."""
+    bad = _explanation(friction_reason="a narrative the model invented")
+    real_friction = {
+        "available": False,
+        "reason": "no row on either side carries a populated identity_key yet",
+        "rows": [],
+    }
+    output = asyncio.run(
+        check_explanation_grounding(_grounding_input(bad, friction_input=real_friction))
+    )
     assert output.success is False
     assert output.stop is True
 

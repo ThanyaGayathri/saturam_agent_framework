@@ -50,7 +50,9 @@ from egpt_retail.executors.provenance import (
 from egpt_retail.skills.funnel_explanation import (
     FunnelExplanation,
     citations_within_input,
+    friction_matches_input,
     movers_match_input,
+    render_summary,
 )
 from egpt_retail.warehouse.schema import SILVER_SCHEMA, gold_view
 
@@ -372,10 +374,11 @@ async def sample_rows(step_input: StepInput) -> StepOutput:
 
 
 async def check_explanation_grounding(step_input: StepInput) -> StepOutput:
-    """The runtime guard between the model step and delivery: runs the two deterministic
+    """The runtime guard between the model step and delivery: runs the deterministic
     checkers the cookbook already exercises by hand -- ``movers_match_input``,
-    ``citations_within_input`` -- against the ``funnel-explanation`` agent's real output, and
-    ``stop=True``s the chain on either one's failure.
+    ``friction_matches_input``, ``citations_within_input`` -- against the
+    ``funnel-explanation`` agent's real output, and ``stop=True``s the chain on any one's
+    failure.
 
     Before this executor existed, a hallucinated citation or an edited ``top_movers`` row
     would flow straight through ``record_provenance``/``deliver_in_app`` to an actual
@@ -385,8 +388,15 @@ async def check_explanation_grounding(step_input: StepInput) -> StepOutput:
     Reads the agent step's output from ``step_input.previous_step_content`` (the immediately
     preceding step, per the workflow engine's own ``get_last_step_content``), and reaches back
     to ``sample_rows``'s output by name -- ``step_input.get_step_content("sample-rows")`` --
-    for the movers ``funnel_explanation`` was actually handed, since neither checker's input
-    survives past the one step directly after it.
+    for the movers and friction ``funnel_explanation`` was actually handed, since neither
+    checker's input survives past the one step directly after it.
+
+    On success, attaches the deterministic ``summary`` (:func:`render_summary`) to the
+    explanation it passes on -- the human-readable headline ``record_provenance`` and
+    ``deliver_in_app`` forward to the delivery record, built only from data these checks just
+    verified. Drops ``notes`` from what it forwards: it is the one field this schema leaves
+    genuinely free text with no grounding check at all, so a fabricated ``notes`` string must
+    not reach the delivery record now that this executor's output is actually wired there.
     """
     try:
         explanation = FunnelExplanation.model_validate(step_input.previous_step_content)
@@ -402,6 +412,9 @@ async def check_explanation_grounding(step_input: StepInput) -> StepOutput:
     movers_input: Mapping[str, Any] = (
         sample_content.get("movers") if isinstance(sample_content, Mapping) else None
     ) or {}
+    friction_input: Mapping[str, Any] = (
+        sample_content.get("friction") if isinstance(sample_content, Mapping) else None
+    ) or {}
 
     if not movers_match_input(explanation, movers_input):
         return StepOutput(
@@ -411,6 +424,17 @@ async def check_explanation_grounding(step_input: StepInput) -> StepOutput:
             success=False,
             error="the explanation's top_movers was edited, reordered or dropped a row "
             "relative to what sample_rows computed",
+            stop=True,
+        )
+    if not friction_matches_input(explanation, friction_input):
+        return StepOutput(
+            content={
+                "refused": "friction_available/friction/friction_reason does not match "
+                "sample_rows's friction verbatim"
+            },
+            success=False,
+            error="the explanation's friction fields were edited, fabricated or "
+            "suppressed relative to what sample_rows computed",
             stop=True,
         )
     if not citations_within_input(explanation):
@@ -424,4 +448,9 @@ async def check_explanation_grounding(step_input: StepInput) -> StepOutput:
             stop=True,
         )
 
-    return StepOutput(content=step_input.previous_step_content)
+    return StepOutput(
+        content={
+            **explanation.model_dump(exclude={"notes"}),
+            "summary": render_summary(explanation),
+        }
+    )

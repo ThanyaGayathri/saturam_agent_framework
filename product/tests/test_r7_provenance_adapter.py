@@ -198,7 +198,7 @@ def test_record_provenance_writes_the_note_star_bag_not_a_bypass(monkeypatch):
     assert record.run_id == "run_x"
     assert record.datasets_read == ({"schema": "silver", "table": "orders"},)
     assert record.sql_executed == ({"statement": "SELECT 1", "guard": "allowed"},)
-    assert output.content == {"provenance_ref": "run_x"}
+    assert output.content == {"provenance_ref": "run_x", "explanation": None}
 
 
 def test_record_provenance_disposes_its_engine(monkeypatch):

@@ -95,6 +95,29 @@ def test_deliver_in_app_real_run_delivers_and_stamps_delivered_at(monkeypatch):
     assert output.content["dry_run"] is False
 
 
+def test_deliver_in_app_forwards_the_preceding_steps_explanation(monkeypatch):
+    """`record_provenance` forwards whatever it received under `"explanation"` -- this pins
+    that `deliver_in_app` actually reads that key from `previous_step_content` (rather than
+    the old behaviour of storing the whole `{"provenance_ref": ..., "explanation": ...}` dict
+    as `"explanation"`), the wiring that makes `render_summary`'s output actually reach a
+    real run's delivery record."""
+    step_input = StepInput(
+        additional_data={},
+        previous_step_content={
+            "provenance_ref": "run_x",
+            "explanation": {
+                "summary": "brand_a's rfq__quote_to_deal_rate fell to 0.18."
+            },
+        },
+    )
+    output, written = _run(step_input, monkeypatch)
+
+    assert written["run_id"] == "run_x"
+    assert output.content["explanation"] == {
+        "summary": "brand_a's rfq__quote_to_deal_rate fell to 0.18."
+    }
+
+
 def test_deliver_in_app_disposes_its_engine(monkeypatch):
     disposed = []
 

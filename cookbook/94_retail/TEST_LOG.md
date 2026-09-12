@@ -4248,6 +4248,59 @@ checks, including three new ones -- the friction duplicate-event case, and the g
 guard's pass/stop paths); `pytest product/tests/` -- 639 passed, 41 skipped;
 `format.sh`/`validate.sh` both green.
 
+**Follow-up 3 (issue #209, the stricter output contract):** Findings were posted to the issue
+first (both remaining options carried a real cost -- a dictionary heuristic leaves a
+documented residual gap, the reference-based schema is a real rewrite -- and the previous
+round had already deferred rather than ship the heuristic); the stricter contract was chosen.
+`FunnelExplanation` dropped `brands_cited`/`summary`/`likely_drivers` for a structured
+`drivers: List[Driver]` (`kind` + `ref` + a closed-set `reason`): a driver now names its
+subject only by reference into `top_movers`/`friction`, never by typing a brand or event name
+into prose. `citations_within_input` is now exact-match set membership instead of
+word-bounded text search -- there is no free-text field left in which a fabricated entity
+could ride alongside a real citation. The headline sentence is no longer model-authored at
+all: `render_summary` builds it deterministically from `top_movers`, `friction` and the
+model's own `drivers` references, so the "nothing to report" case (previously grounded against
+`kpi_identifiers` as a special case) is now simply what the renderer says when both are empty.
+Added `friction_reason` (copied from `friction.reason`, unchanged) so the renderer can still
+report an honest "friction is not attributable" sentence without the model needing to relay
+that text through prose. Updated `funnel_explanation.md` (phases, rules, output table, worked
+example and near-miss, version bumped to 2.0.0), `test_r10_rfq.py` (new driver-shaped
+citation tests, including one asserting the exact issue #209 repro sentence is rejected when
+folded into a `ref`, plus new `render_summary` tests), this cookbook's offline hand-built
+explanation and tamper check, and `evals/golden_sets.py`'s judge criteria. `executors/rfq.py`
+needed no change -- `check_explanation_grounding` calls `citations_within_input` and
+`movers_match_input` by name, not by field shape. Re-run: cookbook PASS twice in a row (14
+checks, against real Postgres + Neo4j; offline half for the model step, no Azure OpenAI
+credentials on this machine); `pytest product/tests/test_r10_rfq.py` -- 38 passed;
+`pytest product/tests/` -- 974 passed, 51 skipped; `format.sh`/`validate.sh` both green
+(ruff, mypy, API contract unaffected -- no OpenAPI schema encodes `FunnelExplanation`'s shape).
+
+**Follow-up 4 (PR #218 review rounds, the friction-side reopening of #209):** Two things
+above turned out stale once independent review actually exercised the friction half of this
+same schema. First, "there is no free-text field left in which a fabricated entity could ride
+alongside a real citation" overstated what Follow-up 3 closed -- `notes` was, and remains,
+free text with no grounding check at all; the module docstring in `funnel_explanation.py` was
+narrowed to scope that claim to `drivers`, and `check_explanation_grounding` now drops `notes`
+from what it forwards downstream rather than trying to ground it. Second, "`executors/rfq.py`
+needed no change" stopped being true: `friction_available`/`friction`/`friction_reason` had no
+verbatim check against `sample_rows`'s real output at all -- only `citations_within_input`'s
+self-referential check against the model's own `explanation.friction` -- so a fabricated
+friction row, a suppressed real one, or a fabricated `friction_reason` narrative each passed
+grounding unmodified. Added `friction_matches_input` (the friction-side analog of
+`movers_match_input`, checking `friction_available`, `friction` and `friction_reason` against
+`sample_rows`'s output verbatim) and wired it into `check_explanation_grounding`, alongside a
+`model_validator` on `FunnelExplanation` enforcing `friction_available == bool(friction)`.
+Also: `render_summary` gained a friction-row fallback (it could previously return `""` with
+real, non-empty friction and no resolved driver), dedup on repeated `(kind, ref)` drivers, a
+`Driver.kpi_identifier` field (with its own `model_validator`) disambiguating a brand that
+moved on more than one brand-grain KPI, correct singular/plural friction-count wording, and
+`render_summary`'s own output is now actually wired into the delivery record via
+`record_provenance`/`deliver_in_app` (previously neither reached a real run's delivery row at
+all -- the claim that `render_summary` fed the delivery screen was itself unverified until this
+follow-up). `pytest product/tests/` -- 991 passed, 51 skipped; `format.sh`/`validate.sh` both
+green. Not re-run this pass: the live-infra cookbook (`R10_rfq_workflow.py` against real
+Postgres + Neo4j) -- this follow-up is unit-test- and `validate.sh`-verified only.
+
 ---
 
 ### K12_kpi_suggestion.py

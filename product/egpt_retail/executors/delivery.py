@@ -45,7 +45,9 @@ async def deliver_in_app(step_input: StepInput) -> StepOutput:
 
     Reads ``step_input.previous_step_content`` (the immediately-preceding step's output)
     rather than a name-keyed lookup, matching the API contract's example plan where this step
-    always directly follows ``record_provenance``.
+    always directly follows ``record_provenance`` -- which forwards whatever it received
+    under ``explanation``. ``additional_data["explanation"]`` still overrides it, for a
+    caller (or the cookbook's offline harness) that wants to hand this a value directly.
     """
     options: Dict[str, Any] = step_input.additional_data or {}
     dry_run = bool(options.get(DRY_RUN_KEY, False))
@@ -54,7 +56,10 @@ async def deliver_in_app(step_input: StepInput) -> StepOutput:
     provenance_ref: Optional[str] = (
         previous.get("provenance_ref") if isinstance(previous, Mapping) else None
     )
-    explanation = options.get("explanation", previous)
+    previous_explanation = (
+        previous.get("explanation") if isinstance(previous, Mapping) else None
+    )
+    explanation = options.get("explanation", previous_explanation)
 
     payload = _delivery_payload(
         dry_run=dry_run, channel="in_app", explanation=explanation

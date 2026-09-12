@@ -729,6 +729,12 @@ def funnel_explanation_golden_cases(agent: Agent) -> Tuple[Case, ...]:
                 result,
                 "deterministic: cited a brand or friction event absent from the input",
             )
+        if not _funnel.friction_matches_input(explanation, friction_available):
+            _append_case_error(
+                result,
+                "deterministic: friction_available/friction/friction_reason does not match "
+                "the friction input verbatim",
+            )
 
     return (
         Case(
@@ -736,10 +742,12 @@ def funnel_explanation_golden_cases(agent: Agent) -> Tuple[Case, ...]:
             input=payload,
             agent=agent,
             criteria=(
-                "Explains that northwind's quote-to-deal rate fell from 23% to 18% and acme's "
-                "rose, citing only northwind, acme and checkout_error -- the brands and "
-                "friction event actually present in the input. It copies top_movers through "
-                "unchanged and adds no brand, number or event the input did not carry."
+                "Identifies that northwind's quote-to-deal rate fell from 23% to 18% and "
+                "acme's rose, and that checkout_error carries elevated friction -- referencing "
+                "only northwind, acme and checkout_error in `drivers` by kind and ref, never "
+                "by naming them in free text (there is no summary or commentary field to "
+                "write). It copies top_movers and friction through unchanged and references "
+                "no brand, number or event the input did not carry."
             ),
             teardown=_teardown,
         ),
