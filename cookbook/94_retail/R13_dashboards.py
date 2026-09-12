@@ -26,7 +26,11 @@ Five sections:
 5. With a real materialised KPI available: a tile whose `grain_value` matches the latest
    materialisation reads a real value (`status=fresh`); the same KPI with a `grain_value`
    that matches nothing reports `status=never_computed` rather than `fresh` with an empty
-   value -- the exact scenario the round-1 review reproduced and this PR fixed.
+   value -- the exact scenario the round-1 review reproduced and this PR fixed. A third,
+   `line` tile on the same grain row reads its `series` and `delta` from the gold history
+   (issue #227): one point per materialised business date, and the change against the
+   previous one when there is one -- reported as read, `delta: null` when the warehouse
+   holds a single night.
 
 Run:
     .venvs/demo/bin/python cookbook/94_retail/R13_dashboards.py
@@ -36,6 +40,7 @@ Needs: the local Postgres (``cookbook/scripts/run_pgvector.sh``) and Neo4j
 materialised warehouse (see above) for section 5.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -233,6 +238,12 @@ else:
                             "position": {"x": 3, "y": 0, "w": 3, "h": 2},
                             "grain_value": "no_such_dimension_value",
                         },
+                        {
+                            "kpi_identifier": kpi_identifier,
+                            "chart": "line",
+                            "position": {"x": 0, "y": 2, "w": 6, "h": 2},
+                            "grain_value": grain_value,
+                        },
                     ],
                 },
             )
@@ -259,6 +270,35 @@ else:
                 "mismatched grain_value -> status=never_computed, not fresh with an empty "
                 f"value: {real_data[1]['status']}",
             )
+            trend = real_data[2]
+            points = trend["series"] or []
+            with warehouse_engine.begin() as wh_connection:
+                nights = wh_connection.execute(
+                    text(
+                        "SELECT count(DISTINCT as_of) FROM gold.kpi_value "
+                        "WHERE kpi_identifier = :k AND dimension = CAST(:d AS jsonb) "
+                        "AND as_of > (SELECT max(as_of) FROM gold.kpi_value "
+                        "WHERE kpi_identifier = :k) - :days"
+                    ),
+                    {"k": kpi_identifier, "d": json.dumps(dimension), "days": 30},
+                ).scalar_one()
+            print(
+                "   OK " if len(points) == nights and nights >= 1 else "   FAIL",
+                f"line tile series has one point per materialised night in the window: "
+                f"{len(points)} point(s), {nights} night(s) in gold",
+            )
+            if nights >= 2:
+                print(
+                    "   OK " if trend["delta"] is not None else "   FAIL",
+                    f"delta against the previous night -> {trend['delta']} "
+                    f"(latest {points[-1]['value']}, previous {points[-2]['value']})",
+                )
+            else:
+                print(
+                    "   OK " if trend["delta"] is None else "   FAIL",
+                    "a single materialised night has no previous period -> "
+                    f"delta={trend['delta']} (null, not invented)",
+                )
 
 print()
 print("=" * 78)

@@ -49,6 +49,7 @@ from egpt_retail.warehouse.gold import (
     formula_sha256,
     insert_statement,
     probe_statement,
+    read_gold_history_statement,
     read_gold_statement,
     skip_reason,
     view_statements,
@@ -283,6 +284,19 @@ def test_read_gold_statement_orders_by_the_whole_row_not_just_as_of():
     assert statement == (
         "SELECT * FROM gold.kpi_kpi_with_two_dims WHERE as_of = :as_of "
         "ORDER BY kpi_kpi_with_two_dims"
+    )
+    assert "ORDER BY 1" not in statement
+
+
+def test_read_gold_history_statement_bounds_the_window_on_both_ends():
+    """The history a trend or delta is read from: the same view and the same whole-row
+    ordering as the single-date read, over ``(:since, :as_of]``. Bounded above as well as
+    below so a reader pinned to an older ``as_of`` never sees rows materialised after it."""
+    statement = read_gold_history_statement("supplier__on_time_rate_30d")
+    assert statement == (
+        "SELECT * FROM gold.kpi_supplier__on_time_rate_30d "
+        "WHERE as_of > :since AND as_of <= :as_of "
+        "ORDER BY kpi_supplier__on_time_rate_30d"
     )
     assert "ORDER BY 1" not in statement
 
