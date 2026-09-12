@@ -20,6 +20,7 @@ from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware
 from fastapi import FastAPI
 
 from egpt_retail.api.routers.dashboards import router as dashboards_router
+from egpt_retail.api.routers.kpis import router as kpis_router
 from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.app.components import (
     abuild_memory_provider,
@@ -169,6 +170,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     # top of this one.
     base_app.include_router(playground_router)
     base_app.include_router(dashboards_router)
+    base_app.include_router(kpis_router)
 
     os_app = EgptOS(
         id=OS_ID,
