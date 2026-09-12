@@ -18,6 +18,30 @@ from egpt.utils.log import log_debug, log_error, log_info, log_warning
 from egpt.utils.string import generate_id
 
 
+def _service_principal_credential(azure_config: AzureBlobConfig, credential_cls: Any) -> Any:
+    """Build a ``ClientSecretCredential`` (sync or aio) from a config's Service Principal fields.
+
+    ``AzureBlobConfig._validate_auth`` guarantees all three fields are set together whenever
+    ``sas_token`` is ``None`` -- at construction. The checks here narrow ``Optional[str]`` for
+    mypy *and* hold at runtime: ``BaseStorageConfig`` is neither frozen nor
+    ``validate_assignment``, so a field can be reset to ``None`` after validation, and an
+    ``assert`` would be compiled out under ``python -O``. An explicit ``raise`` survives both.
+    Deliberately not a ``cast`` or a ``# type: ignore``, which would silently re-open the gap.
+
+    The message names the field, never its value: this is credential material.
+    """
+    tenant_id = azure_config.tenant_id
+    client_id = azure_config.client_id
+    client_secret = azure_config.client_secret
+    for name, value in (("tenant_id", tenant_id), ("client_id", client_id), ("client_secret", client_secret)):
+        if value is None:
+            raise ValueError(
+                f"AzureBlobConfig {azure_config.id!r}: {name} is None but sas_token is not set; "
+                "Service Principal authentication needs tenant_id, client_id and client_secret."
+            )
+    return credential_cls(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+
+
 class AzureBlobLoader(BaseLoader):
     """Loader for Azure Blob Storage content."""
 
@@ -59,6 +83,13 @@ class AzureBlobLoader(BaseLoader):
 
         account_url = f"https://{azure_config.storage_account}.blob.core.windows.net"
 
+        # Annotated `Any` rather than left to inference: the first branch's `str` would
+        # otherwise pin the variable's type and mypy would reject the second branch's
+        # ClientSecretCredential outright whenever azure-identity's real stubs are resolvable
+        # (they are Any-typed, and so silently compatible with anything, only when the
+        # package is absent -- installing it anywhere in the same environment, as a sibling
+        # dependency such as egpt-retail's, is enough to surface this).
+        credential: Any
         if azure_config.sas_token is not None:
             credential = azure_config.sas_token
         else:
@@ -69,11 +100,7 @@ class AzureBlobLoader(BaseLoader):
                     "The `azure-identity` package is required for Service Principal authentication. "
                     "Please install it via `pip install azure-identity`."
                 )
-            credential = ClientSecretCredential(
-                tenant_id=azure_config.tenant_id,
-                client_id=azure_config.client_id,
-                client_secret=azure_config.client_secret,
-            )
+            credential = _service_principal_credential(azure_config, ClientSecretCredential)
 
         return BlobServiceClient(account_url=account_url, credential=credential)
 
@@ -93,6 +120,9 @@ class AzureBlobLoader(BaseLoader):
 
         account_url = f"https://{azure_config.storage_account}.blob.core.windows.net"
 
+        # See the sync method's identical annotation above for why this is `Any` rather than
+        # left to inference.
+        credential: Any
         if azure_config.sas_token is not None:
             credential = azure_config.sas_token
         else:
@@ -103,11 +133,7 @@ class AzureBlobLoader(BaseLoader):
                     "The `azure-identity` package is required for Service Principal authentication. "
                     "Please install it via `pip install azure-identity`."
                 )
-            credential = ClientSecretCredential(
-                tenant_id=azure_config.tenant_id,
-                client_id=azure_config.client_id,
-                client_secret=azure_config.client_secret,
-            )
+            credential = _service_principal_credential(azure_config, ClientSecretCredential)
 
         return BlobServiceClient(account_url=account_url, credential=credential)
 
