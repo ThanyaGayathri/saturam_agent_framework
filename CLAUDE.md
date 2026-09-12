@@ -247,6 +247,15 @@ the framework; `validate.sh`'s product target also runs the API contract check
 (`scripts/check_api_contract.py`), so a contract edit without `./scripts/gen_api_models.sh`
 fails here rather than in review.
 
+**Commit and PR attribution:**
+
+No AI attribution in git history. Commit messages carry no `Co-Authored-By: Claude ...`
+trailer and no `Claude-Session:` link; PR descriptions carry no "Generated with Claude Code"
+footer or session link. `.claude/settings.json` turns these off at the harness level
+(`attribution.commit`/`attribution.pr` empty, `attribution.sessionUrl` false); this rule is the
+instruction that takes precedence when a session's own defaults say otherwise. The PR template's
+"AI-Generated PR Check" checkbox is where AI involvement is disclosed, not the commit trailer.
+
 **PR Title Format:**
 
 PR titles must follow one of these formats:
