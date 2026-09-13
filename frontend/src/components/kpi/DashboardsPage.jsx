@@ -1,12 +1,57 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, RefreshCw, Send } from "lucide-react";
-import { loadDashboards, labelForDelivery, labelForRefresh } from "../../storage/dashboards";
+import { LayoutDashboard, RefreshCw, AlertTriangle } from "lucide-react";
+import { labelForRefresh } from "../../storage/dashboards";
+import { fetchDashboardList } from "../../services/dashboards-api";
 
-/** Dashboards the user has built, newest first. */
+/**
+ * Dashboards the caller can see, newest first. `list_visible_to` (`dashboards/store.py`)
+ * orders ascending by `created_at` (oldest first), so this sorts descending client-side
+ * rather than rendering the API's order straight through. Real data, not `localStorage`
+ * (D2, #233): a dashboard exists here only because the API has it.
+ */
 export default function DashboardsPage() {
  const navigate = useNavigate();
- const [{ dashboards }] = useState(() => loadDashboards());
+ const [state, setState] = useState({ status: "loading", dashboards: [], error: null });
+
+ useEffect(() => {
+  let cancelled = false;
+  fetchDashboardList()
+   .then((dashboards) => {
+    if (cancelled) return;
+    const newestFirst = [...dashboards].sort(
+     (a, b) => new Date(b.created_at) - new Date(a.created_at),
+    );
+    setState({ status: "ready", dashboards: newestFirst, error: null });
+   })
+   .catch((error) => {
+    if (!cancelled) setState({ status: "error", dashboards: [], error });
+   });
+  return () => {
+   cancelled = true;
+  };
+ }, []);
+
+ if (state.status === "loading") {
+  return <p className="text-sm text-text-secondary">Loading dashboards…</p>;
+ }
+
+ if (state.status === "error") {
+  return (
+   <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-status-critical/40 bg-status-critical/5 px-6 py-16 text-center">
+    <AlertTriangle size={22} className="text-status-critical" />
+    <p className="text-sm font-semibold text-text-primary">Couldn't load your dashboards</p>
+    {/* `ApiError.detail` is the FastAPI `detail` string alone (already formatted friendly by
+        `formatErrorDetail` in `lib/api.js`); `.message` is the raw `"{status} {path}: {detail}"`
+        form meant for logs/dev tools, not a user-facing subtext. */}
+    <p className="max-w-sm text-xs text-text-muted">
+     {state.error?.detail || "The dashboard service didn't respond."}
+    </p>
+   </div>
+  );
+ }
+
+ const { dashboards } = state;
 
  if (dashboards.length === 0) {
   return (
@@ -46,14 +91,8 @@ export default function DashboardsPage() {
      <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
       <span className="inline-flex items-center gap-1 rounded-full bg-surface-tertiary px-2 py-0.5 text-[11px] font-medium text-text-secondary">
        <RefreshCw size={10} />
-       {labelForRefresh(d.refresh)}
+       {labelForRefresh(d.refresh_schedule)}
       </span>
-      {d.delivery !== "none" && (
-       <span className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
-        <Send size={10} />
-        {labelForDelivery(d.delivery)}
-       </span>
-      )}
      </div>
     </button>
    ))}

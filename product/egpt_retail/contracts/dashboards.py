@@ -33,11 +33,18 @@ class ChartKind(str, Enum):
 
 
 class RefreshSchedule(str, Enum):
-    """``nightly`` follows gold; anything more frequent is capped by how often gold
-    materialises (D7) -- this package does not enforce that cap, it only stores the
-    declared cadence for the (not-yet-built) scheduler to honour."""
+    """How often the numbers are recomputed -- the declared cadence, stored for the
+    (not-yet-built) scheduler to honour; this package enforces none of it.
+
+    ``nightly`` (the default) follows gold: as soon as the nightly materialisation completes
+    (D7). ``daily`` is once a day at a fixed morning time (06:00), reading what gold holds.
+    ``weekly`` is Monday mornings. ``hourly`` is every hour, capped in practice by how often
+    gold materialises. ``manual`` is only when asked.
+    """
 
     NIGHTLY = "nightly"
+    DAILY = "daily"
+    WEEKLY = "weekly"
     HOURLY = "hourly"
     MANUAL = "manual"
 
