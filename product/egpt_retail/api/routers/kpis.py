@@ -26,7 +26,7 @@ narrowed.
 from __future__ import annotations
 
 import re
-from typing import Iterator, Mapping, Optional, Sequence, Tuple
+from typing import Any, Iterator, Mapping, Optional, Sequence, Tuple
 
 from egpt.os.scopes import has_required_scopes
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -49,8 +49,7 @@ from egpt_retail.contracts.kpi import (
     TimeWindowUnit,
     kpi_identifier,
 )
-from egpt_retail.dashboards.store import DashboardStore
-from egpt_retail.kpi.store import KpiRegistryStore
+from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 
 __all__ = ["router"]
 
@@ -72,17 +71,23 @@ def _kpi_store() -> Iterator[KpiRegistryStore]:
 
 
 def _feasibility_map(
-    settings: RetailSettings, store: KpiRegistryStore
+    settings: RetailSettings,
+    store: KpiRegistryStore,
+    *,
+    kpis: Optional[Sequence[KpiDefinition]] = None,
 ) -> Tuple[Mapping[str, Feasibility], str]:
-    """Feasibility for every registered KPI, plus the snapshot version it was read against.
+    """Feasibility for the given (or, by default, every registered) KPI, plus the snapshot
+    version it was read against.
 
-    One call covers list, detail, create and update routes: ``KpiRegistryStore.feasibility``
-    computes the whole registry in one semantic-reader session (there is no per-identifier
-    variant), so a single-KPI route pays the same cost as the list route rather than a cheaper
-    one existing.
+    ``kpis=None`` (list, detail) computes the whole registry in one semantic-reader session --
+    there is no per-identifier variant, so a single-KPI route pays the same cost as the list
+    route rather than a cheaper one existing. ``kpis=[definition]`` (create, update, via
+    :func:`_respond_with_kpi`) computes feasibility for exactly the row just written instead,
+    so the answer comes from that definition rather than a second, independent read of the
+    whole table that a concurrent delete could race.
     """
     with open_semantic_reader(settings) as reader:
-        feasibility = store.feasibility(reader)
+        feasibility = store.feasibility(reader, kpis=kpis)
         snapshot_version = reader.snapshot().version
     return feasibility, snapshot_version
 
@@ -99,23 +104,6 @@ def _may_read_sql(request: Request) -> bool:
     return has_required_scopes(
         list(user_scopes), ["kpis:write"], admin_scope=admin_scope
     )
-
-
-def _caller_id(request: Request) -> str:
-    """The caller's identity, for the dashboard-reference check on delete. Mirrors
-    ``api/routers/dashboards.py``'s ``_owner`` (and ``playground.py``'s identical copy) exactly
-    -- duplicated, not imported, matching this codebase's existing convention of each router
-    owning its own copy rather than sharing a private helper across modules.
-    """
-    if not getattr(request.state, "authorization_enabled", False):
-        return "local"
-    user_id = getattr(request.state, "user_id", None)
-    if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="This token carries no subject claim.",
-        )
-    return user_id
 
 
 # --- wire conversions -----------------------------------------------------------------------
@@ -183,6 +171,9 @@ def _kpi_out(
         industry_benchmark=kpi.industry_benchmark or "",
         active=kpi.active,
         source=wire.KpiOrigin(kpi.source.value),
+        # `or None` makes an explicit `dataset_ids=[]` indistinguishable on the wire from a
+        # KPI that never set it at all -- both round-trip as `None`. Accepted, not fixed: the
+        # contract has no third state to tell them apart, and no consumer has needed to yet.
         dataset_ids=list(kpi.dataset_ids) or None,
         process_ids=list(kpi.process_ids) or None,
         feasibility=feasibility,
@@ -235,12 +226,65 @@ def _carry_forward_validation(
 def _kpi_from_write(
     write: wire.KpiWrite, *, identifier: str, existing: Optional[KpiDefinition]
 ) -> KpiDefinition:
-    """Wire -> domain, shared by create and update. ``existing`` is ``None`` for a create (a
-    fresh KPI always starts unvalidated and ``CUSTOMER``-sourced) and the current row for an
-    update (its ``source`` is carried forward -- editing a shipped KPI's metadata must not
-    silently reclassify it as customer-authored; ``KpiWrite`` has no ``source`` field for a
-    caller to set directly).
+    """Wire -> domain, shared by create and update.
+
+    ``existing`` is ``None`` for a create (full-resubmit semantics: there is nothing to
+    preserve, so an omitted optional field takes its create-time default) and the current row
+    for an update. On update, every *optional* ``KpiWrite`` field the caller omits (``None`` on
+    the wire) carries forward from ``existing`` rather than resetting to that same
+    create-time default -- PATCH's "full-shape resubmit" would otherwise silently deactivate an
+    inactive-but-unmentioned KPI, drop its ``unit``/``subject_area``/etc., the same TOCTOU-
+    adjacent footgun the #240 review flagged. ``source`` already worked this way (a shipped
+    KPI must not be silently reclassified as customer-authored just because ``KpiWrite`` has no
+    ``source`` field to resend); the fields below now match it. Required fields (``name``,
+    ``description``, ``business_area``, ``grain``, ``sql``, ``source_tables``) are unaffected --
+    PATCH still requires resending those in full, as the docstrings on the routes below say.
     """
+
+    def _carried(value: Any, attr: str, default: Any) -> Any:
+        if value is not None:
+            return value
+        if existing is not None:
+            return getattr(existing, attr)
+        return default
+
+    result_shape = _carried(
+        ResultShape(write.result_shape.value) if write.result_shape else None,
+        "result_shape",
+        ResultShape.SCALAR,
+    )
+    dialect = _carried(
+        Dialect(write.dialect.value) if write.dialect else None,
+        "dialect",
+        Dialect.POSTGRES,
+    )
+    parameters = _carried(
+        tuple(_parameter_from_write(p) for p in write.parameters)
+        if write.parameters is not None
+        else None,
+        "parameters",
+        (),
+    )
+    time_window = _carried(
+        _time_window_from_write(write.time_window) if write.time_window else None,
+        "time_window",
+        None,
+    )
+    level = _carried(
+        KpiLevel(write.level.value) if write.level else None, "level", None
+    )
+    active = _carried(write.active, "active", True)
+    dataset_ids = _carried(
+        tuple(write.dataset_ids) if write.dataset_ids is not None else None,
+        "dataset_ids",
+        (),
+    )
+    process_ids = _carried(
+        tuple(write.process_ids) if write.process_ids is not None else None,
+        "process_ids",
+        (),
+    )
+
     return KpiDefinition(
         identifier=identifier,
         name=write.name,
@@ -249,28 +293,24 @@ def _kpi_from_write(
         grain=write.grain,
         business_area=write.business_area,
         source_tables=frozenset(write.source_tables),
-        result_shape=(
-            ResultShape(write.result_shape.value)
-            if write.result_shape
-            else ResultShape.SCALAR
-        ),
-        dialect=Dialect(write.dialect.value) if write.dialect else Dialect.POSTGRES,
-        parameters=tuple(_parameter_from_write(p) for p in (write.parameters or ())),
-        time_window=(
-            _time_window_from_write(write.time_window) if write.time_window else None
-        ),
+        result_shape=result_shape,
+        dialect=dialect,
+        parameters=parameters,
+        time_window=time_window,
         validated_against_snapshot=_carry_forward_validation(
             existing, write.sql, write.source_tables
         ),
-        concept=write.concept,
-        subject_area=write.subject_area,
-        level=KpiLevel(write.level.value) if write.level else None,
-        unit=write.unit,
-        industry_benchmark=write.industry_benchmark,
-        active=write.active if write.active is not None else True,
+        concept=_carried(write.concept, "concept", None),
+        subject_area=_carried(write.subject_area, "subject_area", None),
+        level=level,
+        unit=_carried(write.unit, "unit", None),
+        industry_benchmark=_carried(
+            write.industry_benchmark, "industry_benchmark", None
+        ),
+        active=active,
         source=existing.source if existing is not None else KpiOrigin.CUSTOMER,
-        dataset_ids=tuple(write.dataset_ids or ()),
-        process_ids=tuple(write.process_ids or ()),
+        dataset_ids=dataset_ids,
+        process_ids=process_ids,
     )
 
 
@@ -290,24 +330,40 @@ def _matches_filters(
     return True
 
 
-def _referencing_dashboard_names(
-    identifier: str, request: Request, settings: RetailSettings
-) -> Tuple[str, ...]:
-    """Dashboard names with a tile naming ``identifier``, scoped to the deleting caller's own
-    owner identity -- the only listing ``DashboardStore`` exposes (D3, single-tenant). In a
-    shared, multi-user deployment this cannot see another caller's dashboards; documented as a
-    known limitation of this check, not a full cross-tenant guarantee.
+def _respond_with_kpi(
+    definition: KpiDefinition,
+    request: Request,
+    store: KpiRegistryStore,
+    *,
+    single: bool = False,
+) -> wire.Kpi:
+    """Feasibility lookup + wire assembly, shared by ``get_kpi``, ``create_kpi`` and
+    ``update_kpi`` -- factored out because the block was duplicated near-verbatim across all
+    three (#240 review, author's own finding).
+
+    ``single=True`` (create/update, called with the exact row just written) passes
+    ``kpis=[definition]`` through to :func:`_feasibility_map`, so feasibility comes from that
+    definition rather than a second, independent read of the whole registry -- closing the
+    TOCTOU window a concurrent ``DELETE`` could otherwise open between the write and this
+    lookup. ``single=False`` (get) keeps computing feasibility for the whole registry, matching
+    ``list_kpis``'s existing cost profile. Either way, the lookup uses ``.get()`` rather than
+    ``[...]``: a concurrent delete landing in the ``single=False`` gap between ``store.get()``
+    and this call would otherwise raise an unguarded ``KeyError`` FastAPI turns into a raw 500,
+    rather than the 404 a vanished KPI should produce.
     """
-    caller = _caller_id(request)
-    connection = pooled_control_plane_connection(settings)
-    try:
-        dashboards = DashboardStore(connection).list_visible_to(caller)
-    finally:
-        connection.close()
-    return tuple(
-        dashboard.name
-        for dashboard in dashboards
-        if any(tile.kpi_identifier == identifier for tile in dashboard.tiles)
+    settings = RetailSettings()
+    feasibility_map, snapshot_version = _feasibility_map(
+        settings, store, kpis=[definition] if single else None
+    )
+    feasibility = feasibility_map.get(definition.identifier)
+    if feasibility is None:
+        raise HTTPException(
+            status_code=404, detail=f"No KPI {definition.identifier!r}."
+        )
+    return _kpi_out(
+        definition,
+        _feasibility_out(feasibility, snapshot_version),
+        include_sql=_may_read_sql(request),
     )
 
 
@@ -351,6 +407,10 @@ def create_kpi(
     _: None = Depends(require_scopes("kpis:write")),
 ):
     identifier = _derive_identifier(body)
+    # A fast-path optimization only -- not the 409 guard. Two concurrent POSTs for the same
+    # identifier can both pass this check; `store.create`'s `INSERT ... ON CONFLICT DO NOTHING`
+    # below is the actual source of truth, closing the check-then-upsert race this pre-check
+    # alone would leave open (#240 review).
     if store.get(identifier) is not None:
         raise HTTPException(
             status_code=409,
@@ -358,19 +418,18 @@ def create_kpi(
         )
     try:
         definition = _kpi_from_write(body, identifier=identifier, existing=None)
-        store.save(definition)
+        saved = store.create(definition)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(settings, store)
-    saved = store.get(identifier)
-    assert saved is not None  # just written, on the same connection
-    return _kpi_out(
-        saved,
-        _feasibility_out(feasibility_map[identifier], snapshot_version),
-        include_sql=_may_read_sql(request),
-    )
+    if saved is None:
+        # Lost the race: another create for this identifier committed between the pre-check
+        # above and `store.create`'s INSERT.
+        raise HTTPException(
+            status_code=409,
+            detail=f"{identifier} already exists; use PATCH /kpis/{identifier} to edit it.",
+        )
+    return _respond_with_kpi(saved, request, store, single=True)
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
@@ -383,13 +442,7 @@ def get_kpi(
     definition = store.get(kpi_id)
     if definition is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
-    settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(settings, store)
-    return _kpi_out(
-        definition,
-        _feasibility_out(feasibility_map[definition.identifier], snapshot_version),
-        include_sql=_may_read_sql(request),
-    )
+    return _respond_with_kpi(definition, request, store)
 
 
 @router.patch("/kpis/{kpi_id}", response_model=wire.Kpi)
@@ -400,6 +453,11 @@ def update_kpi(
     store: KpiRegistryStore = Depends(_kpi_store),
     _: None = Depends(require_scopes("kpis:write")),
 ):
+    """Every optional field the body omits carries forward from the existing row rather than
+    resetting to a default (see ``_kpi_from_write``); required fields (``name``, ``description``,
+    ``business_area``, ``grain``, ``sql``, ``source_tables``) must still be resent in full on
+    every call.
+    """
     existing = store.get(kpi_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
@@ -408,19 +466,23 @@ def update_kpi(
         # different identifier here would be a rename, which `store.save`'s upsert-by-identifier
         # cannot express -- it would insert a second row and orphan the first.
         definition = _kpi_from_write(body, identifier=kpi_id, existing=existing)
-        store.save(definition)
+        saved = store.save_if_unchanged(definition, existing.updated_at)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KpiConcurrentUpdateError as exc:
+        # The lost-update race a plain upsert-by-identifier used to allow: another write (or a
+        # delete) landed between this route's `store.get()` above and the conditional update.
+        # Whichever request loses this race must not silently overwrite the other's write, so
+        # it is refused rather than retried automatically -- the caller re-fetches and decides.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{kpi_id} was modified concurrently; re-fetch GET /kpis/{kpi_id} and retry "
+                f"the PATCH."
+            ),
+        ) from exc
 
-    settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(settings, store)
-    saved = store.get(kpi_id)
-    assert saved is not None
-    return _kpi_out(
-        saved,
-        _feasibility_out(feasibility_map[kpi_id], snapshot_version),
-        include_sql=_may_read_sql(request),
-    )
+    return _respond_with_kpi(saved, request, store, single=True)
 
 
 @router.delete("/kpis/{kpi_id}", status_code=204)
@@ -430,20 +492,23 @@ def delete_kpi(
     store: KpiRegistryStore = Depends(_kpi_store),
     _: None = Depends(require_scopes("kpis:write")),
 ):
-    if store.get(kpi_id) is None:
-        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
-
-    settings = RetailSettings()
-    referenced_by = _referencing_dashboard_names(kpi_id, request, settings)
-    if referenced_by:
+    """Refuses (409) while any dashboard still has a tile naming this KPI -- checked across
+    every dashboard regardless of owner or visibility (``KpiRegistryStore.
+    delete_if_unreferenced`` / ``DashboardStore.list_referencing``), not only ones the deleting
+    caller could see, and as part of the same statement that removes the row so a tile created
+    in between cannot be left pointing at a deleted KPI.
+    """
+    result = store.delete_if_unreferenced(kpi_id)
+    if result.referenced_by:
         raise HTTPException(
             status_code=409,
             detail=(
                 f"{kpi_id} is still referenced by dashboard(s): "
-                f"{', '.join(sorted(referenced_by))}."
+                f"{', '.join(result.referenced_by)}."
             ),
         )
-    store.delete(kpi_id)
+    if not result.removed:
+        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
 
 
 @router.get("/kpis/{kpi_id}/feasibility", response_model=wire.Feasibility)

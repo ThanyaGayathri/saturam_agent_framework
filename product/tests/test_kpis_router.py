@@ -23,6 +23,7 @@ from egpt_retail.api.routers.kpis import (
     _slugify,
     create_kpi,
     delete_kpi,
+    get_kpi,
     list_kpis,
     update_kpi,
 )
@@ -38,6 +39,7 @@ from egpt_retail.contracts.kpi import (
     TimeWindow,
     TimeWindowUnit,
 )
+from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiDeleteResult
 
 
 def _kpi(**overrides) -> KpiDefinition:
@@ -271,7 +273,7 @@ class _RaisingStore:
     def list(self, *, business_area=None):
         raise ValueError(f"{business_area!r} is not a permitted business_area.")
 
-    def feasibility(self, reader):
+    def feasibility(self, reader, *, kpis=None):
         return {}
 
 
@@ -398,8 +400,86 @@ def test_kpi_from_write_defaults_source_to_customer_on_create():
 
 def test_kpi_from_write_preserves_source_on_update():
     existing = _kpi(source=KpiOrigin.SHIPPED)
-    kpi = _kpi_from_write(_write(), identifier=existing.identifier, existing=existing)
+    # `sql` matches `existing`'s -- required fields are always fully resent on PATCH, and the
+    # carried-forward `parameters` below must stay consistent with whatever `sql` is resent.
+    body = _write(sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier=existing.identifier, existing=existing)
     assert kpi.source is KpiOrigin.SHIPPED
+
+
+# ---------------------------------------------------------------------------
+# _kpi_from_write -- path-vs-body identifier precedence (#240 review, finding #7): the comment
+# in `update_kpi` says `body.identifier` is ignored and the path wins. Nothing exercised that
+# invariant before; this makes it enforceable.
+# ---------------------------------------------------------------------------
+
+
+def test_kpi_from_write_ignores_body_identifier_and_uses_the_path_identifier():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    body = _write(identifier="a_totally_different_identifier", sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier="rfq__quote_to_deal_rate", existing=existing)
+    assert kpi.identifier == "rfq__quote_to_deal_rate"
+
+
+# ---------------------------------------------------------------------------
+# _kpi_from_write -- PATCH carries forward omitted optional fields (#240 review, finding #6).
+# Before this, every optional presentation field the caller omitted on PATCH was silently
+# reset to its create-time default (e.g. `active` back to `True`) rather than left unchanged --
+# the PR's own manual test 5, now automated.
+# ---------------------------------------------------------------------------
+
+
+def test_kpi_from_write_carries_forward_omitted_optional_fields_on_update():
+    existing = _kpi(
+        subject_area="Replenishment",
+        level=KpiLevel.OPERATIONAL,
+        unit="%",
+        industry_benchmark=">95%",
+        active=False,
+        dataset_ids=("ds_1",),
+        process_ids=("sc_1",),
+    )
+    # `_write(sql=...)` sets none of the optional fields below -- a PATCH body that only
+    # resends the required fields (`sql` matching `existing`'s, since the carried-forward
+    # `parameters` must stay consistent with whatever `sql` is resent).
+    body = _write(sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier=existing.identifier, existing=existing)
+    assert kpi.subject_area == "Replenishment"
+    assert kpi.level is KpiLevel.OPERATIONAL
+    assert kpi.unit == "%"
+    assert kpi.industry_benchmark == ">95%"
+    assert kpi.active is False  # not silently reset to the True default
+    assert kpi.dataset_ids == ("ds_1",)
+    assert kpi.process_ids == ("sc_1",)
+
+
+def test_kpi_from_write_carries_forward_time_window_parameters_and_concept_on_update():
+    existing = _kpi()  # _kpi()'s own defaults set time_window, parameters and concept
+    # `sql` matches `existing`'s so the carried-forward `parameters` stay valid against it.
+    body = _write(sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier=existing.identifier, existing=existing)
+    assert kpi.time_window == existing.time_window
+    assert kpi.parameters == existing.parameters
+    assert kpi.concept == existing.concept
+
+
+def test_kpi_from_write_explicit_empty_lists_clear_rather_than_carry_forward():
+    # `[]` is a real value the caller sent, not an omission -- distinct from `None`/absent.
+    existing = _kpi(dataset_ids=("ds_1",), process_ids=("sc_1",))
+    body = _write(dataset_ids=[], process_ids=[], sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier=existing.identifier, existing=existing)
+    assert kpi.dataset_ids == ()
+    assert kpi.process_ids == ()
+
+
+def test_kpi_from_write_still_applies_create_time_defaults_when_optional_fields_omitted():
+    # No `existing` (a create): omitted optional fields take their create-time default, not a
+    # carried-forward value that does not exist yet.
+    kpi = _kpi_from_write(_write(), identifier="rfq__x", existing=None)
+    assert kpi.active is True
+    assert kpi.dataset_ids == ()
+    assert kpi.process_ids == ()
+    assert kpi.subject_area is None
 
 
 # ---------------------------------------------------------------------------
@@ -413,17 +493,31 @@ def test_kpi_from_write_preserves_source_on_update():
 
 class _FakeKpiStore:
     def __init__(self, existing=None):
-        self._existing = existing
+        self._by_id = {existing.identifier: existing} if existing is not None else {}
 
     def get(self, identifier):
-        if self._existing is not None and self._existing.identifier == identifier:
-            return self._existing
-        return None
+        return self._by_id.get(identifier)
 
-    def save(self, kpi):
-        pass
+    def create(self, kpi):
+        if kpi.identifier in self._by_id:
+            return None
+        self._by_id[kpi.identifier] = kpi
+        return kpi
 
-    def feasibility(self, reader):
+    def save_if_unchanged(self, kpi, expected_updated_at):
+        current = self._by_id.get(kpi.identifier)
+        if current is None or current.updated_at != expected_updated_at:
+            raise KpiConcurrentUpdateError(kpi.identifier)
+        self._by_id[kpi.identifier] = kpi
+        return kpi
+
+    def delete_if_unreferenced(self, identifier):
+        if identifier not in self._by_id:
+            return KpiDeleteResult(removed=False)
+        del self._by_id[identifier]
+        return KpiDeleteResult(removed=True)
+
+    def feasibility(self, reader, *, kpis=None):
         return {}
 
 
@@ -455,6 +549,56 @@ def test_create_kpi_422s_when_identifier_cannot_be_derived():
     assert excinfo.value.status_code == 422
 
 
+# ---------------------------------------------------------------------------
+# create_kpi / update_kpi -- the concurrency-race findings from the #240 review (findings #1
+# and #2). Each fake simulates "the pre-check passed, but the store-level guard that is the
+# actual source of truth lost the race", the same shape a real two-connection race produces.
+# ---------------------------------------------------------------------------
+
+
+class _RaceLosingCreateStore(_FakeKpiStore):
+    """``get`` says "no such identifier" -- as it would if a concurrent create's INSERT
+    hadn't committed yet when this request's pre-check ran -- but ``create`` still loses the
+    database's own uniqueness race, simulating two concurrent ``POST /kpis`` for the same
+    identifier."""
+
+    def create(self, kpi):
+        return None
+
+
+def test_create_kpi_returns_409_when_it_loses_the_create_race():
+    store = _RaceLosingCreateStore(existing=None)
+    body = _write(identifier="rfq__quote_to_deal_rate")
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(body, _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 409
+    assert "rfq__quote_to_deal_rate" in excinfo.value.detail
+
+
+class _RaceLosingUpdateStore(_FakeKpiStore):
+    """``save_if_unchanged`` always refuses, as if another writer had already changed
+    ``updated_at`` between this route's ``get`` and its conditional update -- simulating two
+    concurrent ``PATCH /kpis/{id}`` calls for the same identifier racing to a lost update."""
+
+    def save_if_unchanged(self, kpi, expected_updated_at):
+        raise KpiConcurrentUpdateError(kpi.identifier)
+
+
+def test_update_kpi_returns_409_when_the_row_changed_underneath_it():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    store = _RaceLosingUpdateStore(existing=existing)
+    body = _write(active=False, sql=existing.sql)
+    with pytest.raises(HTTPException) as excinfo:
+        update_kpi(
+            "rfq__quote_to_deal_rate",
+            body,
+            _FakeRequest(authorization_enabled=False),
+            store=store,
+        )
+    assert excinfo.value.status_code == 409
+    assert "modified concurrently" in excinfo.value.detail
+
+
 def test_update_kpi_404s_on_a_missing_identifier():
     store = _FakeKpiStore(existing=None)
     with pytest.raises(HTTPException) as excinfo:
@@ -470,7 +614,9 @@ def test_update_kpi_404s_on_a_missing_identifier():
 def test_update_kpi_turns_a_bad_formula_into_a_422():
     existing = _kpi(identifier="rfq__quote_to_deal_rate")
     store = _FakeKpiStore(existing=existing)
-    body = _write(sql="SELECT count(*) FROM rfq_quote WHERE brand = {brand}")
+    # References a placeholder that is neither declared in this body nor in `existing`'s
+    # carried-forward `parameters` -- genuinely undeclared, regardless of carry-forward.
+    body = _write(sql="SELECT count(*) FROM rfq_quote WHERE segment = {segment}")
     with pytest.raises(HTTPException) as excinfo:
         update_kpi(
             "rfq__quote_to_deal_rate",
@@ -479,12 +625,51 @@ def test_update_kpi_turns_a_bad_formula_into_a_422():
             store=store,
         )
     assert excinfo.value.status_code == 422
+    assert "undeclared parameter" in excinfo.value.detail
 
 
 def test_delete_kpi_404s_on_a_missing_identifier():
     store = _FakeKpiStore(existing=None)
     with pytest.raises(HTTPException) as excinfo:
         delete_kpi(
+            "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
+        )
+    assert excinfo.value.status_code == 404
+
+
+class _ReferencedKpiStore(_FakeKpiStore):
+    """``delete_if_unreferenced`` refuses with names, as it would for a KPI a dashboard --
+    including one the deleting caller cannot even see -- still has a tile for."""
+
+    def __init__(self, existing, referenced_by):
+        super().__init__(existing=existing)
+        self._referenced_by = referenced_by
+
+    def delete_if_unreferenced(self, identifier):
+        if identifier not in self._by_id:
+            return KpiDeleteResult(removed=False)
+        return KpiDeleteResult(removed=False, referenced_by=self._referenced_by)
+
+
+def test_delete_kpi_refuses_when_the_store_reports_a_reference():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    store = _ReferencedKpiStore(
+        existing, referenced_by=("someone_elses_private_dashboard",)
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        delete_kpi(
+            "rfq__quote_to_deal_rate",
+            _FakeRequest(authorization_enabled=False),
+            store=store,
+        )
+    assert excinfo.value.status_code == 409
+    assert "someone_elses_private_dashboard" in excinfo.value.detail
+
+
+def test_get_kpi_404s_on_a_missing_identifier():
+    store = _FakeKpiStore(existing=None)
+    with pytest.raises(HTTPException) as excinfo:
+        get_kpi(
             "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
         )
     assert excinfo.value.status_code == 404

@@ -349,3 +349,29 @@ class DashboardStore:
 
     async def alist_visible_to(self, caller: str) -> Tuple[Dashboard, ...]:
         return await asyncio.to_thread(self.list_visible_to, caller)
+
+    def list_referencing(self, kpi_identifier: str) -> Tuple[Dashboard, ...]:
+        """Every dashboard with a tile naming ``kpi_identifier``, across *all* owners and
+        visibilities -- unlike :meth:`list_visible_to`, which answers "what can this one
+        caller see", not "does anything, anywhere, still need this KPI".
+
+        Used by ``KpiRegistryStore.delete_if_unreferenced``'s reference check (K11/#240
+        review): a KPI referenced only by another user's private dashboard must still block
+        delete, even though the deleting caller cannot see that dashboard through
+        :meth:`list_visible_to`.
+        """
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT DISTINCT {_COLUMNS}
+                    FROM {self._schema}.dashboard AS d,
+                         jsonb_array_elements(d.tiles) AS tile
+                    WHERE tile ->> 'kpi_identifier' = %s
+                    ORDER BY created_at""",
+                (kpi_identifier,),
+            )
+            rows = cursor.fetchall()
+        return tuple(_row_to_dashboard(row) for row in rows)
+
+    async def alist_referencing(self, kpi_identifier: str) -> Tuple[Dashboard, ...]:
+        """Async variant."""
+        return await asyncio.to_thread(self.list_referencing, kpi_identifier)

@@ -305,3 +305,166 @@ def test_delete_kpi_refuses_while_a_dashboard_tile_references_it(
         assert "livetest_kpi__dashboard" in excinfo.value.detail
     finally:
         dashboard_store.delete(dashboard.id, "local")
+
+
+# ---------------------------------------------------------------------------
+# #240 review, finding #4(a) -- the visibility gap. A KPI referenced only by a dashboard owned
+# by (and private to) a *different* user must still block delete: the deleting caller cannot
+# see that dashboard through `DashboardStore.list_visible_to`, but
+# `KpiRegistryStore.delete_if_unreferenced` must not rely on that caller-scoped listing.
+# ---------------------------------------------------------------------------
+
+
+def test_delete_kpi_refuses_while_another_owners_private_dashboard_references_it(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import delete_kpi
+    from egpt_retail.contracts.dashboards import (
+        ChartKind,
+        Tile,
+        TilePosition,
+        Visibility,
+    )
+    from egpt_retail.dashboards.store import DashboardStore
+
+    store.save(_definition())
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    dashboard = dashboard_store.create(
+        name="livetest_kpi__someone_elses_dashboard",
+        owner="someone_else",
+        visibility=Visibility.PRIVATE,
+        tiles=[
+            Tile(
+                id="tl_livetest_kpi_cross_owner",
+                kpi_identifier=IDENT,
+                chart=ChartKind.NUMBER,
+                position=TilePosition(x=0, y=0, w=1, h=1),
+                title="x",
+            )
+        ],
+    )
+    try:
+        # Sanity check the premise: "local" (the deleting caller in every other test here)
+        # genuinely cannot see this dashboard through the caller-scoped listing.
+        assert dashboard.id not in {
+            d.id for d in dashboard_store.list_visible_to("local")
+        }
+        with pytest.raises(HTTPException) as excinfo:
+            delete_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        assert excinfo.value.status_code == 409
+        assert "livetest_kpi__someone_elses_dashboard" in excinfo.value.detail
+    finally:
+        dashboard_store.delete(dashboard.id, "someone_else")
+
+
+# ---------------------------------------------------------------------------
+# #240 review, finding #7 -- path-vs-body identifier precedence, exercised against the real
+# store: PATCHing with a differing `body.identifier` must not create a second row.
+# ---------------------------------------------------------------------------
+
+
+def test_update_kpi_with_a_differing_body_identifier_does_not_create_a_second_row(
+    store: KpiRegistryStore,
+) -> None:
+    from egpt_retail.api.routers.kpis import update_kpi
+
+    store.save(_definition())
+    body = _write(identifier="livetest_kpi__a_totally_different_identifier")
+    updated = update_kpi(
+        IDENT, body, _FakeRequest(authorization_enabled=False), store=store
+    )
+    assert updated.identifier == IDENT
+    assert store.get("livetest_kpi__a_totally_different_identifier") is None
+    livetest_rows = [
+        d for d in store.list() if d.identifier.startswith("livetest_kpi__")
+    ]
+    assert [d.identifier for d in livetest_rows] == [IDENT]
+
+
+# ---------------------------------------------------------------------------
+# #240 review, findings #1 and #2 -- real concurrency races against Postgres itself, not a
+# fake double. Two independent connections/stores stand in for two concurrent requests.
+# ---------------------------------------------------------------------------
+
+
+def test_save_if_unchanged_returns_409_when_another_writer_moved_the_row(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    """The lost-update race (finding #1), reproduced with two real connections: both "read"
+    the same row, one writes and commits, and the other's conditional update -- still holding
+    the now-stale ``updated_at`` from its own read -- must be refused rather than silently
+    overwrite the first writer's change.
+    """
+    import psycopg
+
+    from egpt_retail.kpi.store import KpiConcurrentUpdateError
+
+    store.save(_definition())
+    read_by_both = store.get(IDENT)
+    assert read_by_both is not None
+
+    other_connection = psycopg.connect(CONTROL_PLANE)
+    try:
+        other_store = KpiRegistryStore(other_connection)
+        # Writer A commits first, using its own read of the row.
+        winner = other_store.save_if_unchanged(
+            _definition(description="Writer A won."), read_by_both.updated_at
+        )
+        assert winner.description == "Writer A won."
+
+        # Writer B still holds the pre-A `updated_at` -- its conditional update must lose.
+        with pytest.raises(KpiConcurrentUpdateError):
+            store.save_if_unchanged(
+                _definition(description="Writer B must not win."),
+                read_by_both.updated_at,
+            )
+
+        # The row reflects Writer A's write, not a silent overwrite by Writer B.
+        final = store.get(IDENT)
+        assert final is not None
+        assert final.description == "Writer A won."
+    finally:
+        other_connection.close()
+
+
+def test_create_returns_none_for_the_loser_of_a_real_concurrent_create_race(
+    store: KpiRegistryStore,
+) -> None:
+    """The check-then-upsert race on POST (finding #2), reproduced with real threads and real
+    connections racing the same ``INSERT ... ON CONFLICT (identifier) DO NOTHING`` against
+    Postgres: exactly one of two concurrent creates for the same identifier must succeed.
+    """
+    import threading
+
+    import psycopg
+
+    results: list = [None, None]
+    barrier = threading.Barrier(2)
+
+    def _attempt(index: int) -> None:
+        connection = psycopg.connect(CONTROL_PLANE)
+        try:
+            racer_store = KpiRegistryStore(connection)
+            barrier.wait()  # line both threads up so the INSERTs actually overlap
+            results[index] = racer_store.create(_definition())
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=_attempt, args=(i,)) for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    succeeded = [r for r in results if r is not None]
+    lost = [r for r in results if r is None]
+    assert len(succeeded) == 1, (
+        "exactly one concurrent create should win the identifier; a plain check-then-upsert "
+        f"would let both through. results={results!r}"
+    )
+    assert len(lost) == 1
+    # The row itself is exactly what the winner wrote -- not some interleaving of both.
+    assert store.get(IDENT) is not None
