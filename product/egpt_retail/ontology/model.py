@@ -357,10 +357,17 @@ def load_ontology(
     core_path: Path = ARTIFACT_PATH,
     overlay_path: Optional[Path] = None,
 ) -> Ontology:
-    """Load the shipped ontology, with a customer overlay applied on top if there is one."""
+    """Load the shipped ontology, with a customer overlay applied on top if there is one.
+
+    A configured overlay path with nothing behind it yet is an empty overlay, not an error --
+    matching :func:`~egpt_retail.ontology.business_areas.read_overlay`, so a fresh deployment's
+    first request does not crash before its first write.
+    """
     core_payload = json.loads(Path(core_path).read_text())
     overlay_payload = (
-        json.loads(Path(overlay_path).read_text()) if overlay_path is not None else None
+        json.loads(Path(overlay_path).read_text())
+        if overlay_path is not None and Path(overlay_path).exists()
+        else None
     )
     return _build(core_payload, overlay_payload)
 
@@ -371,15 +378,16 @@ async def aload_ontology(
 ) -> Ontology:
     """Async variant. Reads happen off the event loop."""
 
-    def _read(path: Path) -> str:
-        return Path(path).read_text()
+    def _read_overlay(path: Path) -> Optional[str]:
+        return Path(path).read_text() if Path(path).exists() else None
 
-    core_payload = json.loads(await asyncio.to_thread(_read, core_path))
-    overlay_payload = (
-        json.loads(await asyncio.to_thread(_read, overlay_path))
+    core_payload = json.loads(await asyncio.to_thread(Path(core_path).read_text))
+    overlay_text = (
+        await asyncio.to_thread(_read_overlay, overlay_path)
         if overlay_path is not None
         else None
     )
+    overlay_payload = json.loads(overlay_text) if overlay_text is not None else None
     return _build(core_payload, overlay_payload)
 
 

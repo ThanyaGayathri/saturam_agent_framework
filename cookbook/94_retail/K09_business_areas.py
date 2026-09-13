@@ -17,19 +17,32 @@ A concept nobody mapped contributes nothing however well described it is.
 no-source-connected state honestly, and restores them in a `finally`. Passing an empty
 dictionary to the pure function would have demonstrated the arithmetic and not the query.
 
+Section 7 asks the same question over HTTP (issue #225, B3): `GET /business-areas` on the
+real router must name exactly the areas the detection names, every area carrying its label
+and subject areas; `PUT /business-areas` adds an overlay area (against a scratch copy of the
+overlay, never the tracked file), refuses a redefinition of a core area with 409 (G10), and
+an empty `PUT` clears the overlay's own contribution.
+
 Needs the ontology from K3, the harvest from K4/K5, and Neo4j:
 
     PYTHONPATH=product .venvs/demo/bin/python cookbook/94_retail/K09_business_areas.py
 """
 
+import json
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "product"))
 
 import psycopg  # noqa: E402
+from egpt_retail.api.routers.business_areas import (  # noqa: E402
+    router as business_areas_router,
+)
 from egpt_retail.contracts.semantic import Concept  # noqa: E402
+from egpt_retail.contracts.vocabulary import load_vocabulary_set  # noqa: E402
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology  # noqa: E402
 from egpt_retail.semantic.areas import (  # noqa: E402
     areas_in_ontology,
@@ -45,6 +58,8 @@ from egpt_retail.semantic.proposals import (  # noqa: E402
     ProposalStore,
 )
 from egpt_retail.semantic.store import SemanticGraphStore  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 from neo4j import GraphDatabase  # noqa: E402
 
 WAREHOUSE = os.environ.get(
@@ -222,13 +237,129 @@ print()
 print("6. Restored")
 print("-" * 78)
 print(f"  INSTANTIATES edges before: {len(saved_edges)}, after: {restored_edges}")
+
+# --- 7. The same answer over HTTP: GET/PUT /business-areas (issue #225, B3) -----------------
+
+print()
+print(
+    "7. Over HTTP: GET /business-areas agrees with the detection; PUT applies an overlay"
+)
+print("-" * 78)
+
+# The router reads RetailSettings. Point it at this cookbook's graph, and at a scratch copy
+# of the overlay, so a PUT here never edits the tracked middleby.json.
+os.environ.setdefault("EGPT_RETAIL_NEO4J_URI", NEO4J)
+os.environ.setdefault("EGPT_RETAIL_NEO4J_PASSWORD", AUTH[1])
+scratch_dir = Path(tempfile.mkdtemp(prefix="k09-overlay-"))
+scratch_overlay = scratch_dir / "overlay.json"
+original_overlay = json.loads(OVERLAY.read_text()) if OVERLAY.exists() else {}
+if OVERLAY.exists():
+    scratch_overlay.write_text(OVERLAY.read_text())
+os.environ["EGPT_RETAIL_ONTOLOGY_OVERLAY"] = str(scratch_overlay)
+
+http_app = FastAPI()
+http_app.include_router(business_areas_router)
+client = TestClient(http_app)
+http_failures = []
+
+listing = client.get("/business-areas")
+body = listing.json()
+print(
+    f"  GET /business-areas -> {listing.status_code}, {len(body.get('areas', []))} "
+    f"area(s), vocabulary {body.get('vocabulary_version')}"
+)
+if listing.status_code != 200:
+    http_failures.append(f"GET /business-areas -> {listing.status_code}: {body}")
+else:
+    over_http = {a["id"] for a in body["areas"] if a["supported"]}
+    direct = set(
+        supported_areas(
+            detect_areas(
+                ontology, evidence_from_mappings(ontology, graph.mapped_concepts())
+            )
+        )
+    )
+    print(
+        f"  supported over HTTP: {sorted(over_http) or '-'}; "
+        f"direct detection: {sorted(direct) or '-'}"
+    )
+    if over_http != direct:
+        http_failures.append(
+            f"GET reports {sorted(over_http)} supported; the detection says {sorted(direct)}"
+        )
+    vocabulary_ids = load_vocabulary_set()["business_area"].values
+    listed = {a["id"] for a in body["areas"]}
+    if not vocabulary_ids <= listed:
+        http_failures.append(
+            f"GET omits vocabulary areas {sorted(vocabulary_ids - listed)}"
+        )
+    if any(not a["label"] for a in body["areas"]):
+        http_failures.append("an area came back without a label")
+    print(
+        "  every area carries a label and its subject areas, e.g. "
+        + next(
+            f"{a['id']}: {a['label']} -> {a['subject_areas']}"
+            for a in body["areas"]
+            if a["id"] == "inventory"
+        )
+    )
+
+added = client.put(
+    "/business-areas",
+    json={
+        "areas": [
+            {
+                "id": "store_ops",
+                "label": "Store Ops",
+                "subject_areas": ["Labor & Staffing", "Foot Traffic"],
+                "description": "In-store operations.",
+            }
+        ]
+    },
+)
+print(f"  PUT adding store_ops -> {added.status_code}")
+if added.status_code != 200:
+    http_failures.append(f"PUT /business-areas -> {added.status_code}: {added.json()}")
+else:
+    store_ops = next((a for a in added.json()["areas"] if a["id"] == "store_ops"), None)
+    print(
+        f"  store_ops came back: origin={store_ops and store_ops['origin']}, "
+        f"supported={store_ops and store_ops['supported']} (no concept, so no mapping)"
+    )
+    if not store_ops or store_ops["origin"] != "overlay" or store_ops["supported"]:
+        http_failures.append(
+            "the added area did not come back as an unsupported overlay area"
+        )
+    written = json.loads(scratch_overlay.read_text())
+    if len(written.get("concepts", [])) != len(original_overlay.get("concepts", [])):
+        http_failures.append("PUT disturbed the overlay's own concepts")
+
+conflict = client.put(
+    "/business-areas",
+    json={
+        "areas": [{"id": "sales", "label": "Sales", "description": "Something else."}]
+    },
+)
+print(f"  PUT redefining core 'sales' -> {conflict.status_code} (G10: expected 409)")
+if conflict.status_code != 409:
+    http_failures.append(
+        f"redefining a core area answered {conflict.status_code}, not 409: {conflict.json()}"
+    )
+
+cleared = client.put("/business-areas", json={"areas": []})
+still_there = any(a["id"] == "store_ops" for a in cleared.json().get("areas", []))
+print(f"  PUT [] -> {cleared.status_code}; store_ops gone: {not still_there}")
+if cleared.status_code != 200 or still_there:
+    http_failures.append("PUT [] did not clear the overlay's own area")
+shutil.rmtree(scratch_dir, ignore_errors=True)
+
 driver.close()
 
-# --- 7. Verdict --------------------------------------------------------------------------------
+# --- 8. Verdict --------------------------------------------------------------------------------
 
 print()
 print("=" * 78)
-failures = []
+failures = list(http_failures)
 if len(declared) < 5:
     failures.append(
         f"only {len(declared)} areas in the ontology; expected the shipped set"

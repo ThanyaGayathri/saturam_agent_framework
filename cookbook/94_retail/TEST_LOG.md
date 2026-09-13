@@ -5552,6 +5552,48 @@ CI to prove it.
 
 ---
 
+### K09_business_areas.py -- GET/PUT /business-areas on the real server (issue #225 / B3)
+
+**Status:** PASS (unit); live section not run here (see below)
+
+**Description:** `GET /business-areas` returned `{"detail":"Not Found"}` on the real API --
+the contract ops (`getBusinessAreas`/`setBusinessAreas`, `paths/configure.yaml`) had domain
+code behind them (`ontology/vocabularies.json`, `semantic/areas.py`, `executors/areas.py`)
+and no router. `frontend/README.md:27` records that business-area labels must come from this
+endpoint, not a constant, and `Kpi.business_area`, dashboard `filters` and the discovery
+screen's grouping all key off it; this is the same vocabulary the "11 prototype areas vs 7
+shipped" gap in #222 is about, closed here by making the endpoint the source of truth.
+
+Three pieces:
+
+- `ontology/business_areas.py` (new, pure) -- the hierarchy: the `business_area` vocabulary
+  (shipped terms plus overlay, through `contracts/vocabulary.build_vocabulary_set`, so G10's
+  description rule is `merge`'s own) plus what a term does not carry -- a label and the
+  subject areas beneath the area -- read from a new `business_area_hierarchy` key next to the
+  vocabulary, in the core file and in an overlay alike. Not on `Term`: a term is one value in
+  *any* closed set, and `grain` has no subject areas. G10 for the annotations: an overlay may
+  add subject areas to a core area and label an area it adds; it may not relabel a core area
+  (`OverlayConflict`, a new `ValueError` subclass `merge` now raises too, so the router can
+  answer 409 for a conflict and 422 for a malformed id without parsing messages).
+  `apply_overlay` is what `PUT` writes: the overlay's *own* business-area contribution
+  replaced, everything else in the file (concepts, relations, other vocabularies) untouched,
+  and the result run back through the loader before it is returned. `write_overlay` is
+  atomic (temp file + `os.replace`). Sync and async loaders and writers.
+- `ontology/vocabularies.json` -- `business_area_hierarchy` for the 7 shipped areas: labels
+  and the subject areas the contract's own `getBusinessAreas` example names for the six it
+  shares (`operations` gets the store-side three). Version left at `1.3.0`: additive, and
+  `contracts/_fixtures/r3_contract.json` pins that string.
+- `api/routers/business_areas.py` (new), mounted in `app/factory.py` -- `GET /business-areas
+  [?supported=true]` (`config:read`) and `PUT /business-areas` (`configure:write`).
+  `supported` is K9's answer and nothing else: `evidence_from_mappings(ontology,
+  store.mapped_concepts())` -> `detect_areas`, the computation `detect_business_areas` runs as
+  a workflow step, in one graph round trip. A graph that cannot be asked (URI unset,
+  `SemanticReadError`, the driver's own `ServiceUnavailable`/auth errors) is **503**, not
+  "every area unsupported" -- unsupported is a claim about the data, and an unreachable graph
+  cannot make it (the stub takes the same line). `PUT` with no `EGPT_RETAIL_ONTOLOGY_OVERLAY`
+  configured is 503 naming the setting; a G10 conflict 409; a malformed id 422; nothing is
+  written on any refusal.
+
 ### R13_dashboards.py -- series and delta from gold history (issue #227 / E1)
 
 **Status:** PASS (unit); live section not run here (see below)
@@ -5588,6 +5630,40 @@ Three pieces, each staying on the seam the previous entries chose:
   `str` values and converted to `float` once: `0.91 - 0.93` in binary float is
   `-0.020000000000000018`, which is precisely what the DDL's `numeric` exists to keep away
   from a customer. One materialised night: `delta: null`, nothing invented.
+
+**Result (unit, DB-free -- what ran in this environment):**
+
+```
+product/tests/test_k9_business_areas_api.py   33 new, all pass
+  hierarchy   core: every term, label, subject areas, version; overlay adds an area
+              (origin overlay, own label/subject areas; label derived when absent);
+              overlay annotates a core area (subject-area union, idempotent);
+              overlay may not redefine a core description (OverlayConflict) nor
+              relabel a core area (OverlayConflict); unknown area in an annotation is
+              ValueError, not a conflict; `_`-prefixed keys are comments
+  PUT payload replaces only the overlay's business areas, keeps concepts/relations/
+              other vocabularies; [] clears its contribution; from no overlay ->
+              minimal payload; naming a core area with its own values is a no-op;
+              409-class conflicts vs 422-class malformed (bad id, duplicate);
+              atomic write round-trips, no temp file left; missing file -> no overlay
+  router      GET shape/order/labels/subject areas/origin, supported from the pinned
+              graph answer; ?supported=true filters; overlay reflected; 503 on
+              RuntimeError and on neo4j ServiceUnavailable; 503 on a broken overlay
+              file; PUT round trip visible to the next GET; PUT keeps overlay
+              concepts; 409 writes nothing; 422 writes nothing; 503 without an
+              overlay configured; scopes are the contract's (403 without them);
+              factory mounts the router
+pytest product/tests                           1076 passed, 53 skipped
+                                               (test_r4_storage deselected: Azure Blob SDK,
+                                               unrelated, the pre-existing gap #236 records)
+```
+
+**Not run here, and why.** No reachable Docker daemon in this session's container, so no
+Neo4j: the K09 cookbook's new section 7 -- `GET` over the real router must name exactly the
+areas the direct detection names against the real graph, `PUT` adds `store_ops` against a
+scratch copy of the middleby overlay (never the tracked file), a core redefinition answers
+409, an empty `PUT` clears it -- is written and lints, and is owed a run on a machine with
+the stack up. Recorded as owed, not claimed.
 
 **Result (unit, DB-free -- what ran in this environment):**
 

@@ -5892,6 +5892,42 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: configure:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The business-area vocabulary (core file or overlay) cannot be read or written. Distinct from every 4xx above -- nothing the caller sends can fix a deployment fault.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unavailable": {
+                    "value": {
+                      "detail": "The business-area vocabulary cannot be read: ...",
+                      "code": "business_areas_unavailable"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -6042,6 +6078,42 @@
                     "value": {
                       "detail": "overlay redefines core term 'inventory' in 'business_area'. An overlay may add and annotate, never redefine (G10) -- raise it as a proposal.",
                       "code": "overlay_conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A new area's id is not a valid term value, or it is listed twice in the same request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "malformed": {
+                    "value": {
+                      "detail": "'Store-Ops' is not alphanumeric.",
+                      "code": "invalid_business_area"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The business-area vocabulary (core file or overlay) cannot be read or written. Distinct from every 4xx above -- nothing the caller sends can fix a deployment fault.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unavailable": {
+                    "value": {
+                      "detail": "The business-area vocabulary cannot be read: ...",
+                      "code": "business_areas_unavailable"
                     }
                   }
                 }
