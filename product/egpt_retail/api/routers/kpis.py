@@ -18,7 +18,7 @@ gap in ``dashboards.py``, not something this router fixes.
 
 from __future__ import annotations
 
-from typing import Iterator, Mapping, Optional, Tuple
+from typing import Iterator, Mapping, Optional, Sequence, Tuple
 
 from egpt.os.scopes import has_required_scopes
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -54,16 +54,24 @@ def _kpi_store() -> Iterator[KpiRegistryStore]:
 
 
 def _feasibility_map(
-    settings: RetailSettings, store: KpiRegistryStore
+    settings: RetailSettings,
+    store: KpiRegistryStore,
+    kpis: Sequence[KpiDefinition],
 ) -> Tuple[Mapping[str, Feasibility], str]:
-    """Feasibility for every registered KPI, plus the snapshot version it was read against.
+    """Feasibility for exactly ``kpis`` -- the identifiers the caller already fetched with its
+    own read -- plus the snapshot version it was read against.
 
-    One call covers both list and detail routes: ``KpiRegistryStore.feasibility`` computes the
-    whole registry in one semantic-reader session (there is no per-identifier variant), so a
-    single-KPI route pays the same cost as the list route rather than a cheaper one existing.
+    Takes the caller's already-fetched definitions rather than defaulting to a second,
+    independent registry read: the previous shape called ``store.list()``/``store.get()``
+    once and then had ``KpiRegistryStore.feasibility`` re-read the *entire* registry
+    separately, with no shared snapshot between the two reads -- a KPI deleted or renamed in
+    between raised an uncaught ``KeyError`` when the route indexed the result by identifier.
+    Passing ``kpis`` through removes the second read (and, for a single-KPI route, the
+    whole-registry computation neither ``get_kpi`` nor ``get_kpi_feasibility`` needs) instead
+    of merely guarding the lookup.
     """
     with open_semantic_reader(settings) as reader:
-        feasibility = store.feasibility(reader)
+        feasibility = store.feasibility(reader, kpis)
         snapshot_version = reader.snapshot().version
     return feasibility, snapshot_version
 
@@ -183,7 +191,7 @@ def list_kpis(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(settings, store)
+    feasibility_map, snapshot_version = _feasibility_map(settings, store, definitions)
     include_sql = _may_read_sql(request)
     kpis = [
         _kpi_out(
@@ -207,7 +215,7 @@ def get_kpi(
     if definition is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
     settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(settings, store)
+    feasibility_map, snapshot_version = _feasibility_map(settings, store, [definition])
     return _kpi_out(
         definition,
         _feasibility_out(feasibility_map[definition.identifier], snapshot_version),
@@ -225,5 +233,5 @@ def get_kpi_feasibility(
     if definition is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
     settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(settings, store)
+    feasibility_map, snapshot_version = _feasibility_map(settings, store, [definition])
     return _feasibility_out(feasibility_map[definition.identifier], snapshot_version)

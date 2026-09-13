@@ -404,13 +404,22 @@ class KpiRegistryStore:
 
     # --- feasibility --------------------------------------------------------------------
 
-    def feasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
-        """Feasibility for every stored KPI against what the semantic layer holds now.
+    def feasibility(
+        self, reader: SemanticRead, kpis: Optional[Sequence[KpiDefinition]] = None
+    ) -> Mapping[str, Feasibility]:
+        """Feasibility for ``kpis`` (every stored KPI, when omitted) against what the semantic
+        layer holds now.
 
         Computed, never read back from a column. ``assess_registry`` is a set difference over
         two frozensets: it takes data and returns data, has no model, no client and no
         callable to be persuaded by, and that is the entire guarantee behind the ready and
         blocked badges a customer sees.
+
+        Pass the caller's own already-fetched ``kpis`` (a single-KPI detail route's one
+        definition, or a list route's already-filtered page) rather than defaulting to a
+        second, independent ``self.list()`` here: two separate reads of this table have no
+        shared snapshot, so a KPI deleted or renamed between them would otherwise be missing
+        from this map even though the caller's own read found it moments earlier.
         """
         tables = available_tables(reader)
         # Part of the SemanticRead contract, not an optional extra: a reader with no join
@@ -420,12 +429,14 @@ class KpiRegistryStore:
         oracle = reader.unjoinable_oracle()
         return {
             kpi.identifier: assess_feasibility_with_joins(kpi, tables, oracle)
-            for kpi in self.list()
+            for kpi in (kpis if kpis is not None else self.list())
         }
 
-    async def afeasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
+    async def afeasibility(
+        self, reader: SemanticRead, kpis: Optional[Sequence[KpiDefinition]] = None
+    ) -> Mapping[str, Feasibility]:
         """Async variant."""
-        return await asyncio.to_thread(self.feasibility, reader)
+        return await asyncio.to_thread(self.feasibility, reader, kpis)
 
     def revalidate(
         self, reader: SemanticRead, snapshot_version: str = ""

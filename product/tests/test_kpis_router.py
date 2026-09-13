@@ -7,14 +7,19 @@ semantic graph are exercised only by `test_kpis_live.py` (gated `EGPT_INTEGRATIO
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 from fastapi import HTTPException
 
+from egpt_retail.api.routers import kpis as kpis_module
 from egpt_retail.api.routers.kpis import (
     _feasibility_out,
     _kpi_out,
     _matches_filters,
     _may_read_sql,
+    get_kpi,
+    get_kpi_feasibility,
     list_kpis,
 )
 from egpt_retail.contracts.kpi import (
@@ -233,7 +238,7 @@ class _RaisingStore:
     def list(self, *, business_area=None):
         raise ValueError(f"{business_area!r} is not a permitted business_area.")
 
-    def feasibility(self, reader):
+    def feasibility(self, reader, kpis):
         return {}
 
 
@@ -246,3 +251,110 @@ def test_list_kpis_turns_an_invalid_business_area_into_a_422():
         )
     assert excinfo.value.status_code == 422
     assert "not_a_real_area" in excinfo.value.detail
+
+
+# ---------------------------------------------------------------------------
+# get_kpi / get_kpi_feasibility -- previously uncovered by this DB-free suite
+# (round-1 review): the only tests exercising these two route functions were
+# gated behind test_kpis_live.py's live Postgres/Neo4j requirement.
+#
+# The fake store below also pins the TOCTOU fix: `_feasibility_map` is now
+# called with exactly the caller's already-fetched definition(s), never a
+# second, independent `self.list()` -- so `.feasibility()` here records what
+# it was actually asked to compute over, and a store that "forgets" an
+# identifier between two reads can no longer produce a bare KeyError, because
+# there is no second read left to disagree with the first.
+# ---------------------------------------------------------------------------
+
+
+class _FakeSnapshot:
+    version = "snap.1"
+
+
+class _FakeReader:
+    def snapshot(self):
+        return _FakeSnapshot()
+
+
+@contextmanager
+def _fake_semantic_reader(settings):
+    yield _FakeReader()
+
+
+class _FakeStore:
+    def __init__(self, kpis, *, omit_from_feasibility=frozenset()):
+        self._kpis = list(kpis)
+        self._omit = frozenset(omit_from_feasibility)
+        self.feasibility_calls: list = []
+
+    def list(self, *, business_area=None):
+        if business_area is None:
+            return tuple(self._kpis)
+        return tuple(k for k in self._kpis if k.business_area == business_area)
+
+    def get(self, identifier):
+        return next((k for k in self._kpis if k.identifier == identifier), None)
+
+    def feasibility(self, reader, kpis):
+        self.feasibility_calls.append([k.identifier for k in kpis])
+        return {
+            kpi.identifier: _ready_feasibility(kpi.identifier)
+            for kpi in kpis
+            if kpi.identifier not in self._omit
+        }
+
+
+@pytest.fixture(autouse=True)
+def _patch_semantic_reader(monkeypatch):
+    monkeypatch.setattr(kpis_module, "open_semantic_reader", _fake_semantic_reader)
+
+
+def test_get_kpi_returns_the_kpi_with_its_own_feasibility_only():
+    store = _FakeStore([_kpi(identifier="a"), _kpi(identifier="b")])
+    result = get_kpi("a", _FakeRequest(authorization_enabled=False), store=store)
+    assert result.identifier == "a"
+    assert result.feasibility.kpi_id == "a"
+    # The whole point of the fix: one KPI's route computes feasibility over one KPI, not
+    # the entire registry `_FakeStore` was constructed with.
+    assert store.feasibility_calls == [["a"]]
+
+
+def test_get_kpi_missing_id_is_404():
+    store = _FakeStore([_kpi(identifier="a")])
+    with pytest.raises(HTTPException) as excinfo:
+        get_kpi("nope", _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 404
+    assert store.feasibility_calls == [], "a 404 must not compute feasibility at all"
+
+
+def test_get_kpi_feasibility_returns_the_wire_feasibility():
+    store = _FakeStore([_kpi(identifier="a")])
+    result = get_kpi_feasibility("a", store=store)
+    assert result.kpi_id == "a"
+    assert result.verdict.value == "ready"
+    assert store.feasibility_calls == [["a"]]
+
+
+def test_get_kpi_feasibility_missing_id_is_404():
+    store = _FakeStore([_kpi(identifier="a")])
+    with pytest.raises(HTTPException) as excinfo:
+        get_kpi_feasibility("nope", store=store)
+    assert excinfo.value.status_code == 404
+
+
+def test_list_kpis_computes_feasibility_only_over_the_business_area_filtered_kpis():
+    store = _FakeStore(
+        [
+            _kpi(identifier="a", business_area="sales"),
+            _kpi(identifier="b", business_area="inventory"),
+        ]
+    )
+    result = list_kpis(
+        _FakeRequest(authorization_enabled=False),
+        business_area="sales",
+        store=store,
+    )
+    assert [k.identifier for k in result] == ["a"]
+    # Narrowed by business_area *before* feasibility is computed -- not a second,
+    # unfiltered full-registry query the router then mostly discards.
+    assert store.feasibility_calls == [["a"]]
