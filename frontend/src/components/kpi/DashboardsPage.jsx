@@ -5,9 +5,10 @@ import { labelForRefresh } from "../../storage/dashboards";
 import { fetchDashboardList } from "../../services/dashboards-api";
 
 /**
- * Dashboards the caller can see, newest first (the API already orders it - see
- * `dashboards/store.py`'s `list_visible_to`). Real data, not `localStorage` (D2, #233): a
- * dashboard exists here only because the API has it.
+ * Dashboards the caller can see, newest first. `list_visible_to` (`dashboards/store.py`)
+ * orders ascending by `created_at` (oldest first), so this sorts descending client-side
+ * rather than rendering the API's order straight through. Real data, not `localStorage`
+ * (D2, #233): a dashboard exists here only because the API has it.
  */
 export default function DashboardsPage() {
  const navigate = useNavigate();
@@ -17,7 +18,11 @@ export default function DashboardsPage() {
   let cancelled = false;
   fetchDashboardList()
    .then((dashboards) => {
-    if (!cancelled) setState({ status: "ready", dashboards, error: null });
+    if (cancelled) return;
+    const newestFirst = [...dashboards].sort(
+     (a, b) => new Date(b.created_at) - new Date(a.created_at),
+    );
+    setState({ status: "ready", dashboards: newestFirst, error: null });
    })
    .catch((error) => {
     if (!cancelled) setState({ status: "error", dashboards: [], error });
@@ -36,8 +41,11 @@ export default function DashboardsPage() {
    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-status-critical/40 bg-status-critical/5 px-6 py-16 text-center">
     <AlertTriangle size={22} className="text-status-critical" />
     <p className="text-sm font-semibold text-text-primary">Couldn't load your dashboards</p>
+    {/* `ApiError.detail` is the FastAPI `detail` string alone (already formatted friendly by
+        `formatErrorDetail` in `lib/api.js`); `.message` is the raw `"{status} {path}: {detail}"`
+        form meant for logs/dev tools, not a user-facing subtext. */}
     <p className="max-w-sm text-xs text-text-muted">
-     {state.error?.message || "The dashboard service didn't respond."}
+     {state.error?.detail || "The dashboard service didn't respond."}
     </p>
    </div>
   );

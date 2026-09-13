@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, RefreshCw, Trash2 } from "lucide-react";
 import { DemoAreaSpark, DemoAreaSparkWithAxes } from "../shared/DemoSparkCharts";
@@ -23,6 +23,11 @@ import {
  * latest value, which `read_gold` already returns.
  */
 
+// `unit`-aware branches (%, day, currency) are contract-correct against `TileData.unit`, but
+// `dashboards/data.py` hardcodes `unit=""` on every path today -- there is no unit field
+// anywhere in the KPI definition to source a real one from. Dead code until a KPI-definition
+// change supplies it (backend follow-up, not attempted here); kept rather than removed so
+// formatting works the moment the backend does.
 function formatValue(unit, value) {
  if (value === null || value === undefined) return "—";
  const u = String(unit || "").toLowerCase();
@@ -41,9 +46,12 @@ const STATUS_MESSAGE = {
  not_scheduled: "Not on a computation schedule.",
 };
 
-function Tile({ tile, data, onChartChange }) {
+function Tile({ tile, data, onChartChange, chartDisabled }) {
  const value = data?.value ?? null;
- const series = data?.series || [];
+ // A `SeriesPoint.value` of `null` means the formula returned NULL for that date -- a real
+ // gap, not a zero -- so it's dropped rather than charted as 0 (`dashboards/data.py`'s own
+ // docstring draws this line between "no row" and "row with a NULL value").
+ const series = (data?.series || []).filter((p) => p.value != null);
  const rows = data?.rows || [];
  const hasTrend = series.length > 1;
  // A `table` chart with a `grain_value` (or whose gold read is a single row) collapses to a
@@ -64,7 +72,8 @@ function Tile({ tile, data, onChartChange }) {
      aria-label={`Chart type for ${tile.title}`}
      value={tile.chart}
      onChange={(e) => onChartChange(e.target.value)}
-     className="shrink-0 rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none"
+     disabled={chartDisabled}
+     className="shrink-0 rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none disabled:opacity-50"
     >
      {CHART_KINDS.map((t) => (
       <option key={t.value} value={t.value}>{t.label}</option>
@@ -92,7 +101,7 @@ function Tile({ tile, data, onChartChange }) {
    {tile.chart === "line" && (
     hasTrend ? (
      <DemoAreaSpark
-      data={series.map((p) => p.value ?? 0)}
+      data={series.map((p) => p.value)}
       viewHeight={34}
       maxHeight={90}
       stroke="#6941c6"
@@ -106,7 +115,7 @@ function Tile({ tile, data, onChartChange }) {
    {tile.chart === "bar" && (
     hasTrend ? (
      <DemoAreaSparkWithAxes
-      data={series.slice(-6).map((p) => p.value ?? 0)}
+      data={series.slice(-6).map((p) => p.value)}
       viewHeight={44}
       stroke="#6941c6"
       fillOpacityTop={0.22}
@@ -125,7 +134,7 @@ function Tile({ tile, data, onChartChange }) {
        <tr key={i} className="border-t border-border">
         {Object.entries(row).map(([key, cell]) => (
          <td key={key} className="py-1 text-text-muted first:text-left last:text-right last:font-medium last:text-text-primary">
-          {String(cell)}
+          {cell === null || cell === undefined ? "—" : String(cell)}
          </td>
         ))}
        </tr>
@@ -143,29 +152,42 @@ export default function DashboardView() {
  const [dashboardState, setDashboardState] = useState({ status: "loading", dashboard: null, error: null });
  const [dataState, setDataState] = useState({ status: "loading", byTileId: {}, error: null });
  const [actionError, setActionError] = useState(null);
+ const [savingChart, setSavingChart] = useState(false);
+
+ // `dashboardId` this component is currently showing, readable inside async callbacks that
+ // closed over an older value -- lets `loadData` (and the dashboard fetch) tell a stale
+ // response apart from the current one without a second `cancelled` flag of its own.
+ const currentDashboardIdRef = useRef(dashboardId);
+ currentDashboardIdRef.current = dashboardId;
 
  const loadData = useCallback((id) => {
   setDataState({ status: "loading", byTileId: {}, error: null });
   fetchDashboardData(id)
    .then((data) => {
+    if (currentDashboardIdRef.current !== id) return;
     const byTileId = Object.fromEntries((data.tiles || []).map((t) => [t.tile_id, t]));
     setDataState({ status: "ready", byTileId, error: null });
    })
-   .catch((error) => setDataState({ status: "error", byTileId: {}, error }));
+   .catch((error) => {
+    if (currentDashboardIdRef.current !== id) return;
+    setDataState({ status: "error", byTileId: {}, error });
+   });
  }, []);
 
  useEffect(() => {
   let cancelled = false;
   setDashboardState({ status: "loading", dashboard: null, error: null });
+  // Both requests only need `dashboardId`, so they fire together rather than sequentially
+  // (`/data` used to wait for the dashboard fetch to resolve first, doubling open latency).
   fetchDashboard(dashboardId)
    .then((dashboard) => {
     if (cancelled) return;
     setDashboardState({ status: "ready", dashboard, error: null });
-    loadData(dashboardId);
    })
    .catch((error) => {
     if (!cancelled) setDashboardState({ status: "error", dashboard: null, error });
    });
+  loadData(dashboardId);
   return () => {
    cancelled = true;
   };
@@ -197,8 +219,13 @@ export default function DashboardView() {
 
  const { dashboard } = dashboardState;
 
+ // Every tile's `<select>` is disabled while any chart-type PATCH is in flight (not just the
+ // edited tile's) so a second edit can never fire before the first resolves -- otherwise two
+ // concurrent PATCHes would each build their `tiles` array from the same stale `dashboard`
+ // closure, and whichever resolves second would silently overwrite the other's edit.
  const setChart = async (tileId, chart) => {
   setActionError(null);
+  setSavingChart(true);
   const tiles = tilesToWrite(dashboard.tiles.map((t) => (t.id === tileId ? { ...t, chart } : t)));
   try {
    // `DashboardWrite.name` is required on every write, PATCH included (the contract's own
@@ -209,6 +236,8 @@ export default function DashboardView() {
    loadData(dashboard.id);
   } catch (err) {
    setActionError(err?.message || "Could not change the chart type.");
+  } finally {
+   setSavingChart(false);
   }
  };
 
@@ -277,6 +306,9 @@ export default function DashboardView() {
     </div>
    )}
 
+   {/* The backend mints a fresh `id` for every tile on every write (`dashboards-api.js`'s
+       own docstring), so `key={tile.id}` remounts the whole grid after any chart-type edit --
+       harmless (no local per-tile state to lose) but worth knowing if a tile ever grows one. */}
    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
     {dashboard.tiles.map((tile) => (
      <Tile
@@ -284,6 +316,7 @@ export default function DashboardView() {
       tile={tile}
       data={dataState.byTileId[tile.id]}
       onChartChange={(chart) => setChart(tile.id, chart)}
+      chartDisabled={savingChart}
      />
     ))}
    </div>
