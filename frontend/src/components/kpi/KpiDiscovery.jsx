@@ -28,8 +28,12 @@ function sourcesFor(kpi) {
  return [...new Set(labels)].sort();
 }
 
-/** Feasibility bucket for a KPI. `mappingStatusForKpi` already computes the three states. */
+/** Feasibility bucket for a KPI. A real registry KPI (C1, #232) carries the server's own
+ * join-aware `feasibility.verdict` -- `ready`/`partial`/`blocked`, the same three ids this
+ * bucketing already uses, so it maps straight across. Everything else (seed, suggested) keeps
+ * `mappingStatusForKpi`'s local heuristic, unchanged. */
 function bucketFor(kpi) {
+ if (kpi.fromRegistry) return kpi.feasibility?.verdict || "blocked";
  const status = mappingStatusForKpi(kpi);
  if (status === "linked") return "ready";
  if (status === "review") return "partial";
@@ -69,12 +73,20 @@ const BUCKETS = [
  * badge rather than as a section, because the user cares whether a metric is useful and works --
  * not where we got it.
  */
-function ProvenanceBadge({ inferred, suggested }) {
+function ProvenanceBadge({ inferred, suggested, fromRegistry }) {
  if (suggested) {
   return (
    <span className="inline-flex items-center gap-1 rounded-full bg-status-info-light px-2 py-0.5 text-[11px] font-semibold text-status-info">
     <Sparkles size={10} />
     Suggested — not in your registry
+   </span>
+  );
+ }
+ if (fromRegistry) {
+  return (
+   <span className="inline-flex items-center gap-1 rounded-full bg-status-success-light px-2 py-0.5 text-[11px] font-semibold text-status-success">
+    <Check size={10} />
+    In your KPI registry
    </span>
   );
  }
@@ -166,7 +178,7 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt }) {
    )}
 
    <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
-    <ProvenanceBadge inferred={!!kpi.inferred} suggested={!!row.suggested} />
+    <ProvenanceBadge inferred={!!kpi.inferred} suggested={!!row.suggested} fromRegistry={!!kpi.fromRegistry} />
     {/* One source is a read; two is a JOIN, and a join we inferred is where a plausible-but-wrong
         number comes from. So the two cases get different treatment rather than N flat pills. */}
     {sources.length > 1 ? (
