@@ -1,8 +1,9 @@
-"""Unit tests for #229/B1's DB-free halves: the wire<->domain mappers, the in-router filtering
-helper, and the scope check that gates `Kpi.sql` visibility -- everything `api/routers/kpis.py`
-does that needs no Postgres or Neo4j. The store/feasibility calls against a real registry and
-semantic graph are exercised only by `test_kpis_live.py` (gated `EGPT_INTEGRATION_POSTGRES` +
-`EGPT_INTEGRATION_NEO4J`), the same split `test_r13_dashboards.py` documents for R13.
+"""Unit tests for #229/B1 and #231/B2's DB-free halves: the wire<->domain mappers, the
+in-router filtering helper, the scope check that gates `Kpi.sql` visibility, and the
+create/update/delete logic -- everything `api/routers/kpis.py` does that needs no Postgres or
+Neo4j. The store/feasibility calls against a real registry and semantic graph are exercised
+only by `test_kpis_live.py` (gated `EGPT_INTEGRATION_POSTGRES` + `EGPT_INTEGRATION_NEO4J`), the
+same split `test_r13_dashboards.py` documents for R13.
 """
 
 from __future__ import annotations
@@ -10,18 +11,28 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
+from egpt_retail.api import models as wire_models
 from egpt_retail.api.routers.kpis import (
+    _carry_forward_validation,
+    _derive_identifier,
     _feasibility_out,
+    _kpi_from_write,
     _kpi_out,
     _matches_filters,
     _may_read_sql,
+    _slugify,
+    create_kpi,
+    delete_kpi,
     list_kpis,
+    update_kpi,
 )
 from egpt_retail.contracts.kpi import (
     Feasibility,
     FeasibilityReason,
     FeasibilityVerdict,
     KpiDefinition,
+    KpiLevel,
+    KpiOrigin,
     KpiParameter,
     ParameterKind,
     TimeWindow,
@@ -118,7 +129,10 @@ def test_kpi_out_id_defaults_to_identifier_no_schema_for_a_separate_id_yet():
     assert wire.id == kpi.identifier
 
 
-def test_kpi_out_fields_with_no_backing_data_get_honest_static_defaults():
+def test_kpi_out_presentation_fields_default_sensibly_when_unset():
+    # A KPI built with none of B2's presentation fields set: KpiDefinition's own field
+    # defaults apply (active=True, source=CUSTOMER), and the router fills the rest in as
+    # empty/None -- these are real values now (#231/B2), not the B1-era hardcoded stand-ins.
     kpi = _kpi()
     feasibility = _feasibility_out(_ready_feasibility(kpi.identifier), "snap.7")
     wire = _kpi_out(kpi, feasibility, include_sql=True)
@@ -128,10 +142,34 @@ def test_kpi_out_fields_with_no_backing_data_get_honest_static_defaults():
     assert wire.unit == ""
     assert wire.industry_benchmark == ""
     assert wire.active is True
-    assert wire.source.value == "shipped"
+    assert wire.source.value == "customer"
     assert wire.dataset_ids is None
     assert wire.process_ids is None
     assert wire.updated_at is None
+
+
+def test_kpi_out_maps_every_b2_presentation_field_when_set():
+    kpi = _kpi(
+        subject_area="Replenishment",
+        level=KpiLevel.OPERATIONAL,
+        unit="%",
+        industry_benchmark=">95%",
+        active=False,
+        source=KpiOrigin.SHIPPED,
+        dataset_ids=("ds_1", "ds_2"),
+        process_ids=("sc_1",),
+    )
+    feasibility = _feasibility_out(_ready_feasibility(kpi.identifier), "snap.7")
+    wire = _kpi_out(kpi, feasibility, include_sql=True)
+
+    assert wire.subject_area == "Replenishment"
+    assert wire.level.value == "operational"
+    assert wire.unit == "%"
+    assert wire.industry_benchmark == ">95%"
+    assert wire.active is False
+    assert wire.source.value == "shipped"
+    assert wire.dataset_ids == ["ds_1", "ds_2"]
+    assert wire.process_ids == ["sc_1"]
 
 
 def test_kpi_out_omits_sql_when_include_sql_is_false():
@@ -246,3 +284,207 @@ def test_list_kpis_turns_an_invalid_business_area_into_a_422():
         )
     assert excinfo.value.status_code == 422
     assert "not_a_real_area" in excinfo.value.detail
+
+
+# ---------------------------------------------------------------------------
+# _slugify / _derive_identifier -- #231/B2
+# ---------------------------------------------------------------------------
+
+
+def test_slugify_lowercases_and_collapses_punctuation():
+    assert _slugify("Supplier Fill Rate") == "supplier_fill_rate"
+    assert _slugify("Already_clean") == "already_clean"
+    assert _slugify("100% On-Time!!") == "100_on_time"
+    assert _slugify("   ") == "kpi"
+
+
+def _write(**overrides):
+    defaults = dict(
+        name="Quote to Deal Rate",
+        description="Share of quotes that become deals.",
+        business_area="sales",
+        grain="brand",
+        sql="SELECT count(*) FROM rfq_quote",
+        source_tables=["rfq_quote"],
+    )
+    defaults.update(overrides)
+    return wire_models.KpiWrite(**defaults)
+
+
+def test_derive_identifier_uses_the_given_identifier_verbatim():
+    body = _write(identifier="custom__id")
+    assert _derive_identifier(body) == "custom__id"
+
+
+def test_derive_identifier_derives_from_concept_and_name():
+    body = _write(concept="Supplier", name="Fill Rate")
+    assert _derive_identifier(body) == "supplier__fill_rate"
+
+
+def test_derive_identifier_422s_with_neither_identifier_nor_concept():
+    body = _write()
+    with pytest.raises(HTTPException) as excinfo:
+        _derive_identifier(body)
+    assert excinfo.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# _carry_forward_validation -- "a formula edit re-validates and moves the KPI back to
+# review", the contract's own words for updateKpi
+# ---------------------------------------------------------------------------
+
+
+def test_carry_forward_validation_is_none_for_a_new_kpi():
+    assert _carry_forward_validation(None, "SELECT 1", []) is None
+
+
+def test_carry_forward_validation_carries_forward_when_formula_unchanged():
+    existing = _kpi(validated_against_snapshot="snap.3")
+    result = _carry_forward_validation(
+        existing, existing.sql, list(existing.source_tables)
+    )
+    assert result == "snap.3"
+
+
+def test_carry_forward_validation_resets_when_sql_changes():
+    existing = _kpi(validated_against_snapshot="snap.3")
+    result = _carry_forward_validation(
+        existing, "SELECT 2 FROM rfq_quote", list(existing.source_tables)
+    )
+    assert result is None
+
+
+def test_carry_forward_validation_resets_when_source_tables_change():
+    existing = _kpi(validated_against_snapshot="snap.3")
+    result = _carry_forward_validation(existing, existing.sql, ["other_table"])
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _kpi_from_write
+# ---------------------------------------------------------------------------
+
+
+def test_kpi_from_write_maps_required_and_optional_fields():
+    body = _write(
+        identifier="rfq__x",
+        subject_area="Replenishment",
+        level=wire_models.KpiLevel.operational,
+        unit="%",
+        industry_benchmark=">95%",
+        active=False,
+        dataset_ids=["ds_1"],
+        process_ids=["sc_1"],
+    )
+    kpi = _kpi_from_write(body, identifier="rfq__x", existing=None)
+    assert kpi.identifier == "rfq__x"
+    assert kpi.subject_area == "Replenishment"
+    assert kpi.level.value == "operational"
+    assert kpi.unit == "%"
+    assert kpi.industry_benchmark == ">95%"
+    assert kpi.active is False
+    assert kpi.source is KpiOrigin.CUSTOMER
+    assert kpi.dataset_ids == ("ds_1",)
+    assert kpi.process_ids == ("sc_1",)
+    assert kpi.validated_against_snapshot is None
+
+
+def test_kpi_from_write_defaults_source_to_customer_on_create():
+    kpi = _kpi_from_write(
+        _write(identifier="rfq__x"), identifier="rfq__x", existing=None
+    )
+    assert kpi.source is KpiOrigin.CUSTOMER
+
+
+def test_kpi_from_write_preserves_source_on_update():
+    existing = _kpi(source=KpiOrigin.SHIPPED)
+    kpi = _kpi_from_write(_write(), identifier=existing.identifier, existing=existing)
+    assert kpi.source is KpiOrigin.SHIPPED
+
+
+# ---------------------------------------------------------------------------
+# create_kpi / update_kpi / delete_kpi -- the error paths that short-circuit before the
+# semantic reader (feasibility) is ever opened, so they're DB-free. The success paths and
+# delete's dashboard-reference check need a real registry/reader and live in
+# test_kpis_live.py, matching the split test_r13_dashboards.py documents for its own
+# DashboardValidationError paths.
+# ---------------------------------------------------------------------------
+
+
+class _FakeKpiStore:
+    def __init__(self, existing=None):
+        self._existing = existing
+
+    def get(self, identifier):
+        if self._existing is not None and self._existing.identifier == identifier:
+            return self._existing
+        return None
+
+    def save(self, kpi):
+        pass
+
+    def feasibility(self, reader):
+        return {}
+
+
+def test_create_kpi_refuses_a_duplicate_identifier():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    store = _FakeKpiStore(existing=existing)
+    body = _write(identifier="rfq__quote_to_deal_rate")
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(body, _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 409
+
+
+def test_create_kpi_turns_a_bad_formula_into_a_422():
+    store = _FakeKpiStore(existing=None)
+    body = _write(
+        identifier="rfq__bad",
+        sql="SELECT count(*) FROM rfq_quote WHERE brand = {brand}",
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(body, _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 422
+    assert "undeclared parameter" in excinfo.value.detail
+
+
+def test_create_kpi_422s_when_identifier_cannot_be_derived():
+    store = _FakeKpiStore(existing=None)
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(_write(), _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 422
+
+
+def test_update_kpi_404s_on_a_missing_identifier():
+    store = _FakeKpiStore(existing=None)
+    with pytest.raises(HTTPException) as excinfo:
+        update_kpi(
+            "does_not_exist",
+            _write(),
+            _FakeRequest(authorization_enabled=False),
+            store=store,
+        )
+    assert excinfo.value.status_code == 404
+
+
+def test_update_kpi_turns_a_bad_formula_into_a_422():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    store = _FakeKpiStore(existing=existing)
+    body = _write(sql="SELECT count(*) FROM rfq_quote WHERE brand = {brand}")
+    with pytest.raises(HTTPException) as excinfo:
+        update_kpi(
+            "rfq__quote_to_deal_rate",
+            body,
+            _FakeRequest(authorization_enabled=False),
+            store=store,
+        )
+    assert excinfo.value.status_code == 422
+
+
+def test_delete_kpi_404s_on_a_missing_identifier():
+    store = _FakeKpiStore(existing=None)
+    with pytest.raises(HTTPException) as excinfo:
+        delete_kpi(
+            "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
+        )
+    assert excinfo.value.status_code == 404

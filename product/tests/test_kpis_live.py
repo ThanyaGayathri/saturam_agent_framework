@@ -161,3 +161,147 @@ def test_feasibility_map_reads_a_real_snapshot_version(store: KpiRegistryStore) 
         version = reader.snapshot().version
     assert isinstance(version, str)
     assert version
+
+
+# ---------------------------------------------------------------------------
+# #231/B2 -- create/update/delete against the real registry, and the new columns
+# ---------------------------------------------------------------------------
+
+
+def _write(**overrides: Any):
+    from egpt_retail.api import models as wire
+
+    defaults: dict = {
+        "identifier": IDENT,
+        "name": "Livetest contacts",
+        "description": "Contacts on file.",
+        "business_area": "customer",
+        "grain": "overall",
+        "sql": "SELECT count(*) FROM crm_contact",
+        "source_tables": ["crm_contact"],
+    }
+    defaults.update(overrides)
+    return wire.KpiWrite(**defaults)
+
+
+def test_create_kpi_then_get_round_trips_the_new_columns(
+    store: KpiRegistryStore,
+) -> None:
+    from egpt_retail.api.routers.kpis import create_kpi, get_kpi
+
+    body = _write(subject_area="Customer Ops", unit="count", active=True)
+    created = create_kpi(body, _FakeRequest(authorization_enabled=False), store=store)
+    assert created.identifier == IDENT
+    assert created.subject_area == "Customer Ops"
+    assert created.unit == "count"
+    assert created.active is True
+    assert created.source.value == "customer"
+    assert created.validated_against_snapshot is None
+
+    fetched = get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    assert fetched.subject_area == "Customer Ops"
+    assert fetched.source.value == "customer"
+
+
+def test_create_kpi_refuses_a_duplicate_identifier_against_the_real_registry(
+    store: KpiRegistryStore,
+) -> None:
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import create_kpi
+
+    store.save(_definition())
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(_write(), _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 409
+
+
+def test_update_kpi_metadata_only_preserves_validated_against_snapshot(
+    store: KpiRegistryStore,
+) -> None:
+    from egpt_retail.api.routers.kpis import update_kpi
+
+    store.save(_definition(validated_against_snapshot="snap.pin"))
+    updated = update_kpi(
+        IDENT,
+        _write(active=False),
+        _FakeRequest(authorization_enabled=False),
+        store=store,
+    )
+    assert updated.active is False
+    assert updated.validated_against_snapshot == "snap.pin"
+
+
+def test_update_kpi_formula_edit_resets_validated_against_snapshot(
+    store: KpiRegistryStore,
+) -> None:
+    from egpt_retail.api.routers.kpis import update_kpi
+
+    store.save(_definition(validated_against_snapshot="snap.pin"))
+    body = _write(sql="SELECT count(*) FROM crm_contact WHERE 1 = 1")
+    updated = update_kpi(
+        IDENT, body, _FakeRequest(authorization_enabled=False), store=store
+    )
+    assert updated.validated_against_snapshot is None
+
+
+def test_update_kpi_preserves_a_shipped_source_that_write_cannot_set(
+    store: KpiRegistryStore,
+) -> None:
+    from egpt_retail.api.routers.kpis import update_kpi
+    from egpt_retail.contracts.kpi import KpiOrigin
+
+    store.save(_definition(source=KpiOrigin.SHIPPED))
+    updated = update_kpi(
+        IDENT,
+        _write(active=False),
+        _FakeRequest(authorization_enabled=False),
+        store=store,
+    )
+    assert updated.source.value == "shipped"
+
+
+def test_delete_kpi_removes_the_row(store: KpiRegistryStore) -> None:
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import delete_kpi, get_kpi
+
+    store.save(_definition())
+    delete_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    with pytest.raises(HTTPException) as excinfo:
+        get_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 404
+
+
+def test_delete_kpi_refuses_while_a_dashboard_tile_references_it(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import delete_kpi
+    from egpt_retail.contracts.dashboards import ChartKind, Tile, TilePosition
+    from egpt_retail.dashboards.store import DashboardStore
+
+    store.save(_definition())
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    dashboard = dashboard_store.create(
+        name="livetest_kpi__dashboard",
+        owner="local",
+        tiles=[
+            Tile(
+                id="tl_livetest_kpi",
+                kpi_identifier=IDENT,
+                chart=ChartKind.NUMBER,
+                position=TilePosition(x=0, y=0, w=1, h=1),
+                title="x",
+            )
+        ],
+    )
+    try:
+        with pytest.raises(HTTPException) as excinfo:
+            delete_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
+        assert excinfo.value.status_code == 409
+        assert "livetest_kpi__dashboard" in excinfo.value.detail
+    finally:
+        dashboard_store.delete(dashboard.id, "local")

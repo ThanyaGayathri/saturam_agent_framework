@@ -33,6 +33,8 @@ from egpt_retail.contracts.kpi import (
     Dialect,
     Feasibility,
     KpiDefinition,
+    KpiLevel,
+    KpiOrigin,
     KpiParameter,
     KpiRegistry,
     ParameterKind,
@@ -97,6 +99,20 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         CONSTRAINT kpi_source_tables_not_empty
             CHECK (jsonb_array_length(source_tables) > 0)
     )""",
+        # B2 (issue #231): presentation metadata added after the table's original 13 columns.
+        # Idempotent, like the rest -- for a table created before these existed.
+        f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS subject_area text",
+        f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS level text",
+        f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS unit text",
+        f"ALTER TABLE {schema}.kpi_definition ADD COLUMN IF NOT EXISTS industry_benchmark text",
+        f"""ALTER TABLE {schema}.kpi_definition
+        ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true""",
+        f"""ALTER TABLE {schema}.kpi_definition
+        ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'customer'""",
+        f"""ALTER TABLE {schema}.kpi_definition
+        ADD COLUMN IF NOT EXISTS dataset_ids jsonb NOT NULL DEFAULT '[]'::jsonb""",
+        f"""ALTER TABLE {schema}.kpi_definition
+        ADD COLUMN IF NOT EXISTS process_ids jsonb NOT NULL DEFAULT '[]'::jsonb""",
         f"""CREATE INDEX IF NOT EXISTS kpi_definition_area
         ON {schema}.kpi_definition (business_area)""",
         f"""CREATE INDEX IF NOT EXISTS kpi_definition_concept
@@ -153,6 +169,18 @@ def _definition_to_row(kpi: KpiDefinition) -> Tuple[Any, ...]:
         ),
         kpi.validated_against_snapshot,
         kpi.concept,
+        # B2 (issue #231): presentation metadata. `updated_at` is deliberately absent here --
+        # the column defaults to `now()` on insert and is stamped explicitly by the
+        # `ON CONFLICT ... DO UPDATE SET updated_at = now()` clause on update; it is never a
+        # value this store writes on the caller's behalf.
+        kpi.subject_area,
+        kpi.level.value if kpi.level else None,
+        kpi.unit,
+        kpi.industry_benchmark,
+        kpi.active,
+        kpi.source.value,
+        json.dumps(list(kpi.dataset_ids)),
+        json.dumps(list(kpi.process_ids)),
     )
 
 
@@ -173,6 +201,12 @@ def row_to_definition(row: Sequence[Any]) -> KpiDefinition:
     tables = row[6]
     if isinstance(tables, str):
         tables = json.loads(tables)
+    dataset_ids = row[19]
+    if isinstance(dataset_ids, str):
+        dataset_ids = json.loads(dataset_ids)
+    process_ids = row[20]
+    if isinstance(process_ids, str):
+        process_ids = json.loads(process_ids)
     return KpiDefinition(
         identifier=row[0],
         name=row[1],
@@ -198,6 +232,15 @@ def row_to_definition(row: Sequence[Any]) -> KpiDefinition:
         ),
         validated_against_snapshot=row[11],
         concept=row[12],
+        subject_area=row[13],
+        level=KpiLevel(row[14]) if row[14] else None,
+        unit=row[15],
+        industry_benchmark=row[16],
+        active=row[17],
+        source=KpiOrigin(row[18]),
+        dataset_ids=tuple(dataset_ids or ()),
+        process_ids=tuple(process_ids or ()),
+        updated_at=row[21],
     )
 
 
@@ -268,8 +311,10 @@ class KpiRegistryStore:
                     f"""INSERT INTO {self._schema}.kpi_definition
                         (identifier, name, description, sql, grain, business_area,
                          source_tables, result_shape, dialect, parameters, time_window,
-                         validated_against_snapshot, concept)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         validated_against_snapshot, concept, subject_area, level, unit,
+                         industry_benchmark, active, source, dataset_ids, process_ids)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (identifier) DO UPDATE SET
                             name = EXCLUDED.name,
                             description = EXCLUDED.description,
@@ -284,6 +329,14 @@ class KpiRegistryStore:
                             validated_against_snapshot =
                                 EXCLUDED.validated_against_snapshot,
                             concept = EXCLUDED.concept,
+                            subject_area = EXCLUDED.subject_area,
+                            level = EXCLUDED.level,
+                            unit = EXCLUDED.unit,
+                            industry_benchmark = EXCLUDED.industry_benchmark,
+                            active = EXCLUDED.active,
+                            source = EXCLUDED.source,
+                            dataset_ids = EXCLUDED.dataset_ids,
+                            process_ids = EXCLUDED.process_ids,
                             updated_at = now()""",
                     _definition_to_row(kpi),
                 )
@@ -620,7 +673,9 @@ class KpiRegistryStore:
             cursor.execute(
                 f"""SELECT identifier, name, description, sql, grain, business_area,
                            source_tables, result_shape, dialect, parameters, time_window,
-                           validated_against_snapshot, concept
+                           validated_against_snapshot, concept, subject_area, level, unit,
+                           industry_benchmark, active, source, dataset_ids, process_ids,
+                           updated_at
                     FROM {self._schema}.kpi_definition {where} ORDER BY identifier""",
                 params,
             )
