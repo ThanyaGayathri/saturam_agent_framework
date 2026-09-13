@@ -209,7 +209,7 @@ function SuggestionReasons({ suggestion, bucket }) {
  );
 }
 
-function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt }) {
+function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopting, adoptError }) {
  const { kpi } = row;
  const datasets = (kpi.datasetIds || []).map((id) => getDatasetById(id)).filter(Boolean);
  const sources = sourcesFor(kpi);
@@ -263,7 +263,12 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt }) {
    {/* Why we proposed it, and whether it can be computed. Without this a suggestion is an
        assertion, and the user has no way to judge whether to trust it. */}
    {row.suggested ? (
-    <SuggestionReasons suggestion={row.suggestion} bucket={bucket} />
+    <>
+     <SuggestionReasons suggestion={row.suggestion} bucket={bucket} />
+     {adoptError && (
+      <p className="border-l-2 border-status-critical pl-2.5 text-xs text-status-critical">{adoptError}</p>
+     )}
+    </>
    ) : (
     <>
      {/* Blocked: name the gap. This line is the reason blocked cards are shown at all. */}
@@ -309,14 +314,19 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt }) {
       </span>
      ))
     )}
-    {row.suggested && (
+    {/* A suggestion can only become a real, governed KPI when it is actually ready: `POST
+        /kpis` validates the formula at construction, and a partial/blocked suggestion either
+        has no `proposed_sql` at all or names tables the semantic layer does not have -- it
+        would 422. "Why can't I adopt this" is answered by the reason lines above instead. */}
+    {row.suggested && bucket === "ready" && (
      <button
       type="button"
+      disabled={adopting}
       onClick={(e) => { e.stopPropagation(); onAdopt?.(row); }}
-      className="ml-auto inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary-light"
+      className="ml-auto inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-60"
      >
       <Plus size={11} />
-      Add to my metrics
+      {adopting ? "Adding…" : "Add to my metrics"}
      </button>
     )}
    </div>
@@ -324,7 +334,17 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt }) {
  );
 }
 
-export default function KpiDiscovery({ rows, areas, focusAreaIds, onFocusChange, onCreateDashboard, onOpenDetail, onAdopt }) {
+export default function KpiDiscovery({
+ rows,
+ areas,
+ focusAreaIds,
+ onFocusChange,
+ onCreateDashboard,
+ onOpenDetail,
+ onAdopt,
+ adoptingId,
+ adoptErrors,
+}) {
  const [selected, setSelected] = useState(() => new Set());
  // null means "every source" -- the default. Source is a facet here, not a gate: this screen's
  // object is a metric, and the product's value is correlation ACROSS systems, so making people
@@ -470,6 +490,8 @@ export default function KpiDiscovery({ rows, areas, focusAreaIds, onFocusChange,
            onToggle={() => toggle(rowKey(row))}
            onOpenDetail={onOpenDetail}
            onAdopt={onAdopt}
+           adopting={!!row.suggestion && adoptingId === row.suggestion.identifier}
+           adoptError={row.suggestion && adoptErrors?.[row.suggestion.identifier]}
           />
          ))}
         </div>

@@ -12,9 +12,9 @@ import KpiDetailPanel from "./KpiDetailPanel";
 import CreateDashboardModal from "./CreateDashboardModal";
 import { tileWriteFromKpi } from "../../storage/dashboards";
 import { createDashboardApi } from "../../services/dashboards-api";
-import { SUGGESTED_KPI_CANDIDATES, SUGGESTED_KPI_SUGGESTIONS } from "./suggested-candidates";
+import { rowFromSuggestion } from "./suggested-candidates";
 import { metricsUnlockedBy } from "../configure/source-model-state";
-import { fetchKpiList } from "../../services/kpis-api";
+import { fetchKpiList, fetchKpiSuggestions, createKpi } from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
 
 /**
@@ -28,9 +28,14 @@ import { fetchBusinessAreas } from "../../services/business-areas-api";
  *
  *  1. ENABLED registry KPIs -- master data the customer governs. Disabled ones are excluded here,
  *     which is what makes the enable switch in Configure meaningful rather than decorative.
- *  2. SUGGESTED candidates -- metrics not in the registry yet. They are shown as adoptable
- *     candidates rather than as results, because a metric that cannot be edited, governed or
- *     reproduced is not something anyone should build a dashboard on.
+ *  2. SUGGESTED candidates -- metrics not in the registry yet, proposed live by `GET
+ *     /kpis/suggestions` (F1, #234) when the customer asks for them. Nothing is fetched until
+ *     "Suggest KPIs" is clicked: unlike the registry/real-area fetches below, this is a
+ *     synchronous frontier-tier model call, not something to run unprompted on page load. They
+ *     are shown as adoptable candidates rather than as results, because a metric that cannot be
+ *     edited, governed or reproduced is not something anyone should build a dashboard on --
+ *     "adopt" calls `POST /kpis` for real, and only once the suggestion's own feasibility says
+ *     `ready` (a `partial`/`blocked` one has nothing valid to adopt).
  *  3. REAL registry KPIs (C1, #232) -- `GET /kpis`, merged in the same additive way suggested
  *     candidates already are, not a replacement for the two above. The seed catalogue has no
  *     real `identifier` on any card and the real registry has very few entries today (only
@@ -76,9 +81,23 @@ export default function KpiDiscoveryPage() {
  });
  const setFocusAreaIds = (ids) => { setFocusState(ids); writeLocalJson(FOCUS_KEY, ids); };
 
- // Candidates the customer has adopted this session. Adoption writes to the registry for real in
- // production; here it moves the card out of "suggested" so the flow reads correctly.
- const [adopted, setAdopted] = useState(() => new Set());
+ // The live suggestion run (F1, #234): idle until "Suggest KPIs" is clicked, since each run is
+ // a real, multi-second frontier-tier model call, not something to fire on mount. `notes` is
+ // the skill's own refusal channel -- why it proposed nothing, not a generic empty state.
+ const [suggestionState, setSuggestionState] = useState({
+  status: "idle",
+  suggestions: [],
+  notes: "",
+  error: null,
+ });
+ // Which suggestion (by `identifier`) is mid-adopt, and the last adopt failure per identifier --
+ // keyed so one card's 422 doesn't block or hide another's "Add to my metrics".
+ const [adoptingId, setAdoptingId] = useState(null);
+ const [adoptErrors, setAdoptErrors] = useState({});
+
+ // A single focused area scopes the agent's search; zero or several ask it to range over
+ // everything rather than firing one request per area (each is its own live model call).
+ const suggestBusinessArea = focusAreaIds.length === 1 ? focusAreaIds[0] : undefined;
 
  // The real registry (C1, #232) -- fetched once, additive, never blocking: the seed/suggested
  // rows above render immediately regardless of this state. A failure is a small note, not a
@@ -114,6 +133,63 @@ export default function KpiDiscoveryPage() {
    cancelled = true;
   };
  }, []);
+
+ const runSuggestions = () => {
+  setSuggestionState({ status: "loading", suggestions: [], notes: "", error: null });
+  fetchKpiSuggestions(suggestBusinessArea)
+   .then((result) => {
+    setSuggestionState({
+     status: "ready",
+     suggestions: result?.suggestions || [],
+     notes: result?.notes || "",
+     error: null,
+    });
+   })
+   .catch((err) => {
+    setSuggestionState({
+     status: "error",
+     suggestions: [],
+     notes: "",
+     error: err?.detail || err?.message || "Something went wrong.",
+    });
+   });
+ };
+
+ const handleAdopt = (row) => {
+  const suggestion = row.suggestion;
+  if (!suggestion?.identifier) return;
+  setAdoptingId(suggestion.identifier);
+  setAdoptErrors((prev) => {
+   const next = { ...prev };
+   delete next[suggestion.identifier];
+   return next;
+  });
+  createKpi({
+   identifier: suggestion.identifier,
+   name: suggestion.name,
+   description: suggestion.description,
+   business_area: suggestion.business_area,
+   concept: suggestion.concept ?? null,
+   grain: suggestion.grain,
+   result_shape: suggestion.result_shape,
+   sql: suggestion.proposed_sql,
+   source_tables: suggestion.derived_from_tables || [],
+  })
+   .then((created) => {
+    setRealKpiState((prev) => ({ status: "ready", kpis: [...prev.kpis, created] }));
+    setSuggestionState((prev) => ({
+     ...prev,
+     suggestions: prev.suggestions.filter((s) => s.identifier !== suggestion.identifier),
+    }));
+   })
+   .catch((err) => {
+    setAdoptErrors((prev) => ({
+     ...prev,
+     [suggestion.identifier]: err?.detail || err?.message || "Couldn't add this KPI.",
+    }));
+   })
+   .finally(() => setAdoptingId(null));
+ };
 
  const realAreaLabelById = useMemo(
   () => Object.fromEntries(realAreas.map((a) => [a.id, a.label])),
@@ -156,14 +232,19 @@ export default function KpiDiscoveryPage() {
   [realKpiState.kpis, realAreaLabelById]
  );
 
+ // Live suggestions, mapped to rows the same way the static array used to be. A suggestion the
+ // customer just adopted is dropped from `suggestionState.suggestions` in `handleAdopt`, so it
+ // does not need filtering again here.
+ const suggestionRows = useMemo(
+  () => suggestionState.suggestions.map(rowFromSuggestion),
+  [suggestionState.suggestions]
+ );
+
  const rows = useMemo(() => {
   const registry = flattenKpiIndexRows(data?.categories || []).filter((r) => isEnabled(r.kpi));
-  // Candidates carry `suggested` so the card can badge them and offer adoption. They are appended
-  // rather than merged into the registry: until adopted they are not master data.
-  const candidates = SUGGESTED_KPI_CANDIDATES.filter((c) => !adopted.has(c.kpi.name));
-  const all = [...registry, ...candidates, ...realRows];
+  const all = [...registry, ...suggestionRows, ...realRows];
   return unlockedNames ? all.filter((r) => unlockedNames.has(r.kpi?.name)) : all;
- }, [data?.categories, adopted, realRows, unlockedNames]);
+ }, [data?.categories, suggestionRows, realRows, unlockedNames]);
 
  const disabledCount = useMemo(
   () => flattenKpiIndexRows(data?.categories || []).filter((r) => !isEnabled(r.kpi)).length,
@@ -171,7 +252,6 @@ export default function KpiDiscoveryPage() {
  );
 
  const hasSuggestions = rows.some((r) => r.suggested);
- const suggestionNotes = SUGGESTED_KPI_SUGGESTIONS.notes;
 
  if (!hydrated) return <p className="text-sm text-text-secondary">Loading…</p>;
 
@@ -202,23 +282,50 @@ export default function KpiDiscoveryPage() {
     </div>
    )}
 
+   {/* Suggest KPIs (F1, #234): a real, live call to the frontier-tier `kpi_suggestion` agent --
+       not fired on mount, since it is a several-second round trip the user should ask for. */}
+   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-3">
+    <span className="flex items-center gap-2 text-sm text-text-secondary">
+     <Sparkles size={15} className="shrink-0 text-primary" />
+     Ask the model what else your connected data could measure.
+    </span>
+    <button
+     type="button"
+     onClick={runSuggestions}
+     disabled={suggestionState.status === "loading"}
+     className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+    >
+     <Sparkles size={13} />
+     {suggestionState.status === "loading" ? "Asking the model…" : "Suggest KPIs"}
+    </button>
+   </div>
+
+   {suggestionState.status === "error" && (
+    <div className="flex items-center gap-2 rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-2.5 text-sm text-status-critical">
+     <AlertTriangle size={15} className="shrink-0" />
+     Couldn't get suggestions: {suggestionState.error}
+    </div>
+   )}
+
    <KpiDiscovery
     rows={rows}
     areas={businessAreas}
     focusAreaIds={focusAreaIds}
     onFocusChange={setFocusAreaIds}
     onOpenDetail={setDetailRow}
-    onAdopt={(row) => setAdopted((prev) => new Set(prev).add(row.kpi.name))}
+    onAdopt={handleAdopt}
+    adoptingId={adoptingId}
+    adoptErrors={adoptErrors}
     onCreateDashboard={setPendingRows}
    />
 
    {/* The agent's own account of why it proposed nothing, in the schema's refusal channel. An
        empty suggestion list with no reason is indistinguishable from a feature that never ran. */}
-   {!hasSuggestions && suggestionNotes && (
+   {suggestionState.status === "ready" && !hasSuggestions && suggestionState.notes && (
     <p className="flex items-start gap-2 rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-3 text-xs text-text-secondary">
      <Sparkles size={13} className="mt-0.5 shrink-0 text-status-info" />
      <span>
-      <span className="font-semibold text-text-primary">No suggestions this time.</span> {suggestionNotes}
+      <span className="font-semibold text-text-primary">No suggestions this time.</span> {suggestionState.notes}
      </span>
     </p>
    )}
