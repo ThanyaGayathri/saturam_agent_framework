@@ -128,6 +128,27 @@ def test_underscore_keys_in_the_hierarchy_are_comments_not_areas():
     assert build_hierarchy(CORE, overlay) == build_hierarchy(CORE)
 
 
+def test_a_non_list_subject_areas_value_is_refused_not_silently_iterated():
+    """A hand-edited overlay with ``subject_areas: "not-a-list"`` must be refused with a
+    clear error, not silently accepted and iterated character by character."""
+    overlay = {HIERARCHY_KEY: {"sales": {"subject_areas": "not-a-list"}}}
+    with pytest.raises(ValueError, match="must be a list of non-empty strings"):
+        build_hierarchy(CORE, overlay)
+
+
+def test_the_roundtrip_revalidation_catches_what_the_per_item_checks_do_not(
+    monkeypatch,
+):
+    """``apply_overlay`` re-runs its own output through ``build_hierarchy`` as a second,
+    independent guarantee -- pin its distinct value by defeating only the earlier per-item
+    ``Term(...)`` check (via monkeypatching) and confirming the round-trip still refuses."""
+    import egpt_retail.ontology.business_areas as module
+
+    monkeypatch.setattr(module, "Term", lambda **kwargs: None)
+    with pytest.raises(ValueError):
+        apply_overlay(None, [BusinessAreaNode("Store-Ops", "", "")], CORE)
+
+
 # ---------------------------------------------------------------------------
 # apply_overlay: what PUT writes
 # ---------------------------------------------------------------------------
@@ -174,6 +195,21 @@ def test_put_replaces_only_the_overlay_business_areas_and_keeps_everything_else(
     assert hierarchy.get("old_area") is None
     assert hierarchy.get("store_ops").origin is TermOrigin.OVERLAY
     assert "Quote to Deal" in hierarchy.get("sales").subject_areas
+
+
+def test_put_dedupes_subject_areas_on_a_newly_added_area_too():
+    """Annotating an existing core area already dedupes repeated subject areas (via
+    ``_union``); a brand-new overlay area must get the same treatment."""
+    areas = [
+        BusinessAreaNode(
+            "store_ops",
+            "Store Ops",
+            "",
+            ("Foot Traffic", "Foot Traffic", "Foot Traffic"),
+        )
+    ]
+    payload = apply_overlay(None, areas, CORE)
+    assert payload[HIERARCHY_KEY]["store_ops"]["subject_areas"] == ["Foot Traffic"]
 
 
 def test_put_with_no_areas_clears_the_overlay_contribution_and_nothing_else():
@@ -364,6 +400,36 @@ def test_get_answers_503_for_a_broken_overlay_file(graph_says, overlay_file):
     assert "cannot be read" in response.json()["detail"]
 
 
+def test_get_answers_503_when_the_overlay_path_is_a_directory(graph_says, monkeypatch):
+    """A misconfigured operator setting (pointing the overlay at a directory instead of a
+    file) is an ``OSError`` (``IsADirectoryError``), not the ``ValueError`` a malformed
+    overlay's *contents* raise -- it must still surface as 503, not an unhandled 500."""
+    from pathlib import Path
+
+    monkeypatch.setenv("EGPT_RETAIL_ONTOLOGY_OVERLAY", str(Path(".")))
+    response = _client().get("/business-areas")
+    assert response.status_code == 503
+    assert "cannot be read" in response.json()["detail"]
+
+
+def test_get_after_put_reflects_the_change_with_no_restart(graph_says, overlay_file):
+    """Pins the module docstring's "read from disk on every call... visible to the next
+    GET without a restart" guarantee, by warming state with a GET *before* the write, not
+    just reading fresh after it (every other "PUT is visible" test only reads after the
+    write has already landed, so a naive read-through cache would still pass them)."""
+    client = _client()
+    before = client.get("/business-areas").json()
+    assert "store_ops" not in [area["id"] for area in before["areas"]]
+
+    client.put(
+        "/business-areas",
+        json={"areas": [{"id": "store_ops", "label": "Store Ops"}]},
+    )
+
+    after = client.get("/business-areas").json()
+    assert "store_ops" in [area["id"] for area in after["areas"]]
+
+
 def test_put_writes_the_overlay_and_the_next_get_sees_it(graph_says, overlay_file):
     client = _client()
     response = client.put(
@@ -429,6 +495,32 @@ def test_put_without_an_overlay_configured_is_503(graph_says, no_overlay):
     response = _client().put("/business-areas", json={"areas": []})
     assert response.status_code == 503
     assert "EGPT_RETAIL_ONTOLOGY_OVERLAY" in response.json()["detail"]
+
+
+def test_put_with_a_pre_existing_broken_overlay_is_503_not_422(
+    graph_says, overlay_file
+):
+    """The caller's own PUT payload is perfectly well-formed; a pre-existing corrupt
+    overlay file is a deployment fault and must not be reported as if the request body
+    were the problem."""
+    overlay_file.write_text("not valid json{")
+    response = _client().put(
+        "/business-areas",
+        json={"areas": [{"id": "store_ops", "label": "Store Ops"}]},
+    )
+    assert response.status_code == 503
+    assert "cannot be read" in response.json()["detail"]
+
+
+def test_put_answers_503_when_the_overlay_directory_is_missing(graph_says, monkeypatch):
+    """A configured overlay path whose parent directory does not exist fails on write with
+    an ``OSError`` -- must surface as 503, not an unhandled 500."""
+    monkeypatch.setenv(
+        "EGPT_RETAIL_ONTOLOGY_OVERLAY", "/no/such/directory/overlay.json"
+    )
+    response = _client().put("/business-areas", json={"areas": []})
+    assert response.status_code == 503
+    assert "cannot be written" in response.json()["detail"]
 
 
 def test_scopes_are_the_contracts_own(graph_says, overlay_file):

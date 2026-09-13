@@ -43,6 +43,7 @@ __all__ = [
     "BusinessAreaNode",
     "aload_business_area_hierarchy",
     "apply_overlay",
+    "aread_overlay",
     "awrite_overlay",
     "build_hierarchy",
     "default_label",
@@ -195,6 +196,11 @@ def read_overlay(path: Optional[Path]) -> Optional[Dict[str, Any]]:
     return dict(payload)
 
 
+async def aread_overlay(path: Optional[Path]) -> Optional[Dict[str, Any]]:
+    """Async variant. The read happens off the event loop."""
+    return await asyncio.to_thread(read_overlay, path)
+
+
 def load_business_area_hierarchy(
     core_path: Path = CORE_PATH, overlay_path: Optional[Path] = None
 ) -> BusinessAreaHierarchy:
@@ -245,7 +251,7 @@ def apply_overlay(
             terms.append({"value": area.id, "description": area.description})
             notes[area.id] = {
                 "label": area.label or default_label(area.id),
-                "subject_areas": list(area.subject_areas),
+                "subject_areas": list(_union((), area.subject_areas)),
             }
             continue
         if area.description and area.description != core_area.description:
@@ -284,7 +290,13 @@ def apply_overlay(
 
 def write_overlay(path: Path, payload: Mapping[str, Any]) -> None:
     """Write the overlay atomically: a reader that opens the file mid-write sees the old
-    payload or the new one, never a truncated file. The directory must exist."""
+    payload or the new one, never a truncated file. The directory must exist.
+
+    Atomic per write, not across writes: two concurrent callers that both read the file
+    before either writes will both succeed, and the second write silently wins (a lost
+    update, not a torn read). Acceptable for a low-traffic admin/config endpoint; would
+    need a lock or a version check if this ever gets a scripted or multi-admin caller.
+    """
     target = Path(path)
     text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
     fd, tmp_name = tempfile.mkstemp(

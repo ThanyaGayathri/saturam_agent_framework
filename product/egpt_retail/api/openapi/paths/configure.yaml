@@ -504,6 +504,10 @@
                     - {id: supply_chain, label: Supply Chain, subject_areas: [], description: "Suppliers, lead times, fulfilment reliability.", supported: false, origin: core}
                     - {id: marketing, label: Marketing, subject_areas: [], description: "Reach, engagement and campaign performance.", supported: false, origin: core}
                     - {id: sales, label: Sales, subject_areas: [], description: "Revenue, conversion and pipeline.", supported: false, origin: core}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "503":
+        $ref: '#/x-egpt-responses/Unavailable'
   put:
     tags: [configure]
     operationId: setBusinessAreas
@@ -550,6 +554,17 @@
             examples:
               conflict:
                 value: {detail: "overlay redefines core term 'inventory' in 'business_area'. An overlay may add and annotate, never redefine (G10) -- raise it as a proposal.", code: overlay_conflict}
+      "422":
+        description: A new area's id is not a valid term value, or it is listed twice in the same request.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              malformed:
+                value: {detail: "'Store-Ops' is not alphanumeric.", code: invalid_business_area}
+      "503":
+        $ref: '#/x-egpt-responses/Unavailable'
 
 /processes:
   get:
@@ -631,3 +646,12 @@ x-egpt-responses:
         examples:
           not_found:
             value: {detail: "Not found.", code: not_found}
+  Unavailable:
+    description: The business-area vocabulary (core file or overlay) cannot be read or written. Distinct from every 4xx above -- nothing the caller sends can fix a deployment fault.
+    content:
+      application/json:
+        schema:
+          $ref: '../schemas/common.yaml#/Error'
+        examples:
+          unavailable:
+            value: {detail: "The business-area vocabulary cannot be read: ...", code: business_areas_unavailable}

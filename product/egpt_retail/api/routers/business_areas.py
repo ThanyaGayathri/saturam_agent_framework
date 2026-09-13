@@ -54,16 +54,25 @@ def _overlay_path(settings: RetailSettings) -> Optional[Path]:
     return Path(raw) if raw else None
 
 
+def _overlay_io_error(exc: BaseException, *, verb: str = "read") -> HTTPException:
+    """A broken overlay file, or an overlay path a customer misconfigured (wrong type,
+    missing directory, permissions), is a deployment fault, never something the caller's
+    own request can fix -- so it is always 503, never a 4xx. Shared by every call site that
+    touches the overlay file: the two hierarchy reads and the write."""
+    return HTTPException(
+        status_code=503,
+        detail=f"The business-area vocabulary cannot be {verb}: {exc}",
+    )
+
+
 def _hierarchy(settings: RetailSettings) -> BusinessAreaHierarchy:
     try:
         return load_business_area_hierarchy(overlay_path=_overlay_path(settings))
-    except ValueError as exc:
-        # A core file or overlay that fails its own rules is a deployment fault, not a
-        # request fault: nothing the caller sends can fix it, so it is not a 4xx.
-        raise HTTPException(
-            status_code=503,
-            detail=f"The business-area vocabulary cannot be read: {exc}",
-        ) from exc
+    except (ValueError, OSError) as exc:
+        # A core file or overlay that fails its own rules -- or an overlay path that is not
+        # readable at all (a directory, a missing parent, permissions) -- is a deployment
+        # fault, not a request fault: nothing the caller sends can fix it, so it is not a 4xx.
+        raise _overlay_io_error(exc) from exc
 
 
 def _is_graph_error(exc: BaseException) -> bool:
@@ -93,6 +102,14 @@ def _supported(settings: RetailSettings) -> FrozenSet[str]:
             ARTIFACT_PATH,
             overlay_path=overlay if overlay is not None and overlay.exists() else None,
         )
+    except (ValueError, OSError) as exc:
+        # The overlay failed the ontology's own rules, or is not readable at all (a
+        # directory, a missing parent, permissions) -- the same deployment fault
+        # `_hierarchy` reports, and not something the caller can fix. Caught here, before
+        # the graph is ever touched, so it can never be mistaken for a graph-connectivity
+        # `OSError` further down.
+        raise _overlay_io_error(exc) from exc
+    try:
         driver = semantic_driver(settings)
         try:
             store = SemanticGraphStore(
@@ -103,12 +120,6 @@ def _supported(settings: RetailSettings) -> FrozenSet[str]:
             driver.close()
     except (RuntimeError, SemanticReadError) as exc:
         raise _unavailable(exc) from exc
-    except ValueError as exc:
-        # The overlay failed the ontology's own rules -- the same deployment fault
-        # `_hierarchy` reports, and not something the caller can fix.
-        raise HTTPException(
-            status_code=503, detail=f"The ontology overlay cannot be read: {exc}"
-        ) from exc
     except Exception as exc:
         if _is_graph_error(exc):
             raise _unavailable(exc) from exc
@@ -146,6 +157,12 @@ def get_business_areas(
     supported: bool = False,
     _: None = Depends(require_scopes("config:read")),
 ) -> wire.BusinessAreaHierarchy:
+    # `_hierarchy` and `_supported` each read the overlay file independently, with no
+    # shared snapshot. A `PUT` landing between the two can make this response mix two
+    # overlay generations (e.g. a newly-added area from `_hierarchy` alongside `_supported`
+    # computed against the prior overlay). `write_overlay`'s atomicity means neither read
+    # is ever torn, only that the pair isn't guaranteed consistent with each other -- low
+    # practical impact for non-financial config data, and self-healing on the next request.
     settings = RetailSettings()
     hierarchy = _hierarchy(settings)
     return _hierarchy_out(hierarchy, _supported(settings), only_supported=supported)
@@ -167,6 +184,13 @@ def set_business_areas(
                 "file is created on the first write."
             ),
         )
+    try:
+        existing = read_overlay(path)
+    except (ValueError, OSError) as exc:
+        # A pre-existing broken overlay file is unrelated to this request's own payload,
+        # so it must not be reported as if the caller's body were malformed (422) --
+        # read outside the payload-validation try below, same as `_hierarchy` does.
+        raise _overlay_io_error(exc) from exc
     core_payload: Any = json.loads(CORE_PATH.read_text())
     areas = [
         BusinessAreaNode(
@@ -178,12 +202,15 @@ def set_business_areas(
         for item in body.areas
     ]
     try:
-        payload = apply_overlay(read_overlay(path), areas, core_payload)
+        payload = apply_overlay(existing, areas, core_payload)
     except OverlayConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    write_overlay(path, payload)
+    try:
+        write_overlay(path, payload)
+    except OSError as exc:
+        raise _overlay_io_error(exc, verb="written") from exc
     return _hierarchy_out(
         _hierarchy(settings), _supported(settings), only_supported=False
     )
