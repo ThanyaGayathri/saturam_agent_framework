@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, Search, ShieldCheck } from "lucide-react";
 import { useDemoProfile } from "../context/DemoProfileContext";
 import { loadKpiRegistry } from "../storage/kpi-registry";
@@ -8,6 +8,7 @@ import { useHiddenSeedRows } from "../hooks/useHiddenSeedRows";
 import { kpiSeedId } from "../domain/seed-ids";
 import { useBusinessAreas } from "../hooks/useBusinessAreas";
 import { usePrototypeAuth } from "../context/PrototypeAuthContext";
+import { fetchDashboardList } from "../services/dashboards-api";
 
 /**
  * Admin surface for seed visibility.
@@ -359,6 +360,51 @@ function seedUseCases(profileId, storageKey) {
   });
 }
 
+// Proves the async fetch pattern end to end against the real API (issue #230/A2) - not a
+// production screen. `POST`/`PUT`/`DELETE` dashboard wiring is issue #233/D2, once the tile
+// shape has been aligned (issue #226/D1).
+function LiveBackendCheck() {
+  const [state, setState] = useState({ status: "loading", dashboards: null, error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading", dashboards: null, error: null });
+    fetchDashboardList()
+      .then((dashboards) => {
+        if (!cancelled) setState({ status: "ready", dashboards, error: null });
+      })
+      .catch((error) => {
+        if (!cancelled) setState({ status: "error", dashboards: null, error });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="mb-6 rounded-lg border border-border bg-surface-secondary p-3 text-sm">
+      <div className="mb-2 font-semibold text-text-primary">
+        Live backend check (<code className="font-mono text-xs">GET /dashboards</code>)
+      </div>
+      {state.status === "loading" && <p className="text-text-muted">Loading…</p>}
+      {state.status === "error" && (
+        <p className="text-status-critical">
+          {state.error?.message || "Could not reach the retail API."}
+        </p>
+      )}
+      {state.status === "ready" && (
+        <p className="text-text-secondary">
+          {state.dashboards.length === 0
+            ? "Connected - no dashboards yet."
+            : `Connected - ${state.dashboards.length} dashboard(s): ${state.dashboards
+                .map((d) => `${d.name} (${d.owner})`)
+                .join(", ")}`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 const TAB_BASE = "relative inline-flex items-center gap-2 pb-3 pt-2 text-base font-semibold transition-colors";
 const TAB_ACTIVE = "text-primary";
 const TAB_IDLE = "text-text-muted hover:text-text-secondary";
@@ -416,6 +462,8 @@ export default function AdminSeedData() {
           </p>
         </div>
       </div>
+
+      <LiveBackendCheck />
 
       {!supabaseEnabled && (
         <div className="mb-6 rounded-lg border border-status-warning-border bg-status-warning-light/50 p-3 text-sm text-status-warning">
