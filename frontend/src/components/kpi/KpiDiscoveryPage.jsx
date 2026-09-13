@@ -90,7 +90,7 @@ export default function KpiDiscoveryPage() {
   [data?.categories]
  );
 
- const hasSuggestions = SUGGESTED_KPI_CANDIDATES.some((c) => !adopted.has(c.kpi.name));
+ const hasSuggestions = rows.some((r) => r.suggested);
  const suggestionNotes = SUGGESTED_KPI_SUGGESTIONS.notes;
 
  if (!hydrated) return <p className="text-sm text-text-secondary">Loading…</p>;

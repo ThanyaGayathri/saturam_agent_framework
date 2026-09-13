@@ -22,7 +22,11 @@ export const SUGGESTED_KPI_SUGGESTIONS = {
    identifier: "supplier__on_time_in_full_rate",
    name: "Supplier On-Time-In-Full (OTIF)",
    description: "Share of purchase orders delivered complete and on the promised date.",
-   business_area: "supply_chain",
+   // "supply_chain" is a valid deployment id (common.yaml's BusinessAreaId examples), but this
+   // demo's own taxonomy (business-areas.js) has no such id -- only "inventory", whose subject
+   // areas include "Supplier Management". Using it here keeps focus-based ranking working in
+   // the demo the seed ships with.
+   business_area: "inventory",
    concept: "Supplier",
    grain: "supplier",
    result_shape: "scalar",
@@ -45,7 +49,9 @@ export const SUGGESTED_KPI_SUGGESTIONS = {
    identifier: "promotion__margin_erosion_rate",
    name: "Promotion Margin Erosion",
    description: "Margin given away on promoted lines against the same lines sold at full price.",
-   business_area: "sales",
+   // Same reasoning as the OTIF candidate above: "sales" isn't in this demo's taxonomy, but
+   // "pricing" is, and its subject areas include "Promotions".
+   business_area: "pricing",
    concept: "Promotion",
    grain: "overall",
    result_shape: "scalar",
