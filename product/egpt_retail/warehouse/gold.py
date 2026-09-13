@@ -86,6 +86,7 @@ __all__ = [
     "materialise_registry",
     "amaterialise_registry",
     "probe_statement",
+    "read_gold_history_statement",
     "read_gold_statement",
     "view_statements",
 ]
@@ -402,6 +403,23 @@ def read_gold_statement(kpi_identifier: str) -> str:
     """
     view = gold_view(kpi_identifier)
     return f"SELECT * FROM {GOLD_SCHEMA}.{view} WHERE as_of = :as_of ORDER BY {view}"
+
+
+def read_gold_history_statement(kpi_identifier: str) -> str:
+    """Every row of one KPI's view with ``as_of`` in ``(:since, :as_of]`` -- the history a
+    trend or a period-over-period delta is read from.
+
+    Same view and same whole-row ordering as :func:`read_gold_statement`; since ``as_of`` is
+    the view's first column, the rows come back oldest business date first and, within one
+    date, in the same deterministic order the single-date read gives. The window is bounded
+    on both ends so a reader pinned to an older ``as_of`` sees the history *up to* that date,
+    never rows materialised after it.
+    """
+    view = gold_view(kpi_identifier)
+    return (
+        f"SELECT * FROM {GOLD_SCHEMA}.{view} "
+        f"WHERE as_of > :since AND as_of <= :as_of ORDER BY {view}"
+    )
 
 
 # ---------------------------------------------------------------------------

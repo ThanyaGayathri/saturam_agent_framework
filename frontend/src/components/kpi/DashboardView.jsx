@@ -1,99 +1,146 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Download, Mail, RefreshCw, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, RefreshCw, Trash2 } from "lucide-react";
 import { DemoAreaSpark, DemoAreaSparkWithAxes } from "../shared/DemoSparkCharts";
+import { CHART_KINDS, labelForRefresh, tilesToWrite } from "../../storage/dashboards";
 import {
- deleteDashboard,
- getDashboard,
- labelForDelivery,
- labelForRefresh,
- updateDashboard,
-} from "../../storage/dashboards";
+ deleteDashboardApi,
+ fetchDashboard,
+ fetchDashboardData,
+ updateDashboardApi,
+} from "../../services/dashboards-api";
 
 /**
- * A saved dashboard.
+ * A saved dashboard, wired to the real `dashboards.py` (D2, #233): `GET /dashboards/{id}` for
+ * the tiles, `GET /dashboards/{id}/data` for their values from gold. Every number here is a
+ * computed value against a confirmed definition -- there is no model call at render time, and
+ * there must never be one.
  *
- * Every number here is a computed value against a confirmed definition -- there is no model call
- * at render time, and there must never be one. Same definition, same window, same number, every
- * time. A dashboard whose figures cannot be reconciled with the customer's own reporting is worse
- * than no dashboard.
- *
- * The series below are placeholders standing in for that computation. They are deterministic per
- * metric (seeded from the name) rather than random, so a tile does not change shape on re-render
- * and nobody mistakes noise for a trend.
+ * `series`/`delta` ship empty from the API today (`dashboards/data.py`'s own docstring: a real
+ * series needs a gold-history reader, #227/E1, not built yet) -- a `line`/`bar` tile says so
+ * rather than falling back to the old fabricated sparkline, which would look like a real trend
+ * computed from a real number. `number`/`table` tiles are fully real: they only ever needed the
+ * latest value, which `read_gold` already returns.
  */
 
-const RENDER_TYPES = [
- { value: "stat", label: "Number" },
- { value: "trend", label: "Number + trend" },
- { value: "bar", label: "Bar" },
-];
-
-/** Deterministic pseudo-series from the metric name, so re-renders are stable. */
-function seriesFor(name, points = 12) {
- let seed = 0;
- for (let i = 0; i < name.length; i++) seed = (seed * 31 + name.charCodeAt(i)) % 9973;
- const out = [];
- let v = 40 + (seed % 40);
- for (let i = 0; i < points; i++) {
-  seed = (seed * 1103515245 + 12345) % 2147483648;
-  v = Math.max(8, Math.min(96, v + ((seed % 21) - 10)));
-  out.push(Number(v.toFixed(1)));
- }
- return out;
+// `unit`-aware branches (%, day, currency) are contract-correct against `TileData.unit`, but
+// `dashboards/data.py` hardcodes `unit=""` on every path today -- there is no unit field
+// anywhere in the KPI definition to source a real one from. Dead code until a KPI-definition
+// change supplies it (backend follow-up, not attempted here); kept rather than removed so
+// formatting works the moment the backend does.
+function formatValue(unit, value) {
+ if (value === null || value === undefined) return "—";
+ const u = String(unit || "").toLowerCase();
+ if (u.includes("%") || u.includes("rate") || u.includes("percent")) return `${value.toFixed(1)}%`;
+ if (u.includes("day")) return `${Math.round(value)} days`;
+ if (u.includes("currency") || u.includes("$")) return `$${(value * 12.4).toFixed(0)}k`;
+ return value.toFixed(1);
 }
 
-function displayValue(tile, series) {
- const last = series[series.length - 1];
- const unit = String(tile.unit || "").toLowerCase();
- if (unit.includes("%") || unit.includes("rate") || unit.includes("percent")) return `${last.toFixed(1)}%`;
- if (unit.includes("day")) return `${Math.round(last)} days`;
- if (unit.includes("currency") || unit.includes("$")) return `$${(last * 12.4).toFixed(0)}k`;
- return last.toFixed(1);
-}
+/** Why a tile has no value yet -- `TileData.status` names it, so the tile says so rather than
+ * showing a blank or a zero. */
+const STATUS_MESSAGE = {
+ never_computed: "Not computed yet.",
+ stale: "Data is stale.",
+ failed: "Computation failed.",
+ not_scheduled: "Not on a computation schedule.",
+};
 
-function Tile({ tile, onRenderChange }) {
- const series = useMemo(() => seriesFor(tile.kpiName), [tile.kpiName]);
- const prev = series[series.length - 2];
- const last = series[series.length - 1];
- const delta = prev ? ((last - prev) / prev) * 100 : 0;
- const up = delta >= 0;
+function Tile({ tile, data, onChartChange, chartDisabled }) {
+ const value = data?.value ?? null;
+ // A `SeriesPoint.value` of `null` means the formula returned NULL for that date -- a real
+ // gap, not a zero -- so it's dropped rather than charted as 0 (`dashboards/data.py`'s own
+ // docstring draws this line between "no row" and "row with a NULL value").
+ const series = (data?.series || []).filter((p) => p.value != null);
+ const rows = data?.rows || [];
+ const hasTrend = series.length > 1;
+ // A `table` chart with a `grain_value` (or whose gold read is a single row) collapses to a
+ // scalar `value` with `rows: []` -- verified against a real dashboard while wiring this
+ // (`dashboards/data.py`'s `_tile_data`: `target_row` resolved, so `table_rows` stays empty).
+ // Showing "no rows" there would bury a real number; the scalar line covers it instead.
+ const showScalar = tile.chart !== "table" || rows.length === 0;
 
  return (
   <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
    <div className="flex items-start justify-between gap-2">
     <div className="min-w-0">
-     <p className="truncate text-sm font-semibold text-text-primary">{tile.kpiName}</p>
-     {tile.subjectArea && <p className="text-xs text-text-muted">{tile.subjectArea}</p>}
+     <p className="truncate text-sm font-semibold text-text-primary">{tile.title}</p>
     </div>
     {/* Presentation is a per-tile choice made while looking at the result, which is why it is
-        here and not in the creation modal. */}
+        here and not in the creation modal. The values are the contract's `ChartKind`. */}
     <select
-     aria-label={`Chart type for ${tile.kpiName}`}
-     value={tile.render}
-     onChange={(e) => onRenderChange(e.target.value)}
-     className="shrink-0 rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none"
+     aria-label={`Chart type for ${tile.title}`}
+     value={tile.chart}
+     onChange={(e) => onChartChange(e.target.value)}
+     disabled={chartDisabled}
+     className="shrink-0 rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none disabled:opacity-50"
     >
-     {RENDER_TYPES.map((t) => (
+     {CHART_KINDS.map((t) => (
       <option key={t.value} value={t.value}>{t.label}</option>
      ))}
     </select>
    </div>
 
-   <div className="flex items-baseline gap-2">
-    <span className="text-2xl font-bold tracking-tight text-text-primary">{displayValue(tile, series)}</span>
-    {tile.render !== "stat" && (
-     <span className={`text-xs font-semibold ${up ? "text-status-success" : "text-status-critical"}`}>
-      {up ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
+   {showScalar && (
+    <div className="flex items-baseline gap-2">
+     <span className="text-2xl font-bold tracking-tight text-text-primary">
+      {formatValue(data?.unit, value)}
      </span>
-    )}
-   </div>
-
-   {tile.render === "trend" && (
-    <DemoAreaSpark data={series} viewHeight={34} maxHeight={90} stroke="#6941c6" showGrid={false} showDots={false} />
+     {tile.chart !== "number" && tile.chart !== "table" && data?.delta != null && (
+      <span className={`text-xs font-semibold ${data.delta >= 0 ? "text-status-success" : "text-status-critical"}`}>
+       {data.delta >= 0 ? "▲" : "▼"} {Math.abs(data.delta).toFixed(1)}%
+      </span>
+     )}
+    </div>
    )}
-   {tile.render === "bar" && (
-    <DemoAreaSparkWithAxes data={series.slice(-6)} viewHeight={44} stroke="#6941c6" fillOpacityTop={0.22} />
+
+   {value === null && data?.status && data.status !== "fresh" && (
+    <p className="text-xs text-text-muted">{STATUS_MESSAGE[data.status] || "No data yet."}</p>
+   )}
+
+   {tile.chart === "line" && (
+    hasTrend ? (
+     <DemoAreaSpark
+      data={series.map((p) => p.value)}
+      viewHeight={34}
+      maxHeight={90}
+      stroke="#6941c6"
+      showGrid={false}
+      showDots={false}
+     />
+    ) : (
+     <p className="text-xs text-text-muted">Not enough history yet to chart a trend.</p>
+    )
+   )}
+   {tile.chart === "bar" && (
+    hasTrend ? (
+     <DemoAreaSparkWithAxes
+      data={series.slice(-6).map((p) => p.value)}
+      viewHeight={44}
+      stroke="#6941c6"
+      fillOpacityTop={0.22}
+     />
+    ) : (
+     <p className="text-xs text-text-muted">Not enough history yet to chart a trend.</p>
+    )
+   )}
+   {/* `rows.length === 0` is already covered above: the scalar line (a real single-row
+       result collapsed by the backend, or "-" when there's truly nothing) and the status
+       message when one applies. */}
+   {tile.chart === "table" && rows.length > 0 && (
+    <table className="w-full text-xs">
+     <tbody>
+      {rows.map((row, i) => (
+       <tr key={i} className="border-t border-border">
+        {Object.entries(row).map(([key, cell]) => (
+         <td key={key} className="py-1 text-text-muted first:text-left last:text-right last:font-medium last:text-text-primary">
+          {cell === null || cell === undefined ? "—" : String(cell)}
+         </td>
+        ))}
+       </tr>
+      ))}
+     </tbody>
+    </table>
    )}
   </div>
  );
@@ -102,12 +149,63 @@ function Tile({ tile, onRenderChange }) {
 export default function DashboardView() {
  const { dashboardId } = useParams();
  const navigate = useNavigate();
- const [dashboard, setDashboard] = useState(() => getDashboard(dashboardId));
+ const [dashboardState, setDashboardState] = useState({ status: "loading", dashboard: null, error: null });
+ const [dataState, setDataState] = useState({ status: "loading", byTileId: {}, error: null });
+ const [actionError, setActionError] = useState(null);
+ const [savingChart, setSavingChart] = useState(false);
 
- if (!dashboard) {
+ // `dashboardId` this component is currently showing, readable inside async callbacks that
+ // closed over an older value -- lets `loadData` (and the dashboard fetch) tell a stale
+ // response apart from the current one without a second `cancelled` flag of its own.
+ const currentDashboardIdRef = useRef(dashboardId);
+ currentDashboardIdRef.current = dashboardId;
+
+ const loadData = useCallback((id) => {
+  setDataState({ status: "loading", byTileId: {}, error: null });
+  fetchDashboardData(id)
+   .then((data) => {
+    if (currentDashboardIdRef.current !== id) return;
+    const byTileId = Object.fromEntries((data.tiles || []).map((t) => [t.tile_id, t]));
+    setDataState({ status: "ready", byTileId, error: null });
+   })
+   .catch((error) => {
+    if (currentDashboardIdRef.current !== id) return;
+    setDataState({ status: "error", byTileId: {}, error });
+   });
+ }, []);
+
+ useEffect(() => {
+  let cancelled = false;
+  setDashboardState({ status: "loading", dashboard: null, error: null });
+  // Both requests only need `dashboardId`, so they fire together rather than sequentially
+  // (`/data` used to wait for the dashboard fetch to resolve first, doubling open latency).
+  fetchDashboard(dashboardId)
+   .then((dashboard) => {
+    if (cancelled) return;
+    setDashboardState({ status: "ready", dashboard, error: null });
+   })
+   .catch((error) => {
+    if (!cancelled) setDashboardState({ status: "error", dashboard: null, error });
+   });
+  loadData(dashboardId);
+  return () => {
+   cancelled = true;
+  };
+ }, [dashboardId, loadData]);
+
+ if (dashboardState.status === "loading") {
+  return <p className="text-sm text-text-secondary">Loading dashboard…</p>;
+ }
+
+ if (dashboardState.status === "error") {
+  const notFound = dashboardState.error?.status === 404;
   return (
    <div className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-6 py-16 text-center">
-    <p className="text-sm text-text-secondary">That dashboard no longer exists.</p>
+    <p className="text-sm text-text-secondary">
+     {notFound
+      ? "That dashboard no longer exists."
+      : dashboardState.error?.message || "Couldn't load this dashboard."}
+    </p>
     <button
      type="button"
      onClick={() => navigate("/kpis/dashboards")}
@@ -119,10 +217,45 @@ export default function DashboardView() {
   );
  }
 
- const setRender = (index, value) => {
-  const tiles = dashboard.tiles.map((t, i) => (i === index ? { ...t, render: value } : t));
-  setDashboard(updateDashboard(dashboard.id, { tiles }));
+ const { dashboard } = dashboardState;
+
+ // Every tile's `<select>` is disabled while any chart-type PATCH is in flight (not just the
+ // edited tile's) so a second edit can never fire before the first resolves -- otherwise two
+ // concurrent PATCHes would each build their `tiles` array from the same stale `dashboard`
+ // closure, and whichever resolves second would silently overwrite the other's edit.
+ const setChart = async (tileId, chart) => {
+  setActionError(null);
+  setSavingChart(true);
+  const tiles = tilesToWrite(dashboard.tiles.map((t) => (t.id === tileId ? { ...t, chart } : t)));
+  try {
+   // `DashboardWrite.name` is required on every write, PATCH included (the contract's own
+   // `updateDashboard` example always sends it: `{name: ..., visibility: ...}`) - only
+   // `description`/`tiles`/`filters`/`refresh_schedule`/`visibility` are genuinely optional.
+   const updated = await updateDashboardApi(dashboard.id, { name: dashboard.name, tiles });
+   setDashboardState({ status: "ready", dashboard: updated, error: null });
+   loadData(dashboard.id);
+  } catch (err) {
+   setActionError(err?.message || "Could not change the chart type.");
+  } finally {
+   setSavingChart(false);
+  }
  };
+
+ const handleDelete = async () => {
+  if (!window.confirm(`Delete "${dashboard.name}"?`)) return;
+  setActionError(null);
+  try {
+   await deleteDashboardApi(dashboard.id);
+   navigate("/kpis/dashboards");
+  } catch (err) {
+   setActionError(err?.message || "Could not delete the dashboard.");
+  }
+ };
+
+ // The semantic layer (Neo4j) and warehouse dependencies behind `/data` currently surface as a
+ // raw 500 rather than a graceful 503 (#233's own verified finding, flagged as a backend
+ // follow-up, not fixed here) -- shown as one clear message either way, not a crash.
+ const dataUnavailable = dataState.status === "error";
 
  return (
   <div className="space-y-5">
@@ -140,32 +273,15 @@ export default function DashboardView() {
      <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
       <span className="inline-flex items-center gap-1">
        <RefreshCw size={11} />
-       {labelForRefresh(dashboard.refresh)}
-      </span>
-      <span className="inline-flex items-center gap-1">
-       <Send size={11} />
-       {labelForDelivery(dashboard.delivery)}
+       {labelForRefresh(dashboard.refresh_schedule)}
       </span>
       <span>{dashboard.tiles.length} metrics</span>
      </p>
     </div>
     <div className="flex flex-wrap items-center gap-2">
-     <button type="button" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
-      <Download size={14} />
-      Export
-     </button>
-     <button type="button" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
-      <Mail size={14} />
-      Send now
-     </button>
      <button
       type="button"
-      onClick={() => {
-       if (window.confirm(`Delete "${dashboard.name}"?`)) {
-        deleteDashboard(dashboard.id);
-        navigate("/kpis/dashboards");
-       }
-      }}
+      onClick={handleDelete}
       className="rounded-lg border border-border bg-surface p-2 text-text-muted hover:border-status-critical hover:text-status-critical"
       aria-label="Delete dashboard"
      >
@@ -174,9 +290,34 @@ export default function DashboardView() {
     </div>
    </div>
 
+   {actionError && (
+    <p className="rounded-lg border border-status-critical/30 bg-status-critical/10 px-3 py-2 text-xs font-medium text-status-critical">
+     {actionError}
+    </p>
+   )}
+
+   {dataUnavailable && (
+    <div className="flex items-start gap-2 rounded-lg border border-status-critical/30 bg-status-critical/5 px-3 py-2.5 text-xs text-text-secondary">
+     <AlertTriangle size={15} className="mt-0.5 shrink-0 text-status-critical" />
+     <p>
+      Couldn't reach the data layer for this dashboard's numbers (semantic layer or warehouse
+      unavailable). Tile layout below is real; the values aren't loaded.
+     </p>
+    </div>
+   )}
+
+   {/* The backend mints a fresh `id` for every tile on every write (`dashboards-api.js`'s
+       own docstring), so `key={tile.id}` remounts the whole grid after any chart-type edit --
+       harmless (no local per-tile state to lose) but worth knowing if a tile ever grows one. */}
    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-    {dashboard.tiles.map((tile, i) => (
-     <Tile key={tile.kpiName + i} tile={tile} onRenderChange={(v) => setRender(i, v)} />
+    {dashboard.tiles.map((tile) => (
+     <Tile
+      key={tile.id}
+      tile={tile}
+      data={dataState.byTileId[tile.id]}
+      onChartChange={(chart) => setChart(tile.id, chart)}
+      chartDisabled={savingChart}
+     />
     ))}
    </div>
 

@@ -11,7 +11,6 @@
 *.ruff_cache
 .import_linter_cache
 *.cache*
-*.config*
 
 # Machine specific
 .idea
@@ -43,12 +42,15 @@ wip
 # ignore dist dir
 dist
 
-# Frontend (phase five) and deployment scratch. Note the blanket `*.config*` pattern above:
-# no file under deploy/ may be named `*.config.*` or it is silently untracked.
+# Frontend and deployment scratch. `deploy/**/*.config*` is scoped to deploy/ only: it used
+# to be a repo-wide `*.config*` pattern, which silently untracked frontend/vite.config.js,
+# tailwind.config.js and postcss.config.js too -- nobody could run the frontend from a fresh
+# clone until that was noticed and fixed.
 node_modules/
 frontend/dist/
 frontend/.vite/
 deploy/local/
+deploy/**/*.config*
 kubeconfig*
 
 # ignore virtualenvs
@@ -94,8 +96,11 @@ cookbook/12_context/demo-wiki-web/
 cookbook/12_context/demo-wiki-dual/
 cookbook/12_context/demo-wiki-git/
 
-# AI
-.claude/
+# AI. `.claude/settings.json` is the one tracked file: team-wide Claude Code settings
+# (attribution off). Everything else under .claude/ (settings.local.json, worktrees,
+# scratch) stays personal.
+.claude/*
+!.claude/settings.json
 .cursor/
 .conductor/
 .context/

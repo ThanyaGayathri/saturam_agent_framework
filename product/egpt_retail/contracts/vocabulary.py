@@ -34,11 +34,13 @@ from pathlib import Path
 from typing import Any, Dict, FrozenSet, Iterator, Mapping, Optional, Tuple
 
 __all__ = [
+    "OverlayConflict",
     "Term",
     "TermOrigin",
     "Vocabulary",
     "VocabularySet",
     "aload_vocabulary_set",
+    "build_vocabulary_set",
     "load_vocabulary_set",
     "merge",
 ]
@@ -54,6 +56,16 @@ class TermOrigin(str, Enum):
 
     CORE = "core"
     OVERLAY = "overlay"
+
+
+class OverlayConflict(ValueError):
+    """The overlay tried to remove or redefine a core term (G10).
+
+    A ``ValueError`` still, so every existing ``except ValueError`` keeps working; its own
+    type so a caller that has to answer differently -- the API's 409 for a G10 conflict
+    against its 422 for a malformed term -- can tell the two apart without parsing the
+    message.
+    """
 
 
 @dataclass(frozen=True)
@@ -171,7 +183,7 @@ def merge(core: Vocabulary, overlay: Vocabulary) -> Vocabulary:
             )
             continue
         if existing.description != term.description:
-            raise ValueError(
+            raise OverlayConflict(
                 f"overlay redefines core term {term.value!r} in {core.name!r}. "
                 "An overlay may add and annotate, never redefine (G10) -- raise it as a proposal."
             )
@@ -195,9 +207,11 @@ def _parse(payload: Mapping[str, Any], origin: TermOrigin) -> Dict[str, Vocabula
     return vocabularies
 
 
-def _build(
+def build_vocabulary_set(
     core_payload: Mapping[str, Any], overlay_payload: Optional[Mapping[str, Any]]
 ) -> VocabularySet:
+    """The vocabularies from two already-parsed payloads -- the pure half of
+    :func:`load_vocabulary_set`, for a caller that holds the JSON rather than a path."""
     merged = _parse(core_payload, TermOrigin.CORE)
     if overlay_payload:
         for name, overlay in _parse(overlay_payload, TermOrigin.OVERLAY).items():
@@ -214,12 +228,19 @@ def load_vocabulary_set(
     core_path: Path = CORE_PATH,
     overlay_path: Optional[Path] = None,
 ) -> VocabularySet:
-    """Load the shipped vocabularies, with a customer overlay applied on top if there is one."""
+    """Load the shipped vocabularies, with a customer overlay applied on top if there is one.
+
+    A configured overlay path with nothing behind it yet is an empty overlay, not an error --
+    matching :func:`~egpt_retail.ontology.business_areas.read_overlay`, so a fresh deployment's
+    first request does not crash before its first write.
+    """
     core_payload = json.loads(core_path.read_text())
     overlay_payload = (
-        json.loads(overlay_path.read_text()) if overlay_path is not None else None
+        json.loads(overlay_path.read_text())
+        if overlay_path is not None and overlay_path.exists()
+        else None
     )
-    return _build(core_payload, overlay_payload)
+    return build_vocabulary_set(core_payload, overlay_payload)
 
 
 async def aload_vocabulary_set(
@@ -228,13 +249,14 @@ async def aload_vocabulary_set(
 ) -> VocabularySet:
     """Async variant. Reads are done off the event loop."""
 
-    def _read(path: Path) -> str:
-        return path.read_text()
+    def _read_overlay(path: Path) -> Optional[str]:
+        return path.read_text() if path.exists() else None
 
-    core_payload = json.loads(await asyncio.to_thread(_read, core_path))
-    overlay_payload = (
-        json.loads(await asyncio.to_thread(_read, overlay_path))
+    core_payload = json.loads(await asyncio.to_thread(core_path.read_text))
+    overlay_text = (
+        await asyncio.to_thread(_read_overlay, overlay_path)
         if overlay_path is not None
         else None
     )
-    return _build(core_payload, overlay_payload)
+    overlay_payload = json.loads(overlay_text) if overlay_text is not None else None
+    return build_vocabulary_set(core_payload, overlay_payload)

@@ -10,7 +10,8 @@ import { Sparkles } from "lucide-react";
 import KpiDiscovery from "./KpiDiscovery";
 import KpiDetailPanel from "./KpiDetailPanel";
 import CreateDashboardModal from "./CreateDashboardModal";
-import { createDashboard } from "../../storage/dashboards";
+import { tileWriteFromKpi } from "../../storage/dashboards";
+import { createDashboardApi } from "../../services/dashboards-api";
 import { SUGGESTED_KPI_CANDIDATES, SUGGESTED_KPI_SUGGESTIONS } from "./suggested-candidates";
 import { metricsUnlockedBy } from "../configure/source-model-state";
 
@@ -155,8 +156,12 @@ export default function KpiDiscoveryPage() {
     <CreateDashboardModal
      rows={pendingRows}
      onCancel={() => setPendingRows(null)}
-     onCreate={({ name, refresh, delivery }) => {
-      const created = createDashboard({ name, rows: pendingRows, refresh, delivery });
+     onCreate={async ({ name, refresh, readyRows }) => {
+      const created = await createDashboardApi({
+       name: String(name || "").trim() || "Untitled dashboard",
+       refresh_schedule: refresh,
+       tiles: readyRows.map((row, index) => tileWriteFromKpi(row.kpi, index)),
+      });
       setPendingRows(null);
       navigate(`/kpis/dashboards/${created.id}`);
      }}

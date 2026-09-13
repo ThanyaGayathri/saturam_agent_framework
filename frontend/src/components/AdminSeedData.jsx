@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, Search, ShieldCheck } from "lucide-react";
 import { useDemoProfile } from "../context/DemoProfileContext";
 import { loadKpiRegistry } from "../storage/kpi-registry";
@@ -8,6 +8,7 @@ import { useHiddenSeedRows } from "../hooks/useHiddenSeedRows";
 import { kpiSeedId } from "../domain/seed-ids";
 import { useBusinessAreas } from "../hooks/useBusinessAreas";
 import { usePrototypeAuth } from "../context/PrototypeAuthContext";
+import { fetchDashboardList } from "../services/dashboards-api";
 
 /**
  * Admin surface for seed visibility.
@@ -359,6 +360,70 @@ function seedUseCases(profileId, storageKey) {
   });
 }
 
+// Proves the async fetch pattern end to end against the real API (issue #230/A2) - not a
+// production screen. `POST`/`PUT`/`DELETE` dashboard wiring is issue #233/D2, once the tile
+// shape has been aligned (issue #226/D1).
+//
+// Fetches only on explicit click, never on mount: this is a debug panel on an admin page,
+// not something every visitor should trigger a live backend call for. That also sidesteps
+// `React.StrictMode` (see `main.jsx`) double-invoking a mount effect in dev - there's no
+// mount effect here to double-invoke. A future accessor that copies this pattern for
+// something non-idempotent (a POST/PUT) still needs its own guard against that double-fire;
+// GET is idempotent so it isn't a concern for this one.
+function LiveBackendCheck() {
+  const [state, setState] = useState({ status: "idle" });
+
+  useEffect(() => {
+    if (state.status !== "loading") return undefined;
+    const controller = new AbortController();
+    fetchDashboardList({ signal: controller.signal })
+      .then((dashboards) => setState({ status: "ready", dashboards }))
+      .catch((error) => {
+        // Only swallow an AbortError caused by this effect's own cleanup below - not one
+        // from some other signal, so a future rejection never leaves `state` stuck at
+        // "loading" forever (the button that would let someone retry is hidden while loading).
+        if (error?.name === "AbortError" && controller.signal.aborted) return;
+        setState({ status: "error", error });
+      });
+    return () => controller.abort();
+  }, [state.status]);
+
+  return (
+    <div className="mb-6 rounded-lg border border-border bg-surface-secondary p-3 text-sm">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="font-semibold text-text-primary">
+          Live backend check (<code className="font-mono text-xs">GET /dashboards</code>)
+        </div>
+        {state.status !== "loading" && (
+          <button
+            type="button"
+            onClick={() => setState({ status: "loading" })}
+            className="inline-flex items-center rounded-lg border border-border bg-surface px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-border-light hover:bg-surface-secondary"
+          >
+            {state.status === "idle" ? "Check backend" : "Recheck"}
+          </button>
+        )}
+      </div>
+      {state.status === "idle" && <p className="text-text-muted">Not checked yet.</p>}
+      {state.status === "loading" && <p className="text-text-muted">Loading…</p>}
+      {state.status === "error" && (
+        <p className="text-status-critical">
+          {state.error?.message || "Could not reach the retail API."}
+        </p>
+      )}
+      {state.status === "ready" && (
+        <p className="text-text-secondary">
+          {state.dashboards.length === 0
+            ? "Connected - no dashboards yet."
+            : `Connected - ${state.dashboards.length} dashboard(s): ${state.dashboards
+                .map((d) => `${d.name} (${d.owner})`)
+                .join(", ")}`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 const TAB_BASE = "relative inline-flex items-center gap-2 pb-3 pt-2 text-base font-semibold transition-colors";
 const TAB_ACTIVE = "text-primary";
 const TAB_IDLE = "text-text-muted hover:text-text-secondary";
@@ -416,6 +481,8 @@ export default function AdminSeedData() {
           </p>
         </div>
       </div>
+
+      <LiveBackendCheck />
 
       {!supabaseEnabled && (
         <div className="mb-6 rounded-lg border border-status-warning-border bg-status-warning-light/50 p-3 text-sm text-status-warning">

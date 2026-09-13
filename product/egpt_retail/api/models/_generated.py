@@ -506,10 +506,18 @@ class Recipient(BaseModel):
 
 class RefreshSchedule(Enum):
     """
-    `nightly` follows gold; anything more frequent is capped by how often gold materialises (D7).
+    How often the dashboard's numbers are recomputed -- the declared cadence, stored for the
+    scheduler to honour. `nightly` (the default) follows gold: as soon as the nightly
+    materialisation completes (D7). `daily` is once a day at a fixed morning time (06:00),
+    reading what gold holds. `weekly` is Monday mornings. `hourly` is every hour, capped in
+    practice by how often gold materialises. `manual` is only when asked. Distinct from
+    delivery (who is sent what, and when), which this contract does not yet carry.
+
     """
 
     nightly = "nightly"
+    daily = "daily"
+    weekly = "weekly"
     hourly = "hourly"
     manual = "manual"
 

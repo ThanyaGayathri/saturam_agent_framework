@@ -204,6 +204,25 @@ def test_require_scopes_refuses_a_caller_missing_a_scope():
 
 
 # ---------------------------------------------------------------------------
+# caller_scopes -- the extraction require_scopes and kpis.py's _may_read_sql both
+# read off, so the two can't drift on the getattr defaults (round-2 review)
+# ---------------------------------------------------------------------------
+
+
+def test_caller_scopes_defaults_to_empty_when_state_carries_neither():
+    from egpt_retail.app.scopes import caller_scopes
+
+    assert caller_scopes(_FakeRequest()) == ([], None)
+
+
+def test_caller_scopes_reads_scopes_and_admin_scope_off_request_state():
+    from egpt_retail.app.scopes import caller_scopes
+
+    request = _FakeRequest(scopes=["kpis:read", "kpis:write"], admin_scope="tenant:*")
+    assert caller_scopes(request) == (["kpis:read", "kpis:write"], "tenant:*")
+
+
+# ---------------------------------------------------------------------------
 # _owner -- round-1 review: a valid, scoped token with no `sub` claim must not
 # collapse onto the shared "local" owner
 # ---------------------------------------------------------------------------

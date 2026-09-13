@@ -5551,3 +5551,151 @@ localhost:5834/ai`) to confirm the CI wiring points at real, passing tests befor
 CI to prove it.
 
 ---
+
+### K09_business_areas.py -- GET/PUT /business-areas on the real server (issue #225 / B3)
+
+**Status:** PASS (unit); live section not run here (see below)
+
+**Description:** `GET /business-areas` returned `{"detail":"Not Found"}` on the real API --
+the contract ops (`getBusinessAreas`/`setBusinessAreas`, `paths/configure.yaml`) had domain
+code behind them (`ontology/vocabularies.json`, `semantic/areas.py`, `executors/areas.py`)
+and no router. `frontend/README.md:27` records that business-area labels must come from this
+endpoint, not a constant, and `Kpi.business_area`, dashboard `filters` and the discovery
+screen's grouping all key off it; this is the same vocabulary the "11 prototype areas vs 7
+shipped" gap in #222 is about, closed here by making the endpoint the source of truth.
+
+Three pieces:
+
+- `ontology/business_areas.py` (new, pure) -- the hierarchy: the `business_area` vocabulary
+  (shipped terms plus overlay, through `contracts/vocabulary.build_vocabulary_set`, so G10's
+  description rule is `merge`'s own) plus what a term does not carry -- a label and the
+  subject areas beneath the area -- read from a new `business_area_hierarchy` key next to the
+  vocabulary, in the core file and in an overlay alike. Not on `Term`: a term is one value in
+  *any* closed set, and `grain` has no subject areas. G10 for the annotations: an overlay may
+  add subject areas to a core area and label an area it adds; it may not relabel a core area
+  (`OverlayConflict`, a new `ValueError` subclass `merge` now raises too, so the router can
+  answer 409 for a conflict and 422 for a malformed id without parsing messages).
+  `apply_overlay` is what `PUT` writes: the overlay's *own* business-area contribution
+  replaced, everything else in the file (concepts, relations, other vocabularies) untouched,
+  and the result run back through the loader before it is returned. `write_overlay` is
+  atomic (temp file + `os.replace`). Sync and async loaders and writers.
+- `ontology/vocabularies.json` -- `business_area_hierarchy` for the 7 shipped areas: labels
+  and the subject areas the contract's own `getBusinessAreas` example names for the six it
+  shares (`operations` gets the store-side three). Version left at `1.3.0`: additive, and
+  `contracts/_fixtures/r3_contract.json` pins that string.
+- `api/routers/business_areas.py` (new), mounted in `app/factory.py` -- `GET /business-areas
+  [?supported=true]` (`config:read`) and `PUT /business-areas` (`configure:write`).
+  `supported` is K9's answer and nothing else: `evidence_from_mappings(ontology,
+  store.mapped_concepts())` -> `detect_areas`, the computation `detect_business_areas` runs as
+  a workflow step, in one graph round trip. A graph that cannot be asked (URI unset,
+  `SemanticReadError`, the driver's own `ServiceUnavailable`/auth errors) is **503**, not
+  "every area unsupported" -- unsupported is a claim about the data, and an unreachable graph
+  cannot make it (the stub takes the same line). `PUT` with no `EGPT_RETAIL_ONTOLOGY_OVERLAY`
+  configured is 503 naming the setting; a G10 conflict 409; a malformed id 422; nothing is
+  written on any refusal.
+
+### R13_dashboards.py -- series and delta from gold history (issue #227 / E1)
+
+**Status:** PASS (unit); live section not run here (see below)
+
+**Description:** Closes the two gaps the original R13 entry recorded as "deliberately not
+built": `series` shipped empty for every `line`/`bar` tile and `delta` always shipped `null`.
+Issue #227's own correction holds -- `gold.kpi_value` is keyed on `(kpi_identifier, as_of,
+dimension)` and keeps every nightly row, so this was a *reader* gap, not a storage gap.
+
+Three pieces, each staying on the seam the previous entries chose:
+
+- `warehouse/gold.py:read_gold_history_statement` -- the pure statement builder next to
+  `read_gold_statement`: the same per-KPI view, `WHERE as_of > :since AND as_of <= :as_of`,
+  the same whole-row ordering (so rows come back oldest business date first). Bounded above
+  as well as below, so a reader pinned to an older `as_of` never sees rows materialised
+  after it.
+- `executors/gold.py:read_gold` -- a new optional `additional_data["history_days"]`. When
+  set, each KPI's history is read through the *same* guard, engine and provenance path as the
+  current-date read and returned under `values[identifier]["history"]` in the same serialised
+  row shape (`value` as `str`, not `float` -- gold's `numeric` choice honoured on the way
+  out). Additive: every other `read_gold` caller (R11 playground, R12 alerts, R10 RFQ) passes
+  no `history_days` and sees exactly the output it saw before. A history read the guard
+  refuses or the warehouse fails is logged and yields an empty `history`; the current value
+  is never lost to a problem with its trend.
+- `dashboards/data.py` -- `read_dashboard_data` asks for `SERIES_LOOKBACK_DAYS` (30) of
+  history only when at least one tile is not a `table`, so a table-only dashboard costs
+  exactly what it did. `_tile_data` resolves each history date's row with the *same* rule as
+  the current date (`grain_value` match, or the single `overall` row) -- a series is made of
+  the rows the number tile would have shown each night. `line`/`bar` tiles get one
+  `SeriesPoint` per business date that had a row for the tile's grain (a night with no row
+  for that dimension is left out, not plotted as `null`, because `null` means the formula
+  returned NULL -- a different fact). Every tile that resolved a current value gets `delta`
+  = current minus the previous *resolved* date's value, computed in `Decimal` from gold's
+  `str` values and converted to `float` once: `0.91 - 0.93` in binary float is
+  `-0.020000000000000018`, which is precisely what the DDL's `numeric` exists to keep away
+  from a customer. One materialised night: `delta: null`, nothing invented.
+
+**Result (unit, DB-free -- what ran in this environment):**
+
+```
+product/tests/test_k9_business_areas_api.py   33 new, all pass
+  hierarchy   core: every term, label, subject areas, version; overlay adds an area
+              (origin overlay, own label/subject areas; label derived when absent);
+              overlay annotates a core area (subject-area union, idempotent);
+              overlay may not redefine a core description (OverlayConflict) nor
+              relabel a core area (OverlayConflict); unknown area in an annotation is
+              ValueError, not a conflict; `_`-prefixed keys are comments
+  PUT payload replaces only the overlay's business areas, keeps concepts/relations/
+              other vocabularies; [] clears its contribution; from no overlay ->
+              minimal payload; naming a core area with its own values is a no-op;
+              409-class conflicts vs 422-class malformed (bad id, duplicate);
+              atomic write round-trips, no temp file left; missing file -> no overlay
+  router      GET shape/order/labels/subject areas/origin, supported from the pinned
+              graph answer; ?supported=true filters; overlay reflected; 503 on
+              RuntimeError and on neo4j ServiceUnavailable; 503 on a broken overlay
+              file; PUT round trip visible to the next GET; PUT keeps overlay
+              concepts; 409 writes nothing; 422 writes nothing; 503 without an
+              overlay configured; scopes are the contract's (403 without them);
+              factory mounts the router
+pytest product/tests                           1076 passed, 53 skipped
+                                               (test_r4_storage deselected: Azure Blob SDK,
+                                               unrelated, the pre-existing gap #236 records)
+```
+
+**Not run here, and why.** No reachable Docker daemon in this session's container, so no
+Neo4j: the K09 cookbook's new section 7 -- `GET` over the real router must name exactly the
+areas the direct detection names against the real graph, `PUT` adds `store_ops` against a
+scratch copy of the middleby overlay (never the tracked file), a core redefinition answers
+409, an empty `PUT` clears it -- is written and lints, and is owed a run on a machine with
+the stack up. Recorded as owed, not claimed.
+
+**Result (unit, DB-free -- what ran in this environment):**
+
+```
+product/tests/test_r5_gold.py           +1  read_gold_history_statement shape, both bounds,
+                                            whole-row order, no `ORDER BY 1`
+product/tests/test_r13_dashboards.py    +9  line/bar tile -> one point per night + exact
+                                            delta; number tile -> delta but empty series;
+                                            table listing -> neither; grain-scoped series
+                                            follows the tile's row and skips a night without
+                                            it (delta then reads back to the previous
+                                            *resolved* night, not the previous calendar
+                                            night); single night -> delta null; no `history`
+                                            key at all -> renders exactly as before; a NULL
+                                            formula result in the history -> a null point,
+                                            and no delta invented across it;
+                                            read_dashboard_data passes history_days only
+                                            when a tile can use it
+pytest product/tests                    all green (test_r4_storage deselected: Azure Blob
+                                            SDK, unrelated, same pre-existing gap PR #236
+                                            records)
+```
+
+**Not run here, and why.** This session's container has no reachable Docker daemon, so the
+compose Postgres/Neo4j stack and therefore the real `read_gold` path (semantic reader, guard,
+warehouse) could not be exercised. The cookbook's section 5 now adds a third, `line` tile on
+the same real grain row and checks its `series` has one point per distinct `as_of` the
+warehouse holds for that dimension in the 30-day window (counted directly with SQL, not
+assumed), and that `delta` is present when there are two or more nights and `null` when
+there is one. The previous entry's live re-verification found exactly two nights
+(`2026-09-10`, `2026-09-11`) for both `rfq__*` KPIs in the shared local stack, which is the
+state issue #227 verified against and the state this section is written to confirm. That
+run is owed on a machine with the stack up; recorded here rather than claimed.
+
+---
