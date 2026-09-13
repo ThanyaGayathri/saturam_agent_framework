@@ -549,6 +549,10 @@ async def _read_history(
     same guard the current-date read passed. Empty, with a log line, when the guard refuses or
     the read fails -- the caller already holds the current value and must not lose it.
 
+    A second real read of ``gold.kpi_<identifier>``, so it notes all three of R7's bag the
+    current-date read does on success: ``note_sql_execution``, ``note_dataset_read``, and --
+    when the rows carry a ``computed_at`` -- ``note_freshness``.
+
     Runs as its own transaction (``_fetch_gold_rows`` opens a fresh ``engine.begin()``),
     separate from the current-date read that precedes it -- even though this window's upper
     bound (``as_of <= :as_of``) re-reads that same date's row a second time. A same-night
@@ -582,6 +586,20 @@ async def _read_history(
         duration_ms=int((datetime.now(timezone.utc) - started).total_seconds() * 1000),
         guard="allowed",
     )
+    note_dataset_read(
+        step_input,
+        table=gold_view(identifier),
+        schema=GOLD_SCHEMA,
+        as_of=as_of.isoformat(),
+    )
+    if rows:
+        computed = max(row["computed_at"] for row in rows)
+        note_freshness(
+            step_input,
+            table=gold_view(identifier),
+            as_of=as_of.isoformat(),
+            computed_at=computed.isoformat(),
+        )
     return [_serialise_gold_row(row) for row in rows]
 
 

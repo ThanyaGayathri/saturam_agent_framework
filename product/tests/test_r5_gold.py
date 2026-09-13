@@ -62,7 +62,12 @@ from egpt_retail.warehouse.gold import (
     view_statements,
 )
 from egpt_retail.warehouse.health import classify_health
-from egpt_retail.warehouse.schema import DDL_SCRIPTS, GOLD_TABLES, gold_view
+from egpt_retail.warehouse.schema import (
+    DDL_SCRIPTS,
+    GOLD_SCHEMA,
+    GOLD_TABLES,
+    gold_view,
+)
 
 _REGISTRY_DOC = (
     Path(__file__).resolve().parents[1]
@@ -372,9 +377,7 @@ class _FakeGuard:
 
     def check(self, statement):
         if self._refuse(statement):
-            raise SQLGuardRefusal(
-                "refused for test", check="test", statement=statement
-            )
+            raise SQLGuardRefusal("refused for test", check="test", statement=statement)
         return ("gold.kpi_k1",)
 
 
@@ -439,6 +442,34 @@ def test_read_gold_reads_and_serialises_history_like_the_current_row(monkeypatch
         "binary-rounding bug the DDL's numeric type exists to prevent comes back"
     )
 
+    # The history read is a second real SQL read of the same gold view, so it must note all
+    # three of R7's bag on success, same as the current-date read a few lines up in
+    # `read_gold` -- not just `note_sql_execution`.
+    prov = step_input.additional_data["prov"]
+    assert len(prov["sql_executed"]) == 2, (
+        "both the current-date read and the history read must note_sql_execution"
+    )
+    assert all(entry["guard"] == "allowed" for entry in prov["sql_executed"])
+    gold_datasets = [
+        entry for entry in prov["datasets_read"] if entry["table"] == gold_view("k1")
+    ]
+    assert len(gold_datasets) == 2, (
+        "the history read must note_dataset_read alongside note_sql_execution, same as the "
+        "current-date read"
+    )
+    assert all(entry["schema"] == GOLD_SCHEMA for entry in gold_datasets)
+    gold_freshness = [
+        entry for entry in prov["freshness"] if entry["table"] == gold_view("k1")
+    ]
+    assert len(gold_freshness) == 2, (
+        "the history read must note_freshness from its rows' computed_at, same as the "
+        "current-date read"
+    )
+    assert all(
+        entry["computed_at"] == CURRENT_ROW["computed_at"].isoformat()
+        for entry in gold_freshness
+    )
+
 
 def test_read_gold_history_for_narrows_which_identifiers_get_the_second_read(
     monkeypatch,
@@ -492,7 +523,7 @@ def test_read_gold_history_read_failure_empties_history_but_keeps_the_current_va
 ):
     def respond(sql, params):
         if "since" in params:
-            raise RuntimeError("relation \"gold.kpi_k1\" does not exist")
+            raise RuntimeError('relation "gold.kpi_k1" does not exist')
         return [CURRENT_ROW]
 
     _patch_read_gold(monkeypatch, respond=respond)
