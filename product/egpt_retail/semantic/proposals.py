@@ -767,7 +767,14 @@ class ProposalStore:
         Mirrors :meth:`apply_accepted`'s own failure path so a consumer other than the graph
         (K11's KPI registry) can surface a failed adoption the same way: the proposal stays
         ``accepted`` and unapplied, and the next sweep of its kind retries it.
+
+        Rolls back first: this is the recovery path a caller reaches for right after some
+        other statement on this same connection raised, and Postgres refuses every further
+        statement on a connection until its aborted transaction is rolled back -- without
+        this, recording the very failure that got us here would itself fail. A no-op when
+        the connection has no open transaction to roll back.
         """
+        self._connection.rollback()
         with self._connection.cursor() as cursor:
             cursor.execute(
                 f"UPDATE {self._schema}.proposal SET apply_error = %s WHERE id = %s",

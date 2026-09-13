@@ -686,6 +686,16 @@ class KpiRegistryStore:
         exception attributing to whichever caller's accept happened to trigger the sweep rather
         than to the row actually at fault. Recording the failure on the proposal that caused it
         and continuing is strictly more informative than raising once for the whole batch.
+
+        The ``try`` covers ``mark_applied`` too, not just validation and ``save`` -- a DB-level
+        write failure there (a connection blip, not a bad payload) is exactly as attributable to
+        this one proposal as a validation failure is, and leaving it uncovered would let it
+        escape the loop, abandon every later pending proposal this sweep with nothing recorded,
+        and resurface the identical misattribution one layer up in ``_adopt_if_kpi``'s own
+        fallback. ``record_apply_error`` rolls back before writing for the same reason: a raise
+        from ``mark_applied`` leaves ``proposals``' connection mid-aborted-transaction, and
+        Postgres refuses every further statement on it -- including the one recording that very
+        failure -- until it is rolled back.
         """
         from egpt_retail.semantic.proposals import (
             ProposalKind,
@@ -706,11 +716,11 @@ class KpiRegistryStore:
             try:
                 definition = validate_payload(ProposalKind.KPI, proposal.payload)
                 self.save(definition)
+                proposals.mark_applied(proposal.identifier)
             except Exception as error:  # noqa: BLE001 -- recorded on its own proposal, not swallowed
                 message = f"{type(error).__name__}: {error}"
                 proposals.record_apply_error(proposal.identifier, message)
                 continue
-            proposals.mark_applied(proposal.identifier)
             adopted.append(definition.identifier)
         return tuple(adopted)
 

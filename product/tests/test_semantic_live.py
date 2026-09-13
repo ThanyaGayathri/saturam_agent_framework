@@ -941,6 +941,148 @@ class TestP3Verification:
         finally:
             registry.delete("livetest_kpi__good_area")
 
+    def test_the_bad_proposal_is_isolated_regardless_of_pending_order(
+        self, proposals: ProposalStore, control_plane: Any
+    ) -> None:
+        """Same isolation as above, ``[good, bad]`` this time -- pins per-proposal isolation
+        rather than a mutation that only ever attributes to ``pending[0]``."""
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        good = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__good_area_2",
+            payload={
+                "identifier": "livetest_kpi__good_area_2",
+                "name": "Good area",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "customer",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        bad = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__bad_area_2",
+            payload={
+                "identifier": "livetest_kpi__bad_area_2",
+                "name": "Bad area",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "not_a_real_business_area",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        proposals.propose_many([good, bad])
+        proposals.accept([good.identifier, bad.identifier], "livetest_reviewer")
+        try:
+            adopted = registry.adopt_accepted(proposals)
+            assert adopted == ("livetest_kpi__good_area_2",)
+
+            good_row = proposals.get(good.identifier)
+            assert good_row is not None
+            assert good_row.applied_at is not None
+            assert good_row.apply_error is None
+
+            bad_row = proposals.get(bad.identifier)
+            assert bad_row is not None
+            assert bad_row.applied_at is None
+            assert bad_row.apply_error is not None
+        finally:
+            registry.delete("livetest_kpi__good_area_2")
+
+    def test_two_bad_kpi_proposals_each_get_their_own_apply_error(
+        self, proposals: ProposalStore, control_plane: Any
+    ) -> None:
+        """Two distinct bad payloads must not be conflated into one generic failure -- each
+        row's ``apply_error`` names its own actual problem."""
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        bad_area = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__bad_area_3",
+            payload={
+                "identifier": "livetest_kpi__bad_area_3",
+                "name": "Bad area",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "not_a_real_business_area",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        bad_grain = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__bad_grain_3",
+            payload={
+                "identifier": "livetest_kpi__bad_grain_3",
+                "name": "Bad grain",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "not_a_real_grain",
+                "business_area": "customer",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        proposals.propose_many([bad_area, bad_grain])
+        proposals.accept(
+            [bad_area.identifier, bad_grain.identifier], "livetest_reviewer"
+        )
+        adopted = registry.adopt_accepted(proposals)
+        assert adopted == ()
+
+        area_row = proposals.get(bad_area.identifier)
+        assert area_row is not None and area_row.apply_error is not None
+        assert "not_a_real_business_area" in area_row.apply_error
+
+        grain_row = proposals.get(bad_grain.identifier)
+        assert grain_row is not None and grain_row.apply_error is not None
+        assert "not_a_real_grain" in grain_row.apply_error
+        assert grain_row.apply_error != area_row.apply_error
+
+    def test_record_apply_error_recovers_from_an_aborted_transaction(
+        self, proposals: ProposalStore, control_plane: Any
+    ) -> None:
+        """Round-3 review's Critical finding: a write failure inside ``adopt_accepted``'s
+        per-proposal loop (e.g. ``mark_applied`` itself raising on a connection blip, not a
+        bad payload) leaves Postgres refusing every further statement on that same connection
+        -- including the one recording that very failure -- until the aborted transaction is
+        rolled back. Reproduces the aborted state directly (a runtime error inside a query,
+        the same way a real write failure would leave it) rather than mocking a DB failure."""
+        proposal = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__poisoned",
+            payload={
+                "identifier": "livetest_kpi__poisoned",
+                "name": "Poisoned",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "customer",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        proposals.propose(proposal)
+        proposals.accept([proposal.identifier], "livetest_reviewer")
+
+        with pytest.raises(Exception):
+            with control_plane.cursor() as cursor:
+                cursor.execute("SELECT 1/0")
+
+        # Without record_apply_error's own rollback, this statement would itself raise
+        # InFailedSqlTransaction rather than recording anything.
+        proposals.record_apply_error(proposal.identifier, "simulated DB failure")
+
+        row = proposals.get(proposal.identifier)
+        assert row is not None
+        assert row.apply_error == "simulated DB failure"
+        assert row.applied_at is None
+
     def test_refresh_puts_a_registered_kpi_into_review_and_stamps_the_rest(
         self, control_plane: Any, driver: Any
     ) -> None:
