@@ -141,11 +141,13 @@ def _cors_headers_for_error(request: Request) -> dict:
         if middleware.cls is CORSMiddleware:
             allow_origins = middleware.kwargs.get("allow_origins", [])
             if "*" in allow_origins or origin in allow_origins:
-                return {
-                    "access-control-allow-origin": origin,
-                    "access-control-allow-credentials": "true",
-                    "vary": "Origin",
-                }
+                headers = {"access-control-allow-origin": origin, "vary": "Origin"}
+                # Read off the live middleware config rather than assuming: harmless today only
+                # because `update_cors_middleware` unconditionally passes `allow_credentials=True`,
+                # but that's flagged there as likely to become configurable.
+                if middleware.kwargs.get("allow_credentials", False):
+                    headers["access-control-allow-credentials"] = "true"
+                return headers
             return {}
     return {}
 
@@ -201,11 +203,16 @@ def _register_exception_handlers(base_app: FastAPI) -> None:
         import traceback
 
         log_error(f"Unhandled exception:\n{traceback.format_exc(limit=5)}")
+        # `str(exc)` is not returned here (unlike the framework default this mirrors): this is
+        # retail's externally-reachable API, and its routers touch a Postgres control-plane DB,
+        # JWKS/auth config and downstream LLM providers -- any of which can raise an exception
+        # whose string form embeds a connection string, file path or credential-shaped value.
+        # The real detail is still logged above for anyone with server access.
         # This one handler runs outside `CORSMiddleware` regardless of origin (see
         # `_cors_headers_for_error`'s docstring) -- every other handler above does not need this.
         return JSONResponse(
             status_code=getattr(exc, "status_code", 500),
-            content={"detail": str(exc)},
+            content={"detail": "Internal server error."},
             headers=_cors_headers_for_error(request),
         )
 
