@@ -7,6 +7,7 @@ does that needs no Postgres. The store's own behaviour (`_decide`'s one-way stat
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -78,9 +79,19 @@ class _FakeProposalStore:
 
     def __init__(self, proposals: Sequence[Proposal] = ()):
         self._by_id: Dict[str, Proposal] = {p.identifier: p for p in proposals}
+        self.get_many_calls = 0
+        self.apply_errors: Dict[str, str] = {}
 
     def get(self, identifier: str) -> Optional[Proposal]:
         return self._by_id.get(identifier)
+
+    def get_many(self, identifiers: Sequence[str]) -> Tuple[Proposal, ...]:
+        self.get_many_calls += 1
+        return tuple(p for i in identifiers if (p := self._by_id.get(i)) is not None)
+
+    def record_apply_error(self, identifier: str, message: str) -> None:
+        self.apply_errors[identifier] = message
+        self._by_id[identifier] = replace(self._by_id[identifier], apply_error=message)
 
     def list(
         self,
@@ -144,11 +155,14 @@ class _FakeKpiRegistryStore:
     unapplied KPI proposal in the store it is given -- the one real effect this router relies
     on, without a real registry table behind it."""
 
-    def __init__(self):
+    def __init__(self, raises: Optional[Exception] = None):
         self.adopt_calls = 0
+        self._raises = raises
 
     def adopt_accepted(self, proposals: _FakeProposalStore) -> Tuple[str, ...]:
         self.adopt_calls += 1
+        if self._raises is not None:
+            raise self._raises
         adopted = []
         for proposal in proposals.list(
             state=ReviewState.ACCEPTED, kind=ProposalKind.KPI
@@ -228,8 +242,26 @@ def test_list_filters_by_state():
         state=semantic_module.wire.ProposalDecision.accepted, store=store
     )
     assert [p.id for p in result.proposals] == ["p1"]
+    # counts are totals across every state, not scoped to the `state` filter that
+    # narrowed `proposals` above.
     assert result.counts.accepted == 1
-    assert result.counts.pending == 0
+    assert result.counts.pending == 1
+
+
+def test_list_counts_are_totals_not_the_state_filtered_subset():
+    accepted = _kpi_proposal(identifier="p1", state=ReviewState.ACCEPTED)
+    pending = _use_case_proposal(identifier="p2")
+    rejected = _kpi_proposal(identifier="p3", state=ReviewState.REJECTED)
+    store = _FakeProposalStore([accepted, pending, rejected])
+
+    result = list_semantic_proposals(
+        state=semantic_module.wire.ProposalDecision.pending, store=store
+    )
+
+    assert [p.id for p in result.proposals] == ["p2"]
+    assert result.counts.pending == 1
+    assert result.counts.accepted == 1
+    assert result.counts.rejected == 1
 
 
 def test_list_maps_payload_and_state_faithfully():
@@ -291,6 +323,25 @@ def test_accepting_an_already_decided_proposal_409s():
     assert "already rejected" in excinfo.value.detail
     assert "dana" in excinfo.value.detail
     assert kpi_store.adopt_calls == 0
+
+
+def test_accepting_a_kpi_proposal_survives_a_failed_adopt_sweep():
+    """A raise from `adopt_accepted` must not 500 a decision `store.accept` already
+    committed -- it's caught and recorded as this proposal's `apply_error` instead."""
+    store = _FakeProposalStore([_kpi_proposal()])
+    kpi_store = _FakeKpiRegistryStore(
+        raises=ValueError("business_area no longer valid")
+    )
+    request = _FakeRequest(authorization_enabled=False)
+
+    result = accept_semantic_proposal(
+        "prop_kpi_1", request, store=store, kpi_store=kpi_store
+    )
+
+    assert result.state.value == "accepted"
+    assert result.applied_at is None
+    assert result.apply_error is not None
+    assert "business_area no longer valid" in result.apply_error
 
 
 def test_accept_attributes_the_reviewer_from_the_request():
@@ -376,6 +427,40 @@ def test_bulk_accept_is_not_atomic_a_refused_id_does_not_block_the_rest():
     assert result.refused[0].decided_by == "dana"
     # the one live KPI id still adopted, despite the other id in the same request refusing.
     assert kpi_store.adopt_calls == 1
+
+
+def test_bulk_accept_refetches_decided_proposals_in_one_batched_call():
+    store = _FakeProposalStore([_kpi_proposal(), _use_case_proposal()])
+    kpi_store = _FakeKpiRegistryStore()
+    request = _FakeRequest(authorization_enabled=False)
+    body = semantic_module.wire.BulkProposalDecisionRequest(
+        ids=["prop_kpi_1", "prop_uc_1"]
+    )
+
+    accept_semantic_proposals_bulk(body, request, store=store, kpi_store=kpi_store)
+
+    # One `get_many` for `_adopt_if_kpi`'s kind check, one for the refetch -- not one
+    # `get`/`_refetch` per decided id.
+    assert store.get_many_calls == 2
+
+
+def test_bulk_accept_survives_a_failed_adopt_sweep_for_every_decided_kpi():
+    store = _FakeProposalStore(
+        [_kpi_proposal(), _kpi_proposal(identifier="prop_kpi_2")]
+    )
+    kpi_store = _FakeKpiRegistryStore(raises=ValueError("registry unavailable"))
+    request = _FakeRequest(authorization_enabled=False)
+    body = semantic_module.wire.BulkProposalDecisionRequest(
+        ids=["prop_kpi_1", "prop_kpi_2"]
+    )
+
+    result = accept_semantic_proposals_bulk(
+        body, request, store=store, kpi_store=kpi_store
+    )
+
+    assert result.refused == []
+    assert {p.id for p in result.proposals} == {"prop_kpi_1", "prop_kpi_2"}
+    assert all(p.applied_at is None and p.apply_error for p in result.proposals)
 
 
 def test_bulk_accept_skips_the_adopt_sweep_when_nothing_decided_was_a_kpi():

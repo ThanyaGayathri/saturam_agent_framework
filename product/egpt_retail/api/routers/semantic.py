@@ -21,7 +21,7 @@ decision. The response's ``applied_at`` says which happened; nothing here preten
 
 from __future__ import annotations
 
-from typing import Iterator, List, Optional, Sequence
+from typing import Iterable, Iterator, List, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -125,6 +125,20 @@ def _single_refusal_detail(refusal: Refusal) -> str:
     return detail
 
 
+def _dedupe(proposal_batches: Iterable[Sequence[Proposal]]) -> List[Proposal]:
+    """Flatten several ``store.list`` reads into one list, keeping the first occurrence of
+    each id -- needed because ``list_semantic_proposals`` reads once per requested kind."""
+    proposals: List[Proposal] = []
+    seen = set()
+    for batch in proposal_batches:
+        for proposal in batch:
+            if proposal.identifier in seen:
+                continue
+            seen.add(proposal.identifier)
+            proposals.append(proposal)
+    return proposals
+
+
 def _counts(proposals: Sequence[Proposal]) -> wire.ProposalCounts:
     return wire.ProposalCounts(
         pending=sum(1 for p in proposals if p.state is ReviewState.PENDING),
@@ -147,6 +161,20 @@ def _refetch(store: ProposalStore, proposal_id: str) -> Proposal:
     return proposal
 
 
+def _refetch_many(store: ProposalStore, proposal_ids: Sequence[str]) -> List[Proposal]:
+    """The just-decided proposals, re-read in one round trip via ``get_many`` rather than one
+    ``_refetch`` per id, then reordered to match ``proposal_ids`` since a batched
+    ``WHERE id = ANY(%s)`` makes no ordering guarantee of its own."""
+    by_id = {p.identifier: p for p in store.get_many(proposal_ids)}
+    missing = [i for i in proposal_ids if i not in by_id]
+    if missing:  # pragma: no cover -- same invariant as _refetch's docstring
+        raise HTTPException(
+            status_code=500,
+            detail=f"{missing[0]} was decided but could not be re-read.",
+        )
+    return [by_id[i] for i in proposal_ids]
+
+
 def _adopt_if_kpi(
     proposal_ids: Sequence[str],
     store: ProposalStore,
@@ -159,10 +187,27 @@ def _adopt_if_kpi(
     reach is a feature (self-healing) rather than a risk. Skipped entirely when none of the
     ids decided this call were KPI proposals, so a reject or an enrichment/use-case accept
     never pays for a registry round trip it has no stake in.
+
+    By the time this runs, ``store.accept(...)`` has already committed the decision -- on a
+    connection separate from ``kpi_store``'s, so the two writes are not one transaction, a
+    pre-existing gap in ``adopt_accepted`` this router now exercises on every accept rather
+    than an offline batch job (a crash between them just means the next sweep re-adopts, since
+    ``save`` is an idempotent upsert). A raise from the sweep (e.g. a *different*
+    accepted-but-unapplied KPI proposal's payload no longer validates against the current
+    vocabulary) must not turn an already-committed decision into a bare 500 with no retry path
+    -- so it is caught here and recorded as this request's own KPI proposals' ``apply_error``,
+    mirroring how ``apply_accepted`` already reports a failed graph write instead of raising.
     """
-    decided = [store.get(i) for i in proposal_ids]
-    if any(p is not None and p.kind is ProposalKind.KPI for p in decided):
+    decided = store.get_many(proposal_ids)
+    if not any(p.kind is ProposalKind.KPI for p in decided):
+        return
+    try:
         kpi_store.adopt_accepted(store)
+    except Exception as error:  # noqa: BLE001 -- recorded per proposal, not swallowed
+        message = f"{type(error).__name__}: {error}"
+        for proposal in decided:
+            if proposal.kind is ProposalKind.KPI:
+                store.record_apply_error(proposal.identifier, message)
 
 
 # --- routes ------------------------------------------------------------------------------
@@ -177,17 +222,21 @@ def list_semantic_proposals(
 ) -> wire.ProposalList:
     review_state = ReviewState(state.value) if state is not None else None
     kinds = [ProposalKind(k.value) for k in kind] if kind else [None]
-    proposals: List[Proposal] = []
-    seen = set()
-    for one_kind in kinds:
-        for proposal in store.list(state=review_state, kind=one_kind):
-            if proposal.identifier in seen:
-                continue
-            seen.add(proposal.identifier)
-            proposals.append(proposal)
+    proposals = _dedupe(
+        store.list(state=review_state, kind=one_kind) for one_kind in kinds
+    )
+    # Counts are totals "by state" (see ProposalCounts' own schema description) so the review
+    # screen's badge doesn't need a second call -- which only ``proposals`` above already is
+    # when unfiltered by state. Under a state filter, ``proposals`` is that one state's rows,
+    # so counting from it would always report the other two states as zero; an unfiltered read
+    # is needed to get real totals.
+    if review_state is None:
+        counts_source = proposals
+    else:
+        counts_source = _dedupe(store.list(kind=one_kind) for one_kind in kinds)
     return wire.ProposalList(
         proposals=[_proposal_out(p) for p in proposals],
-        counts=_counts(proposals),
+        counts=_counts(counts_source),
     )
 
 
@@ -243,7 +292,7 @@ def accept_semantic_proposals_bulk(
 ) -> wire.ProposalList:
     outcome = store.accept(body.ids, reviewer=_reviewer(request), note=body.note or "")
     _adopt_if_kpi(outcome.decided, store, kpi_store)
-    proposals = [_refetch(store, i) for i in outcome.decided]
+    proposals = _refetch_many(store, outcome.decided)
     return wire.ProposalList(
         proposals=[_proposal_out(p) for p in proposals],
         counts=_counts(proposals),

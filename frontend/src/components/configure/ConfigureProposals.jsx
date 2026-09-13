@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, CheckCircle2, ClipboardList, X } from "lucide-react";
 import { acceptProposal, fetchProposals, rejectProposal } from "../../services/semantic-proposals-api";
 
@@ -143,6 +143,14 @@ export default function ConfigureProposals() {
  const [state, setState] = useState({ status: "loading", proposals: [], error: null });
  const [busyIds, setBusyIds] = useState(() => new Set());
  const [actionError, setActionError] = useState(null);
+ const mountedRef = useRef(true);
+
+ useEffect(() => {
+  mountedRef.current = true;
+  return () => {
+   mountedRef.current = false;
+  };
+ }, []);
 
  useEffect(() => {
   let cancelled = false;
@@ -178,8 +186,11 @@ export default function ConfigureProposals() {
    onApplied(!!updated.applied_at);
    // A brief pause so the "Added to your KPI registry" note is actually seen before the
    // card leaves the list, rather than the accept and the disappearance looking like one
-   // instant, unreadable flash.
-   setTimeout(() => remove(proposal.id), 1100);
+   // instant, unreadable flash. Guarded the same way the fetch effect above guards its own
+   // setState: if the screen was left within that window, this must not update it.
+   setTimeout(() => {
+    if (mountedRef.current) remove(proposal.id);
+   }, 1100);
   } catch (error) {
    setActionError(error?.detail || "Couldn't accept this proposal.");
    setBusy(proposal.id, false);
