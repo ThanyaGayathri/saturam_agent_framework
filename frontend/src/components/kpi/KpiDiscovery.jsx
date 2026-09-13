@@ -190,6 +190,14 @@ const VERDICT_LEAD = {
  * agent's line stays underneath so the proposal itself is still judgeable.
  */
 function SuggestionReasons({ suggestion, bucket }) {
+ if (bucket === "ready" && !suggestion.proposed_sql) {
+  return (
+   <p className="border-l-2 border-status-warning pl-2.5 text-xs text-text-secondary">
+    <span className="font-semibold text-status-warning">No formula was proposed for this one.</span>{" "}
+    The data is there, but the agent didn&apos;t write a query it was confident in.
+   </p>
+  );
+ }
  if (bucket === "ready") {
   return (
    <p className="border-l-2 border-status-info pl-2.5 text-xs text-text-secondary">{suggestion.rationale}</p>
@@ -314,11 +322,12 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
       </span>
      ))
     )}
-    {/* A suggestion can only become a real, governed KPI when it is actually ready: `POST
-        /kpis` validates the formula at construction, and a partial/blocked suggestion either
-        has no `proposed_sql` at all or names tables the semantic layer does not have -- it
-        would 422. "Why can't I adopt this" is answered by the reason lines above instead. */}
-    {row.suggested && bucket === "ready" && (
+    {/* A suggestion can only become a real, governed KPI when it is actually ready AND has a
+        formula: `POST /kpis` validates the formula at construction and requires non-null `sql`,
+        and a `ready` verdict does not guarantee `proposed_sql` -- feasibility is judged purely
+        on table presence, independent of whether the agent wrote a query. "Why can't I adopt
+        this" is answered by the reason lines above instead. */}
+    {row.suggested && bucket === "ready" && row.suggestion.proposed_sql && (
      <button
       type="button"
       disabled={adopting}
@@ -342,7 +351,7 @@ export default function KpiDiscovery({
  onCreateDashboard,
  onOpenDetail,
  onAdopt,
- adoptingId,
+ adoptingIds,
  adoptErrors,
 }) {
  const [selected, setSelected] = useState(() => new Set());
@@ -490,7 +499,7 @@ export default function KpiDiscovery({
            onToggle={() => toggle(rowKey(row))}
            onOpenDetail={onOpenDetail}
            onAdopt={onAdopt}
-           adopting={!!row.suggestion && adoptingId === row.suggestion.identifier}
+           adopting={!!row.suggestion && adoptingIds.has(row.suggestion.identifier)}
            adoptError={row.suggestion && adoptErrors?.[row.suggestion.identifier]}
           />
          ))}

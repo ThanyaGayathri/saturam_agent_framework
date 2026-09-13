@@ -15,6 +15,11 @@
  * A `KpiSuggestion` as a discovery row. Row shape matches `flattenKpiIndexRows` so discovery
  * treats both inputs identically; the suggestion itself rides along untouched for the card to
  * read its reasons, evidence and confidence from.
+ *
+ * `kpiIndex` should be `suggestion.identifier`, not an array position: `categoryIndex`/
+ * `sectionIndex` are both fixed at -1 for every suggestion, so `kpiIndex` is the only thing
+ * that makes `KpiDiscovery.jsx`'s row key unique -- an array position shifts (and remounts every
+ * later card) the moment an earlier suggestion is adopted and removed from the list.
  */
 export function rowFromSuggestion(suggestion, kpiIndex) {
  return {

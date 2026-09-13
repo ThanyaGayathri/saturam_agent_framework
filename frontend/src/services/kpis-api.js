@@ -20,9 +20,9 @@ export function fetchKpiList() {
  * area. This is a synchronous frontier-tier model call inside the request (issue #234's own
  * note: "likely several seconds") - callers need a real loading state, not an instant-response
  * assumption. */
-export function fetchKpiSuggestions(businessArea) {
+export function fetchKpiSuggestions(businessArea, { signal } = {}) {
   const query = businessArea ? `?business_area=${encodeURIComponent(businessArea)}` : "";
-  return apiGet(`/kpis/suggestions${query}`);
+  return apiGet(`/kpis/suggestions${query}`, { signal });
 }
 
 /** `POST /kpis` - `body` is a `KpiWrite`: `{name, description, business_area, grain, sql,
@@ -30,6 +30,6 @@ export function fetchKpiSuggestions(businessArea) {
  * (never persisted) into a real, governed `KpiDefinition`. 422s naming the defect if the
  * formula does not validate (declared parameters vs. placeholders, source tables vs. the
  * formula). */
-export function createKpi(body) {
-  return apiJson("/kpis", "POST", body);
+export function createKpi(body, { signal } = {}) {
+  return apiJson("/kpis", "POST", body, { signal });
 }

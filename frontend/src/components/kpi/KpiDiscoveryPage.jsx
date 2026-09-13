@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useProcesses } from "../../hooks/useProcesses";
@@ -90,9 +90,10 @@ export default function KpiDiscoveryPage() {
   notes: "",
   error: null,
  });
- // Which suggestion (by `identifier`) is mid-adopt, and the last adopt failure per identifier --
- // keyed so one card's 422 doesn't block or hide another's "Add to my metrics".
- const [adoptingId, setAdoptingId] = useState(null);
+ // Which suggestions (by `identifier`) are mid-adopt, and the last adopt failure per identifier --
+ // both keyed by identifier, not a single scalar, so concurrent adopts on two different cards
+ // don't clear or unblock each other's still-pending state.
+ const [adoptingIds, setAdoptingIds] = useState(() => new Set());
  const [adoptErrors, setAdoptErrors] = useState({});
 
  // A single focused area scopes the agent's search; zero or several ask it to range over
@@ -104,6 +105,20 @@ export default function KpiDiscoveryPage() {
  // crash -- the same posture `DashboardsPage.jsx`'s own real-data fetch already takes.
  const [realKpiState, setRealKpiState] = useState({ status: "loading", kpis: [] });
  const [realAreas, setRealAreas] = useState([]);
+
+ // `runSuggestions`/`handleAdopt` are click-triggered, not effects, but they need the same
+ // unmount guard the two effects below already have -- an `AbortController` per in-flight
+ // request, forwarded as `signal` (both `apiGet`/`apiJson` already support one), aborted on
+ // unmount so navigating away mid-request doesn't resolve into a `setState` on a gone component.
+ const suggestAbortRef = useRef(null);
+ const adoptAbortRefs = useRef(new Map());
+ useEffect(
+  () => () => {
+   suggestAbortRef.current?.abort();
+   for (const controller of adoptAbortRefs.current.values()) controller.abort();
+  },
+  []
+ );
 
  useEffect(() => {
   let cancelled = false;
@@ -135,8 +150,11 @@ export default function KpiDiscoveryPage() {
  }, []);
 
  const runSuggestions = () => {
+  suggestAbortRef.current?.abort();
+  const controller = new AbortController();
+  suggestAbortRef.current = controller;
   setSuggestionState({ status: "loading", suggestions: [], notes: "", error: null });
-  fetchKpiSuggestions(suggestBusinessArea)
+  fetchKpiSuggestions(suggestBusinessArea, { signal: controller.signal })
    .then((result) => {
     setSuggestionState({
      status: "ready",
@@ -146,6 +164,7 @@ export default function KpiDiscoveryPage() {
     });
    })
    .catch((err) => {
+    if (err?.name === "AbortError") return;
     setSuggestionState({
      status: "error",
      suggestions: [],
@@ -158,37 +177,55 @@ export default function KpiDiscoveryPage() {
  const handleAdopt = (row) => {
   const suggestion = row.suggestion;
   if (!suggestion?.identifier) return;
-  setAdoptingId(suggestion.identifier);
+  const controller = new AbortController();
+  adoptAbortRefs.current.set(suggestion.identifier, controller);
+  setAdoptingIds((prev) => new Set(prev).add(suggestion.identifier));
   setAdoptErrors((prev) => {
    const next = { ...prev };
    delete next[suggestion.identifier];
    return next;
   });
-  createKpi({
-   identifier: suggestion.identifier,
-   name: suggestion.name,
-   description: suggestion.description,
-   business_area: suggestion.business_area,
-   concept: suggestion.concept ?? null,
-   grain: suggestion.grain,
-   result_shape: suggestion.result_shape,
-   sql: suggestion.proposed_sql,
-   source_tables: suggestion.derived_from_tables || [],
-  })
+  createKpi(
+   {
+    identifier: suggestion.identifier,
+    name: suggestion.name,
+    description: suggestion.description,
+    business_area: suggestion.business_area,
+    concept: suggestion.concept ?? null,
+    grain: suggestion.grain,
+    result_shape: suggestion.result_shape,
+    sql: suggestion.proposed_sql,
+    source_tables: suggestion.derived_from_tables || [],
+   },
+   { signal: controller.signal }
+  )
    .then((created) => {
-    setRealKpiState((prev) => ({ status: "ready", kpis: [...prev.kpis, created] }));
+    // Leave `status` as-is (don't hardcode "ready"): the adopt POST succeeding says nothing
+    // about whether the earlier `GET /kpis` registry fetch above did. Forcing "ready" here would
+    // silently clear a genuine "error" banner for a registry that still never actually loaded.
+    setRealKpiState((prev) => ({ ...prev, kpis: [...prev.kpis, created] }));
     setSuggestionState((prev) => ({
      ...prev,
      suggestions: prev.suggestions.filter((s) => s.identifier !== suggestion.identifier),
     }));
    })
    .catch((err) => {
+    if (err?.name === "AbortError") return;
     setAdoptErrors((prev) => ({
      ...prev,
      [suggestion.identifier]: err?.detail || err?.message || "Couldn't add this KPI.",
     }));
    })
-   .finally(() => setAdoptingId(null));
+   .finally(() => {
+    adoptAbortRefs.current.delete(suggestion.identifier);
+    // Aborted (unmount) means this card is already gone -- skip the now-pointless setState.
+    if (controller.signal.aborted) return;
+    setAdoptingIds((prev) => {
+     const next = new Set(prev);
+     next.delete(suggestion.identifier);
+     return next;
+    });
+   });
  };
 
  const realAreaLabelById = useMemo(
@@ -234,9 +271,11 @@ export default function KpiDiscoveryPage() {
 
  // Live suggestions, mapped to rows the same way the static array used to be. A suggestion the
  // customer just adopted is dropped from `suggestionState.suggestions` in `handleAdopt`, so it
- // does not need filtering again here.
+ // does not need filtering again here. Keyed by `identifier`, not array position: adopting one
+ // suggestion shifts every later index, which would otherwise change every following row's key
+ // (`KpiDiscovery.jsx`'s `rowKey`) and force React to remount those cards instead of reconciling.
  const suggestionRows = useMemo(
-  () => suggestionState.suggestions.map(rowFromSuggestion),
+  () => suggestionState.suggestions.map((s) => rowFromSuggestion(s, s.identifier)),
   [suggestionState.suggestions]
  );
 
@@ -314,7 +353,7 @@ export default function KpiDiscoveryPage() {
     onFocusChange={setFocusAreaIds}
     onOpenDetail={setDetailRow}
     onAdopt={handleAdopt}
-    adoptingId={adoptingId}
+    adoptingIds={adoptingIds}
     adoptErrors={adoptErrors}
     onCreateDashboard={setPendingRows}
    />
