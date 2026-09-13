@@ -50,10 +50,14 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.desc || "-"}</p>
  </section>
  <section className="grid grid-cols-2 gap-3 text-sm">
+ {/* Unit is registry-only: a suggestion has no unit until it is adopted into the registry, so
+     showing a dash here would read as broken rather than as "not yet governed". */}
+ {!detailRow.suggested ? (
  <div>
  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Unit</p>
  <p className="mt-1 text-text-primary">{detailRow.kpi.unit || "-"}</p>
  </div>
+ ) : null}
  {detailRow.kpi.level ? (
  <div>
  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Level</p>

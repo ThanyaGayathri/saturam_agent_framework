@@ -28,13 +28,22 @@ function sourcesFor(kpi) {
  return [...new Set(labels)].sort();
 }
 
-/** Feasibility bucket for a KPI. A real registry KPI (C1, #232) carries the server's own
- * join-aware `feasibility.verdict` -- `ready`/`partial`/`blocked`, the same three ids this
- * bucketing already uses, so it maps straight across. Everything else (seed, suggested) keeps
- * `mappingStatusForKpi`'s local heuristic, unchanged. */
-function bucketFor(kpi) {
- if (kpi.fromRegistry) return kpi.feasibility?.verdict || "blocked";
- const status = mappingStatusForKpi(kpi);
+const BUCKET_IDS = new Set(["ready", "partial", "blocked"]);
+
+/**
+ * Feasibility bucket for a row. A suggestion carries the server's verdict -- a set difference over
+ * source tables that already uses these three words. A real registry KPI (C1, #232) carries the
+ * server's own join-aware `feasibility.verdict` on the KPI itself, the same three ids, so it maps
+ * straight across. Everything else (seed KPIs) is still judged from `mappingStatusForKpi`'s local
+ * dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked.
+ */
+function bucketFor(row) {
+ if (row.suggested) {
+  const verdict = row.suggestion?.feasibility?.verdict;
+  return BUCKET_IDS.has(verdict) ? verdict : "blocked";
+ }
+ if (row.kpi.fromRegistry) return row.kpi.feasibility?.verdict || "blocked";
+ const status = mappingStatusForKpi(row.kpi);
  if (status === "linked") return "ready";
  if (status === "review") return "partial";
  return "blocked";
@@ -52,7 +61,7 @@ const BUCKETS = [
  {
   id: "partial",
   title: "Partially available",
-  blurb: "Computable, but something is stale or only partly mapped. Worth a look before you rely on them.",
+  blurb: "Close, but not yet reliable: a piece is missing, stale or unresolved. Each card names it.",
   Icon: AlertTriangle,
   cls: "bg-status-warning-light text-status-warning border-status-warning-border",
   dot: "bg-status-warning",
@@ -102,6 +111,101 @@ function ProvenanceBadge({ inferred, suggested, fromRegistry }) {
    <Sparkles size={10} />
    Inferred from your data
   </span>
+ );
+}
+
+const CONFIDENCE = {
+ high: { label: "High confidence", cls: "bg-status-success-light text-status-success" },
+ medium: { label: "Medium confidence", cls: "bg-status-warning-light text-status-warning" },
+ low: { label: "Low confidence", cls: "bg-surface-tertiary text-text-secondary" },
+};
+
+/** The agent's own confidence. Not a probability: a hint about which suggestions to read first. */
+function ConfidenceBadge({ level }) {
+ const c = CONFIDENCE[level];
+ if (!c) return null;
+ return (
+  <span
+   title="How strongly the evidence supports this suggestion. Not a probability; read it as which cards to look at first."
+   className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${c.cls}`}
+  >
+   {c.label}
+  </span>
+ );
+}
+
+/**
+ * The tables the formula reads, each marked present or missing from the semantic layer. This is
+ * the evidence behind both reason lines: the agent cites these tables, the executor subtracts them.
+ */
+function EvidenceChips({ suggestion }) {
+ const tables = suggestion.derived_from_tables || [];
+ const missing = new Set(suggestion.feasibility?.missing_tables || []);
+ return (
+  <>
+   {tables.map((table) =>
+    missing.has(table) ? (
+     <span
+      key={table}
+      title="Not in the semantic layer yet"
+      className="inline-flex items-center gap-1 rounded-full border border-status-critical-border bg-status-critical-light px-2 py-0.5 font-mono text-[11px] font-medium text-status-critical"
+     >
+      <XCircle size={10} />
+      {table}
+     </span>
+    ) : (
+     <span
+      key={table}
+      title="Present in the semantic layer"
+      className="inline-flex items-center gap-1 rounded-full bg-surface-tertiary px-2 py-0.5 font-mono text-[11px] font-medium text-text-secondary"
+     >
+      <Database size={10} />
+      {table}
+     </span>
+    )
+   )}
+   {tables.length > 1 && (
+    <span
+     title="Reads more than one table. Whether they join is checked by the executor, not assumed by the agent."
+     className="inline-flex items-center gap-1 rounded-full border border-status-warning-border bg-status-warning-light px-2 py-0.5 text-[11px] font-semibold text-status-warning"
+    >
+     <GitMerge size={10} />
+     Joins {tables.length}
+    </span>
+   )}
+  </>
+ );
+}
+
+const VERDICT_LEAD = {
+ partial: { text: "One piece short.", bar: "border-status-warning", lead: "text-status-warning" },
+ blocked: { text: "Needs data you haven't connected.", bar: "border-status-critical", lead: "text-status-critical" },
+};
+
+/**
+ * The two reasons a suggestion arrives with, kept apart because they come from different places.
+ * `rationale` is the agent's: why this metric follows from these tables. `feasibility.rationale`
+ * is the executor's: whether those tables are actually here. When the verdict is negative the
+ * executor's line leads, because "why you can't have it yet" is the one a person can act on; the
+ * agent's line stays underneath so the proposal itself is still judgeable.
+ */
+function SuggestionReasons({ suggestion, bucket }) {
+ if (bucket === "ready") {
+  return (
+   <p className="border-l-2 border-status-info pl-2.5 text-xs text-text-secondary">{suggestion.rationale}</p>
+  );
+ }
+ const v = VERDICT_LEAD[bucket];
+ return (
+  <div className="space-y-1.5">
+   <p className={`border-l-2 pl-2.5 text-xs text-text-secondary ${v.bar}`}>
+    <span className={`font-semibold ${v.lead}`}>{v.text}</span>{" "}
+    {suggestion.feasibility?.rationale || "The feasibility check did not run for this suggestion."}
+   </p>
+   <p className="pl-3 text-xs text-text-muted">
+    <span className="font-semibold">Why it was proposed:</span> {suggestion.rationale}
+   </p>
+  </div>
  );
 }
 
@@ -156,29 +260,33 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt }) {
     <p className="text-xs text-text-secondary line-clamp-2">{kpi.desc || kpi.description}</p>
    )}
 
-   {/* Why we proposed it. Without this a suggestion is an assertion, and the user has no way to
-       judge whether to trust it. */}
-   {row.suggested && kpi.suggestedReason && (
-    <p className="border-l-2 border-status-info pl-2.5 text-xs text-text-secondary">{kpi.suggestedReason}</p>
-   )}
+   {/* Why we proposed it, and whether it can be computed. Without this a suggestion is an
+       assertion, and the user has no way to judge whether to trust it. */}
+   {row.suggested ? (
+    <SuggestionReasons suggestion={row.suggestion} bucket={bucket} />
+   ) : (
+    <>
+     {/* Blocked: name the gap. This line is the reason blocked cards are shown at all. */}
+     {bucket === "blocked" && (
+      <p className="border-l-2 border-status-critical pl-2.5 text-xs text-text-secondary">
+       <span className="font-semibold text-status-critical">Needs data you haven&apos;t connected.</span>{" "}
+       No dataset in your workspace carries the fields this metric requires.
+      </p>
+     )}
 
-   {/* Blocked: name the gap. This line is the reason blocked cards are shown at all. */}
-   {bucket === "blocked" && (
-    <p className="border-l-2 border-status-critical pl-2.5 text-xs text-text-secondary">
-     <span className="font-semibold text-status-critical">Needs data you haven&apos;t connected.</span>{" "}
-     No dataset in your workspace carries the fields this metric requires.
-    </p>
-   )}
-
-   {bucket === "partial" && (
-    <p className="border-l-2 border-status-warning pl-2.5 text-xs text-text-secondary">
-     <span className="font-semibold text-status-warning">Check before relying on this.</span>{" "}
-     A mapped dataset is stale or unresolved.
-    </p>
+     {bucket === "partial" && (
+      <p className="border-l-2 border-status-warning pl-2.5 text-xs text-text-secondary">
+       <span className="font-semibold text-status-warning">Check before relying on this.</span>{" "}
+       A mapped dataset is stale or unresolved.
+      </p>
+     )}
+    </>
    )}
 
    <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
     <ProvenanceBadge inferred={!!kpi.inferred} suggested={!!row.suggested} fromRegistry={!!kpi.fromRegistry} />
+    {row.suggested && <ConfidenceBadge level={row.suggestion.confidence} />}
+    {row.suggested && <EvidenceChips suggestion={row.suggestion} />}
     {/* One source is a read; two is a JOIN, and a join we inferred is where a plausible-but-wrong
         number comes from. So the two cases get different treatment rather than N flat pills. */}
     {sources.length > 1 ? (
@@ -251,7 +359,7 @@ export default function KpiDiscovery({ rows, areas, focusAreaIds, onFocusChange,
   const focus = new Set(focusAreaIds);
   const out = { ready: [], partial: [], blocked: [] };
   for (const row of visibleRows) {
-   out[bucketFor(row.kpi)].push(row);
+   out[bucketFor(row)].push(row);
   }
   for (const key of Object.keys(out)) {
    out[key].sort((a, b) => {

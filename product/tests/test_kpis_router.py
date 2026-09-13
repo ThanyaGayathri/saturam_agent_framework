@@ -1,8 +1,9 @@
-"""Unit tests for #229/B1's DB-free halves: the wire<->domain mappers, the in-router filtering
-helper, and the scope check that gates `Kpi.sql` visibility -- everything `api/routers/kpis.py`
-does that needs no Postgres or Neo4j. The store/feasibility calls against a real registry and
-semantic graph are exercised only by `test_kpis_live.py` (gated `EGPT_INTEGRATION_POSTGRES` +
-`EGPT_INTEGRATION_NEO4J`), the same split `test_r13_dashboards.py` documents for R13.
+"""Unit tests for #229/B1 and #231/B2's DB-free halves: the wire<->domain mappers, the
+in-router filtering helper, the scope check that gates `Kpi.sql` visibility, and the
+create/update/delete logic -- everything `api/routers/kpis.py` does that needs no Postgres or
+Neo4j. The store/feasibility calls against a real registry and semantic graph are exercised
+only by `test_kpis_live.py` (gated `EGPT_INTEGRATION_POSTGRES` + `EGPT_INTEGRATION_NEO4J`), the
+same split `test_r13_dashboards.py` documents for R13.
 """
 
 from __future__ import annotations
@@ -10,28 +11,48 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
+from egpt_retail.api import models as wire_models
 from egpt_retail.api.routers import kpis as kpis_module
 from egpt_retail.api.routers.kpis import (
+    _carry_forward_validation,
+    _derive_identifier,
     _feasibility_out,
+    _filter_suggestions,
+    _kpi_from_write,
     _kpi_out,
+    _list_kpi_suggestions,
     _matches_filters,
     _may_read_sql,
+    _slugify,
+    _suggestion_notes,
+    _SuggestionRegistrySnapshot,
+    _validated_business_area,
+    create_kpi,
+    delete_kpi,
     get_kpi,
     get_kpi_feasibility,
+    list_kpi_suggestions,
     list_kpis,
+    update_kpi,
 )
+from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import (
     Feasibility,
     FeasibilityReason,
     FeasibilityVerdict,
     KpiDefinition,
+    KpiLevel,
+    KpiOrigin,
     KpiParameter,
     ParameterKind,
     TimeWindow,
     TimeWindowUnit,
 )
+from egpt_retail.contracts.vocabulary import load_vocabulary_set
+from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiDeleteResult
 
 
 def _kpi(**overrides) -> KpiDefinition:
@@ -123,7 +144,10 @@ def test_kpi_out_id_defaults_to_identifier_no_schema_for_a_separate_id_yet():
     assert wire.id == kpi.identifier
 
 
-def test_kpi_out_fields_with_no_backing_data_get_honest_static_defaults():
+def test_kpi_out_presentation_fields_default_sensibly_when_unset():
+    # A KPI built with none of B2's presentation fields set: KpiDefinition's own field
+    # defaults apply (active=True, source=CUSTOMER), and the router fills the rest in as
+    # empty/None -- these are real values now (#231/B2), not the B1-era hardcoded stand-ins.
     kpi = _kpi()
     feasibility = _feasibility_out(_ready_feasibility(kpi.identifier), "snap.7")
     wire = _kpi_out(kpi, feasibility, include_sql=True)
@@ -133,10 +157,34 @@ def test_kpi_out_fields_with_no_backing_data_get_honest_static_defaults():
     assert wire.unit == ""
     assert wire.industry_benchmark == ""
     assert wire.active is True
-    assert wire.source.value == "shipped"
+    assert wire.source.value == "customer"
     assert wire.dataset_ids is None
     assert wire.process_ids is None
     assert wire.updated_at is None
+
+
+def test_kpi_out_maps_every_b2_presentation_field_when_set():
+    kpi = _kpi(
+        subject_area="Replenishment",
+        level=KpiLevel.OPERATIONAL,
+        unit="%",
+        industry_benchmark=">95%",
+        active=False,
+        source=KpiOrigin.SHIPPED,
+        dataset_ids=("ds_1", "ds_2"),
+        process_ids=("sc_1",),
+    )
+    feasibility = _feasibility_out(_ready_feasibility(kpi.identifier), "snap.7")
+    wire = _kpi_out(kpi, feasibility, include_sql=True)
+
+    assert wire.subject_area == "Replenishment"
+    assert wire.level.value == "operational"
+    assert wire.unit == "%"
+    assert wire.industry_benchmark == ">95%"
+    assert wire.active is False
+    assert wire.source.value == "shipped"
+    assert wire.dataset_ids == ["ds_1", "ds_2"]
+    assert wire.process_ids == ["sc_1"]
 
 
 def test_kpi_out_omits_sql_when_include_sql_is_false():
@@ -238,7 +286,7 @@ class _RaisingStore:
     def list(self, *, business_area=None):
         raise ValueError(f"{business_area!r} is not a permitted business_area.")
 
-    def feasibility(self, reader, kpis):
+    def feasibility(self, reader, kpis=None):
         return {}
 
 
@@ -251,6 +299,782 @@ def test_list_kpis_turns_an_invalid_business_area_into_a_422():
         )
     assert excinfo.value.status_code == 422
     assert "not_a_real_area" in excinfo.value.detail
+
+
+# ---------------------------------------------------------------------------
+# _slugify / _derive_identifier -- #231/B2
+# ---------------------------------------------------------------------------
+
+
+def test_slugify_lowercases_and_collapses_punctuation():
+    assert _slugify("Supplier Fill Rate") == "supplier_fill_rate"
+    assert _slugify("Already_clean") == "already_clean"
+    assert _slugify("100% On-Time!!") == "100_on_time"
+    assert _slugify("   ") == "kpi"
+
+
+def _write(**overrides):
+    defaults = dict(
+        name="Quote to Deal Rate",
+        description="Share of quotes that become deals.",
+        business_area="sales",
+        grain="brand",
+        sql="SELECT count(*) FROM rfq_quote",
+        source_tables=["rfq_quote"],
+    )
+    defaults.update(overrides)
+    return wire_models.KpiWrite(**defaults)
+
+
+def test_derive_identifier_uses_the_given_identifier_verbatim():
+    body = _write(identifier="custom__id")
+    assert _derive_identifier(body) == "custom__id"
+
+
+def test_derive_identifier_derives_from_concept_and_name():
+    body = _write(concept="Supplier", name="Fill Rate")
+    assert _derive_identifier(body) == "supplier__fill_rate"
+
+
+def test_derive_identifier_422s_with_neither_identifier_nor_concept():
+    body = _write()
+    with pytest.raises(HTTPException) as excinfo:
+        _derive_identifier(body)
+    assert excinfo.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# _carry_forward_validation -- "a formula edit re-validates and moves the KPI back to
+# review", the contract's own words for updateKpi
+# ---------------------------------------------------------------------------
+
+
+def test_carry_forward_validation_is_none_for_a_new_kpi():
+    assert _carry_forward_validation(None, "SELECT 1", []) is None
+
+
+def test_carry_forward_validation_carries_forward_when_formula_unchanged():
+    existing = _kpi(validated_against_snapshot="snap.3")
+    result = _carry_forward_validation(
+        existing, existing.sql, list(existing.source_tables)
+    )
+    assert result == "snap.3"
+
+
+def test_carry_forward_validation_resets_when_sql_changes():
+    existing = _kpi(validated_against_snapshot="snap.3")
+    result = _carry_forward_validation(
+        existing, "SELECT 2 FROM rfq_quote", list(existing.source_tables)
+    )
+    assert result is None
+
+
+def test_carry_forward_validation_resets_when_source_tables_change():
+    existing = _kpi(validated_against_snapshot="snap.3")
+    result = _carry_forward_validation(existing, existing.sql, ["other_table"])
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _kpi_from_write
+# ---------------------------------------------------------------------------
+
+
+def test_kpi_from_write_maps_required_and_optional_fields():
+    body = _write(
+        identifier="rfq__x",
+        subject_area="Replenishment",
+        level=wire_models.KpiLevel.operational,
+        unit="%",
+        industry_benchmark=">95%",
+        active=False,
+        dataset_ids=["ds_1"],
+        process_ids=["sc_1"],
+    )
+    kpi = _kpi_from_write(body, identifier="rfq__x", existing=None)
+    assert kpi.identifier == "rfq__x"
+    assert kpi.subject_area == "Replenishment"
+    assert kpi.level.value == "operational"
+    assert kpi.unit == "%"
+    assert kpi.industry_benchmark == ">95%"
+    assert kpi.active is False
+    assert kpi.source is KpiOrigin.CUSTOMER
+    assert kpi.dataset_ids == ("ds_1",)
+    assert kpi.process_ids == ("sc_1",)
+    assert kpi.validated_against_snapshot is None
+
+
+def test_kpi_from_write_defaults_source_to_customer_on_create():
+    kpi = _kpi_from_write(
+        _write(identifier="rfq__x"), identifier="rfq__x", existing=None
+    )
+    assert kpi.source is KpiOrigin.CUSTOMER
+
+
+def test_kpi_from_write_preserves_source_on_update():
+    existing = _kpi(source=KpiOrigin.SHIPPED)
+    # `sql` matches `existing`'s -- required fields are always fully resent on PATCH, and the
+    # carried-forward `parameters` below must stay consistent with whatever `sql` is resent.
+    body = _write(sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier=existing.identifier, existing=existing)
+    assert kpi.source is KpiOrigin.SHIPPED
+
+
+# ---------------------------------------------------------------------------
+# _kpi_from_write -- path-vs-body identifier precedence (#240 review, finding #7): the comment
+# in `update_kpi` says `body.identifier` is ignored and the path wins. Nothing exercised that
+# invariant before; this makes it enforceable.
+# ---------------------------------------------------------------------------
+
+
+def test_kpi_from_write_ignores_body_identifier_and_uses_the_path_identifier():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    body = _write(identifier="a_totally_different_identifier", sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier="rfq__quote_to_deal_rate", existing=existing)
+    assert kpi.identifier == "rfq__quote_to_deal_rate"
+
+
+# ---------------------------------------------------------------------------
+# _kpi_from_write -- PATCH carries forward omitted optional fields (#240 review, finding #6).
+# Before this, every optional presentation field the caller omitted on PATCH was silently
+# reset to its create-time default (e.g. `active` back to `True`) rather than left unchanged --
+# the PR's own manual test 5, now automated.
+# ---------------------------------------------------------------------------
+
+
+def test_kpi_from_write_carries_forward_omitted_optional_fields_on_update():
+    existing = _kpi(
+        subject_area="Replenishment",
+        level=KpiLevel.OPERATIONAL,
+        unit="%",
+        industry_benchmark=">95%",
+        active=False,
+        dataset_ids=("ds_1",),
+        process_ids=("sc_1",),
+    )
+    # `_write(sql=...)` sets none of the optional fields below -- a PATCH body that only
+    # resends the required fields (`sql` matching `existing`'s, since the carried-forward
+    # `parameters` must stay consistent with whatever `sql` is resent).
+    body = _write(sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier=existing.identifier, existing=existing)
+    assert kpi.subject_area == "Replenishment"
+    assert kpi.level is KpiLevel.OPERATIONAL
+    assert kpi.unit == "%"
+    assert kpi.industry_benchmark == ">95%"
+    assert kpi.active is False  # not silently reset to the True default
+    assert kpi.dataset_ids == ("ds_1",)
+    assert kpi.process_ids == ("sc_1",)
+
+
+def test_kpi_from_write_carries_forward_time_window_parameters_and_concept_on_update():
+    existing = _kpi()  # _kpi()'s own defaults set time_window, parameters and concept
+    # `sql` matches `existing`'s so the carried-forward `parameters` stay valid against it.
+    body = _write(sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier=existing.identifier, existing=existing)
+    assert kpi.time_window == existing.time_window
+    assert kpi.parameters == existing.parameters
+    assert kpi.concept == existing.concept
+
+
+def test_kpi_from_write_explicit_empty_lists_clear_rather_than_carry_forward():
+    # `[]` is a real value the caller sent, not an omission -- distinct from `None`/absent.
+    existing = _kpi(dataset_ids=("ds_1",), process_ids=("sc_1",))
+    body = _write(dataset_ids=[], process_ids=[], sql=existing.sql)
+    kpi = _kpi_from_write(body, identifier=existing.identifier, existing=existing)
+    assert kpi.dataset_ids == ()
+    assert kpi.process_ids == ()
+
+
+def test_kpi_from_write_still_applies_create_time_defaults_when_optional_fields_omitted():
+    # No `existing` (a create): omitted optional fields take their create-time default, not a
+    # carried-forward value that does not exist yet.
+    kpi = _kpi_from_write(_write(), identifier="rfq__x", existing=None)
+    assert kpi.active is True
+    assert kpi.dataset_ids == ()
+    assert kpi.process_ids == ()
+    assert kpi.subject_area is None
+
+
+# ---------------------------------------------------------------------------
+# create_kpi / update_kpi / delete_kpi -- the error paths that short-circuit before the
+# semantic reader (feasibility) is ever opened, so they're DB-free. The success paths and
+# delete's dashboard-reference check need a real registry/reader and live in
+# test_kpis_live.py, matching the split test_r13_dashboards.py documents for its own
+# DashboardValidationError paths.
+# ---------------------------------------------------------------------------
+
+
+class _FakeKpiStore:
+    def __init__(self, existing=None):
+        self._by_id = {existing.identifier: existing} if existing is not None else {}
+
+    def get(self, identifier):
+        return self._by_id.get(identifier)
+
+    def create(self, kpi):
+        if kpi.identifier in self._by_id:
+            return None
+        self._by_id[kpi.identifier] = kpi
+        return kpi
+
+    def save_if_unchanged(self, kpi, expected_updated_at):
+        current = self._by_id.get(kpi.identifier)
+        if current is None or current.updated_at != expected_updated_at:
+            raise KpiConcurrentUpdateError(kpi.identifier)
+        self._by_id[kpi.identifier] = kpi
+        return kpi
+
+    def delete_if_unreferenced(self, identifier, *, caller=None):
+        if identifier not in self._by_id:
+            return KpiDeleteResult(removed=False)
+        del self._by_id[identifier]
+        return KpiDeleteResult(removed=True)
+
+    def feasibility(self, reader, kpis=None):
+        return {}
+
+
+def test_create_kpi_refuses_a_duplicate_identifier():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    store = _FakeKpiStore(existing=existing)
+    body = _write(identifier="rfq__quote_to_deal_rate")
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(body, _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 409
+
+
+def test_create_kpi_turns_a_bad_formula_into_a_422():
+    store = _FakeKpiStore(existing=None)
+    body = _write(
+        identifier="rfq__bad",
+        sql="SELECT count(*) FROM rfq_quote WHERE brand = {brand}",
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(body, _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 422
+    assert "undeclared parameter" in excinfo.value.detail
+
+
+def test_create_kpi_422s_when_identifier_cannot_be_derived():
+    store = _FakeKpiStore(existing=None)
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(_write(), _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# create_kpi / update_kpi -- the concurrency-race findings from the #240 review (findings #1
+# and #2). Each fake simulates "the pre-check passed, but the store-level guard that is the
+# actual source of truth lost the race", the same shape a real two-connection race produces.
+# ---------------------------------------------------------------------------
+
+
+class _RaceLosingCreateStore(_FakeKpiStore):
+    """``get`` says "no such identifier" -- as it would if a concurrent create's INSERT
+    hadn't committed yet when this request's pre-check ran -- but ``create`` still loses the
+    database's own uniqueness race, simulating two concurrent ``POST /kpis`` for the same
+    identifier."""
+
+    def create(self, kpi):
+        return None
+
+
+def test_create_kpi_returns_409_when_it_loses_the_create_race():
+    store = _RaceLosingCreateStore(existing=None)
+    body = _write(identifier="rfq__quote_to_deal_rate")
+    with pytest.raises(HTTPException) as excinfo:
+        create_kpi(body, _FakeRequest(authorization_enabled=False), store=store)
+    assert excinfo.value.status_code == 409
+    assert "rfq__quote_to_deal_rate" in excinfo.value.detail
+
+
+class _RaceLosingUpdateStore(_FakeKpiStore):
+    """``save_if_unchanged`` always refuses, as if another writer had already changed
+    ``updated_at`` between this route's ``get`` and its conditional update -- simulating two
+    concurrent ``PATCH /kpis/{id}`` calls for the same identifier racing to a lost update."""
+
+    def save_if_unchanged(self, kpi, expected_updated_at):
+        raise KpiConcurrentUpdateError(kpi.identifier)
+
+
+def test_update_kpi_returns_409_when_the_row_changed_underneath_it():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    store = _RaceLosingUpdateStore(existing=existing)
+    body = _write(active=False, sql=existing.sql)
+    with pytest.raises(HTTPException) as excinfo:
+        update_kpi(
+            "rfq__quote_to_deal_rate",
+            body,
+            _FakeRequest(authorization_enabled=False),
+            store=store,
+        )
+    assert excinfo.value.status_code == 409
+    assert "modified concurrently" in excinfo.value.detail
+
+
+def test_update_kpi_404s_on_a_missing_identifier():
+    store = _FakeKpiStore(existing=None)
+    with pytest.raises(HTTPException) as excinfo:
+        update_kpi(
+            "does_not_exist",
+            _write(),
+            _FakeRequest(authorization_enabled=False),
+            store=store,
+        )
+    assert excinfo.value.status_code == 404
+
+
+def test_update_kpi_turns_a_bad_formula_into_a_422():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    store = _FakeKpiStore(existing=existing)
+    # References a placeholder that is neither declared in this body nor in `existing`'s
+    # carried-forward `parameters` -- genuinely undeclared, regardless of carry-forward.
+    body = _write(sql="SELECT count(*) FROM rfq_quote WHERE segment = {segment}")
+    with pytest.raises(HTTPException) as excinfo:
+        update_kpi(
+            "rfq__quote_to_deal_rate",
+            body,
+            _FakeRequest(authorization_enabled=False),
+            store=store,
+        )
+    assert excinfo.value.status_code == 422
+    assert "undeclared parameter" in excinfo.value.detail
+
+
+def test_delete_kpi_404s_on_a_missing_identifier():
+    store = _FakeKpiStore(existing=None)
+    with pytest.raises(HTTPException) as excinfo:
+        delete_kpi(
+            "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
+        )
+    assert excinfo.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# #234/F1 -- GET /kpis/suggestions
+# ---------------------------------------------------------------------------
+
+
+def _suggestion(**overrides) -> wire_models.KpiSuggestion:
+    defaults = dict(
+        identifier="supplier__avg_lead_time_days",
+        name="Average Supplier Lead Time",
+        description="Average days between expected and actual delivery.",
+        business_area="supply_chain",
+        grain="supplier",
+        result_shape=wire_models.ResultShape.scalar,
+        rationale="supplier_deliveries carries expected_date and actual_date.",
+        derived_from_tables=["supplier_deliveries"],
+        confidence=wire_models.Confidence.high,
+    )
+    defaults.update(overrides)
+    return wire_models.KpiSuggestion(**defaults)
+
+
+_VOCABULARIES = load_vocabulary_set()
+
+
+def test_validated_business_area_passes_through_a_known_term():
+    assert _validated_business_area("supply_chain", _VOCABULARIES) == "supply_chain"
+
+
+def test_validated_business_area_passes_through_none():
+    assert _validated_business_area(None, _VOCABULARIES) is None
+
+
+def test_validated_business_area_turns_an_unknown_term_into_a_422():
+    with pytest.raises(HTTPException) as excinfo:
+        _validated_business_area("not_a_real_business_area", _VOCABULARIES)
+    assert excinfo.value.status_code == 422
+
+
+def test_filter_suggestions_with_no_business_area_returns_everything():
+    suggestions = [
+        _suggestion(),
+        _suggestion(identifier="other", business_area="sales"),
+    ]
+    assert _filter_suggestions(suggestions, None) == suggestions
+
+
+def test_filter_suggestions_narrows_to_the_requested_business_area():
+    keep = _suggestion()
+    drop = _suggestion(identifier="other", business_area="sales")
+    result = _filter_suggestions([keep, drop], "supply_chain")
+    assert result == [keep]
+
+
+def test_list_kpi_suggestions_turns_an_invalid_business_area_into_a_422_before_touching_any_store():
+    with pytest.raises(HTTPException) as excinfo:
+        _list_kpi_suggestions(
+            RetailSettings(),
+            # unreachable: the 422 fires before either is ever used
+            definitions=(),
+            vocabularies=_VOCABULARIES,
+            business_area="not_a_real_business_area",
+            include_sql=True,
+        )
+    assert excinfo.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# _suggestion_notes -- Finding 2 (PR #242 review): `SuggestionRun.notes` (the
+# "no domain prose reached the agents" line `run_suggestions` always appends here) was being
+# dropped entirely; only `AssemblyReport.notes` reached the wire.
+# ---------------------------------------------------------------------------
+
+
+class _FakeAssemblyReport:
+    def __init__(self, notes: str = ""):
+        self.notes = notes
+
+
+class _FakeSuggestionRun:
+    def __init__(self, notes=(), kpis_notes: str = ""):
+        self.notes = list(notes)
+        self.kpis = _FakeAssemblyReport(kpis_notes)
+
+
+def test_suggestion_notes_is_empty_when_neither_source_has_anything():
+    assert _suggestion_notes(_FakeSuggestionRun()) == ""
+
+
+def test_suggestion_notes_surfaces_run_notes():
+    run = _FakeSuggestionRun(notes=["no domain prose reached the agents: ..."])
+    assert _suggestion_notes(run) == "no domain prose reached the agents: ..."
+
+
+def test_suggestion_notes_surfaces_both_sources_when_both_are_present():
+    run = _FakeSuggestionRun(notes=["run note"], kpis_notes="assembly note")
+    notes = _suggestion_notes(run)
+    assert "run note" in notes
+    assert "assembly note" in notes
+
+
+def test_suggestion_notes_keeps_kpis_notes_when_run_notes_is_empty():
+    run = _FakeSuggestionRun(notes=[], kpis_notes="assembly note only")
+    assert _suggestion_notes(run) == "assembly note only"
+
+
+# ---------------------------------------------------------------------------
+# include_sql gating on GET /kpis/suggestions -- Finding 1 (PR #242 review):
+# `proposed_sql` must be gated by `_may_read_sql` the same way `Kpi.sql` already is.
+# ---------------------------------------------------------------------------
+
+
+def _fake_run_suggestions(kpi_suggestions):
+    def _fake(settings, *, reader, existing_definitions, proposals, dry_run, agents):
+        return _FakeSuggestionRunWithSuggestions(kpi_suggestions)
+
+    return _fake
+
+
+class _FakeAssemblyReportWithSuggestions:
+    def __init__(self, suggestions, notes: str = ""):
+        self.suggestions = suggestions
+        self.notes = notes
+
+
+class _FakeSuggestionRunWithSuggestions:
+    def __init__(self, suggestions, notes=(), kpis_notes: str = ""):
+        self.notes = list(notes)
+        self.kpis = _FakeAssemblyReportWithSuggestions(suggestions, kpis_notes)
+        self.snapshot = "snap.0"
+
+
+class _NullSemanticReaderCtx:
+    def __enter__(self):
+        return object()
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def _patch_suggestion_pipeline(monkeypatch, kpi_suggestions):
+    monkeypatch.setattr(
+        kpis_module, "open_semantic_reader", lambda settings: _NullSemanticReaderCtx()
+    )
+    monkeypatch.setattr(
+        kpis_module,
+        "run_suggestions",
+        _fake_run_suggestions(kpi_suggestions),
+    )
+
+
+def test_list_kpi_suggestions_includes_proposed_sql_when_include_sql_is_true(
+    monkeypatch,
+):
+    suggestion = _suggestion(proposed_sql="SELECT 1 FROM supplier_deliveries")
+    _patch_suggestion_pipeline(monkeypatch, [suggestion])
+
+    result = _list_kpi_suggestions(
+        RetailSettings(),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        agents=("kpi_agent", "use_case_agent"),
+    )
+
+    assert result.suggestions[0].proposed_sql == "SELECT 1 FROM supplier_deliveries"
+
+
+def test_list_kpi_suggestions_nulls_proposed_sql_when_include_sql_is_false(
+    monkeypatch,
+):
+    suggestion = _suggestion(proposed_sql="SELECT 1 FROM supplier_deliveries")
+    _patch_suggestion_pipeline(monkeypatch, [suggestion])
+
+    result = _list_kpi_suggestions(
+        RetailSettings(),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=False,
+        agents=("kpi_agent", "use_case_agent"),
+    )
+
+    assert result.suggestions[0].proposed_sql is None
+    # the original object handed back by the (fake) assembly step is untouched
+    assert suggestion.proposed_sql == "SELECT 1 FROM supplier_deliveries"
+
+
+# ---------------------------------------------------------------------------
+# _cached_suggestion_agents -- Finding 4 (PR #242 review): CLAUDE.md says never create agents
+# in loops; every real request was building two fresh `Agent`s from scratch.
+# ---------------------------------------------------------------------------
+
+
+def test_cached_suggestion_agents_reuses_the_same_agents_for_an_unchanged_registry(
+    monkeypatch,
+):
+    build_calls = []
+
+    def _fake_build(settings, *, existing_kpis, registry_kpis, catalogue):
+        agents = (object(), object())
+        build_calls.append(agents)
+        return agents
+
+    monkeypatch.setattr(kpis_module, "build_suggestion_agents", _fake_build)
+    monkeypatch.setattr(kpis_module, "load_catalogue", lambda: [])
+    monkeypatch.setattr(kpis_module, "_agent_cache_key", None)
+    monkeypatch.setattr(kpis_module, "_agent_cache_agents", None)
+
+    definitions = (_kpi(identifier="a"), _kpi(identifier="b"))
+    first = kpis_module._cached_suggestion_agents(RetailSettings(), definitions)
+    second = kpis_module._cached_suggestion_agents(RetailSettings(), definitions)
+
+    assert first is second
+    assert len(build_calls) == 1
+
+
+def test_cached_suggestion_agents_rebuilds_when_the_registry_changes(monkeypatch):
+    build_calls = []
+
+    def _fake_build(settings, *, existing_kpis, registry_kpis, catalogue):
+        agents = (object(), object())
+        build_calls.append(agents)
+        return agents
+
+    monkeypatch.setattr(kpis_module, "build_suggestion_agents", _fake_build)
+    monkeypatch.setattr(kpis_module, "load_catalogue", lambda: [])
+    monkeypatch.setattr(kpis_module, "_agent_cache_key", None)
+    monkeypatch.setattr(kpis_module, "_agent_cache_agents", None)
+
+    first = kpis_module._cached_suggestion_agents(
+        RetailSettings(), (_kpi(identifier="a"),)
+    )
+    second = kpis_module._cached_suggestion_agents(
+        RetailSettings(), (_kpi(identifier="a"), _kpi(identifier="b"))
+    )
+
+    assert first is not second
+    assert len(build_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# Round-3 review: `_agent_cache_lock` only guards cache population, not the `.run()` calls
+# that follow -- concurrent requests sharing the cached `Agent` pair race on unsynchronized
+# per-agent state (session_id, hook normalization, connectable-tool init lists). Every real
+# call must `.run()` its own `deep_copy()`, never the cached originals.
+# ---------------------------------------------------------------------------
+
+
+class _FakeCacheableAgentCopy:
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _FakeCacheableAgent:
+    def __init__(self, name: str):
+        self.name = name
+        self.deep_copy_calls = 0
+
+    def deep_copy(self):
+        self.deep_copy_calls += 1
+        return _FakeCacheableAgentCopy(self.name)
+
+
+def test_list_kpi_suggestions_runs_a_deep_copy_of_each_cached_agent_not_the_original(
+    monkeypatch,
+):
+    cached_kpi_agent = _FakeCacheableAgent("kpi")
+    cached_use_case_agent = _FakeCacheableAgent("use_case")
+    monkeypatch.setattr(
+        kpis_module,
+        "_cached_suggestion_agents",
+        lambda settings, definitions: (cached_kpi_agent, cached_use_case_agent),
+    )
+    monkeypatch.setattr(
+        kpis_module, "open_semantic_reader", lambda settings: _NullSemanticReaderCtx()
+    )
+
+    captured_agents = {}
+
+    def _fake_run_suggestions_capturing(
+        settings, *, reader, existing_definitions, proposals, dry_run, agents
+    ):
+        captured_agents["agents"] = agents
+        return _FakeSuggestionRunWithSuggestions([])
+
+    monkeypatch.setattr(kpis_module, "run_suggestions", _fake_run_suggestions_capturing)
+
+    _list_kpi_suggestions(
+        RetailSettings(),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        agents=None,
+    )
+
+    assert cached_kpi_agent.deep_copy_calls == 1
+    assert cached_use_case_agent.deep_copy_calls == 1
+    run_kpi_agent, run_use_case_agent = captured_agents["agents"]
+    assert run_kpi_agent is not cached_kpi_agent
+    assert run_use_case_agent is not cached_use_case_agent
+    assert isinstance(run_kpi_agent, _FakeCacheableAgentCopy)
+    assert isinstance(run_use_case_agent, _FakeCacheableAgentCopy)
+
+
+# ---------------------------------------------------------------------------
+# Finding 7 (PR #242 review): the real @router-decorated `list_kpi_suggestions` was never
+# called directly by any test -- only the underscored helper was.
+# ---------------------------------------------------------------------------
+
+
+def test_list_kpi_suggestions_route_reaches_the_helper_with_the_given_business_area(
+    monkeypatch,
+):
+    captured = {}
+
+    def _fake_helper(
+        settings, *, definitions, vocabularies, business_area, include_sql
+    ):
+        captured["business_area"] = business_area
+        captured["definitions"] = definitions
+        captured["include_sql"] = include_sql
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+
+    # A fake registry snapshot in place of the real store dependency's -- exercising the
+    # real, `@router`-decorated `list_kpi_suggestions` directly rather than only the
+    # underscored `_list_kpi_suggestions` helper.
+    snapshot = _SuggestionRegistrySnapshot(
+        definitions=(_kpi(identifier="a"),), vocabularies=_VOCABULARIES
+    )
+    result = list_kpi_suggestions(
+        _FakeRequest(authorization_enabled=False),
+        business_area="supply_chain",
+        snapshot=snapshot,
+    )
+
+    assert captured["business_area"] == "supply_chain"
+    assert captured["definitions"] == snapshot.definitions
+    assert captured["include_sql"] is True
+    assert result.semantic_snapshot == "snap.0"
+
+
+# ---------------------------------------------------------------------------
+# Finding 6 (PR #242 review): nothing dispatched through the real router/TestClient, so a
+# route-registration-order regression (a static "/kpis/suggestions" swallowed by the dynamic
+# "/kpis/{kpi_id}" route) would have shipped silently.
+# ---------------------------------------------------------------------------
+
+
+def test_get_kpis_suggestions_dispatches_to_the_suggestions_handler_not_get_kpi(
+    monkeypatch,
+):
+    calls = []
+
+    def _fake_helper(
+        settings, *, definitions, vocabularies, business_area, include_sql
+    ):
+        calls.append(business_area)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+
+    app = FastAPI()
+    app.include_router(kpis_module.router)
+    # `Depends(_suggestion_registry_snapshot)` captured the function object at decoration
+    # time, so it must be swapped out through FastAPI's own override hook, not by patching
+    # the module attribute (which a plain module-level monkeypatch would not reach).
+    app.dependency_overrides[kpis_module._suggestion_registry_snapshot] = lambda: (
+        _SuggestionRegistrySnapshot(definitions=(), vocabularies=_VOCABULARIES)
+    )
+    client = TestClient(app)
+
+    response = client.get("/kpis/suggestions")
+
+    assert response.status_code == 200
+    body = response.json()
+    # get_kpi's shape (a single Kpi) has no "suggestions"/"semantic_snapshot" keys; a request
+    # swallowed by "/kpis/{kpi_id}" would 404 ("No KPI 'suggestions'.") instead of this.
+    assert body == {"suggestions": [], "notes": "", "semantic_snapshot": "snap.0"}
+    assert calls == [None]
+
+
+class _ReferencedKpiStore(_FakeKpiStore):
+    """``delete_if_unreferenced`` refuses with names, as it would for a KPI a dashboard --
+    including one the deleting caller cannot even see -- still has a tile for."""
+
+    def __init__(self, existing, referenced_by):
+        super().__init__(existing=existing)
+        self._referenced_by = referenced_by
+
+    def delete_if_unreferenced(self, identifier, *, caller=None):
+        if identifier not in self._by_id:
+            return KpiDeleteResult(removed=False)
+        return KpiDeleteResult(removed=False, referenced_by=self._referenced_by)
+
+
+def test_delete_kpi_refuses_when_the_store_reports_a_reference():
+    existing = _kpi(identifier="rfq__quote_to_deal_rate")
+    store = _ReferencedKpiStore(
+        existing, referenced_by=("someone_elses_private_dashboard",)
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        delete_kpi(
+            "rfq__quote_to_deal_rate",
+            _FakeRequest(authorization_enabled=False),
+            store=store,
+        )
+    assert excinfo.value.status_code == 409
+    assert "someone_elses_private_dashboard" in excinfo.value.detail
+
+
+def test_get_kpi_404s_on_a_missing_identifier():
+    store = _FakeKpiStore(existing=None)
+    with pytest.raises(HTTPException) as excinfo:
+        get_kpi(
+            "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
+        )
+    assert excinfo.value.status_code == 404
 
 
 # ---------------------------------------------------------------------------
