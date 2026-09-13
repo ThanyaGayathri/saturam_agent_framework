@@ -11,7 +11,7 @@ import KpiDiscovery from "./KpiDiscovery";
 import KpiDetailPanel from "./KpiDetailPanel";
 import CreateDashboardModal from "./CreateDashboardModal";
 import { createDashboard } from "../../storage/dashboards";
-import { SUGGESTED_KPI_CANDIDATES } from "./suggested-candidates";
+import { SUGGESTED_KPI_CANDIDATES, SUGGESTED_KPI_SUGGESTIONS } from "./suggested-candidates";
 import { metricsUnlockedBy } from "../configure/source-model-state";
 
 /**
@@ -90,6 +90,9 @@ export default function KpiDiscoveryPage() {
   [data?.categories]
  );
 
+ const hasSuggestions = SUGGESTED_KPI_CANDIDATES.some((c) => !adopted.has(c.kpi.name));
+ const suggestionNotes = SUGGESTED_KPI_SUGGESTIONS.notes;
+
  if (!hydrated) return <p className="text-sm text-text-secondary">Loading…</p>;
 
  return (
@@ -121,6 +124,17 @@ export default function KpiDiscoveryPage() {
     onAdopt={(row) => setAdopted((prev) => new Set(prev).add(row.kpi.name))}
     onCreateDashboard={setPendingRows}
    />
+
+   {/* The agent's own account of why it proposed nothing, in the schema's refusal channel. An
+       empty suggestion list with no reason is indistinguishable from a feature that never ran. */}
+   {!hasSuggestions && suggestionNotes && (
+    <p className="flex items-start gap-2 rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-3 text-xs text-text-secondary">
+     <Sparkles size={13} className="mt-0.5 shrink-0 text-status-info" />
+     <span>
+      <span className="font-semibold text-text-primary">No suggestions this time.</span> {suggestionNotes}
+     </span>
+    </p>
+   )}
 
    {/* Disabled metrics are absent by design, but silently absent is indistinguishable from
        missing. One line, with a route to the place that controls it. */}
