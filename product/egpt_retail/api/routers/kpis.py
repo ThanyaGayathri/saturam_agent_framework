@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_connection
-from egpt_retail.app.scopes import require_scopes
+from egpt_retail.app.scopes import caller_scopes, require_scopes
 from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import (
@@ -83,11 +83,8 @@ def _may_read_sql(request: Request) -> bool:
     """
     if not getattr(request.state, "authorization_enabled", False):
         return True
-    user_scopes = getattr(request.state, "scopes", None) or []
-    admin_scope = getattr(request.state, "admin_scope", None)
-    return has_required_scopes(
-        list(user_scopes), ["kpis:write"], admin_scope=admin_scope
-    )
+    user_scopes, admin_scope = caller_scopes(request)
+    return has_required_scopes(user_scopes, ["kpis:write"], admin_scope=admin_scope)
 
 
 # --- wire conversions -----------------------------------------------------------------------

@@ -420,7 +420,14 @@ class KpiRegistryStore:
         second, independent ``self.list()`` here: two separate reads of this table have no
         shared snapshot, so a KPI deleted or renamed between them would otherwise be missing
         from this map even though the caller's own read found it moments earlier.
+
+        An explicitly empty ``kpis`` (a business_area filter that matched nothing) returns
+        ``{}`` before either graph query below runs -- ``available_tables``/
+        ``unjoinable_oracle`` open a driver and do real Neo4j I/O, which a known-empty result
+        does not need to pay for.
         """
+        if kpis is not None and not kpis:
+            return {}
         tables = available_tables(reader)
         # Part of the SemanticRead contract, not an optional extra: a reader with no join
         # rulings answers False for every pair, and a reader that has them gets asked. The
