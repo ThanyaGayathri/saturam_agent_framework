@@ -10,7 +10,8 @@ Instructions for Claude Code when working on this codebase.
 .
 ├── libs/agno/egpt/          # The framework. Ships as `pip install egpt`. No retail nouns.
 ├── product/                 # The Enterprise GPT retail product. Never in the egpt wheel.
-├── frontend/                # The React interface (phase five; README only until then)
+├── frontend/                # The React interface. Full UI wiring is phase five; infra
+│                            # plumbing (API base URL, fetch client) lands ahead of it (#222)
 ├── deploy/                  # Dockerfile, compose, Azure cutover (current, D15); Helm charts + kind config are AKS-era reference
 ├── cookbook/                # Examples, patterns and test cases (organized by topic)
 ├── scripts/                 # Development and build scripts
@@ -173,7 +174,7 @@ Format:
 | Retail product tests | `product/tests/` — contract tests and DB-free entrypoint tests |
 | Retail cookbooks + evidence | `cookbook/94_retail/` — one folder, one `TEST_LOG.md`, entries tagged by package (K*, R*) |
 | Deployment | `deploy/` — `Dockerfile`, `compose.yaml`, `AZURE_CUTOVER.md` (current: Functions + Container Apps, D15). `helm/egpt-local-infra/`, `helm/egpt/`, `kind/`, `AKS_CUTOVER.md` are AKS-era reference, superseded |
-| Frontend | `frontend/` — arrives in phase five; README only |
+| Frontend | `frontend/` — full UI arrives in phase five; API plumbing (`src/lib/api.js`) lands incrementally ahead of it, see `frontend/README.md` |
 
 ---
 
@@ -246,6 +247,15 @@ Both scripts must pass with no errors before code review. Both cover `product/` 
 the framework; `validate.sh`'s product target also runs the API contract check
 (`scripts/check_api_contract.py`), so a contract edit without `./scripts/gen_api_models.sh`
 fails here rather than in review.
+
+**Commit and PR attribution:**
+
+No AI attribution in git history. Commit messages carry no `Co-Authored-By: Claude ...`
+trailer and no `Claude-Session:` link; PR descriptions carry no "Generated with Claude Code"
+footer or session link. `.claude/settings.json` turns these off at the harness level
+(`attribution.commit`/`attribution.pr` empty, `attribution.sessionUrl` false); this rule is the
+instruction that takes precedence when a session's own defaults say otherwise. The PR template's
+"AI-Generated PR Check" checkbox is where AI involvement is disclosed, not the commit trailer.
 
 **PR Title Format:**
 

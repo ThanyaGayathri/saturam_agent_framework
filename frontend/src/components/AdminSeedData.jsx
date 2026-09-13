@@ -363,29 +363,48 @@ function seedUseCases(profileId, storageKey) {
 // Proves the async fetch pattern end to end against the real API (issue #230/A2) - not a
 // production screen. `POST`/`PUT`/`DELETE` dashboard wiring is issue #233/D2, once the tile
 // shape has been aligned (issue #226/D1).
+//
+// Fetches only on explicit click, never on mount: this is a debug panel on an admin page,
+// not something every visitor should trigger a live backend call for. That also sidesteps
+// `React.StrictMode` (see `main.jsx`) double-invoking a mount effect in dev - there's no
+// mount effect here to double-invoke. A future accessor that copies this pattern for
+// something non-idempotent (a POST/PUT) still needs its own guard against that double-fire;
+// GET is idempotent so it isn't a concern for this one.
 function LiveBackendCheck() {
-  const [state, setState] = useState({ status: "loading", dashboards: null, error: null });
+  const [state, setState] = useState({ status: "idle" });
 
   useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading", dashboards: null, error: null });
-    fetchDashboardList()
-      .then((dashboards) => {
-        if (!cancelled) setState({ status: "ready", dashboards, error: null });
-      })
+    if (state.status !== "loading") return undefined;
+    const controller = new AbortController();
+    fetchDashboardList({ signal: controller.signal })
+      .then((dashboards) => setState({ status: "ready", dashboards }))
       .catch((error) => {
-        if (!cancelled) setState({ status: "error", dashboards: null, error });
+        // Only swallow an AbortError caused by this effect's own cleanup below - not one
+        // from some other signal, so a future rejection never leaves `state` stuck at
+        // "loading" forever (the button that would let someone retry is hidden while loading).
+        if (error?.name === "AbortError" && controller.signal.aborted) return;
+        setState({ status: "error", error });
       });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return () => controller.abort();
+  }, [state.status]);
 
   return (
     <div className="mb-6 rounded-lg border border-border bg-surface-secondary p-3 text-sm">
-      <div className="mb-2 font-semibold text-text-primary">
-        Live backend check (<code className="font-mono text-xs">GET /dashboards</code>)
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="font-semibold text-text-primary">
+          Live backend check (<code className="font-mono text-xs">GET /dashboards</code>)
+        </div>
+        {state.status !== "loading" && (
+          <button
+            type="button"
+            onClick={() => setState({ status: "loading" })}
+            className="inline-flex items-center rounded-lg border border-border bg-surface px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-border-light hover:bg-surface-secondary"
+          >
+            {state.status === "idle" ? "Check backend" : "Recheck"}
+          </button>
+        )}
       </div>
+      {state.status === "idle" && <p className="text-text-muted">Not checked yet.</p>}
       {state.status === "loading" && <p className="text-text-muted">Loading…</p>}
       {state.status === "error" && (
         <p className="text-status-critical">

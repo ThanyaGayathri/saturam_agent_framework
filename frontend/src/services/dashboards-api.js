@@ -10,9 +10,10 @@
 
 import { apiGet, apiJson } from "../lib/api";
 
-/** `GET /dashboards` - every dashboard visible to the caller. */
-export function fetchDashboardList() {
-  return apiGet("/dashboards");
+/** `GET /dashboards` - every dashboard visible to the caller.
+ * Pass `{ signal }` to make the request abortable (e.g. on caller unmount). */
+export function fetchDashboardList({ signal } = {}) {
+  return apiGet("/dashboards", { signal });
 }
 
 /** `GET /dashboards/{id}` - one dashboard, or throws `ApiError` (404) if it doesn't exist or

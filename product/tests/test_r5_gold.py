@@ -7,13 +7,19 @@ against the real warehouse; what is pinned here is every rule that can be wrong 
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import logging
 import re
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from egpt.workflow.types import OnError
+from egpt.exceptions import SQLGuardRefusal
+from egpt.workflow.types import OnError, StepInput
 
 from egpt_retail.api.models._generated import KpiHealth
 from egpt_retail.app.components import (
@@ -35,7 +41,8 @@ from egpt_retail.contracts.kpi import (
     ResultShape,
 )
 from egpt_retail.contracts.semantic_stub import StubSemanticRead
-from egpt_retail.executors.gold import GOLD_EXECUTORS
+from egpt_retail.executors import gold as gold_module
+from egpt_retail.executors.gold import GOLD_EXECUTORS, read_gold
 from egpt_retail.executors.preflight import gold_fresh_check
 from egpt_retail.executors.registry import check_registry
 from egpt_retail.executors.warehouse import WAREHOUSE_EXECUTORS
@@ -49,12 +56,18 @@ from egpt_retail.warehouse.gold import (
     formula_sha256,
     insert_statement,
     probe_statement,
+    read_gold_history_statement,
     read_gold_statement,
     skip_reason,
     view_statements,
 )
 from egpt_retail.warehouse.health import classify_health
-from egpt_retail.warehouse.schema import DDL_SCRIPTS, GOLD_TABLES, gold_view
+from egpt_retail.warehouse.schema import (
+    DDL_SCRIPTS,
+    GOLD_SCHEMA,
+    GOLD_TABLES,
+    gold_view,
+)
 
 _REGISTRY_DOC = (
     Path(__file__).resolve().parents[1]
@@ -285,6 +298,298 @@ def test_read_gold_statement_orders_by_the_whole_row_not_just_as_of():
         "ORDER BY kpi_kpi_with_two_dims"
     )
     assert "ORDER BY 1" not in statement
+
+
+def test_read_gold_history_statement_bounds_the_window_on_both_ends():
+    """The history a trend or delta is read from: the same view and the same whole-row
+    ordering as the single-date read, over ``(:since, :as_of]``. Bounded above as well as
+    below so a reader pinned to an older ``as_of`` never sees rows materialised after it."""
+    statement = read_gold_history_statement("supplier__on_time_rate_30d")
+    assert statement == (
+        "SELECT * FROM gold.kpi_supplier__on_time_rate_30d "
+        "WHERE as_of > :since AND as_of <= :as_of "
+        "ORDER BY kpi_supplier__on_time_rate_30d"
+    )
+    assert "ORDER BY 1" not in statement
+
+
+# ---------------------------------------------------------------------------
+# read_gold / _read_history -- exercised with a fake engine, no live warehouse
+#
+# The pure statement shapes above pin what SQL is sent; these pin what `read_gold` actually
+# does with the response -- the guard integration, the history-narrowing option, and the
+# error handling around the history branch, none of which the statement-shape tests alone
+# can catch a regression in (e.g. `_serialise_gold_row` reuse silently dropping, or a guard
+# refusal on the history read losing the current value too).
+# ---------------------------------------------------------------------------
+
+
+class _FakeRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self._rows
+
+
+class _FakeConnection:
+    def __init__(self, engine):
+        self._engine = engine
+
+    def execute(self, statement, params):
+        sql = str(statement)
+        bound = dict(params)
+        self._engine.calls.append((sql, bound))
+        return _FakeRows(self._engine.respond(sql, bound))
+
+
+class _FakeBegin:
+    def __init__(self, engine):
+        self._engine = engine
+
+    def __enter__(self):
+        return _FakeConnection(self._engine)
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+class _FakeEngine:
+    """Stands in for the real ``Engine`` `_fetch_gold_rows` opens: ``respond(sql, params)``
+    decides what each ``execute`` call gets back, keyed on whatever the test cares about
+    (here, whether ``since`` is bound -- the history statement's own tell)."""
+
+    def __init__(self, respond):
+        self.respond = respond
+        self.calls: list = []
+        self.disposed = False
+
+    def begin(self):
+        return _FakeBegin(self)
+
+    def dispose(self):
+        self.disposed = True
+
+
+class _FakeGuard:
+    def __init__(self, refuse=None):
+        self._refuse = refuse or (lambda statement: False)
+
+    def check(self, statement):
+        if self._refuse(statement):
+            raise SQLGuardRefusal("refused for test", check="test", statement=statement)
+        return ("gold.kpi_k1",)
+
+
+def _patch_read_gold(monkeypatch, *, respond, guard=None):
+    """Wires `read_gold` to a fake engine and a fake/no-op guard, so its history branch runs
+    for real -- guard check, warehouse round-trip, provenance notes, serialisation -- without
+    a live Postgres or Neo4j."""
+    engine = _FakeEngine(respond)
+    monkeypatch.setattr(
+        gold_module,
+        "RetailSettings",
+        lambda: SimpleNamespace(retail_warehouse_readonly_db_url=None),
+    )
+    monkeypatch.setattr(gold_module, "build_warehouse_engine", lambda settings: engine)
+
+    @contextmanager
+    def _reader(settings):
+        yield StubSemanticRead.from_fixture(CONTRACT_FIXTURE_PATH)
+
+    monkeypatch.setattr(gold_module, "open_semantic_reader", _reader)
+    monkeypatch.setattr(
+        gold_module,
+        "build_warehouse_read_guard",
+        lambda reader, **kwargs: guard or _FakeGuard(),
+    )
+    return engine
+
+
+def _row(as_of: date, value: str) -> dict:
+    return {
+        "kpi_identifier": "k1",
+        "as_of": as_of,
+        "dimension": {},
+        "value": Decimal(value),
+        "computed_at": datetime(2026, 9, 11, 2, 0, tzinfo=timezone.utc),
+        "run_id": "run_1",
+        "source_snapshot": "r1",
+    }
+
+
+CURRENT_ROW = _row(date(2026, 9, 11), "1.00")
+HISTORY_ROWS = [_row(date(2026, 9, 10), "0.95"), _row(date(2026, 9, 11), "1.00")]
+
+
+def test_read_gold_reads_and_serialises_history_like_the_current_row(monkeypatch):
+    def respond(sql, params):
+        return list(HISTORY_ROWS) if "since" in params else [CURRENT_ROW]
+
+    _patch_read_gold(monkeypatch, respond=respond)
+    step_input = StepInput(
+        additional_data={
+            "kpi_identifiers": ["k1"],
+            "as_of": "2026-09-11",
+            "history_days": 30,
+        }
+    )
+    output = asyncio.run(read_gold(step_input))
+    history = output.content["kpis"]["k1"]["history"]
+    assert [row["value"] for row in history] == ["0.95", "1.00"]
+    assert all(isinstance(row["value"], str) for row in history), (
+        "history rows must reuse _serialise_gold_row -- value as str, not float, or the "
+        "binary-rounding bug the DDL's numeric type exists to prevent comes back"
+    )
+
+    # The history read is a second real SQL read of the same gold view, so it must note all
+    # three of R7's bag on success, same as the current-date read a few lines up in
+    # `read_gold` -- not just `note_sql_execution`.
+    prov = step_input.additional_data["prov"]
+    assert len(prov["sql_executed"]) == 2, (
+        "both the current-date read and the history read must note_sql_execution"
+    )
+    assert all(entry["guard"] == "allowed" for entry in prov["sql_executed"])
+    gold_datasets = [
+        entry for entry in prov["datasets_read"] if entry["table"] == gold_view("k1")
+    ]
+    assert len(gold_datasets) == 2, (
+        "the history read must note_dataset_read alongside note_sql_execution, same as the "
+        "current-date read"
+    )
+    assert all(entry["schema"] == GOLD_SCHEMA for entry in gold_datasets)
+    gold_freshness = [
+        entry for entry in prov["freshness"] if entry["table"] == gold_view("k1")
+    ]
+    assert len(gold_freshness) == 2, (
+        "the history read must note_freshness from its rows' computed_at, same as the "
+        "current-date read"
+    )
+    assert all(
+        entry["computed_at"] == CURRENT_ROW["computed_at"].isoformat()
+        for entry in gold_freshness
+    )
+
+
+def test_read_gold_history_for_narrows_which_identifiers_get_the_second_read(
+    monkeypatch,
+):
+    def respond(sql, params):
+        return [CURRENT_ROW]
+
+    engine = _patch_read_gold(monkeypatch, respond=respond)
+    step_input = StepInput(
+        additional_data={
+            "kpi_identifiers": ["k1", "k2"],
+            "as_of": "2026-09-11",
+            "history_days": 30,
+            "history_for": ["k1"],
+        }
+    )
+    output = asyncio.run(read_gold(step_input))
+    assert "history" in output.content["kpis"]["k1"]
+    assert "history" not in output.content["kpis"]["k2"]
+    history_reads = [call for call in engine.calls if "since" in call[1]]
+    assert len(history_reads) == 1, (
+        "only the identifier in history_for should pay for the second read"
+    )
+
+
+def test_read_gold_history_for_accepts_a_bare_string_as_one_identifier(monkeypatch):
+    """``history_for="k1"`` must mean the single identifier ``"k1"``, not the five
+    characters of that string -- a caller with one identifier has no reason to know it
+    must wrap it in a list, and the docstring itself only promises "a set/list of
+    identifiers", not that a bare string is rejected or misread."""
+
+    def respond(sql, params):
+        return [CURRENT_ROW]
+
+    engine = _patch_read_gold(monkeypatch, respond=respond)
+    step_input = StepInput(
+        additional_data={
+            "kpi_identifiers": ["k1", "k2"],
+            "as_of": "2026-09-11",
+            "history_days": 30,
+            "history_for": "k1",
+        }
+    )
+    output = asyncio.run(read_gold(step_input))
+    assert "history" in output.content["kpis"]["k1"]
+    assert "history" not in output.content["kpis"]["k2"]
+    history_reads = [call for call in engine.calls if "since" in call[1]]
+    assert len(history_reads) == 1, (
+        "a bare-string history_for must narrow to the one identifier it names, not to a "
+        "frozenset of its characters that matches nothing"
+    )
+
+
+def test_read_gold_history_refusal_empties_history_but_keeps_the_current_value(
+    monkeypatch, caplog
+):
+    def respond(sql, params):
+        return [CURRENT_ROW]
+
+    guard = _FakeGuard(refuse=lambda statement: "as_of >" in statement)
+    _patch_read_gold(monkeypatch, respond=respond, guard=guard)
+    step_input = StepInput(
+        additional_data={
+            "kpi_identifiers": ["k1"],
+            "as_of": "2026-09-11",
+            "history_days": 30,
+        }
+    )
+    with caplog.at_level(logging.WARNING):
+        output = asyncio.run(read_gold(step_input))
+    entry = output.content["kpis"]["k1"]
+    assert entry["history"] == []
+    assert entry["rows"], "a history-only guard refusal must not lose the current value"
+    assert any("history for k1 refused" in message for message in caplog.messages)
+
+
+def test_read_gold_history_read_failure_empties_history_but_keeps_the_current_value(
+    monkeypatch, caplog
+):
+    def respond(sql, params):
+        if "since" in params:
+            raise RuntimeError('relation "gold.kpi_k1" does not exist')
+        return [CURRENT_ROW]
+
+    _patch_read_gold(monkeypatch, respond=respond)
+    step_input = StepInput(
+        additional_data={
+            "kpi_identifiers": ["k1"],
+            "as_of": "2026-09-11",
+            "history_days": 30,
+        }
+    )
+    with caplog.at_level(logging.WARNING):
+        output = asyncio.run(read_gold(step_input))
+    entry = output.content["kpis"]["k1"]
+    assert entry["history"] == []
+    assert entry["rows"], "a failed history read must not lose the current value"
+    assert any("history for k1 failed" in message for message in caplog.messages)
+
+
+@pytest.mark.parametrize("bad_value", ["not-a-number", -5])
+def test_read_gold_ignores_a_malformed_history_days_instead_of_raising(
+    monkeypatch, caplog, bad_value
+):
+    def respond(sql, params):
+        return [CURRENT_ROW]
+
+    _patch_read_gold(monkeypatch, respond=respond)
+    step_input = StepInput(
+        additional_data={
+            "kpi_identifiers": ["k1"],
+            "as_of": "2026-09-11",
+            "history_days": bad_value,
+        }
+    )
+    with caplog.at_level(logging.WARNING):
+        output = asyncio.run(read_gold(step_input))
+    entry = output.content["kpis"]["k1"]
+    assert "history" not in entry
+    assert entry["rows"], "a malformed history_days must not fail the whole read"
 
 
 def test_a_kpi_is_skipped_for_the_right_reasons():

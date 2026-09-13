@@ -14,12 +14,24 @@ the real ``AuthMiddleware`` at all.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, List, Optional, Tuple
 
 from egpt.os.scopes import has_required_scopes
 from fastapi import HTTPException, Request
 
-__all__ = ["require_scopes"]
+__all__ = ["caller_scopes", "require_scopes"]
+
+
+def caller_scopes(request: Request) -> Tuple[List[str], Optional[str]]:
+    """``(scopes, admin_scope)`` for the caller of ``request``, straight off
+    ``AuthMiddleware``'s per-request state -- the one place that reads
+    ``request.state.scopes``/``admin_scope``, so ``require_scopes`` and any other scope gate
+    a product router defines (e.g. ``kpis.py``'s ``_may_read_sql``) can't drift apart on the
+    ``getattr`` defaults.
+    """
+    user_scopes = getattr(request.state, "scopes", None) or []
+    admin_scope = getattr(request.state, "admin_scope", None)
+    return list(user_scopes), admin_scope
 
 
 def require_scopes(*scopes: str) -> Callable[[Request], None]:
@@ -36,11 +48,8 @@ def require_scopes(*scopes: str) -> Callable[[Request], None]:
     def _dependency(request: Request) -> None:
         if not getattr(request.state, "authorization_enabled", False):
             return
-        user_scopes = getattr(request.state, "scopes", None) or []
-        admin_scope = getattr(request.state, "admin_scope", None)
-        if not has_required_scopes(
-            list(user_scopes), list(scopes), admin_scope=admin_scope
-        ):
+        user_scopes, admin_scope = caller_scopes(request)
+        if not has_required_scopes(user_scopes, list(scopes), admin_scope=admin_scope):
             raise HTTPException(
                 status_code=403,
                 detail=f"Insufficient permissions. Required scopes: {', '.join(scopes)}.",

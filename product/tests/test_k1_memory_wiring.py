@@ -10,6 +10,7 @@ from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware
 from egpt.providers.model_provider import ProviderMode
 from fastapi import Request
 
+from egpt_retail.app import factory as factory_module
 from egpt_retail.app.factory import build_agent_os, memory_lifespan_for
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.memory.config import build_memory_config
@@ -29,6 +30,44 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
         "EGPT_RETAIL_DB_URL", "postgresql+psycopg://nobody:nope@127.0.0.1:1/none"
     )
     assert build_agent_os(RetailSettings()) is not None
+
+
+# ---------------------------------------------------------------------------
+# _ensure_control_plane_schemas -- round-2 review on #229/B1: KpiRegistryStore's
+# table must be provisioned at boot alongside Playground's and Dashboard's, or a
+# fresh deployment's first GET /kpis hits a raw "relation does not exist" 500
+# before the offline refresh job has ever run.
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_control_plane_schemas_provisions_all_three_stores(monkeypatch):
+    calls: list = []
+
+    class _FakeConnection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr("psycopg.connect", lambda dsn: _FakeConnection())
+
+    def _fake_store(name):
+        class _FakeStore:
+            def __init__(self, connection):
+                assert isinstance(connection, _FakeConnection)
+
+            def ensure_schema(self):
+                calls.append(name)
+
+        return _FakeStore
+
+    monkeypatch.setattr(factory_module, "PlaygroundStore", _fake_store("playground"))
+    monkeypatch.setattr(factory_module, "DashboardStore", _fake_store("dashboard"))
+    monkeypatch.setattr(factory_module, "KpiRegistryStore", _fake_store("kpi"))
+
+    factory_module._ensure_control_plane_schemas(
+        RetailSettings(retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db")
+    )
+
+    assert calls == ["playground", "dashboard", "kpi"]
 
 
 def test_lifespan_refuses_to_start_without_a_customer_slug():
