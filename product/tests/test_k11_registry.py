@@ -10,6 +10,7 @@ import json
 from typing import Any, Dict, List, Tuple, cast
 
 import pytest
+
 from egpt_retail.contracts.kpi import (
     Dialect,
     FeasibilityVerdict,
@@ -24,6 +25,23 @@ from egpt_retail.contracts.kpi import (
 from egpt_retail.contracts.semantic import SemanticRead, Snapshot, TableRef
 from egpt_retail.executors.kpi import feasibility_summary, verdict_rows
 from egpt_retail.kpi.store import KPI_LABEL, KpiRegistryStore, row_to_definition
+
+#: The 9 columns B2 (issue #231) added after the original 13: subject_area, level, unit,
+#: industry_benchmark, active, source, dataset_ids, process_ids, updated_at. Appended to every
+#: hand-built "row" fixture in this file so `row_to_definition` (which now reads 22 columns)
+#: keeps working; `source` must be a real `KpiOrigin` value (`KpiOrigin(None)` raises) and
+#: `active` a real bool, the rest tolerate `None`.
+_B2_COLUMNS: Tuple[Any, ...] = (
+    None,
+    None,
+    None,
+    None,
+    True,
+    "customer",
+    None,
+    None,
+    None,
+)
 
 
 def _kpi(identifier: str = "deal__won_value", **overrides: Any) -> KpiDefinition:
@@ -112,7 +130,13 @@ class TestRoundTrip:
         # Postgres would hand jsonb back as objects; psycopg may hand back strings. The
         # reader accepts both, so the round trip is checked through the string form -- the
         # one that would break silently if only the object form were ever tested.
-        rebuilt = row_to_definition(list(insert))
+        # `insert` has the 8 B2 columns (source, active, ...) but not `updated_at`
+        # (server-generated on write, via the column default / `ON CONFLICT ... SET
+        # updated_at = now()`, never a value this store writes itself) -- pad with the one
+        # column `row_to_definition` reads that `_definition_to_row` does not produce. `save`
+        # writes real B2 defaults (source=CUSTOMER, active=True) matching `original`'s own
+        # field defaults, so no further padding is needed there.
+        rebuilt = row_to_definition(list(insert) + [None])
         assert rebuilt == original
 
     def test_json_columns_come_back_as_objects_too(self) -> None:
@@ -132,6 +156,7 @@ class TestRoundTrip:
                 None,
                 None,
             )
+            + _B2_COLUMNS
         )
         assert row_to_definition(row).source_tables == frozenset({"crm_deal"})
 
@@ -153,7 +178,7 @@ class TestRoundTrip:
             None,
             None,
             None,
-        ]
+        ] + list(_B2_COLUMNS)
         with pytest.raises(ValueError, match="crm_contact"):
             row_to_definition(row)
 
@@ -246,6 +271,7 @@ class TestFeasibility:
                     None,
                     k.concept,
                 )
+                + _B2_COLUMNS
                 for k in (
                     _kpi(
                         sql="SELECT sum(amount) FROM crm_deal",
@@ -292,6 +318,7 @@ class TestRevalidation:
                 None,
                 k.concept,
             )
+            + _B2_COLUMNS
             for k in (ready, blocked)
         ]
         connection = _Connection(rows=rows)
@@ -452,7 +479,7 @@ class TestMirrorWithRealRows:
             None,
             "snap.3",
             kpi.concept,
-        )
+        ) + _B2_COLUMNS
         connection = _Connection(rows=[row])
         return KpiRegistryStore(connection), connection
 
