@@ -51,6 +51,8 @@ two instances of it would also be fixed, not as a one-off in this route.
 from __future__ import annotations
 
 import re
+import threading
+from dataclasses import dataclass
 from typing import Any, Iterator, Mapping, Optional, Sequence, Tuple
 
 from egpt.os.scopes import has_required_scopes
@@ -74,9 +76,10 @@ from egpt_retail.contracts.kpi import (
     TimeWindowUnit,
     kpi_identifier,
 )
-from egpt_retail.contracts.vocabulary import load_vocabulary_set
+from egpt_retail.contracts.vocabulary import VocabularySet
 from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.kpi.store import KpiRegistryStore
+from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
 from egpt_retail.suggestions.run import SuggestionRun, run_suggestions
 
 __all__ = ["router"]
@@ -400,14 +403,22 @@ def create_kpi(
     )
 
 
-def _validated_business_area(business_area: Optional[str]) -> Optional[str]:
+def _validated_business_area(
+    business_area: Optional[str], vocabularies: VocabularySet
+) -> Optional[str]:
     """422, not a raw ``ValueError``, for a business area outside this deployment's vocabulary
     -- the same regression ``list_kpis`` fixed for #229 (an unhandled ``ValueError`` from
     ``VocabularySet.validate`` was leaking as a 500).
+
+    ``vocabularies`` is threaded in by the caller rather than loaded here: every route that
+    reaches this already has a ``KpiRegistryStore`` (or, for the suggestions route, a
+    ``_SuggestionRegistrySnapshot``) that loaded and cached its own ``VocabularySet`` once at
+    construction (``kpi/store.py``), so a fresh ``load_vocabulary_set()`` on every call would
+    just re-read the same shipped file this store already has in hand.
     """
     if business_area is not None:
         try:
-            load_vocabulary_set().validate("business_area", business_area)
+            vocabularies.validate("business_area", business_area)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     return business_area
@@ -415,56 +426,167 @@ def _validated_business_area(business_area: Optional[str]) -> Optional[str]:
 
 def _filter_suggestions(
     suggestions: Sequence[wire.KpiSuggestion], business_area: Optional[str]
-) -> list:
+) -> list[wire.KpiSuggestion]:
     """Pure, so the business-area narrowing is unit-testable without a real semantic reader --
     ``run_suggestions`` has no ``business_area`` parameter of its own, so this narrows its
-    output after the fact, the same way ``_matches_filters`` narrows ``list_kpis``'s.
+    output after the fact, the same after-the-fact-narrowing shape ``list_kpis`` gets from
+    ``store.list(business_area=...)``, just done here in Python since ``run_suggestions`` has
+    no such parameter.
     """
     if business_area is None:
         return list(suggestions)
     return [s for s in suggestions if s.business_area == business_area]
 
 
+def _suggestion_notes(run: SuggestionRun) -> str:
+    """``SuggestionRun.notes`` (e.g. "no domain prose reached the agents: ...", which
+    ``run_suggestions`` always appends here since this route never passes ``knowledge=``/
+    ``ontology=``) joined with ``AssemblyReport.notes`` (K12's own free-text field, previously
+    the only one of the two that reached the wire) -- both surfaced, since the wire model's
+    ``notes`` is a single string with room for both.
+    """
+    parts = [note for note in (*run.notes, run.kpis.notes) if note]
+    return "\n".join(parts)
+
+
+@dataclass(frozen=True)
+class _SuggestionRegistrySnapshot:
+    """What ``GET /kpis/suggestions`` needs from the registry, read once up front.
+
+    Fetched by :func:`_suggestion_registry_snapshot` -- a plain (non-generator) dependency
+    that opens the pooled control-plane connection, reads it, and closes it before returning,
+    rather than a request-scoped ``Depends(_kpi_store)`` that would otherwise stay open for
+    the entire span of the two live model calls ``run_suggestions`` makes below it.
+    """
+
+    definitions: Tuple[KpiDefinition, ...]
+    vocabularies: VocabularySet
+
+
+def _suggestion_registry_snapshot() -> _SuggestionRegistrySnapshot:
+    """The registry snapshot ``GET /kpis/suggestions`` needs, read and released up front.
+
+    Opens its own pooled connection (mirrors ``_kpi_store``) rather than depending on it,
+    because ``_kpi_store``'s ``yield`` keeps the connection checked out for the whole request
+    -- exactly the resource-holding pattern this route must avoid (Finding 5, PR #242 review):
+    ``registry``/``store`` is only ever used for one ``list()`` call, so there is no reason to
+    hold a scarce, pooled Postgres connection open across the two live model calls that follow.
+    """
+    settings = RetailSettings()
+    connection = pooled_control_plane_connection(settings)
+    try:
+        store = KpiRegistryStore(connection)
+        return _SuggestionRegistrySnapshot(
+            definitions=tuple(store.list()), vocabularies=store.vocabularies
+        )
+    finally:
+        connection.close()
+
+
+#: The two K12/K13 agents built by ``build_suggestion_agents``, reused across requests until
+#: the registry's identifier set changes. CLAUDE.md: "Never create agents in loops -- reuse
+#: them for performance" -- without this, every ``GET /kpis/suggestions`` request built two
+#: fresh ``Agent`` instances, re-rendered the K12 prompt against the registry and re-read
+#: ``load_catalogue()`` from disk, even though nothing had changed since the last request.
+#: A single-slot cache (not an unbounded dict keyed by every snapshot ever seen) since only
+#: the current registry state is ever worth serving stale agents for.
+_agent_cache_key: Optional[Tuple[str, ...]] = None
+_agent_cache_agents: Optional[Tuple[Any, Any]] = None
+_agent_cache_lock = threading.Lock()
+
+
+def _cached_suggestion_agents(
+    settings: RetailSettings, definitions: Sequence[KpiDefinition]
+) -> Tuple[Any, Any]:
+    """The two suggestion agents for this registry snapshot, built once and reused.
+
+    Keyed by the sorted set of registry identifiers -- the same set the K12 prompt embeds as
+    "existing" -- so a KPI created or deleted between requests invalidates the cache the next
+    time this is called, rather than serving agents whose prompt still lists a KPI that is now
+    gone (or omits one that now exists).
+    """
+    global _agent_cache_key, _agent_cache_agents
+    key = tuple(sorted(definition.identifier for definition in definitions))
+    with _agent_cache_lock:
+        if _agent_cache_key == key and _agent_cache_agents is not None:
+            return _agent_cache_agents
+        agents = build_suggestion_agents(
+            settings,
+            existing_kpis=key,
+            registry_kpis=definitions,
+            catalogue=load_catalogue(),
+        )
+        _agent_cache_key = key
+        _agent_cache_agents = agents
+        return agents
+
+
 def _list_kpi_suggestions(
     settings: RetailSettings,
-    store: KpiRegistryStore,
     *,
+    definitions: Sequence[KpiDefinition],
+    vocabularies: VocabularySet,
     business_area: Optional[str],
+    include_sql: bool,
     agents: Optional[Tuple[Any, Any]] = None,
 ) -> wire.KpiSuggestionList:
     """#234/F1: on-demand KPI suggestions, read straight through to K12 -- see the module
     docstring for what this deliberately omits (prose, warehouse samples, and the wasted
     use-case agent call ``run_suggestions`` always makes alongside it).
 
+    ``definitions``/``vocabularies`` come from :func:`_suggestion_registry_snapshot`, read
+    before the store's pooled connection was released, rather than a live ``KpiRegistryStore``
+    held open for this call's two live model calls.
+
+    ``include_sql`` gates ``KpiSuggestion.proposed_sql`` the same way ``_kpi_out`` gates
+    ``Kpi.sql``: a caller holding only ``kpis:read`` never sees candidate SQL, only a caller
+    with ``kpis:write`` (``_may_read_sql``) does.
+
     ``agents`` is a test-only seam (mirrors ``run_suggestions``' own): a real call always
-    leaves it ``None`` and pays for two live model calls; a test injects stand-ins that return
-    canned drafts, exactly as ``test_k12_k13_suggestion_pass.py`` already does for K12/K13
-    directly.
+    resolves it from :func:`_cached_suggestion_agents` instead of leaving it ``None`` and
+    paying for two fresh ``Agent`` builds on every request; a test injects stand-ins that
+    return canned drafts, exactly as ``test_k12_k13_suggestion_pass.py`` already does for
+    K12/K13 directly.
     """
-    business_area = _validated_business_area(business_area)
+    business_area = _validated_business_area(business_area, vocabularies)
+    resolved_agents = (
+        agents
+        if agents is not None
+        else _cached_suggestion_agents(settings, definitions)
+    )
     with open_semantic_reader(settings) as reader:
         run: SuggestionRun = run_suggestions(
             settings,
             reader=reader,
-            registry=store,
+            existing_definitions=definitions,
             proposals=None,
             dry_run=True,
-            agents=agents,
+            agents=resolved_agents,
         )
+    suggestions = _filter_suggestions(run.kpis.suggestions, business_area)
+    if not include_sql:
+        suggestions = [s.model_copy(update={"proposed_sql": None}) for s in suggestions]
     return wire.KpiSuggestionList(
-        suggestions=_filter_suggestions(run.kpis.suggestions, business_area),
-        notes=run.kpis.notes,
+        suggestions=suggestions,
+        notes=_suggestion_notes(run),
         semantic_snapshot=run.snapshot,
     )
 
 
 @router.get("/kpis/suggestions", response_model=wire.KpiSuggestionList)
 def list_kpi_suggestions(
+    request: Request,
     business_area: Optional[str] = None,
-    store: KpiRegistryStore = Depends(_kpi_store),
+    snapshot: _SuggestionRegistrySnapshot = Depends(_suggestion_registry_snapshot),
     _: None = Depends(require_scopes("kpis:read")),
 ):
-    return _list_kpi_suggestions(RetailSettings(), store, business_area=business_area)
+    return _list_kpi_suggestions(
+        RetailSettings(),
+        definitions=snapshot.definitions,
+        vocabularies=snapshot.vocabularies,
+        business_area=business_area,
+        include_sql=_may_read_sql(request),
+    )
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
