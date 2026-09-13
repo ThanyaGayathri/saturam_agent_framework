@@ -216,7 +216,10 @@ jobs:
         run: |
           set -e
           source .venv/bin/activate
-          python -m pytest product/tests/test_semantic_live.py product/tests/test_r15_rehearsal_live.py -v --tb=short
+          # kpis.py (#229/B1): test_kpis_live.py needs the same EGPT_INTEGRATION_POSTGRES /
+          # EGPT_INTEGRATION_NEO4J + EGPT_RETAIL_CP_DSN / EGPT_RETAIL_NEO4J_* this job already
+          # provisions above -- was disclosed in the PR as not yet wired here (round-1 review).
+          python -m pytest product/tests/test_semantic_live.py product/tests/test_r15_rehearsal_live.py product/tests/test_kpis_live.py -v --tb=short
 
   system:
     name: system (py3.12)

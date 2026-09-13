@@ -6303,6 +6303,7 @@
             "name": "subject_area",
             "in": "query",
             "required": false,
+            "description": "Placeholder pending B2 (#231): `Kpi.subject_area` is not backed by the registry yet, so every KPI currently reports an empty string and this filter always returns `[]`.",
             "schema": {
               "type": "string"
             }
@@ -6311,6 +6312,7 @@
             "name": "active",
             "in": "query",
             "required": false,
+            "description": "Placeholder pending B2 (#231): `Kpi.active` is not backed by the registry yet, so every KPI currently reports `true` and `?active=false` always returns `[]`.",
             "schema": {
               "type": "boolean"
             }

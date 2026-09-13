@@ -5594,6 +5594,43 @@ Three pieces:
   configured is 503 naming the setting; a G10 conflict 409; a malformed id 422; nothing is
   written on any refusal.
 
+### R13_dashboards.py -- series and delta from gold history (issue #227 / E1)
+
+**Status:** PASS (unit); live section not run here (see below)
+
+**Description:** Closes the two gaps the original R13 entry recorded as "deliberately not
+built": `series` shipped empty for every `line`/`bar` tile and `delta` always shipped `null`.
+Issue #227's own correction holds -- `gold.kpi_value` is keyed on `(kpi_identifier, as_of,
+dimension)` and keeps every nightly row, so this was a *reader* gap, not a storage gap.
+
+Three pieces, each staying on the seam the previous entries chose:
+
+- `warehouse/gold.py:read_gold_history_statement` -- the pure statement builder next to
+  `read_gold_statement`: the same per-KPI view, `WHERE as_of > :since AND as_of <= :as_of`,
+  the same whole-row ordering (so rows come back oldest business date first). Bounded above
+  as well as below, so a reader pinned to an older `as_of` never sees rows materialised
+  after it.
+- `executors/gold.py:read_gold` -- a new optional `additional_data["history_days"]`. When
+  set, each KPI's history is read through the *same* guard, engine and provenance path as the
+  current-date read and returned under `values[identifier]["history"]` in the same serialised
+  row shape (`value` as `str`, not `float` -- gold's `numeric` choice honoured on the way
+  out). Additive: every other `read_gold` caller (R11 playground, R12 alerts, R10 RFQ) passes
+  no `history_days` and sees exactly the output it saw before. A history read the guard
+  refuses or the warehouse fails is logged and yields an empty `history`; the current value
+  is never lost to a problem with its trend.
+- `dashboards/data.py` -- `read_dashboard_data` asks for `SERIES_LOOKBACK_DAYS` (30) of
+  history only when at least one tile is not a `table`, so a table-only dashboard costs
+  exactly what it did. `_tile_data` resolves each history date's row with the *same* rule as
+  the current date (`grain_value` match, or the single `overall` row) -- a series is made of
+  the rows the number tile would have shown each night. `line`/`bar` tiles get one
+  `SeriesPoint` per business date that had a row for the tile's grain (a night with no row
+  for that dimension is left out, not plotted as `null`, because `null` means the formula
+  returned NULL -- a different fact). Every tile that resolved a current value gets `delta`
+  = current minus the previous *resolved* date's value, computed in `Decimal` from gold's
+  `str` values and converted to `float` once: `0.91 - 0.93` in binary float is
+  `-0.020000000000000018`, which is precisely what the DDL's `numeric` exists to keep away
+  from a customer. One materialised night: `delta: null`, nothing invented.
+
 **Result (unit, DB-free -- what ran in this environment):**
 
 ```
@@ -5627,5 +5664,38 @@ areas the direct detection names against the real graph, `PUT` adds `store_ops` 
 scratch copy of the middleby overlay (never the tracked file), a core redefinition answers
 409, an empty `PUT` clears it -- is written and lints, and is owed a run on a machine with
 the stack up. Recorded as owed, not claimed.
+
+**Result (unit, DB-free -- what ran in this environment):**
+
+```
+product/tests/test_r5_gold.py           +1  read_gold_history_statement shape, both bounds,
+                                            whole-row order, no `ORDER BY 1`
+product/tests/test_r13_dashboards.py    +9  line/bar tile -> one point per night + exact
+                                            delta; number tile -> delta but empty series;
+                                            table listing -> neither; grain-scoped series
+                                            follows the tile's row and skips a night without
+                                            it (delta then reads back to the previous
+                                            *resolved* night, not the previous calendar
+                                            night); single night -> delta null; no `history`
+                                            key at all -> renders exactly as before; a NULL
+                                            formula result in the history -> a null point,
+                                            and no delta invented across it;
+                                            read_dashboard_data passes history_days only
+                                            when a tile can use it
+pytest product/tests                    all green (test_r4_storage deselected: Azure Blob
+                                            SDK, unrelated, same pre-existing gap PR #236
+                                            records)
+```
+
+**Not run here, and why.** This session's container has no reachable Docker daemon, so the
+compose Postgres/Neo4j stack and therefore the real `read_gold` path (semantic reader, guard,
+warehouse) could not be exercised. The cookbook's section 5 now adds a third, `line` tile on
+the same real grain row and checks its `series` has one point per distinct `as_of` the
+warehouse holds for that dimension in the 30-day window (counted directly with SQL, not
+assumed), and that `delta` is present when there are two or more nights and `null` when
+there is one. The previous entry's live re-verification found exactly two nights
+(`2026-09-10`, `2026-09-11`) for both `rfq__*` KPIs in the shared local stack, which is the
+state issue #227 verified against and the state this section is written to confirm. That
+run is owed on a machine with the stack up; recorded here rather than claimed.
 
 ---

@@ -21,6 +21,7 @@ from fastapi import FastAPI
 
 from egpt_retail.api.routers.business_areas import router as business_areas_router
 from egpt_retail.api.routers.dashboards import router as dashboards_router
+from egpt_retail.api.routers.kpis import router as kpis_router
 from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.app.components import (
     abuild_memory_provider,
@@ -31,6 +32,7 @@ from egpt_retail.app.components import (
 from egpt_retail.app.db import build_control_plane_db, psycopg_dsn
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.dashboards.store import DashboardStore
+from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.playground.store import PlaygroundStore
 
 __all__ = ["OS_ID", "build_agent_os"]
@@ -71,13 +73,18 @@ def memory_lifespan_for(settings: RetailSettings, agents: List[Any]) -> Any:
     return _lifespan
 
 
-def _ensure_playground_and_dashboard_schemas(settings: RetailSettings) -> None:
-    """Provisions R11's and R13's control-plane tables once, at boot -- not per request
-    (``api/routers/playground.py`` and ``dashboards.py`` open a fresh connection per call,
-    but do not re-run DDL on it). Synchronous and cheap (advisory lock, ``CREATE ... IF NOT
-    EXISTS``); run inside the composed lifespan below, same startup point K1's memory check
-    runs at, for the same reason: a deployment that cannot provision its own tables should
-    fail at boot, not on the first request that touches them.
+def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
+    """Provisions R11's, R13's and B1's control-plane tables once, at boot -- not per request
+    (``api/routers/playground.py``, ``dashboards.py`` and ``kpis.py`` open a fresh connection
+    per call, but do not re-run DDL on it). Synchronous and cheap (advisory lock, ``CREATE ...
+    IF NOT EXISTS``); run inside the composed lifespan below, same startup point K1's memory
+    check runs at, for the same reason: a deployment that cannot provision its own tables
+    should fail at boot, not on the first request that touches them.
+
+    ``KpiRegistryStore``'s ``semantic.kpi_definition`` table is otherwise only provisioned by
+    ``semantic/refresh.py``'s offline refresh job or ``entrypoints/suggest.py`` -- neither
+    guaranteed to have run before the API serves traffic, which left a fresh deployment's
+    first ``GET /kpis`` a raw "relation does not exist" 500 instead of an empty list.
     """
     import psycopg
 
@@ -85,18 +92,19 @@ def _ensure_playground_and_dashboard_schemas(settings: RetailSettings) -> None:
     try:
         PlaygroundStore(connection).ensure_schema()
         DashboardStore(connection).ensure_schema()
+        KpiRegistryStore(connection).ensure_schema()
     finally:
         connection.close()
 
 
 def _combined_lifespan(settings: RetailSettings, agents: List[Any]) -> Any:
-    """K1's memory lifespan, plus R11/R13's schema provisioning. One ``EgptOS(lifespan=...)``
+    """K1's memory lifespan, plus R11/R13/B1's schema provisioning. One ``EgptOS(lifespan=...)``
     slot exists, so the two are composed here rather than each trying to claim it."""
     memory_lifespan = memory_lifespan_for(settings, agents)
 
     @asynccontextmanager
     async def _lifespan(app: Any, agent_os: Any):
-        _ensure_playground_and_dashboard_schemas(settings)
+        _ensure_control_plane_schemas(settings)
         async with memory_lifespan(app, agent_os):
             yield
 
@@ -171,6 +179,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     base_app.include_router(playground_router)
     base_app.include_router(dashboards_router)
     base_app.include_router(business_areas_router)
+    base_app.include_router(kpis_router)
 
     os_app = EgptOS(
         id=OS_ID,
