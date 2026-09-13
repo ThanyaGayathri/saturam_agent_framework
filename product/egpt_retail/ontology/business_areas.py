@@ -265,7 +265,8 @@ def apply_overlay(
                 f"to {area.label!r}. An overlay may add and annotate, never redefine (G10) -- "
                 "raise it as a proposal."
             )
-        additions = [s for s in area.subject_areas if s not in core_area.subject_areas]
+        incoming = _union((), area.subject_areas)
+        additions = [s for s in incoming if s not in core_area.subject_areas]
         if additions:
             notes[area.id] = {"subject_areas": additions}
 

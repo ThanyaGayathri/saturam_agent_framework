@@ -212,6 +212,19 @@ def test_put_dedupes_subject_areas_on_a_newly_added_area_too():
     assert payload[HIERARCHY_KEY]["store_ops"]["subject_areas"] == ["Foot Traffic"]
 
 
+def test_put_dedupes_subject_areas_when_annotating_an_existing_core_area_too():
+    """Annotating an existing core area must dedupe repeats within the incoming request's
+    own ``subject_areas`` before diffing against the core's, the same way a brand-new
+    overlay area does -- not just filter out values the core already has."""
+    areas = [
+        BusinessAreaNode(
+            "sales", "", "", ("Brand New Thing", "Brand New Thing", "Brand New Thing")
+        )
+    ]
+    payload = apply_overlay(None, areas, CORE)
+    assert payload[HIERARCHY_KEY]["sales"]["subject_areas"] == ["Brand New Thing"]
+
+
 def test_put_with_no_areas_clears_the_overlay_contribution_and_nothing_else():
     payload = apply_overlay(EXISTING_OVERLAY, [], CORE)
     assert "business_area" not in payload["vocabularies"]
