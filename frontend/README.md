@@ -44,6 +44,16 @@ What was already decided about it, and still applies:
   gold-history reader, so `line`/`bar` tiles say "not enough history" rather than showing a
   fabricated trend. `delivery` (who a dashboard is emailed to) has no contract field and no
   local persistence to fall back to any more - dropped from the UI, not silently kept.
+- **KPI discovery is wired to the real registry** (C1, #232): `GET /kpis` and
+  `GET /business-areas` are merged *alongside* the seed catalogue in
+  `components/kpi/KpiDiscoveryPage.jsx` — the same additive pattern already used for suggested
+  candidates — rather than replacing it. The seed catalogue has no real `kpi_identifier` on any
+  card and the real registry has very few entries until more get registered, so a real KPI
+  shows its real, join-aware feasibility and a working identifier (closing the loop with D2's
+  dashboard creation) while the rest of the demo catalogue is untouched. Each demo profile's own
+  local business-area list (`storage/business-areas.js`) is left as-is; it is not reconciled
+  with the shipped 7-area vocabulary `GET /business-areas` returns — the two are allowed to
+  coexist, and only real registry rows use the real labels.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 
