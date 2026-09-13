@@ -550,7 +550,11 @@ class KpiRegistryStore:
         dashboard be deleted out from under it. Reaching into the ``dashboards`` schema by
         name/shape is the one exception to this store touching only its own table: the
         alternative is a check-then-delete across two round trips, which is exactly the race
-        this method exists to close.
+        this method exists to close. There is no foreign key or other enforced coupling
+        between the two schemas backing this -- ``dashboards/store.py``'s own DDL is the only
+        source of truth for the ``dashboard``/``tiles``/``kpi_identifier`` shape this subquery
+        assumes, and a rename there (#240 review, round 2) would break this check silently,
+        with no compile-time or migration-time signal.
         """
         with self._connection.cursor() as cursor:
             cursor.execute(
