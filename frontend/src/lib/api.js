@@ -26,14 +26,17 @@ export function setAuthTokenGetter(getter) {
 }
 
 /** Thrown on a non-2xx response, or a network/parse failure. Carries the parsed FastAPI
- * `{"detail": ...}` body when present, and the original failure as `cause` when there is
- * one (a network error, or a malformed body). */
+ * `{"detail": ...}` body when present (plus the backend's structured `code`, e.g.
+ * `kpi_not_ready`/`insufficient_scope`/`not_found`, so callers can branch without parsing
+ * prose), and the original failure as `cause` when there is one (a network error, or a
+ * malformed body). */
 export class ApiError extends Error {
   constructor(status, detail, path, options) {
     super(`${status} ${path}: ${detail}`, options);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.code = options?.code ?? null;
   }
 }
 
@@ -87,14 +90,25 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new ApiError(response.status, formatErrorDetail(body?.detail, response.statusText), path);
+    let body;
+    try {
+      body = await response.json();
+    } catch (cause) {
+      // A genuine abort mid-read must propagate as `AbortError`, not get rewrapped below -
+      // only a real parse failure (malformed/absent body) falls back to `null`.
+      if (cause?.name === "AbortError") throw cause;
+      body = null;
+    }
+    throw new ApiError(response.status, formatErrorDetail(body?.detail, response.statusText), path, {
+      code: body?.code,
+    });
   }
 
   if (response.status === 204) return null;
   try {
     return await response.json();
   } catch (cause) {
+    if (cause?.name === "AbortError") throw cause;
     // A 2xx response with a body that isn't valid JSON (a misconfigured proxy, an HTML
     // error page served with a 200, a truncated response) - report it the same way every
     // other failure here is reported, instead of a raw parse SyntaxError.
@@ -109,7 +123,9 @@ export function apiGet(path, { signal } = {}) {
 }
 
 /** POST/PUT/DELETE `path` with a JSON `body`. Throws `ApiError` on failure; throws the
- * underlying `AbortError` as-is when `signal` is passed and fires. */
-export function apiJson(path, method, body, { signal } = {}) {
+ * underlying `AbortError` as-is when `signal` is passed and fires. `async` so a synchronous
+ * serialization failure (a circular reference, a `BigInt`) rejects the returned promise
+ * instead of throwing out of the call site. */
+export async function apiJson(path, method, body, { signal } = {}) {
   return request(path, { method, body: body === undefined ? undefined : JSON.stringify(body), signal });
 }
