@@ -109,6 +109,24 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.4 — 2026-09-13 — dashboards: `RefreshSchedule` gains `daily` and `weekly` (additive)
+
+Agreed by: product (nandha-saturam), for the interface's dashboard cadence options (#226,
+part of #222). Additive -- two new enum values, nothing removed or renamed -- so no
+negotiation and no major bump.
+
+- **`RefreshSchedule`** is now `nightly | daily | weekly | hourly | manual`. The prototype's
+  create-dashboard flow offers "every morning" and "Monday mornings" and the contract had no
+  value for either, so the frontend would have had to drop two options or lie about the
+  third. The description now says what each value means: `nightly` (the default) follows
+  gold -- as soon as the nightly materialisation completes (D7); `daily` is once a day at a
+  fixed morning time (06:00), reading what gold holds; `weekly` is Monday mornings; `hourly`
+  is every hour, capped in practice by gold's cadence; `manual` is only when asked. The
+  cadence is stored, not enforced -- there is no scheduler honouring it yet, unchanged from
+  1.0.0. `dashboards/store.py` keeps the column as plain `text`, so no migration.
+  Delivery (who is sent what, and when) is still not in the contract; the frontend carries
+  it locally and says so.
+
 ## 1.1.3 — 2026-09-11 — R12: `AlertScope.grain_column` (additive)
 
 Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bump.

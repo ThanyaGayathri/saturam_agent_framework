@@ -70,6 +70,36 @@ def test_dashboard_visible_to_owner_always():
     assert not dashboard.visible_to("bob")
 
 
+def test_refresh_schedule_carries_every_cadence_the_interface_offers():
+    """Contract 1.1.4 (#226): `daily` and `weekly` join `nightly`/`hourly`/`manual`, and the
+    domain enum and the wire enum must agree value for value -- the router converts between
+    them by `.value`, so a value present on one side only would 500 on the way out."""
+    from egpt_retail.api import models as wire
+    from egpt_retail.contracts.dashboards import RefreshSchedule
+
+    expected = {"nightly", "daily", "weekly", "hourly", "manual"}
+    assert {s.value for s in RefreshSchedule} == expected
+    assert {s.value for s in wire.RefreshSchedule} == expected
+    for domain_value in RefreshSchedule:
+        assert wire.RefreshSchedule(domain_value.value).value == domain_value.value
+
+
+def test_dashboard_out_round_trips_the_new_cadences():
+    from egpt_retail.api.routers.dashboards import _dashboard_out
+    from egpt_retail.contracts.dashboards import RefreshSchedule
+
+    for cadence in (RefreshSchedule.DAILY, RefreshSchedule.WEEKLY):
+        dashboard = Dashboard(
+            id="dsh_1",
+            name="d",
+            owner="alice",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            refresh_schedule=cadence,
+        )
+        assert _dashboard_out(dashboard).refresh_schedule.value == cadence.value
+
+
 def test_dashboard_visible_to_team_and_everyone():
     for visibility in (Visibility.TEAM, Visibility.EVERYONE):
         dashboard = Dashboard(
