@@ -106,6 +106,28 @@ def _may_read_sql(request: Request) -> bool:
     )
 
 
+def _caller_id(request: Request) -> str:
+    """The caller's identity -- used only to decide which dashboard *names* ``delete_kpi``'s
+    409 is allowed to reveal (#240 review: naming a dashboard the caller cannot otherwise see
+    is a minor information leak), never for the reference check itself. ``KpiRegistryStore.
+    delete_if_unreferenced`` deliberately blocks on every dashboard regardless of owner or
+    visibility -- a private dashboard belonging to someone else must still refuse the delete;
+    this identity only narrows what the error message is allowed to say about it. Mirrors
+    ``api/routers/dashboards.py``'s ``_owner`` exactly -- duplicated, not imported, matching
+    this codebase's existing convention of each router owning its own copy rather than sharing
+    a private helper across modules.
+    """
+    if not getattr(request.state, "authorization_enabled", False):
+        return "local"
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="This token carries no subject claim.",
+        )
+    return user_id
+
+
 # --- wire conversions -----------------------------------------------------------------------
 
 
@@ -388,14 +410,24 @@ def list_kpis(
     settings = RetailSettings()
     feasibility_map, snapshot_version = _feasibility_map(settings, store)
     include_sql = _may_read_sql(request)
-    kpis = [
-        _kpi_out(
-            definition,
-            _feasibility_out(feasibility_map[definition.identifier], snapshot_version),
-            include_sql=include_sql,
+    kpis = []
+    for definition in definitions:
+        # `.get()`, not `[...]`: `definitions` and `feasibility_map` come from two
+        # independent reads (this route's own `store.list()` above and `_feasibility_map`'s
+        # internal one), so a KPI deleted in the gap between them is in the first and missing
+        # from the second. Drop it from the listing rather than a raw 500 (#240 review, round
+        # 2 -- the same unguarded-lookup regression `_respond_with_kpi` already guards
+        # against for create/update/get, now closed here too).
+        verdict = feasibility_map.get(definition.identifier)
+        if verdict is None:
+            continue
+        kpis.append(
+            _kpi_out(
+                definition,
+                _feasibility_out(verdict, snapshot_version),
+                include_sql=include_sql,
+            )
         )
-        for definition in definitions
-    ]
     return [k for k in kpis if _matches_filters(k, subject_area, active, feasibility)]
 
 
@@ -496,16 +528,23 @@ def delete_kpi(
     every dashboard regardless of owner or visibility (``KpiRegistryStore.
     delete_if_unreferenced`` / ``DashboardStore.list_referencing``), not only ones the deleting
     caller could see, and as part of the same statement that removes the row so a tile created
-    in between cannot be left pointing at a deleted KPI.
+    in between cannot be left pointing at a deleted KPI. The 409 *message*, unlike the check
+    itself, only names dashboards the caller can actually see -- others referencing it are
+    reported only as a count, not by name (#240 review: naming them would leak into the error
+    the existence of a dashboard the caller has no visibility into).
     """
-    result = store.delete_if_unreferenced(kpi_id)
-    if result.referenced_by:
+    result = store.delete_if_unreferenced(kpi_id, caller=_caller_id(request))
+    if result.referenced_by or result.hidden_reference_count:
+        parts = list(result.referenced_by)
+        if result.hidden_reference_count:
+            plural = "s" if result.hidden_reference_count != 1 else ""
+            parts.append(
+                f"{result.hidden_reference_count} dashboard{plural} you do not have "
+                "visibility into"
+            )
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"{kpi_id} is still referenced by dashboard(s): "
-                f"{', '.join(result.referenced_by)}."
-            ),
+            detail=f"{kpi_id} is still referenced by dashboard(s): {', '.join(parts)}.",
         )
     if not result.removed:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
@@ -521,5 +560,13 @@ def get_kpi_feasibility(
     if definition is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
     settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(settings, store)
-    return _feasibility_out(feasibility_map[definition.identifier], snapshot_version)
+    # `kpis=[definition]`, not the whole-registry default: feasibility comes from the row
+    # just read rather than a second, independent registry read a concurrent delete could
+    # race (same fix as `_respond_with_kpi(..., single=True)`; #240 review, round 2).
+    feasibility_map, snapshot_version = _feasibility_map(
+        settings, store, kpis=[definition]
+    )
+    verdict = feasibility_map.get(definition.identifier)
+    if verdict is None:
+        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
+    return _feasibility_out(verdict, snapshot_version)

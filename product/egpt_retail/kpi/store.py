@@ -162,9 +162,16 @@ class KpiDeleteResult:
     #: Whether the row was actually removed.
     removed: bool
     #: Dashboard names still referencing the KPI, when ``removed`` is ``False`` because of
-    #: that. Empty when ``removed`` is ``False`` because the identifier did not exist, or when
-    #: ``removed`` is ``True``.
+    #: that -- narrowed to whatever ``delete_if_unreferenced``'s ``caller`` argument may see
+    #: (all of them, when ``caller`` was omitted). Empty when ``removed`` is ``False`` because
+    #: the identifier did not exist, or when ``removed`` is ``True``.
     referenced_by: Tuple[str, ...] = ()
+    #: How many more dashboards reference the KPI beyond ``referenced_by``, that ``caller``
+    #: cannot see (e.g. another owner's private dashboard) -- the block decision itself does
+    #: not care about visibility, but the message a caller receives should not name a
+    #: dashboard they have no visibility into (#240 review, round 2). Always ``0`` when
+    #: ``caller`` was omitted.
+    hidden_reference_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -368,7 +375,14 @@ class KpiRegistryStore:
         if not inserted:
             return None
         saved = self.get(kpi.identifier)
-        assert saved is not None  # just inserted, same connection
+        if saved is None:
+            # Extremely narrow: this commit made the row visible to every other session,
+            # including one that deletes it before this connection's own follow-up SELECT
+            # runs. A bare `assert` here would be stripped under `python -O`, silently
+            # returning `None` against this method's declared `KpiDefinition` return type.
+            raise RuntimeError(
+                f"{kpi.identifier} vanished immediately after being inserted."
+            )
         return saved
 
     async def acreate(self, kpi: KpiDefinition) -> Optional[KpiDefinition]:
@@ -415,7 +429,16 @@ class KpiRegistryStore:
             raise KpiConcurrentUpdateError(kpi.identifier)
         self._connection.commit()
         saved = self.get(kpi.identifier)
-        assert saved is not None  # just updated, same connection, same transaction
+        if saved is None:
+            # Extremely narrow: the commit above made the row visible to every other
+            # session, including one that deletes it before this connection's own follow-up
+            # SELECT runs -- so this is a fresh read after the transaction closed, not "the
+            # same transaction". A bare `assert` here would be stripped under `python -O`,
+            # silently returning `None` against this method's declared `KpiDefinition`
+            # return type.
+            raise RuntimeError(
+                f"{kpi.identifier} vanished immediately after being updated."
+            )
         return saved
 
     async def asave_if_unchanged(
@@ -490,16 +513,36 @@ class KpiRegistryStore:
         """Async variant."""
         return await asyncio.to_thread(self.delete, identifier)
 
-    def delete_if_unreferenced(self, identifier: str) -> KpiDeleteResult:
+    def delete_if_unreferenced(
+        self, identifier: str, *, caller: Optional[str] = None
+    ) -> KpiDeleteResult:
         """Delete one definition, refusing if any dashboard still has a tile naming it --
         guard and delete as a single statement, not a check followed by a separate
         :meth:`delete`.
 
+        ``caller``, when given, narrows :attr:`KpiDeleteResult.referenced_by` to dashboard
+        names ``caller`` can actually see (:class:`DashboardStore`'s own
+        ``list_visible_to``), moving anything else into :attr:`KpiDeleteResult.
+        hidden_reference_count` instead -- reusing this same connection, not a second pooled
+        one. This only affects what a caller is told; the block decision two paragraphs down
+        still checks every dashboard regardless of visibility. Omitted (the default), every
+        referencing name is reported, visible or not -- e.g. for a caller with no per-user
+        identity to scope by.
+
         A dashboard tile created for this KPI after a plain existence/reference check but
         before the actual ``DELETE`` would otherwise be left pointing at a KPI that no longer
         exists. The ``NOT EXISTS`` subquery below runs as part of the same statement the row
-        is removed in, so there is no gap between "nothing references it" and "it's gone" for
-        a concurrent write to land in.
+        is removed in, which shrinks that window from a full HTTP round trip to a single SQL
+        statement's own execution -- a huge practical improvement, but not a mathematical
+        guarantee: under Postgres's default READ COMMITTED isolation, this statement still
+        takes its own snapshot when it starts, so a dashboard-tile ``INSERT`` that commits
+        after this ``DELETE`` has begun but before it finishes is invisible to the subquery
+        and can still land a tile pointing at the now-deleted KPI. Closing that residual,
+        microsecond-scale window fully would need ``SERIALIZABLE`` isolation or an explicit
+        lock (e.g. ``SELECT ... FOR SHARE`` on the referencing dashboard rows first); the
+        reverse guard in ``dashboards/store.py``'s ``DashboardStore.create``/``update`` (the
+        write side of this exact race, #240 review round 2) has the identical residual window
+        for the same reason.
 
         The subquery scans every dashboard in ``dashboards.dashboard`` regardless of owner or
         visibility -- deliberately not ``DashboardStore.list_visible_to``, which answers "what
@@ -532,17 +575,31 @@ class KpiRegistryStore:
         # already holds everything needed), and only ever the rare failure path.
         if self.get(identifier) is None:
             return KpiDeleteResult(removed=False)
-        referenced_by = tuple(
+        all_names = tuple(
             sorted(
                 d.name
                 for d in _DashboardStore(self._connection).list_referencing(identifier)
             )
         )
-        return KpiDeleteResult(removed=False, referenced_by=referenced_by)
+        if caller is None:
+            return KpiDeleteResult(removed=False, referenced_by=all_names)
+        visible_names = {
+            d.name for d in _DashboardStore(self._connection).list_visible_to(caller)
+        }
+        referenced_by = tuple(n for n in all_names if n in visible_names)
+        return KpiDeleteResult(
+            removed=False,
+            referenced_by=referenced_by,
+            hidden_reference_count=len(all_names) - len(referenced_by),
+        )
 
-    async def adelete_if_unreferenced(self, identifier: str) -> KpiDeleteResult:
+    async def adelete_if_unreferenced(
+        self, identifier: str, *, caller: Optional[str] = None
+    ) -> KpiDeleteResult:
         """Async variant."""
-        return await asyncio.to_thread(self.delete_if_unreferenced, identifier)
+        return await asyncio.to_thread(
+            self.delete_if_unreferenced, identifier, caller=caller
+        )
 
     # --- reading -----------------------------------------------------------------------
 

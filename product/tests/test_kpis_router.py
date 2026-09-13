@@ -511,7 +511,7 @@ class _FakeKpiStore:
         self._by_id[kpi.identifier] = kpi
         return kpi
 
-    def delete_if_unreferenced(self, identifier):
+    def delete_if_unreferenced(self, identifier, *, caller=None):
         if identifier not in self._by_id:
             return KpiDeleteResult(removed=False)
         del self._by_id[identifier]
@@ -645,7 +645,7 @@ class _ReferencedKpiStore(_FakeKpiStore):
         super().__init__(existing=existing)
         self._referenced_by = referenced_by
 
-    def delete_if_unreferenced(self, identifier):
+    def delete_if_unreferenced(self, identifier, *, caller=None):
         if identifier not in self._by_id:
             return KpiDeleteResult(removed=False)
         return KpiDeleteResult(removed=False, referenced_by=self._referenced_by)

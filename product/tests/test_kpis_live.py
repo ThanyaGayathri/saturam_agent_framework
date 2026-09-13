@@ -355,7 +355,11 @@ def test_delete_kpi_refuses_while_another_owners_private_dashboard_references_it
         with pytest.raises(HTTPException) as excinfo:
             delete_kpi(IDENT, _FakeRequest(authorization_enabled=False), store=store)
         assert excinfo.value.status_code == 409
-        assert "livetest_kpi__someone_elses_dashboard" in excinfo.value.detail
+        # Still blocked -- but the *message*, unlike the block decision, must not name a
+        # dashboard "local" (the deleting caller) cannot see: reported only as a count
+        # (#240 review, round 2 -- the message-scoping half of finding #4(a)).
+        assert "livetest_kpi__someone_elses_dashboard" not in excinfo.value.detail
+        assert "1 dashboard you do not have visibility into" in excinfo.value.detail
     finally:
         dashboard_store.delete(dashboard.id, "someone_else")
 
@@ -468,3 +472,93 @@ def test_create_returns_none_for_the_loser_of_a_real_concurrent_create_race(
     assert len(lost) == 1
     # The row itself is exactly what the winner wrote -- not some interleaving of both.
     assert store.get(IDENT) is not None
+
+
+# ---------------------------------------------------------------------------
+# #240 review, round 2 -- the residual TOCTOU from the *other* direction: a dashboard
+# create/update can still land a tile naming a KPI that `_check_tiles_ready` saw as
+# registered and ready, but that a concurrent `DELETE /kpis/{id}` removed before the write
+# actually landed. `DashboardStore.create`/`update`'s own atomic existence guard (mirroring
+# `KpiRegistryStore.delete_if_unreferenced`'s guard in the other direction) closes it. These
+# exercise the guard directly against a real Postgres connection rather than staging the
+# precise timing of the race: the guard is a single atomic statement that does not care
+# whether the KPI vanished a millisecond or an hour before it runs.
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_create_refuses_a_tile_naming_a_kpi_that_does_not_exist(
+    control_plane: Any,
+) -> None:
+    from egpt_retail.contracts.dashboards import ChartKind, Tile, TilePosition
+    from egpt_retail.dashboards.store import DashboardKpiVanishedError, DashboardStore
+
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    # Deliberately never saved to the registry -- stands in for a KPI that existed when
+    # `_check_tiles_ready` ran and was deleted before this write landed.
+    vanished_identifier = "livetest_kpi__vanished_before_write"
+    with pytest.raises(DashboardKpiVanishedError):
+        dashboard_store.create(
+            name="livetest_kpi__dashboard_over_a_vanished_kpi",
+            owner="local",
+            tiles=[
+                Tile(
+                    id="tl_livetest_kpi_vanished",
+                    kpi_identifier=vanished_identifier,
+                    chart=ChartKind.NUMBER,
+                    position=TilePosition(x=0, y=0, w=1, h=1),
+                    title="x",
+                )
+            ],
+        )
+    # Nothing was left behind: the guard tripped inside the same statement as the INSERT,
+    # not after a partial write.
+    assert not any(
+        d.name == "livetest_kpi__dashboard_over_a_vanished_kpi"
+        for d in dashboard_store.list_visible_to("local")
+    )
+
+
+def test_dashboard_update_refuses_replacing_tiles_with_one_naming_a_vanished_kpi(
+    store: KpiRegistryStore, control_plane: Any
+) -> None:
+    from egpt_retail.contracts.dashboards import ChartKind, Tile, TilePosition
+    from egpt_retail.dashboards.store import DashboardKpiVanishedError, DashboardStore
+
+    store.save(_definition())
+    dashboard_store = DashboardStore(control_plane)
+    dashboard_store.ensure_schema()
+    dashboard = dashboard_store.create(
+        name="livetest_kpi__dashboard_to_update",
+        owner="local",
+        tiles=[
+            Tile(
+                id="tl_livetest_kpi_original",
+                kpi_identifier=IDENT,
+                chart=ChartKind.NUMBER,
+                position=TilePosition(x=0, y=0, w=1, h=1),
+                title="x",
+            )
+        ],
+    )
+    try:
+        with pytest.raises(DashboardKpiVanishedError):
+            dashboard_store.update(
+                dashboard.id,
+                "local",
+                tiles=[
+                    Tile(
+                        id="tl_livetest_kpi_replacement",
+                        kpi_identifier="livetest_kpi__vanished_before_write",
+                        chart=ChartKind.NUMBER,
+                        position=TilePosition(x=0, y=0, w=1, h=1),
+                        title="x",
+                    )
+                ],
+            )
+        # The original tiles are untouched -- the failed update did not clobber them.
+        current = dashboard_store.get(dashboard.id)
+        assert current is not None
+        assert [t.id for t in current.tiles] == ["tl_livetest_kpi_original"]
+    finally:
+        dashboard_store.delete(dashboard.id, "local")
