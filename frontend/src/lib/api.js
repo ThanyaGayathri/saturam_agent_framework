@@ -39,9 +39,9 @@ export class ApiError extends Error {
 
 async function request(path, options = {}) {
   const url = `${API_BASE_URL}${path}`;
-  const token = getAuthToken();
   let response;
   try {
+    const token = getAuthToken();
     response = await fetch(url, {
       ...options,
       headers: {
