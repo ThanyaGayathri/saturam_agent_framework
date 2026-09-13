@@ -213,10 +213,20 @@ jobs:
           # any CI invocation, so EGPT_INTEGRATION_POSTGRES being unset elsewhere skipped it
           # silently everywhere.
           EGPT_RETAIL_R15_DSN: postgresql://ai:ai@localhost:5532/ai
+          # #229/#231/#240. test_kpis_live.py -- KpiRegistryStore.feasibility against this same
+          # real semantic graph, the create/update/delete round trips, and the optimistic-
+          # concurrency/dashboard-reference race coverage #240's review added -- was never
+          # named in any CI invocation either, so EGPT_INTEGRATION_POSTGRES/NEO4J being unset
+          # elsewhere skipped it silently, the same failure mode this job's other product
+          # suites document above, one router over. Needs no env vars of its own: its own
+          # control-plane connection reads EGPT_RETAIL_CP_DSN (above, this job's Postgres), and
+          # the feasibility routes it exercises go through RetailSettings/open_semantic_reader,
+          # which pick up this step's own EGPT_RETAIL_NEO4J_URI/_PASSWORD (also above) and
+          # RetailSettings' control-plane default, which already matches this job's Postgres.
         run: |
           set -e
           source .venv/bin/activate
-          python -m pytest product/tests/test_semantic_live.py product/tests/test_r15_rehearsal_live.py -v --tb=short
+          python -m pytest product/tests/test_semantic_live.py product/tests/test_r15_rehearsal_live.py product/tests/test_kpis_live.py -v --tb=short
 
   system:
     name: system (py3.12)

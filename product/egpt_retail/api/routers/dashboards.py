@@ -4,6 +4,14 @@ Every ``kpi_identifier`` a tile names must be a registered, ``ready`` KPI (K11's
 feasibility, the same set difference ``materialise_gold``/``assess_kpi_feasibility`` use) --
 checked here, not in ``dashboards/store.py``, because it needs the KPI registry and an open
 semantic reader, which are concerns this store deliberately does not carry.
+
+That check (``_check_tiles_ready``) runs before ``store.create``/``store.update`` actually
+write the row, over a separate connection, with nothing holding the checked KPIs still in
+between -- a KPI deleted in that gap (K11/#240's ``DELETE /kpis`` review, round 2) would
+otherwise leave a tile pointing at nothing. ``DashboardStore.create``/``update`` themselves
+guard against exactly that, atomically, as part of the same statement that writes the tiles;
+this router turns the ``DashboardKpiVanishedError`` that guard raises into a 409, the same way
+a lost-update race on ``PATCH /kpis`` becomes one.
 """
 
 from __future__ import annotations
@@ -30,7 +38,11 @@ from egpt_retail.contracts.dashboards import (
 from egpt_retail.contracts.kpi import FeasibilityVerdict, KpiDefinition, assess_registry
 from egpt_retail.contracts.semantic import available_tables
 from egpt_retail.dashboards.data import read_dashboard_data
-from egpt_retail.dashboards.store import UNSET, DashboardStore
+from egpt_retail.dashboards.store import (
+    UNSET,
+    DashboardKpiVanishedError,
+    DashboardStore,
+)
 from egpt_retail.kpi.store import KpiRegistryStore
 
 __all__ = ["router", "tile_readiness_refusal"]
@@ -213,17 +225,22 @@ def create_dashboard(
     except DashboardValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    dashboard = store.create(
-        name=body.name,
-        owner=_owner(request),
-        description=body.description or "",
-        tiles=tiles,
-        filters=[_filter_from_wire(f) for f in (body.filters or [])],
-        refresh_schedule=RefreshSchedule(
-            (body.refresh_schedule or wire.RefreshSchedule.nightly).value
-        ),
-        visibility=Visibility((body.visibility or wire.Visibility.private).value),
-    )
+    try:
+        dashboard = store.create(
+            name=body.name,
+            owner=_owner(request),
+            description=body.description or "",
+            tiles=tiles,
+            filters=[_filter_from_wire(f) for f in (body.filters or [])],
+            refresh_schedule=RefreshSchedule(
+                (body.refresh_schedule or wire.RefreshSchedule.nightly).value
+            ),
+            visibility=Visibility((body.visibility or wire.Visibility.private).value),
+        )
+    except DashboardKpiVanishedError as exc:
+        # A tile's KPI passed `_check_tiles_ready` above but was deleted before this write
+        # landed -- re-check readiness and retry, the same as a `PATCH /kpis` lost-update 409.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _dashboard_out(dashboard)
 
 
@@ -256,26 +273,33 @@ def update_dashboard(
         except DashboardValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    dashboard = store.update(
-        dashboard_id,
-        _owner(request),
-        name=body.name if body.name is not None else UNSET,
-        description=body.description if body.description is not None else UNSET,
-        tiles=tiles,
-        filters=(
-            UNSET
-            if body.filters is None
-            else [_filter_from_wire(f) for f in body.filters]
-        ),
-        refresh_schedule=(
-            RefreshSchedule(body.refresh_schedule.value)
-            if body.refresh_schedule is not None
-            else UNSET
-        ),
-        visibility=(
-            Visibility(body.visibility.value) if body.visibility is not None else UNSET
-        ),
-    )
+    try:
+        dashboard = store.update(
+            dashboard_id,
+            _owner(request),
+            name=body.name if body.name is not None else UNSET,
+            description=body.description if body.description is not None else UNSET,
+            tiles=tiles,
+            filters=(
+                UNSET
+                if body.filters is None
+                else [_filter_from_wire(f) for f in body.filters]
+            ),
+            refresh_schedule=(
+                RefreshSchedule(body.refresh_schedule.value)
+                if body.refresh_schedule is not None
+                else UNSET
+            ),
+            visibility=(
+                Visibility(body.visibility.value)
+                if body.visibility is not None
+                else UNSET
+            ),
+        )
+    except DashboardKpiVanishedError as exc:
+        # Same race as `create_dashboard`: a tile's KPI passed `_check_tiles_ready` above but
+        # was deleted before this write landed.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if dashboard is None:
         raise HTTPException(status_code=404, detail=f"No dashboard {dashboard_id!r}.")
     return _dashboard_out(dashboard)

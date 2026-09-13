@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from egpt_retail.contracts.kpi import (
@@ -49,6 +50,8 @@ from egpt_retail.contracts.vocabulary import VocabularySet, load_vocabulary_set
 __all__ = [
     "KPI_LABEL",
     "KPI_SCHEMA",
+    "KpiConcurrentUpdateError",
+    "KpiDeleteResult",
     "KpiRegistryStore",
     "RevalidationReport",
     "row_to_definition",
@@ -63,6 +66,16 @@ KPI_LABEL = "SemanticKpi"
 
 # Imported, not restated. `semantic/store.py` owns these labels; a second copy here drifts
 # the first time one is renamed, and the symptom is a mirror that silently matches nothing.
+# Same reasoning, one schema over: `dashboards/store.py` owns the dashboards schema name and
+# the dashboard table's shape. `delete_if_unreferenced` below is the one place this store
+# reaches outside its own table -- a plain check-then-delete across two round trips is exactly
+# the race it exists to close, so the reference check has to run as part of the same DELETE.
+from egpt_retail.dashboards.store import (  # noqa: E402
+    DASHBOARDS_SCHEMA as _DASHBOARDS_SCHEMA,
+)
+from egpt_retail.dashboards.store import (  # noqa: E402
+    DashboardStore as _DashboardStore,
+)
 from egpt_retail.semantic.store import (  # noqa: E402
     CONCEPT_LABEL as _CONCEPT_LABEL,
 )
@@ -124,6 +137,41 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         'kpi_source_tables_not_empty makes a definition feasibility cannot be computed for '
         'unrepresentable rather than merely discouraged.'""",
     )
+
+
+class KpiConcurrentUpdateError(Exception):
+    """Raised by :meth:`KpiRegistryStore.save_if_unchanged`/``asave_if_unchanged`` when the
+    row did not match the ``updated_at`` the caller read it at -- either another writer
+    updated it, or it was deleted, in the gap between that read and this call. Either way the
+    definition the caller is holding is stale; the router turns this into a 409 rather than
+    letting the write silently overwrite whatever landed in between.
+    """
+
+    def __init__(self, identifier: str) -> None:
+        super().__init__(
+            f"{identifier} was modified or removed since it was last read; re-fetch before "
+            f"retrying."
+        )
+        self.identifier = identifier
+
+
+@dataclass(frozen=True)
+class KpiDeleteResult:
+    """What :meth:`KpiRegistryStore.delete_if_unreferenced` decided."""
+
+    #: Whether the row was actually removed.
+    removed: bool
+    #: Dashboard names still referencing the KPI, when ``removed`` is ``False`` because of
+    #: that -- narrowed to whatever ``delete_if_unreferenced``'s ``caller`` argument may see
+    #: (all of them, when ``caller`` was omitted). Empty when ``removed`` is ``False`` because
+    #: the identifier did not exist, or when ``removed`` is ``True``.
+    referenced_by: Tuple[str, ...] = ()
+    #: How many more dashboards reference the KPI beyond ``referenced_by``, that ``caller``
+    #: cannot see (e.g. another owner's private dashboard) -- the block decision itself does
+    #: not care about visibility, but the message a caller receives should not name a
+    #: dashboard they have no visibility into (#240 review, round 2). Always ``0`` when
+    #: ``caller`` was omitted.
+    hidden_reference_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -306,6 +354,109 @@ class KpiRegistryStore:
         """Async variant."""
         await asyncio.to_thread(self.save, kpi)
 
+    def create(self, kpi: KpiDefinition) -> Optional[KpiDefinition]:
+        """Insert one definition, refusing to overwrite an existing identifier.
+
+        This -- ``INSERT ... ON CONFLICT (identifier) DO NOTHING`` -- is the actual 409 guard
+        for a duplicate identifier, not a caller's ``get(identifier) is None`` pre-check
+        (worth keeping only as a fast-path optimization, never as the sole source of truth).
+        Two concurrent creates for the same identifier both pass a pre-check like that; only
+        one of the two ``INSERT``s here can land a row, and the loser gets ``None`` back
+        rather than silently overwriting the winner's fields the way :meth:`save`'s plain
+        upsert would.
+        """
+        registry = KpiRegistry.build((kpi,), self._vocabularies)
+        (validated_kpi,) = tuple(registry)
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""INSERT INTO {self._schema}.kpi_definition
+                    (identifier, name, description, sql, grain, business_area,
+                     source_tables, result_shape, dialect, parameters, time_window,
+                     validated_against_snapshot, concept, subject_area, level, unit,
+                     industry_benchmark, active, source, dataset_ids, process_ids)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (identifier) DO NOTHING
+                    RETURNING identifier""",
+                _definition_to_row(validated_kpi),
+            )
+            inserted = cursor.fetchone() is not None
+        self._connection.commit()
+        if not inserted:
+            return None
+        saved = self.get(kpi.identifier)
+        if saved is None:
+            # Extremely narrow: this commit made the row visible to every other session,
+            # including one that deletes it before this connection's own follow-up SELECT
+            # runs. A bare `assert` here would be stripped under `python -O`, silently
+            # returning `None` against this method's declared `KpiDefinition` return type.
+            raise RuntimeError(
+                f"{kpi.identifier} vanished immediately after being inserted."
+            )
+        return saved
+
+    async def acreate(self, kpi: KpiDefinition) -> Optional[KpiDefinition]:
+        """Async variant."""
+        return await asyncio.to_thread(self.create, kpi)
+
+    def save_if_unchanged(
+        self, kpi: KpiDefinition, expected_updated_at: Optional[datetime]
+    ) -> KpiDefinition:
+        """Update one definition, conditioned on ``updated_at`` still matching what the
+        caller read (optimistic concurrency).
+
+        This closes the lost-update race a plain upsert-by-identifier leaves open: two
+        concurrent ``PATCH``es both read the same row, both compute their own new version
+        from it, and :meth:`save`'s plain ``ON CONFLICT DO UPDATE`` lets whichever commits
+        last silently and completely overwrite the other's write with no record either
+        happened. Mirrors ``evals/rehearsal.py``'s ``RehearsalReviewStore._decide``: the
+        ``WHERE ... AND updated_at = %s`` clause is the entire enforcement -- if the row moved
+        (or vanished) since the read, the ``UPDATE`` matches zero rows and the caller, not
+        this store, decides what to do about it.
+
+        Raises :class:`KpiConcurrentUpdateError` when no row matched: the definition the
+        caller read at ``expected_updated_at`` is stale (either something else updated it, or
+        deleted it) and must be re-fetched before deciding whether to retry.
+        """
+        registry = KpiRegistry.build((kpi,), self._vocabularies)
+        (validated_kpi,) = tuple(registry)
+        row = _definition_to_row(validated_kpi)
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""UPDATE {self._schema}.kpi_definition SET
+                        name = %s, description = %s, sql = %s, grain = %s,
+                        business_area = %s, source_tables = %s, result_shape = %s,
+                        dialect = %s, parameters = %s, time_window = %s,
+                        validated_against_snapshot = %s, concept = %s, subject_area = %s,
+                        level = %s, unit = %s, industry_benchmark = %s, active = %s,
+                        source = %s, dataset_ids = %s, process_ids = %s, updated_at = now()
+                    WHERE identifier = %s AND updated_at = %s""",
+                row[1:] + (kpi.identifier, expected_updated_at),
+            )
+            matched = cursor.rowcount == 1
+        if not matched:
+            self._connection.rollback()
+            raise KpiConcurrentUpdateError(kpi.identifier)
+        self._connection.commit()
+        saved = self.get(kpi.identifier)
+        if saved is None:
+            # Extremely narrow: the commit above made the row visible to every other
+            # session, including one that deletes it before this connection's own follow-up
+            # SELECT runs -- so this is a fresh read after the transaction closed, not "the
+            # same transaction". A bare `assert` here would be stripped under `python -O`,
+            # silently returning `None` against this method's declared `KpiDefinition`
+            # return type.
+            raise RuntimeError(
+                f"{kpi.identifier} vanished immediately after being updated."
+            )
+        return saved
+
+    async def asave_if_unchanged(
+        self, kpi: KpiDefinition, expected_updated_at: Optional[datetime]
+    ) -> KpiDefinition:
+        """Async variant."""
+        return await asyncio.to_thread(self.save_if_unchanged, kpi, expected_updated_at)
+
     def save_many(self, kpis: Sequence[KpiDefinition]) -> int:
         """Insert or replace several definitions in one transaction. Returns how many.
 
@@ -371,6 +522,98 @@ class KpiRegistryStore:
     async def adelete(self, identifier: str) -> bool:
         """Async variant."""
         return await asyncio.to_thread(self.delete, identifier)
+
+    def delete_if_unreferenced(
+        self, identifier: str, *, caller: Optional[str] = None
+    ) -> KpiDeleteResult:
+        """Delete one definition, refusing if any dashboard still has a tile naming it --
+        guard and delete as a single statement, not a check followed by a separate
+        :meth:`delete`.
+
+        ``caller``, when given, narrows :attr:`KpiDeleteResult.referenced_by` to dashboard
+        names ``caller`` can actually see (:class:`DashboardStore`'s own
+        ``list_visible_to``), moving anything else into :attr:`KpiDeleteResult.
+        hidden_reference_count` instead -- reusing this same connection, not a second pooled
+        one. This only affects what a caller is told; the block decision two paragraphs down
+        still checks every dashboard regardless of visibility. Omitted (the default), every
+        referencing name is reported, visible or not -- e.g. for a caller with no per-user
+        identity to scope by.
+
+        A dashboard tile created for this KPI after a plain existence/reference check but
+        before the actual ``DELETE`` would otherwise be left pointing at a KPI that no longer
+        exists. The ``NOT EXISTS`` subquery below runs as part of the same statement the row
+        is removed in, which shrinks that window from a full HTTP round trip to a single SQL
+        statement's own execution -- a huge practical improvement, but not a mathematical
+        guarantee: under Postgres's default READ COMMITTED isolation, this statement still
+        takes its own snapshot when it starts, so a dashboard-tile ``INSERT`` that commits
+        after this ``DELETE`` has begun but before it finishes is invisible to the subquery
+        and can still land a tile pointing at the now-deleted KPI. Closing that residual,
+        microsecond-scale window fully would need ``SERIALIZABLE`` isolation or an explicit
+        lock (e.g. ``SELECT ... FOR SHARE`` on the referencing dashboard rows first); the
+        reverse guard in ``dashboards/store.py``'s ``DashboardStore.create``/``update`` (the
+        write side of this exact race, #240 review round 2) has the identical residual window
+        for the same reason.
+
+        The subquery scans every dashboard in ``dashboards.dashboard`` regardless of owner or
+        visibility -- deliberately not ``DashboardStore.list_visible_to``, which answers "what
+        can this one caller see" and would let a KPI referenced only by another user's private
+        dashboard be deleted out from under it. Reaching into the ``dashboards`` schema by
+        name/shape is the one exception to this store touching only its own table: the
+        alternative is a check-then-delete across two round trips, which is exactly the race
+        this method exists to close. There is no foreign key or other enforced coupling
+        between the two schemas backing this -- ``dashboards/store.py``'s own DDL is the only
+        source of truth for the ``dashboard``/``tiles``/``kpi_identifier`` shape this subquery
+        assumes, and a rename there (#240 review, round 2) would break this check silently,
+        with no compile-time or migration-time signal.
+        """
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""DELETE FROM {self._schema}.kpi_definition
+                    WHERE identifier = %s
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM {_DASHBOARDS_SCHEMA}.dashboard AS d,
+                               jsonb_array_elements(d.tiles) AS tile
+                          WHERE tile ->> 'kpi_identifier' = %s
+                      )
+                    RETURNING identifier""",
+                (identifier, identifier),
+            )
+            removed = cursor.fetchone() is not None
+        self._connection.commit()
+        if removed:
+            return KpiDeleteResult(removed=True)
+
+        # The DELETE matched nothing: either there is no such KPI, or it is referenced.
+        # Read-only from here (no separate pooled connection -- this store's own connection
+        # already holds everything needed), and only ever the rare failure path.
+        if self.get(identifier) is None:
+            return KpiDeleteResult(removed=False)
+        all_names = tuple(
+            sorted(
+                d.name
+                for d in _DashboardStore(self._connection).list_referencing(identifier)
+            )
+        )
+        if caller is None:
+            return KpiDeleteResult(removed=False, referenced_by=all_names)
+        visible_names = {
+            d.name for d in _DashboardStore(self._connection).list_visible_to(caller)
+        }
+        referenced_by = tuple(n for n in all_names if n in visible_names)
+        return KpiDeleteResult(
+            removed=False,
+            referenced_by=referenced_by,
+            hidden_reference_count=len(all_names) - len(referenced_by),
+        )
+
+    async def adelete_if_unreferenced(
+        self, identifier: str, *, caller: Optional[str] = None
+    ) -> KpiDeleteResult:
+        """Async variant."""
+        return await asyncio.to_thread(
+            self.delete_if_unreferenced, identifier, caller=caller
+        )
 
     # --- reading -----------------------------------------------------------------------
 
@@ -467,28 +710,50 @@ class KpiRegistryStore:
 
     # --- feasibility --------------------------------------------------------------------
 
-    def feasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
-        """Feasibility for every stored KPI against what the semantic layer holds now.
+    def feasibility(
+        self, reader: SemanticRead, kpis: Optional[Sequence[KpiDefinition]] = None
+    ) -> Mapping[str, Feasibility]:
+        """Feasibility for ``kpis`` (every stored KPI, when omitted) against what the semantic
+        layer holds now.
 
         Computed, never read back from a column. ``assess_registry`` is a set difference over
         two frozensets: it takes data and returns data, has no model, no client and no
         callable to be persuaded by, and that is the entire guarantee behind the ready and
         blocked badges a customer sees.
+
+        Pass the caller's own already-fetched ``kpis`` (a single-KPI detail route's one
+        definition, or a list route's already-filtered page) rather than defaulting to a
+        second, independent ``self.list()`` here: two separate reads of this table have no
+        shared snapshot, so a KPI deleted or renamed between them would otherwise be missing
+        from this map even though the caller's own read found it moments earlier -- the TOCTOU
+        the #240 review flagged at both call sites in ``api/routers/kpis.py``. ``None`` (the
+        default) keeps the previous whole-registry behavior, for callers with no narrower read
+        of their own.
+
+        An explicitly empty ``kpis`` (a business_area filter that matched nothing) returns
+        ``{}`` before either graph query below runs -- ``available_tables``/
+        ``unjoinable_oracle`` open a driver and do real Neo4j I/O, which a known-empty result
+        does not need to pay for.
         """
+        if kpis is not None and not kpis:
+            return {}
         tables = available_tables(reader)
         # Part of the SemanticRead contract, not an optional extra: a reader with no join
         # rulings answers False for every pair, and a reader that has them gets asked. The
         # first version probed with getattr and fell back to the plain set difference for the
         # stub -- silently weaker than production, with nothing to say so.
         oracle = reader.unjoinable_oracle()
+        definitions: Sequence[KpiDefinition] = self.list() if kpis is None else kpis
         return {
             kpi.identifier: assess_feasibility_with_joins(kpi, tables, oracle)
-            for kpi in self.list()
+            for kpi in definitions
         }
 
-    async def afeasibility(self, reader: SemanticRead) -> Mapping[str, Feasibility]:
+    async def afeasibility(
+        self, reader: SemanticRead, kpis: Optional[Sequence[KpiDefinition]] = None
+    ) -> Mapping[str, Feasibility]:
         """Async variant."""
-        return await asyncio.to_thread(self.feasibility, reader)
+        return await asyncio.to_thread(self.feasibility, reader, kpis)
 
     def revalidate(
         self, reader: SemanticRead, snapshot_version: str = ""

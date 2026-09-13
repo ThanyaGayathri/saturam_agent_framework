@@ -402,3 +402,60 @@ def test_dashboards_owner_refuses_a_scoped_token_with_no_subject_claim():
     with pytest.raises(HTTPException) as excinfo:
         _owner(_FakeRequest(authorization_enabled=True, user_id=None))
     assert excinfo.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# create_dashboard / update_dashboard -- DashboardKpiVanishedError -> 409 (#240 review, round
+# 2: a tile's KPI can pass `_check_tiles_ready` and still be deleted before the write lands).
+# Tiles are left empty here so `_check_tiles_ready` short-circuits (`if not tiles: return`)
+# without touching Postgres or Neo4j; a fake store stands in for `DashboardStore.create`/
+# `update`'s own guard tripping, which is exercised for real against a real Postgres
+# connection in `test_kpis_live.py`.
+# ---------------------------------------------------------------------------
+
+
+class _VanishingKpiDashboardStore:
+    def create(self, **kwargs):
+        from egpt_retail.dashboards.store import DashboardKpiVanishedError
+
+        raise DashboardKpiVanishedError(
+            "one or more tiles reference a KPI that no longer exists"
+        )
+
+    def update(self, *args, **kwargs):
+        from egpt_retail.dashboards.store import DashboardKpiVanishedError
+
+        raise DashboardKpiVanishedError(
+            "one or more tiles reference a KPI that no longer exists"
+        )
+
+
+def test_create_dashboard_returns_409_when_the_store_reports_a_vanished_kpi():
+    from fastapi import HTTPException
+
+    from egpt_retail.api import models as wire
+    from egpt_retail.api.routers.dashboards import create_dashboard
+
+    with pytest.raises(HTTPException) as excinfo:
+        create_dashboard(
+            wire.DashboardWrite(name="d1"),
+            _FakeRequest(authorization_enabled=False),
+            store=_VanishingKpiDashboardStore(),
+        )
+    assert excinfo.value.status_code == 409
+
+
+def test_update_dashboard_returns_409_when_the_store_reports_a_vanished_kpi():
+    from fastapi import HTTPException
+
+    from egpt_retail.api import models as wire
+    from egpt_retail.api.routers.dashboards import update_dashboard
+
+    with pytest.raises(HTTPException) as excinfo:
+        update_dashboard(
+            "dsh_1",
+            wire.DashboardWrite(name="d1"),
+            _FakeRequest(authorization_enabled=False),
+            store=_VanishingKpiDashboardStore(),
+        )
+    assert excinfo.value.status_code == 409
