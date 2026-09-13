@@ -46,7 +46,7 @@ export default function DashboardsPage() {
      <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
       <span className="inline-flex items-center gap-1 rounded-full bg-surface-tertiary px-2 py-0.5 text-[11px] font-medium text-text-secondary">
        <RefreshCw size={10} />
-       {labelForRefresh(d.refresh)}
+       {labelForRefresh(d.refresh_schedule)}
       </span>
       {d.delivery !== "none" && (
        <span className="inline-flex items-center gap-1 rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">

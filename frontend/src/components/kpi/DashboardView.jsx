@@ -3,11 +3,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Download, Mail, RefreshCw, Send, Trash2 } from "lucide-react";
 import { DemoAreaSpark, DemoAreaSparkWithAxes } from "../shared/DemoSparkCharts";
 import {
+ CHART_KINDS,
  deleteDashboard,
  getDashboard,
  labelForDelivery,
  labelForRefresh,
- updateDashboard,
+ updateTile,
 } from "../../storage/dashboards";
 
 /**
@@ -19,17 +20,12 @@ import {
  * than no dashboard.
  *
  * The series below are placeholders standing in for that computation. They are deterministic per
- * metric (seeded from the name) rather than random, so a tile does not change shape on re-render
- * and nobody mistakes noise for a trend.
+ * metric (seeded from the title) rather than random, so a tile does not change shape on re-render
+ * and nobody mistakes noise for a trend. `GET /dashboards/{id}/data` returns the real `value`,
+ * `series` and `delta`; swapping these placeholders for it is D2 (#233).
  */
 
-const RENDER_TYPES = [
- { value: "stat", label: "Number" },
- { value: "trend", label: "Number + trend" },
- { value: "bar", label: "Bar" },
-];
-
-/** Deterministic pseudo-series from the metric name, so re-renders are stable. */
+/** Deterministic pseudo-series from the metric title, so re-renders are stable. */
 function seriesFor(name, points = 12) {
  let seed = 0;
  for (let i = 0; i < name.length; i++) seed = (seed * 31 + name.charCodeAt(i)) % 9973;
@@ -43,17 +39,16 @@ function seriesFor(name, points = 12) {
  return out;
 }
 
-function displayValue(tile, series) {
- const last = series[series.length - 1];
- const unit = String(tile.unit || "").toLowerCase();
- if (unit.includes("%") || unit.includes("rate") || unit.includes("percent")) return `${last.toFixed(1)}%`;
- if (unit.includes("day")) return `${Math.round(last)} days`;
- if (unit.includes("currency") || unit.includes("$")) return `$${(last * 12.4).toFixed(0)}k`;
- return last.toFixed(1);
+function formatValue(unit, value) {
+ const u = String(unit || "").toLowerCase();
+ if (u.includes("%") || u.includes("rate") || u.includes("percent")) return `${value.toFixed(1)}%`;
+ if (u.includes("day")) return `${Math.round(value)} days`;
+ if (u.includes("currency") || u.includes("$")) return `$${(value * 12.4).toFixed(0)}k`;
+ return value.toFixed(1);
 }
 
-function Tile({ tile, onRenderChange }) {
- const series = useMemo(() => seriesFor(tile.kpiName), [tile.kpiName]);
+function Tile({ tile, onChartChange }) {
+ const series = useMemo(() => seriesFor(tile.title), [tile.title]);
  const prev = series[series.length - 2];
  const last = series[series.length - 1];
  const delta = prev ? ((last - prev) / prev) * 100 : 0;
@@ -63,37 +58,51 @@ function Tile({ tile, onRenderChange }) {
   <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
    <div className="flex items-start justify-between gap-2">
     <div className="min-w-0">
-     <p className="truncate text-sm font-semibold text-text-primary">{tile.kpiName}</p>
-     {tile.subjectArea && <p className="text-xs text-text-muted">{tile.subjectArea}</p>}
+     <p className="truncate text-sm font-semibold text-text-primary">{tile.title}</p>
+     {tile.subject_area && <p className="text-xs text-text-muted">{tile.subject_area}</p>}
     </div>
     {/* Presentation is a per-tile choice made while looking at the result, which is why it is
-        here and not in the creation modal. */}
+        here and not in the creation modal. The values are the contract's `ChartKind`. */}
     <select
-     aria-label={`Chart type for ${tile.kpiName}`}
-     value={tile.render}
-     onChange={(e) => onRenderChange(e.target.value)}
+     aria-label={`Chart type for ${tile.title}`}
+     value={tile.chart}
+     onChange={(e) => onChartChange(e.target.value)}
      className="shrink-0 rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none"
     >
-     {RENDER_TYPES.map((t) => (
+     {CHART_KINDS.map((t) => (
       <option key={t.value} value={t.value}>{t.label}</option>
      ))}
     </select>
    </div>
 
-   <div className="flex items-baseline gap-2">
-    <span className="text-2xl font-bold tracking-tight text-text-primary">{displayValue(tile, series)}</span>
-    {tile.render !== "stat" && (
-     <span className={`text-xs font-semibold ${up ? "text-status-success" : "text-status-critical"}`}>
-      {up ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
-     </span>
-    )}
-   </div>
+   {tile.chart !== "table" && (
+    <div className="flex items-baseline gap-2">
+     <span className="text-2xl font-bold tracking-tight text-text-primary">{formatValue(tile.unit, last)}</span>
+     {tile.chart !== "number" && (
+      <span className={`text-xs font-semibold ${up ? "text-status-success" : "text-status-critical"}`}>
+       {up ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
+      </span>
+     )}
+    </div>
+   )}
 
-   {tile.render === "trend" && (
+   {tile.chart === "line" && (
     <DemoAreaSpark data={series} viewHeight={34} maxHeight={90} stroke="#6941c6" showGrid={false} showDots={false} />
    )}
-   {tile.render === "bar" && (
+   {tile.chart === "bar" && (
     <DemoAreaSparkWithAxes data={series.slice(-6)} viewHeight={44} stroke="#6941c6" fillOpacityTop={0.22} />
+   )}
+   {tile.chart === "table" && (
+    <table className="w-full text-xs">
+     <tbody>
+      {series.slice(-6).map((value, i, all) => (
+       <tr key={i} className="border-t border-border">
+        <td className="py-1 text-text-muted">{`Period ${all.length - i}`}</td>
+        <td className="py-1 text-right font-medium text-text-primary">{formatValue(tile.unit, value)}</td>
+       </tr>
+      ))}
+     </tbody>
+    </table>
    )}
   </div>
  );
@@ -119,9 +128,8 @@ export default function DashboardView() {
   );
  }
 
- const setRender = (index, value) => {
-  const tiles = dashboard.tiles.map((t, i) => (i === index ? { ...t, render: value } : t));
-  setDashboard(updateDashboard(dashboard.id, { tiles }));
+ const setChart = (tileId, chart) => {
+  setDashboard(updateTile(dashboard.id, tileId, { chart }));
  };
 
  return (
@@ -140,7 +148,7 @@ export default function DashboardView() {
      <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
       <span className="inline-flex items-center gap-1">
        <RefreshCw size={11} />
-       {labelForRefresh(dashboard.refresh)}
+       {labelForRefresh(dashboard.refresh_schedule)}
       </span>
       <span className="inline-flex items-center gap-1">
        <Send size={11} />
@@ -175,8 +183,8 @@ export default function DashboardView() {
    </div>
 
    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-    {dashboard.tiles.map((tile, i) => (
-     <Tile key={tile.kpiName + i} tile={tile} onRenderChange={(v) => setRender(i, v)} />
+    {dashboard.tiles.map((tile) => (
+     <Tile key={tile.id} tile={tile} onChartChange={(chart) => setChart(tile.id, chart)} />
     ))}
    </div>
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CalendarClock, RefreshCw, Send } from "lucide-react";
 import Modal from "../ui/Modal";
-import { REFRESH_OPTIONS, DELIVERY_OPTIONS } from "../../storage/dashboards";
+import { DEFAULT_REFRESH_SCHEDULE, DELIVERY_OPTIONS, REFRESH_OPTIONS } from "../../storage/dashboards";
 
 /**
  * Creation asks three things and no more: a name, how often the numbers refresh, and whether it
@@ -17,7 +17,7 @@ import { REFRESH_OPTIONS, DELIVERY_OPTIONS } from "../../storage/dashboards";
  */
 export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
  const [name, setName] = useState("");
- const [refresh, setRefresh] = useState("daily");
+ const [refresh, setRefresh] = useState(DEFAULT_REFRESH_SCHEDULE);
  const [delivery, setDelivery] = useState("none");
 
  const submit = (e) => {
@@ -95,6 +95,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
      </select>
      <p className="mt-1.5 text-xs text-text-muted">
       Separate from refresh on purpose — a dashboard can update hourly and still only be emailed on Mondays.
+      Kept in this browser for now: the API has no delivery setting yet.
      </p>
     </div>
 
