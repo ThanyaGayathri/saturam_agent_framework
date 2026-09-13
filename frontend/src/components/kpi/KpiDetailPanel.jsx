@@ -12,8 +12,20 @@ import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
  * backs this metric?") both need it, and a second, view-local panel is exactly how the two would
  * start disagreeing about what a KPI means.
  */
+const FEASIBILITY_STYLE = {
+ ready: { cls: "border-status-success/35 bg-status-success-light dark:bg-status-success/15", label: "text-status-success" },
+ partial: { cls: "border-status-warning/35 bg-status-warning-light dark:bg-status-warning/15", label: "text-status-warning" },
+ blocked: { cls: "border-status-critical/35 bg-status-critical-light dark:bg-status-critical/15", label: "text-status-critical" },
+};
+
 export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, processLabelById, onEdit, onClose }) {
- const conf = mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
+ // A real registry KPI (C1, #232) carries the server's own join-aware `feasibility` -- shown
+ // below instead of `mappingConfidenceForKpi`'s local heuristic score, which has nothing real
+ // to compute from for a row the seed/dataset simulation has never heard of.
+ const fromRegistry = !!detailRow.kpi.fromRegistry;
+ const conf = fromRegistry ? null : mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
+ const feasibility = fromRegistry ? detailRow.kpi.feasibility : null;
+ const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] : null;
  const useCases = getCatalogEntriesForKpiName(detailRow.kpi.name, profileId);
  const processIds = Array.isArray(detailRow.kpi.processMapping) ? detailRow.kpi.processMapping : [];
  return (
@@ -71,6 +83,17 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  <span className="rounded-full bg-surface-default px-2 py-0.5 text-[11px] font-semibold text-[#5925a6]">{conf.label}</span>
  </div>
  <p className="mt-2 text-sm text-text-secondary">{conf.detail}</p>
+ </section>
+ )}
+
+ {feasibility && (
+ <section className={`rounded-xl border p-4 ${feasibilityStyle.cls}`}>
+ <p className={`text-[10px] font-semibold uppercase tracking-wide ${feasibilityStyle.label}`}>Feasibility</p>
+ <p className={`mt-2 text-lg font-bold capitalize ${feasibilityStyle.label}`}>{feasibility.verdict}</p>
+ <p className="mt-2 text-sm text-text-secondary">{feasibility.rationale}</p>
+ {feasibility.missing_tables?.length > 0 && (
+ <p className="mt-2 text-xs text-text-muted">Missing: {feasibility.missing_tables.join(", ")}</p>
+ )}
  </section>
  )}
 
@@ -155,6 +178,10 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  </ul>
  </section>
 
+ {/* No local edit screen has ever heard of a real registry KPI -- routing there would be
+ misleading, not merely inert, so the link is hidden rather than left to silently do
+ nothing. */}
+ {!fromRegistry && (
  <button
  type="button"
  onClick={onEdit}
@@ -162,6 +189,7 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  >
  Edit KPI →
  </button>
+ )}
  </div>
  </aside>
  </>

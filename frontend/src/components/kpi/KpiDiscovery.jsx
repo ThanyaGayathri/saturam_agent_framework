@@ -32,14 +32,17 @@ const BUCKET_IDS = new Set(["ready", "partial", "blocked"]);
 
 /**
  * Feasibility bucket for a row. A suggestion carries the server's verdict -- a set difference over
- * source tables that already uses these three words -- while a registry KPI is still judged from
- * its local dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked.
+ * source tables that already uses these three words. A real registry KPI (C1, #232) carries the
+ * server's own join-aware `feasibility.verdict` on the KPI itself, the same three ids, so it maps
+ * straight across. Everything else (seed KPIs) is still judged from `mappingStatusForKpi`'s local
+ * dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked.
  */
 function bucketFor(row) {
  if (row.suggested) {
   const verdict = row.suggestion?.feasibility?.verdict;
   return BUCKET_IDS.has(verdict) ? verdict : "blocked";
  }
+ if (row.kpi.fromRegistry) return row.kpi.feasibility?.verdict || "blocked";
  const status = mappingStatusForKpi(row.kpi);
  if (status === "linked") return "ready";
  if (status === "review") return "partial";
@@ -79,12 +82,20 @@ const BUCKETS = [
  * badge rather than as a section, because the user cares whether a metric is useful and works --
  * not where we got it.
  */
-function ProvenanceBadge({ inferred, suggested }) {
+function ProvenanceBadge({ inferred, suggested, fromRegistry }) {
  if (suggested) {
   return (
    <span className="inline-flex items-center gap-1 rounded-full bg-status-info-light px-2 py-0.5 text-[11px] font-semibold text-status-info">
     <Sparkles size={10} />
     Suggested — not in your registry
+   </span>
+  );
+ }
+ if (fromRegistry) {
+  return (
+   <span className="inline-flex items-center gap-1 rounded-full bg-status-success-light px-2 py-0.5 text-[11px] font-semibold text-status-success">
+    <Check size={10} />
+    In your KPI registry
    </span>
   );
  }
@@ -273,7 +284,7 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt }) {
    )}
 
    <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
-    <ProvenanceBadge inferred={!!kpi.inferred} suggested={!!row.suggested} />
+    <ProvenanceBadge inferred={!!kpi.inferred} suggested={!!row.suggested} fromRegistry={!!kpi.fromRegistry} />
     {row.suggested && <ConfidenceBadge level={row.suggestion.confidence} />}
     {row.suggested && <EvidenceChips suggestion={row.suggestion} />}
     {/* One source is a read; two is a JOIN, and a join we inferred is where a plausible-but-wrong
