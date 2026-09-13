@@ -1,8 +1,12 @@
 # frontend/
 
 The Enterprise GPT interface: the Vite application from `Retail-GPT-prototype`, landed here from
-`feat/egpt-ui-revamp` (`e6b55b3`) as a flat copy of that repo's `frontend/` directory. Not yet
-wired to the API -- the seams below are unchanged and still hold.
+`feat/egpt-ui-revamp` (`e6b55b3`) as a flat copy of that repo's `frontend/` directory. Still runs
+on `localStorage`/Supabase seeds for its production screens, not the real API -- `src/lib/api.js`
+and `src/services/dashboards-api.js` are the first real wiring (issue #230/A2), proven end to end
+via the "Live backend check" panel on `/admin/seed-data`, but no production screen reads from
+them yet. Full wiring of the dashboard screens themselves needs tile-shape alignment first
+(issue #226/D1).
 
     cd frontend && npm ci && npm run dev        # http://localhost:3000
     npm run build                               # dist/, gitignored

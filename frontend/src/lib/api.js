@@ -37,6 +37,29 @@ export class ApiError extends Error {
   }
 }
 
+/** True for body types `fetch` already knows how to set its own `Content-Type` for
+ * (multipart boundary, url-encoded charset, etc.) - forcing `application/json` on these
+ * would break the wire format. */
+function bodySetsOwnContentType(body) {
+  return (
+    (typeof FormData !== "undefined" && body instanceof FormData) ||
+    (typeof Blob !== "undefined" && body instanceof Blob) ||
+    (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams)
+  );
+}
+
+/** Turns a FastAPI `detail` value into a display string. Handles the default 422
+ * validation-error shape (`[{loc, msg, type}, ...]`) and falls back for anything falsy,
+ * including `""` (`??` alone misses that case since it's falsy but not nullish). */
+function formatErrorDetail(detail, fallback) {
+  if (Array.isArray(detail)) {
+    return detail.map((d) => (d && typeof d === "object" ? d.msg ?? JSON.stringify(d) : String(d))).join("; ") || fallback;
+  }
+  if (typeof detail === "string" && detail) return detail;
+  if (detail != null && typeof detail !== "string") return JSON.stringify(detail);
+  return fallback;
+}
+
 async function request(path, options = {}) {
   const url = `${API_BASE_URL}${path}`;
   let response;
@@ -46,12 +69,18 @@ async function request(path, options = {}) {
       ...options,
       headers: {
         Accept: "application/json",
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.body && !bodySetsOwnContentType(options.body)
+          ? { "Content-Type": "application/json" }
+          : {}),
         ...options.headers,
+        // Applied after `options.headers` so a caller-supplied header can never silently
+        // clobber the identity this request is actually sent with.
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
+      signal: options.signal,
     });
   } catch (cause) {
+    if (cause?.name === "AbortError") throw cause;
     // Network failure (backend down, CORS blocked, DNS) - fetch itself throws, there is no
     // response to inspect. Distinguish this from a real HTTP error below; keep `cause` so
     // it's at least inspectable in devtools, even though the user-facing message is generic.
@@ -60,7 +89,7 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new ApiError(response.status, body?.detail ?? response.statusText, path);
+    throw new ApiError(response.status, formatErrorDetail(body?.detail, response.statusText), path);
   }
 
   if (response.status === 204) return null;
@@ -74,12 +103,14 @@ async function request(path, options = {}) {
   }
 }
 
-/** GET `path`, parsed as JSON. Throws `ApiError` on failure (network or non-2xx). */
-export function apiGet(path) {
-  return request(path, { method: "GET" });
+/** GET `path`, parsed as JSON. Throws `ApiError` on failure (network or non-2xx); throws the
+ * underlying `AbortError` as-is (not wrapped) when `signal` is passed and fires. */
+export function apiGet(path, { signal } = {}) {
+  return request(path, { method: "GET", signal });
 }
 
-/** POST/PUT/DELETE `path` with a JSON `body`. Throws `ApiError` on failure. */
-export function apiJson(path, method, body) {
-  return request(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+/** POST/PUT/DELETE `path` with a JSON `body`. Throws `ApiError` on failure; throws the
+ * underlying `AbortError` as-is when `signal` is passed and fires. */
+export function apiJson(path, method, body, { signal } = {}) {
+  return request(path, { method, body: body === undefined ? undefined : JSON.stringify(body), signal });
 }

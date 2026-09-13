@@ -10,7 +10,8 @@ Instructions for Claude Code when working on this codebase.
 .
 ├── libs/agno/egpt/          # The framework. Ships as `pip install egpt`. No retail nouns.
 ├── product/                 # The Enterprise GPT retail product. Never in the egpt wheel.
-├── frontend/                # The React interface (phase five; README only until then)
+├── frontend/                # The React interface. Full UI wiring is phase five; infra
+│                             # plumbing (API base URL, fetch client) lands ahead of it (#222)
 ├── deploy/                  # Dockerfile, compose, Azure cutover (current, D15); Helm charts + kind config are AKS-era reference
 ├── cookbook/                # Examples, patterns and test cases (organized by topic)
 ├── scripts/                 # Development and build scripts
@@ -173,7 +174,7 @@ Format:
 | Retail product tests | `product/tests/` — contract tests and DB-free entrypoint tests |
 | Retail cookbooks + evidence | `cookbook/94_retail/` — one folder, one `TEST_LOG.md`, entries tagged by package (K*, R*) |
 | Deployment | `deploy/` — `Dockerfile`, `compose.yaml`, `AZURE_CUTOVER.md` (current: Functions + Container Apps, D15). `helm/egpt-local-infra/`, `helm/egpt/`, `kind/`, `AKS_CUTOVER.md` are AKS-era reference, superseded |
-| Frontend | `frontend/` — arrives in phase five; README only |
+| Frontend | `frontend/` — full UI arrives in phase five; API plumbing (`src/lib/api.js`) lands incrementally ahead of it, see `frontend/README.md` |
 
 ---
 

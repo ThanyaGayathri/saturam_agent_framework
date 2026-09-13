@@ -9,7 +9,8 @@
 
 import { apiGet } from "../lib/api";
 
-/** `GET /dashboards` - the real list, as the backend's `Dashboard` wire model returns it. */
-export function fetchDashboardList() {
-  return apiGet("/dashboards");
+/** `GET /dashboards` - the real list, as the backend's `Dashboard` wire model returns it.
+ * Pass `{ signal }` to make the request abortable (e.g. on caller unmount). */
+export function fetchDashboardList({ signal } = {}) {
+  return apiGet("/dashboards", { signal });
 }
