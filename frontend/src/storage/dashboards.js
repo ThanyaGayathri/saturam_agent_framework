@@ -1,29 +1,17 @@
-import { readLocalJson, writeLocalJson } from "./local-json";
-
 /**
- * Dashboards a user built from selected metrics.
+ * Shape helpers shared by the dashboard screens - option lists, labels, and the builders that
+ * turn a selected KPI row into the API's `TileWrite`/`Tile` shape.
  *
- * The local shape mirrors the API's wire model (`Dashboard`/`Tile` in
- * `product/egpt_retail/api/openapi/schemas/dashboards.yaml`), field for field and in its
- * snake_case, so wiring these accessors to the real API (D2, #233) is a transport change and not
- * a second mapping. Still localStorage only -- the same layer every other preference here uses.
- *
- * Two schedules, kept apart on purpose. **Refresh** (`refresh_schedule`, a contract field) is how
- * often the numbers are recomputed. **Delivery** (`delivery`) is who gets sent what, and when --
- * owned by different people, changing independently. The API does not carry delivery yet
- * (`DashboardWrite` has no such field, #226); it is kept here, in this browser, rather than
- * silently dropped, and the create screen says so.
- *
- * A tile is a metric REFERENCE plus a chart kind, never a copy of the metric. `kpi_identifier` is
- * the reference the API and gold rows key on (`<concept>__<name>`). A seed metric has no such
- * identifier yet, so it is `null` until the registry screens read real KPIs (C1, #232) -- null,
- * not an invented id, because the API would refuse an unregistered one anyway. `title`, `unit`
- * and `subject_area` are what the tile renders meanwhile; `unit` and `subject_area` are
- * transitional and go when `TileData.unit`/`Kpi` supply them (D2).
+ * D2 (#233) wired the screens to the real `dashboards.py` (`src/services/dashboards-api.js`);
+ * there is no local persistence here any more (`loadDashboards`/`saveDashboards`/
+ * `createDashboard`/etc., and the v1 storage migration, all removed with it - a dashboard now
+ * exists only if the API has it). `delivery` (who a dashboard is emailed to, and when) goes
+ * with it: `Dashboard`/`DashboardWrite` have no such field, and there is no longer anywhere in
+ * this browser to keep a frontend-only setting for a resource that now lives server-side.
+ * D1 (#226) flagged this rather than dropping it silently; D2 is where dropping it actually
+ * happens, for the same reason - it flags again here rather than pretending a "Send it to
+ * people" control still does anything. Real delivery is a backend decision, not built yet.
  */
-
-const KEY = "retailgpt:dashboards";
-const VERSION = 2;
 
 /** The contract's `RefreshSchedule` (1.1.4), in the order the create screen offers them. */
 export const REFRESH_OPTIONS = [
@@ -36,14 +24,6 @@ export const REFRESH_OPTIONS = [
 
 /** The API's default; a new dashboard here defaults the same way. */
 export const DEFAULT_REFRESH_SCHEDULE = "nightly";
-
-/** Frontend-only: no `Dashboard`/`DashboardWrite` field carries this yet (#226). */
-export const DELIVERY_OPTIONS = [
- { value: "none", label: "Don't send it anywhere" },
- { value: "daily", label: "Email it every morning" },
- { value: "weekly", label: "Email it Monday mornings" },
- { value: "monthly", label: "Email it on the 1st" },
-];
 
 /** The contract's `ChartKind`, with the labels the tile selector shows. */
 export const CHART_KINDS = [
@@ -82,158 +62,40 @@ export function defaultChartKind(kpi) {
  return "number";
 }
 
-/** Whether the API could accept this tile as a `TileWrite` -- it names a registered KPI. */
-export function tileIsWireReady(tile) {
- return typeof tile?.kpi_identifier === "string" && tile.kpi_identifier.length > 0;
+/** Whether a KPI row can become a real tile - it names a registered KPI. The seed catalogue
+ * (`domain/middleby-kpi-seed.js`) has no `identifier` on any card today, so this is false for
+ * everything until the KPI registry screens (#232) start populating it from real `GET /kpis`. */
+export function kpiIsWireReady(kpi) {
+ return typeof kpi?.identifier === "string" && kpi.identifier.length > 0;
 }
 
-function tileId() {
- return `tl_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-/** A tile referencing `kpi`, placed at `index` in the grid. */
-export function tileFromKpi(kpi, index, { subjectArea } = {}) {
+/** A `TileWrite` for `kpi`, placed at `index` in the grid. Only called on a wire-ready `kpi`
+ * (`kpiIsWireReady`) - `kpi_identifier` is required and non-null on the wire. */
+export function tileWriteFromKpi(kpi, index) {
  return {
-  id: tileId(),
-  kpi_identifier: kpi?.identifier ?? null,
+  kpi_identifier: kpi.identifier,
   title: kpi?.name || "",
   chart: defaultChartKind(kpi),
   position: positionFor(index),
   grain_value: null,
-  unit: kpi?.unit || "",
-  subject_area: kpi?.subjectArea || subjectArea || "",
  };
 }
 
-// --- migration from the version-1 shape -------------------------------------------------------
-//
-// v1 addressed a metric by name plus registry position (`kpiName`, `categoryIndex`,
-// `sectionIndex`, `kpiIndex`), rendered it with `render: stat|trend|bar`, and had no layout.
-// Read once, converted in place, written back as v2. Idempotent: a v2 record passes through.
-
-const LEGACY_RENDER_TO_CHART = { stat: "number", trend: "line", bar: "bar" };
-
-function isV2Tile(tile) {
- return tile != null && typeof tile === "object" && "chart" in tile && "position" in tile;
-}
-
-function migrateTile(tile, index) {
- if (isV2Tile(tile)) return tile;
- return {
-  id: tileId(),
-  kpi_identifier: null,
-  title: tile?.kpiName || "",
-  chart: LEGACY_RENDER_TO_CHART[tile?.render] || "number",
-  position: positionFor(index),
-  grain_value: null,
-  unit: tile?.unit || "",
-  subject_area: tile?.subjectArea || "",
- };
-}
-
-function isV2Dashboard(dashboard) {
- return (
-  dashboard != null &&
-  typeof dashboard === "object" &&
-  "refresh_schedule" in dashboard &&
-  Array.isArray(dashboard.tiles) &&
-  dashboard.tiles.every(isV2Tile)
- );
-}
-
-export function migrateDashboard(dashboard) {
- if (isV2Dashboard(dashboard)) return dashboard;
- const created = dashboard?.createdAt || dashboard?.created_at || new Date().toISOString();
- return {
-  id: dashboard?.id,
-  name: dashboard?.name || "Untitled dashboard",
-  description: dashboard?.description || "",
-  owner: dashboard?.owner || "local",
-  visibility: dashboard?.visibility || "private",
-  filters: Array.isArray(dashboard?.filters) ? dashboard.filters : [],
-  refresh_schedule: dashboard?.refresh_schedule || dashboard?.refresh || DEFAULT_REFRESH_SCHEDULE,
-  delivery: dashboard?.delivery || "none",
-  created_at: created,
-  updated_at: dashboard?.updated_at || created,
-  tiles: (dashboard?.tiles || []).map(migrateTile),
- };
-}
-
-function emptyState() {
- return { version: VERSION, dashboards: [] };
-}
-
-export function loadDashboards() {
- const raw = readLocalJson(KEY, null);
- if (!raw || !Array.isArray(raw.dashboards)) return emptyState();
- if (raw.version === VERSION && raw.dashboards.every(isV2Dashboard)) {
-  return { version: VERSION, dashboards: raw.dashboards };
- }
- const state = { version: VERSION, dashboards: raw.dashboards.map(migrateDashboard) };
- writeLocalJson(KEY, state);
- return state;
-}
-
-export function saveDashboards(state) {
- writeLocalJson(KEY, { version: VERSION, dashboards: state?.dashboards || [] });
-}
-
-export function getDashboard(id) {
- return loadDashboards().dashboards.find((d) => d.id === id) || null;
-}
-
-export function createDashboard({ name, rows, refresh, delivery }) {
- const state = loadDashboards();
- const now = new Date().toISOString();
- const dashboard = {
-  id: `dsh_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-  name: String(name || "").trim() || "Untitled dashboard",
-  description: "",
-  // What the API assigns with authorization off; a real caller identity replaces it in D2.
-  owner: "local",
-  visibility: "private",
-  filters: [],
-  refresh_schedule: refresh || DEFAULT_REFRESH_SCHEDULE,
-  delivery: delivery || "none",
-  created_at: now,
-  updated_at: now,
-  tiles: (rows || []).map((row, index) =>
-   tileFromKpi(row.kpi, index, { subjectArea: row.sectionName })
-  ),
- };
- state.dashboards = [dashboard, ...state.dashboards];
- saveDashboards(state);
- return dashboard;
-}
-
-export function updateDashboard(id, patch) {
- const state = loadDashboards();
- const updated_at = new Date().toISOString();
- state.dashboards = state.dashboards.map((d) => (d.id === id ? { ...d, ...patch, updated_at } : d));
- saveDashboards(state);
- return state.dashboards.find((d) => d.id === id) || null;
-}
-
-/** Change one tile -- by its id, not its index, the way the API addresses it. */
-export function updateTile(dashboardId, tileId, patch) {
- const dashboard = getDashboard(dashboardId);
- if (!dashboard) return null;
- const tiles = dashboard.tiles.map((t) => (t.id === tileId ? { ...t, ...patch } : t));
- return updateDashboard(dashboardId, { tiles });
-}
-
-export function deleteDashboard(id) {
- const state = loadDashboards();
- state.dashboards = state.dashboards.filter((d) => d.id !== id);
- saveDashboards(state);
+/** `dashboard.tiles` (the API's `Tile`, read back) as a `tiles` array for a `PATCH` body -
+ * `TileWrite` has no `id`, so editing any tile means resubmitting all of them; the API mints a
+ * fresh `id` for each one it saves. */
+export function tilesToWrite(tiles) {
+ return tiles.map((tile) => ({
+  kpi_identifier: tile.kpi_identifier,
+  title: tile.title,
+  chart: tile.chart,
+  position: tile.position,
+  grain_value: tile.grain_value ?? null,
+ }));
 }
 
 export function labelForRefresh(value) {
  return REFRESH_OPTIONS.find((o) => o.value === value)?.label || value;
-}
-
-export function labelForDelivery(value) {
- return DELIVERY_OPTIONS.find((o) => o.value === value)?.label || value;
 }
 
 export function labelForChart(value) {

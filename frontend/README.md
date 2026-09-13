@@ -30,11 +30,17 @@ What was already decided about it, and still applies:
   `/sessions`, `/schedules`); the contract adds only the retail delta.
 - **Business-area labels come from `GET /business-areas`**, not from a constant; the prototype's
   ten areas versus the shipped vocabulary's six is Lane K's call before wiring.
-- **The local `Dashboard`/`Tile` shape mirrors the API's wire model** (`src/storage/dashboards.js`,
-  v2: `kpi_identifier`, `chart`, `position`, `grain_value`; `owner`, `visibility`, `filters`,
-  `refresh_schedule`), so wiring it is a transport change, not a second mapping. `kpi_identifier`
-  is `null` for a seed metric until the registry screens read real KPIs; `delivery` is
-  frontend-only because the contract has no such field yet.
+- **Dashboards are wired to the real API** (D2, #233): `src/services/dashboards-api.js` calls
+  `GET/POST/PATCH/DELETE /dashboards` and `GET /dashboards/{id}/data` directly, matching the
+  local `Dashboard`/`Tile` shape D1 (#226) aligned field for field
+  (`src/storage/dashboards.js`) - there is no local persistence left for dashboards, and no
+  second mapping. A dashboard can only be created against a *registered* KPI
+  (`TileWrite.kpi_identifier` is required); the seed catalogue has no identifier on any card
+  yet, so creation is blocked with an explanatory message until the registry screens (#232)
+  read real KPIs. `series`/`delta` ship empty from the API until #227 (E1) lands a
+  gold-history reader, so `line`/`bar` tiles say "not enough history" rather than showing a
+  fabricated trend. `delivery` (who a dashboard is emailed to) has no contract field and no
+  local persistence to fall back to any more - dropped from the UI, not silently kept.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 
