@@ -311,6 +311,16 @@ class KpiRegistryStore:
         self._schema = schema
         self._vocabularies = vocabularies or load_vocabulary_set()
 
+    @property
+    def vocabularies(self) -> VocabularySet:
+        """This store's cached ``VocabularySet``, loaded once at construction.
+
+        Exposed so a caller that already holds a store (``api/routers/kpis.py``'s suggestion
+        route, for one) can reuse it instead of calling ``load_vocabulary_set()`` again on
+        every request -- the same closed sets, read from disk a second time for no reason.
+        """
+        return self._vocabularies
+
     # --- schema ------------------------------------------------------------------------
 
     def ensure_schema(self) -> None:

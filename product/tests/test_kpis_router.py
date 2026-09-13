@@ -11,7 +11,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 from egpt_retail.api import models as wire_models
 from egpt_retail.api.routers import kpis as kpis_module
@@ -19,18 +20,25 @@ from egpt_retail.api.routers.kpis import (
     _carry_forward_validation,
     _derive_identifier,
     _feasibility_out,
+    _filter_suggestions,
     _kpi_from_write,
     _kpi_out,
+    _list_kpi_suggestions,
     _matches_filters,
     _may_read_sql,
     _slugify,
+    _suggestion_notes,
+    _SuggestionRegistrySnapshot,
+    _validated_business_area,
     create_kpi,
     delete_kpi,
     get_kpi,
     get_kpi_feasibility,
+    list_kpi_suggestions,
     list_kpis,
     update_kpi,
 )
+from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import (
     Feasibility,
     FeasibilityReason,
@@ -43,6 +51,7 @@ from egpt_retail.contracts.kpi import (
     TimeWindow,
     TimeWindowUnit,
 )
+from egpt_retail.contracts.vocabulary import load_vocabulary_set
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiDeleteResult
 
 
@@ -639,6 +648,395 @@ def test_delete_kpi_404s_on_a_missing_identifier():
             "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
         )
     assert excinfo.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# #234/F1 -- GET /kpis/suggestions
+# ---------------------------------------------------------------------------
+
+
+def _suggestion(**overrides) -> wire_models.KpiSuggestion:
+    defaults = dict(
+        identifier="supplier__avg_lead_time_days",
+        name="Average Supplier Lead Time",
+        description="Average days between expected and actual delivery.",
+        business_area="supply_chain",
+        grain="supplier",
+        result_shape=wire_models.ResultShape.scalar,
+        rationale="supplier_deliveries carries expected_date and actual_date.",
+        derived_from_tables=["supplier_deliveries"],
+        confidence=wire_models.Confidence.high,
+    )
+    defaults.update(overrides)
+    return wire_models.KpiSuggestion(**defaults)
+
+
+_VOCABULARIES = load_vocabulary_set()
+
+
+def test_validated_business_area_passes_through_a_known_term():
+    assert _validated_business_area("supply_chain", _VOCABULARIES) == "supply_chain"
+
+
+def test_validated_business_area_passes_through_none():
+    assert _validated_business_area(None, _VOCABULARIES) is None
+
+
+def test_validated_business_area_turns_an_unknown_term_into_a_422():
+    with pytest.raises(HTTPException) as excinfo:
+        _validated_business_area("not_a_real_business_area", _VOCABULARIES)
+    assert excinfo.value.status_code == 422
+
+
+def test_filter_suggestions_with_no_business_area_returns_everything():
+    suggestions = [
+        _suggestion(),
+        _suggestion(identifier="other", business_area="sales"),
+    ]
+    assert _filter_suggestions(suggestions, None) == suggestions
+
+
+def test_filter_suggestions_narrows_to_the_requested_business_area():
+    keep = _suggestion()
+    drop = _suggestion(identifier="other", business_area="sales")
+    result = _filter_suggestions([keep, drop], "supply_chain")
+    assert result == [keep]
+
+
+def test_list_kpi_suggestions_turns_an_invalid_business_area_into_a_422_before_touching_any_store():
+    with pytest.raises(HTTPException) as excinfo:
+        _list_kpi_suggestions(
+            RetailSettings(),
+            # unreachable: the 422 fires before either is ever used
+            definitions=(),
+            vocabularies=_VOCABULARIES,
+            business_area="not_a_real_business_area",
+            include_sql=True,
+        )
+    assert excinfo.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# _suggestion_notes -- Finding 2 (PR #242 review): `SuggestionRun.notes` (the
+# "no domain prose reached the agents" line `run_suggestions` always appends here) was being
+# dropped entirely; only `AssemblyReport.notes` reached the wire.
+# ---------------------------------------------------------------------------
+
+
+class _FakeAssemblyReport:
+    def __init__(self, notes: str = ""):
+        self.notes = notes
+
+
+class _FakeSuggestionRun:
+    def __init__(self, notes=(), kpis_notes: str = ""):
+        self.notes = list(notes)
+        self.kpis = _FakeAssemblyReport(kpis_notes)
+
+
+def test_suggestion_notes_is_empty_when_neither_source_has_anything():
+    assert _suggestion_notes(_FakeSuggestionRun()) == ""
+
+
+def test_suggestion_notes_surfaces_run_notes():
+    run = _FakeSuggestionRun(notes=["no domain prose reached the agents: ..."])
+    assert _suggestion_notes(run) == "no domain prose reached the agents: ..."
+
+
+def test_suggestion_notes_surfaces_both_sources_when_both_are_present():
+    run = _FakeSuggestionRun(notes=["run note"], kpis_notes="assembly note")
+    notes = _suggestion_notes(run)
+    assert "run note" in notes
+    assert "assembly note" in notes
+
+
+def test_suggestion_notes_keeps_kpis_notes_when_run_notes_is_empty():
+    run = _FakeSuggestionRun(notes=[], kpis_notes="assembly note only")
+    assert _suggestion_notes(run) == "assembly note only"
+
+
+# ---------------------------------------------------------------------------
+# include_sql gating on GET /kpis/suggestions -- Finding 1 (PR #242 review):
+# `proposed_sql` must be gated by `_may_read_sql` the same way `Kpi.sql` already is.
+# ---------------------------------------------------------------------------
+
+
+def _fake_run_suggestions(kpi_suggestions):
+    def _fake(settings, *, reader, existing_definitions, proposals, dry_run, agents):
+        return _FakeSuggestionRunWithSuggestions(kpi_suggestions)
+
+    return _fake
+
+
+class _FakeAssemblyReportWithSuggestions:
+    def __init__(self, suggestions, notes: str = ""):
+        self.suggestions = suggestions
+        self.notes = notes
+
+
+class _FakeSuggestionRunWithSuggestions:
+    def __init__(self, suggestions, notes=(), kpis_notes: str = ""):
+        self.notes = list(notes)
+        self.kpis = _FakeAssemblyReportWithSuggestions(suggestions, kpis_notes)
+        self.snapshot = "snap.0"
+
+
+class _NullSemanticReaderCtx:
+    def __enter__(self):
+        return object()
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def _patch_suggestion_pipeline(monkeypatch, kpi_suggestions):
+    monkeypatch.setattr(
+        kpis_module, "open_semantic_reader", lambda settings: _NullSemanticReaderCtx()
+    )
+    monkeypatch.setattr(
+        kpis_module,
+        "run_suggestions",
+        _fake_run_suggestions(kpi_suggestions),
+    )
+
+
+def test_list_kpi_suggestions_includes_proposed_sql_when_include_sql_is_true(
+    monkeypatch,
+):
+    suggestion = _suggestion(proposed_sql="SELECT 1 FROM supplier_deliveries")
+    _patch_suggestion_pipeline(monkeypatch, [suggestion])
+
+    result = _list_kpi_suggestions(
+        RetailSettings(),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        agents=("kpi_agent", "use_case_agent"),
+    )
+
+    assert result.suggestions[0].proposed_sql == "SELECT 1 FROM supplier_deliveries"
+
+
+def test_list_kpi_suggestions_nulls_proposed_sql_when_include_sql_is_false(
+    monkeypatch,
+):
+    suggestion = _suggestion(proposed_sql="SELECT 1 FROM supplier_deliveries")
+    _patch_suggestion_pipeline(monkeypatch, [suggestion])
+
+    result = _list_kpi_suggestions(
+        RetailSettings(),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=False,
+        agents=("kpi_agent", "use_case_agent"),
+    )
+
+    assert result.suggestions[0].proposed_sql is None
+    # the original object handed back by the (fake) assembly step is untouched
+    assert suggestion.proposed_sql == "SELECT 1 FROM supplier_deliveries"
+
+
+# ---------------------------------------------------------------------------
+# _cached_suggestion_agents -- Finding 4 (PR #242 review): CLAUDE.md says never create agents
+# in loops; every real request was building two fresh `Agent`s from scratch.
+# ---------------------------------------------------------------------------
+
+
+def test_cached_suggestion_agents_reuses_the_same_agents_for_an_unchanged_registry(
+    monkeypatch,
+):
+    build_calls = []
+
+    def _fake_build(settings, *, existing_kpis, registry_kpis, catalogue):
+        agents = (object(), object())
+        build_calls.append(agents)
+        return agents
+
+    monkeypatch.setattr(kpis_module, "build_suggestion_agents", _fake_build)
+    monkeypatch.setattr(kpis_module, "load_catalogue", lambda: [])
+    monkeypatch.setattr(kpis_module, "_agent_cache_key", None)
+    monkeypatch.setattr(kpis_module, "_agent_cache_agents", None)
+
+    definitions = (_kpi(identifier="a"), _kpi(identifier="b"))
+    first = kpis_module._cached_suggestion_agents(RetailSettings(), definitions)
+    second = kpis_module._cached_suggestion_agents(RetailSettings(), definitions)
+
+    assert first is second
+    assert len(build_calls) == 1
+
+
+def test_cached_suggestion_agents_rebuilds_when_the_registry_changes(monkeypatch):
+    build_calls = []
+
+    def _fake_build(settings, *, existing_kpis, registry_kpis, catalogue):
+        agents = (object(), object())
+        build_calls.append(agents)
+        return agents
+
+    monkeypatch.setattr(kpis_module, "build_suggestion_agents", _fake_build)
+    monkeypatch.setattr(kpis_module, "load_catalogue", lambda: [])
+    monkeypatch.setattr(kpis_module, "_agent_cache_key", None)
+    monkeypatch.setattr(kpis_module, "_agent_cache_agents", None)
+
+    first = kpis_module._cached_suggestion_agents(
+        RetailSettings(), (_kpi(identifier="a"),)
+    )
+    second = kpis_module._cached_suggestion_agents(
+        RetailSettings(), (_kpi(identifier="a"), _kpi(identifier="b"))
+    )
+
+    assert first is not second
+    assert len(build_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# Round-3 review: `_agent_cache_lock` only guards cache population, not the `.run()` calls
+# that follow -- concurrent requests sharing the cached `Agent` pair race on unsynchronized
+# per-agent state (session_id, hook normalization, connectable-tool init lists). Every real
+# call must `.run()` its own `deep_copy()`, never the cached originals.
+# ---------------------------------------------------------------------------
+
+
+class _FakeCacheableAgentCopy:
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _FakeCacheableAgent:
+    def __init__(self, name: str):
+        self.name = name
+        self.deep_copy_calls = 0
+
+    def deep_copy(self):
+        self.deep_copy_calls += 1
+        return _FakeCacheableAgentCopy(self.name)
+
+
+def test_list_kpi_suggestions_runs_a_deep_copy_of_each_cached_agent_not_the_original(
+    monkeypatch,
+):
+    cached_kpi_agent = _FakeCacheableAgent("kpi")
+    cached_use_case_agent = _FakeCacheableAgent("use_case")
+    monkeypatch.setattr(
+        kpis_module,
+        "_cached_suggestion_agents",
+        lambda settings, definitions: (cached_kpi_agent, cached_use_case_agent),
+    )
+    monkeypatch.setattr(
+        kpis_module, "open_semantic_reader", lambda settings: _NullSemanticReaderCtx()
+    )
+
+    captured_agents = {}
+
+    def _fake_run_suggestions_capturing(
+        settings, *, reader, existing_definitions, proposals, dry_run, agents
+    ):
+        captured_agents["agents"] = agents
+        return _FakeSuggestionRunWithSuggestions([])
+
+    monkeypatch.setattr(kpis_module, "run_suggestions", _fake_run_suggestions_capturing)
+
+    _list_kpi_suggestions(
+        RetailSettings(),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        agents=None,
+    )
+
+    assert cached_kpi_agent.deep_copy_calls == 1
+    assert cached_use_case_agent.deep_copy_calls == 1
+    run_kpi_agent, run_use_case_agent = captured_agents["agents"]
+    assert run_kpi_agent is not cached_kpi_agent
+    assert run_use_case_agent is not cached_use_case_agent
+    assert isinstance(run_kpi_agent, _FakeCacheableAgentCopy)
+    assert isinstance(run_use_case_agent, _FakeCacheableAgentCopy)
+
+
+# ---------------------------------------------------------------------------
+# Finding 7 (PR #242 review): the real @router-decorated `list_kpi_suggestions` was never
+# called directly by any test -- only the underscored helper was.
+# ---------------------------------------------------------------------------
+
+
+def test_list_kpi_suggestions_route_reaches_the_helper_with_the_given_business_area(
+    monkeypatch,
+):
+    captured = {}
+
+    def _fake_helper(
+        settings, *, definitions, vocabularies, business_area, include_sql
+    ):
+        captured["business_area"] = business_area
+        captured["definitions"] = definitions
+        captured["include_sql"] = include_sql
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+
+    # A fake registry snapshot in place of the real store dependency's -- exercising the
+    # real, `@router`-decorated `list_kpi_suggestions` directly rather than only the
+    # underscored `_list_kpi_suggestions` helper.
+    snapshot = _SuggestionRegistrySnapshot(
+        definitions=(_kpi(identifier="a"),), vocabularies=_VOCABULARIES
+    )
+    result = list_kpi_suggestions(
+        _FakeRequest(authorization_enabled=False),
+        business_area="supply_chain",
+        snapshot=snapshot,
+    )
+
+    assert captured["business_area"] == "supply_chain"
+    assert captured["definitions"] == snapshot.definitions
+    assert captured["include_sql"] is True
+    assert result.semantic_snapshot == "snap.0"
+
+
+# ---------------------------------------------------------------------------
+# Finding 6 (PR #242 review): nothing dispatched through the real router/TestClient, so a
+# route-registration-order regression (a static "/kpis/suggestions" swallowed by the dynamic
+# "/kpis/{kpi_id}" route) would have shipped silently.
+# ---------------------------------------------------------------------------
+
+
+def test_get_kpis_suggestions_dispatches_to_the_suggestions_handler_not_get_kpi(
+    monkeypatch,
+):
+    calls = []
+
+    def _fake_helper(
+        settings, *, definitions, vocabularies, business_area, include_sql
+    ):
+        calls.append(business_area)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+
+    app = FastAPI()
+    app.include_router(kpis_module.router)
+    # `Depends(_suggestion_registry_snapshot)` captured the function object at decoration
+    # time, so it must be swapped out through FastAPI's own override hook, not by patching
+    # the module attribute (which a plain module-level monkeypatch would not reach).
+    app.dependency_overrides[kpis_module._suggestion_registry_snapshot] = lambda: (
+        _SuggestionRegistrySnapshot(definitions=(), vocabularies=_VOCABULARIES)
+    )
+    client = TestClient(app)
+
+    response = client.get("/kpis/suggestions")
+
+    assert response.status_code == 200
+    body = response.json()
+    # get_kpi's shape (a single Kpi) has no "suggestions"/"semantic_snapshot" keys; a request
+    # swallowed by "/kpis/{kpi_id}" would 404 ("No KPI 'suggestions'.") instead of this.
+    assert body == {"suggestions": [], "notes": "", "semantic_snapshot": "snap.0"}
+    assert calls == [None]
 
 
 class _ReferencedKpiStore(_FakeKpiStore):
