@@ -495,6 +495,34 @@ def test_read_gold_history_for_narrows_which_identifiers_get_the_second_read(
     )
 
 
+def test_read_gold_history_for_accepts_a_bare_string_as_one_identifier(monkeypatch):
+    """``history_for="k1"`` must mean the single identifier ``"k1"``, not the five
+    characters of that string -- a caller with one identifier has no reason to know it
+    must wrap it in a list, and the docstring itself only promises "a set/list of
+    identifiers", not that a bare string is rejected or misread."""
+
+    def respond(sql, params):
+        return [CURRENT_ROW]
+
+    engine = _patch_read_gold(monkeypatch, respond=respond)
+    step_input = StepInput(
+        additional_data={
+            "kpi_identifiers": ["k1", "k2"],
+            "as_of": "2026-09-11",
+            "history_days": 30,
+            "history_for": "k1",
+        }
+    )
+    output = asyncio.run(read_gold(step_input))
+    assert "history" in output.content["kpis"]["k1"]
+    assert "history" not in output.content["kpis"]["k2"]
+    history_reads = [call for call in engine.calls if "since" in call[1]]
+    assert len(history_reads) == 1, (
+        "a bare-string history_for must narrow to the one identifier it names, not to a "
+        "frozenset of its characters that matches nothing"
+    )
+
+
 def test_read_gold_history_refusal_empties_history_but_keeps_the_current_value(
     monkeypatch, caplog
 ):

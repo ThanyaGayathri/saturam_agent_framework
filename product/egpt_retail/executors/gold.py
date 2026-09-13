@@ -221,10 +221,18 @@ def _history_for(options: Mapping[str, Any]) -> Optional[FrozenSet[str]]:
     """The identifiers that asked for ``history`` this call, or ``None`` when every
     identifier in the request should get it -- the call-wide behaviour every caller before
     dashboards relied on (``history_days`` with no ``history_for`` still applies to every
-    ``kpi_identifiers`` entry, unchanged)."""
+    ``kpi_identifiers`` entry, unchanged).
+
+    A bare string is one identifier, not an iterable of characters -- without this, a caller
+    passing ``history_for="k1"`` (this option's own docstring calls it "a set/list of
+    identifiers", but nothing stops a single-identifier caller from writing it as a plain
+    string) would silently narrow to a frozenset of single letters that no real identifier
+    ever matches, so history would come back empty for everyone with no error at all."""
     raw = options.get("history_for")
     if raw is None:
         return None
+    if isinstance(raw, str):
+        raw = (raw,)
     return frozenset(str(identifier) for identifier in raw)
 
 

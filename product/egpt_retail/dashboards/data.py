@@ -25,11 +25,11 @@ on ``table`` tiles in a dashboard that mixes chart kinds -- costs exactly what i
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
-from decimal import Decimal
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from egpt.workflow.types import StepInput
 
+from egpt_retail.alerts.condition import as_decimal
 from egpt_retail.api.models import DashboardData, KpiHealthStatus, SeriesPoint, TileData
 from egpt_retail.contracts.dashboards import ChartKind, Dashboard, Tile
 from egpt_retail.executors.gold import read_gold, row_for_grain_value
@@ -138,10 +138,15 @@ def _series_and_delta(
     """The tile's series (``line``/``bar`` only) and its delta against the previous business
     date, both from ``result["history"]`` resolved date by date with :func:`_resolve_row`.
 
-    The delta is computed in ``Decimal`` from the ``str`` values ``read_gold`` hands out and
-    converted to ``float`` once at the end: ``0.91 - 0.95`` in binary float is
-    ``-0.040000000000000036``, and the DDL chose ``numeric`` precisely so a customer never
-    reads that. A tile with no current value has no delta, whatever the history holds.
+    The delta is computed via :func:`~egpt_retail.alerts.condition.as_decimal` from the
+    ``str`` values ``read_gold`` hands out, then converted to ``float`` once at the end:
+    ``0.91 - 0.95`` in binary float is ``-0.040000000000000036``, and the DDL chose
+    ``numeric`` precisely so a customer never reads that. A tile with no current value has
+    no delta, whatever the history holds.
+
+    "Previous" is the resolved date whose ``date.fromisoformat()`` value is earliest before
+    the current one, not a lexicographic string comparison -- ``as_of`` happens to be a
+    zero-padded ISO date today, but the comparison should not depend on that staying true.
     """
     resolved: List[Tuple[str, Optional[str]]] = []
     for as_of, rows in _history_by_date(result.get("history", ())):
@@ -162,11 +167,13 @@ def _series_and_delta(
         ]
 
     delta: Optional[float] = None
-    current_as_of = str(result.get("as_of"))
+    current_as_of = date.fromisoformat(str(result.get("as_of")))
     if current_value is not None:
-        previous = [raw for as_of, raw in resolved if as_of < current_as_of]
+        previous = [
+            raw for as_of, raw in resolved if date.fromisoformat(as_of) < current_as_of
+        ]
         if previous and previous[-1] is not None:
-            delta = float(Decimal(current_value) - Decimal(previous[-1]))
+            delta = float(as_decimal(current_value) - as_decimal(previous[-1]))
     return series, delta
 
 
