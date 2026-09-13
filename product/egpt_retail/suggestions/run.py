@@ -105,7 +105,7 @@ def run_suggestions(
     settings: Optional[RetailSettings] = None,
     *,
     reader: Any,
-    registry: Any,
+    registry: Any = None,
     proposals: Any = None,
     knowledge: Any = None,
     ontology: Any = None,
@@ -113,6 +113,7 @@ def run_suggestions(
     configured: FrozenSet[str] = DEFAULT_CAPABILITIES,
     dry_run: bool = False,
     samples: Optional[Mapping[Tuple[str, str], Sequence[str]]] = None,
+    existing_definitions: Optional[Sequence[Any]] = None,
 ) -> SuggestionRun:
     """Run both suggestion agents over the current semantic layer and file the results.
 
@@ -121,9 +122,24 @@ def run_suggestions(
     store (``None`` with ``dry_run`` to assemble without filing). ``agents`` lets a caller
     supply the two agents already built -- the entrypoint builds them once per process, and
     a test passes stand-ins that return canned drafts.
+
+    ``existing_definitions``, when given, is used instead of calling ``registry.list()`` --
+    for a caller that already read the registry and wants to release a pooled connection
+    (``registry``'s) before the two live model calls below run, rather than hold it open
+    across both. ``api/routers/kpis.py``'s ``GET /kpis/suggestions`` is exactly this caller:
+    it fetches the registry snapshot up front, closes the control-plane connection, and only
+    then calls this function -- ``registry`` stays ``None`` and is never touched. Every other
+    caller keeps passing ``registry`` and this behaves exactly as before.
     """
     settings = settings or RetailSettings()
-    definitions = tuple(registry.list())
+    if existing_definitions is not None:
+        definitions = tuple(existing_definitions)
+    else:
+        if registry is None:
+            raise ValueError(
+                "run_suggestions needs either `registry` or `existing_definitions`."
+            )
+        definitions = tuple(registry.list())
     existing = [definition.identifier for definition in definitions]
     by_identifier = {definition.identifier: definition for definition in definitions}
 
@@ -202,7 +218,7 @@ async def arun_suggestions(
     settings: Optional[RetailSettings] = None,
     *,
     reader: Any,
-    registry: Any,
+    registry: Any = None,
     proposals: Any = None,
     knowledge: Any = None,
     ontology: Any = None,
@@ -210,6 +226,7 @@ async def arun_suggestions(
     configured: FrozenSet[str] = DEFAULT_CAPABILITIES,
     dry_run: bool = False,
     samples: Optional[Mapping[Tuple[str, str], Sequence[str]]] = None,
+    existing_definitions: Optional[Sequence[Any]] = None,
 ) -> SuggestionRun:
     """Async variant. Two model calls and several store reads happen off the event loop."""
     return await asyncio.to_thread(
@@ -224,4 +241,5 @@ async def arun_suggestions(
         configured=configured,
         dry_run=dry_run,
         samples=samples,
+        existing_definitions=existing_definitions,
     )

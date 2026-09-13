@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from egpt_retail.contracts.kpi import KpiDefinition
+from egpt_retail.contracts.kpi import KpiDefinition, KpiOrigin
 
 __all__ = ["RFQ_KPI_DEFINITIONS", "QUOTE_REQUESTS_BY_BRAND", "QUOTE_TO_DEAL_RATE"]
 
@@ -39,6 +39,7 @@ QUOTE_REQUESTS_BY_BRAND = KpiDefinition(
     grain="brand",
     business_area="sales",
     source_tables=frozenset({"crm_deal"}),
+    source=KpiOrigin.SHIPPED,
 )
 
 #: Share of RFQ quote requests that reached a recorded deal-stage transition, one row per
@@ -61,6 +62,7 @@ QUOTE_TO_DEAL_RATE = KpiDefinition(
     grain="brand",
     business_area="sales",
     source_tables=frozenset({"crm_deal", "crm_deal_stage_history"}),
+    source=KpiOrigin.SHIPPED,
 )
 
 #: Both, in the order the API contract's example plan reads them.

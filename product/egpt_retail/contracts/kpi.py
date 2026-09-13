@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import (
     TYPE_CHECKING,
@@ -49,6 +50,8 @@ __all__ = [
     "FeasibilityVerdict",
     "assess_feasibility_with_joins",
     "KpiDefinition",
+    "KpiLevel",
+    "KpiOrigin",
     "KpiRegistry",
     "KpiParameter",
     "ParameterKind",
@@ -125,6 +128,30 @@ class Dialect(str, Enum):
 
     POSTGRES = "postgres"
     SQLITE = "sqlite"
+
+
+class KpiLevel(str, Enum):
+    """Where a KPI sits in the reporting hierarchy -- presentation metadata, not something
+    feasibility or execution reads. Mirrors the wire ``KpiLevel``, 1:1 by value.
+    """
+
+    STRATEGIC = "strategic"
+    OPERATIONAL = "operational"
+    TACTICAL = "tactical"
+
+
+class KpiOrigin(str, Enum):
+    """Whether a KPI shipped with the product or a customer authored it.
+
+    Not inferable from anything else -- unlike ``grain``/``business_area``, there was no
+    existing signal for this before B2 (issue #231): the two shipped RFQ definitions
+    (``kpi/rfq.py``) had no marker distinguishing them from a KPI written through
+    ``POST /kpis``. Every construction site now states it explicitly; ``CUSTOMER`` is the
+    default because that is the common case for anything not deliberately seeded.
+    """
+
+    SHIPPED = "shipped"
+    CUSTOMER = "customer"
 
 
 class ParameterKind(str, Enum):
@@ -214,6 +241,18 @@ class KpiDefinition:
     #: letting it fail during the nightly run.
     validated_against_snapshot: Optional[str] = None
     concept: Optional[str] = None
+    #: Presentation metadata (B2, issue #231) -- none of the fields below participate in
+    #: feasibility or execution. Free-form, unlike ``grain``/``business_area``: nothing
+    #: downstream keys off a closed set for these.
+    subject_area: Optional[str] = None
+    level: Optional[KpiLevel] = None
+    unit: Optional[str] = None
+    industry_benchmark: Optional[str] = None
+    active: bool = True
+    source: KpiOrigin = KpiOrigin.CUSTOMER
+    dataset_ids: Tuple[str, ...] = ()
+    process_ids: Tuple[str, ...] = ()
+    updated_at: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         # Normalise before any comparison. ``referenced_tables`` lower-cases what it reads out

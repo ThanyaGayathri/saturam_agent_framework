@@ -25,7 +25,12 @@ from egpt_retail.contracts.dashboards import (
     Visibility,
 )
 
-__all__ = ["DASHBOARDS_SCHEMA", "UNSET", "DashboardStore"]
+__all__ = [
+    "DASHBOARDS_SCHEMA",
+    "UNSET",
+    "DashboardKpiVanishedError",
+    "DashboardStore",
+]
 
 DASHBOARDS_SCHEMA = "dashboards"
 
@@ -33,6 +38,20 @@ DASHBOARDS_SCHEMA = "dashboards"
 #: while ``update(..., tiles=[])`` means "replace with no tiles". ``None`` cannot carry this
 #: distinction since it is also a valid value for nothing on some fields.
 UNSET: Any = object()
+
+
+class DashboardKpiVanishedError(ValueError):
+    """A tile in this write names a KPI identifier that no longer exists in the registry at
+    the moment the write actually lands.
+
+    ``api/routers/dashboards.py``'s own ``_check_tiles_ready`` already confirmed every tile's
+    KPI was registered and ready -- but that check runs before this write, over a separate
+    connection, with nothing holding the KPI row still in between (#240 review, round 2: the
+    same dangling-reference bug ``KpiRegistryStore.delete_if_unreferenced`` closes from the
+    delete side is still reachable from this side, a KPI deleted in the gap between that check
+    and this write). Raised only when the atomic existence guard inside :meth:`DashboardStore.
+    create`/:meth:`DashboardStore.update` itself trips, not by the router's own earlier check.
+    """
 
 
 def _ddl(schema: str) -> Tuple[str, ...]:
@@ -121,6 +140,33 @@ _COLUMNS = (
 )
 
 
+def _kpi_existence_guard_sql() -> str:
+    """SQL predicate, true only if every tile in a ``%s``-bound tiles JSON array still names
+    a KPI that exists in the registry right now -- one ``%s`` parameter (the tiles JSON).
+
+    Imports ``KPI_SCHEMA`` from ``egpt_retail.kpi.store`` lazily, at call time rather than at
+    module import time: that module already imports this one at import time
+    (``DASHBOARDS_SCHEMA``/``DashboardStore``, for its own ``delete_if_unreferenced``
+    reference check -- this is that exact reach, the other direction), so a top-level import
+    here would be circular. Reaching into the KPI schema by name/shape mirrors the one
+    exception ``delete_if_unreferenced`` already makes for the reverse case: the alternative
+    is a check-then-write across two round trips, which is exactly the race this guard exists
+    to close (#240 review, round 2 -- the dangling-reference bug closed on the delete side was
+    still reachable from this side, a KPI deleted between ``_check_tiles_ready`` and the write
+    actually landing).
+    """
+    from egpt_retail.kpi.store import KPI_SCHEMA as _kpi_schema
+
+    return f"""NOT EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(%s::jsonb) AS t
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {_kpi_schema}.kpi_definition AS kd
+            WHERE kd.identifier = t ->> 'kpi_identifier'
+        )
+    )"""
+
+
 class DashboardStore:
     """The dashboards schema in the control-plane database. The connection is injected; the
     caller owns its lifetime."""
@@ -157,25 +203,36 @@ class DashboardStore:
         refresh_schedule: RefreshSchedule = RefreshSchedule.NIGHTLY,
         visibility: Visibility = Visibility.PRIVATE,
     ) -> Dashboard:
+        """Raises :class:`DashboardKpiVanishedError` if any tile names a KPI that no longer
+        exists at the moment this statement runs -- see that class's docstring."""
         dashboard_id = f"dsh_{uuid.uuid4().hex[:12]}"
+        tiles_json = json.dumps([_tile_to_json(t) for t in tiles])
         with self._connection.cursor() as cursor:
             cursor.execute(
                 f"""INSERT INTO {self._schema}.dashboard
                     (id, name, description, tiles, filters, refresh_schedule, visibility, owner)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    SELECT %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s
+                    WHERE {_kpi_existence_guard_sql()}
                     RETURNING created_at, updated_at""",
                 (
                     dashboard_id,
                     name,
                     description,
-                    json.dumps([_tile_to_json(t) for t in tiles]),
+                    tiles_json,
                     json.dumps([_filter_to_json(f) for f in filters]),
                     refresh_schedule.value,
                     visibility.value,
                     owner,
+                    tiles_json,
                 ),
             )
-            created_at, updated_at = cursor.fetchone()
+            row = cursor.fetchone()
+            if row is None:
+                self._connection.rollback()
+                raise DashboardKpiVanishedError(
+                    "one or more tiles reference a KPI that no longer exists"
+                )
+            created_at, updated_at = row
         self._connection.commit()
         return Dashboard(
             id=dashboard_id,
@@ -227,10 +284,22 @@ class DashboardStore:
         """``None`` if the dashboard does not exist or ``owner`` does not own it -- writes
         are owner-only even though a ``team``/``everyone`` dashboard is readable by others
         (:meth:`Dashboard.visible_to`); the spec does not distinguish "can see" from "can
-        edit", and defaulting edit rights to the owner alone is the safer reading."""
+        edit", and defaulting edit rights to the owner alone is the safer reading.
+
+        Raises :class:`DashboardKpiVanishedError` if ``tiles`` is being replaced and any of
+        the new tiles names a KPI that no longer exists at the moment this statement runs --
+        leaving tiles unchanged (the ``UNSET`` default) never raises it, since that path
+        cannot introduce a dangling reference this call itself creates.
+        """
         current = self.get(dashboard_id)
         if current is None or current.owner != owner:
             return None
+
+        tiles_json = (
+            json.dumps([_tile_to_json(t) for t in tiles])
+            if tiles is not UNSET
+            else None
+        )
 
         # (column, provided, value-to-write) -- built explicitly rather than looped over a
         # dict keyed by column name, so "was this argument passed" and "what SQL value does
@@ -238,13 +307,7 @@ class DashboardStore:
         candidates: List[Tuple[str, bool, Any]] = [
             ("name", name is not UNSET, name),
             ("description", description is not UNSET, description),
-            (
-                "tiles",
-                tiles is not UNSET,
-                json.dumps([_tile_to_json(t) for t in tiles])
-                if tiles is not UNSET
-                else None,
-            ),
+            ("tiles", tiles is not UNSET, tiles_json),
             (
                 "filters",
                 filters is not UNSET,
@@ -274,12 +337,29 @@ class DashboardStore:
             return current
         set_clauses.append("updated_at = now()")
         params.extend([dashboard_id, owner])
+
+        where_sql = "WHERE id = %s AND owner = %s"
+        if tiles is not UNSET:
+            where_sql += f" AND {_kpi_existence_guard_sql()}"
+            params.append(tiles_json)
+
         with self._connection.cursor() as cursor:
             cursor.execute(
                 f"""UPDATE {self._schema}.dashboard SET {", ".join(set_clauses)}
-                    WHERE id = %s AND owner = %s""",
+                    {where_sql}""",
                 tuple(params),
             )
+            matched = cursor.rowcount == 1
+        if not matched and tiles is not UNSET:
+            # 0 rows affected while replacing tiles: either the dashboard vanished
+            # concurrently (a pre-existing race, not introduced here) or the existence guard
+            # above tripped. Tell those apart before deciding what to report.
+            self._connection.rollback()
+            if self.get(dashboard_id) is not None:
+                raise DashboardKpiVanishedError(
+                    "one or more tiles reference a KPI that no longer exists"
+                )
+            return None
         self._connection.commit()
         return self.get(dashboard_id)
 
@@ -349,3 +429,29 @@ class DashboardStore:
 
     async def alist_visible_to(self, caller: str) -> Tuple[Dashboard, ...]:
         return await asyncio.to_thread(self.list_visible_to, caller)
+
+    def list_referencing(self, kpi_identifier: str) -> Tuple[Dashboard, ...]:
+        """Every dashboard with a tile naming ``kpi_identifier``, across *all* owners and
+        visibilities -- unlike :meth:`list_visible_to`, which answers "what can this one
+        caller see", not "does anything, anywhere, still need this KPI".
+
+        Used by ``KpiRegistryStore.delete_if_unreferenced``'s reference check (K11/#240
+        review): a KPI referenced only by another user's private dashboard must still block
+        delete, even though the deleting caller cannot see that dashboard through
+        :meth:`list_visible_to`.
+        """
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT DISTINCT {_COLUMNS}
+                    FROM {self._schema}.dashboard AS d,
+                         jsonb_array_elements(d.tiles) AS tile
+                    WHERE tile ->> 'kpi_identifier' = %s
+                    ORDER BY created_at""",
+                (kpi_identifier,),
+            )
+            rows = cursor.fetchall()
+        return tuple(_row_to_dashboard(row) for row in rows)
+
+    async def alist_referencing(self, kpi_identifier: str) -> Tuple[Dashboard, ...]:
+        """Async variant."""
+        return await asyncio.to_thread(self.list_referencing, kpi_identifier)
