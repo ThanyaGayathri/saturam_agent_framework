@@ -17,8 +17,9 @@ current value gets ``delta`` = current value minus the value at the previous bus
 A date with no row for the tile's grain is left out of the series rather than plotted as
 ``null`` -- ``null`` means the formula returned NULL, which is a different fact. A KPI with
 one materialised date has ``delta: null``: there is no previous period, and nothing is
-invented. The history is requested only when a tile can use it, so a dashboard of ``table``
-tiles costs exactly what it did before.
+invented. The history is requested only for the KPI identifiers a non-``table`` tile
+actually reads (``history_for``), so a dashboard of ``table`` tiles -- or a KPI shown only
+on ``table`` tiles in a dashboard that mixes chart kinds -- costs exactly what it did before.
 """
 
 from __future__ import annotations
@@ -225,8 +226,16 @@ async def read_dashboard_data(dashboard: Dashboard) -> DashboardData:
     whole dashboard, with history when any tile plots a series or shows a delta."""
     identifiers = sorted({tile.kpi_identifier for tile in dashboard.tiles})
     additional_data: Dict[str, Any] = {"kpi_identifiers": identifiers}
-    if any(tile.chart is not ChartKind.TABLE for tile in dashboard.tiles):
+    history_for = sorted(
+        {
+            tile.kpi_identifier
+            for tile in dashboard.tiles
+            if tile.chart is not ChartKind.TABLE
+        }
+    )
+    if history_for:
         additional_data["history_days"] = SERIES_LOOKBACK_DAYS
+        additional_data["history_for"] = history_for
     step_input = StepInput(additional_data=additional_data)
     output = await read_gold(step_input)
     # `read_gold` always returns `StepOutput(content={"kpis": ..., "missing": ...})`;

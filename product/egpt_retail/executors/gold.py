@@ -19,7 +19,7 @@ import asyncio
 import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
 from egpt.exceptions import SQLGuardRefusal
 from egpt.guardrails.sql_guard import SQLGuard
@@ -198,13 +198,34 @@ def _serialise_gold_row(row: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _history_days(options: Mapping[str, Any]) -> int:
+    """``0`` (no history read) for anything malformed, logged rather than raised -- every
+    other bad-input path in :func:`read_gold` is reported this way (a `missing` entry, or an
+    empty, logged `history`), not by letting the whole step raise. `read_gold` is the seam an
+    interactive playground reads through, so a client-supplied `additional_data` should not
+    be able to fail the entire read over one bad option."""
     raw = options.get("history_days")
     if raw is None:
         return 0
-    days = int(raw)
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        log.warning("read_gold: ignoring non-numeric history_days=%r", raw)
+        return 0
     if days < 0:
-        raise ValueError(f"history_days must be non-negative, got {days}")
+        log.warning("read_gold: ignoring negative history_days=%r", raw)
+        return 0
     return days
+
+
+def _history_for(options: Mapping[str, Any]) -> Optional[FrozenSet[str]]:
+    """The identifiers that asked for ``history`` this call, or ``None`` when every
+    identifier in the request should get it -- the call-wide behaviour every caller before
+    dashboards relied on (``history_days`` with no ``history_for`` still applies to every
+    ``kpi_identifiers`` entry, unchanged)."""
+    raw = options.get("history_for")
+    if raw is None:
+        return None
+    return frozenset(str(identifier) for identifier in raw)
 
 
 async def materialise_gold(step_input: StepInput) -> StepOutput:
@@ -382,8 +403,13 @@ async def read_gold(step_input: StepInput) -> StepOutput:
     ``history_days`` (optional, default 0) additionally reads each KPI's rows for the
     business dates in ``(as_of - history_days, as_of]`` and returns them under the KPI's
     ``history`` key, oldest first, in the same row shape as ``rows`` -- what a trend tile or a
-    period-over-period delta is computed from. ``gold.kpi_value`` keeps every nightly row
-    (``070_gold.sql``), so this is a second read of the same view through the same guard,
+    period-over-period delta is computed from. ``history_for`` (optional) narrows which of
+    ``kpi_identifiers`` actually get that second read -- a set/list of identifiers; omitted or
+    ``None`` means every requested identifier gets it, the original call-wide behaviour. This
+    is how a caller batching several KPIs in one call (e.g. a dashboard mixing a ``table``
+    tile with a ``line`` tile) avoids paying for a history read on a KPI nothing renders it
+    for. ``gold.kpi_value`` keeps every nightly row (``070_gold.sql``), so this is a second
+    read of the same view through the same guard,
     never a second computation. A KPI whose history read fails still returns its current
     ``rows``; ``history`` is then empty and the failure is logged.
 
@@ -395,6 +421,7 @@ async def read_gold(step_input: StepInput) -> StepOutput:
     options = _options(step_input)
     settings = RetailSettings()
     history_days = _history_days(options)
+    history_for = _history_for(options)
     identifiers = [str(i) for i in (options.get("kpi_identifiers") or ())]
     if not identifiers:
         return StepOutput(
@@ -494,7 +521,7 @@ async def read_gold(step_input: StepInput) -> StepOutput:
                     "run_id": rows[0]["run_id"],
                     "rows": [_serialise_gold_row(row) for row in rows],
                 }
-                if history_days:
+                if history_days and (history_for is None or identifier in history_for):
                     values[identifier]["history"] = await _read_history(
                         step_input,
                         engine,
@@ -520,7 +547,16 @@ async def _read_history(
 ) -> List[Dict[str, Any]]:
     """One KPI's rows for the ``history_days`` business dates ending at ``as_of``, through the
     same guard the current-date read passed. Empty, with a log line, when the guard refuses or
-    the read fails -- the caller already holds the current value and must not lose it."""
+    the read fails -- the caller already holds the current value and must not lose it.
+
+    Runs as its own transaction (``_fetch_gold_rows`` opens a fresh ``engine.begin()``),
+    separate from the current-date read that precedes it -- even though this window's upper
+    bound (``as_of <= :as_of``) re-reads that same date's row a second time. A same-night
+    re-run of ``materialise_gold`` landing between the two reads could in theory make the
+    last history point disagree with the just-read current value for the same ``as_of``.
+    Low-probability given nightly cadence and not exploitable; combine both reads into one
+    connection if this ever needs a stronger guarantee.
+    """
     statement = read_gold_history_statement(identifier)
     try:
         guard.check(statement)

@@ -357,6 +357,32 @@ def test_line_tile_gets_one_series_point_per_business_date_and_an_exact_delta():
     assert data.delta == -0.02
 
 
+def test_line_tile_renders_oldest_first_even_when_history_rows_arrive_out_of_order():
+    """`_history_by_date` sorts defensively, independent of the order `read_gold` (or a
+    mocked caller) hands rows back in -- every other test here already has rows in
+    chronological order, which is indistinguishable from "the sort is a no-op" without a
+    case like this one."""
+    out_of_order = [
+        _gold_row("0.91", "2026-09-06"),
+        _gold_row("0.95", "2026-09-04"),
+        _gold_row("0.93", "2026-09-05"),
+    ]
+    result = {
+        "as_of": "2026-09-06",
+        "computed_at": "2026-09-07T02:20:00Z",
+        "run_id": "run_2026-09-06",
+        "rows": [out_of_order[0]],
+        "history": out_of_order,
+    }
+    data = _tile_data(_tile(chart=ChartKind.LINE), result, "")
+    assert [p.at.isoformat() for p in data.series] == [
+        "2026-09-04T23:59:59+00:00",
+        "2026-09-05T23:59:59+00:00",
+        "2026-09-06T23:59:59+00:00",
+    ], "series must render oldest-first regardless of the history rows' own order"
+    assert data.delta == -0.02
+
+
 def test_bar_tile_plots_a_series_too():
     data = _tile_data(_tile(chart=ChartKind.BAR), _overall_result_with_history(), "")
     assert len(data.series) == 3
@@ -485,6 +511,43 @@ async def test_read_dashboard_data_requests_history_only_when_a_tile_can_use_it(
     )
     await read_dashboard_data(with_a_trend)
     assert seen[-1]["history_days"] == SERIES_LOOKBACK_DAYS
+
+
+@pytest.mark.anyio
+async def test_read_dashboard_data_does_not_request_history_for_a_table_only_kpi_in_a_mixed_dashboard(
+    monkeypatch,
+):
+    """Regression: the two tiles in the test above share one `kpi_identifier`, so a
+    call-wide `history_days` flag looked correct without also checking who it applied
+    *to*. A dashboard mixing a `table` tile on one KPI with a `line` tile on another must
+    not pay for a history read on the table-only KPI."""
+    seen = []
+
+    async def fake_read_gold(step_input):
+        from egpt.workflow.types import StepOutput
+
+        seen.append(dict(step_input.additional_data))
+        return StepOutput(content={"kpis": {}, "missing": []}, success=True)
+
+    monkeypatch.setattr("egpt_retail.dashboards.data.read_gold", fake_read_gold)
+    now = datetime.now(timezone.utc)
+
+    mixed = Dashboard(
+        id="d3",
+        name="d",
+        owner="local",
+        created_at=now,
+        updated_at=now,
+        tiles=(
+            _tile(id="tl_table", kpi_identifier="kpi_table_only", chart=ChartKind.TABLE),
+            _tile(id="tl_line", kpi_identifier="kpi_line_only", chart=ChartKind.LINE),
+        ),
+    )
+    await read_dashboard_data(mixed)
+    call = seen[-1]
+    assert call["history_days"] == SERIES_LOOKBACK_DAYS
+    assert call["history_for"] == ["kpi_line_only"]
+    assert "kpi_table_only" not in call["history_for"]
 
 
 # ---------------------------------------------------------------------------
