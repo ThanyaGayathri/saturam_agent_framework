@@ -892,6 +892,71 @@ def test_cached_suggestion_agents_rebuilds_when_the_registry_changes(monkeypatch
 
 
 # ---------------------------------------------------------------------------
+# Round-3 review: `_agent_cache_lock` only guards cache population, not the `.run()` calls
+# that follow -- concurrent requests sharing the cached `Agent` pair race on unsynchronized
+# per-agent state (session_id, hook normalization, connectable-tool init lists). Every real
+# call must `.run()` its own `deep_copy()`, never the cached originals.
+# ---------------------------------------------------------------------------
+
+
+class _FakeCacheableAgentCopy:
+    def __init__(self, name: str):
+        self.name = name
+
+
+class _FakeCacheableAgent:
+    def __init__(self, name: str):
+        self.name = name
+        self.deep_copy_calls = 0
+
+    def deep_copy(self):
+        self.deep_copy_calls += 1
+        return _FakeCacheableAgentCopy(self.name)
+
+
+def test_list_kpi_suggestions_runs_a_deep_copy_of_each_cached_agent_not_the_original(
+    monkeypatch,
+):
+    cached_kpi_agent = _FakeCacheableAgent("kpi")
+    cached_use_case_agent = _FakeCacheableAgent("use_case")
+    monkeypatch.setattr(
+        kpis_module,
+        "_cached_suggestion_agents",
+        lambda settings, definitions: (cached_kpi_agent, cached_use_case_agent),
+    )
+    monkeypatch.setattr(
+        kpis_module, "open_semantic_reader", lambda settings: _NullSemanticReaderCtx()
+    )
+
+    captured_agents = {}
+
+    def _fake_run_suggestions_capturing(
+        settings, *, reader, existing_definitions, proposals, dry_run, agents
+    ):
+        captured_agents["agents"] = agents
+        return _FakeSuggestionRunWithSuggestions([])
+
+    monkeypatch.setattr(kpis_module, "run_suggestions", _fake_run_suggestions_capturing)
+
+    _list_kpi_suggestions(
+        RetailSettings(),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        agents=None,
+    )
+
+    assert cached_kpi_agent.deep_copy_calls == 1
+    assert cached_use_case_agent.deep_copy_calls == 1
+    run_kpi_agent, run_use_case_agent = captured_agents["agents"]
+    assert run_kpi_agent is not cached_kpi_agent
+    assert run_use_case_agent is not cached_use_case_agent
+    assert isinstance(run_kpi_agent, _FakeCacheableAgentCopy)
+    assert isinstance(run_use_case_agent, _FakeCacheableAgentCopy)
+
+
+# ---------------------------------------------------------------------------
 # Finding 7 (PR #242 review): the real @router-decorated `list_kpi_suggestions` was never
 # called directly by any test -- only the underscored helper was.
 # ---------------------------------------------------------------------------

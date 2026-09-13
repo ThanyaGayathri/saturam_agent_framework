@@ -55,6 +55,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Iterator, Mapping, Optional, Sequence, Tuple
 
+from egpt.agent import Agent
 from egpt.os.scopes import has_required_scopes
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -579,19 +580,30 @@ def _suggestion_registry_snapshot() -> _SuggestionRegistrySnapshot:
 #: A single-slot cache (not an unbounded dict keyed by every snapshot ever seen) since only
 #: the current registry state is ever worth serving stale agents for.
 _agent_cache_key: Optional[Tuple[str, ...]] = None
-_agent_cache_agents: Optional[Tuple[Any, Any]] = None
+_agent_cache_agents: Optional[Tuple[Agent, Agent]] = None
 _agent_cache_lock = threading.Lock()
 
 
 def _cached_suggestion_agents(
     settings: RetailSettings, definitions: Sequence[KpiDefinition]
-) -> Tuple[Any, Any]:
+) -> Tuple[Agent, Agent]:
     """The two suggestion agents for this registry snapshot, built once and reused.
 
     Keyed by the sorted set of registry identifiers -- the same set the K12 prompt embeds as
     "existing" -- so a KPI created or deleted between requests invalidates the cache the next
     time this is called, rather than serving agents whose prompt still lists a KPI that is now
-    gone (or omits one that now exists).
+    gone (or omits one that now exists). This tracks only identifier churn, not content edits:
+    a KPI whose description/business_area changes via ``PATCH /kpis/{id}`` without its
+    identifier set changing keeps serving K13 its old ``KpiDefinition`` content until some
+    other KPI is added or removed. Left as-is (PR #242 review) -- this route discards
+    ``run.use_cases`` entirely today, so K13's prompt content is unobserved; worth a content
+    fingerprint in the cache key if a caller ever starts reading that output.
+
+    The two returned ``Agent`` objects are shared across concurrent requests -- callers must
+    ``deep_copy()`` before calling ``.run()`` on them (see :func:`_list_kpi_suggestions`);
+    ``.run()`` mutates unsynchronized per-agent state (``session_id``, hook normalization,
+    connectable-tool init lists) that a lock held only around this function's cache population
+    cannot protect.
     """
     global _agent_cache_key, _agent_cache_agents
     key = tuple(sorted(definition.identifier for definition in definitions))
@@ -635,13 +647,32 @@ def _list_kpi_suggestions(
     paying for two fresh ``Agent`` builds on every request; a test injects stand-ins that
     return canned drafts, exactly as ``test_k12_k13_suggestion_pass.py`` already does for
     K12/K13 directly.
+
+    A real call's two agents are ``deep_copy()``'d before ``.run()`` (PR #242 review): the
+    cache shares one ``Agent`` pair across every concurrent request, and ``.run()`` mutates
+    unsynchronized per-agent state (``session_id``, hook normalization, connectable-tool init
+    lists) that isn't safe to race two requests over. ``deep_copy()`` -- the same
+    isolate-per-run-state/share-heavy-resources split ``os/utils.py`` already uses for
+    concurrently-dispatched registered agents -- keeps the cache's actual savings (prompt
+    render, catalogue read) while giving each request its own per-run state, so this doesn't
+    need to widen the cache lock around two live model calls.
     """
     business_area = _validated_business_area(business_area, vocabularies)
-    resolved_agents = (
-        agents
-        if agents is not None
-        else _cached_suggestion_agents(settings, definitions)
-    )
+    if agents is not None:
+        resolved_agents = agents
+    else:
+        cached_kpi_agent, cached_use_case_agent = _cached_suggestion_agents(
+            settings, definitions
+        )
+        resolved_agents = (
+            cached_kpi_agent.deep_copy(),
+            cached_use_case_agent.deep_copy(),
+        )
+    # Neo4j reader/driver held open across both live model calls below (PR #242 review,
+    # rounds 2-3, not fixed): `run_suggestions` calls `reader.unjoinable_oracle()` between
+    # `kpi_agent.run()` and `use_case_agent.run()`, so this can't be narrowed to wrap only
+    # context-gathering without splitting `run_suggestions` itself -- out of scope per this
+    # module's own docstring (decision 1). Tracked as a follow-up alongside that split.
     with open_semantic_reader(settings) as reader:
         run: SuggestionRun = run_suggestions(
             settings,

@@ -364,8 +364,10 @@ def test_list_kpi_suggestions_reads_a_real_snapshot_and_stamps_real_feasibility(
     )
     result = _list_kpi_suggestions(
         RetailSettings(),
-        store,
+        definitions=tuple(store.list()),
+        vocabularies=store.vocabularies,
         business_area=None,
+        include_sql=True,
         agents=_fake_agents(kpi_drafts),
     )
     assert result.semantic_snapshot
@@ -406,8 +408,10 @@ def test_list_kpi_suggestions_filters_out_a_non_matching_business_area(
     )
     result = _list_kpi_suggestions(
         RetailSettings(),
-        store,
+        definitions=tuple(store.list()),
+        vocabularies=store.vocabularies,
         business_area="sales",
+        include_sql=True,
         agents=_fake_agents(kpi_drafts),
     )
     assert all(
