@@ -63,6 +63,14 @@ do; all are needed the moment a model is called or a memory row is written.
 - `terminationGracePeriodSeconds` for the consolidator must exceed the worker's `stop_timeout`
   (30s), or Kubernetes kills a pass mid-way.
 
+- CORS: the API's allow-list defaults to `http://localhost:3000` plus legacy `agno.com` hosts
+  (`libs/agno/egpt/os/utils.py:resolve_origins`, kept in sync with `egpt/os/settings.py`). A
+  frontend served from anywhere else - a different local port, or the deployed static-hosting
+  origin - needs the bare `CORS_ORIGIN_LIST` env var set on the API process, as a JSON array
+  (e.g. `CORS_ORIGIN_LIST=["https://app.example.com"]`) - it's read through the same
+  branded-settings machinery as every other list-typed field, so a plain comma-separated string
+  fails validation. There is no `EGPT_RETAIL_*`-prefixed alias for it.
+
 - Authorization is on exactly when `EGPT_RETAIL_AUTH_JWKS_FILE` is set. Locally that file comes
   from `python -m egpt_retail.app.devauth keygen <dir>` (an offline RS256 key pair; `mint` issues
   tokens) mounted through a ConfigMap. On Azure it is Entra's JWKS, reaching the app through Key
