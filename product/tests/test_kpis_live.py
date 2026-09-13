@@ -305,3 +305,111 @@ def test_delete_kpi_refuses_while_a_dashboard_tile_references_it(
         assert "livetest_kpi__dashboard" in excinfo.value.detail
     finally:
         dashboard_store.delete(dashboard.id, "local")
+
+
+# ---------------------------------------------------------------------------
+# #234/F1 -- GET /kpis/suggestions, against a real registry and semantic reader
+#
+# The K12/K13 agents are stood in for (`FakeAgent`, exactly `test_k12_k13_suggestion_pass.py`'s
+# own), since this environment carries no model provider credentials and a real call is not
+# what these tests are for -- they exist to prove the real-registry/real-reader plumbing
+# (`run_suggestions`, `assemble`'s feasibility stamping, the business-area filter) works end to
+# end, not to grade a live model's suggestions.
+# ---------------------------------------------------------------------------
+
+
+class _FakeSuggestionAgent:
+    def __init__(self, content: Any) -> None:
+        self.content = content
+
+    def run(self, message: str) -> Any:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(content=self.content)
+
+
+def _fake_agents(kpi_drafts: Any) -> Any:
+    from egpt_retail.skills import use_case_suggestion as k13
+
+    return (
+        _FakeSuggestionAgent(kpi_drafts),
+        _FakeSuggestionAgent(k13.UseCaseSuggestionDraftSet()),
+    )
+
+
+def test_list_kpi_suggestions_reads_a_real_snapshot_and_stamps_real_feasibility(
+    store: KpiRegistryStore,
+) -> None:
+    from egpt_retail.api.routers.kpis import _list_kpi_suggestions
+    from egpt_retail.skills import kpi_suggestion as k12
+
+    kpi_drafts = k12.KpiSuggestionDraftSet(
+        suggestions=[
+            k12.KpiSuggestionDraft(
+                identifier="livetest_kpi_suggest__contacts",
+                name="Livetest suggested contacts",
+                description="Contacts on file.",
+                business_area="customer",
+                grain="overall",
+                concept=None,
+                result_shape="scalar",
+                confidence="high",
+                rationale="crm_contact has contact_id.",
+                derived_from_tables=["crm_contact"],
+                proposed_sql="SELECT count(*) FROM crm_contact",
+                catalogue_source=None,
+            ),
+        ],
+        notes="",
+    )
+    result = _list_kpi_suggestions(
+        RetailSettings(),
+        store,
+        business_area=None,
+        agents=_fake_agents(kpi_drafts),
+    )
+    assert result.semantic_snapshot
+    matches = [
+        s
+        for s in result.suggestions
+        if s.identifier == "livetest_kpi_suggest__contacts"
+    ]
+    assert len(matches) == 1
+    assert matches[0].feasibility is not None
+    assert matches[0].feasibility.verdict.value in ("ready", "partial", "blocked")
+
+
+def test_list_kpi_suggestions_filters_out_a_non_matching_business_area(
+    store: KpiRegistryStore,
+) -> None:
+    from egpt_retail.api.routers.kpis import _list_kpi_suggestions
+    from egpt_retail.skills import kpi_suggestion as k12
+
+    kpi_drafts = k12.KpiSuggestionDraftSet(
+        suggestions=[
+            k12.KpiSuggestionDraft(
+                identifier="livetest_kpi_suggest__contacts",
+                name="Livetest suggested contacts",
+                description="Contacts on file.",
+                business_area="customer",
+                grain="overall",
+                concept=None,
+                result_shape="scalar",
+                confidence="high",
+                rationale="crm_contact has contact_id.",
+                derived_from_tables=["crm_contact"],
+                proposed_sql="SELECT count(*) FROM crm_contact",
+                catalogue_source=None,
+            ),
+        ],
+        notes="",
+    )
+    result = _list_kpi_suggestions(
+        RetailSettings(),
+        store,
+        business_area="sales",
+        agents=_fake_agents(kpi_drafts),
+    )
+    assert all(
+        s.identifier != "livetest_kpi_suggest__contacts" for s in result.suggestions
+    )

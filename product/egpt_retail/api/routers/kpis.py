@@ -21,12 +21,37 @@ dependency here) with no router of their own yet, and use cases have no referenc
 store at all. Wiring a second connection type into this router for a subsystem nothing else
 touches was judged disproportionate to B2 -- flagged here and in #231's PR, not silently
 narrowed.
+
+``GET /kpis/suggestions`` (#234/F1's on-demand half) maps straight onto
+``suggestions.run.run_suggestions(..., dry_run=True)`` -- nothing is filed, the K12 agent's
+drafts come back stamped with the same join-aware feasibility this router already uses.  Two
+scope decisions, both flagged rather than silently narrowed:
+
+- ``run_suggestions`` always runs *both* the KPI and use-case agents in one pass (the module's
+  own docstring: "the model is consulted exactly twice"); there is no lower-level entry point
+  that runs only K12. This route pays for a use-case suggestion pass on every call and throws
+  it away. Splitting ``run_suggestions`` to make the KPI half callable alone is a real
+  optimization if this endpoint gets hit often, but it is a change to shared, tested code
+  outside this router's scope -- not made here.
+- Domain prose (``knowledge``/``ontology``) and warehouse example values (``samples``) are both
+  omitted here (``suggest.py``'s CLI entrypoint gathers both). Skipping them measurably lowers
+  suggestion quality (this module's own K12 baseline notes a 1.2x-9x run-to-run spread without
+  examples) but keeps this route to the two connections every other one here already opens
+  (control plane, semantic graph) instead of adding a warehouse connection and a knowledge-store
+  dependency to a read endpoint. Worth a follow-up once this ships, not blocking it.
+
+Verified locally: an unconfigured or unreachable model provider surfaces as a raw, traceback-
+carrying ``500`` (``build_suggestion_agents``'s routed agent returns a plain refusal string,
+which ``run_suggestions``' ``_drafts_of`` turns into a ``ValueError`` that nothing here catches)
+-- the same class of gap #233 already flags for this router's own Neo4j/warehouse dependencies.
+Not mapped to a friendlier status here, for the same reason: a real fix belongs where the other
+two instances of it would also be fixed, not as a one-off in this route.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Iterator, Mapping, Optional, Sequence, Tuple
+from typing import Any, Iterator, Mapping, Optional, Sequence, Tuple
 
 from egpt.os.scopes import has_required_scopes
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -49,8 +74,10 @@ from egpt_retail.contracts.kpi import (
     TimeWindowUnit,
     kpi_identifier,
 )
+from egpt_retail.contracts.vocabulary import load_vocabulary_set
 from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.kpi.store import KpiRegistryStore
+from egpt_retail.suggestions.run import SuggestionRun, run_suggestions
 
 __all__ = ["router"]
 
@@ -371,6 +398,73 @@ def create_kpi(
         _feasibility_out(feasibility_map[identifier], snapshot_version),
         include_sql=_may_read_sql(request),
     )
+
+
+def _validated_business_area(business_area: Optional[str]) -> Optional[str]:
+    """422, not a raw ``ValueError``, for a business area outside this deployment's vocabulary
+    -- the same regression ``list_kpis`` fixed for #229 (an unhandled ``ValueError`` from
+    ``VocabularySet.validate`` was leaking as a 500).
+    """
+    if business_area is not None:
+        try:
+            load_vocabulary_set().validate("business_area", business_area)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return business_area
+
+
+def _filter_suggestions(
+    suggestions: Sequence[wire.KpiSuggestion], business_area: Optional[str]
+) -> list:
+    """Pure, so the business-area narrowing is unit-testable without a real semantic reader --
+    ``run_suggestions`` has no ``business_area`` parameter of its own, so this narrows its
+    output after the fact, the same way ``_matches_filters`` narrows ``list_kpis``'s.
+    """
+    if business_area is None:
+        return list(suggestions)
+    return [s for s in suggestions if s.business_area == business_area]
+
+
+def _list_kpi_suggestions(
+    settings: RetailSettings,
+    store: KpiRegistryStore,
+    *,
+    business_area: Optional[str],
+    agents: Optional[Tuple[Any, Any]] = None,
+) -> wire.KpiSuggestionList:
+    """#234/F1: on-demand KPI suggestions, read straight through to K12 -- see the module
+    docstring for what this deliberately omits (prose, warehouse samples, and the wasted
+    use-case agent call ``run_suggestions`` always makes alongside it).
+
+    ``agents`` is a test-only seam (mirrors ``run_suggestions``' own): a real call always
+    leaves it ``None`` and pays for two live model calls; a test injects stand-ins that return
+    canned drafts, exactly as ``test_k12_k13_suggestion_pass.py`` already does for K12/K13
+    directly.
+    """
+    business_area = _validated_business_area(business_area)
+    with open_semantic_reader(settings) as reader:
+        run: SuggestionRun = run_suggestions(
+            settings,
+            reader=reader,
+            registry=store,
+            proposals=None,
+            dry_run=True,
+            agents=agents,
+        )
+    return wire.KpiSuggestionList(
+        suggestions=_filter_suggestions(run.kpis.suggestions, business_area),
+        notes=run.kpis.notes,
+        semantic_snapshot=run.snapshot,
+    )
+
+
+@router.get("/kpis/suggestions", response_model=wire.KpiSuggestionList)
+def list_kpi_suggestions(
+    business_area: Optional[str] = None,
+    store: KpiRegistryStore = Depends(_kpi_store),
+    _: None = Depends(require_scopes("kpis:read")),
+):
+    return _list_kpi_suggestions(RetailSettings(), store, business_area=business_area)
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)

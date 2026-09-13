@@ -16,16 +16,20 @@ from egpt_retail.api.routers.kpis import (
     _carry_forward_validation,
     _derive_identifier,
     _feasibility_out,
+    _filter_suggestions,
     _kpi_from_write,
     _kpi_out,
+    _list_kpi_suggestions,
     _matches_filters,
     _may_read_sql,
     _slugify,
+    _validated_business_area,
     create_kpi,
     delete_kpi,
     list_kpis,
     update_kpi,
 )
+from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import (
     Feasibility,
     FeasibilityReason,
@@ -488,3 +492,63 @@ def test_delete_kpi_404s_on_a_missing_identifier():
             "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
         )
     assert excinfo.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# #234/F1 -- GET /kpis/suggestions
+# ---------------------------------------------------------------------------
+
+
+def _suggestion(**overrides) -> wire_models.KpiSuggestion:
+    defaults = dict(
+        identifier="supplier__avg_lead_time_days",
+        name="Average Supplier Lead Time",
+        description="Average days between expected and actual delivery.",
+        business_area="supply_chain",
+        grain="supplier",
+        result_shape=wire_models.ResultShape.scalar,
+        rationale="supplier_deliveries carries expected_date and actual_date.",
+        derived_from_tables=["supplier_deliveries"],
+        confidence=wire_models.Confidence.high,
+    )
+    defaults.update(overrides)
+    return wire_models.KpiSuggestion(**defaults)
+
+
+def test_validated_business_area_passes_through_a_known_term():
+    assert _validated_business_area("supply_chain") == "supply_chain"
+
+
+def test_validated_business_area_passes_through_none():
+    assert _validated_business_area(None) is None
+
+
+def test_validated_business_area_turns_an_unknown_term_into_a_422():
+    with pytest.raises(HTTPException) as excinfo:
+        _validated_business_area("not_a_real_business_area")
+    assert excinfo.value.status_code == 422
+
+
+def test_filter_suggestions_with_no_business_area_returns_everything():
+    suggestions = [
+        _suggestion(),
+        _suggestion(identifier="other", business_area="sales"),
+    ]
+    assert _filter_suggestions(suggestions, None) == suggestions
+
+
+def test_filter_suggestions_narrows_to_the_requested_business_area():
+    keep = _suggestion()
+    drop = _suggestion(identifier="other", business_area="sales")
+    result = _filter_suggestions([keep, drop], "supply_chain")
+    assert result == [keep]
+
+
+def test_list_kpi_suggestions_turns_an_invalid_business_area_into_a_422_before_touching_any_store():
+    with pytest.raises(HTTPException) as excinfo:
+        _list_kpi_suggestions(
+            RetailSettings(),
+            store=None,  # unreachable: the 422 fires before the store is ever used
+            business_area="not_a_real_business_area",
+        )
+    assert excinfo.value.status_code == 422
