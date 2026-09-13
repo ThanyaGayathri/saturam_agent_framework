@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_connection
-from egpt_retail.app.scopes import require_scopes
+from egpt_retail.app.scopes import caller_scopes, require_scopes
 from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import (
@@ -73,21 +73,25 @@ def _kpi_store() -> Iterator[KpiRegistryStore]:
 def _feasibility_map(
     settings: RetailSettings,
     store: KpiRegistryStore,
-    *,
-    kpis: Optional[Sequence[KpiDefinition]] = None,
+    kpis: Sequence[KpiDefinition],
 ) -> Tuple[Mapping[str, Feasibility], str]:
-    """Feasibility for the given (or, by default, every registered) KPI, plus the snapshot
-    version it was read against.
+    """Feasibility for exactly ``kpis`` -- the identifiers the caller already fetched with its
+    own read -- plus the snapshot version it was read against.
 
-    ``kpis=None`` (list, detail) computes the whole registry in one semantic-reader session --
-    there is no per-identifier variant, so a single-KPI route pays the same cost as the list
-    route rather than a cheaper one existing. ``kpis=[definition]`` (create, update, via
-    :func:`_respond_with_kpi`) computes feasibility for exactly the row just written instead,
-    so the answer comes from that definition rather than a second, independent read of the
-    whole table that a concurrent delete could race.
+    Takes the caller's already-fetched definitions rather than defaulting to a second,
+    independent registry read: the previous shape called ``store.list()``/``store.get()``
+    once and then had ``KpiRegistryStore.feasibility`` re-read the *entire* registry
+    separately, with no shared snapshot between the two reads -- a KPI deleted or renamed in
+    between raised an uncaught ``KeyError`` when the route indexed the result by identifier.
+    Passing ``kpis`` through removes the second read (and, for a single-KPI route, the
+    whole-registry computation neither ``get_kpi`` nor ``get_kpi_feasibility`` needs) instead
+    of merely guarding the lookup. The result is still looked up with ``.get()``, not
+    ``[...]``, everywhere it is read below: a concurrent delete landing between the caller's
+    own read and this call must 404, not raise an unguarded ``KeyError`` FastAPI turns into a
+    raw 500 (#240 review, round 2).
     """
     with open_semantic_reader(settings) as reader:
-        feasibility = store.feasibility(reader, kpis=kpis)
+        feasibility = store.feasibility(reader, kpis)
         snapshot_version = reader.snapshot().version
     return feasibility, snapshot_version
 
@@ -99,11 +103,8 @@ def _may_read_sql(request: Request) -> bool:
     """
     if not getattr(request.state, "authorization_enabled", False):
         return True
-    user_scopes = getattr(request.state, "scopes", None) or []
-    admin_scope = getattr(request.state, "admin_scope", None)
-    return has_required_scopes(
-        list(user_scopes), ["kpis:write"], admin_scope=admin_scope
-    )
+    user_scopes, admin_scope = caller_scopes(request)
+    return has_required_scopes(user_scopes, ["kpis:write"], admin_scope=admin_scope)
 
 
 def _caller_id(request: Request) -> str:
@@ -356,27 +357,22 @@ def _respond_with_kpi(
     definition: KpiDefinition,
     request: Request,
     store: KpiRegistryStore,
-    *,
-    single: bool = False,
 ) -> wire.Kpi:
     """Feasibility lookup + wire assembly, shared by ``get_kpi``, ``create_kpi`` and
     ``update_kpi`` -- factored out because the block was duplicated near-verbatim across all
     three (#240 review, author's own finding).
 
-    ``single=True`` (create/update, called with the exact row just written) passes
-    ``kpis=[definition]`` through to :func:`_feasibility_map`, so feasibility comes from that
-    definition rather than a second, independent read of the whole registry -- closing the
-    TOCTOU window a concurrent ``DELETE`` could otherwise open between the write and this
-    lookup. ``single=False`` (get) keeps computing feasibility for the whole registry, matching
-    ``list_kpis``'s existing cost profile. Either way, the lookup uses ``.get()`` rather than
-    ``[...]``: a concurrent delete landing in the ``single=False`` gap between ``store.get()``
-    and this call would otherwise raise an unguarded ``KeyError`` FastAPI turns into a raw 500,
-    rather than the 404 a vanished KPI should produce.
+    Passes ``kpis=[definition]`` through to :func:`_feasibility_map` -- the exact row already
+    read (get) or just written (create/update) -- rather than a second, independent read of
+    the whole registry: that closes the TOCTOU window a concurrent ``DELETE`` could otherwise
+    open between this route's own read/write and the feasibility lookup, and avoids the
+    whole-registry computation none of these single-KPI routes need. The lookup uses ``.get()``
+    rather than ``[...]``: a concurrent delete landing in that window would otherwise raise an
+    unguarded ``KeyError`` FastAPI turns into a raw 500, rather than the 404 a vanished KPI
+    should produce.
     """
     settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(
-        settings, store, kpis=[definition] if single else None
-    )
+    feasibility_map, snapshot_version = _feasibility_map(settings, store, [definition])
     feasibility = feasibility_map.get(definition.identifier)
     if feasibility is None:
         raise HTTPException(
@@ -408,7 +404,7 @@ def list_kpis(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     settings = RetailSettings()
-    feasibility_map, snapshot_version = _feasibility_map(settings, store)
+    feasibility_map, snapshot_version = _feasibility_map(settings, store, definitions)
     include_sql = _may_read_sql(request)
     kpis = []
     for definition in definitions:
@@ -461,7 +457,7 @@ def create_kpi(
             status_code=409,
             detail=f"{identifier} already exists; use PATCH /kpis/{identifier} to edit it.",
         )
-    return _respond_with_kpi(saved, request, store, single=True)
+    return _respond_with_kpi(saved, request, store)
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
@@ -514,7 +510,7 @@ def update_kpi(
             ),
         ) from exc
 
-    return _respond_with_kpi(saved, request, store, single=True)
+    return _respond_with_kpi(saved, request, store)
 
 
 @router.delete("/kpis/{kpi_id}", status_code=204)
@@ -560,12 +556,10 @@ def get_kpi_feasibility(
     if definition is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
     settings = RetailSettings()
-    # `kpis=[definition]`, not the whole-registry default: feasibility comes from the row
-    # just read rather than a second, independent registry read a concurrent delete could
-    # race (same fix as `_respond_with_kpi(..., single=True)`; #240 review, round 2).
-    feasibility_map, snapshot_version = _feasibility_map(
-        settings, store, kpis=[definition]
-    )
+    # `kpis=[definition]`, not a whole-registry read: feasibility comes from the row just
+    # read rather than a second, independent registry read a concurrent delete could race
+    # (same fix as `_respond_with_kpi`; #240 review, round 2).
+    feasibility_map, snapshot_version = _feasibility_map(settings, store, [definition])
     verdict = feasibility_map.get(definition.identifier)
     if verdict is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")

@@ -701,27 +701,32 @@ class KpiRegistryStore:
     # --- feasibility --------------------------------------------------------------------
 
     def feasibility(
-        self,
-        reader: SemanticRead,
-        *,
-        kpis: Optional[Sequence[KpiDefinition]] = None,
+        self, reader: SemanticRead, kpis: Optional[Sequence[KpiDefinition]] = None
     ) -> Mapping[str, Feasibility]:
-        """Feasibility for the given (or, by default, every stored) KPI against what the
-        semantic layer holds now.
+        """Feasibility for ``kpis`` (every stored KPI, when omitted) against what the semantic
+        layer holds now.
 
         Computed, never read back from a column. ``assess_registry`` is a set difference over
         two frozensets: it takes data and returns data, has no model, no client and no
         callable to be persuaded by, and that is the entire guarantee behind the ready and
         blocked badges a customer sees.
 
-        ``kpis``, when given, is used instead of a fresh :meth:`list`: a caller that already
-        holds the exact definition(s) it cares about -- e.g. the row a create/update route
-        just wrote on this same connection -- gets feasibility derived from that, rather than
-        from a second, independent read of the whole table that a concurrent delete could
-        race (the TOCTOU the #240 review flagged at both call sites in ``api/routers/
-        kpis.py``). ``None`` (the default) keeps the previous whole-registry behavior, for
-        ``list``/``get`` style callers.
+        Pass the caller's own already-fetched ``kpis`` (a single-KPI detail route's one
+        definition, or a list route's already-filtered page) rather than defaulting to a
+        second, independent ``self.list()`` here: two separate reads of this table have no
+        shared snapshot, so a KPI deleted or renamed between them would otherwise be missing
+        from this map even though the caller's own read found it moments earlier -- the TOCTOU
+        the #240 review flagged at both call sites in ``api/routers/kpis.py``. ``None`` (the
+        default) keeps the previous whole-registry behavior, for callers with no narrower read
+        of their own.
+
+        An explicitly empty ``kpis`` (a business_area filter that matched nothing) returns
+        ``{}`` before either graph query below runs -- ``available_tables``/
+        ``unjoinable_oracle`` open a driver and do real Neo4j I/O, which a known-empty result
+        does not need to pay for.
         """
+        if kpis is not None and not kpis:
+            return {}
         tables = available_tables(reader)
         # Part of the SemanticRead contract, not an optional extra: a reader with no join
         # rulings answers False for every pair, and a reader that has them gets asked. The
@@ -735,13 +740,10 @@ class KpiRegistryStore:
         }
 
     async def afeasibility(
-        self,
-        reader: SemanticRead,
-        *,
-        kpis: Optional[Sequence[KpiDefinition]] = None,
+        self, reader: SemanticRead, kpis: Optional[Sequence[KpiDefinition]] = None
     ) -> Mapping[str, Feasibility]:
         """Async variant."""
-        return await asyncio.to_thread(self.feasibility, reader, kpis=kpis)
+        return await asyncio.to_thread(self.feasibility, reader, kpis)
 
     def revalidate(
         self, reader: SemanticRead, snapshot_version: str = ""

@@ -233,6 +233,60 @@ class TestFeasibilityIsNeverStored:
         assert "jsonb_array_length(source_tables) > 0" in ddl
 
 
+class TestFeasibility:
+    def test_an_explicitly_empty_kpis_returns_empty_without_touching_the_reader(
+        self,
+    ) -> None:
+        """A business_area filter matching nothing must not open a Neo4j driver or query it
+        (round-2 review). Proven with a reader that doesn't even implement
+        ``unjoinable_oracle``: touching the reader for real would raise ``AttributeError``,
+        not just cost a round trip."""
+        store = KpiRegistryStore(_Connection())
+        reader = cast(SemanticRead, _Reader("crm_deal"))
+        assert store.feasibility(reader, []) == {}
+
+    def test_a_kpis_of_none_still_falls_back_to_the_full_registry(self) -> None:
+        """The early return is for an explicitly empty sequence, not for "no filter given" --
+        omitting ``kpis`` altogether must still compute over everything ``self.list()``
+        returns, same as before this fix."""
+
+        class _OracleReader(_Reader):
+            def unjoinable_oracle(self):
+                return lambda left, right: False
+
+        connection = _Connection(
+            rows=[
+                (
+                    k.identifier,
+                    k.name,
+                    k.description,
+                    k.sql,
+                    k.grain,
+                    k.business_area,
+                    sorted(k.source_tables),
+                    k.result_shape.value,
+                    k.dialect.value,
+                    [],
+                    None,
+                    None,
+                    k.concept,
+                )
+                + _B2_COLUMNS
+                for k in (
+                    _kpi(
+                        sql="SELECT sum(amount) FROM crm_deal",
+                        source_tables=frozenset({"crm_deal"}),
+                        parameters=(),
+                    ),
+                )
+            ]
+        )
+        result = KpiRegistryStore(connection).feasibility(
+            cast(SemanticRead, _OracleReader("crm_deal"))
+        )
+        assert set(result) == {"deal__won_value"}
+
+
 class TestRevalidation:
     def test_only_computable_definitions_are_stamped(self) -> None:
         """A stamp means "checked and computable against this snapshot". Stamping a blocked
