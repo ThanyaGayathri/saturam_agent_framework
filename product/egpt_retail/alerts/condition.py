@@ -23,6 +23,7 @@ __all__ = [
     "ConditionResult",
     "ConditionUnavailable",
     "OPERATOR_SYMBOLS",
+    "as_decimal",
     "condition_met",
     "render_rule_sentence",
     "requires_previous_period",
@@ -63,7 +64,7 @@ _DELTA_OPERATORS = frozenset({"delta_gt", "delta_lt"})
 _EQ_TOLERANCE = Decimal("1e-9")
 
 
-def _as_decimal(value: Union[float, int, Decimal, str]) -> Decimal:
+def as_decimal(value: Union[float, int, Decimal, str]) -> Decimal:
     """``value`` as an exact :class:`Decimal`, via its string form.
 
     Never ``Decimal(a_float)`` directly -- that imports the float's *exact* binary value (a
@@ -71,6 +72,10 @@ def _as_decimal(value: Union[float, int, Decimal, str]) -> Decimal:
     computed), not the decimal it was meant to represent. Going through ``str()`` recovers the
     shortest decimal that round-trips to that float, which is what both a human-entered
     threshold and a ``NUMERIC`` column's ``float()`` cast actually mean.
+
+    Public (not this module's private convention) because R13's dashboard tile delta
+    (``dashboards/data.py``) needs the same guarantee against the same class of value and
+    should not hand-roll a second copy of it.
     """
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
@@ -135,7 +140,7 @@ def condition_met(
     elif operator == "lte":
         met = value <= threshold
     elif operator == "eq":
-        met = abs(_as_decimal(value) - _as_decimal(threshold)) <= _EQ_TOLERANCE
+        met = abs(as_decimal(value) - as_decimal(threshold)) <= _EQ_TOLERANCE
     elif operator == "delta_gt":
         met = (value - previous_value) > threshold  # type: ignore[operator]
     else:  # delta_lt

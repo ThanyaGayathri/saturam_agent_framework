@@ -21,7 +21,13 @@ from egpt_retail.contracts.dashboards import (
     Visibility,
 )
 from egpt_retail.contracts.kpi import KpiDefinition
-from egpt_retail.dashboards.data import _row_for_grain, _status_for_missing, _tile_data
+from egpt_retail.dashboards.data import (
+    SERIES_LOOKBACK_DAYS,
+    _row_for_grain,
+    _status_for_missing,
+    _tile_data,
+    read_dashboard_data,
+)
 from egpt_retail.dashboards.store import (
     UNSET,
     _filter_from_json,
@@ -303,6 +309,245 @@ def test_tile_data_table_tile_with_grain_mismatch_reports_never_computed_too():
     assert data.status.value == "never_computed"
     assert data.value is None
     assert data.rows == []
+
+
+# ---------------------------------------------------------------------------
+# series and delta -- from read_gold's `history` (issue #227 / E1), still DB-free
+# ---------------------------------------------------------------------------
+
+
+def _gold_row(value, as_of, **grain):
+    return {
+        "value": value,
+        "as_of": as_of,
+        "computed_at": "x",
+        "source_snapshot": "snap",
+        "run_id": f"run_{as_of}",
+        **grain,
+    }
+
+
+def _overall_result_with_history():
+    """Three nightly rows at grain `overall`; the current read is the latest of them."""
+    history = [
+        _gold_row("0.95", "2026-09-04"),
+        _gold_row("0.93", "2026-09-05"),
+        _gold_row("0.91", "2026-09-06"),
+    ]
+    return {
+        "as_of": "2026-09-06",
+        "computed_at": "2026-09-07T02:20:00Z",
+        "run_id": "run_2026-09-06",
+        "rows": [history[-1]],
+        "history": history,
+    }
+
+
+def test_line_tile_gets_one_series_point_per_business_date_and_an_exact_delta():
+    data = _tile_data(_tile(chart=ChartKind.LINE), _overall_result_with_history(), "")
+    assert data.status.value == "fresh"
+    assert data.value == 0.91
+    assert [(p.at.isoformat(), p.value) for p in data.series] == [
+        ("2026-09-04T23:59:59+00:00", 0.95),
+        ("2026-09-05T23:59:59+00:00", 0.93),
+        ("2026-09-06T23:59:59+00:00", 0.91),
+    ]
+    # 0.91 - 0.93 in binary float is -0.020000000000000018; gold chose `numeric` so a
+    # customer never reads that, and the delta must honour the same choice.
+    assert data.delta == -0.02
+
+
+def test_line_tile_renders_oldest_first_even_when_history_rows_arrive_out_of_order():
+    """`_history_by_date` sorts defensively, independent of the order `read_gold` (or a
+    mocked caller) hands rows back in -- every other test here already has rows in
+    chronological order, which is indistinguishable from "the sort is a no-op" without a
+    case like this one."""
+    out_of_order = [
+        _gold_row("0.91", "2026-09-06"),
+        _gold_row("0.95", "2026-09-04"),
+        _gold_row("0.93", "2026-09-05"),
+    ]
+    result = {
+        "as_of": "2026-09-06",
+        "computed_at": "2026-09-07T02:20:00Z",
+        "run_id": "run_2026-09-06",
+        "rows": [out_of_order[0]],
+        "history": out_of_order,
+    }
+    data = _tile_data(_tile(chart=ChartKind.LINE), result, "")
+    assert [p.at.isoformat() for p in data.series] == [
+        "2026-09-04T23:59:59+00:00",
+        "2026-09-05T23:59:59+00:00",
+        "2026-09-06T23:59:59+00:00",
+    ], "series must render oldest-first regardless of the history rows' own order"
+    assert data.delta == -0.02
+
+
+def test_bar_tile_plots_a_series_too():
+    data = _tile_data(_tile(chart=ChartKind.BAR), _overall_result_with_history(), "")
+    assert len(data.series) == 3
+    assert data.delta == -0.02
+
+
+def test_number_tile_gets_a_delta_but_never_a_series():
+    data = _tile_data(_tile(chart=ChartKind.NUMBER), _overall_result_with_history(), "")
+    assert data.value == 0.91
+    assert data.delta == -0.02
+    assert data.series == []
+
+
+def test_table_tile_listing_everything_has_neither_series_nor_delta():
+    result = {
+        "as_of": "2026-09-06",
+        "computed_at": "2026-09-07T02:20:00Z",
+        "run_id": "r",
+        "rows": [
+            _gold_row("0.71", "2026-09-06", supplier_id="sup_014"),
+            _gold_row("0.88", "2026-09-06", supplier_id="sup_003"),
+        ],
+        "history": [
+            _gold_row("0.70", "2026-09-05", supplier_id="sup_014"),
+            _gold_row("0.71", "2026-09-06", supplier_id="sup_014"),
+            _gold_row("0.88", "2026-09-06", supplier_id="sup_003"),
+        ],
+    }
+    data = _tile_data(_tile(chart=ChartKind.TABLE), result, "")
+    assert data.value is None
+    assert len(data.rows) == 2
+    assert data.series == []
+    assert data.delta is None
+
+
+def test_grain_scoped_series_follows_the_tile_row_and_skips_a_date_without_it():
+    """A supplier that had no row on one night is left out of that night's point, not plotted
+    as `null` -- `null` would claim the formula returned NULL, a different fact."""
+    result = {
+        "as_of": "2026-09-06",
+        "computed_at": "2026-09-07T02:20:00Z",
+        "run_id": "r",
+        "rows": [
+            _gold_row("0.71", "2026-09-06", supplier_id="sup_014"),
+            _gold_row("0.88", "2026-09-06", supplier_id="sup_003"),
+        ],
+        "history": [
+            _gold_row("0.80", "2026-09-04", supplier_id="sup_003"),
+            _gold_row("0.69", "2026-09-04", supplier_id="sup_014"),
+            _gold_row("0.70", "2026-09-05", supplier_id="sup_014"),
+            _gold_row("0.71", "2026-09-06", supplier_id="sup_014"),
+            _gold_row("0.88", "2026-09-06", supplier_id="sup_003"),
+        ],
+    }
+    data = _tile_data(_tile(chart=ChartKind.LINE, grain_value="sup_003"), result, "")
+    assert data.value == 0.88
+    assert [(p.at.date().isoformat(), p.value) for p in data.series] == [
+        ("2026-09-04", 0.80),
+        ("2026-09-06", 0.88),
+    ]
+    # The previous *resolved* date for sup_003 is 09-04, not 09-05 (no sup_003 row then).
+    assert data.delta == 0.08
+
+
+def test_a_single_materialised_date_has_no_delta_and_a_one_point_series():
+    result = _overall_result_with_history()
+    result["history"] = [result["history"][-1]]
+    data = _tile_data(_tile(chart=ChartKind.LINE), result, "")
+    assert len(data.series) == 1
+    assert data.delta is None
+
+
+def test_no_history_key_at_all_still_renders_the_current_value():
+    """`read_gold` without `history_days` (every caller other than dashboards) hands out no
+    `history`; the tile must render exactly as before, series empty and delta null."""
+    result = _overall_result_with_history()
+    del result["history"]
+    data = _tile_data(_tile(chart=ChartKind.LINE), result, "")
+    assert data.value == 0.91
+    assert data.series == []
+    assert data.delta is None
+
+
+def test_a_null_formula_result_in_the_history_is_a_null_point_not_a_gap():
+    result = _overall_result_with_history()
+    result["history"][1]["value"] = None
+    data = _tile_data(_tile(chart=ChartKind.LINE), result, "")
+    assert [p.value for p in data.series] == [0.95, None, 0.91]
+    # The previous date's value is NULL: nothing to subtract, so no delta is invented.
+    assert data.delta is None
+
+
+@pytest.mark.anyio
+async def test_read_dashboard_data_requests_history_only_when_a_tile_can_use_it(
+    monkeypatch,
+):
+    seen = []
+
+    async def fake_read_gold(step_input):
+        from egpt.workflow.types import StepOutput
+
+        seen.append(dict(step_input.additional_data))
+        return StepOutput(content={"kpis": {}, "missing": []}, success=True)
+
+    monkeypatch.setattr("egpt_retail.dashboards.data.read_gold", fake_read_gold)
+    now = datetime.now(timezone.utc)
+
+    tables_only = Dashboard(
+        id="d1",
+        name="d",
+        owner="local",
+        created_at=now,
+        updated_at=now,
+        tiles=(_tile(chart=ChartKind.TABLE),),
+    )
+    await read_dashboard_data(tables_only)
+    assert "history_days" not in seen[-1]
+
+    with_a_trend = Dashboard(
+        id="d2",
+        name="d",
+        owner="local",
+        created_at=now,
+        updated_at=now,
+        tiles=(_tile(chart=ChartKind.TABLE), _tile(id="tl_2", chart=ChartKind.LINE)),
+    )
+    await read_dashboard_data(with_a_trend)
+    assert seen[-1]["history_days"] == SERIES_LOOKBACK_DAYS
+
+
+@pytest.mark.anyio
+async def test_read_dashboard_data_does_not_request_history_for_a_table_only_kpi_in_a_mixed_dashboard(
+    monkeypatch,
+):
+    """Regression: the two tiles in the test above share one `kpi_identifier`, so a
+    call-wide `history_days` flag looked correct without also checking who it applied
+    *to*. A dashboard mixing a `table` tile on one KPI with a `line` tile on another must
+    not pay for a history read on the table-only KPI."""
+    seen = []
+
+    async def fake_read_gold(step_input):
+        from egpt.workflow.types import StepOutput
+
+        seen.append(dict(step_input.additional_data))
+        return StepOutput(content={"kpis": {}, "missing": []}, success=True)
+
+    monkeypatch.setattr("egpt_retail.dashboards.data.read_gold", fake_read_gold)
+    now = datetime.now(timezone.utc)
+
+    mixed = Dashboard(
+        id="d3",
+        name="d",
+        owner="local",
+        created_at=now,
+        updated_at=now,
+        tiles=(
+            _tile(id="tl_table", kpi_identifier="kpi_table_only", chart=ChartKind.TABLE),
+            _tile(id="tl_line", kpi_identifier="kpi_line_only", chart=ChartKind.LINE),
+        ),
+    )
+    await read_dashboard_data(mixed)
+    call = seen[-1]
+    assert call["history_days"] == SERIES_LOOKBACK_DAYS
+    assert call["history_for"] == ["kpi_line_only"]
+    assert "kpi_table_only" not in call["history_for"]
 
 
 # ---------------------------------------------------------------------------

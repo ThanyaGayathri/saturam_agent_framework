@@ -18,10 +18,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
 from egpt.exceptions import SQLGuardRefusal
+from egpt.guardrails.sql_guard import SQLGuard
 from egpt.workflow.types import StepInput, StepOutput
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -49,6 +50,7 @@ from egpt_retail.warehouse.gold import (
     KpiRunResult,
     alatest_as_of,
     amaterialise_registry,
+    read_gold_history_statement,
     read_gold_statement,
 )
 from egpt_retail.warehouse.loads import LoadLock
@@ -166,7 +168,7 @@ def _refusal(reason: str, **content: Any) -> StepOutput:
 
 
 def _fetch_gold_rows(
-    engine: Engine, statement: str, as_of: date
+    engine: Engine, statement: str, params: Mapping[str, Any]
 ) -> List[Dict[str, Any]]:
     """The blocking half of one KPI's read. :func:`read_gold` offloads this to a thread via
     ``asyncio.to_thread`` -- an ``async def`` executor is ``await``ed directly by the workflow
@@ -176,8 +178,62 @@ def _fetch_gold_rows(
     with engine.begin() as connection:
         return [
             dict(row)
-            for row in connection.execute(text(statement), {"as_of": as_of}).mappings()
+            for row in connection.execute(text(statement), dict(params)).mappings()
         ]
+
+
+def _serialise_gold_row(row: Mapping[str, Any]) -> Dict[str, Any]:
+    """One view row as ``read_gold`` hands it out: dates and timestamps as ISO strings, and
+    ``value`` as ``str``, not ``float``. The DDL chose ``numeric`` so a money or ratio value
+    is exact; float on the way out reintroduces the binary rounding that choice exists to
+    avoid, in the value a customer reads."""
+    return {
+        k: (
+            v.isoformat()
+            if hasattr(v, "isoformat")
+            else (str(v) if k == "value" and v is not None else v)
+        )
+        for k, v in row.items()
+    }
+
+
+def _history_days(options: Mapping[str, Any]) -> int:
+    """``0`` (no history read) for anything malformed, logged rather than raised -- every
+    other bad-input path in :func:`read_gold` is reported this way (a `missing` entry, or an
+    empty, logged `history`), not by letting the whole step raise. `read_gold` is the seam an
+    interactive playground reads through, so a client-supplied `additional_data` should not
+    be able to fail the entire read over one bad option."""
+    raw = options.get("history_days")
+    if raw is None:
+        return 0
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        log.warning("read_gold: ignoring non-numeric history_days=%r", raw)
+        return 0
+    if days < 0:
+        log.warning("read_gold: ignoring negative history_days=%r", raw)
+        return 0
+    return days
+
+
+def _history_for(options: Mapping[str, Any]) -> Optional[FrozenSet[str]]:
+    """The identifiers that asked for ``history`` this call, or ``None`` when every
+    identifier in the request should get it -- the call-wide behaviour every caller before
+    dashboards relied on (``history_days`` with no ``history_for`` still applies to every
+    ``kpi_identifiers`` entry, unchanged).
+
+    A bare string is one identifier, not an iterable of characters -- without this, a caller
+    passing ``history_for="k1"`` (this option's own docstring calls it "a set/list of
+    identifiers", but nothing stops a single-identifier caller from writing it as a plain
+    string) would silently narrow to a frozenset of single letters that no real identifier
+    ever matches, so history would come back empty for everyone with no error at all."""
+    raw = options.get("history_for")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = (raw,)
+    return frozenset(str(identifier) for identifier in raw)
 
 
 async def materialise_gold(step_input: StepInput) -> StepOutput:
@@ -352,6 +408,19 @@ async def read_gold(step_input: StepInput) -> StepOutput:
     read-only role when ``EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL`` is set, otherwise through
     the warehouse engine with a warning -- the guard runs either way.
 
+    ``history_days`` (optional, default 0) additionally reads each KPI's rows for the
+    business dates in ``(as_of - history_days, as_of]`` and returns them under the KPI's
+    ``history`` key, oldest first, in the same row shape as ``rows`` -- what a trend tile or a
+    period-over-period delta is computed from. ``history_for`` (optional) narrows which of
+    ``kpi_identifiers`` actually get that second read -- a set/list of identifiers; omitted or
+    ``None`` means every requested identifier gets it, the original call-wide behaviour. This
+    is how a caller batching several KPIs in one call (e.g. a dashboard mixing a ``table``
+    tile with a ``line`` tile) avoids paying for a history read on a KPI nothing renders it
+    for. ``gold.kpi_value`` keeps every nightly row (``070_gold.sql``), so this is a second
+    read of the same view through the same guard,
+    never a second computation. A KPI whose history read fails still returns its current
+    ``rows``; ``history`` is then empty and the failure is logged.
+
     This is the seam an interactive playground reads through, so every warehouse round-trip
     (``alatest_as_of``, then the per-KPI read via :func:`_fetch_gold_rows`) is offloaded with
     ``asyncio.to_thread`` rather than run inline -- an ``async def`` executor is ``await``ed
@@ -359,6 +428,8 @@ async def read_gold(step_input: StepInput) -> StepOutput:
     """
     options = _options(step_input)
     settings = RetailSettings()
+    history_days = _history_days(options)
+    history_for = _history_for(options)
     identifiers = [str(i) for i in (options.get("kpi_identifiers") or ())]
     if not identifiers:
         return StepOutput(
@@ -408,7 +479,7 @@ async def read_gold(step_input: StepInput) -> StepOutput:
                 started = datetime.now(timezone.utc)
                 try:
                     rows = await asyncio.to_thread(
-                        _fetch_gold_rows, engine, statement, as_of
+                        _fetch_gold_rows, engine, statement, {"as_of": as_of}
                     )
                 except (
                     Exception
@@ -456,26 +527,88 @@ async def read_gold(step_input: StepInput) -> StepOutput:
                     "computed_at": computed.isoformat(),
                     "source_snapshot": rows[0]["source_snapshot"],
                     "run_id": rows[0]["run_id"],
-                    "rows": [
-                        {
-                            k: (
-                                v.isoformat()
-                                if hasattr(v, "isoformat")
-                                # `str`, not `float`. The DDL chose `numeric` so a money
-                                # or ratio value is exact; float on the way out
-                                # reintroduces the binary rounding that choice
-                                # exists to avoid, in the value a customer reads.
-                                else (str(v) if k == "value" and v is not None else v)
-                            )
-                            for k, v in row.items()
-                        }
-                        for row in rows
-                    ],
+                    "rows": [_serialise_gold_row(row) for row in rows],
                 }
+                if history_days and (history_for is None or identifier in history_for):
+                    values[identifier]["history"] = await _read_history(
+                        step_input,
+                        engine,
+                        guard,
+                        identifier,
+                        as_of=as_of,
+                        history_days=history_days,
+                    )
     finally:
         engine.dispose()
 
     return StepOutput(content={"kpis": values, "missing": missing}, success=True)
+
+
+async def _read_history(
+    step_input: StepInput,
+    engine: Engine,
+    guard: SQLGuard,
+    identifier: str,
+    *,
+    as_of: date,
+    history_days: int,
+) -> List[Dict[str, Any]]:
+    """One KPI's rows for the ``history_days`` business dates ending at ``as_of``, through the
+    same guard the current-date read passed. Empty, with a log line, when the guard refuses or
+    the read fails -- the caller already holds the current value and must not lose it.
+
+    A second real read of ``gold.kpi_<identifier>``, so it notes all three of R7's bag the
+    current-date read does on success: ``note_sql_execution``, ``note_dataset_read``, and --
+    when the rows carry a ``computed_at`` -- ``note_freshness``.
+
+    Runs as its own transaction (``_fetch_gold_rows`` opens a fresh ``engine.begin()``),
+    separate from the current-date read that precedes it -- even though this window's upper
+    bound (``as_of <= :as_of``) re-reads that same date's row a second time. A same-night
+    re-run of ``materialise_gold`` landing between the two reads could in theory make the
+    last history point disagree with the just-read current value for the same ``as_of``.
+    Low-probability given nightly cadence and not exploitable; combine both reads into one
+    connection if this ever needs a stronger guarantee.
+    """
+    statement = read_gold_history_statement(identifier)
+    try:
+        guard.check(statement)
+    except SQLGuardRefusal as exc:
+        note_sql_execution(step_input, statement=statement, guard="refused")
+        log.warning("read_gold: history for %s refused: %s", identifier, exc.message)
+        return []
+    params = {"since": as_of - timedelta(days=history_days), "as_of": as_of}
+    started = datetime.now(timezone.utc)
+    try:
+        rows = await asyncio.to_thread(_fetch_gold_rows, engine, statement, params)
+    except Exception as exc:
+        log.warning(
+            "read_gold: history for %s failed: %s",
+            identifier,
+            str(getattr(exc, "orig", exc)).splitlines()[0],
+        )
+        return []
+    note_sql_execution(
+        step_input,
+        statement=statement,
+        row_count=len(rows),
+        duration_ms=int((datetime.now(timezone.utc) - started).total_seconds() * 1000),
+        guard="allowed",
+    )
+    note_dataset_read(
+        step_input,
+        table=gold_view(identifier),
+        schema=GOLD_SCHEMA,
+        as_of=as_of.isoformat(),
+    )
+    if rows:
+        computed = max(row["computed_at"] for row in rows)
+        note_freshness(
+            step_input,
+            table=gold_view(identifier),
+            as_of=as_of.isoformat(),
+            computed_at=computed.isoformat(),
+        )
+    return [_serialise_gold_row(row) for row in rows]
 
 
 #: Registered in ``app/components.py``; ``materialise_gold`` is the last step of nightly-refresh.
