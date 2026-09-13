@@ -37,20 +37,11 @@ export class ApiError extends Error {
   }
 }
 
-/** True for body types `fetch` already knows how to set its own `Content-Type` for
- * (multipart boundary, url-encoded charset, etc.) - forcing `application/json` on these
- * would break the wire format. */
-function bodySetsOwnContentType(body) {
-  return (
-    (typeof FormData !== "undefined" && body instanceof FormData) ||
-    (typeof Blob !== "undefined" && body instanceof Blob) ||
-    (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams)
-  );
-}
-
 /** Turns a FastAPI `detail` value into a display string. Handles the default 422
- * validation-error shape (`[{loc, msg, type}, ...]`) and falls back for anything falsy,
- * including `""` (`??` alone misses that case since it's falsy but not nullish). */
+ * validation-error shape (`[{loc, msg, type}, ...]`) and falls back only for `null`,
+ * `undefined`, or an empty string (`??` alone misses the empty-string case, since it's
+ * falsy but not nullish); other falsy values like `0`/`false` are stringified, not
+ * treated as absent. */
 function formatErrorDetail(detail, fallback) {
   if (Array.isArray(detail)) {
     return detail.map((d) => (d && typeof d === "object" ? d.msg ?? JSON.stringify(d) : String(d))).join("; ") || fallback;
@@ -62,23 +53,31 @@ function formatErrorDetail(detail, fallback) {
 
 async function request(path, options = {}) {
   const url = `${API_BASE_URL}${path}`;
+
+  let token;
+  try {
+    token = getAuthToken();
+  } catch (cause) {
+    // Kept separate from the fetch try/catch below so a throwing getter (a corrupted
+    // stored token, say) is reported distinctly from a real network failure.
+    throw new ApiError(0, "Could not read the stored auth token.", path, { cause });
+  }
+
+  // Built via the platform's own case-insensitive `Headers` (not a raw object spread) so a
+  // caller-supplied header of any casing, or an actual `Headers` instance, merges correctly
+  // instead of silently colliding or being dropped. Only `options.body` being a JSON string
+  // (what `apiJson` sends) gets a default `Content-Type`, so a FormData/Blob/binary body
+  // keeps whatever `fetch` or an explicit caller header sets.
+  const headers = new Headers({ Accept: "application/json" });
+  if (typeof options.body === "string") headers.set("Content-Type", "application/json");
+  new Headers(options.headers).forEach((value, key) => headers.set(key, value));
+  // Set last so a caller-supplied header can never silently clobber the identity this
+  // request is actually sent with.
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
   let response;
   try {
-    const token = getAuthToken();
-    response = await fetch(url, {
-      ...options,
-      headers: {
-        Accept: "application/json",
-        ...(options.body && !bodySetsOwnContentType(options.body)
-          ? { "Content-Type": "application/json" }
-          : {}),
-        ...options.headers,
-        // Applied after `options.headers` so a caller-supplied header can never silently
-        // clobber the identity this request is actually sent with.
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      signal: options.signal,
-    });
+    response = await fetch(url, { ...options, headers });
   } catch (cause) {
     if (cause?.name === "AbortError") throw cause;
     // Network failure (backend down, CORS blocked, DNS) - fetch itself throws, there is no

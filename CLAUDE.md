@@ -11,7 +11,7 @@ Instructions for Claude Code when working on this codebase.
 ├── libs/agno/egpt/          # The framework. Ships as `pip install egpt`. No retail nouns.
 ├── product/                 # The Enterprise GPT retail product. Never in the egpt wheel.
 ├── frontend/                # The React interface. Full UI wiring is phase five; infra
-│                             # plumbing (API base URL, fetch client) lands ahead of it (#222)
+│                            # plumbing (API base URL, fetch client) lands ahead of it (#222)
 ├── deploy/                  # Dockerfile, compose, Azure cutover (current, D15); Helm charts + kind config are AKS-era reference
 ├── cookbook/                # Examples, patterns and test cases (organized by topic)
 ├── scripts/                 # Development and build scripts

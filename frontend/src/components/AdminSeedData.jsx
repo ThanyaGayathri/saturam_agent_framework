@@ -379,7 +379,10 @@ function LiveBackendCheck() {
     fetchDashboardList({ signal: controller.signal })
       .then((dashboards) => setState({ status: "ready", dashboards }))
       .catch((error) => {
-        if (error?.name === "AbortError") return;
+        // Only swallow an AbortError caused by this effect's own cleanup below - not one
+        // from some other signal, so a future rejection never leaves `state` stuck at
+        // "loading" forever (the button that would let someone retry is hidden while loading).
+        if (error?.name === "AbortError" && controller.signal.aborted) return;
         setState({ status: "error", error });
       });
     return () => controller.abort();
