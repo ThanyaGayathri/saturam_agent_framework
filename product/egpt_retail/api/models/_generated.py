@@ -424,16 +424,20 @@ class ProcessIconKey(Enum):
 
 class ProposalCounts(BaseModel):
     """
-    Totals by decision, so the review screen can show its badge without a second call.
+    Totals by state, so the review screen can show its badge without a second call.
     """
 
-    proposed: int | None = None
+    pending: int | None = None
     accepted: int | None = None
     rejected: int | None = None
 
 
 class ProposalDecision(Enum):
-    proposed = "proposed"
+    """
+    K7's `ReviewState`. One way out of `pending`, and no way back.
+    """
+
+    pending = "pending"
     accepted = "accepted"
     rejected = "rejected"
 
@@ -446,16 +450,34 @@ class ProposalDecisionRequest(BaseModel):
 
 class ProposalKind(Enum):
     """
-    What an enrichment proposal proposes. Each kind is emitted by an agent under the K14 template and confirmed by a person (D10).
+    What a proposal is about (K7's closed set, `semantic.proposals.ProposalKind`). `kpi` and
+    `use_case` are what `egpt-retail suggest` files; the other five are K4/K8 harvest-time
+    enrichment kinds this review screen also lists but does not specially render.
+
     """
 
-    synonym = "synonym"
-    question_pattern = "question_pattern"
-    sql_filter = "sql_filter"
-    personal_data = "personal_data"
-    compliance_tag = "compliance_tag"
-    concept_mapping = "concept_mapping"
-    kpi_candidate = "kpi_candidate"
+    enrichment = "enrichment"
+    mapping = "mapping"
+    join = "join"
+    authoritative_source = "authoritative_source"
+    column_meaning = "column_meaning"
+    kpi = "kpi"
+    use_case = "use_case"
+
+
+class ProposalRefusal(BaseModel):
+    """
+    One id in a decision request that did not move, and why. A bulk decision is not
+    atomic (K7's own `ReviewOutcome`, deliberately: eleven good decisions committing must
+    not be held hostage by a twelfth id a colleague decided a moment earlier) -- this is
+    how the caller finds out which one, and what its actual state is.
+
+    """
+
+    id: str
+    reason: str
+    current_state: ProposalDecision | None = None
+    decided_by: str | None = None
 
 
 class ProposalStatus(Enum):
@@ -469,16 +491,6 @@ class ProposalStatus(Enum):
 
     accepted = "accepted"
     proposed = "proposed"
-
-
-class ProposalTarget(BaseModel):
-    """
-    What a proposal attaches to.
-    """
-
-    concept: str
-    table: str | None = None
-    column: str | None = None
 
 
 class ProvenanceModelTier(Enum):
@@ -1393,33 +1405,47 @@ class Process(BaseModel):
 
 class Proposal(BaseModel):
     """
-    One enrichment proposal awaiting or past review. An agent proposed it; a person decides.
-    Nothing here reaches the graph until `decision` is `accepted` (D10, G5). `proposed_by`
-    names the skill and version, so a bad batch is attributable to the prompt edit that
-    caused it (G13).
+    One thing an agent proposed, and the record of what happened to it (K7,
+    `semantic.proposals.Proposal`). `target` is a plain string -- a concept name, a qualified
+    table, or (for `kind: kpi`) a metric identifier -- and `payload` carries whatever that
+    kind needs to be applied, which is why its shape is not fixed here: a `kpi` payload is a
+    whole KPI definition (`identifier`, `name`, `sql`, `grain`, `business_area`,
+    `source_tables`, plus display-only fields a reviewer wants -- `rationale`, `feasibility`,
+    `feasibility_reason`, `missing_tables`); a `use_case` payload is a question and the KPIs
+    it depends on. Nothing here reaches the graph, or the KPI registry, until `state` is
+    `accepted` (D10, G5) -- and even then, `applied_at` is what says whether it actually
+    landed, not `state` alone.
 
     """
 
     id: str
     kind: ProposalKind
-    target: ProposalTarget
-    value: str
-    rationale: str = Field(
-        ...,
-        description="One sentence naming the input it derives from. A proposal with no traceable source was invented, not derived.",
+    target: str
+    payload: dict[str, Any] = Field(
+        ..., description="Kind-dependent. See `Proposal`'s own description."
     )
-    confidence: Confidence
-    decision: ProposalDecision
-    proposed_by: SkillRef
-    proposed_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
-    decided_by: str | None = None
+    proposer: str = Field(
+        ..., description="Which agent or person produced it. Never blank."
+    )
+    state: ProposalDecision
+    reviewer: str | None = None
     decided_at: AwareDatetime | None = None
-    harvest_id: str | None = None
+    decision_note: str | None = ""
+    applied_at: AwareDatetime | None = Field(
+        None,
+        description='Set only once an accepted proposal\'s effect actually landed (a KPI saved to the\nregistry). An `accepted` proposal with `applied_at: null` is accepted-but-not-yet-\nlanded, or a kind with no consumer today (`use_case`) -- never assume `accepted`\nalone means "done".\n',
+    )
+    apply_error: str | None = None
+    created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
 
 
 class ProposalList(BaseModel):
     proposals: list[Proposal]
     counts: ProposalCounts | None = None
+    refused: list[ProposalRefusal] | None = Field(
+        None,
+        description="Ids from the request that were not pending and so did not move. Empty on a plain list read.",
+    )
 
 
 class QualityAssessment(BaseModel):

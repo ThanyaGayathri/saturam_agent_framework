@@ -16,6 +16,7 @@ import TourLaunchButton from "../../tours/TourLaunchButton";
 const CONFIGURE_TABS_ALL = [
   { label: "Data Sources", value: "internal", path: "/configure/internal-sources" },
   { label: "KPIs", value: "domain-mapping", path: "/configure/domain-mapping" },
+  { label: "Proposals", value: "proposals", path: "/configure/proposals" },
   { label: "Business hierarchy", value: "hierarchy", path: "/configure/hierarchy" },
   { label: "Model", value: "model", path: "/configure/models" },
 ];
@@ -43,6 +44,8 @@ export default function ConfigureLayout({ children }) {
     ? "external"
     : location.pathname.startsWith("/configure/domain-mapping")
     ? "domain-mapping"
+    : location.pathname.startsWith("/configure/proposals")
+    ? "proposals"
     : "internal";
 
   const runningLine =

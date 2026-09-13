@@ -19,12 +19,18 @@ import os
 from typing import Any, Iterator
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from egpt_retail.api.routers import kpis as kpis_module
+from egpt_retail.api.routers import semantic as semantic_module
 from egpt_retail.contracts.semantic import (
     AuthoritativeSource,
     Concept,
     JoinEdge,
     SemanticReadError,
 )
+from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.semantic.harvest import Harvest, harvest_schema
 from egpt_retail.semantic.proposals import (
     Proposal,
@@ -959,3 +965,164 @@ class TestP3Verification:
                 driver=driver,
             )
             warehouse.close()
+
+
+class TestSemanticProposalsHttp:
+    """#235/F2's HTTP path: propose a KPI or use-case proposal directly via `ProposalStore`
+    (simulating what `egpt-retail suggest` already does), then drive the review entirely
+    through the mounted `api/routers/semantic.py` -- and, for the KPI case, prove the loop
+    actually closes by reading the adopted definition back through the real `kpis.py` router
+    a caller would use, the same "prove it end to end" bar C1's dashboard test set.
+
+    A bare `FastAPI()` with just these two routers mounted, dependency-overridden onto the
+    live `control_plane` connection this module's other tests already share -- real Postgres,
+    real FastAPI request dispatch, real route functions -- without needing the full
+    `build_agent_os` assembly (agents, memory provider, JWKS) that this router's own logic
+    does not touch. Authorization is off (no `AuthMiddleware` on this bare app), so every
+    decision here is attributed to `"local"`, matching every other DB-free/live test in this
+    suite that does not itself exercise G1's auth path.
+    """
+
+    @pytest.fixture
+    def client(self, control_plane: Any) -> TestClient:
+        app = FastAPI()
+        app.include_router(semantic_module.router)
+        app.include_router(kpis_module.router)
+
+        def _proposals() -> ProposalStore:
+            return ProposalStore(control_plane)
+
+        def _kpi_store() -> KpiRegistryStore:
+            return KpiRegistryStore(control_plane)
+
+        app.dependency_overrides[semantic_module._proposal_store] = _proposals
+        app.dependency_overrides[semantic_module._kpi_store] = _kpi_store
+        app.dependency_overrides[kpis_module._kpi_store] = _kpi_store
+        return TestClient(app)
+
+    def test_the_review_loop_closes_from_a_kpi_proposal_to_a_real_get_kpis(
+        self, client: TestClient, proposals: ProposalStore, control_plane: Any
+    ) -> None:
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        proposal = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__http_adopted",
+            payload={
+                "identifier": "livetest_kpi__http_adopted",
+                "name": "HTTP Adopted",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "customer",
+                "source_tables": ["crm_contact"],
+                "rationale": "Livetest proof of the review loop.",
+            },
+            proposer=PROPOSER,
+        )
+        proposals.propose(proposal)
+        try:
+            listed = client.get(
+                "/semantic/proposals", params={"state": "pending", "kind": "kpi"}
+            )
+            assert listed.status_code == 200
+            ids = [p["id"] for p in listed.json()["proposals"]]
+            assert proposal.identifier in ids
+
+            accepted = client.post(
+                f"/semantic/proposals/{proposal.identifier}/accept",
+                json={"note": "Looks right."},
+            )
+            assert accepted.status_code == 200
+            body = accepted.json()
+            assert body["state"] == "accepted"
+            assert body["applied_at"] is not None, (
+                "accept must adopt a KPI in the same call"
+            )
+
+            # The loop: `GET /kpis/{id}` through the real kpis router now finds it for real.
+            got = client.get("/kpis/livetest_kpi__http_adopted")
+            assert got.status_code == 200
+            assert got.json()["identifier"] == "livetest_kpi__http_adopted"
+
+            # A second accept of the same, now-decided id is refused, not silently re-applied.
+            again = client.post(f"/semantic/proposals/{proposal.identifier}/accept")
+            assert again.status_code == 409
+        finally:
+            registry.delete("livetest_kpi__http_adopted")
+
+    def test_a_use_case_proposal_accepts_but_stays_unapplied_no_consumer_exists(
+        self, client: TestClient, proposals: ProposalStore
+    ) -> None:
+        proposal = Proposal(
+            kind=ProposalKind.USE_CASE,
+            target="livetest-use-case-http",
+            payload={"question": "Livetest question?"},
+            proposer=PROPOSER,
+        )
+        proposals.propose(proposal)
+        accepted = client.post(f"/semantic/proposals/{proposal.identifier}/accept")
+        assert accepted.status_code == 200
+        body = accepted.json()
+        assert body["state"] == "accepted"
+        assert body["applied_at"] is None, (
+            "no consumer exists for an accepted use case yet"
+        )
+
+    def test_reject_then_a_later_accept_attempt_409s(
+        self, client: TestClient, proposals: ProposalStore
+    ) -> None:
+        proposal = Proposal(
+            kind=ProposalKind.USE_CASE,
+            target="livetest-use-case-reject",
+            payload={"question": "Livetest reject question?"},
+            proposer=PROPOSER,
+        )
+        proposals.propose(proposal)
+        rejected = client.post(f"/semantic/proposals/{proposal.identifier}/reject")
+        assert rejected.status_code == 200
+        assert rejected.json()["state"] == "rejected"
+
+        again = client.post(f"/semantic/proposals/{proposal.identifier}/accept")
+        assert again.status_code == 409
+
+    def test_bulk_accept_partially_commits_when_one_id_is_already_decided(
+        self, client: TestClient, proposals: ProposalStore, control_plane: Any
+    ) -> None:
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        live = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__bulk_http",
+            payload={
+                "identifier": "livetest_kpi__bulk_http",
+                "name": "Bulk HTTP",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "customer",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        already_rejected = Proposal(
+            kind=ProposalKind.USE_CASE,
+            target="livetest-use-case-bulk-http",
+            payload={"question": "Already decided?"},
+            proposer=PROPOSER,
+        )
+        proposals.propose(live)
+        proposals.propose(already_rejected)
+        proposals.reject([already_rejected.identifier], "livetest_other_reviewer")
+        try:
+            response = client.post(
+                "/semantic/proposals/accept",
+                json={"ids": [live.identifier, already_rejected.identifier]},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert [p["id"] for p in body["proposals"]] == [live.identifier]
+            assert [r["id"] for r in body["refused"]] == [already_rejected.identifier]
+            assert body["refused"][0]["decided_by"] == "livetest_other_reviewer"
+            # the live id still adopted despite the other id in the same request refusing.
+            assert registry.get("livetest_kpi__bulk_http") is not None
+        finally:
+            registry.delete("livetest_kpi__bulk_http")

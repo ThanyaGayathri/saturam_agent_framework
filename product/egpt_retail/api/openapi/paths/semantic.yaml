@@ -380,23 +380,28 @@
   get:
     tags: [semantic]
     operationId: listSemanticProposals
-    summary: Enrichment proposals awaiting or past review.
-    description: The review screen's read (D10). This is the one caller expected to see unreviewed content, and it needs `semantic:read_proposed`.
+    summary: K7 proposals awaiting or past review -- KPI and use-case suggestions, plus harvest-time enrichment.
+    description: |
+      The review screen's read (D10, F2). This is the one caller expected to see unreviewed
+      content, and it needs `semantic:read_proposed`. `kind` may repeat -- the store filters
+      one kind per call internally, so `?kind=kpi&kind=use_case` (what the review screen asks
+      for) is answered as two reads merged into one list.
     x-egpt-scopes: [semantic:read_proposed]
     parameters:
-      - name: decision
+      - name: state
         in: query
         required: false
         schema:
           $ref: '../schemas/semantic.yaml#/ProposalDecision'
-      - name: concept
+      - name: kind
         in: query
         required: false
-        schema: {type: string}
-      - name: harvest_id
-        in: query
-        required: false
-        schema: {type: string}
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            $ref: '../schemas/semantic.yaml#/ProposalKind'
     responses:
       "200":
         description: Proposals.
@@ -408,47 +413,57 @@
               default:
                 value:
                   proposals:
-                    - id: prop_0001
-                      kind: synonym
-                      target: {concept: StockLevel, table: null, column: null}
-                      value: stock position
-                      rationale: The description defines the concept as a band of how much is on hand, which is what a stock position states.
-                      confidence: high
-                      decision: proposed
-                      proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
-                      proposed_at: "2026-09-07T02:03:40Z"
-                      decided_by: null
+                    - id: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+                      kind: kpi
+                      target: rfq__quote_to_deal_conversion_rate
+                      payload:
+                        identifier: rfq__quote_to_deal_conversion_rate
+                        name: Quote-to-deal conversion rate
+                        description: Share of RFQs that became a won deal.
+                        sql: "SELECT ..."
+                        grain: deal
+                        business_area: sales
+                        source_tables: [crm_deal, crm_quote]
+                        result_shape: scalar
+                        rationale: The harvested schema has both quote and deal tables with a shared deal_id, and every dashboard example this deployment ships asks for conversion.
+                        feasibility: ready
+                        feasibility_reason: Both source tables are joinable on deal_id.
+                        missing_tables: []
+                      proposer: kpi_suggestion_skill@1.0.0
+                      state: pending
+                      reviewer: null
                       decided_at: null
-                      harvest_id: hv_20260907_0200
-                    - id: prop_0002
-                      kind: question_pattern
-                      target: {concept: StockLevel, table: null, column: null}
-                      value: "what needs reordering?"
-                      rationale: The description names deciding what to reorder as the concept's purpose.
-                      confidence: high
-                      decision: proposed
-                      proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
-                      proposed_at: "2026-09-07T02:03:40Z"
-                      decided_by: null
-                      decided_at: null
-                      harvest_id: hv_20260907_0200
-                    - id: prop_0003
-                      kind: personal_data
-                      target: {concept: Customer, table: customers, column: email}
-                      value: "true"
-                      rationale: The column name and sampled values are email addresses.
-                      confidence: high
-                      decision: accepted
-                      proposed_by: {identifier: enrichment_proposer, version: "0.1.0"}
-                      proposed_at: "2026-09-07T02:03:41Z"
-                      decided_by: analyst@example.test
+                      decision_note: ""
+                      applied_at: null
+                      apply_error: null
+                      created_at: "2026-09-07T02:03:40Z"
+                    - id: b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5
+                      kind: use_case
+                      target: which-brands-are-slowest-to-close
+                      payload:
+                        question: Which brands are slowest to close?
+                        description: Ranks brands by median days from quote to close.
+                        business_area: sales
+                        rationale: The RFQ KPIs this deployment already has cover conversion but not cycle time; the harvested tables carry both quote and close timestamps.
+                        kpi_identifiers: [rfq__quote_to_deal_conversion_rate]
+                        derived_from_tables: [crm_deal, crm_quote]
+                        confidence: medium
+                        shape: ranked_list
+                        shape_ready: true
+                        shape_missing: []
+                      proposer: use_case_suggestion_skill@1.0.0
+                      state: accepted
+                      reviewer: analyst@example.test
                       decided_at: "2026-09-07T09:12:00Z"
-                      harvest_id: hv_20260907_0200
-                  counts: {proposed: 2, accepted: 1, rejected: 0}
+                      decision_note: ""
+                      applied_at: null
+                      apply_error: null
+                      created_at: "2026-09-07T02:03:41Z"
+                  counts: {pending: 1, accepted: 1, rejected: 0}
               empty:
                 value:
                   proposals: []
-                  counts: {proposed: 0, accepted: 0, rejected: 0}
+                  counts: {pending: 0, accepted: 0, rejected: 0}
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
 
@@ -456,7 +471,12 @@
   post:
     tags: [semantic]
     operationId: acceptSemanticProposal
-    summary: Accept one proposal. This is the human decision that lets it reach the graph.
+    summary: "Accept one proposal. For a KPI proposal, this is also what adopts it into the registry."
+    description: |
+      The human decision that lets a proposal take effect (D10, F2). For `kind: kpi`, accepting
+      immediately adopts it into the KPI registry in the same call -- `applied_at` on the
+      response says whether that landed. `kind: use_case` proposals have no consumer yet;
+      accepting one only records the decision, and `applied_at` stays null.
     x-egpt-scopes: [semantic:review]
     parameters:
       - name: proposal_id
@@ -471,10 +491,10 @@
             $ref: '../schemas/semantic.yaml#/ProposalDecisionRequest'
           examples:
             default:
-              value: {note: "Matches how the buying team talks."}
+              value: {note: "Matches how the sales team already talks about this."}
     responses:
       "200":
-        description: The proposal, now accepted.
+        description: The proposal, now accepted (and, for a KPI, adopted).
         content:
           application/json:
             schema:
@@ -482,18 +502,30 @@
             examples:
               default:
                 value:
-                  id: prop_0001
-                  kind: synonym
-                  target: {concept: StockLevel, table: null, column: null}
-                  value: stock position
-                  rationale: The description defines the concept as a band of how much is on hand, which is what a stock position states.
-                  confidence: high
-                  decision: accepted
-                  proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
-                  proposed_at: "2026-09-07T02:03:40Z"
-                  decided_by: analyst@example.test
+                  id: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+                  kind: kpi
+                  target: rfq__quote_to_deal_conversion_rate
+                  payload:
+                    identifier: rfq__quote_to_deal_conversion_rate
+                    name: Quote-to-deal conversion rate
+                    description: Share of RFQs that became a won deal.
+                    sql: "SELECT ..."
+                    grain: deal
+                    business_area: sales
+                    source_tables: [crm_deal, crm_quote]
+                    result_shape: scalar
+                    rationale: The harvested schema has both quote and deal tables with a shared deal_id, and every dashboard example this deployment ships asks for conversion.
+                    feasibility: ready
+                    feasibility_reason: Both source tables are joinable on deal_id.
+                    missing_tables: []
+                  proposer: kpi_suggestion_skill@1.0.0
+                  state: accepted
+                  reviewer: analyst@example.test
                   decided_at: "2026-09-07T09:15:22Z"
-                  harvest_id: hv_20260907_0200
+                  decision_note: "Matches how the sales team already talks about this."
+                  applied_at: "2026-09-07T09:15:22Z"
+                  apply_error: null
+                  created_at: "2026-09-07T02:03:40Z"
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
       "409":
@@ -504,7 +536,7 @@
               $ref: '../schemas/common.yaml#/Error'
             examples:
               conflict:
-                value: {detail: "Proposal prop_0003 was accepted on 2026-09-07T09:12:00Z by analyst@example.test.", code: already_decided}
+                value: {detail: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4: already accepted by analyst@example.test", code: already_decided}
 
 /semantic/proposals/{proposal_id}/reject:
   post:
@@ -525,7 +557,7 @@
             $ref: '../schemas/semantic.yaml#/ProposalDecisionRequest'
           examples:
             default:
-              value: {note: "Different concept: this is about sales rate, not quantity."}
+              value: {note: "Duplicates a KPI we already have."}
     responses:
       "200":
         description: The proposal, now rejected.
@@ -536,18 +568,28 @@
             examples:
               default:
                 value:
-                  id: prop_0002
-                  kind: question_pattern
-                  target: {concept: StockLevel, table: null, column: null}
-                  value: "what needs reordering?"
-                  rationale: The description names deciding what to reorder as the concept's purpose.
-                  confidence: high
-                  decision: rejected
-                  proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
-                  proposed_at: "2026-09-07T02:03:40Z"
-                  decided_by: analyst@example.test
+                  id: b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5
+                  kind: use_case
+                  target: which-brands-are-slowest-to-close
+                  payload:
+                    question: Which brands are slowest to close?
+                    description: Ranks brands by median days from quote to close.
+                    business_area: sales
+                    rationale: The RFQ KPIs this deployment already has cover conversion but not cycle time; the harvested tables carry both quote and close timestamps.
+                    kpi_identifiers: [rfq__quote_to_deal_conversion_rate]
+                    derived_from_tables: [crm_deal, crm_quote]
+                    confidence: medium
+                    shape: ranked_list
+                    shape_ready: true
+                    shape_missing: []
+                  proposer: use_case_suggestion_skill@1.0.0
+                  state: rejected
+                  reviewer: analyst@example.test
                   decided_at: "2026-09-07T09:16:05Z"
-                  harvest_id: hv_20260907_0200
+                  decision_note: "Duplicates a KPI we already have."
+                  applied_at: null
+                  apply_error: null
+                  created_at: "2026-09-07T02:03:41Z"
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
       "409":
@@ -558,14 +600,21 @@
               $ref: '../schemas/common.yaml#/Error'
             examples:
               conflict:
-                value: {detail: "Proposal prop_0003 was accepted on 2026-09-07T09:12:00Z by analyst@example.test.", code: already_decided}
+                value: {detail: "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5: already accepted by analyst@example.test", code: already_decided}
 
 /semantic/proposals/accept:
   post:
     tags: [semantic]
     operationId: acceptSemanticProposalsBulk
-    summary: Accept many proposals in one decision.
-    description: A harvest produces hundreds of proposals; a gate per proposal is the obvious tool and the wrong one (G5). Every id in the request is decided or none is.
+    summary: Accept many proposals in one decision. Not atomic -- see the response's `refused`.
+    description: |
+      A harvest or a suggestion run produces many proposals at once; a gate per proposal is the
+      obvious tool and the wrong one (G5). **Deliberately not all-or-nothing**: an id that is
+      no longer pending (someone else decided it a moment earlier) is skipped and reported in
+      `refused`, and every other id in the request still commits -- eleven good decisions must
+      not be held hostage by a twelfth (K7's `ReviewOutcome`). Any `kind: kpi` ids that did
+      commit are adopted into the registry in the same call, same as the single-accept route.
+      Always `200`; check `refused` to see whether every id in the request actually moved.
     x-egpt-scopes: [semantic:review]
     requestBody:
       required: true
@@ -575,7 +624,7 @@
             $ref: '../schemas/semantic.yaml#/BulkProposalDecisionRequest'
           examples:
             default:
-              value: {ids: [prop_0001, prop_0002], note: "Reviewed the StockLevel batch."}
+              value: {ids: [a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4, b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5], note: "Reviewed this batch together."}
     responses:
       "200":
         description: The decided proposals.
@@ -587,42 +636,90 @@
               default:
                 value:
                   proposals:
-                    - id: prop_0001
-                      kind: synonym
-                      target: {concept: StockLevel, table: null, column: null}
-                      value: stock position
-                      rationale: The description defines the concept as a band of how much is on hand, which is what a stock position states.
-                      confidence: high
-                      decision: accepted
-                      proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
-                      proposed_at: "2026-09-07T02:03:40Z"
-                      decided_by: analyst@example.test
+                    - id: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+                      kind: kpi
+                      target: rfq__quote_to_deal_conversion_rate
+                      payload:
+                        identifier: rfq__quote_to_deal_conversion_rate
+                        name: Quote-to-deal conversion rate
+                        description: Share of RFQs that became a won deal.
+                        sql: "SELECT ..."
+                        grain: deal
+                        business_area: sales
+                        source_tables: [crm_deal, crm_quote]
+                        result_shape: scalar
+                        rationale: The harvested schema has both quote and deal tables with a shared deal_id, and every dashboard example this deployment ships asks for conversion.
+                        feasibility: ready
+                        feasibility_reason: Both source tables are joinable on deal_id.
+                        missing_tables: []
+                      proposer: kpi_suggestion_skill@1.0.0
+                      state: accepted
+                      reviewer: analyst@example.test
                       decided_at: "2026-09-07T09:20:00Z"
-                      harvest_id: hv_20260907_0200
-                    - id: prop_0002
-                      kind: question_pattern
-                      target: {concept: StockLevel, table: null, column: null}
-                      value: "what needs reordering?"
-                      rationale: The description names deciding what to reorder as the concept's purpose.
-                      confidence: high
-                      decision: accepted
-                      proposed_by: {identifier: synonym_proposer, version: "1.0.0"}
-                      proposed_at: "2026-09-07T02:03:40Z"
-                      decided_by: analyst@example.test
+                      decision_note: "Reviewed this batch together."
+                      applied_at: "2026-09-07T09:20:00Z"
+                      apply_error: null
+                      created_at: "2026-09-07T02:03:40Z"
+                    - id: b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5
+                      kind: use_case
+                      target: which-brands-are-slowest-to-close
+                      payload:
+                        question: Which brands are slowest to close?
+                        description: Ranks brands by median days from quote to close.
+                        business_area: sales
+                        rationale: The RFQ KPIs this deployment already has cover conversion but not cycle time; the harvested tables carry both quote and close timestamps.
+                        kpi_identifiers: [rfq__quote_to_deal_conversion_rate]
+                        derived_from_tables: [crm_deal, crm_quote]
+                        confidence: medium
+                        shape: ranked_list
+                        shape_ready: true
+                        shape_missing: []
+                      proposer: use_case_suggestion_skill@1.0.0
+                      state: accepted
+                      reviewer: analyst@example.test
                       decided_at: "2026-09-07T09:20:00Z"
-                      harvest_id: hv_20260907_0200
-                  counts: {proposed: 0, accepted: 2, rejected: 0}
+                      decision_note: "Reviewed this batch together."
+                      applied_at: null
+                      apply_error: null
+                      created_at: "2026-09-07T02:03:41Z"
+                  counts: {pending: 0, accepted: 2, rejected: 0}
+                  refused: []
+              partial:
+                summary: One id in the batch had already been decided -- it is reported, not raised, and does not block the rest.
+                value:
+                  proposals:
+                    - id: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+                      kind: kpi
+                      target: rfq__quote_to_deal_conversion_rate
+                      payload:
+                        identifier: rfq__quote_to_deal_conversion_rate
+                        name: Quote-to-deal conversion rate
+                        description: Share of RFQs that became a won deal.
+                        sql: "SELECT ..."
+                        grain: deal
+                        business_area: sales
+                        source_tables: [crm_deal, crm_quote]
+                        result_shape: scalar
+                        rationale: The harvested schema has both quote and deal tables with a shared deal_id, and every dashboard example this deployment ships asks for conversion.
+                        feasibility: ready
+                        feasibility_reason: Both source tables are joinable on deal_id.
+                        missing_tables: []
+                      proposer: kpi_suggestion_skill@1.0.0
+                      state: accepted
+                      reviewer: analyst@example.test
+                      decided_at: "2026-09-07T09:20:00Z"
+                      decision_note: "Reviewed this batch together."
+                      applied_at: "2026-09-07T09:20:00Z"
+                      apply_error: null
+                      created_at: "2026-09-07T02:03:40Z"
+                  counts: {pending: 0, accepted: 1, rejected: 0}
+                  refused:
+                    - id: b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5
+                      reason: already rejected
+                      current_state: rejected
+                      decided_by: someone_else@example.test
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
-      "409":
-        description: At least one id was already decided; nothing was changed.
-        content:
-          application/json:
-            schema:
-              $ref: '../schemas/common.yaml#/Error'
-            examples:
-              conflict:
-                value: {detail: "prop_0003 was already decided. No proposal in this request was changed.", code: already_decided}
 
 # Reusable pieces local to this fragment. The bundler inlines them.
 x-egpt-parameters:
