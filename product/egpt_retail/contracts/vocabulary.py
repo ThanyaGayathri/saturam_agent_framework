@@ -228,10 +228,17 @@ def load_vocabulary_set(
     core_path: Path = CORE_PATH,
     overlay_path: Optional[Path] = None,
 ) -> VocabularySet:
-    """Load the shipped vocabularies, with a customer overlay applied on top if there is one."""
+    """Load the shipped vocabularies, with a customer overlay applied on top if there is one.
+
+    A configured overlay path with nothing behind it yet is an empty overlay, not an error --
+    matching :func:`~egpt_retail.ontology.business_areas.read_overlay`, so a fresh deployment's
+    first request does not crash before its first write.
+    """
     core_payload = json.loads(core_path.read_text())
     overlay_payload = (
-        json.loads(overlay_path.read_text()) if overlay_path is not None else None
+        json.loads(overlay_path.read_text())
+        if overlay_path is not None and overlay_path.exists()
+        else None
     )
     return build_vocabulary_set(core_payload, overlay_payload)
 
@@ -242,13 +249,14 @@ async def aload_vocabulary_set(
 ) -> VocabularySet:
     """Async variant. Reads are done off the event loop."""
 
-    def _read(path: Path) -> str:
-        return path.read_text()
+    def _read_overlay(path: Path) -> Optional[str]:
+        return path.read_text() if path.exists() else None
 
-    core_payload = json.loads(await asyncio.to_thread(_read, core_path))
-    overlay_payload = (
-        json.loads(await asyncio.to_thread(_read, overlay_path))
+    core_payload = json.loads(await asyncio.to_thread(core_path.read_text))
+    overlay_text = (
+        await asyncio.to_thread(_read_overlay, overlay_path)
         if overlay_path is not None
         else None
     )
+    overlay_payload = json.loads(overlay_text) if overlay_text is not None else None
     return build_vocabulary_set(core_payload, overlay_payload)

@@ -106,7 +106,7 @@ def _annotations(payload: Optional[Mapping[str, Any]]) -> Dict[str, Dict[str, An
         if not isinstance(note, Mapping):
             raise ValueError(f"{HIERARCHY_KEY}[{area_id!r}] must be an object")
         subject_areas = note.get("subject_areas", ())
-        if isinstance(subject_areas, str) or not all(
+        if not isinstance(subject_areas, (list, tuple)) or not all(
             isinstance(s, str) and s.strip() for s in subject_areas
         ):
             raise ValueError(
@@ -125,6 +125,20 @@ def _union(first: Sequence[str], second: Sequence[str]) -> Tuple[str, ...]:
         if item not in merged:
             merged.append(item)
     return tuple(merged)
+
+
+def _refuse_relabel(
+    area_id: str, current_label: str, wanted_label: Optional[str]
+) -> None:
+    """G10 for the hierarchy's own field, shared by :func:`build_hierarchy` and
+    :func:`apply_overlay` so the two never drift apart: an overlay may add and annotate a
+    core area, never relabel it."""
+    if wanted_label and wanted_label != current_label:
+        raise OverlayConflict(
+            f"overlay relabels core business area {area_id!r} from {current_label!r} to "
+            f"{wanted_label!r}. An overlay may add and annotate, never redefine (G10) -- "
+            "raise it as a proposal."
+        )
 
 
 def build_hierarchy(
@@ -158,13 +172,7 @@ def build_hierarchy(
         overlay_note = overlay_notes.get(term.value, {})
         if term.origin is TermOrigin.CORE:
             label = core_note.get("label") or default_label(term.value)
-            wanted = overlay_note.get("label")
-            if wanted and wanted != label:
-                raise OverlayConflict(
-                    f"overlay relabels core business area {term.value!r} from {label!r} to "
-                    f"{wanted!r}. An overlay may add and annotate, never redefine (G10) -- "
-                    "raise it as a proposal."
-                )
+            _refuse_relabel(term.value, label, overlay_note.get("label"))
             subject_areas = _union(
                 core_note.get("subject_areas", ()),
                 overlay_note.get("subject_areas", ()),
@@ -229,8 +237,10 @@ def apply_overlay(
 
     ``PUT`` replaces the overlay's *own* contribution, never the core: an area the overlay
     added last time and this request omits is dropped; a core area is never removable, so
-    omitting one changes nothing. A core area named here is an annotation -- its subject
-    areas are added -- and must not redefine the description or the label (G10, raised as
+    omitting one changes nothing -- including a core area's own prior subject-area
+    annotation, which is carried forward untouched when this request does not mention that
+    area at all. A core area named here is an annotation -- its subject areas are added --
+    and must not redefine the description or the label (G10, raised as
     :class:`OverlayConflict`). A new area must have a valid term id (``ValueError`` otherwise,
     the same validation :class:`~egpt_retail.contracts.vocabulary.Term` applies to the core
     file). The result is run back through :func:`build_hierarchy` before it is returned, so
@@ -259,16 +269,21 @@ def apply_overlay(
                 f"overlay redefines core term {area.id!r} in {VOCABULARY!r}. "
                 "An overlay may add and annotate, never redefine (G10) -- raise it as a proposal."
             )
-        if area.label and area.label != core_area.label:
-            raise OverlayConflict(
-                f"overlay relabels core business area {area.id!r} from {core_area.label!r} "
-                f"to {area.label!r}. An overlay may add and annotate, never redefine (G10) -- "
-                "raise it as a proposal."
-            )
+        _refuse_relabel(area.id, core_area.label, area.label or None)
         incoming = _union((), area.subject_areas)
         additions = [s for s in incoming if s not in core_area.subject_areas]
         if additions:
             notes[area.id] = {"subject_areas": additions}
+
+    # A core area this request does not mention at all keeps whatever the overlay already
+    # annotated it with last time -- omitting an area changes nothing, per this function's own
+    # contract above. Only core areas: an area the overlay itself *added* is not carried
+    # forward when omitted, which is the existing (and correct) drop behaviour for that case.
+    for area_id, note in _annotations(existing).items():
+        if area_id in core_by_id and area_id not in seen:
+            carried = list(note.get("subject_areas") or ())
+            if carried:
+                notes[area_id] = {"subject_areas": carried}
 
     payload: Dict[str, Any] = dict(existing or {})
     vocabularies = dict(payload.get("vocabularies") or {})

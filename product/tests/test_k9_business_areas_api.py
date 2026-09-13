@@ -10,6 +10,7 @@ The router is exercised over a real FastAPI ``TestClient`` with the one graph ca
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,12 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from egpt_retail.api.routers import business_areas as router_module
-from egpt_retail.contracts.vocabulary import CORE_PATH, OverlayConflict, TermOrigin
+from egpt_retail.contracts.vocabulary import (
+    CORE_PATH,
+    OverlayConflict,
+    TermOrigin,
+    load_vocabulary_set,
+)
 from egpt_retail.ontology.business_areas import (
     HIERARCHY_KEY,
     BusinessAreaNode,
@@ -28,6 +34,7 @@ from egpt_retail.ontology.business_areas import (
     read_overlay,
     write_overlay,
 )
+from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
 
 CORE = json.loads(CORE_PATH.read_text())
 CORE_IDS = [term["value"] for term in CORE["vocabularies"]["business_area"]]
@@ -136,6 +143,14 @@ def test_a_non_list_subject_areas_value_is_refused_not_silently_iterated():
         build_hierarchy(CORE, overlay)
 
 
+def test_a_none_subject_areas_value_is_refused_with_a_value_error_not_a_type_error():
+    """``None`` (a hand-edited ``"subject_areas": null``) must be refused the same clear
+    way as a string, not reach ``for s in subject_areas`` and raise ``TypeError``."""
+    overlay = {HIERARCHY_KEY: {"sales": {"subject_areas": None}}}
+    with pytest.raises(ValueError, match="must be a list of non-empty strings"):
+        build_hierarchy(CORE, overlay)
+
+
 def test_the_roundtrip_revalidation_catches_what_the_per_item_checks_do_not(
     monkeypatch,
 ):
@@ -225,6 +240,33 @@ def test_put_dedupes_subject_areas_when_annotating_an_existing_core_area_too():
     assert payload[HIERARCHY_KEY]["sales"]["subject_areas"] == ["Brand New Thing"]
 
 
+def test_put_preserves_a_core_areas_annotation_the_request_does_not_mention():
+    """A PUT that omits a core area entirely must not drop that area's own prior overlay
+    annotation -- ``apply_overlay``'s docstring says omitting a core area "changes nothing",
+    and this is exactly what the annotation half of that promise means."""
+    first = apply_overlay(
+        None, [BusinessAreaNode("sales", "", "", ("Quote to Deal",))], CORE
+    )
+    # A later PUT names only an unrelated area; it never mentions "sales" at all.
+    second = apply_overlay(
+        first, [BusinessAreaNode("store_ops", "Store Ops", "")], CORE
+    )
+    hierarchy = build_hierarchy(CORE, second)
+    assert "Quote to Deal" in hierarchy.get("sales").subject_areas
+    assert hierarchy.get("store_ops") is not None
+
+
+def test_put_still_drops_an_overlay_added_area_the_request_omits():
+    """Unlike a core area's annotation, an area the overlay itself added is dropped when a
+    later PUT omits it -- the other half of the same docstring promise, unaffected by the
+    fix above."""
+    first = apply_overlay(None, [BusinessAreaNode("store_ops", "Store Ops", "")], CORE)
+    second = apply_overlay(
+        first, [BusinessAreaNode("sales", "", "", ("Quote to Deal",))], CORE
+    )
+    assert build_hierarchy(CORE, second).get("store_ops") is None
+
+
 def test_put_with_no_areas_clears_the_overlay_contribution_and_nothing_else():
     payload = apply_overlay(EXISTING_OVERLAY, [], CORE)
     assert "business_area" not in payload["vocabularies"]
@@ -266,6 +308,32 @@ def test_put_refuses_a_core_redefinition_as_a_conflict(area, fragment):
         apply_overlay(None, [area], CORE)
 
 
+def test_the_relabel_check_is_one_function_shared_by_both_entry_points(monkeypatch):
+    """``build_hierarchy`` and ``apply_overlay`` refuse a core relabel through the same
+    ``_refuse_relabel`` helper, not two independent copies -- defeat it once and confirm
+    both call sites stop raising."""
+    import egpt_retail.ontology.business_areas as module
+
+    monkeypatch.setattr(module, "_refuse_relabel", lambda *a, **k: None)
+    build_hierarchy(CORE, {HIERARCHY_KEY: {"sales": {"label": "Revenue"}}})
+    apply_overlay(None, [BusinessAreaNode("sales", "Revenue", "")], CORE)
+
+
+def test_description_redefinition_is_refused_identically_by_both_entry_points():
+    """``build_hierarchy`` delegates the description half of G10 to ``merge()``;
+    ``apply_overlay`` hand-rolls the same rule for its own early guard. Both must refuse the
+    same redefinition with matching wording -- a tripwire so the two can't silently drift
+    apart, since routing ``apply_overlay`` through ``merge()`` directly would change
+    ``merge()``'s behaviour for every other vocabulary it serves."""
+    fragment = "redefines core term 'sales'"
+    with pytest.raises(OverlayConflict, match=fragment):
+        build_hierarchy(CORE, _overlay_adding("sales", "Something else entirely."))
+    with pytest.raises(OverlayConflict, match=fragment):
+        apply_overlay(
+            None, [BusinessAreaNode("sales", "", "Something else entirely.")], CORE
+        )
+
+
 @pytest.mark.parametrize(
     "areas, fragment",
     [
@@ -300,6 +368,24 @@ def test_read_overlay_treats_a_missing_or_unconfigured_file_as_no_overlay(
 ):
     assert read_overlay(None) is None
     assert read_overlay(tmp_path / "not-yet.json") is None
+
+
+def test_load_ontology_tolerates_a_configured_but_not_yet_created_overlay_path(
+    tmp_path: Path,
+):
+    """``load_ontology`` must match ``read_overlay``'s tolerance: a fresh deployment with
+    the overlay setting configured but nothing written yet must not crash with
+    ``FileNotFoundError`` -- ``executors/areas.py`` and ``entrypoints/load_knowledge.py``
+    both pass an overlay path straight through with no existence check of their own."""
+    ontology = load_ontology(ARTIFACT_PATH, overlay_path=tmp_path / "not-yet.json")
+    assert ontology is not None
+
+
+def test_load_vocabulary_set_tolerates_a_configured_but_not_yet_created_overlay_path(
+    tmp_path: Path,
+):
+    vocab_set = load_vocabulary_set(overlay_path=tmp_path / "not-yet.json")
+    assert "business_area" in vocab_set.vocabularies
 
 
 # ---------------------------------------------------------------------------
@@ -397,10 +483,28 @@ def test_get_answers_503_when_the_graph_cannot_be_asked(
 
         failure = ServiceUnavailable("connection refused")
 
+    @contextmanager
     def _down(settings):
         raise failure
+        yield  # pragma: no cover -- unreachable, keeps this a generator/context manager
 
-    monkeypatch.setattr(router_module, "semantic_driver", _down)
+    monkeypatch.setattr(router_module, "open_semantic_reader", _down)
+    response = _client().get("/business-areas")
+    assert response.status_code == 503
+    assert "semantic layer" in response.json()["detail"]
+
+
+def test_get_answers_503_when_the_graph_uri_is_malformed(monkeypatch, no_overlay):
+    """neo4j's own URI parsing can raise a bare ``ValueError``/``IndexError`` (a malformed
+    IPv6 host, say) before it ever constructs a ``DriverError`` -- must still be a 503, not
+    an unhandled 500."""
+
+    @contextmanager
+    def _down(settings):
+        raise ValueError("Invalid IPv6 URL")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(router_module, "open_semantic_reader", _down)
     response = _client().get("/business-areas")
     assert response.status_code == 503
     assert "semantic layer" in response.json()["detail"]
@@ -534,6 +638,41 @@ def test_put_answers_503_when_the_overlay_directory_is_missing(graph_says, monke
     response = _client().put("/business-areas", json={"areas": []})
     assert response.status_code == 503
     assert "cannot be written" in response.json()["detail"]
+
+
+def test_put_answers_503_when_the_core_file_cannot_be_read(
+    graph_says, overlay_file, monkeypatch, tmp_path: Path
+):
+    """The core vocabulary file's read in ``set_business_areas`` was unguarded -- a missing
+    or corrupt shipped core file must surface as 503, not an unhandled 500, the same as
+    every other read of that file in this module."""
+    monkeypatch.setattr(router_module, "CORE_PATH", tmp_path / "missing-core.json")
+    response = _client().put(
+        "/business-areas", json={"areas": [{"id": "store_ops", "label": "Store Ops"}]}
+    )
+    assert response.status_code == 503
+    assert "cannot be read" in response.json()["detail"]
+    assert not overlay_file.exists()
+
+
+def test_put_never_writes_when_the_pre_write_graph_check_fails(
+    monkeypatch, overlay_file
+):
+    """``_supported`` now runs before ``write_overlay``, not after: a graph blip must never
+    coincide with an already-persisted change. Proven here by the write simply not
+    happening when the (now pre-write) graph check fails."""
+
+    @contextmanager
+    def _down(settings):
+        raise RuntimeError("EGPT_RETAIL_NEO4J_URI is not set")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(router_module, "open_semantic_reader", _down)
+    response = _client().put(
+        "/business-areas", json={"areas": [{"id": "store_ops", "label": "Store Ops"}]}
+    )
+    assert response.status_code == 503
+    assert not overlay_file.exists()
 
 
 def test_scopes_are_the_contracts_own(graph_says, overlay_file):

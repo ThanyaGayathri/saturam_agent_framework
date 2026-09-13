@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, FrozenSet, List, Optional
+from typing import Any, FrozenSet, List, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from egpt_retail.api import models as wire
 from egpt_retail.app.scopes import require_scopes
-from egpt_retail.app.semantic import semantic_driver
+from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.semantic import SemanticReadError
 from egpt_retail.contracts.vocabulary import CORE_PATH, OverlayConflict
@@ -32,6 +32,7 @@ from egpt_retail.ontology.business_areas import (
     BusinessAreaHierarchy,
     BusinessAreaNode,
     apply_overlay,
+    build_hierarchy,
     load_business_area_hierarchy,
     read_overlay,
     write_overlay,
@@ -98,10 +99,9 @@ def _supported(settings: RetailSettings) -> FrozenSet[str]:
     mapping falls in, grouped by the area the *ontology* puts the concept in."""
     overlay = _overlay_path(settings)
     try:
-        ontology = load_ontology(
-            ARTIFACT_PATH,
-            overlay_path=overlay if overlay is not None and overlay.exists() else None,
-        )
+        # `load_ontology` itself now treats a configured-but-not-yet-created overlay path as
+        # no overlay, matching `read_overlay` -- no need to check `.exists()` here.
+        ontology = load_ontology(ARTIFACT_PATH, overlay_path=overlay)
     except (ValueError, OSError) as exc:
         # The overlay failed the ontology's own rules, or is not readable at all (a
         # directory, a missing parent, permissions) -- the same deployment fault
@@ -110,15 +110,18 @@ def _supported(settings: RetailSettings) -> FrozenSet[str]:
         # `OSError` further down.
         raise _overlay_io_error(exc) from exc
     try:
-        driver = semantic_driver(settings)
-        try:
-            store = SemanticGraphStore(
-                driver=driver, database=settings.retail_neo4j_database
-            )
+        with open_semantic_reader(settings) as reader:
+            # `open_semantic_reader` is typed to the general `SemanticRead` protocol, which
+            # does not declare `mapped_concepts` -- K9's own read, specific to
+            # `SemanticGraphStore`, the only thing `build_semantic_reader` ever constructs.
+            store = cast(SemanticGraphStore, reader)
             evidence = evidence_from_mappings(ontology, store.mapped_concepts())
-        finally:
-            driver.close()
     except (RuntimeError, SemanticReadError) as exc:
+        raise _unavailable(exc) from exc
+    except (ValueError, IndexError) as exc:
+        # neo4j's own URI parsing can raise a bare ValueError/IndexError (a malformed IPv6
+        # host, say) before it ever constructs a DriverError -- scoped narrowly to this one
+        # driver-open-and-query block, so it can't mask an unrelated bug elsewhere.
         raise _unavailable(exc) from exc
     except Exception as exc:
         if _is_graph_error(exc):
@@ -191,7 +194,12 @@ def set_business_areas(
         # so it must not be reported as if the caller's body were malformed (422) --
         # read outside the payload-validation try below, same as `_hierarchy` does.
         raise _overlay_io_error(exc) from exc
-    core_payload: Any = json.loads(CORE_PATH.read_text())
+    try:
+        core_payload: Any = json.loads(CORE_PATH.read_text())
+    except (ValueError, OSError) as exc:
+        # Same deployment-fault story as the overlay above: a missing or corrupt shipped
+        # core file is not something this request's own body can be blamed for.
+        raise _overlay_io_error(exc) from exc
     areas = [
         BusinessAreaNode(
             id=item.id,
@@ -207,10 +215,16 @@ def set_business_areas(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # K9's graph query runs before the write, not after: `write_overlay` below durably
+    # commits the change, and a transient graph blip must never report a failed PUT for a
+    # change that in fact succeeded. Business-area PUTs never touch the ontology's
+    # concept-to-table mappings, so `supported` computed now is exactly the fact after the
+    # write too.
+    supported = _supported(settings)
     try:
         write_overlay(path, payload)
     except OSError as exc:
         raise _overlay_io_error(exc, verb="written") from exc
     return _hierarchy_out(
-        _hierarchy(settings), _supported(settings), only_supported=False
+        build_hierarchy(core_payload, payload), supported, only_supported=False
     )
