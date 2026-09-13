@@ -883,6 +883,64 @@ class TestP3Verification:
         finally:
             registry.delete("livetest_kpi__adopted")
 
+    def test_one_bad_kpi_proposal_does_not_block_another_from_adopting(
+        self, proposals: ProposalStore, control_plane: Any
+    ) -> None:
+        """Round-2 review finding: a whole-batch validation used to raise for every
+        accepted-and-unapplied KPI proposal over one bad payload, misattributing the
+        failure to whatever proposal a later, unrelated accept happened to decide.
+        ``adopt_accepted`` now isolates the failure to the row that actually caused it."""
+        from egpt_retail.kpi.store import KpiRegistryStore
+
+        registry = KpiRegistryStore(control_plane)
+        registry.ensure_schema()
+        bad = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__bad_area",
+            payload={
+                "identifier": "livetest_kpi__bad_area",
+                "name": "Bad area",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "not_a_real_business_area",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        good = Proposal(
+            kind=ProposalKind.KPI,
+            target="livetest_kpi__good_area",
+            payload={
+                "identifier": "livetest_kpi__good_area",
+                "name": "Good area",
+                "sql": "SELECT count(*) FROM crm_contact",
+                "grain": "overall",
+                "business_area": "customer",
+                "source_tables": ["crm_contact"],
+            },
+            proposer=PROPOSER,
+        )
+        proposals.propose_many([bad, good])
+        proposals.accept([bad.identifier, good.identifier], "livetest_reviewer")
+        try:
+            adopted = registry.adopt_accepted(proposals)
+            assert adopted == ("livetest_kpi__good_area",)
+            assert registry.get("livetest_kpi__good_area") is not None
+            assert registry.get("livetest_kpi__bad_area") is None
+
+            good_row = proposals.get(good.identifier)
+            assert good_row is not None
+            assert good_row.applied_at is not None
+            assert good_row.apply_error is None
+
+            bad_row = proposals.get(bad.identifier)
+            assert bad_row is not None
+            assert bad_row.applied_at is None
+            assert bad_row.apply_error is not None
+            assert "not_a_real_business_area" in bad_row.apply_error
+        finally:
+            registry.delete("livetest_kpi__good_area")
+
     def test_refresh_puts_a_registered_kpi_into_review_and_stamps_the_rest(
         self, control_plane: Any, driver: Any
     ) -> None:

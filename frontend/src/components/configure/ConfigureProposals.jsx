@@ -183,6 +183,16 @@ export default function ConfigureProposals() {
   setBusy(proposal.id, true);
   try {
    const updated = await acceptProposal(proposal.id);
+   // A 200 here only means the decision was recorded -- `apply_error` set (with
+   // `applied_at` still null) means the KPI registry adoption itself failed after that.
+   // Surfacing it and leaving the card in place beats removing it as if it had fully
+   // succeeded, which is what a plain `catch` block can never see since this path
+   // never throws.
+   if (updated.apply_error) {
+    setActionError(updated.apply_error);
+    setBusy(proposal.id, false);
+    return;
+   }
    onApplied(!!updated.applied_at);
    // A brief pause so the "Added to your KPI registry" note is actually seen before the
    // card leaves the list, rather than the accept and the disappearance looking like one

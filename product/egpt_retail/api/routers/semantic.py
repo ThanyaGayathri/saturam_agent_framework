@@ -192,18 +192,23 @@ def _adopt_if_kpi(
     connection separate from ``kpi_store``'s, so the two writes are not one transaction, a
     pre-existing gap in ``adopt_accepted`` this router now exercises on every accept rather
     than an offline batch job (a crash between them just means the next sweep re-adopts, since
-    ``save`` is an idempotent upsert). A raise from the sweep (e.g. a *different*
-    accepted-but-unapplied KPI proposal's payload no longer validates against the current
-    vocabulary) must not turn an already-committed decision into a bare 500 with no retry path
-    -- so it is caught here and recorded as this request's own KPI proposals' ``apply_error``,
-    mirroring how ``apply_accepted`` already reports a failed graph write instead of raising.
+    ``save`` is an idempotent upsert).
+
+    ``adopt_accepted`` itself now records a failed proposal's own ``apply_error`` and moves on
+    to the next one (round 2 of review: a whole-batch validation used to raise for *every*
+    accepted-and-unapplied KPI proposal over one bad payload, and this router's own except
+    below used to misattribute that error to whichever proposal happened to be decided by the
+    request that triggered the sweep, rather than the one actually at fault). What is caught
+    here is only whatever ``adopt_accepted`` cannot attribute to a single row -- e.g. its own
+    initial ``proposals.list(...)`` read failing -- and it is still recorded against this
+    request's own KPI proposals as the best available attribution, not a precise one.
     """
     decided = store.get_many(proposal_ids)
     if not any(p.kind is ProposalKind.KPI for p in decided):
         return
     try:
         kpi_store.adopt_accepted(store)
-    except Exception as error:  # noqa: BLE001 -- recorded per proposal, not swallowed
+    except Exception as error:  # noqa: BLE001 -- best-effort attribution, not swallowed
         message = f"{type(error).__name__}: {error}"
         for proposal in decided:
             if proposal.kind is ProposalKind.KPI:

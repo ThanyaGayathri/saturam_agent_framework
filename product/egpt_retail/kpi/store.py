@@ -674,6 +674,18 @@ class KpiRegistryStore:
         stayed accepted and unapplied forever. The payload was validated into a full
         ``KpiDefinition`` at propose time, so adoption has nothing left to decide; it saves
         and stamps ``applied_at``, the same contract ``apply_accepted`` keeps for the graph.
+
+        One proposal at a time, each in its own try/except -- mirroring
+        ``ProposalStore.apply_accepted``'s own per-proposal handling on the graph path. This
+        used to validate the whole pending batch before writing any of it, on the theory that
+        validating inside the loop left a batch half-applied with no record of which row broke
+        it. In practice that meant one payload that no longer validates (e.g. a ``business_area``
+        dropped from the vocabulary overlay since it was proposed) raised for the *entire*
+        sweep -- and since this sweep runs on every accept, not just an offline batch job, that
+        one bad row then blocked every other, unrelated KPI proposal from ever adopting, with the
+        exception attributing to whichever caller's accept happened to trigger the sweep rather
+        than to the row actually at fault. Recording the failure on the proposal that caused it
+        and continuing is strictly more informative than raising once for the whole batch.
         """
         from egpt_retail.semantic.proposals import (
             ProposalKind,
@@ -688,18 +700,16 @@ class KpiRegistryStore:
             )
             if proposal.applied_at is None
         ]
-        # Validate the whole batch before writing any of it. Validating inside the loop meant
-        # a bad second payload -- a business_area the deployment does not have -- left the
-        # first adopted, the third never looked at, and the exception carrying no hint that
-        # the run was half-applied. A batch that cannot all be adopted adopts none.
-        built = [
-            (proposal, validate_payload(ProposalKind.KPI, proposal.payload))
-            for proposal in pending
-        ]
 
         adopted: List[str] = []
-        for proposal, definition in built:
-            self.save(definition)
+        for proposal in pending:
+            try:
+                definition = validate_payload(ProposalKind.KPI, proposal.payload)
+                self.save(definition)
+            except Exception as error:  # noqa: BLE001 -- recorded on its own proposal, not swallowed
+                message = f"{type(error).__name__}: {error}"
+                proposals.record_apply_error(proposal.identifier, message)
+                continue
             proposals.mark_applied(proposal.identifier)
             adopted.append(definition.identifier)
         return tuple(adopted)
