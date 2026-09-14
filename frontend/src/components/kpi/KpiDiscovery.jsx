@@ -228,9 +228,19 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
  // governed KPI yet (a dashboard tile needs a registered identifier, so "Add to my metrics"
  // comes first), and a blocked metric has nothing to compute from. A dashed box that just
  // sits there reads as broken.
+ // `text` is the plain form (for assistive tech); `node` is what the hover tooltip renders,
+ // which is a real element rather than a `title` so the action can be set in bold italics.
  const notSelectableReason = row.suggested
-  ? "Add to my metrics first — a dashboard can only be built on a registered KPI."
-  : "Needs data you haven't connected.";
+  ? {
+     text: "\"Add to my metrics first\" — a dashboard can only be built on a registered KPI.",
+     node: (
+      <>
+       <strong className="font-bold italic text-text-primary">"Add to my metrics first"</strong> — a dashboard
+       can only be built on a registered KPI.
+      </>
+     ),
+    }
+  : { text: "Needs data you haven't connected.", node: "Needs data you haven't connected." };
 
  return (
   <div
@@ -252,12 +262,19 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
       {selected && <Check size={12} />}
      </span>
     ) : (
-     <span
-      role="img"
-      aria-label={`Not selectable: ${notSelectableReason}`}
-      title={notSelectableReason}
-      className="mt-0.5 h-[18px] w-[18px] shrink-0 cursor-not-allowed rounded-[5px] border border-dashed border-border-light"
-     />
+     <span className="group relative mt-0.5 shrink-0">
+      <span
+       role="img"
+       aria-label={`Not selectable: ${notSelectableReason.text}`}
+       className="block h-[18px] w-[18px] cursor-not-allowed rounded-[5px] border border-dashed border-border-light"
+      />
+      <span
+       role="tooltip"
+       className="pointer-events-none absolute left-0 top-6 z-20 hidden w-64 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-normal leading-snug text-text-secondary shadow-lg group-hover:block"
+      >
+       {notSelectableReason.node}
+      </span>
+     </span>
     )}
     <div className="min-w-0 flex-1">
      <h4 className="text-sm font-bold text-text-primary">{kpi.name}</h4>
