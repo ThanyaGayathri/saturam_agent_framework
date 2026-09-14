@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, AreaChart, BarChart3, Loader2, LineChart, ScatterChart, Table2 } from "lucide-react";
 import { smoothLinePath } from "../shared/DemoSparkCharts";
 
 /**
@@ -17,6 +17,12 @@ import { smoothLinePath } from "../shared/DemoSparkCharts";
  * to my metrics" starts so a new KPI has today's point at once), `ready` (`data` is the
  * `KpiSeries`), `error`. A `ready` series with no points is the api's honest "not computed
  * yet", and offers the compute rather than a blank.
+ *
+ * How to plot the same points is a separate, purely local choice (`CHART_KINDS` below) --
+ * scatter (points only, no connecting line), line, bar, area (line with a filled area under
+ * it), or a plain table -- kept in this component's own state, not persisted and not sent
+ * anywhere: it never leaves the browser and resets to `line` whenever the panel opens on a
+ * different KPI.
  */
 
 const VIEW_W = 320;
@@ -26,6 +32,15 @@ const X_CAPTION_Y = 120;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STROKE = "#6941c6";
 const MAX_CHIPS = 6;
+
+const CHART_KINDS = [
+  { id: "scatter", label: "Scatter", description: "as points, no connecting line", icon: ScatterChart },
+  { id: "line", label: "Line", description: "as a line", icon: LineChart },
+  { id: "bar", label: "Bar", description: "as bars", icon: BarChart3 },
+  { id: "area", label: "Area", description: "as a filled line", icon: AreaChart },
+  { id: "table", label: "Table", description: "as a table", icon: Table2 },
+];
+const DEFAULT_CHART_KIND = "line";
 
 const DATE_FORMAT = { month: "short", day: "numeric", timeZone: "UTC" };
 
@@ -70,8 +85,21 @@ function dimensionLabel(dimension) {
     .join(" · ");
 }
 
-/** The dated line: x by date across the window ending at `asOf`, y by value. */
-function TrendChart({ points, unit, asOf, days }) {
+/** How wide one bar chart bar is, in view units -- clamped so a single point (nothing to
+ * space against) is not absurdly wide and a dense series does not overlap. */
+function barWidth(xs) {
+  if (xs.length < 2) return 20;
+  let minGap = Infinity;
+  const sorted = [...xs].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i += 1) minGap = Math.min(minGap, sorted[i] - sorted[i - 1]);
+  return Math.min(Math.max(minGap * 0.5, 3), 24);
+}
+
+/** The dated chart: x by date across the window ending at `asOf`, y by value. `kind` picks
+ * how the same points are drawn -- `scatter` (points only), `line`, `bar` (a zero-anchored
+ * bar per point) or `area` (line with the area under it filled) -- everything else (the axes,
+ * the hover crosshair and tooltip, the date placement) is shared. */
+function TrendChart({ points, unit, asOf, days, kind = DEFAULT_CHART_KIND }) {
   const ref = useRef(null);
   const [hover, setHover] = useState(null);
 
@@ -82,24 +110,32 @@ function TrendChart({ points, unit, asOf, days }) {
     .map((p) => ({ ...p, t: new Date(p.at).getTime() }))
     .filter((p) => !Number.isNaN(p.t));
   const values = plotted.map((p) => p.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const flat = max === min;
-  const span = flat ? 1 : max - min;
+  // A bar chart reads its height from a zero baseline -- a bar that does not start at zero
+  // misstates the value it stands for -- so its domain always includes 0; every other kind
+  // keeps the tight min/max it always had, which is what makes a small change visible.
+  const domainMin = kind === "bar" ? Math.min(...values, 0) : Math.min(...values);
+  const domainMax = kind === "bar" ? Math.max(...values, 0) : Math.max(...values);
+  const flat = domainMax === domainMin;
+  const span = flat ? 1 : domainMax - domainMin;
   const midY = (PLOT.y0 + PLOT.y1) / 2;
+  const yFor = (v) => (flat ? midY : PLOT.y1 - ((v - domainMin) / span) * (PLOT.y1 - PLOT.y0));
   const pts = plotted.map((p) => ({
     x: PLOT.x0 + (Math.min(Math.max(p.t, start), end) - start) / (end - start || 1) * (PLOT.x1 - PLOT.x0),
-    y: flat ? midY : PLOT.y1 - ((p.value - min) / span) * (PLOT.y1 - PLOT.y0),
+    y: yFor(p.value),
     point: p,
   }));
-  const line = pts.length > 1 ? smoothLinePath(pts) : "";
-  const area = line ? `${line} L ${pts[pts.length - 1].x},${PLOT.y1} L ${pts[0].x},${PLOT.y1} Z` : "";
+  const showLine = kind === "line" || kind === "area";
+  const showDots = kind !== "bar";
+  const line = showLine && pts.length > 1 ? smoothLinePath(pts) : "";
+  const area = kind === "area" && line ? `${line} L ${pts[pts.length - 1].x},${PLOT.y1} L ${pts[0].x},${PLOT.y1} Z` : "";
+  const baselineY = yFor(0);
+  const barW = kind === "bar" ? barWidth(pts.map((p) => p.x)) : 0;
   const yTicks = flat
-    ? [{ y: midY, label: formatAxis(min) }]
+    ? [{ y: midY, label: formatAxis(domainMin) }]
     : [
-        { y: PLOT.y0, label: formatAxis(max) },
-        { y: midY, label: formatAxis((max + min) / 2) },
-        { y: PLOT.y1, label: formatAxis(min) },
+        { y: PLOT.y0, label: formatAxis(domainMax) },
+        { y: midY, label: formatAxis((domainMax + domainMin) / 2) },
+        { y: PLOT.y1, label: formatAxis(domainMin) },
       ];
   const xTicks = [
     { x: PLOT.x0, anchor: "start", label: formatBusinessDate(new Date(start).toISOString()) },
@@ -118,6 +154,8 @@ function TrendChart({ points, unit, asOf, days }) {
     setHover(best);
   };
 
+  const kindMeta = CHART_KINDS.find((k) => k.id === kind);
+
   return (
     <div
       ref={ref}
@@ -132,7 +170,7 @@ function TrendChart({ points, unit, asOf, days }) {
         className="block overflow-visible"
         preserveAspectRatio="xMidYMid meet"
         role="img"
-        aria-label={`${pts.length} nightly value${pts.length === 1 ? "" : "s"} over the last ${days} days`}
+        aria-label={`${pts.length} nightly value${pts.length === 1 ? "" : "s"} over the last ${days} days, shown ${kindMeta?.description || "as a line"}`}
       >
         {yTicks.map((t) => (
           <g key={t.y}>
@@ -144,18 +182,34 @@ function TrendChart({ points, unit, asOf, days }) {
           <text key={t.x} x={t.x} y={X_CAPTION_Y} textAnchor={t.anchor} fontSize="9" fill="#717680">{t.label}</text>
         ))}
         {area ? <path d={area} fill={STROKE} fillOpacity="0.12" /> : null}
+        {kind === "bar"
+          ? pts.map((p) => (
+              <rect
+                key={p.point.at}
+                x={p.x - barW / 2}
+                y={Math.min(p.y, baselineY)}
+                width={barW}
+                height={Math.max(Math.abs(p.y - baselineY), 1)}
+                rx="1.5"
+                fill={STROKE}
+                fillOpacity={hover?.point.at === p.point.at ? 1 : 0.85}
+              />
+            ))
+          : null}
         {line ? <path d={line} fill="none" stroke={STROKE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /> : null}
-        {pts.map((p) => (
-          <circle
-            key={p.point.at}
-            cx={p.x}
-            cy={p.y}
-            r={hover?.point.at === p.point.at ? 3.6 : 2.6}
-            fill={STROKE}
-            stroke="#ffffff"
-            strokeWidth="1.2"
-          />
-        ))}
+        {showDots
+          ? pts.map((p) => (
+              <circle
+                key={p.point.at}
+                cx={p.x}
+                cy={p.y}
+                r={hover?.point.at === p.point.at ? 3.6 : 2.6}
+                fill={STROKE}
+                stroke="#ffffff"
+                strokeWidth="1.2"
+              />
+            ))
+          : null}
         {hover ? (
           <line x1={hover.x} x2={hover.x} y1={PLOT.y0} y2={PLOT.y1} stroke={STROKE} strokeOpacity="0.4" strokeWidth="0.75" />
         ) : null}
@@ -173,6 +227,62 @@ function TrendChart({ points, unit, asOf, days }) {
           {formatBusinessDate(hover.point.at)} · {formatKpiValue(unit, hover.point.value)}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Every point as a row, newest first -- unlike the chart, which drops a night whose formula
+ * returned NULL (visually indistinguishable from a night with no row at all), the table shows
+ * it as "—": every row here is a night gold actually materialised. */
+function TrendTable({ points, unit }) {
+  if (!points.length) return null;
+  const rows = [...points].reverse();
+  return (
+    <div className="max-h-[220px] overflow-y-auto rounded-lg border border-border" data-testid="kpi-trend-table">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-surface-secondary text-text-muted">
+          <tr>
+            <th className="px-2.5 py-1.5 text-left font-semibold">Date</th>
+            <th className="px-2.5 py-1.5 text-right font-semibold">Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={p.at} className="border-t border-border">
+              <td className="px-2.5 py-1.5 text-text-secondary">{formatBusinessDate(p.at)}</td>
+              <td className="px-2.5 py-1.5 text-right font-medium text-text-primary">{formatKpiValue(unit, p.value)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The scatter/line/bar/area/table toggle -- icon buttons, `title` doubling as the tooltip
+ * and the accessible name, since five labels would not fit this panel's width as text. */
+function ChartKindPicker({ kind, onChange }) {
+  return (
+    <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface-secondary p-0.5" role="group" aria-label="Chart type">
+      {CHART_KINDS.map((k) => {
+        const Icon = k.icon;
+        const selected = kind === k.id;
+        return (
+          <button
+            key={k.id}
+            type="button"
+            title={k.label}
+            aria-label={k.label}
+            aria-pressed={selected}
+            onClick={() => onChange(k.id)}
+            className={`rounded-md p-1.5 transition-colors ${
+              selected ? "bg-surface text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            <Icon size={14} />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -200,6 +310,14 @@ export default function KpiTrend({ state, unit, resultShape, onRetry, onCompute,
   const hasPoints = points.some((p) => p.value !== null && p.value !== undefined);
   const dimensions = data?.dimensions || [];
   const valueUnit = data?.unit || unit;
+
+  // A per-view choice, not part of the KPI: never persisted, never sent to the api. Reset to
+  // the default whenever the panel starts showing a different KPI's series, so "line" is
+  // always what a freshly opened panel shows, whatever was picked for the last one.
+  const [chartKind, setChartKind] = useState(DEFAULT_CHART_KIND);
+  useEffect(() => {
+    setChartKind(DEFAULT_CHART_KIND);
+  }, [data?.kpi_identifier]);
 
   let body;
   if (resultShape === "rowset") {
@@ -288,8 +406,15 @@ export default function KpiTrend({ state, unit, resultShape, onRetry, onCompute,
             ) : null}
           </div>
         ) : null}
-        <div className="mt-3">
-          <TrendChart points={points} unit={valueUnit} asOf={data.as_of} days={data.days || 30} />
+        <div className="mt-3 flex items-center justify-end">
+          <ChartKindPicker kind={chartKind} onChange={setChartKind} />
+        </div>
+        <div className="mt-2">
+          {chartKind === "table" ? (
+            <TrendTable points={points} unit={valueUnit} />
+          ) : (
+            <TrendChart points={points} unit={valueUnit} asOf={data.as_of} days={data.days || 30} kind={chartKind} />
+          )}
         </div>
         <p className="mt-2 text-[11px] text-text-muted">
           {single
