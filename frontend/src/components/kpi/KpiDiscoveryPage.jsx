@@ -147,6 +147,9 @@ export default function KpiDiscoveryPage() {
  // The pending poll timer between two `GET /kpis/suggestions/{run_id}` calls -- cleared on
  // unmount and on a new click, so a stale loop never wakes up and polls a run nobody wants.
  const suggestPollTimerRef = useRef(null);
+ // The last phase any poll (or the 202) reported for the in-flight run, read by the ceiling
+ // timeout below -- state updates are async, so a ref is what a synchronous check can read.
+ const lastPhaseRef = useRef(null);
  const adoptAbortRefs = useRef(new Map());
  useEffect(
   () => () => {
@@ -213,11 +216,13 @@ export default function KpiDiscoveryPage() {
   const controller = new AbortController();
   suggestAbortRef.current = controller;
   const startedAt = Date.now();
+  lastPhaseRef.current = null;
   setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt });
 
-  // `phase` is the stage the run was in when it failed (the backend keeps it on a `failed`
-  // row for exactly this) -- absent for a client-side failure (ceiling, rejected POST,
-  // network error), which never reached a server-reported stage.
+  // `phase` is the last stage a poll reported before the run failed or was given up on --
+  // the backend keeps it on a `failed` row for this (see the ceiling call below for the
+  // client-side case). Null when nothing was ever reported (a rejected POST, a network
+  // error before the first poll).
   const fail = (message, phase = null) =>
    setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "error", error: message, phase });
   const failWith = (err) => {
@@ -226,18 +231,23 @@ export default function KpiDiscoveryPage() {
   };
   // What every poll (and the 202) tells the panel: the stage the run is in and the
   // deployment's typical duration. Either may be null on a given read; keep what we had.
-  const absorb = (run) => (prev) => ({
-   ...prev,
-   runId: run.id || prev.runId,
-   phase: run.phase ?? prev.phase,
-   typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
-  });
+  const absorb = (run) => (prev) => {
+   lastPhaseRef.current = run.phase ?? prev.phase;
+   return {
+    ...prev,
+    runId: run.id || prev.runId,
+    phase: lastPhaseRef.current,
+    typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
+   };
+  };
 
   const poll = (runId) => {
    if (controller.signal.aborted) return;
    if (Date.now() - startedAt > SUGGEST_CEILING_MS) {
     controller.abort();
-    fail("The run is taking longer than expected. Try again in a few minutes.");
+    // The run may well have reported a stage on an earlier poll -- the ceiling is the
+    // client giving up, not a run with no known phase, so carry the last one we saw.
+    fail("The run is taking longer than expected. Try again in a few minutes.", lastPhaseRef.current);
     return;
    }
    fetchKpiSuggestionRun(runId, { signal: controller.signal })
