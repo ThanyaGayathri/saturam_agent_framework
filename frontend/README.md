@@ -68,8 +68,13 @@ What was already decided about it, and still applies:
   after half a minute, giving up at 4 minutes -- until the row is `succeeded` (its `result` is
   rendered through the same `rowFromSuggestion` path as before) or `failed` (its `error` is
   shown as-is; a timeout names the bound it hit). A run is two frontier-tier model calls and
-  takes minutes, so it is never fired on page load and the button counts elapsed seconds while
-  it waits. Adopting a suggestion is still `POST /kpis` (`createKpi`); nothing else is stored.
+  takes minutes, so it is never fired on page load. While it waits, the bar becomes a status
+  panel (`SuggestionRunPanel.jsx`): the row's `typical_duration_seconds` (the deployment's
+  own recent run times, contract 1.1.6) sets the expectation up front, its `phase` drives a
+  three-step stepper (reading, proposing, checking) instead of a stopwatch, Cancel stops the
+  polling (the server run finishes on its own and is never read again), and a one-line receipt
+  -- how many, how long, how many adoptable -- stays up until dismissed. Adopting a suggestion
+  is still `POST /kpis` (`createKpi`); nothing else is stored.
   The synchronous `GET /kpis/suggestions` is deprecated in the contract and no longer called
   here. Against the stub server the poll never turns terminal (the stub serves the `queued`
   example every time), which is what the 4-minute ceiling is for.

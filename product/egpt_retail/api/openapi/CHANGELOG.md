@@ -109,6 +109,25 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.6 — 2026-09-15 — kpis: `KpiSuggestionRun.phase` and `.typical_duration_seconds` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- two optional, nullable fields on an
+existing schema and one new enum, nothing removed or renamed -- so no negotiation and no
+major bump.
+
+- **`KpiSuggestionRun.phase`** (`KpiSuggestionRunPhase`: `reading` | `proposing` |
+  `checking`, nullable). 1.1.5 made the suggestion pass a run to poll, but a poll that only
+  ever said `running` left the screen a stopwatch and nothing else to show for a wait of a
+  minute or two. The executor now records the stage the pass is in as
+  `suggestions/run.py` reports each one: gathering the semantic layer, the model calls,
+  assembly and feasibility. Null on a `queued` run; kept once terminal, so a `failed` run
+  says where it failed.
+- **`KpiSuggestionRun.typical_duration_seconds`** (number, nullable). The median wall-clock
+  duration of the deployment's last five successful runs, read from the run table with the
+  row on both the `202` and the poll, so the screen can say "usually about a minute and a
+  half" from this deployment's own evidence before the run has done anything. Null until a
+  run has succeeded. An expectation, not a bound.
+
 ## 1.1.5 — 2026-09-14 — kpis: suggestion runs, `POST /kpis/suggestions` + `GET /kpis/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for #254 (part of #222). Additive -- two new

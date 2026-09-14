@@ -12,6 +12,12 @@ would have returned, *including* ``proposed_sql`` -- the ``kpis:write`` gate on 
 is applied when the row is read, per caller, exactly as the synchronous route applies it, so
 one run serves a viewer and an editor differently without running twice.
 
+Two more things the row carries for the person waiting on it, both read by the poll
+(``KpiSuggestionRun.phase`` / ``.typical_duration_seconds``): which of the pass's three
+stages a ``running`` row is in, written by the executor as the pipeline reports them, and a
+median of how long this deployment's recent runs took, so the screen can say "usually about
+a minute and a half" from evidence rather than a guess.
+
 Same self-provisioning posture as ``kpi/store.py`` and ``semantic/proposals.py`` (and the
 same schema): created by the code that owns it, under the shared advisory lock, at boot.
 """
@@ -28,6 +34,8 @@ from typing import Any, Mapping, Optional, Tuple
 
 __all__ = [
     "RUN_SCHEMA",
+    "TYPICAL_DURATION_SAMPLE",
+    "SuggestionRunPhase",
     "SuggestionRunRecord",
     "SuggestionRunStatus",
     "SuggestionRunStore",
@@ -35,6 +43,11 @@ __all__ = [
 
 #: The control-plane schema the registry (K11) and proposals (K7) already live in.
 RUN_SCHEMA = "semantic"
+
+#: How many recent successful runs the typical duration is a median of. Small on purpose:
+#: a deployment whose data grew, or whose model tier changed, should see the estimate
+#: follow within a handful of runs rather than average over a month of history.
+TYPICAL_DURATION_SAMPLE = 5
 
 
 class SuggestionRunStatus(str, Enum):
@@ -45,6 +58,16 @@ class SuggestionRunStatus(str, Enum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+
+
+class SuggestionRunPhase(str, Enum):
+    """The three stages a ``running`` pass moves through, in order. What the screen's
+    stepper shows; ``suggestions/run.py`` reports each as it begins. A ``running`` row
+    with no phase yet is one whose executor has started but not reached the first stage."""
+
+    READING = "reading"  # gathering the semantic layer the agents are shown
+    PROPOSING = "proposing"  # the model calls
+    CHECKING = "checking"  # assembly and feasibility against the snapshot
 
 
 _OPEN = (SuggestionRunStatus.QUEUED.value, SuggestionRunStatus.RUNNING.value)
@@ -70,6 +93,9 @@ class SuggestionRunRecord:
     finished_at: Optional[datetime] = None
     result: Optional[Mapping[str, Any]] = None
     error: Optional[str] = None
+    #: Set while ``running``, as the pipeline reports each stage; left as it was once the
+    #: row is terminal (a ``failed`` row's phase says where it failed).
+    phase: Optional[SuggestionRunPhase] = None
 
     @property
     def terminal(self) -> bool:
@@ -91,23 +117,39 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         finished_at   timestamptz,
         result        jsonb,
         error         text,
+        phase         text,
         CONSTRAINT kpi_suggestion_run_status_valid
             CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
         CONSTRAINT kpi_suggestion_run_outcome_matches_status
             CHECK ((status = 'succeeded') = (result IS NOT NULL)
                AND (status = 'failed') = (error IS NOT NULL))
     )""",
+        # A table provisioned before `phase` existed (contract 1.1.5) gains the column in
+        # place; the constraint is added once, guarded, since ADD CONSTRAINT has no IF NOT
+        # EXISTS of its own.
+        f"""ALTER TABLE {schema}.kpi_suggestion_run
+        ADD COLUMN IF NOT EXISTS phase text""",
+        f"""DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'kpi_suggestion_run_phase_valid'
+              AND conrelid = '{schema}.kpi_suggestion_run'::regclass
+        ) THEN
+            ALTER TABLE {schema}.kpi_suggestion_run
+            ADD CONSTRAINT kpi_suggestion_run_phase_valid
+            CHECK (phase IS NULL OR phase IN ('reading', 'proposing', 'checking'));
+        END IF;
+    END $$""",
         f"""CREATE INDEX IF NOT EXISTS kpi_suggestion_run_open
         ON {schema}.kpi_suggestion_run (status, created_at)""",
         f"""COMMENT ON TABLE {schema}.kpi_suggestion_run IS
         'One row per POST /kpis/suggestions (#254). Polled by GET /kpis/suggestions/{{id}}; '
-        'result is the KpiSuggestionList once succeeded, error the reason once failed.'""",
+        'result is the KpiSuggestionList once succeeded, error the reason once failed; '
+        'phase is the stage a running row is in.'""",
     )
 
 
-_COLUMNS = (
-    "id, status, business_area, created_at, started_at, finished_at, result, error"
-)
+_COLUMNS = "id, status, business_area, created_at, started_at, finished_at, result, error, phase"
 
 
 class SuggestionRunStore:
@@ -174,6 +216,20 @@ class SuggestionRunStore:
         """Async variant."""
         await asyncio.to_thread(self.mark_running, identifier)
 
+    def mark_phase(self, identifier: str, phase: SuggestionRunPhase) -> None:
+        """Record which stage a ``running`` run has reached. A no-op on any other row: a
+        phase reported after the timeout closed the row must not reopen or relabel it."""
+        self._update(
+            "phase = %s",
+            (SuggestionRunPhase(phase).value,),
+            identifier,
+            only_from=(SuggestionRunStatus.RUNNING.value,),
+        )
+
+    async def amark_phase(self, identifier: str, phase: SuggestionRunPhase) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.mark_phase, identifier, phase)
+
     def mark_succeeded(self, identifier: str, result: Mapping[str, Any]) -> None:
         """Terminal: the run's ``KpiSuggestionList`` as JSON. A no-op if the row was already
         closed -- by the stale guard, for one, if the run outlived its window."""
@@ -239,6 +295,37 @@ class SuggestionRunStore:
         """Async variant."""
         return await asyncio.to_thread(self.get, identifier, stale_after=stale_after)
 
+    def typical_duration(
+        self, *, sample: int = TYPICAL_DURATION_SAMPLE
+    ) -> Optional[float]:
+        """How long a run takes here, in seconds: the median of the last ``sample``
+        successful runs' ``started_at`` -> ``finished_at``, or ``None`` before any has
+        succeeded. Successful runs only -- a run the timeout closed says how long the bound
+        is, not how long a run takes -- and a median, so one outlier does not move it."""
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"""SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY seconds)
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (finished_at - started_at)) AS seconds
+                        FROM {self._schema}.kpi_suggestion_run
+                        WHERE status = 'succeeded'
+                          AND started_at IS NOT NULL
+                          AND finished_at IS NOT NULL
+                        ORDER BY finished_at DESC
+                        LIMIT %s
+                    ) recent""",
+                (sample,),
+            )
+            row = cursor.fetchone()
+        seconds = row[0] if row is not None else None
+        return float(seconds) if seconds is not None else None
+
+    async def atypical_duration(
+        self, *, sample: int = TYPICAL_DURATION_SAMPLE
+    ) -> Optional[float]:
+        """Async variant."""
+        return await asyncio.to_thread(self.typical_duration, sample=sample)
+
     # --- internals ---------------------------------------------------------------------
 
     def _update(
@@ -273,6 +360,7 @@ def _record(row: Any) -> SuggestionRunRecord:
         finished_at,
         result,
         error,
+        phase,
     ) = row
     if isinstance(result, str):  # a driver that hands jsonb back undecoded
         result = json.loads(result)
@@ -285,4 +373,5 @@ def _record(row: Any) -> SuggestionRunRecord:
         finished_at=finished_at,
         result=result,
         error=error,
+        phase=SuggestionRunPhase(phase) if phase is not None else None,
     )

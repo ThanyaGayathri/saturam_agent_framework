@@ -236,6 +236,8 @@
                   finished_at: null
                   result: null
                   error: null
+                  phase: null
+                  typical_duration_seconds: 94.0
       "422":
         description: The business area is not in the deployment's vocabulary.
         content:
@@ -345,6 +347,8 @@
                   finished_at: null
                   result: null
                   error: null
+                  phase: proposing
+                  typical_duration_seconds: 94.0
               succeeded:
                 value:
                   id: sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
@@ -371,6 +375,8 @@
                     notes: ""
                     semantic_snapshot: "r3-contract.1"
                   error: null
+                  phase: checking
+                  typical_duration_seconds: 94.0
               failed:
                 summary: The bound was hit; the row says so instead of the request hanging.
                 value:
@@ -382,6 +388,8 @@
                   finished_at: "2026-09-14T10:03:01Z"
                   result: null
                   error: "The suggestion run did not finish within 180s."
+                  phase: proposing
+                  typical_duration_seconds: 94.0
       "404":
         description: No such run.
         content:
