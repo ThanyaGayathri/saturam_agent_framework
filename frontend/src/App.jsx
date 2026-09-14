@@ -27,6 +27,7 @@ const PlaygroundHomeAlt = lazy(() => import("./components/PlaygroundHomeAlt"));
 const PlaygroundRouter = lazy(() => import("./components/PlaygroundRouter"));
 const KpiDiscoveryPage = lazy(() => import("./components/kpi/KpiDiscoveryPage"));
 const ConfigureSemanticLayer = lazy(() => import("./components/configure/ConfigureSemanticLayer"));
+const ConfigureProposals = lazy(() => import("./components/configure/ConfigureProposals"));
 const UseCaseComposeScreen = lazy(() => import("./components/usecase/UseCaseComposeScreen"));
 const UseCasePreflightScreen = lazy(() => import("./components/usecase/UseCasePreflightScreen"));
 const UseCasePlanScreen = lazy(() => import("./components/usecase/UseCasePlanScreen"));
@@ -141,6 +142,7 @@ const screens = [
   { path: "/playground/build", name: "Build", group: "Playground" },
   { path: "/playground/store-ops", name: "Store Ops", group: "Playground" },
   { path: "/configure/internal-sources", name: "Configure: Internal Sources", group: "Configure" },
+  { path: "/configure/proposals", name: "Configure: Proposals", group: "Configure" },
   { path: "/configure/models", name: "Configure: Models", group: "Configure" },
   { path: "/configure/external", name: "Configure: External", group: "Configure" },
   { path: "/configure/cloud", name: "Configure: Cloud (read-only)", group: "Configure" },
@@ -336,6 +338,7 @@ export default function App() {
               <Route path="external/new" element={<ConfigureExternalForm />} />
               <Route path="external/edit/:id" element={<ConfigureExternalForm />} />
               <Route path="domain-mapping" element={<KpiMappings />} />
+              <Route path="proposals" element={<ConfigureProposals />} />
               {/* Reached from a source card, not from a tab: the semantic layer belongs to the
                   source it was derived from, and a tab of its own would be empty until something
                   is connected. */}

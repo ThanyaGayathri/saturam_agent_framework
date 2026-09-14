@@ -54,6 +54,14 @@ What was already decided about it, and still applies:
   local business-area list (`storage/business-areas.js`) is left as-is; it is not reconciled
   with the shipped 7-area vocabulary `GET /business-areas` returns — the two are allowed to
   coexist, and only real registry rows use the real labels.
+- **The KPI/use-case suggestion review screen is real** (F2, #235): `Configure > Proposals`
+  (`components/configure/ConfigureProposals.jsx`) lists what `egpt-retail suggest` found via
+  `GET /semantic/proposals`, and accepting a KPI proposal
+  (`POST /semantic/proposals/{id}/accept`) adopts it into the registry in the same call — the
+  response's `applied_at` is shown, not assumed. A use-case proposal has no consumer yet, so
+  accepting one only records the decision; the screen says so rather than implying a use case
+  now exists somewhere. Separate from `ConfigureSemanticLayer.jsx`'s own "Needs review" tab,
+  which is an unrelated, still-local per-source mapping-decision UI this issue does not touch.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 

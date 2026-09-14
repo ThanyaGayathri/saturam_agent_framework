@@ -209,45 +209,80 @@ HarvestRequest:
 
 ProposalKind:
   type: string
-  enum: [synonym, question_pattern, sql_filter, personal_data, compliance_tag, concept_mapping, kpi_candidate]
-  description: What an enrichment proposal proposes. Each kind is emitted by an agent under the K14 template and confirmed by a person (D10).
+  enum: [enrichment, mapping, join, authoritative_source, column_meaning, kpi, use_case]
+  description: |
+    What a proposal is about (K7's closed set, `semantic.proposals.ProposalKind`). `kpi` and
+    `use_case` are what `egpt-retail suggest` files; the other five are K4/K8 harvest-time
+    enrichment kinds this review screen also lists but does not specially render.
 
 ProposalDecision:
   type: string
-  enum: [proposed, accepted, rejected]
+  enum: [pending, accepted, rejected]
+  description: K7's `ReviewState`. One way out of `pending`, and no way back.
 
 Proposal:
   type: object
   description: |
-    One enrichment proposal awaiting or past review. An agent proposed it; a person decides.
-    Nothing here reaches the graph until `decision` is `accepted` (D10, G5). `proposed_by`
-    names the skill and version, so a bad batch is attributable to the prompt edit that
-    caused it (G13).
-  required: [id, kind, target, value, rationale, confidence, decision, proposed_by, proposed_at]
+    One thing an agent proposed, and the record of what happened to it (K7,
+    `semantic.proposals.Proposal`). `target` is a plain string -- a concept name, a qualified
+    table, or (for `kind: kpi`) a metric identifier -- and `payload` carries whatever that
+    kind needs to be applied, which is why its shape is not fixed here: a `kpi` payload is a
+    whole KPI definition (`identifier`, `name`, `sql`, `grain`, `business_area`,
+    `source_tables`, plus display-only fields a reviewer wants -- `rationale`, `feasibility`,
+    `feasibility_reason`, `missing_tables`); a `use_case` payload is a question and the KPIs
+    it depends on. Nothing here reaches the graph, or the KPI registry, until `state` is
+    `accepted` (D10, G5) -- and even then, `applied_at` is what says whether it actually
+    landed, not `state` alone.
+  required: [id, kind, target, payload, proposer, state, created_at]
   properties:
     id: {type: string}
     kind:
       $ref: './semantic.yaml#/ProposalKind'
-    target:
-      $ref: './semantic.yaml#/ProposalTarget'
-    value: {type: string}
-    rationale:
+    target: {type: string}
+    payload:
+      type: object
+      additionalProperties: true
+      description: Kind-dependent. See `Proposal`'s own description.
+    proposer:
       type: string
-      description: One sentence naming the input it derives from. A proposal with no traceable source was invented, not derived.
-    confidence:
-      $ref: './common.yaml#/Confidence'
-    decision:
+      description: Which agent or person produced it. Never blank.
+    state:
       $ref: './semantic.yaml#/ProposalDecision'
-    proposed_by:
-      $ref: './common.yaml#/SkillRef'
-    proposed_at:
-      $ref: './common.yaml#/Timestamp'
-    decided_by: {type: [string, "null"]}
+    reviewer: {type: [string, "null"]}
     decided_at:
       oneOf:
         - $ref: './common.yaml#/Timestamp'
         - type: "null"
-    harvest_id: {type: [string, "null"]}
+    decision_note: {type: string, default: ""}
+    applied_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+      description: |
+        Set only once an accepted proposal's effect actually landed (a KPI saved to the
+        registry). An `accepted` proposal with `applied_at: null` is accepted-but-not-yet-
+        landed, or a kind with no consumer today (`use_case`) -- never assume `accepted`
+        alone means "done".
+    apply_error: {type: [string, "null"]}
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+
+ProposalRefusal:
+  type: object
+  description: |
+    One id in a decision request that did not move, and why. A bulk decision is not
+    atomic (K7's own `ReviewOutcome`, deliberately: eleven good decisions committing must
+    not be held hostage by a twelfth id a colleague decided a moment earlier) -- this is
+    how the caller finds out which one, and what its actual state is.
+  required: [id, reason]
+  properties:
+    id: {type: string}
+    reason: {type: string}
+    current_state:
+      oneOf:
+        - $ref: './semantic.yaml#/ProposalDecision'
+        - type: "null"
+    decided_by: {type: [string, "null"]}
 
 ProposalList:
   type: object
@@ -259,6 +294,11 @@ ProposalList:
         $ref: './semantic.yaml#/Proposal'
     counts:
       $ref: './semantic.yaml#/ProposalCounts'
+    refused:
+      type: array
+      items:
+        $ref: './semantic.yaml#/ProposalRefusal'
+      description: Ids from the request that were not pending and so did not move. Empty on a plain list read.
 
 ProposalDecisionRequest:
   type: object
@@ -282,19 +322,10 @@ HarvestStatus:
   type: string
   enum: [queued, running, succeeded, failed]
 
-ProposalTarget:
-  type: object
-  description: What a proposal attaches to.
-  required: [concept]
-  properties:
-    concept: {type: string}
-    table: {type: [string, "null"]}
-    column: {type: [string, "null"]}
-
 ProposalCounts:
   type: object
-  description: Totals by decision, so the review screen can show its badge without a second call.
+  description: Totals by state, so the review screen can show its badge without a second call.
   properties:
-    proposed: {type: integer}
+    pending: {type: integer}
     accepted: {type: integer}
     rejected: {type: integer}
