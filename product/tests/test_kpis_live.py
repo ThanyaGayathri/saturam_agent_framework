@@ -733,6 +733,40 @@ def test_suggestion_run_store_round_trips_a_run_to_succeeded(
     assert still_done.status is SuggestionRunStatus.SUCCEEDED
 
 
+@pytest.mark.anyio
+async def test_suggestion_run_store_async_variants_agree_with_their_sync_twins(
+    run_store: SuggestionRunStore,
+) -> None:
+    """Both variants exist and do the same thing, per the repository's standing rule --
+    the router never calls ``aget``/``acreate``/``amark_*``/``aensure_schema`` (it threads the
+    sync methods itself via ``_with_run_store``), so nothing else exercised them (#256 review).
+    """
+    await run_store.aensure_schema()  # idempotent, same as the sync call in the fixture
+
+    created = await run_store.acreate("livetest")
+    assert created.status is SuggestionRunStatus.QUEUED
+    assert created.business_area == "livetest"
+
+    await run_store.amark_running(created.identifier)
+    running = await run_store.aget(created.identifier)
+    assert running is not None
+    assert running.status is SuggestionRunStatus.RUNNING
+    assert running.started_at is not None
+
+    payload = {"suggestions": [], "notes": "", "semantic_snapshot": "live.1"}
+    await run_store.amark_succeeded(created.identifier, payload)
+    done = await run_store.aget(created.identifier)
+    assert done is not None
+    assert done.status is SuggestionRunStatus.SUCCEEDED
+    assert done.result == payload
+
+    # terminal is terminal here too: a late failure cannot reopen the row
+    await run_store.amark_failed(created.identifier, "too late")
+    still_done = await run_store.aget(created.identifier)
+    assert still_done is not None
+    assert still_done.status is SuggestionRunStatus.SUCCEEDED
+
+
 def test_suggestion_run_store_get_closes_a_lost_run_only_past_the_window(
     run_store: SuggestionRunStore, control_plane: Any
 ) -> None:

@@ -731,7 +731,7 @@ async def _run_bounded(fn: Callable[[], _T], timeout: float) -> _T:
     """
     try:
         return await asyncio.wait_for(asyncio.to_thread(fn), timeout)
-    except TimeoutError as exc:
+    except asyncio.TimeoutError as exc:
         raise SuggestionTimeout(timeout) from exc
 
 
