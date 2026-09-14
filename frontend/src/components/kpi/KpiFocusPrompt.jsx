@@ -155,7 +155,7 @@ export default function KpiFocusPrompt({
     <div className="mt-4 flex flex-wrap gap-2">
      {areas.map((area) => {
       const on = selectedIds.includes(area.id);
-      if (!area.supported) {
+      if (!area.supported && !on) {
        return (
         <span
          key={area.id}
@@ -166,6 +166,25 @@ export default function KpiFocusPrompt({
         >
          {area.label}
         </span>
+       );
+      }
+      if (!area.supported) {
+       // Selected but no longer supported (its mapping was reverted after the focus was set):
+       // stays clickable so it can be removed on its own, and styled distinctly from both a
+       // normal selection and a never-selected unsupported pill -- "still contributing to the
+       // ranking, but you may want to know why" rather than either "on" or "greyed out".
+       return (
+        <button
+         key={area.id}
+         type="button"
+         onClick={() => toggle(area.id)}
+         aria-pressed={on}
+         title={area.reason || "No longer supported by the connected data -- click to remove."}
+         className="inline-flex items-center gap-1.5 rounded-full border border-status-warning-border bg-status-warning-light px-3.5 py-1.5 text-sm font-semibold text-status-warning dark:bg-status-warning/15"
+        >
+         <AlertTriangle size={13} />
+         {area.label}
+        </button>
        );
       }
       return (
