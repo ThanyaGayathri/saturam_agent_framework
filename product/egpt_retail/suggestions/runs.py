@@ -142,6 +142,11 @@ def _ddl(schema: str) -> Tuple[str, ...]:
     END $$""",
         f"""CREATE INDEX IF NOT EXISTS kpi_suggestion_run_open
         ON {schema}.kpi_suggestion_run (status, created_at)""",
+        # Matches typical_duration()'s own predicate and ORDER BY exactly -- that query runs
+        # on every 202 and every poll, so it needs an index rather than a sort/scan of the
+        # (unpurged) whole table.
+        f"""CREATE INDEX IF NOT EXISTS kpi_suggestion_run_succeeded_finished
+        ON {schema}.kpi_suggestion_run (finished_at DESC) WHERE status = 'succeeded'""",
         f"""COMMENT ON TABLE {schema}.kpi_suggestion_run IS
         'One row per POST /kpis/suggestions (#254). Polled by GET /kpis/suggestions/{{id}}; '
         'result is the KpiSuggestionList once succeeded, error the reason once failed; '

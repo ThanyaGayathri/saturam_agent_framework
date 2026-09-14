@@ -215,8 +215,11 @@ export default function KpiDiscoveryPage() {
   const startedAt = Date.now();
   setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt });
 
-  const fail = (message) =>
-   setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "error", error: message });
+  // `phase` is the stage the run was in when it failed (the backend keeps it on a `failed`
+  // row for exactly this) -- absent for a client-side failure (ceiling, rejected POST,
+  // network error), which never reached a server-reported stage.
+  const fail = (message, phase = null) =>
+   setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "error", error: message, phase });
   const failWith = (err) => {
    if (err?.name === "AbortError") return;
    fail(err?.detail || err?.message || "Something went wrong.");
@@ -258,7 +261,7 @@ export default function KpiDiscoveryPage() {
       return;
      }
      if (run?.status === "failed") {
-      fail(run.error || "The run failed without saying why.");
+      fail(run.error || "The run failed without saying why.", run.phase);
       return;
      }
      setSuggestionState(absorb(run));

@@ -268,7 +268,11 @@ function Receipt({ suggestions, runId, startedAt, finishedAt, clientSeconds, onD
  );
 }
 
-function Failure({ error, onStart }) {
+function Failure({ error, phase, onStart }) {
+ // The backend keeps `phase` on a failed row so it can say where the run got to (see
+ // `mark_phase`'s only-from-`running` guard) -- surface it when we have it rather than
+ // leaving that guarantee unread on the frontend.
+ const step = STEPS.find((s) => s.phase === phase);
  return (
   <div
    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-2.5 text-sm text-status-critical"
@@ -276,7 +280,7 @@ function Failure({ error, onStart }) {
   >
    <span className="flex items-center gap-2">
     <AlertTriangle size={15} className="shrink-0" />
-    Couldn't get suggestions: {error}
+    {step ? `Couldn't get suggestions while ${step.label.toLowerCase()}: ${error}` : `Couldn't get suggestions: ${error}`}
    </span>
    <StartButton onClick={onStart} label="Try again" />
   </div>
@@ -294,7 +298,7 @@ export default function SuggestionRunPanel({ run, elapsed, onStart, onCancel, on
    />
   );
  }
- if (run.status === "error") return <Failure error={run.error} onStart={onStart} />;
+ if (run.status === "error") return <Failure error={run.error} phase={run.phase} onStart={onStart} />;
  if (run.status === "ready" && run.receipt) {
   return (
    <Receipt
