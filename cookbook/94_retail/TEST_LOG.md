@@ -5723,14 +5723,20 @@ the image both `deploy/compose.yaml` and the Helm `load-knowledge` hook run -- i
 halves) hard-fails inside that image on a stack built exactly per `deploy/compose.yaml`,
 matching the issue verbatim. `scripts/dev_setup.sh` had the same gap for `.venv`.
 
-**Fix:** `deploy/Dockerfile` now installs `libs/agno[os,markdown]`; `scripts/dev_setup.sh` now
-installs `libs/agno[dev,markdown]`. No runtime code touched -- deliberately not a fallback
-chunker: `product/egpt_retail/knowledge/prose.py`'s heading-split settings are mutation-tested
-against the real corpus, and swapping chunkers on missing-dependency is a quality regression
-risk the issue never asked for. `docker build -f deploy/Dockerfile` itself could not be
-re-verified in this session (this sandbox's containers cannot reach PyPI at all -- confirmed
-with a trivial unrelated package, a pre-existing environment limit, not caused by this
-change); the pinned dependency resolution was verified directly instead, and
+**Fix:** `product/pyproject.toml` now pins `egpt[os,markdown]==0.2.0` (round 1 had added
+`[markdown]` to `deploy/Dockerfile` and `scripts/dev_setup.sh` directly; moved here per review
+so the one place that actually needs `MarkdownChunking`/`unstructured` --
+`product/egpt_retail/knowledge/prose.py` -- is the one place declaring it, instead of every
+install site having to remember to ask for it). `deploy/Dockerfile` installs `libs/agno[os]`
+then `product`, and the second install now pulls `[markdown]` in transitively; `scripts/dev_setup.sh`
+resolves `libs/agno[dev]` and `product[dev]` together in one `uv pip install`, so `.venv` gets
+it the same way. No runtime code touched -- deliberately not a fallback chunker:
+`product/egpt_retail/knowledge/prose.py`'s heading-split settings are mutation-tested against
+the real corpus, and swapping chunkers on missing-dependency is a quality regression risk the
+issue never asked for. `docker build -f deploy/Dockerfile` itself could not be re-verified in
+this session (this sandbox's containers cannot reach PyPI at all -- confirmed with a trivial
+unrelated package, a pre-existing environment limit, not caused by this change); the pinned
+dependency resolution was verified directly instead, and
 `.venvs/demo/bin/python -c "from egpt.knowledge.chunking.markdown import MarkdownChunking"`
 now imports cleanly after refreshing that venv with the same extra.
 
