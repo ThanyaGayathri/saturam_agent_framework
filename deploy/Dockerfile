@@ -9,6 +9,15 @@
 # so pip never reaches the index for it. The `[os]` extra is what carries fastapi, uvicorn,
 # sqlalchemy and PyJWT -- they are not runtime deps of the bare `egpt` distribution.
 #
+# `product/pyproject.toml` separately pins `egpt[os,markdown]`, so the second `pip install
+# "/src/product"` below pulls in `[markdown]` too -- that's what `load-knowledge`'s prose half
+# needs (`MarkdownChunking` requires `unstructured`); without it the image runs `load-knowledge`
+# default (or `--prose-only`) straight into `ModuleNotFoundError` (#253). The pin in that extra
+# (`unstructured<0.18.31`) is deliberate: it is the version already proven to install cleanly
+# with no native build step (`demo_setup.sh` uses the same extra); an unpinned
+# `pip install unstructured` resolves a newer release whose `numba` dependency fails to build
+# here.
+#
 # No HEALTHCHECK and no curl: in Kubernetes the probe is the kubelet's job, and curl is only
 # attack surface. compose declares its own healthcheck with a Python one-liner.
 # No gcc / libpq-dev: psycopg[binary] ships a wheel.

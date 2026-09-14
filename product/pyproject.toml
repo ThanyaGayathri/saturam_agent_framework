@@ -23,7 +23,13 @@ dependencies = [
   # `egpt==0.0.1` (see .github/workflows/release.yml); an unpinned dependency resolves to
   # that package in any environment where our egpt is absent. A pin no public index can
   # satisfy fails loudly instead.
-  "egpt[os]==0.2.0",
+  #
+  # `[markdown]` is here, not duplicated into deploy/Dockerfile and scripts/dev_setup.sh,
+  # because this is the one place that actually needs it: `MarkdownChunking` (which requires
+  # `unstructured`) is used by `product/egpt_retail/knowledge/prose.py`, product's own code,
+  # not the framework's. Declaring the extra at its point of use means a future install site
+  # gets it for free instead of needing to remember to ask for it (#253).
+  "egpt[os,markdown]==0.2.0",
   # The model SDK is the product's choice, not the framework's: egpt[os] carries the server
   # stack and no provider SDK, and the dev venv only has `openai` through egpt[dev]. Found by
   # the first container run -- AzureOpenAI() raised ImportError inside the image and nowhere else.

@@ -5699,3 +5699,139 @@ state issue #227 verified against and the state this section is written to confi
 run is owed on a machine with the stack up; recorded here rather than claimed.
 
 ---
+
+### K253 -- unblocking `GET /kpis/suggestions` on a fresh local stack (issue #253)
+
+**Status:** PASS
+
+**Description:** Issue #253 named two blockers standing between a fresh local stack and a
+real, non-empty `GET /kpis/suggestions`: `egpt-retail load-knowledge`'s prose half hard-failing
+on a missing `unstructured`, and no entrypoint ever running the K8 concept-mapping pass that
+`kpi_suggestion`/K9 need to see any table as mapped. Both traced, fixed or documented, and
+verified live end to end against `deploy/compose.yaml`'s Postgres + Neo4j with a plain
+`OPENAI_API_KEY` (no Azure credentials).
+
+**Root cause, item 1 (`unstructured`).** `libs/agno/pyproject.toml`'s `markdown` extra
+(`unstructured<0.18.31`) already avoids the `numba`/`llvmlite` native-build failure the issue
+reports -- confirmed here by installing it standalone into a scratch venv: it resolves to
+`unstructured==0.18.27`, 51 packages, no `numba` anywhere in the tree, prebuilt wheels only.
+`demo_setup.sh` already carries this extra (R-6, closed 2026-09-09). The issue reporter's own
+`pip install unstructured markdown` pulled the *unpinned* `unstructured==0.27.5` instead, whose
+`numba` dependency is what actually fails to build. The real gap: `deploy/Dockerfile` --
+the image both `deploy/compose.yaml` and the Helm `load-knowledge` hook run -- installs
+`libs/agno[os]` only, never `[markdown]`, so `egpt-retail load-knowledge` (the default, both
+halves) hard-fails inside that image on a stack built exactly per `deploy/compose.yaml`,
+matching the issue verbatim. `scripts/dev_setup.sh` had the same gap for `.venv`.
+
+**Fix:** `product/pyproject.toml` now pins `egpt[os,markdown]==0.2.0` (round 1 had added
+`[markdown]` to `deploy/Dockerfile` and `scripts/dev_setup.sh` directly; moved here per review
+so the one place that actually needs `MarkdownChunking`/`unstructured` --
+`product/egpt_retail/knowledge/prose.py` -- is the one place declaring it, instead of every
+install site having to remember to ask for it). `deploy/Dockerfile` installs `libs/agno[os]`
+then `product`, and the second install now pulls `[markdown]` in transitively; `scripts/dev_setup.sh`
+resolves `libs/agno[dev]` and `product[dev]` together in one `uv pip install`, so `.venv` gets
+it the same way. No runtime code touched -- deliberately not a fallback chunker:
+`product/egpt_retail/knowledge/prose.py`'s heading-split settings are mutation-tested against
+the real corpus, and swapping chunkers on missing-dependency is a quality regression risk the
+issue never asked for. `docker build -f deploy/Dockerfile` itself could not be re-verified in
+this session (this sandbox's containers cannot reach PyPI at all -- confirmed with a trivial
+unrelated package, a pre-existing environment limit, not caused by this change); the pinned
+dependency resolution was verified directly instead, and
+`.venvs/demo/bin/python -c "from egpt.knowledge.chunking.markdown import MarkdownChunking"`
+now imports cleanly after refreshing that venv with the same extra.
+
+**Root cause, item 2 (K8 never runs).** `product/egpt_retail/skills/mapping_proposer.py` (K8)
+has no CLI entrypoint anywhere -- `harvest` and `suggest` only ever run K12/K13. It was only
+ever exercised by `cookbook/94_retail/K08_proposers.py`, which writes `PENDING` proposals and
+never accepts them, so no deployment has ever written an `INSTANTIATES` edge and
+`SemanticGraphStore.mapped_concepts()` always returns empty. Kept documentation-only per plan
+(no new CLI command): the sequence below is what a fresh local stack needs.
+
+**The full local sequence (verified live, `.venvs/demo`, no `egpt-retail:dev` image needed --
+Postgres/Neo4j run directly, every command below runs from the host):**
+
+```
+docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
+
+# from a Python process with product + egpt[demo] on the path and EGPT_RETAIL_* pointed at
+# the compose stack (see cookbook/94_retail/R10_rfq_workflow.py's env var block):
+
+1. egpt-retail migrate            # + warehouse-migrate
+2. seed silver (R10's step 0: apply_warehouse_ddl + the nightly-refresh workflow over
+   product/egpt_retail/contracts/_fixtures/landing's raw fixtures -- or a real warehouse)
+3. egpt-retail load-knowledge     # ontology into Neo4j, prose into pgvector (now works, item 1)
+4. egpt-retail harvest --schema silver          # K4: tables into the graph
+5. run K8's mapping_proposer AND enrichment_proposer over the harvest + ontology, and file
+   both sets of proposals (mapping.to_proposals / enrich.to_proposals + ProposalStore)
+6. accept + apply BOTH proposal kinds (ProposalStore.accept then .apply_accepted)
+7. egpt-retail suggest, or GET /kpis/suggestions?business_area=...
+```
+
+**Step 5 found a real ordering dependency undocumented anywhere: a `MAPPING` proposal targets a
+concept that must already be a `SemanticConcept` node in the graph, and only an *accepted
+enrichment proposal* creates that node** (`SemanticGraphStore.CONCEPT_LABEL = "SemanticConcept"`
+is a different node from `OntologyStore.CONCEPT_LABEL = "OntologyConcept"` that
+`load-knowledge` writes). Running mapping alone reproduces exactly the issue's own symptom one
+layer deeper: `apply_accepted` refuses every mapping with `"concept 'X' is not in the graph"`.
+K08_proposers.py always runs both proposers together, which is why this was never visible
+there. The sequence above (and the README pointer added alongside this entry) states both
+proposers are required, not just K8's mapping half.
+
+**Two more real gaps surfaced live, both pre-existing, both out of scope for #253 and
+reported rather than fixed here:**
+
+1. `product/egpt_retail/semantic/harvest.py`'s `_sample_values` builds its SQL with `%I`
+   (meant for Postgres's own `format()`), but under `psycopg` v3's client-side placeholder
+   parser that literal `%I` is rejected outright once any params are bound:
+   `psycopg.ProgrammingError: only '%s', '%b', '%t' are allowed as placeholders, got '%I'`.
+   Reproduces on any real `harvest_schema(..., sample=True)` call against a live database.
+   Worked around here with `sample=False` (loses sampled column values in the mapping
+   proposer's evidence, not structurally required).
+2. `product/egpt_retail/routing/providers.py`'s `TierModelProvider` hardcodes
+   `provider_key=AZURE_PROVIDER_KEY` ("azure-openai") unconditionally -- there is no
+   settings-driven plain-OpenAI path today, contrary to #253's "Not in scope" note (PR #252's
+   own test plan says this was never actually run against real credentials either, Azure or
+   otherwise). `OntologyStore._rows` also assumes its embedder's `get_embedding(list_of_texts)`
+   returns a list of vectors (true of `AzureOpenAIEmbedder`, false of the plain `OpenAIEmbedder`,
+   which silently returns one flat vector for a list input). Both worked around in this
+   session's verification script only (a `_BatchAdapter` shim and direct `OpenAIResponses`
+   model assignment bypassing `route_agents`), never in product code. Together these mean a
+   plain-`OPENAI_API_KEY` deployment cannot actually run `kpi_suggestion`/K8/K9 today without
+   one of these workarounds -- worth its own follow-up issue.
+
+**Also found while assembling the local sequence: `product/egpt_retail/api/routers/semantic.py`
+(the F2 review API -- `POST /semantic/proposals/accept` etc.) does not exist on `main`.** It
+ships on the still-unmerged `f2-semantic-proposal-review` branch (PR #235). Verified here
+using the underlying `ProposalStore.accept` / `.apply_accepted` methods directly instead, which
+are on `main` today and are exactly what that router will call once merged.
+
+**Evidence -- the real, non-empty result (business_area='sales'):**
+
+```
+mapped_concepts(): {'Contact': ['silver.crm_contact'], 'QuoteRequest': ['silver.crm_deal'],
+                     'WebSession': ['silver.session_replay_session']}
+
+GET /kpis/suggestions?business_area=sales -> HTTP 200
+{
+  "suggestions": [
+    {"identifier": "quoterequest__quote_requests_received", "concept": "QuoteRequest",
+     "feasibility": {"verdict": "ready", ...}, ...},
+    {"identifier": "quoterequest__stage_history_coverage_rate", "concept": "QuoteRequest",
+     "feasibility": {"verdict": "blocked",
+       "rationale": "review has recorded that crm_deal and crm_deal_stage_history must not
+         be joined -- the shared column names are different id spaces", ...}, ...},
+    {"identifier": "quoterequest__average_stage_changes", "concept": "QuoteRequest",
+     "feasibility": {"verdict": "blocked", ...}, ...}
+  ],
+  "semantic_snapshot": "k253.1"
+}
+```
+
+business_area=None returned 17 suggestions across all three mapped concepts. Every response
+still carried `"no domain prose reached the agents"` in `notes` even with prose loaded and
+`business_area=None`/`marketing`/`operations` also returned real, non-empty or correctly-empty
+results -- the `GET /kpis/suggestions` route does not thread a knowledge store into
+`run_suggestions` the way the `egpt-retail suggest` CLI does; a separate, smaller gap, not
+blocking a real non-empty suggestion and not investigated further here.
+
+---

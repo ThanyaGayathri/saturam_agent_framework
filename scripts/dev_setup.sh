@@ -66,6 +66,12 @@ uv venv "${VENV_DIR}" --python 3.12 --quiet
 # Install the separately distributed CLI, the core library and the retail product together
 # for development. The product pins egpt to this checkout's version, so the framework must be
 # in the same resolve -- public PyPI holds an unrelated package under the same name.
+#
+# product's own pyproject.toml depends on `egpt[os,markdown]`, and uv resolves all three
+# editable installs together, so `.venv` gets `markdown` through that -- letting `.venv` run
+# product entrypoints that need it (e.g. `egpt-retail load-knowledge`) without a
+# ModuleNotFoundError on `unstructured`, the same gap `demo_setup.sh`'s `egpt[demo]` already
+# closed for `.venvs/demo` (R-6) -- without libs/agno[dev] here needing to know about it too.
 echo ""
 echo -e "    ${DIM}Installing egptctl[dev], egpt[dev] and egpt-retail[dev] in editable mode...${NC}"
 echo -e "    ${DIM}> uv pip install -e libs/egptctl[dev] -e libs/agno[dev] -e product[dev]${NC}"

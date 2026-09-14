@@ -195,3 +195,40 @@ set -a && source azure_key.env && set +a
 .venv/bin/python cookbook/94_retail/K14_skill_template.py
 .venv/bin/python cookbook/94_retail/K14_join_path_explainer.py
 ```
+
+## Getting a real, non-empty `GET /kpis/suggestions` on a fresh local stack (#253)
+
+`load-knowledge` alone is not enough. `kpi_suggestion`/K9 only see a table as usable once it is
+*mapped* to an ontology concept, and nothing runs that mapping step on a fresh deployment --
+`harvest` and `suggest` only ever run K12/K13, never K8. The full sequence, verified live
+against `deploy/compose.yaml`'s Postgres + Neo4j with a plain `OPENAI_API_KEY`:
+
+```bash
+docker compose -f deploy/compose.yaml --profile full up -d postgres neo4j
+
+EGPT_RETAIL_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/ai \
+  .venv/bin/python -m egpt_retail.entrypoints migrate
+EGPT_RETAIL_WAREHOUSE_DB_URL=postgresql+psycopg://ai:ai@localhost:5532/egpt_warehouse \
+  .venv/bin/python -m egpt_retail.entrypoints warehouse-migrate
+
+# 1. Seed the warehouse -- R10's step 0 (apply_warehouse_ddl + the nightly-refresh workflow
+#    over product/egpt_retail/contracts/_fixtures/landing), or a real connected warehouse.
+# 2. egpt-retail load-knowledge          # ontology into Neo4j, prose into pgvector
+# 3. egpt-retail harvest --schema silver # K4: tables into the graph
+# 4. Run BOTH of K8's proposers over the harvest + ontology -- mapping_proposer AND
+#    enrichment_proposer -- and file both sets of proposals (mapping.to_proposals /
+#    enrich.to_proposals, then ProposalStore.propose_many). Mapping alone is not enough: a
+#    MAPPING proposal targets a SemanticConcept node that only an accepted ENRICHMENT proposal
+#    creates, so running mapping by itself reproduces the issue's own symptom one layer
+#    deeper. Neither proposer has a CLI entrypoint today -- K08_proposers.py is the reference.
+# 5. Accept and apply both proposal kinds (ProposalStore.accept then .apply_accepted). The F2
+#    review API (POST /semantic/proposals/accept) does this over HTTP once PR #235 merges to
+#    main; until then, call the store methods directly.
+.venv/bin/python -m egpt_retail.entrypoints suggest
+# or: GET /kpis/suggestions?business_area=...
+```
+
+Exact commands, the ordering dependency above, two pre-existing bugs this surfaced (a broken
+`%I` placeholder in `harvest_schema(..., sample=True)`, and no working settings-driven
+plain-OpenAI model/embedder path despite #252), and the real captured evidence are all recorded
+in `TEST_LOG.md`'s `K253` entry.
