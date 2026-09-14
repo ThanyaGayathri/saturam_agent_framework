@@ -45,7 +45,7 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_control_plane_schemas_provisions_all_five_stores(monkeypatch):
+def test_ensure_control_plane_schemas_provisions_all_six_stores(monkeypatch):
     calls: list = []
 
     class _FakeConnection:
@@ -71,12 +71,24 @@ def test_ensure_control_plane_schemas_provisions_all_five_stores(monkeypatch):
     monkeypatch.setattr(
         factory_module, "SuggestionRunStore", _fake_store("suggestion_run")
     )
+    monkeypatch.setattr(
+        factory_module,
+        "DashboardSuggestionRunStore",
+        _fake_store("dashboard_suggestion_run"),
+    )
 
     factory_module._ensure_control_plane_schemas(
         RetailSettings(retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db")
     )
 
-    assert calls == ["playground", "dashboard", "kpi", "proposal", "suggestion_run"]
+    assert calls == [
+        "playground",
+        "dashboard",
+        "kpi",
+        "proposal",
+        "suggestion_run",
+        "dashboard_suggestion_run",
+    ]
 
 
 def test_lifespan_refuses_to_start_without_a_customer_slug():

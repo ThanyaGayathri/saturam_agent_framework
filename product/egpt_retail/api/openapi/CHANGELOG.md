@@ -109,6 +109,34 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.6 — 2026-09-15 — dashboards: suggestion runs, `POST /dashboards/suggestions` + `GET /dashboards/suggestions/{run_id}` (additive)
+
+Agreed by: product (nandha-saturam), for the "Create dashboard" flow's AI-generated path
+(#222). Additive -- two new operations, four new schemas, nothing removed or renamed -- so no
+negotiation and no major bump.
+
+- **`POST /dashboards/suggestions` → `202` `DashboardSuggestionRun`,
+  `GET /dashboards/suggestions/{run_id}`.** The same run-then-poll shape 1.1.5 gave KPI
+  suggestions (#254), for the same reason: a live model call takes long enough that it does
+  not belong inside one request. `dashboards:read`, not `dashboards:write` -- what is created
+  is a run row, never a dashboard; a suggestion becomes one only through the existing
+  `POST /dashboards`.
+- **`DashboardSuggestionRunRequest`** (`purpose`, required, non-empty) is the `POST` body: what
+  the caller says the dashboard should help them track, in their own words.
+- **`DashboardSuggestion`** (`name`, `tiles: DashboardTileSuggestion[]`,
+  `filters: DashboardFilter[]`, `notes`) is a run's `result` once `succeeded`. Every tile names
+  a real, registered, `ready` KPI -- the agent selects from this deployment's own registry
+  rather than inventing one, so a suggestion is exactly as adoptable as a dashboard built by
+  hand and needs no separate feasibility check before `POST /dashboards` accepts it. The one
+  filter field this agent may propose is `business_area`: it is the one `DashboardFilterField`
+  with a well-defined value space to validate against (this deployment's own vocabulary,
+  exactly as `KpiSuggestionDraft.business_area` is validated). `time_window` has no established
+  filter-value format anywhere in this contract yet -- nothing today constructs one -- so this
+  agent never proposes one rather than guessing a shape. Reusing `DashboardFilter` rather than
+  a parallel draft-only shape means a suggestion's filters round-trip into `POST /dashboards`
+  unchanged, the same "renders without transformation" guarantee 1.1.5's `KpiSuggestion`
+  carries for the discovery screen.
+
 ## 1.1.5 — 2026-09-14 — kpis: suggestion runs, `POST /kpis/suggestions` + `GET /kpis/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for #254 (part of #222). Additive -- two new

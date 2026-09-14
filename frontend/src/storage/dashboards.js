@@ -94,6 +94,25 @@ export function tilesToWrite(tiles) {
  }));
 }
 
+/**
+ * The `DashboardWrite` body for the create-dashboard flow (both the AI-generated and manual
+ * paths end here): `metrics` are wire-ready KPI-shaped objects (`identifier`/`name`/`unit`),
+ * `businessAreaFilter` is a single `business_area` value or falsy for none. The contract's
+ * `DashboardFilterField` also has `time_window`, but nothing in this app constructs a value
+ * for it yet (no defined format anywhere in the contract) - this flow only ever writes
+ * `business_area`, which has a real, validated vocabulary behind it.
+ */
+export function buildDashboardWritePayload({ name, refresh, metrics, businessAreaFilter }) {
+ return {
+  name: String(name || "").trim() || "Untitled dashboard",
+  refresh_schedule: refresh,
+  tiles: metrics.map((kpi, index) => tileWriteFromKpi(kpi, index)),
+  filters: businessAreaFilter
+   ? [{ field: "business_area", value: businessAreaFilter }]
+   : [],
+ };
+}
+
 export function labelForRefresh(value) {
  return REFRESH_OPTIONS.find((o) => o.value === value)?.label || value;
 }

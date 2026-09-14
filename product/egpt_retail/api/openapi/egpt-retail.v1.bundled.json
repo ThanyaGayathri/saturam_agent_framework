@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -972,6 +972,141 @@
           "business_area",
           "time_window"
         ]
+      },
+      "DashboardSuggestion": {
+        "type": "object",
+        "description": "A suggested dashboard configuration for the given purpose, editable before creation. Every\ntile names a real, ready KPI from this deployment's registry; the one filter this agent may\npropose is `business_area`, the one `DashboardFilterField` with a well-defined value space\nto draw from today -- `time_window` has no established value shape anywhere in this contract\nyet (#222), so this agent never proposes one rather than inventing a format nothing else\nwould recognise.\n",
+        "required": [
+          "name",
+          "tiles",
+          "filters",
+          "notes"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardTileSuggestion"
+            }
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardFilter"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "description": "Empty on a clean run; otherwise what was missing or why the list is short."
+          }
+        }
+      },
+      "DashboardSuggestionRun": {
+        "type": "object",
+        "description": "One run of the dashboard suggestion agent, started by `POST /dashboards/suggestions` and\npolled at `GET /dashboards/suggestions/{run_id}` -- the same run-then-poll shape #254 gave\nKPI suggestions, for the same reason: a live model call takes long enough that it does not\nbelong inside one request, and the api serves from more than one instance. `result` is\npresent once `status` is `succeeded`; `error` is why there is none, present once `failed`.\nA run whose executor was lost (the serving instance restarted mid-run) is reported `failed`\nby the read side after the deployment's timeout plus a grace period, never `running` forever.\n",
+        "required": [
+          "id",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DashboardSuggestionRunStatus"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "started_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DashboardSuggestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Written for the person polling. A timeout names the bound it hit."
+          }
+        }
+      },
+      "DashboardSuggestionRunRequest": {
+        "type": "object",
+        "description": "What to run. `purpose` is the caller's own words for what the dashboard should help them track.",
+        "required": [
+          "purpose"
+        ],
+        "properties": {
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "DashboardSuggestionRunStatus": {
+        "type": "string",
+        "description": "Where a dashboard suggestion run is. The same four words as `KpiSuggestionRunStatus`.",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed"
+        ]
+      },
+      "DashboardTileSuggestion": {
+        "type": "object",
+        "description": "One candidate metric for the dashboard. Always a real, registered, ready KPI -- the agent selects from this deployment's own registry, it does not invent one.",
+        "required": [
+          "kpi_identifier",
+          "name",
+          "rationale"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "One sentence naming why this metric fits the stated purpose."
+          }
+        }
       },
       "DashboardWrite": {
         "type": "object",
@@ -11341,6 +11476,225 @@
                     "value": {
                       "detail": "product__avg_rating is partial (missing: web_sessions) and cannot be tiled.",
                       "code": "kpi_not_ready"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/suggestions": {
+      "post": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "startDashboardSuggestionRun",
+        "summary": "Start a dashboard suggestion run from a purpose; poll it for the result.",
+        "description": "An agent proposing a dashboard configuration -- metrics, and where it applies, a\n`business_area` filter -- for what the caller says they want to track, as a run rather\nthan a response: a live model call takes long enough that it does not belong inside one\nrequest (the same shape #254 gave KPI suggestions). Returns the run `queued`; poll\n`GET /dashboards/suggestions/{run_id}` until it is `succeeded` (then `result` is the\nsuggested configuration) or `failed` (then `error` says why). Nothing is stored beyond the\nrun row itself -- a suggestion becomes a dashboard only through `POST /dashboards`, so this\nneeds `dashboards:read`, not `dashboards:write`. Every suggested metric is a real,\nregistered, ready KPI: the agent selects from this deployment's own registry rather than\ninventing one, so a suggestion here is exactly as adoptable as one built by hand.\n",
+        "x-egpt-scopes": [
+          "dashboards:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DashboardSuggestionRunRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "purpose": "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted. Poll the run for completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSuggestionRun"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "id": "dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                      "status": "queued",
+                      "purpose": "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews.",
+                      "created_at": "2026-09-15T10:00:00Z",
+                      "started_at": null,
+                      "finished_at": null,
+                      "result": null,
+                      "error": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The purpose was empty.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "empty": {
+                    "value": {
+                      "detail": "purpose must not be empty.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/suggestions/{run_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "operationId": "getDashboardSuggestionRun",
+        "summary": "One dashboard suggestion run, for polling.",
+        "description": "Poll until `status` is `succeeded` or `failed`. A run whose serving instance was lost\nmid-run reports `failed` here once the deployment's timeout plus a grace period has\npassed, so a poller always reaches a terminal state.\n",
+        "x-egpt-scopes": [
+          "dashboards:read"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSuggestionRun"
+                },
+                "examples": {
+                  "running": {
+                    "value": {
+                      "id": "dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                      "status": "running",
+                      "purpose": "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews.",
+                      "created_at": "2026-09-15T10:00:00Z",
+                      "started_at": "2026-09-15T10:00:01Z",
+                      "finished_at": null,
+                      "result": null,
+                      "error": null
+                    }
+                  },
+                  "succeeded": {
+                    "value": {
+                      "id": "dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                      "status": "succeeded",
+                      "purpose": "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews.",
+                      "created_at": "2026-09-15T10:00:00Z",
+                      "started_at": "2026-09-15T10:00:01Z",
+                      "finished_at": "2026-09-15T10:00:42Z",
+                      "result": {
+                        "name": "Weekly APAC engagement health",
+                        "tiles": [
+                          {
+                            "kpi_identifier": "session__active_analytics_user_count",
+                            "name": "Active analytics user count",
+                            "rationale": "Tracks weekly engagement directly",
+                            "and this deployment already computes it.": null
+                          }
+                        ],
+                        "filters": [
+                          {
+                            "field": "business_area",
+                            "value": "marketing"
+                          }
+                        ],
+                        "notes": ""
+                      },
+                      "error": null
+                    }
+                  },
+                  "failed": {
+                    "summary": "The bound was hit; the row says so instead of the request hanging.",
+                    "value": {
+                      "id": "dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
+                      "status": "failed",
+                      "purpose": "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews.",
+                      "created_at": "2026-09-15T10:00:00Z",
+                      "started_at": "2026-09-15T10:00:01Z",
+                      "finished_at": "2026-09-15T10:03:01Z",
+                      "result": null,
+                      "error": "The suggestion run did not finish within 180s."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No suggestion run 'dsr_missing'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: dashboards:write.",
+                      "code": "insufficient_scope"
                     }
                   }
                 }

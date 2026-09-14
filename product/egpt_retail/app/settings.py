@@ -277,12 +277,14 @@ class RetailSettings(BrandedSettings):
     retail_suggestion_timeout_seconds: float = Field(
         default=180.0,
         gt=0,
-        description="Upper bound, in seconds, on one KPI suggestion run (EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS). "
-        "A run is two frontier-tier model calls plus semantic-graph reads and nothing below this layer caps it "
-        "(#254): past this bound `POST /kpis/suggestions`'s run is marked failed and the deprecated synchronous "
-        "`GET /kpis/suggestions` returns 504 instead of hanging. The in-flight model call is not interrupted -- "
-        "it finishes on its own and its result is discarded -- so this bounds what the caller waits for, not "
-        "what the deployment spends.",
+        description="Upper bound, in seconds, on one suggestion run -- KPI or dashboard "
+        "(EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS). A KPI suggestion run is two frontier-tier "
+        "model calls plus semantic-graph reads; a dashboard suggestion run is one. Nothing "
+        "below this layer caps either (#254): past this bound `POST /kpis/suggestions`'s and "
+        "`POST /dashboards/suggestions`'s runs are marked failed, and the deprecated "
+        "synchronous `GET /kpis/suggestions` returns 504 instead of hanging. The in-flight "
+        "model call is not interrupted -- it finishes on its own and its result is discarded "
+        "-- so this bounds what the caller waits for, not what the deployment spends.",
     )
     retail_consolidation_poll_interval: float = Field(
         default=300.0,
