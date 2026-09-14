@@ -392,7 +392,9 @@ export default function KpiDiscoveryPage() {
     );
     // Today's value, now: the nightly gold pass for this one KPI, so the graph has its first
     // point at once rather than after the first night. Runs whether or not a panel is open.
-    computeSeries(created.identifier);
+    // Skipped for `rowset` KPIs: `KpiTrend` never shows a compute affordance or a line for
+    // one, so the call could only ever produce a skip the client already knows about.
+    if (created.result_shape !== "rowset") computeSeries(created.identifier);
    })
    .catch((err) => {
     if (err?.name === "AbortError") return;
@@ -439,8 +441,6 @@ export default function KpiDiscoveryPage() {
    active: k.active,
    identifier: k.identifier,
    feasibility: k.feasibility,
-   // `KpiTrend` draws no line for a `rowset` KPI (rows, not a value); the grain is shown with it.
-   grain: k.grain,
    resultShape: k.result_shape,
    fromRegistry: true,
   },
