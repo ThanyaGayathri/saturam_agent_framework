@@ -19,12 +19,21 @@ const FEASIBILITY_STYLE = {
 };
 
 export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, processLabelById, onEdit, onClose }) {
- // A real registry KPI (C1, #232) carries the server's own join-aware `feasibility` -- shown
- // below instead of `mappingConfidenceForKpi`'s local heuristic score, which has nothing real
- // to compute from for a row the seed/dataset simulation has never heard of.
+ // A real registry KPI (C1, #232) and a live suggestion (F1, #234) both carry the server's
+ // own join-aware `feasibility` -- a set difference over the tables the semantic graph
+ // actually holds -- and that is what is shown below. `mappingConfidenceForKpi`'s score is
+ // the prototype's heuristic over the seed catalogue's local dataset links, which a real row
+ // never has: rendered for one, it always says "18 / 100, no enterprise datasets linked", a
+ // statement about the demo simulation, not about the KPI. Seed cards keep it.
  const fromRegistry = !!detailRow.kpi.fromRegistry;
- const conf = fromRegistry ? null : mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
- const feasibility = fromRegistry ? detailRow.kpi.feasibility : null;
+ const suggested = !!(detailRow.suggested && detailRow.suggestion);
+ const conf =
+  fromRegistry || suggested ? null : mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
+ const feasibility = fromRegistry
+  ? detailRow.kpi.feasibility
+  : suggested
+   ? detailRow.suggestion.feasibility
+   : null;
  const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] : null;
  const useCases = getCatalogEntriesForKpiName(detailRow.kpi.name, profileId);
  const processIds = Array.isArray(detailRow.kpi.processMapping) ? detailRow.kpi.processMapping : [];
