@@ -17,7 +17,13 @@ from egpt.memory.startup import assert_memory_wired
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.middleware.fixed_tenant import FixedTenantMiddleware
-from fastapi import FastAPI
+from egpt.utils.log import log_error
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from httpx import HTTPStatusError
+from starlette.middleware.cors import CORSMiddleware
 
 from egpt_retail.api.routers.business_areas import router as business_areas_router
 from egpt_retail.api.routers.dashboards import router as dashboards_router
@@ -114,6 +120,106 @@ def _combined_lifespan(settings: RetailSettings, agents: List[Any]) -> Any:
     return _lifespan
 
 
+def _cors_headers_for_error(request: Request) -> dict:
+    """Origin-reflecting CORS headers for a response sent from *outside* ``CORSMiddleware``.
+
+    Starlette's ``Starlette.build_middleware_stack`` pulls the ``Exception``/500 handler out of
+    ``exception_handlers`` by exact key match and hands it to ``ServerErrorMiddleware`` --
+    which sits outermost, ahead of every user middleware including CORS -- while every *other*
+    registered handler (``HTTPException``, ``RequestValidationError``, ``HTTPStatusError``)
+    stays with ``ExceptionMiddleware``, which CORS correctly wraps. Verified live: a 404 from
+    ``GET /kpis/{id}/feasibility`` and a 422 from ``POST /kpis`` both already carried
+    ``access-control-allow-origin``; a genuinely unhandled exception (``GET /kpis/suggestions``
+    failing on a missing model credential) did not, on the exact same origin. A browser reports
+    a response with no CORS header as a CORS failure regardless of why it is missing, which
+    masked the real 500 and its ``detail`` behind a misleading "CORS policy" console error and
+    an "Is it running?" message on the frontend. Reads the live ``CORSMiddleware`` entry off
+    ``request.app`` instead of hardcoding an origin list, so it always matches whatever
+    ``EgptOS.get_app()``'s own ``update_cors_middleware`` last configured.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return {}
+    for middleware in request.app.user_middleware:
+        if middleware.cls is CORSMiddleware:
+            allow_origins = middleware.kwargs.get("allow_origins", [])
+            if "*" in allow_origins or origin in allow_origins:
+                headers = {"access-control-allow-origin": origin, "vary": "Origin"}
+                # Read off the live middleware config rather than assuming: harmless today only
+                # because `update_cors_middleware` unconditionally passes `allow_credentials=True`,
+                # but that's flagged there as likely to become configurable.
+                if middleware.kwargs.get("allow_credentials", False):
+                    headers["access-control-allow-credentials"] = "true"
+                return headers
+            return {}
+    return {}
+
+
+def _register_exception_handlers(base_app: FastAPI) -> None:
+    """Mirrors ``egpt.os.app.EgptOS.get_app``'s own four handlers, on retail's own ``base_app``.
+
+    ``EgptOS.get_app`` only installs them ``if not self._app_set`` -- and passing ``base_app=``
+    to ``EgptOS`` (below) sets ``_app_set = True`` at construction, before ``get_app`` ever
+    runs, on the assumption that a caller supplying its own app already owns error handling for
+    it. This deployment never did, which left every unhandled exception from any retail router
+    (``playground``, ``dashboards``, ``business_areas``, ``kpis``) falling through to Starlette's
+    default ``ServerErrorMiddleware`` response: plain text, no ``detail`` body, and -- because
+    that middleware sits *outside* ``CORSMiddleware`` in the stack -- no CORS headers either.
+    A browser reports that as a CORS failure regardless of origin, masking the real status and
+    body from both the frontend's error handling and anyone reading devtools. Verified live:
+    ``GET /kpis/suggestions`` failing on a missing model credential came back as a bare
+    ``500 Internal Server Error`` with no ``access-control-allow-origin`` header, where
+    ``GET /kpis`` succeeding on the same origin carried one.
+    """
+
+    @base_app.exception_handler(RequestValidationError)
+    async def _validation_exception_handler(
+        _: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        log_error(f"Validation error (422): {exc.errors()}")
+        return JSONResponse(
+            status_code=422, content={"detail": jsonable_encoder(exc.errors())}
+        )
+
+    @base_app.exception_handler(HTTPException)
+    async def _http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+        log_error(f"HTTP exception: {exc.status_code} {exc.detail}")
+        return JSONResponse(
+            status_code=exc.status_code, content={"detail": str(exc.detail)}
+        )
+
+    @base_app.exception_handler(HTTPStatusError)
+    async def _http_status_error_handler(
+        _: Request, exc: HTTPStatusError
+    ) -> JSONResponse:
+        status_code = exc.response.status_code
+        detail = exc.response.text
+        log_error(
+            f"Downstream server returned HTTP status error: {status_code} {detail}"
+        )
+        return JSONResponse(status_code=status_code, content={"detail": detail})
+
+    @base_app.exception_handler(Exception)
+    async def _general_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        import traceback
+
+        log_error(f"Unhandled exception:\n{traceback.format_exc(limit=5)}")
+        # `str(exc)` is not returned here (unlike the framework default this mirrors): this is
+        # retail's externally-reachable API, and its routers touch a Postgres control-plane DB,
+        # JWKS/auth config and downstream LLM providers -- any of which can raise an exception
+        # whose string form embeds a connection string, file path or credential-shaped value.
+        # The real detail is still logged above for anyone with server access.
+        # This one handler runs outside `CORSMiddleware` regardless of origin (see
+        # `_cors_headers_for_error`'s docstring) -- every other handler above does not need this.
+        return JSONResponse(
+            status_code=getattr(exc, "status_code", 500),
+            content={"detail": "Internal server error."},
+            headers=_cors_headers_for_error(request),
+        )
+
+
 def build_agent_os(settings: RetailSettings) -> EgptOS:
     """Assemble the OS from settings. Pure construction; no async twin.
 
@@ -184,6 +290,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     base_app.include_router(business_areas_router)
     base_app.include_router(kpis_router)
     base_app.include_router(semantic_router)
+    _register_exception_handlers(base_app)
 
     os_app = EgptOS(
         id=OS_ID,
