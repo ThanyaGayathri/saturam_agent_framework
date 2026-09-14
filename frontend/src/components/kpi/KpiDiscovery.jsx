@@ -224,6 +224,13 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
  // A candidate is not master data yet, so it cannot be put on a dashboard until it is adopted.
  // Blocked metrics stay inspectable -- "why can't I have this?" is answered in the panel.
  const selectable = bucket !== "blocked" && !row.suggested;
+ // Why a card cannot be picked, said on the disabled box itself: a suggestion is not a
+ // governed KPI yet (a dashboard tile needs a registered identifier, so "Add to my metrics"
+ // comes first), and a blocked metric has nothing to compute from. A dashed box that just
+ // sits there reads as broken.
+ const notSelectableReason = row.suggested
+  ? "Add to my metrics first — a dashboard can only be built on a registered KPI."
+  : "Needs data you haven't connected.";
 
  return (
   <div
@@ -245,7 +252,12 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
       {selected && <Check size={12} />}
      </span>
     ) : (
-     <span className="mt-0.5 h-[18px] w-[18px] shrink-0 rounded-[5px] border border-dashed border-border-light" />
+     <span
+      role="img"
+      aria-label={`Not selectable: ${notSelectableReason}`}
+      title={notSelectableReason}
+      className="mt-0.5 h-[18px] w-[18px] shrink-0 cursor-not-allowed rounded-[5px] border border-dashed border-border-light"
+     />
     )}
     <div className="min-w-0 flex-1">
      <h4 className="text-sm font-bold text-text-primary">{kpi.name}</h4>
