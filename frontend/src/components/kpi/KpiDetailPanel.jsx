@@ -48,6 +48,14 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">KPI</p>
  <p className="mt-1 text-base font-semibold text-text-primary">{detailRow.kpi.name}</p>
  <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.desc || "-"}</p>
+ {/* The same reason the card's disabled box gives on hover, said here in full: a proposal
+     is not a governed KPI yet, so it cannot be picked for a dashboard until adopted. */}
+ {detailRow.suggested && (
+ <p className="mt-3 rounded-lg border border-dashed border-border-light bg-surface-secondary px-3 py-2 text-xs leading-snug text-text-secondary">
+ <strong className="font-bold italic text-text-primary">"Add to my metrics first"</strong> — a dashboard can
+ only be built on a registered KPI.
+ </p>
+ )}
  </section>
  <section className="grid grid-cols-2 gap-3 text-sm">
  {/* Unit is registry-only: a suggestion has no unit until it is adopted into the registry, so
