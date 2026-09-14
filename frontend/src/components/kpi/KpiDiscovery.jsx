@@ -37,7 +37,7 @@ const BUCKET_IDS = new Set(["ready", "partial", "blocked"]);
  * straight across. Everything else (seed KPIs) is still judged from `mappingStatusForKpi`'s local
  * dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked.
  */
-function bucketFor(row) {
+export function bucketFor(row) {
  if (row.suggested) {
   const verdict = row.suggestion?.feasibility?.verdict;
   return BUCKET_IDS.has(verdict) ? verdict : "blocked";
@@ -217,6 +217,33 @@ function SuggestionReasons({ suggestion, bucket }) {
  );
 }
 
+/**
+ * Why a card (or the detail panel) cannot be picked, keyed on the same `bucket` the buckets
+ * themselves are sorted by -- not on `row.suggested` alone. A suggestion can *also* land in the
+ * "blocked" bucket (missing data), and for that row "adopt it first" is actively wrong: adopting
+ * won't make it selectable, because the real blocker is data, not registry status. Blocked beats
+ * suggested, so the reason always agrees with the card's own body text (`SuggestionReasons`).
+ * Shared with `KpiDetailPanel`, which gives the identical reason in full rather than on hover.
+ */
+export const NOT_SELECTABLE_REASONS = {
+ blocked: { text: "Needs data you haven't connected.", node: "Needs data you haven't connected." },
+ adoptFirst: {
+  text: "Click \"Add to my metrics\" first. Dashboards can only include KPIs that are in your registry.",
+  node: (
+   <>
+    Click <strong className="font-bold italic text-text-primary">"Add to my metrics"</strong> first.
+    Dashboards can only include KPIs that are in your registry.
+   </>
+  ),
+ },
+};
+
+export function notSelectableReasonFor(row, bucket) {
+ if (bucket === "blocked") return NOT_SELECTABLE_REASONS.blocked;
+ if (row.suggested) return NOT_SELECTABLE_REASONS.adoptFirst;
+ return NOT_SELECTABLE_REASONS.blocked;
+}
+
 function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopting, adoptError }) {
  const { kpi } = row;
  const datasets = (kpi.datasetIds || []).map((id) => getDatasetById(id)).filter(Boolean);
@@ -230,17 +257,7 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
  // sits there reads as broken.
  // `text` is the plain form (for assistive tech); `node` is what the hover tooltip renders,
  // which is a real element rather than a `title` so the action can be set in bold italics.
- const notSelectableReason = row.suggested
-  ? {
-     text: "Click \"Add to my metrics\" first. Dashboards can only include KPIs that are in your registry.",
-     node: (
-      <>
-       Click <strong className="font-bold italic text-text-primary">"Add to my metrics"</strong> first.
-       Dashboards can only include KPIs that are in your registry.
-      </>
-     ),
-    }
-  : { text: "Needs data you haven't connected.", node: "Needs data you haven't connected." };
+ const notSelectableReason = notSelectableReasonFor(row, bucket);
 
  return (
   <div
@@ -264,13 +281,15 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
     ) : (
      <span className="group relative mt-0.5 shrink-0">
       <span
-       role="img"
+       tabIndex={0}
+       role="note"
+       aria-disabled="true"
        aria-label={`Not selectable: ${notSelectableReason.text}`}
-       className="block h-[18px] w-[18px] cursor-not-allowed rounded-[5px] border border-dashed border-border-light"
+       className="block h-[18px] w-[18px] cursor-not-allowed rounded-[5px] border border-dashed border-border-light focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       />
       <span
        role="tooltip"
-       className="pointer-events-none absolute left-0 top-6 z-20 hidden w-64 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-normal leading-snug text-text-secondary shadow-lg group-hover:block"
+       className="pointer-events-none absolute left-0 top-6 z-20 hidden w-64 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-normal leading-snug text-text-secondary shadow-lg group-hover:block group-focus-within:block"
       >
        {notSelectableReason.node}
       </span>
