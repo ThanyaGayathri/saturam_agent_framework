@@ -2817,17 +2817,15 @@
       },
       "Proposal": {
         "type": "object",
-        "description": "One enrichment proposal awaiting or past review. An agent proposed it; a person decides.\nNothing here reaches the graph until `decision` is `accepted` (D10, G5). `proposed_by`\nnames the skill and version, so a bad batch is attributable to the prompt edit that\ncaused it (G13).\n",
+        "description": "One thing an agent proposed, and the record of what happened to it (K7,\n`semantic.proposals.Proposal`). `target` is a plain string -- a concept name, a qualified\ntable, or (for `kind: kpi`) a metric identifier -- and `payload` carries whatever that\nkind needs to be applied, which is why its shape is not fixed here: a `kpi` payload is a\nwhole KPI definition (`identifier`, `name`, `sql`, `grain`, `business_area`,\n`source_tables`, plus display-only fields a reviewer wants -- `rationale`, `feasibility`,\n`feasibility_reason`, `missing_tables`); a `use_case` payload is a question and the KPIs\nit depends on. Nothing here reaches the graph, or the KPI registry, until `state` is\n`accepted` (D10, G5) -- and even then, `applied_at` is what says whether it actually\nlanded, not `state` alone.\n",
         "required": [
           "id",
           "kind",
           "target",
-          "value",
-          "rationale",
-          "confidence",
-          "decision",
-          "proposed_by",
-          "proposed_at"
+          "payload",
+          "proposer",
+          "state",
+          "created_at"
         ],
         "properties": {
           "id": {
@@ -2837,28 +2835,21 @@
             "$ref": "#/components/schemas/ProposalKind"
           },
           "target": {
-            "$ref": "#/components/schemas/ProposalTarget"
-          },
-          "value": {
             "type": "string"
           },
-          "rationale": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Kind-dependent. See `Proposal`'s own description."
+          },
+          "proposer": {
             "type": "string",
-            "description": "One sentence naming the input it derives from. A proposal with no traceable source was invented, not derived."
+            "description": "Which agent or person produced it. Never blank."
           },
-          "confidence": {
-            "$ref": "#/components/schemas/Confidence"
-          },
-          "decision": {
+          "state": {
             "$ref": "#/components/schemas/ProposalDecision"
           },
-          "proposed_by": {
-            "$ref": "#/components/schemas/SkillRef"
-          },
-          "proposed_at": {
-            "$ref": "#/components/schemas/Timestamp"
-          },
-          "decided_by": {
+          "reviewer": {
             "type": [
               "string",
               "null"
@@ -2874,19 +2865,37 @@
               }
             ]
           },
-          "harvest_id": {
+          "decision_note": {
+            "type": "string",
+            "default": ""
+          },
+          "applied_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set only once an accepted proposal's effect actually landed (a KPI saved to the\nregistry). An `accepted` proposal with `applied_at: null` is accepted-but-not-yet-\nlanded, or a kind with no consumer today (`use_case`) -- never assume `accepted`\nalone means \"done\".\n"
+          },
+          "apply_error": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
           }
         }
       },
       "ProposalCounts": {
         "type": "object",
-        "description": "Totals by decision, so the review screen can show its badge without a second call.",
+        "description": "Totals by state, so the review screen can show its badge without a second call.",
         "properties": {
-          "proposed": {
+          "pending": {
             "type": "integer"
           },
           "accepted": {
@@ -2900,10 +2909,11 @@
       "ProposalDecision": {
         "type": "string",
         "enum": [
-          "proposed",
+          "pending",
           "accepted",
           "rejected"
-        ]
+        ],
+        "description": "K7's `ReviewState`. One way out of `pending`, and no way back."
       },
       "ProposalDecisionRequest": {
         "type": "object",
@@ -2917,15 +2927,15 @@
       "ProposalKind": {
         "type": "string",
         "enum": [
-          "synonym",
-          "question_pattern",
-          "sql_filter",
-          "personal_data",
-          "compliance_tag",
-          "concept_mapping",
-          "kpi_candidate"
+          "enrichment",
+          "mapping",
+          "join",
+          "authoritative_source",
+          "column_meaning",
+          "kpi",
+          "use_case"
         ],
-        "description": "What an enrichment proposal proposes. Each kind is emitted by an agent under the K14 template and confirmed by a person (D10)."
+        "description": "What a proposal is about (K7's closed set, `semantic.proposals.ProposalKind`). `kpi` and\n`use_case` are what `egpt-retail suggest` files; the other five are K4/K8 harvest-time\nenrichment kinds this review screen also lists but does not specially render.\n"
       },
       "ProposalList": {
         "type": "object",
@@ -2941,6 +2951,45 @@
           },
           "counts": {
             "$ref": "#/components/schemas/ProposalCounts"
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProposalRefusal"
+            },
+            "description": "Ids from the request that were not pending and so did not move. Empty on a plain list read."
+          }
+        }
+      },
+      "ProposalRefusal": {
+        "type": "object",
+        "description": "One id in a decision request that did not move, and why. A bulk decision is not\natomic (K7's own `ReviewOutcome`, deliberately: eleven good decisions committing must\nnot be held hostage by a twelfth id a colleague decided a moment earlier) -- this is\nhow the caller finds out which one, and what its actual state is.\n",
+        "required": [
+          "id",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "current_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProposalDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decided_by": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -2951,30 +3000,6 @@
           "proposed"
         ],
         "description": "Whether a row has been through review. Only `accepted` rows reach the graph (D10, G5).\nA `proposed` row is returned only to a caller that passed `include_proposed=true`, and it\narrives labelled, so there is no way to receive an unreviewed synonym and mistake it for\na confirmed one.\n"
-      },
-      "ProposalTarget": {
-        "type": "object",
-        "description": "What a proposal attaches to.",
-        "required": [
-          "concept"
-        ],
-        "properties": {
-          "concept": {
-            "type": "string"
-          },
-          "table": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "column": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
       },
       "Provenance": {
         "type": "object",
@@ -13933,14 +13958,14 @@
           "semantic"
         ],
         "operationId": "listSemanticProposals",
-        "summary": "Enrichment proposals awaiting or past review.",
-        "description": "The review screen's read (D10). This is the one caller expected to see unreviewed content, and it needs `semantic:read_proposed`.",
+        "summary": "K7 proposals awaiting or past review -- KPI and use-case suggestions, plus harvest-time enrichment.",
+        "description": "The review screen's read (D10, F2). This is the one caller expected to see unreviewed\ncontent, and it needs `semantic:read_proposed`. `kind` may repeat -- the store filters\none kind per call internally, so `?kind=kpi&kind=use_case` (what the review screen asks\nfor) is answered as two reads merged into one list.\n",
         "x-egpt-scopes": [
           "semantic:read_proposed"
         ],
         "parameters": [
           {
-            "name": "decision",
+            "name": "state",
             "in": "query",
             "required": false,
             "schema": {
@@ -13948,19 +13973,16 @@
             }
           },
           {
-            "name": "concept",
+            "name": "kind",
             "in": "query",
             "required": false,
+            "style": "form",
+            "explode": true,
             "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "harvest_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ProposalKind"
+              }
             }
           }
         ],
@@ -13977,71 +13999,68 @@
                     "value": {
                       "proposals": [
                         {
-                          "id": "prop_0001",
-                          "kind": "synonym",
-                          "target": {
-                            "concept": "StockLevel",
-                            "table": null,
-                            "column": null
+                          "id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                          "kind": "kpi",
+                          "target": "rfq__quote_to_deal_conversion_rate",
+                          "payload": {
+                            "identifier": "rfq__quote_to_deal_conversion_rate",
+                            "name": "Quote-to-deal conversion rate",
+                            "description": "Share of RFQs that became a won deal.",
+                            "sql": "SELECT ...",
+                            "grain": "deal",
+                            "business_area": "sales",
+                            "source_tables": [
+                              "crm_deal",
+                              "crm_quote"
+                            ],
+                            "result_shape": "scalar",
+                            "rationale": "The harvested schema has both quote and deal tables with a shared deal_id, and every dashboard example this deployment ships asks for conversion.",
+                            "feasibility": "ready",
+                            "feasibility_reason": "Both source tables are joinable on deal_id.",
+                            "missing_tables": []
                           },
-                          "value": "stock position",
-                          "rationale": "The description defines the concept as a band of how much is on hand, which is what a stock position states.",
-                          "confidence": "high",
-                          "decision": "proposed",
-                          "proposed_by": {
-                            "identifier": "synonym_proposer",
-                            "version": "1.0.0"
-                          },
-                          "proposed_at": "2026-09-07T02:03:40Z",
-                          "decided_by": null,
+                          "proposer": "kpi_suggestion_skill@1.0.0",
+                          "state": "pending",
+                          "reviewer": null,
                           "decided_at": null,
-                          "harvest_id": "hv_20260907_0200"
+                          "decision_note": "",
+                          "applied_at": null,
+                          "apply_error": null,
+                          "created_at": "2026-09-07T02:03:40Z"
                         },
                         {
-                          "id": "prop_0002",
-                          "kind": "question_pattern",
-                          "target": {
-                            "concept": "StockLevel",
-                            "table": null,
-                            "column": null
+                          "id": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+                          "kind": "use_case",
+                          "target": "which-brands-are-slowest-to-close",
+                          "payload": {
+                            "question": "Which brands are slowest to close?",
+                            "description": "Ranks brands by median days from quote to close.",
+                            "business_area": "sales",
+                            "rationale": "The RFQ KPIs this deployment already has cover conversion but not cycle time; the harvested tables carry both quote and close timestamps.",
+                            "kpi_identifiers": [
+                              "rfq__quote_to_deal_conversion_rate"
+                            ],
+                            "derived_from_tables": [
+                              "crm_deal",
+                              "crm_quote"
+                            ],
+                            "confidence": "medium",
+                            "shape": "ranked_list",
+                            "shape_ready": true,
+                            "shape_missing": []
                           },
-                          "value": "what needs reordering?",
-                          "rationale": "The description names deciding what to reorder as the concept's purpose.",
-                          "confidence": "high",
-                          "decision": "proposed",
-                          "proposed_by": {
-                            "identifier": "synonym_proposer",
-                            "version": "1.0.0"
-                          },
-                          "proposed_at": "2026-09-07T02:03:40Z",
-                          "decided_by": null,
-                          "decided_at": null,
-                          "harvest_id": "hv_20260907_0200"
-                        },
-                        {
-                          "id": "prop_0003",
-                          "kind": "personal_data",
-                          "target": {
-                            "concept": "Customer",
-                            "table": "customers",
-                            "column": "email"
-                          },
-                          "value": "true",
-                          "rationale": "The column name and sampled values are email addresses.",
-                          "confidence": "high",
-                          "decision": "accepted",
-                          "proposed_by": {
-                            "identifier": "enrichment_proposer",
-                            "version": "0.1.0"
-                          },
-                          "proposed_at": "2026-09-07T02:03:41Z",
-                          "decided_by": "analyst@example.test",
+                          "proposer": "use_case_suggestion_skill@1.0.0",
+                          "state": "accepted",
+                          "reviewer": "analyst@example.test",
                           "decided_at": "2026-09-07T09:12:00Z",
-                          "harvest_id": "hv_20260907_0200"
+                          "decision_note": "",
+                          "applied_at": null,
+                          "apply_error": null,
+                          "created_at": "2026-09-07T02:03:41Z"
                         }
                       ],
                       "counts": {
-                        "proposed": 2,
+                        "pending": 1,
                         "accepted": 1,
                         "rejected": 0
                       }
@@ -14051,7 +14070,7 @@
                     "value": {
                       "proposals": [],
                       "counts": {
-                        "proposed": 0,
+                        "pending": 0,
                         "accepted": 0,
                         "rejected": 0
                       }
@@ -14088,7 +14107,8 @@
           "semantic"
         ],
         "operationId": "acceptSemanticProposal",
-        "summary": "Accept one proposal. This is the human decision that lets it reach the graph.",
+        "summary": "Accept one proposal. For a KPI proposal, this is also what adopts it into the registry.",
+        "description": "The human decision that lets a proposal take effect (D10, F2). For `kind: kpi`, accepting\nimmediately adopts it into the KPI registry in the same call -- `applied_at` on the\nresponse says whether that landed. `kind: use_case` proposals have no consumer yet;\naccepting one only records the decision, and `applied_at` stays null.\n",
         "x-egpt-scopes": [
           "semantic:review"
         ],
@@ -14112,7 +14132,7 @@
               "examples": {
                 "default": {
                   "value": {
-                    "note": "Matches how the buying team talks."
+                    "note": "Matches how the sales team already talks about this."
                   }
                 }
               }
@@ -14121,7 +14141,7 @@
         },
         "responses": {
           "200": {
-            "description": "The proposal, now accepted.",
+            "description": "The proposal, now accepted (and, for a KPI, adopted).",
             "content": {
               "application/json": {
                 "schema": {
@@ -14130,25 +14150,34 @@
                 "examples": {
                   "default": {
                     "value": {
-                      "id": "prop_0001",
-                      "kind": "synonym",
-                      "target": {
-                        "concept": "StockLevel",
-                        "table": null,
-                        "column": null
+                      "id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                      "kind": "kpi",
+                      "target": "rfq__quote_to_deal_conversion_rate",
+                      "payload": {
+                        "identifier": "rfq__quote_to_deal_conversion_rate",
+                        "name": "Quote-to-deal conversion rate",
+                        "description": "Share of RFQs that became a won deal.",
+                        "sql": "SELECT ...",
+                        "grain": "deal",
+                        "business_area": "sales",
+                        "source_tables": [
+                          "crm_deal",
+                          "crm_quote"
+                        ],
+                        "result_shape": "scalar",
+                        "rationale": "The harvested schema has both quote and deal tables with a shared deal_id, and every dashboard example this deployment ships asks for conversion.",
+                        "feasibility": "ready",
+                        "feasibility_reason": "Both source tables are joinable on deal_id.",
+                        "missing_tables": []
                       },
-                      "value": "stock position",
-                      "rationale": "The description defines the concept as a band of how much is on hand, which is what a stock position states.",
-                      "confidence": "high",
-                      "decision": "accepted",
-                      "proposed_by": {
-                        "identifier": "synonym_proposer",
-                        "version": "1.0.0"
-                      },
-                      "proposed_at": "2026-09-07T02:03:40Z",
-                      "decided_by": "analyst@example.test",
+                      "proposer": "kpi_suggestion_skill@1.0.0",
+                      "state": "accepted",
+                      "reviewer": "analyst@example.test",
                       "decided_at": "2026-09-07T09:15:22Z",
-                      "harvest_id": "hv_20260907_0200"
+                      "decision_note": "Matches how the sales team already talks about this.",
+                      "applied_at": "2026-09-07T09:15:22Z",
+                      "apply_error": null,
+                      "created_at": "2026-09-07T02:03:40Z"
                     }
                   }
                 }
@@ -14183,7 +14212,7 @@
                 "examples": {
                   "conflict": {
                     "value": {
-                      "detail": "Proposal prop_0003 was accepted on 2026-09-07T09:12:00Z by analyst@example.test.",
+                      "detail": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4: already accepted by analyst@example.test",
                       "code": "already_decided"
                     }
                   }
@@ -14224,7 +14253,7 @@
               "examples": {
                 "default": {
                   "value": {
-                    "note": "Different concept: this is about sales rate, not quantity."
+                    "note": "Duplicates a KPI we already have."
                   }
                 }
               }
@@ -14242,25 +14271,34 @@
                 "examples": {
                   "default": {
                     "value": {
-                      "id": "prop_0002",
-                      "kind": "question_pattern",
-                      "target": {
-                        "concept": "StockLevel",
-                        "table": null,
-                        "column": null
+                      "id": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+                      "kind": "use_case",
+                      "target": "which-brands-are-slowest-to-close",
+                      "payload": {
+                        "question": "Which brands are slowest to close?",
+                        "description": "Ranks brands by median days from quote to close.",
+                        "business_area": "sales",
+                        "rationale": "The RFQ KPIs this deployment already has cover conversion but not cycle time; the harvested tables carry both quote and close timestamps.",
+                        "kpi_identifiers": [
+                          "rfq__quote_to_deal_conversion_rate"
+                        ],
+                        "derived_from_tables": [
+                          "crm_deal",
+                          "crm_quote"
+                        ],
+                        "confidence": "medium",
+                        "shape": "ranked_list",
+                        "shape_ready": true,
+                        "shape_missing": []
                       },
-                      "value": "what needs reordering?",
-                      "rationale": "The description names deciding what to reorder as the concept's purpose.",
-                      "confidence": "high",
-                      "decision": "rejected",
-                      "proposed_by": {
-                        "identifier": "synonym_proposer",
-                        "version": "1.0.0"
-                      },
-                      "proposed_at": "2026-09-07T02:03:40Z",
-                      "decided_by": "analyst@example.test",
+                      "proposer": "use_case_suggestion_skill@1.0.0",
+                      "state": "rejected",
+                      "reviewer": "analyst@example.test",
                       "decided_at": "2026-09-07T09:16:05Z",
-                      "harvest_id": "hv_20260907_0200"
+                      "decision_note": "Duplicates a KPI we already have.",
+                      "applied_at": null,
+                      "apply_error": null,
+                      "created_at": "2026-09-07T02:03:41Z"
                     }
                   }
                 }
@@ -14295,7 +14333,7 @@
                 "examples": {
                   "conflict": {
                     "value": {
-                      "detail": "Proposal prop_0003 was accepted on 2026-09-07T09:12:00Z by analyst@example.test.",
+                      "detail": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5: already accepted by analyst@example.test",
                       "code": "already_decided"
                     }
                   }
@@ -14312,8 +14350,8 @@
           "semantic"
         ],
         "operationId": "acceptSemanticProposalsBulk",
-        "summary": "Accept many proposals in one decision.",
-        "description": "A harvest produces hundreds of proposals; a gate per proposal is the obvious tool and the wrong one (G5). Every id in the request is decided or none is.",
+        "summary": "Accept many proposals in one decision. Not atomic -- see the response's `refused`.",
+        "description": "A harvest or a suggestion run produces many proposals at once; a gate per proposal is the\nobvious tool and the wrong one (G5). **Deliberately not all-or-nothing**: an id that is\nno longer pending (someone else decided it a moment earlier) is skipped and reported in\n`refused`, and every other id in the request still commits -- eleven good decisions must\nnot be held hostage by a twelfth (K7's `ReviewOutcome`). Any `kind: kpi` ids that did\ncommit are adopted into the registry in the same call, same as the single-accept route.\nAlways `200`; check `refused` to see whether every id in the request actually moved.\n",
         "x-egpt-scopes": [
           "semantic:review"
         ],
@@ -14328,10 +14366,10 @@
                 "default": {
                   "value": {
                     "ids": [
-                      "prop_0001",
-                      "prop_0002"
+                      "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                      "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"
                     ],
-                    "note": "Reviewed the StockLevel batch."
+                    "note": "Reviewed this batch together."
                   }
                 }
               }
@@ -14351,53 +14389,122 @@
                     "value": {
                       "proposals": [
                         {
-                          "id": "prop_0001",
-                          "kind": "synonym",
-                          "target": {
-                            "concept": "StockLevel",
-                            "table": null,
-                            "column": null
+                          "id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                          "kind": "kpi",
+                          "target": "rfq__quote_to_deal_conversion_rate",
+                          "payload": {
+                            "identifier": "rfq__quote_to_deal_conversion_rate",
+                            "name": "Quote-to-deal conversion rate",
+                            "description": "Share of RFQs that became a won deal.",
+                            "sql": "SELECT ...",
+                            "grain": "deal",
+                            "business_area": "sales",
+                            "source_tables": [
+                              "crm_deal",
+                              "crm_quote"
+                            ],
+                            "result_shape": "scalar",
+                            "rationale": "The harvested schema has both quote and deal tables with a shared deal_id, and every dashboard example this deployment ships asks for conversion.",
+                            "feasibility": "ready",
+                            "feasibility_reason": "Both source tables are joinable on deal_id.",
+                            "missing_tables": []
                           },
-                          "value": "stock position",
-                          "rationale": "The description defines the concept as a band of how much is on hand, which is what a stock position states.",
-                          "confidence": "high",
-                          "decision": "accepted",
-                          "proposed_by": {
-                            "identifier": "synonym_proposer",
-                            "version": "1.0.0"
-                          },
-                          "proposed_at": "2026-09-07T02:03:40Z",
-                          "decided_by": "analyst@example.test",
+                          "proposer": "kpi_suggestion_skill@1.0.0",
+                          "state": "accepted",
+                          "reviewer": "analyst@example.test",
                           "decided_at": "2026-09-07T09:20:00Z",
-                          "harvest_id": "hv_20260907_0200"
+                          "decision_note": "Reviewed this batch together.",
+                          "applied_at": "2026-09-07T09:20:00Z",
+                          "apply_error": null,
+                          "created_at": "2026-09-07T02:03:40Z"
                         },
                         {
-                          "id": "prop_0002",
-                          "kind": "question_pattern",
-                          "target": {
-                            "concept": "StockLevel",
-                            "table": null,
-                            "column": null
+                          "id": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+                          "kind": "use_case",
+                          "target": "which-brands-are-slowest-to-close",
+                          "payload": {
+                            "question": "Which brands are slowest to close?",
+                            "description": "Ranks brands by median days from quote to close.",
+                            "business_area": "sales",
+                            "rationale": "The RFQ KPIs this deployment already has cover conversion but not cycle time; the harvested tables carry both quote and close timestamps.",
+                            "kpi_identifiers": [
+                              "rfq__quote_to_deal_conversion_rate"
+                            ],
+                            "derived_from_tables": [
+                              "crm_deal",
+                              "crm_quote"
+                            ],
+                            "confidence": "medium",
+                            "shape": "ranked_list",
+                            "shape_ready": true,
+                            "shape_missing": []
                           },
-                          "value": "what needs reordering?",
-                          "rationale": "The description names deciding what to reorder as the concept's purpose.",
-                          "confidence": "high",
-                          "decision": "accepted",
-                          "proposed_by": {
-                            "identifier": "synonym_proposer",
-                            "version": "1.0.0"
-                          },
-                          "proposed_at": "2026-09-07T02:03:40Z",
-                          "decided_by": "analyst@example.test",
+                          "proposer": "use_case_suggestion_skill@1.0.0",
+                          "state": "accepted",
+                          "reviewer": "analyst@example.test",
                           "decided_at": "2026-09-07T09:20:00Z",
-                          "harvest_id": "hv_20260907_0200"
+                          "decision_note": "Reviewed this batch together.",
+                          "applied_at": null,
+                          "apply_error": null,
+                          "created_at": "2026-09-07T02:03:41Z"
                         }
                       ],
                       "counts": {
-                        "proposed": 0,
+                        "pending": 0,
                         "accepted": 2,
                         "rejected": 0
-                      }
+                      },
+                      "refused": []
+                    }
+                  },
+                  "partial": {
+                    "summary": "One id in the batch had already been decided -- it is reported, not raised, and does not block the rest.",
+                    "value": {
+                      "proposals": [
+                        {
+                          "id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                          "kind": "kpi",
+                          "target": "rfq__quote_to_deal_conversion_rate",
+                          "payload": {
+                            "identifier": "rfq__quote_to_deal_conversion_rate",
+                            "name": "Quote-to-deal conversion rate",
+                            "description": "Share of RFQs that became a won deal.",
+                            "sql": "SELECT ...",
+                            "grain": "deal",
+                            "business_area": "sales",
+                            "source_tables": [
+                              "crm_deal",
+                              "crm_quote"
+                            ],
+                            "result_shape": "scalar",
+                            "rationale": "The harvested schema has both quote and deal tables with a shared deal_id, and every dashboard example this deployment ships asks for conversion.",
+                            "feasibility": "ready",
+                            "feasibility_reason": "Both source tables are joinable on deal_id.",
+                            "missing_tables": []
+                          },
+                          "proposer": "kpi_suggestion_skill@1.0.0",
+                          "state": "accepted",
+                          "reviewer": "analyst@example.test",
+                          "decided_at": "2026-09-07T09:20:00Z",
+                          "decision_note": "Reviewed this batch together.",
+                          "applied_at": "2026-09-07T09:20:00Z",
+                          "apply_error": null,
+                          "created_at": "2026-09-07T02:03:40Z"
+                        }
+                      ],
+                      "counts": {
+                        "pending": 0,
+                        "accepted": 1,
+                        "rejected": 0
+                      },
+                      "refused": [
+                        {
+                          "id": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+                          "reason": "already rejected",
+                          "current_state": "rejected",
+                          "decided_by": "someone_else@example.test"
+                        }
+                      ]
                     }
                   }
                 }
@@ -14416,24 +14523,6 @@
                     "value": {
                       "detail": "Insufficient permissions. Required scopes: semantic:read_proposed.",
                       "code": "insufficient_scope"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "At least one id was already decided; nothing was changed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "conflict": {
-                    "value": {
-                      "detail": "prop_0003 was already decided. No proposal in this request was changed.",
-                      "code": "already_decided"
                     }
                   }
                 }

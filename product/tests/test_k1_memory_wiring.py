@@ -36,11 +36,14 @@ def test_build_agent_os_is_pure_construction(monkeypatch):
 # _ensure_control_plane_schemas -- round-2 review on #229/B1: KpiRegistryStore's
 # table must be provisioned at boot alongside Playground's and Dashboard's, or a
 # fresh deployment's first GET /kpis hits a raw "relation does not exist" 500
-# before the offline refresh job has ever run.
+# before the offline refresh job has ever run. #235/F2 added ProposalStore's own
+# table to the same boot-time provisioning for the same reason: the review
+# screen's first GET /semantic/proposals must not be the first thing to find out
+# `semantic.proposal` does not exist yet.
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_control_plane_schemas_provisions_all_three_stores(monkeypatch):
+def test_ensure_control_plane_schemas_provisions_all_four_stores(monkeypatch):
     calls: list = []
 
     class _FakeConnection:
@@ -62,12 +65,13 @@ def test_ensure_control_plane_schemas_provisions_all_three_stores(monkeypatch):
     monkeypatch.setattr(factory_module, "PlaygroundStore", _fake_store("playground"))
     monkeypatch.setattr(factory_module, "DashboardStore", _fake_store("dashboard"))
     monkeypatch.setattr(factory_module, "KpiRegistryStore", _fake_store("kpi"))
+    monkeypatch.setattr(factory_module, "ProposalStore", _fake_store("proposal"))
 
     factory_module._ensure_control_plane_schemas(
         RetailSettings(retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db")
     )
 
-    assert calls == ["playground", "dashboard", "kpi"]
+    assert calls == ["playground", "dashboard", "kpi", "proposal"]
 
 
 def test_lifespan_refuses_to_start_without_a_customer_slug():

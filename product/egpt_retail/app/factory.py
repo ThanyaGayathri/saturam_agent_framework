@@ -23,6 +23,7 @@ from egpt_retail.api.routers.business_areas import router as business_areas_rout
 from egpt_retail.api.routers.dashboards import router as dashboards_router
 from egpt_retail.api.routers.kpis import router as kpis_router
 from egpt_retail.api.routers.playground import router as playground_router
+from egpt_retail.api.routers.semantic import router as semantic_router
 from egpt_retail.app.components import (
     abuild_memory_provider,
     build_agents,
@@ -34,6 +35,7 @@ from egpt_retail.app.settings import RetailSettings
 from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.playground.store import PlaygroundStore
+from egpt_retail.semantic.proposals import ProposalStore
 
 __all__ = ["OS_ID", "build_agent_os"]
 
@@ -93,6 +95,7 @@ def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
         PlaygroundStore(connection).ensure_schema()
         DashboardStore(connection).ensure_schema()
         KpiRegistryStore(connection).ensure_schema()
+        ProposalStore(connection).ensure_schema()
     finally:
         connection.close()
 
@@ -180,6 +183,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     base_app.include_router(dashboards_router)
     base_app.include_router(business_areas_router)
     base_app.include_router(kpis_router)
+    base_app.include_router(semantic_router)
 
     os_app = EgptOS(
         id=OS_ID,

@@ -554,6 +554,21 @@ class ProposalStore:
         """Async variant."""
         return await asyncio.to_thread(self.get, identifier)
 
+    def get_many(self, identifiers: Sequence[str]) -> Tuple[Proposal, ...]:
+        """Several proposals by id, in one round trip rather than one per id.
+
+        Mirrors ``_decide``'s own ``WHERE id = ANY(%s)``. Order is not guaranteed to match
+        ``identifiers`` -- ``_select`` always orders by ``created_at, id`` -- so a caller that
+        cares about input order re-keys the result itself.
+        """
+        if not identifiers:
+            return ()
+        return tuple(self._select("WHERE id = ANY(%s)", (list(identifiers),)))
+
+    async def aget_many(self, identifiers: Sequence[str]) -> Tuple[Proposal, ...]:
+        """Async variant."""
+        return await asyncio.to_thread(self.get_many, identifiers)
+
     def list(
         self,
         *,
@@ -745,6 +760,31 @@ class ProposalStore:
     async def amark_applied(self, identifier: str) -> None:
         """Async variant."""
         await asyncio.to_thread(self.mark_applied, identifier)
+
+    def record_apply_error(self, identifier: str, message: str) -> None:
+        """Stamp a failed application attempt, without touching ``state`` or ``applied_at``.
+
+        Mirrors :meth:`apply_accepted`'s own failure path so a consumer other than the graph
+        (K11's KPI registry) can surface a failed adoption the same way: the proposal stays
+        ``accepted`` and unapplied, and the next sweep of its kind retries it.
+
+        Rolls back first: this is the recovery path a caller reaches for right after some
+        other statement on this same connection raised, and Postgres refuses every further
+        statement on a connection until its aborted transaction is rolled back -- without
+        this, recording the very failure that got us here would itself fail. A no-op when
+        the connection has no open transaction to roll back.
+        """
+        self._connection.rollback()
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"UPDATE {self._schema}.proposal SET apply_error = %s WHERE id = %s",
+                (message, identifier),
+            )
+        self._connection.commit()
+
+    async def arecord_apply_error(self, identifier: str, message: str) -> None:
+        """Async variant."""
+        await asyncio.to_thread(self.record_apply_error, identifier, message)
 
     async def aapply_accepted(self, store: Any) -> ApplyOutcome:
         """Async variant."""
