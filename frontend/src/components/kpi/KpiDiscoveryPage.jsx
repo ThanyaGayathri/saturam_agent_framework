@@ -354,6 +354,9 @@ export default function KpiDiscoveryPage() {
      identifier: null,
      error: err?.detail || err?.message || "Couldn't remove this KPI.",
     });
+   })
+   .finally(() => {
+    if (removeAbortRef.current === controller) removeAbortRef.current = null;
    });
  };
 

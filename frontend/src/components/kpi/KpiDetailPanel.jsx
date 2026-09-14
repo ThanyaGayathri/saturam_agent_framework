@@ -248,7 +248,7 @@ export default function KpiDetailPanel({
  </div>
  )}
  {removeError && (
- <p className="mt-3 flex items-start gap-2 text-xs text-status-critical">
+ <p role="alert" className="mt-3 flex items-start gap-2 text-xs text-status-critical">
  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
  <span>Couldn't remove it: {removeError}</span>
  </p>
