@@ -54,3 +54,30 @@ export function fetchKpiSuggestions(businessArea, { signal } = {}) {
 export function createKpi(body, { signal } = {}) {
   return apiJson("/kpis", "POST", body, { signal });
 }
+
+/** `GET /kpis/{kpi_id}/series` - one KPI's value over its last `days` business dates, read
+ * from gold (a `KpiSeries`: `{kpi_identifier, grain, interval: "day", days, unit, dimension,
+ * dimensions, points: [{at, value}], value, delta, as_of, computed_at, status,
+ * provenance_ref}`). One point per night the KPI was materialised for, oldest first; a night
+ * with no row is absent, not `null`. Never a recomputation: a KPI adopted today has no point
+ * until `computeKpi` (or tonight's run) writes one, which the api reports as a `200` with
+ * empty `points` and `status: "never_computed"`, not an error. `dimension` (an object of
+ * grain-key values) picks which row of a per-dimension KPI to follow. */
+export function fetchKpiSeries(identifier, { days = 30, dimension, signal } = {}) {
+  const query = new URLSearchParams({ days: String(days) });
+  if (dimension && Object.keys(dimension).length > 0) {
+    query.set("dimension", JSON.stringify(dimension));
+  }
+  return apiGet(`/kpis/${encodeURIComponent(identifier)}/series?${query}`, { signal });
+}
+
+/** `POST /kpis/{kpi_id}/compute` - materialise this KPI for today, now: the nightly gold pass
+ * narrowed to one KPI, so a just-adopted KPI has a value before its first night. Resolves to a
+ * `KpiComputeResult` `{kpi_identifier, as_of, status: "materialised"|"failed"|"skipped",
+ * rows_written, run_id, error, reason}` - a formula that fails is a 200 with `status:
+ * "failed"` and `error`, not a rejected promise. 409 when the KPI is not `ready`; 503 when
+ * gold itself refuses to run (the warehouse's last load did not pass, or a load is in
+ * progress). Takes a few seconds: one guarded statement against the warehouse. */
+export function computeKpi(identifier, { signal } = {}) {
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}/compute`, "POST", {}, { signal });
+}

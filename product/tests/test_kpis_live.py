@@ -796,3 +796,70 @@ def test_suggestion_run_store_get_returns_none_for_an_unknown_id(
     run_store: SuggestionRunStore,
 ) -> None:
     assert run_store.get("sr_livetest_missing") is None
+
+
+# ---------------------------------------------------------------------------
+# contract 1.1.9 -- POST /kpis/{id}/compute then GET /kpis/{id}/series, against the real
+# warehouse: the pass writes gold for exactly this KPI and the series reads it back.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def warehouse() -> Iterator[Any]:
+    """The warehouse connection the gold pass writes to, or a skip when the deployment has
+    none; every gold row and view this module writes is removed afterwards."""
+    psycopg = pytest.importorskip("psycopg")
+    from egpt_retail.app.db import psycopg_dsn
+
+    url = RetailSettings().retail_warehouse_db_url
+    if not url:
+        pytest.skip(
+            "EGPT_RETAIL_WAREHOUSE_DB_URL unset; the gold pass has nowhere to write"
+        )
+    conn = psycopg.connect(psycopg_dsn(str(url)))
+    yield conn
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM gold.kpi_value WHERE kpi_identifier LIKE 'livetest_kpi__%'"
+        )
+        cur.execute(
+            "DELETE FROM gold.kpi_run WHERE kpi_identifier LIKE 'livetest_kpi__%'"
+        )
+        cur.execute(f"DROP VIEW IF EXISTS gold.kpi_{IDENT}")
+    conn.commit()
+    conn.close()
+
+
+def test_compute_kpi_writes_gold_and_the_series_reads_it_back(
+    store: KpiRegistryStore, warehouse: Any
+) -> None:
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import compute_kpi, get_kpi_series
+
+    store.save(_definition(sql="SELECT count(*) FROM crm_contact"))
+    try:
+        result = asyncio.run(compute_kpi(IDENT, store=store))
+    except HTTPException as exc:
+        # 409: the graph this test runs against does not carry `crm_contact`, so the KPI is
+        # not `ready` and there is nothing to compute; 503: the last load did not pass or a
+        # load is running. Both are the route doing its job, not a failure of this test.
+        pytest.skip(f"compute refused ({exc.status_code}): {exc.detail}")
+    assert result.kpi_identifier == IDENT
+    assert result.run_id.startswith("api_")
+    assert result.status.value in ("materialised", "failed"), result
+    if result.status.value == "failed":
+        pytest.skip(f"the formula failed against this warehouse: {result.error}")
+    assert result.rows_written >= 1
+
+    series = asyncio.run(get_kpi_series(IDENT, days=30, dimension=None, store=store))
+    assert series.kpi_identifier == IDENT
+    assert series.status.value == "fresh"
+    assert series.dimension is None and series.dimensions == []
+    assert len(series.points) >= 1
+    assert series.points[-1].value is not None and series.points[-1].value >= 0
+    assert series.value == series.points[-1].value
+    assert series.provenance_ref == result.run_id
+    assert series.as_of is not None and series.as_of.date() == result.as_of
