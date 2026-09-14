@@ -463,7 +463,7 @@ export default function KpiDiscoveryPage() {
    {focusAreaIds.length > 0 && suggestBusinessAreas?.length === 0 && (
     <div className="flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
      <AlertTriangle size={15} className="shrink-0 text-status-warning" />
-     Your saved focus areas aren't in this deployment's business-area list anymore — suggesting across all areas instead.
+     Your saved focus areas don't match this deployment's business-area list — suggesting across all areas instead.
     </div>
    )}
 
