@@ -102,6 +102,11 @@ function barWidth(xs) {
 function TrendChart({ points, unit, asOf, days, kind = DEFAULT_CHART_KIND }) {
   const ref = useRef(null);
   const [hover, setHover] = useState(null);
+  // A chart-kind switch recomputes `pts` under a different domain (bar's zero-anchored one
+  // vs. the others' tight min/max) without an intervening `mousemove` -- the kind picker is a
+  // sibling above the chart, so no `onMouseLeave` fires when a click lands on it while
+  // hovering. Left uncleared, the crosshair/tooltip would render at the old kind's position.
+  useEffect(() => setHover(null), [kind]);
 
   const end = new Date(asOf).getTime();
   const start = end - Math.max(days - 1, 1) * DAY_MS;
