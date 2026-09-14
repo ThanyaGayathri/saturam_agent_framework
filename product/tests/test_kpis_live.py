@@ -694,10 +694,11 @@ def run_store(control_plane: Any) -> Iterator[SuggestionRunStore]:
     store.ensure_schema()
     store.ensure_schema()  # idempotent: the second boot must not fail
     yield store
+    # By area, not by age: the lost-run test ages its own row two hours back, which an
+    # age-bounded delete would have left behind (it did, once).
     with control_plane.cursor() as cur:
         cur.execute(
-            "DELETE FROM semantic.kpi_suggestion_run WHERE created_at > now() - interval '1 hour'"
-            " AND (business_area = 'livetest' OR business_area IS NULL)"
+            "DELETE FROM semantic.kpi_suggestion_run WHERE business_area = 'livetest'"
         )
     control_plane.commit()
 
