@@ -91,7 +91,10 @@ class LLMsTxtReader(Reader):
             for tag in soup.find_all(["script", "style", "nav", "header", "footer", "aside"]):
                 tag.decompose()
 
-            main = soup.find("main") or soup.find("article") or soup.find(attrs={"role": "main"})
+            # Explicit `None` (not omitted) disambiguates which bs4-stubs `find` overload
+            # applies to a dict `attrs=` with no `name` -- omitting it makes mypy reject every
+            # overload instead of picking one.
+            main = soup.find("main") or soup.find("article") or soup.find(None, attrs={"role": "main"})
             if main:
                 return main.get_text(separator="\n", strip=True)
 
