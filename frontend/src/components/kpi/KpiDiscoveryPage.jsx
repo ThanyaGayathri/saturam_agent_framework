@@ -122,17 +122,26 @@ export default function KpiDiscoveryPage() {
  // crash -- the same posture `DashboardsPage.jsx`'s own real-data fetch already takes.
  const [realKpiState, setRealKpiState] = useState({ status: "loading", kpis: [] });
  const [realAreas, setRealAreas] = useState([]);
+ const [realAreasStatus, setRealAreasStatus] = useState("loading");
 
- // The focus the agents are given (contract 1.1.8): the chosen areas, or every area the
- // connected data supports when nothing is chosen, so the model always knows where attention
- // is. Only ids the deployment's vocabulary knows are sent (a stored focus can predate it) --
- // an unknown id would be refused, and a refused run helps nobody. A priority, not a filter.
+ // The focus the agents are given (contract 1.1.8): the chosen areas, filtered against the
+ // deployment's real vocabulary (a stored focus can predate it -- an unknown id would be
+ // refused, and a refused run helps nobody). No focus at all sends nothing: the backend already
+ // treats that as "no focus" and leaves the prompt untouched, so there is nothing to prioritize
+ // by listing every supported area (review).
+ //
+ // While `realAreas` is still loading, filtering a genuine focus against it would empty it out
+ // and silently widen the run to "no focus" instead -- the "Suggest KPIs" button below is
+ // disabled for that window, so this case is a fallback, not the common path. If the fetch
+ // failed outright, there is no vocabulary to filter against at all; send the chosen ids as-is
+ // and let the backend's own validation be the source of truth (review).
  const suggestBusinessAreas = useMemo(() => {
+  if (!focusAreaIds.length) return undefined;
+  if (realAreasStatus === "loading") return undefined;
+  if (realAreasStatus === "error") return focusAreaIds;
   const known = new Set(realAreas.map((a) => a.id));
-  const chosen = focusAreaIds.filter((id) => known.has(id));
-  if (chosen.length) return chosen;
-  return realAreas.filter((a) => a.supported).map((a) => a.id);
- }, [focusAreaIds, realAreas]);
+  return focusAreaIds.filter((id) => known.has(id));
+ }, [focusAreaIds, realAreas, realAreasStatus]);
 
  // `runSuggestions`/`handleAdopt` are click-triggered, not effects, but they need the same
  // unmount guard the two effects below already have -- an `AbortController` per in-flight
@@ -184,11 +193,15 @@ export default function KpiDiscoveryPage() {
   let cancelled = false;
   fetchBusinessAreas()
    .then((hierarchy) => {
-    if (!cancelled) setRealAreas(hierarchy?.areas || []);
+    if (!cancelled) {
+     setRealAreas(hierarchy?.areas || []);
+     setRealAreasStatus("ready");
+    }
    })
    .catch(() => {
     // Not fatal on its own: a real row without a resolved label still shows its raw
     // business_area id (see realAreaLabel below) rather than disappearing.
+    if (!cancelled) setRealAreasStatus("error");
    });
   return () => {
    cancelled = true;
@@ -434,7 +447,7 @@ export default function KpiDiscoveryPage() {
     <button
      type="button"
      onClick={runSuggestions}
-     disabled={suggestionState.status === "loading"}
+     disabled={suggestionState.status === "loading" || realAreasStatus === "loading"}
      className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
     >
      <Sparkles size={13} />

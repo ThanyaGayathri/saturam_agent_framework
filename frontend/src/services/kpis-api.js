@@ -21,10 +21,10 @@ export function fetchKpiList() {
  * `fetchKpiSuggestionRun` until `status` is `succeeded` (then `result` is the suggestion list)
  * or `failed` (then `error` says why). `businessAreas` is the focus (contract 1.1.8): the
  * areas the customer cares about, handed to the agents as a priority -- "propose for these
- * first" -- never as a filter, so nothing is dropped for being outside them. Send every
- * supported area when nothing is chosen, so the agents always know where attention is; an
- * empty list means no focus. Nothing is stored beyond the run row - a suggestion becomes a
- * KPI only through `createKpi`. */
+ * first" -- never as a filter, so nothing is dropped for being outside them. An empty list (or
+ * none at all) means no focus -- the backend leaves the prompt untouched in that case, so there
+ * is nothing to gain by listing every supported area when nothing was actually chosen. Nothing
+ * is stored beyond the run row - a suggestion becomes a KPI only through `createKpi`. */
 export function startKpiSuggestionRun(businessAreas, { signal } = {}) {
   const areas = Array.isArray(businessAreas) ? businessAreas.filter(Boolean) : [];
   const body = areas.length ? { business_areas: areas } : {};
