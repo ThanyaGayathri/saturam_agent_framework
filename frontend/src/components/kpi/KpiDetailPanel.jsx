@@ -29,10 +29,16 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  const suggested = !!(detailRow.suggested && detailRow.suggestion);
  const conf =
   fromRegistry || suggested ? null : mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
+ // A suggestion's `feasibility` is optional in the contract -- the one live producer always
+ // stamps it, but nothing enforces that. Fall back the same way the card view does (bucketFor,
+ // SuggestionReasons in KpiDiscovery.jsx) rather than silently dropping the whole section.
  const feasibility = fromRegistry
   ? detailRow.kpi.feasibility
   : suggested
-   ? detailRow.suggestion.feasibility
+   ? detailRow.suggestion.feasibility || {
+      verdict: "blocked",
+      rationale: "The feasibility check did not run for this suggestion.",
+     }
    : null;
  const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] : null;
  const useCases = getCatalogEntriesForKpiName(detailRow.kpi.name, profileId);
