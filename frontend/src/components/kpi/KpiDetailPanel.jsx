@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { X, ExternalLink } from "lucide-react";
+import { AlertTriangle, Trash2, X, ExternalLink } from "lucide-react";
 import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
@@ -18,7 +19,21 @@ const FEASIBILITY_STYLE = {
  blocked: { cls: "border-status-critical/35 bg-status-critical-light dark:bg-status-critical/15", label: "text-status-critical" },
 };
 
-export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, processLabelById, onEdit, onClose }) {
+export default function KpiDetailPanel({
+ detailRow,
+ nameToIdsMap,
+ profileId,
+ processLabelById,
+ onEdit,
+ onClose,
+ onRemove,
+ removing = false,
+ removeError = null,
+}) {
+ // "Remove from my metrics" asks once before it acts: the row is gone from the registry for
+ // good, and there is no undo beyond adopting it again. Confirmed inline, not in a modal --
+ // the panel is already the focused surface.
+ const [confirmingRemove, setConfirmingRemove] = useState(false);
  // A real registry KPI (C1, #232) carries the server's own join-aware `feasibility` -- shown
  // below instead of `mappingConfidenceForKpi`'s local heuristic score, which has nothing real
  // to compute from for a row the seed/dataset simulation has never heard of.
@@ -189,6 +204,56 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  >
  Edit KPI →
  </button>
+ )}
+
+ {/* The reverse of "Add to my metrics": a registry KPI can be removed here, where it was
+ adopted. The api refuses while a dashboard still uses it (409), and says which. */}
+ {fromRegistry && onRemove && (
+ <section className="rounded-xl border border-border bg-surface-secondary p-4">
+ {!confirmingRemove ? (
+ <button
+ type="button"
+ onClick={() => setConfirmingRemove(true)}
+ disabled={removing}
+ className="inline-flex items-center gap-1.5 text-sm font-semibold text-status-critical hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Trash2 size={14} />
+ Remove from my metrics
+ </button>
+ ) : (
+ <div className="space-y-3">
+ <p className="text-sm text-text-secondary">
+ Remove <strong className="font-semibold text-text-primary">{detailRow.kpi.name}</strong> from your
+ registry? Dashboards using it must be changed first; you can adopt it again later.
+ </p>
+ <div className="flex items-center gap-3">
+ <button
+ type="button"
+ onClick={() => onRemove(detailRow)}
+ disabled={removing}
+ className="inline-flex items-center gap-1.5 rounded-lg bg-status-critical px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Trash2 size={13} />
+ {removing ? "Removing…" : "Yes, remove"}
+ </button>
+ <button
+ type="button"
+ onClick={() => setConfirmingRemove(false)}
+ disabled={removing}
+ className="text-xs font-semibold text-text-secondary hover:text-text-primary"
+ >
+ Cancel
+ </button>
+ </div>
+ </div>
+ )}
+ {removeError && (
+ <p className="mt-3 flex items-start gap-2 text-xs text-status-critical">
+ <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+ <span>Couldn't remove it: {removeError}</span>
+ </p>
+ )}
+ </section>
  )}
  </div>
  </aside>

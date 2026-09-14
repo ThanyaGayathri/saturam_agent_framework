@@ -19,6 +19,7 @@ import {
  startKpiSuggestionRun,
  fetchKpiSuggestionRun,
  createKpi,
+ deleteKpi,
 } from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
 
@@ -116,6 +117,10 @@ export default function KpiDiscoveryPage() {
  // don't clear or unblock each other's still-pending state.
  const [adoptingIds, setAdoptingIds] = useState(() => new Set());
  const [adoptErrors, setAdoptErrors] = useState({});
+ // The reverse of adopting: one removal at a time, from the detail panel. `error` is the
+ // api's own account (a 409 names the dashboards still using the KPI) and stays with the
+ // panel until it is closed or the removal is retried.
+ const [removeState, setRemoveState] = useState({ identifier: null, error: null });
 
  // A single focused area scopes the agent's search; zero or several ask it to range over
  // everything rather than firing one request per area (each is its own live model call).
@@ -136,11 +141,13 @@ export default function KpiDiscoveryPage() {
  // unmount and on a new click, so a stale loop never wakes up and polls a run nobody wants.
  const suggestPollTimerRef = useRef(null);
  const adoptAbortRefs = useRef(new Map());
+ const removeAbortRef = useRef(null);
  useEffect(
   () => () => {
    suggestAbortRef.current?.abort();
    window.clearTimeout(suggestPollTimerRef.current);
    for (const controller of adoptAbortRefs.current.values()) controller.abort();
+   removeAbortRef.current?.abort();
   },
   []
  );
@@ -324,6 +331,32 @@ export default function KpiDiscoveryPage() {
    });
  };
 
+ const handleRemove = (row) => {
+  const identifier = row?.kpi?.identifier;
+  if (!identifier) return;
+  removeAbortRef.current?.abort();
+  const controller = new AbortController();
+  removeAbortRef.current = controller;
+  setRemoveState({ identifier, error: null });
+  deleteKpi(identifier, { signal: controller.signal })
+   .then(() => {
+    if (controller.signal.aborted) return;
+    setRealKpiState((prev) => ({
+     ...prev,
+     kpis: prev.kpis.filter((k) => k.identifier !== identifier),
+    }));
+    setRemoveState({ identifier: null, error: null });
+    setDetailRow(null);
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    setRemoveState({
+     identifier: null,
+     error: err?.detail || err?.message || "Couldn't remove this KPI.",
+    });
+   });
+ };
+
  const realAreaLabelById = useMemo(
   () => Object.fromEntries(realAreas.map((a) => [a.id, a.label])),
   [realAreas]
@@ -339,6 +372,9 @@ export default function KpiDiscoveryPage() {
  // Mirrors `suggested-candidates.js`'s own precedent for a non-tree row source: sentinel
  // `categoryIndex`/`sectionIndex` (-2 here, distinct from candidates' -1) keep `rowKey` unique
  // across every source `KpiDiscovery.jsx` merges together.
+ // The removal error belongs to the row it happened on; another row's panel must not show it.
+ const removeError = (row) => (row?.kpi?.fromRegistry ? removeState.error : null);
+
  const realRows = useMemo(
   () =>
    realKpiState.kpis.map((k, index) => ({
@@ -505,7 +541,10 @@ export default function KpiDiscoveryPage() {
      profileId={profileId}
      processLabelById={processLabelById}
      onEdit={() => { setDetailRow(null); navigate("/configure/domain-mapping"); }}
-     onClose={() => setDetailRow(null)}
+     onClose={() => { setRemoveState({ identifier: null, error: null }); setDetailRow(null); }}
+     onRemove={handleRemove}
+     removing={removeState.identifier === detailRow.kpi?.identifier}
+     removeError={removeError(detailRow)}
     />
    )}
   </div>

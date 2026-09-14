@@ -54,3 +54,10 @@ export function fetchKpiSuggestions(businessArea, { signal } = {}) {
 export function createKpi(body, { signal } = {}) {
   return apiJson("/kpis", "POST", body, { signal });
 }
+
+/** `DELETE /kpis/{identifier}` - remove a registered KPI (the reverse of `createKpi`). Resolves
+ * to `null` on 204. Refused with a 409 while any dashboard still has a tile on it; the
+ * `ApiError.detail` names the dashboards the caller can see, so show it as-is. */
+export function deleteKpi(identifier, { signal } = {}) {
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "DELETE", undefined, { signal });
+}
