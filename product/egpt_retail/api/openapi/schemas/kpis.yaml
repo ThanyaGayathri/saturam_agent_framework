@@ -189,6 +189,54 @@ KpiSuggestionList:
       description: Empty on a clean run; otherwise what was missing (the skill template's refusal shape).
     semantic_snapshot: {type: string}
 
+KpiSuggestionRunStatus:
+  type: string
+  description: Where a suggestion run is. The same four words as `HarvestStatus`, for the same shape.
+  enum: [queued, running, succeeded, failed]
+
+KpiSuggestionRunRequest:
+  type: object
+  description: What to run. Empty means suggest across every business area.
+  properties:
+    business_area:
+      $ref: './common.yaml#/BusinessAreaId'
+
+KpiSuggestionRun:
+  type: object
+  description: |
+    One run of the K12 suggestion agent, started by `POST /kpis/suggestions` and polled at
+    `GET /kpis/suggestions/{run_id}` (#254). A run is two frontier-tier model calls and can
+    take minutes, so it is not served inside a request. `result` is the same
+    `KpiSuggestionList` the synchronous route returns, present once `status` is `succeeded`;
+    `error` is why there is none, present once `failed`. A run whose executor was lost
+    (the serving instance restarted mid-run) is reported `failed` by the read side after the
+    deployment's timeout plus a grace period, never `running` forever.
+  required: [id, status, created_at]
+  properties:
+    id: {type: string}
+    status:
+      $ref: './kpis.yaml#/KpiSuggestionRunStatus'
+    business_area:
+      type: [string, "null"]
+      description: The area the run was narrowed to, or null for every area.
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+    started_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    finished_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    result:
+      oneOf:
+        - $ref: './kpis.yaml#/KpiSuggestionList'
+        - type: "null"
+    error:
+      type: [string, "null"]
+      description: Written for the person polling. A timeout names the bound it hit.
+
 KpiHealthStatus:
   type: string
   enum: [fresh, stale, never_computed, failed, not_scheduled]

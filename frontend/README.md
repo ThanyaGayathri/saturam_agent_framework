@@ -62,6 +62,17 @@ What was already decided about it, and still applies:
   accepting one only records the decision; the screen says so rather than implying a use case
   now exists somewhere. Separate from `ConfigureSemanticLayer.jsx`'s own "Needs review" tab,
   which is an unrelated, still-local per-source mapping-decision UI this issue does not touch.
+- **"Suggest KPIs" is a real run of the `kpi_suggestion` agent** (F1, #234; run shape #254):
+  the button on the discovery page starts one with `POST /kpis/suggestions` (202, a
+  `KpiSuggestionRun`) and polls `GET /kpis/suggestions/{run_id}` -- every 2s, relaxing to 5s
+  after half a minute, giving up at 4 minutes -- until the row is `succeeded` (its `result` is
+  rendered through the same `rowFromSuggestion` path as before) or `failed` (its `error` is
+  shown as-is; a timeout names the bound it hit). A run is two frontier-tier model calls and
+  takes minutes, so it is never fired on page load and the button counts elapsed seconds while
+  it waits. Adopting a suggestion is still `POST /kpis` (`createKpi`); nothing else is stored.
+  The synchronous `GET /kpis/suggestions` is deprecated in the contract and no longer called
+  here. Against the stub server the poll never turns terminal (the stub serves the `queued`
+  example every time), which is what the 4-minute ceiling is for.
 - The Vercel-style API layer in the prototype mostly disappears rather than moving: tokens come
   from the identity provider, streams pass through the edge directly.
 

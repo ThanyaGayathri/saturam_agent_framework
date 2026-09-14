@@ -14,12 +14,33 @@ export function fetchKpiList() {
   return apiGet("/kpis");
 }
 
-/** `GET /kpis/suggestions` - candidate KPIs proposed live by the `kpi_suggestion` agent over
- * the current semantic layer. "Read on demand and not stored" - a fresh call every time, not
- * a registry read. `businessArea` narrows the agent's search; omit it to suggest across every
- * area. This is a synchronous frontier-tier model call inside the request (issue #234's own
- * note: "likely several seconds") - callers need a real loading state, not an instant-response
- * assumption. */
+/** `POST /kpis/suggestions` - start a run of the `kpi_suggestion` agent over the current
+ * semantic layer and get it back `queued` (a `KpiSuggestionRun`: `{id, status, business_area,
+ * created_at, started_at, finished_at, result, error}`). A run is two frontier-tier model calls
+ * and takes minutes, so it is a resource to poll (issue #254), not a response to await:
+ * `fetchKpiSuggestionRun` until `status` is `succeeded` (then `result` is the suggestion list)
+ * or `failed` (then `error` says why). `businessArea` narrows the run; omit it to suggest
+ * across every area. Nothing is stored beyond the run row - a suggestion becomes a KPI only
+ * through `createKpi`. */
+export function startKpiSuggestionRun(businessArea, { signal } = {}) {
+  const body = businessArea ? { business_area: businessArea } : {};
+  return apiJson("/kpis/suggestions", "POST", body, { signal });
+}
+
+/** `GET /kpis/suggestions/{run_id}` - one run, for polling. `result.suggestions[].proposed_sql`
+ * is only present for a caller holding `kpis:write`, as on every other KPI read. The backend
+ * closes a run whose serving instance was lost mid-run as `failed` after its timeout plus a
+ * grace period, so polling always reaches a terminal status - but see `KpiDiscoveryPage.jsx`'s
+ * own client-side ceiling for the stub server, which serves the `queued` example forever. */
+export function fetchKpiSuggestionRun(runId, { signal } = {}) {
+  return apiGet(`/kpis/suggestions/${encodeURIComponent(runId)}`, { signal });
+}
+
+/** `GET /kpis/suggestions` - the synchronous form of the run above, deprecated by it (#254):
+ * the whole run happens inside one request, now bounded by the deployment's suggestion timeout
+ * (504 past it). Kept because the contract keeps the path; nothing in this app calls it any
+ * more. `businessArea` narrows the agent's search; omit it to suggest across every area.
+ * @deprecated Use `startKpiSuggestionRun` + `fetchKpiSuggestionRun`. */
 export function fetchKpiSuggestions(businessArea, { signal } = {}) {
   const query = businessArea ? `?business_area=${encodeURIComponent(businessArea)}` : "";
   return apiGet(`/kpis/suggestions${query}`, { signal });

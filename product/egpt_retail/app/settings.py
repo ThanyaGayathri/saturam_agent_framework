@@ -274,6 +274,16 @@ class RetailSettings(BrandedSettings):
         "before the call. Set it to the deployment's real limit; a smaller value escalates earlier, never "
         "wrongly.",
     )
+    retail_suggestion_timeout_seconds: float = Field(
+        default=180.0,
+        gt=0,
+        description="Upper bound, in seconds, on one KPI suggestion run (EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS). "
+        "A run is two frontier-tier model calls plus semantic-graph reads and nothing below this layer caps it "
+        "(#254): past this bound `POST /kpis/suggestions`'s run is marked failed and the deprecated synchronous "
+        "`GET /kpis/suggestions` returns 504 instead of hanging. The in-flight model call is not interrupted -- "
+        "it finishes on its own and its result is discarded -- so this bounds what the caller waits for, not "
+        "what the deployment spends.",
+    )
     retail_consolidation_poll_interval: float = Field(
         default=300.0,
         description="Seconds between consolidator ticks in loop mode (EGPT_RETAIL_CONSOLIDATION_POLL_INTERVAL).",
