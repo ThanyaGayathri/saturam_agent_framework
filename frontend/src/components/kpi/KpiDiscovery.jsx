@@ -282,7 +282,6 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
      <span className="group relative mt-0.5 shrink-0">
       <span
        tabIndex={0}
-       role="note"
        aria-disabled="true"
        aria-label={`Not selectable: ${notSelectableReason.text}`}
        className="block h-[18px] w-[18px] cursor-not-allowed rounded-[5px] border border-dashed border-border-light focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
