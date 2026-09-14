@@ -52,8 +52,8 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
      is not a governed KPI yet, so it cannot be picked for a dashboard until adopted. */}
  {detailRow.suggested && (
  <p className="mt-3 rounded-lg border border-dashed border-border-light bg-surface-secondary px-3 py-2 text-xs leading-snug text-text-secondary">
- <strong className="font-bold italic text-text-primary">"Add to my metrics first"</strong> — a dashboard can
- only be built on a registered KPI.
+ Click <strong className="font-bold italic text-text-primary">"Add to my metrics"</strong> first. Dashboards
+ can only include KPIs that are in your registry.
  </p>
  )}
  </section>

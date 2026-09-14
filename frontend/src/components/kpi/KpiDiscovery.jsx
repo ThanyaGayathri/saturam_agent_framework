@@ -232,11 +232,11 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
  // which is a real element rather than a `title` so the action can be set in bold italics.
  const notSelectableReason = row.suggested
   ? {
-     text: "\"Add to my metrics first\" — a dashboard can only be built on a registered KPI.",
+     text: "Click \"Add to my metrics\" first. Dashboards can only include KPIs that are in your registry.",
      node: (
       <>
-       <strong className="font-bold italic text-text-primary">"Add to my metrics first"</strong> — a dashboard
-       can only be built on a registered KPI.
+       Click <strong className="font-bold italic text-text-primary">"Add to my metrics"</strong> first.
+       Dashboards can only include KPIs that are in your registry.
       </>
      ),
     }
