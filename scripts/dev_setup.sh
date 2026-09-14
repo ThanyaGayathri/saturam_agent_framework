@@ -66,10 +66,14 @@ uv venv "${VENV_DIR}" --python 3.12 --quiet
 # Install the separately distributed CLI, the core library and the retail product together
 # for development. The product pins egpt to this checkout's version, so the framework must be
 # in the same resolve -- public PyPI holds an unrelated package under the same name.
+#
+# `markdown` rides along with `dev` so `.venv` can run product entrypoints that need it (e.g.
+# `egpt-retail load-knowledge`) without a ModuleNotFoundError on `unstructured` -- the same gap
+# `demo_setup.sh`'s `egpt[demo]` already closed for `.venvs/demo` (R-6).
 echo ""
-echo -e "    ${DIM}Installing egptctl[dev], egpt[dev] and egpt-retail[dev] in editable mode...${NC}"
-echo -e "    ${DIM}> uv pip install -e libs/egptctl[dev] -e libs/agno[dev] -e product[dev]${NC}"
-VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}[dev]" -e "${AGNO_DIR}[dev]" -e "${PRODUCT_DIR}[dev]" --quiet
+echo -e "    ${DIM}Installing egptctl[dev], egpt[dev,markdown] and egpt-retail[dev] in editable mode...${NC}"
+echo -e "    ${DIM}> uv pip install -e libs/egptctl[dev] -e libs/agno[dev,markdown] -e product[dev]${NC}"
+VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}[dev]" -e "${AGNO_DIR}[dev,markdown]" -e "${PRODUCT_DIR}[dev]" --quiet
 
 # Copy activation command to clipboard
 ACTIVATE_CMD="source .venv/bin/activate"
