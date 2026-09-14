@@ -109,6 +109,27 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.5 — 2026-09-14 — kpis: suggestion runs, `POST /kpis/suggestions` + `GET /kpis/suggestions/{run_id}` (additive)
+
+Agreed by: product (nandha-saturam), for #254 (part of #222). Additive -- two new
+operations, three new schemas, one existing operation marked deprecated with a new
+response, nothing removed or renamed -- so no negotiation and no major bump.
+
+- **`POST /kpis/suggestions` → `202` `KpiSuggestionRun`, `GET /kpis/suggestions/{run_id}`.**
+  The K12 suggestion pass is two frontier-tier model calls and takes minutes; 1.1.0's
+  `GET /kpis/suggestions` served it inside the request with no bound, on an api that runs
+  from more than one instance. The run is now a resource: `POST` records it `queued` and
+  returns it, the caller polls until `succeeded` (`result` is the same `KpiSuggestionList`)
+  or `failed` (`error` says why -- the timeout names its bound, and a run whose serving
+  instance was lost mid-run is closed as `failed` by the read side rather than left
+  `running` forever). Same shape as `POST /semantic/harvests` and `POST /use-cases/{id}/runs`;
+  `KpiSuggestionRunStatus` reuses `HarvestStatus`'s four words rather than coining a third
+  spelling. `kpis:read`, like the route it replaces: a run row is not a KPI.
+- **`GET /kpis/suggestions` is deprecated**, not removed. It is now held to the deployment's
+  suggestion timeout and answers `504` past it (new response), where it used to hang.
+- **`KpiSuggestionRunRequest`** (`business_area`, optional) is the `POST` body; the `GET`'s
+  query parameter of the same name is unchanged.
+
 ## 1.1.4 — 2026-09-13 — dashboards: `RefreshSchedule` gains `daily` and `weekly` (additive)
 
 Agreed by: product (nandha-saturam), for the interface's dashboard cadence options (#226,

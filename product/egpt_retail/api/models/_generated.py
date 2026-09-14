@@ -341,6 +341,29 @@ class KpiSourceWrite(BaseModel):
     linked_kpi_ids: list[str] | None = None
 
 
+class KpiSuggestionRunRequest(BaseModel):
+    """
+    What to run. Empty means suggest across every business area.
+    """
+
+    business_area: str | None = Field(
+        None,
+        description="A business area identifier. In 1.0.0 this is the shipped `business_area` vocabulary\n(`egpt_retail/ontology/vocabularies.json`) plus whatever a customer overlay adds, so it is\na string validated at runtime against the deployment's vocabulary, not an enum.\n",
+        examples=["inventory", "sales", "supply_chain"],
+    )
+
+
+class KpiSuggestionRunStatus(Enum):
+    """
+    Where a suggestion run is. The same four words as `HarvestStatus`, for the same shape.
+    """
+
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+
+
 class ModelProvider(Enum):
     openai = "openai"
     anthropic = "anthropic"
@@ -1328,6 +1351,33 @@ class KpiSuggestionList(BaseModel):
         description="Empty on a clean run; otherwise what was missing (the skill template's refusal shape).",
     )
     semantic_snapshot: str | None = None
+
+
+class KpiSuggestionRun(BaseModel):
+    """
+    One run of the K12 suggestion agent, started by `POST /kpis/suggestions` and polled at
+    `GET /kpis/suggestions/{run_id}` (#254). A run is two frontier-tier model calls and can
+    take minutes, so it is not served inside a request. `result` is the same
+    `KpiSuggestionList` the synchronous route returns, present once `status` is `succeeded`;
+    `error` is why there is none, present once `failed`. A run whose executor was lost
+    (the serving instance restarted mid-run) is reported `failed` by the read side after the
+    deployment's timeout plus a grace period, never `running` forever.
+
+    """
+
+    id: str
+    status: KpiSuggestionRunStatus
+    business_area: str | None = Field(
+        None, description="The area the run was narrowed to, or null for every area."
+    )
+    created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+    started_at: AwareDatetime | None = None
+    finished_at: AwareDatetime | None = None
+    result: KpiSuggestionList | None = None
+    error: str | None = Field(
+        None,
+        description="Written for the person polling. A timeout names the bound it hit.",
+    )
 
 
 class LlmModel(BaseModel):

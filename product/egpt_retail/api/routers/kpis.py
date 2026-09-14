@@ -46,17 +46,35 @@ which ``run_suggestions``' ``_drafts_of`` turns into a ``ValueError`` that nothi
 -- the same class of gap #233 already flags for this router's own Neo4j/warehouse dependencies.
 Not mapped to a friendlier status here, for the same reason: a real fix belongs where the other
 two instances of it would also be fixed, not as a one-off in this route.
+
+**#254: the run is no longer inside the request.** Those two model calls take minutes, not
+"several seconds", and nothing below this router bounds them; the api also serves from more
+than one instance. So ``POST /kpis/suggestions`` records a row (``suggestions/runs.py``),
+returns ``202`` with it, and executes the run as a task in this process, bounded by
+``retail_suggestion_timeout_seconds``; ``GET /kpis/suggestions/{run_id}`` is polled until the
+row is ``succeeded``/``failed``. The row is in Postgres so the poll may land on any instance,
+and a row whose executor vanished (instance recycled mid-run) is closed as ``failed`` by the
+read side after the timeout plus a grace period rather than spinning forever. The synchronous
+``GET /kpis/suggestions`` stays, deprecated (an additive contract change), and is held to the
+same bound -- ``504`` past it instead of an open-ended hang. Only the run path turns the
+provider failure above into something readable: a ``failed`` row whose ``error`` a screen can
+show, which is what the request path could not do without a fix that belongs elsewhere.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 import threading
+import traceback
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Mapping, Optional, Sequence, Tuple
+from datetime import timedelta
+from typing import Any, Callable, Iterator, Mapping, Optional, Sequence, Tuple, TypeVar
 
 from egpt.agent import Agent
 from egpt.os.scopes import has_required_scopes
+from egpt.utils.log import log_error
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from egpt_retail.api import models as wire
@@ -81,12 +99,15 @@ from egpt_retail.contracts.vocabulary import VocabularySet
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
 from egpt_retail.suggestions.run import SuggestionRun, run_suggestions
+from egpt_retail.suggestions.runs import SuggestionRunRecord, SuggestionRunStore
 
 __all__ = ["router"]
 
 router = APIRouter()
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+_T = TypeVar("_T")
 
 
 # --- store dependency, feasibility, scope-gated field -------------------------------------
@@ -691,20 +712,252 @@ def _list_kpi_suggestions(
     )
 
 
-@router.get("/kpis/suggestions", response_model=wire.KpiSuggestionList)
-def list_kpi_suggestions(
+class SuggestionTimeout(Exception):
+    """A suggestion run exceeded ``retail_suggestion_timeout_seconds``."""
+
+    def __init__(self, seconds: float) -> None:
+        super().__init__(f"The suggestion run did not finish within {seconds:g}s.")
+        self.seconds = seconds
+
+
+async def _run_bounded(fn: Callable[[], _T], timeout: float) -> _T:
+    """``fn`` on a worker thread, waited on for at most ``timeout`` seconds (#254).
+
+    ``run_suggestions`` is synchronous (two blocking ``agent.run()`` calls), so it goes to a
+    thread; the wait, not the work, is what the bound cuts. A model call cannot be
+    interrupted from outside: on timeout the thread keeps running to its own end and its
+    result is discarded, so this bounds what a caller waits for -- the request, or the run
+    row -- not what the deployment spends on a call already in flight.
+    """
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn), timeout)
+    except TimeoutError as exc:
+        raise SuggestionTimeout(timeout) from exc
+
+
+#: How long past the timeout a ``queued``/``running`` row may sit before the read side
+#: concludes its executor is gone. Generous, so a run still inside its own bound is never
+#: closed by a poll; only one that nothing in any process is still waiting on.
+_LOST_RUN_GRACE_SECONDS = 60.0
+
+
+def _stale_after(settings: RetailSettings) -> timedelta:
+    return timedelta(
+        seconds=settings.retail_suggestion_timeout_seconds + _LOST_RUN_GRACE_SECONDS
+    )
+
+
+@contextmanager
+def _open_run_store(settings: RetailSettings) -> Iterator[SuggestionRunStore]:
+    """A ``SuggestionRunStore`` on its own pooled connection, released on exit. Not a
+    ``Depends``: the executor task needs one outside any request, and every use here is
+    one short call -- open, do it, release -- never held across the model calls."""
+    connection = pooled_control_plane_connection(settings)
+    try:
+        yield SuggestionRunStore(connection)
+    finally:
+        connection.close()
+
+
+def _with_run_store(
+    settings: RetailSettings, action: Callable[[SuggestionRunStore], _T]
+) -> _T:
+    with _open_run_store(settings) as store:
+        return action(store)
+
+
+def _run_out(
+    record: SuggestionRunRecord, *, include_sql: bool
+) -> wire.KpiSuggestionRun:
+    """The wire shape of a run row. The stored ``result`` always carries ``proposed_sql``;
+    the ``kpis:write`` gate (``_may_read_sql``) is applied here, per reader, exactly as the
+    synchronous route applies it -- one run, read differently by a viewer and an editor."""
+    result: Optional[wire.KpiSuggestionList] = None
+    if record.result is not None:
+        result = wire.KpiSuggestionList.model_validate(record.result)
+        if not include_sql:
+            result = result.model_copy(
+                update={
+                    "suggestions": [
+                        s.model_copy(update={"proposed_sql": None})
+                        for s in result.suggestions
+                    ]
+                }
+            )
+    return wire.KpiSuggestionRun(
+        id=record.identifier,
+        status=wire.KpiSuggestionRunStatus(record.status.value),
+        business_area=record.business_area,
+        created_at=record.created_at,
+        started_at=record.started_at,
+        finished_at=record.finished_at,
+        result=result,
+        error=record.error,
+    )
+
+
+#: Strong references to in-flight executor tasks, so the event loop cannot collect one
+#: mid-run -- the same reason ``egpt/agent/_run.py`` keeps ``_background_tasks``.
+_suggestion_run_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _await_suggestion_runs() -> None:
+    """Wait for every run this process has in flight. A seam for tests (the ``TestClient``
+    portal awaits it after a ``POST`` so the poll that follows sees a terminal row) -- a
+    real caller never waits here; it polls."""
+    if _suggestion_run_tasks:
+        await asyncio.gather(*list(_suggestion_run_tasks), return_exceptions=True)
+
+
+def _describe_failure(exc: BaseException) -> str:
+    """What a ``failed`` row says. The pipeline's own refusals (``_drafts_of``'s
+    ``ValueError``: "KpiSuggestionDraftSet expected from the agent; got str: ...") are
+    written for a reader and name the actual reason, so they pass through. Anything else
+    (a driver error, a connection failure) is summarised by type only: exception text from
+    those can carry connection strings, and the traceback is already in the api log."""
+    if isinstance(exc, ValueError):
+        return str(exc)
+    return (
+        f"The suggestion run failed ({type(exc).__name__}); "
+        "the api log has the traceback."
+    )
+
+
+async def _execute_suggestion_run(
+    run_id: str,
+    settings: RetailSettings,
+    snapshot: _SuggestionRegistrySnapshot,
+    business_area: Optional[str],
+) -> None:
+    """The executor behind ``POST /kpis/suggestions``: ``queued`` -> ``running`` -> one
+    bounded ``_list_kpi_suggestions`` -> ``succeeded``/``failed``. Each row write opens and
+    releases its own connection; the model calls in between hold none.
+
+    Runs with ``include_sql=True`` unconditionally: the row is read by many callers, and the
+    SQL gate is theirs (``_run_out``), not the run's. Nothing here raises -- a failure to
+    record an outcome is logged, since the task has no caller to raise to.
+    """
+    try:
+        await asyncio.to_thread(
+            _with_run_store, settings, lambda store: store.mark_running(run_id)
+        )
+        try:
+            result = await _run_bounded(
+                lambda: _list_kpi_suggestions(
+                    settings,
+                    definitions=snapshot.definitions,
+                    vocabularies=snapshot.vocabularies,
+                    business_area=business_area,
+                    include_sql=True,
+                ),
+                settings.retail_suggestion_timeout_seconds,
+            )
+        except SuggestionTimeout as exc:
+            timed_out = str(exc)
+            await asyncio.to_thread(
+                _with_run_store,
+                settings,
+                lambda store: store.mark_failed(run_id, timed_out),
+            )
+            return
+        except Exception as exc:
+            log_error(
+                f"suggestion run {run_id} failed: {traceback.format_exc(limit=5)}"
+            )
+            failure = _describe_failure(exc)
+            await asyncio.to_thread(
+                _with_run_store,
+                settings,
+                lambda store: store.mark_failed(run_id, failure),
+            )
+            return
+        payload = result.model_dump(mode="json")
+        await asyncio.to_thread(
+            _with_run_store,
+            settings,
+            lambda store: store.mark_succeeded(run_id, payload),
+        )
+    except Exception:
+        log_error(
+            f"suggestion run {run_id}: its outcome could not be recorded: "
+            f"{traceback.format_exc(limit=5)}"
+        )
+
+
+@router.post("/kpis/suggestions", response_model=wire.KpiSuggestionRun, status_code=202)
+async def start_kpi_suggestion_run(
+    request: Request,
+    body: Optional[wire.KpiSuggestionRunRequest] = None,
+    snapshot: _SuggestionRegistrySnapshot = Depends(_suggestion_registry_snapshot),
+    _: None = Depends(require_scopes("kpis:read")),
+):
+    """Start a run and return it ``queued`` (#254). ``kpis:read``, like the synchronous
+    route: what is created is a run row, never a KPI -- adoption is still ``POST /kpis``.
+    The business area is validated before the row exists, so a 422 leaves nothing behind.
+    """
+    settings = RetailSettings()
+    business_area = _validated_business_area(
+        body.business_area if body is not None else None, snapshot.vocabularies
+    )
+    record = await asyncio.to_thread(
+        _with_run_store, settings, lambda store: store.create(business_area)
+    )
+    task = asyncio.create_task(
+        _execute_suggestion_run(record.identifier, settings, snapshot, business_area)
+    )
+    _suggestion_run_tasks.add(task)
+    task.add_done_callback(_suggestion_run_tasks.discard)
+    return _run_out(record, include_sql=_may_read_sql(request))
+
+
+@router.get("/kpis/suggestions/{run_id}", response_model=wire.KpiSuggestionRun)
+async def get_kpi_suggestion_run(
+    run_id: str,
+    request: Request,
+    _: None = Depends(require_scopes("kpis:read")),
+):
+    """The run, for polling. Reading applies the lost-run guard (``SuggestionRunStore.get``'s
+    ``stale_after``), so a row whose executor is gone comes back ``failed`` here rather than
+    ``running`` forever."""
+    settings = RetailSettings()
+    record = await asyncio.to_thread(
+        _with_run_store,
+        settings,
+        lambda store: store.get(run_id, stale_after=_stale_after(settings)),
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"No suggestion run {run_id!r}.")
+    return _run_out(record, include_sql=_may_read_sql(request))
+
+
+@router.get("/kpis/suggestions", response_model=wire.KpiSuggestionList, deprecated=True)
+async def list_kpi_suggestions(
     request: Request,
     business_area: Optional[str] = None,
     snapshot: _SuggestionRegistrySnapshot = Depends(_suggestion_registry_snapshot),
     _: None = Depends(require_scopes("kpis:read")),
 ):
-    return _list_kpi_suggestions(
-        RetailSettings(),
-        definitions=snapshot.definitions,
-        vocabularies=snapshot.vocabularies,
-        business_area=business_area,
-        include_sql=_may_read_sql(request),
-    )
+    """Deprecated by ``POST /kpis/suggestions`` (#254); kept because removing a contract
+    path is a breaking change. Now bounded: ``504`` past ``retail_suggestion_timeout_seconds``
+    instead of a request that hangs until something outside this app cuts it."""
+    settings = RetailSettings()
+    include_sql = _may_read_sql(request)
+    try:
+        return await _run_bounded(
+            lambda: _list_kpi_suggestions(
+                settings,
+                definitions=snapshot.definitions,
+                vocabularies=snapshot.vocabularies,
+                business_area=business_area,
+                include_sql=include_sql,
+            ),
+            settings.retail_suggestion_timeout_seconds,
+        )
+    except SuggestionTimeout as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=f"{exc} Use POST /kpis/suggestions and poll the run instead.",
+        ) from exc
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)

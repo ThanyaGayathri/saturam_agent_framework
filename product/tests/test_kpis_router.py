@@ -8,10 +8,14 @@ same split `test_r13_dashboards.py` documents for R13.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from contextlib import contextmanager
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 from egpt_retail.api import models as wire_models
@@ -53,6 +57,11 @@ from egpt_retail.contracts.kpi import (
 )
 from egpt_retail.contracts.vocabulary import load_vocabulary_set
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiDeleteResult
+from egpt_retail.suggestions.runs import (
+    LOST_RUN_ERROR,
+    SuggestionRunRecord,
+    SuggestionRunStatus,
+)
 
 
 def _kpi(**overrides) -> KpiDefinition:
@@ -985,10 +994,14 @@ def test_list_kpi_suggestions_route_reaches_the_helper_with_the_given_business_a
     snapshot = _SuggestionRegistrySnapshot(
         definitions=(_kpi(identifier="a"),), vocabularies=_VOCABULARIES
     )
-    result = list_kpi_suggestions(
-        _FakeRequest(authorization_enabled=False),
-        business_area="supply_chain",
-        snapshot=snapshot,
+    # The route is `async` since #254 (it waits on the helper with a bound), so it is run
+    # to completion here rather than called for its coroutine.
+    result = asyncio.run(
+        list_kpi_suggestions(
+            _FakeRequest(authorization_enabled=False),
+            business_area="supply_chain",
+            snapshot=snapshot,
+        )
     )
 
     assert captured["business_area"] == "supply_chain"
@@ -1182,3 +1195,377 @@ def test_list_kpis_computes_feasibility_only_over_the_business_area_filtered_kpi
     # Narrowed by business_area *before* feasibility is computed -- not a second,
     # unfiltered full-registry query the router then mostly discards.
     assert store.feasibility_calls == [["a"]]
+
+
+# ---------------------------------------------------------------------------
+# #254: `POST /kpis/suggestions` -> 202 + `GET /kpis/suggestions/{run_id}`. The run row is
+# faked in memory with the store's own transition rules; the pipeline helper is faked as the
+# tests above already fake it. Every test here drives the real router through `TestClient`
+# *as a context manager*: the executor is an `asyncio.Task` on the app's loop, and only the
+# context-managed client keeps one loop alive across the POST, the drain and the poll.
+# ---------------------------------------------------------------------------
+
+
+class _FakeRunStore:
+    """``SuggestionRunStore`` without Postgres: same rows, same guarded transitions."""
+
+    _OPEN = (SuggestionRunStatus.QUEUED, SuggestionRunStatus.RUNNING)
+
+    def __init__(self):
+        self.rows: dict = {}
+
+    def create(self, business_area):
+        record = SuggestionRunRecord(
+            identifier=f"sr_{len(self.rows) + 1}",
+            status=SuggestionRunStatus.QUEUED,
+            business_area=business_area,
+            created_at=datetime.now(timezone.utc),
+        )
+        self.rows[record.identifier] = record
+        return record
+
+    def _set(self, identifier, **changes):
+        self.rows[identifier] = replace(self.rows[identifier], **changes)
+
+    def mark_running(self, identifier):
+        if self.rows[identifier].status is SuggestionRunStatus.QUEUED:
+            self._set(
+                identifier,
+                status=SuggestionRunStatus.RUNNING,
+                started_at=datetime.now(timezone.utc),
+            )
+
+    def mark_succeeded(self, identifier, result):
+        if self.rows[identifier].status in self._OPEN:
+            self._set(
+                identifier,
+                status=SuggestionRunStatus.SUCCEEDED,
+                result=dict(result),
+                finished_at=datetime.now(timezone.utc),
+            )
+
+    def mark_failed(self, identifier, error):
+        if self.rows[identifier].status in self._OPEN:
+            self._set(
+                identifier,
+                status=SuggestionRunStatus.FAILED,
+                error=error,
+                finished_at=datetime.now(timezone.utc),
+            )
+
+    def get(self, identifier, *, stale_after=None):
+        record = self.rows.get(identifier)
+        if record is None:
+            return None
+        if (
+            stale_after is not None
+            and record.status in self._OPEN
+            and record.created_at < datetime.now(timezone.utc) - stale_after
+        ):
+            self.mark_failed(identifier, LOST_RUN_ERROR)
+        return self.rows[identifier]
+
+
+def _run_client(monkeypatch, store, *, authorization=False, scopes=()):
+    @contextmanager
+    def _fake_open_run_store(settings):
+        yield store
+
+    monkeypatch.setattr(kpis_module, "_open_run_store", _fake_open_run_store)
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _fake_auth(request: Request, call_next):
+        request.state.authorization_enabled = authorization
+        request.state.scopes = list(scopes)
+        request.state.admin_scope = None
+        return await call_next(request)
+
+    app.include_router(kpis_module.router)
+    app.dependency_overrides[kpis_module._suggestion_registry_snapshot] = lambda: (
+        _SuggestionRegistrySnapshot(definitions=(), vocabularies=_VOCABULARIES)
+    )
+    return TestClient(app)
+
+
+def _drain(client):
+    """Wait for every executor task the app's loop has in flight."""
+    client.portal.call(kpis_module._await_suggestion_runs)
+
+
+def _suggesting(suggestions, *, notes=""):
+    def _fake_helper(
+        settings, *, definitions, vocabularies, business_area, include_sql
+    ):
+        return wire_models.KpiSuggestionList(
+            suggestions=list(suggestions), notes=notes, semantic_snapshot="snap.0"
+        )
+
+    return _fake_helper
+
+
+def test_start_kpi_suggestion_run_returns_202_queued_then_the_poll_reaches_succeeded(
+    monkeypatch,
+):
+    suggestion = _suggestion(proposed_sql="SELECT 1 FROM supplier_deliveries")
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([suggestion]))
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post(
+            "/kpis/suggestions", json={"business_area": "supply_chain"}
+        )
+        assert started.status_code == 202
+        body = started.json()
+        assert body["status"] == "queued"
+        assert body["business_area"] == "supply_chain"
+        assert body["result"] is None and body["error"] is None
+        run_id = body["id"]
+
+        _drain(client)
+
+        polled = client.get(f"/kpis/suggestions/{run_id}")
+
+    assert polled.status_code == 200
+    done = polled.json()
+    assert done["status"] == "succeeded"
+    assert done["started_at"] is not None and done["finished_at"] is not None
+    assert done["error"] is None
+    assert done["result"]["semantic_snapshot"] == "snap.0"
+    assert [s["identifier"] for s in done["result"]["suggestions"]] == [
+        suggestion.identifier
+    ]
+    # authorization off: every caller sees candidate SQL, as on the synchronous route
+    assert (
+        done["result"]["suggestions"][0]["proposed_sql"]
+        == "SELECT 1 FROM supplier_deliveries"
+    )
+
+
+def test_start_kpi_suggestion_run_with_no_body_runs_across_every_area(monkeypatch):
+    captured = {}
+
+    def _fake_helper(
+        settings, *, definitions, vocabularies, business_area, include_sql
+    ):
+        captured["business_area"] = business_area
+        captured["include_sql"] = include_sql
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions")
+        assert started.status_code == 202
+        assert started.json()["business_area"] is None
+        _drain(client)
+
+    assert captured == {"business_area": None, "include_sql": True}
+
+
+def test_get_kpi_suggestion_run_gates_proposed_sql_per_reader_not_per_run(monkeypatch):
+    """One run, read by a viewer and an editor: the row keeps the SQL, the reader's scopes
+    decide whether it is shown -- the same `_may_read_sql` gate the synchronous route has."""
+    suggestion = _suggestion(proposed_sql="SELECT 1 FROM supplier_deliveries")
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([suggestion]))
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store, authorization=True, scopes=["kpis:read"]) as (
+        viewer
+    ):
+        run_id = viewer.post("/kpis/suggestions").json()["id"]
+        _drain(viewer)
+        as_viewer = viewer.get(f"/kpis/suggestions/{run_id}").json()
+
+    with _run_client(
+        monkeypatch, store, authorization=True, scopes=["kpis:read", "kpis:write"]
+    ) as editor:
+        as_editor = editor.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert as_viewer["status"] == as_editor["status"] == "succeeded"
+    assert as_viewer["result"]["suggestions"][0]["proposed_sql"] is None
+    assert (
+        as_editor["result"]["suggestions"][0]["proposed_sql"]
+        == "SELECT 1 FROM supplier_deliveries"
+    )
+    # the stored row itself was never stripped
+    assert store.rows[run_id].result["suggestions"][0]["proposed_sql"] is not None
+
+
+def test_start_kpi_suggestion_run_422s_on_an_unknown_business_area_before_any_row_exists(
+    monkeypatch,
+):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        response = client.post("/kpis/suggestions", json={"business_area": "nope"})
+
+    assert response.status_code == 422
+    assert "nope" in response.json()["detail"]
+    assert store.rows == {}
+
+
+def test_a_pipeline_refusal_becomes_a_failed_run_with_its_own_words(monkeypatch):
+    """`_drafts_of`'s ValueError -- a raw traceback-carrying 500 on the synchronous route --
+    is a readable `failed` row here."""
+
+    def _refusing(settings, **kwargs):
+        raise ValueError(
+            "KpiSuggestionDraftSet expected from the agent; got str: no model configured"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _refusing)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "failed"
+    assert polled["result"] is None
+    assert "KpiSuggestionDraftSet expected from the agent" in polled["error"]
+
+
+def test_a_non_pipeline_failure_is_summarised_by_type_never_by_its_text(monkeypatch):
+    """Driver/connection errors can carry a DSN in their text; the row names the type and
+    points at the log (the same posture the app's 500 handler took in PR #252, round 2)."""
+
+    def _exploding(settings, **kwargs):
+        raise RuntimeError("could not connect to postgresql://ai:hunter2@db/ai")
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _exploding)
+    logged = []
+    monkeypatch.setattr(kpis_module, "log_error", logged.append)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "failed"
+    assert "RuntimeError" in polled["error"]
+    assert "hunter2" not in polled["error"]
+    # ...and the actual reason did reach the log, traceback included
+    assert any("hunter2" in entry and "Traceback" in entry for entry in logged)
+
+
+def test_a_run_past_the_timeout_is_marked_failed_naming_the_bound(monkeypatch):
+    monkeypatch.setenv("EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS", "0.05")
+
+    def _slow(settings, **kwargs):
+        time.sleep(0.5)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _slow)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "failed"
+    assert "did not finish within 0.05s" in polled["error"]
+
+
+def test_a_late_result_cannot_reopen_a_run_the_timeout_already_closed(monkeypatch):
+    """The thread outlives the bound and eventually returns; the row stays `failed`."""
+    monkeypatch.setenv("EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS", "0.05")
+    suggestion = _suggestion(proposed_sql="SELECT 1 FROM supplier_deliveries")
+
+    def _slow(settings, **kwargs):
+        time.sleep(0.3)
+        return wire_models.KpiSuggestionList(
+            suggestions=[suggestion], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _slow)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        time.sleep(0.4)  # let the orphaned thread finish
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "failed"
+    assert polled["result"] is None
+
+
+def test_get_kpi_suggestion_run_closes_a_run_whose_executor_is_gone(monkeypatch):
+    """A `running` row older than the timeout plus grace has no executor left in any process
+    (the instance that accepted it was recycled): the read side closes it as `failed`."""
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+    store.rows["sr_lost"] = SuggestionRunRecord(
+        identifier="sr_lost",
+        status=SuggestionRunStatus.RUNNING,
+        business_area=None,
+        created_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        started_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+
+    with _run_client(monkeypatch, store) as client:
+        polled = client.get("/kpis/suggestions/sr_lost").json()
+
+    assert polled["status"] == "failed"
+    assert polled["error"] == LOST_RUN_ERROR
+
+
+def test_get_kpi_suggestion_run_leaves_a_recent_running_row_alone(monkeypatch):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+    store.rows["sr_live"] = SuggestionRunRecord(
+        identifier="sr_live",
+        status=SuggestionRunStatus.RUNNING,
+        business_area=None,
+        created_at=datetime.now(timezone.utc) - timedelta(seconds=30),
+        started_at=datetime.now(timezone.utc) - timedelta(seconds=30),
+    )
+
+    with _run_client(monkeypatch, store) as client:
+        polled = client.get("/kpis/suggestions/sr_live").json()
+
+    assert polled["status"] == "running"
+    assert polled["error"] is None
+
+
+def test_get_kpi_suggestion_run_404s_and_is_not_swallowed_by_get_kpi(monkeypatch):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        response = client.get("/kpis/suggestions/sr_missing")
+
+    assert response.status_code == 404
+    # `get_kpi` would have said "No KPI 'suggestions'." -- and opened a real store first.
+    assert response.json()["detail"] == "No suggestion run 'sr_missing'."
+
+
+def test_list_kpi_suggestions_504s_past_the_timeout_instead_of_hanging(monkeypatch):
+    monkeypatch.setenv("EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS", "0.05")
+
+    def _slow(settings, **kwargs):
+        time.sleep(0.5)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _slow)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        response = client.get("/kpis/suggestions")
+
+    assert response.status_code == 504
+    assert "did not finish within 0.05s" in response.json()["detail"]
+    assert "POST /kpis/suggestions" in response.json()["detail"]

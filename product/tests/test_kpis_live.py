@@ -18,6 +18,7 @@ Everything written here is prefixed ``livetest_kpi__`` and removed at the end of
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 from typing import Any, Iterator
 
 import pytest
@@ -26,6 +27,11 @@ from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import KpiDefinition
 from egpt_retail.kpi.store import KpiRegistryStore
+from egpt_retail.suggestions.runs import (
+    LOST_RUN_ERROR,
+    SuggestionRunStatus,
+    SuggestionRunStore,
+)
 
 _LIVE = os.environ.get("EGPT_INTEGRATION_POSTGRES") and os.environ.get(
     "EGPT_INTEGRATION_NEO4J"
@@ -674,3 +680,84 @@ def test_dashboard_update_refuses_replacing_tiles_with_one_naming_a_vanished_kpi
         assert [t.id for t in current.tiles] == ["tl_livetest_kpi_original"]
     finally:
         dashboard_store.delete(dashboard.id, "local")
+
+
+# ---------------------------------------------------------------------------
+# #254: `SuggestionRunStore` against the real control plane -- the DDL, the guarded
+# transitions and the lost-run guard, which the DB-free suite only fakes.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def run_store(control_plane: Any) -> Iterator[SuggestionRunStore]:
+    store = SuggestionRunStore(control_plane)
+    store.ensure_schema()
+    store.ensure_schema()  # idempotent: the second boot must not fail
+    yield store
+    with control_plane.cursor() as cur:
+        cur.execute(
+            "DELETE FROM semantic.kpi_suggestion_run WHERE created_at > now() - interval '1 hour'"
+            " AND (business_area = 'livetest' OR business_area IS NULL)"
+        )
+    control_plane.commit()
+
+
+def test_suggestion_run_store_round_trips_a_run_to_succeeded(
+    run_store: SuggestionRunStore,
+) -> None:
+    created = run_store.create("livetest")
+    assert created.status is SuggestionRunStatus.QUEUED
+    assert created.business_area == "livetest"
+    assert created.created_at.tzinfo is not None
+    assert created.started_at is None and created.result is None
+
+    run_store.mark_running(created.identifier)
+    running = run_store.get(created.identifier)
+    assert running is not None
+    assert running.status is SuggestionRunStatus.RUNNING
+    assert running.started_at is not None
+
+    payload = {"suggestions": [], "notes": "", "semantic_snapshot": "live.1"}
+    run_store.mark_succeeded(created.identifier, payload)
+    done = run_store.get(created.identifier)
+    assert done is not None
+    assert done.status is SuggestionRunStatus.SUCCEEDED
+    assert done.result == payload
+    assert done.finished_at is not None and done.error is None
+
+    # terminal is terminal: a late failure cannot reopen the row
+    run_store.mark_failed(created.identifier, "too late")
+    still_done = run_store.get(created.identifier)
+    assert still_done is not None
+    assert still_done.status is SuggestionRunStatus.SUCCEEDED
+
+
+def test_suggestion_run_store_get_closes_a_lost_run_only_past_the_window(
+    run_store: SuggestionRunStore, control_plane: Any
+) -> None:
+    created = run_store.create("livetest")
+    run_store.mark_running(created.identifier)
+
+    # inside the window: untouched
+    fresh = run_store.get(created.identifier, stale_after=timedelta(hours=1))
+    assert fresh is not None and fresh.status is SuggestionRunStatus.RUNNING
+
+    # age the row past any window, then read with one
+    with control_plane.cursor() as cur:
+        cur.execute(
+            "UPDATE semantic.kpi_suggestion_run SET created_at = now() - interval '2 hours'"
+            " WHERE id = %s",
+            (created.identifier,),
+        )
+    control_plane.commit()
+    lost = run_store.get(created.identifier, stale_after=timedelta(hours=1))
+    assert lost is not None
+    assert lost.status is SuggestionRunStatus.FAILED
+    assert lost.error == LOST_RUN_ERROR
+    assert lost.finished_at is not None
+
+
+def test_suggestion_run_store_get_returns_none_for_an_unknown_id(
+    run_store: SuggestionRunStore,
+) -> None:
+    assert run_store.get("sr_livetest_missing") is None

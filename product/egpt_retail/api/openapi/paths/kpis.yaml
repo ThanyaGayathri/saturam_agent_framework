@@ -194,11 +194,73 @@
         $ref: '#/x-egpt-responses/InsufficientScope'
 
 /kpis/suggestions:
+  post:
+    tags: [kpis]
+    operationId: startKpiSuggestionRun
+    summary: Start a suggestion run (K12); poll it for the candidates.
+    description: |
+      The K12 agent proposing candidate KPIs from the connected data, as a run rather than a
+      response (#254): two frontier-tier model calls take minutes, not seconds. Returns the run
+      `queued`; poll `GET /kpis/suggestions/{run_id}` until it is `succeeded` (then `result` is
+      the suggestion list) or `failed` (then `error` says why). Nothing is stored beyond the run
+      row itself -- a suggestion becomes a KPI only through `POST /kpis`, so this needs
+      `kpis:read`, not `kpis:write`. The body narrows the run to one business area; an empty
+      body suggests across every area.
+    x-egpt-scopes: [kpis:read]
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/kpis.yaml#/KpiSuggestionRunRequest'
+          examples:
+            default:
+              value: {business_area: supply_chain}
+            every_area:
+              value: {}
+    responses:
+      "202":
+        description: Accepted. Poll the run for completion.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiSuggestionRun'
+            examples:
+              default:
+                value:
+                  id: sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: queued
+                  business_area: supply_chain
+                  created_at: "2026-09-14T10:00:00Z"
+                  started_at: null
+                  finished_at: null
+                  result: null
+                  error: null
+      "422":
+        description: The business area is not in the deployment's vocabulary.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              vocabulary:
+                value: {detail: "'logistics' is not a permitted business_area. This deployment permits: inventory, marketing, sales, supply_chain. Add it to the customer overlay if the business genuinely has it -- do not pick the nearest term.", code: invalid_vocabulary_term}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
   get:
     tags: [kpis]
     operationId: listKpiSuggestions
-    summary: Candidate KPIs proposed from the connected data (K12).
-    description: Read on demand and not stored; a suggestion becomes a KPI only through `POST /kpis`. Each is traceable to named tables, and the feasibility on it is a set difference, not the agent's opinion.
+    deprecated: true
+    summary: Candidate KPIs proposed from the connected data (K12), synchronously. Deprecated.
+    description: |
+      Read on demand and not stored; a suggestion becomes a KPI only through `POST /kpis`. Each
+      is traceable to named tables, and the feasibility on it is a set difference, not the
+      agent's opinion.
+
+      Deprecated by `POST /kpis/suggestions` + `GET /kpis/suggestions/{run_id}` (#254): the run
+      this serves inside the request takes minutes, and the request is now held to the
+      deployment's suggestion timeout -- `504` past it, where it used to hang. Kept because
+      removing a path is a breaking change; new callers should start a run and poll it.
     x-egpt-scopes: [kpis:read]
     parameters:
       - name: business_area
@@ -238,6 +300,99 @@
                   suggestions: []
                   notes: "No accepted concept in business_area 'marketing' maps to a harvested table, so no suggestion would be traceable to an input."
                   semantic_snapshot: "r3-contract.1"
+      "504":
+        description: The run did not finish within the deployment's suggestion timeout. Start a run with `POST /kpis/suggestions` and poll it instead.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              timeout:
+                value: {detail: "The suggestion run did not finish within 180s. Use POST /kpis/suggestions and poll the run instead.", code: timeout}
+
+/kpis/suggestions/{run_id}:
+  get:
+    tags: [kpis]
+    operationId: getKpiSuggestionRun
+    summary: One suggestion run, for polling.
+    description: |
+      Poll until `status` is `succeeded` or `failed`. `result.suggestions[].proposed_sql` is
+      present only for a caller holding `kpis:write`, exactly as on the synchronous route --
+      the run is shared, the SQL gate is per reader. A run whose serving instance was lost
+      mid-run reports `failed` here once the deployment's timeout plus a grace period has
+      passed, so a poller always reaches a terminal state.
+    x-egpt-scopes: [kpis:read]
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The run.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiSuggestionRun'
+            examples:
+              running:
+                value:
+                  id: sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: running
+                  business_area: supply_chain
+                  created_at: "2026-09-14T10:00:00Z"
+                  started_at: "2026-09-14T10:00:01Z"
+                  finished_at: null
+                  result: null
+                  error: null
+              succeeded:
+                value:
+                  id: sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: succeeded
+                  business_area: supply_chain
+                  created_at: "2026-09-14T10:00:00Z"
+                  started_at: "2026-09-14T10:00:01Z"
+                  finished_at: "2026-09-14T10:01:27Z"
+                  result:
+                    suggestions:
+                      - identifier: supplier__avg_lead_time_days
+                        name: Average Supplier Lead Time
+                        description: Average days between expected and actual delivery; positive means late.
+                        business_area: supply_chain
+                        concept: Supplier
+                        grain: supplier
+                        result_shape: scalar
+                        rationale: supplier_deliveries carries expected_date and actual_date for every delivery.
+                        derived_from_tables: [supplier_deliveries]
+                        confidence: high
+                        proposed_sql: "SELECT AVG(actual_date - expected_date) FROM supplier_deliveries WHERE supplier_id = {supplier_id} AND actual_date IS NOT NULL"
+                        feasibility: {kpi_id: supplier__avg_lead_time_days, verdict: ready, missing_tables: [], rationale: Every source table is present in the semantic snapshot., semantic_snapshot: "r3-contract.1"}
+                        proposed_by: {identifier: kpi_suggestion, version: "0.1.0"}
+                    notes: ""
+                    semantic_snapshot: "r3-contract.1"
+                  error: null
+              failed:
+                summary: The bound was hit; the row says so instead of the request hanging.
+                value:
+                  id: sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: failed
+                  business_area: supply_chain
+                  created_at: "2026-09-14T10:00:00Z"
+                  started_at: "2026-09-14T10:00:01Z"
+                  finished_at: "2026-09-14T10:03:01Z"
+                  result: null
+                  error: "The suggestion run did not finish within 180s."
+      "404":
+        description: No such run.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No suggestion run 'sr_missing'.", code: not_found}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
 
 /kpis/health:
   get:

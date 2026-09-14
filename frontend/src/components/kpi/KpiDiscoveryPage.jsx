@@ -14,8 +14,22 @@ import { tileWriteFromKpi } from "../../storage/dashboards";
 import { createDashboardApi } from "../../services/dashboards-api";
 import { rowFromSuggestion } from "./suggested-candidates";
 import { metricsUnlockedBy } from "../configure/source-model-state";
-import { fetchKpiList, fetchKpiSuggestions, createKpi } from "../../services/kpis-api";
+import {
+ fetchKpiList,
+ startKpiSuggestionRun,
+ fetchKpiSuggestionRun,
+ createKpi,
+} from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
+
+// Polling cadence for a suggestion run (#254): every 2s at first, every 5s once the run has
+// been going for half a minute, and give up at 4 minutes -- the backend's own default bound
+// (180s) plus the grace it allows before it closes a lost run, so a well-behaved run is never
+// abandoned by the client before the server has said what became of it.
+const SUGGEST_POLL_MS = 2000;
+const SUGGEST_POLL_RELAXED_MS = 5000;
+const SUGGEST_POLL_RELAX_AFTER_MS = 30_000;
+const SUGGEST_CEILING_MS = 4 * 60 * 1000;
 
 /**
  * "What my data supports" -- the discovery surface, and the default tab of the KPIs hub.
@@ -28,10 +42,11 @@ import { fetchBusinessAreas } from "../../services/business-areas-api";
  *
  *  1. ENABLED registry KPIs -- master data the customer governs. Disabled ones are excluded here,
  *     which is what makes the enable switch in Configure meaningful rather than decorative.
- *  2. SUGGESTED candidates -- metrics not in the registry yet, proposed live by `GET
- *     /kpis/suggestions` (F1, #234) when the customer asks for them. Nothing is fetched until
- *     "Suggest KPIs" is clicked: unlike the registry/real-area fetches below, this is a
- *     synchronous frontier-tier model call, not something to run unprompted on page load. They
+ *  2. SUGGESTED candidates -- metrics not in the registry yet, proposed live by a run of the
+ *     `kpi_suggestion` agent (`POST /kpis/suggestions`, polled until done -- F1, #234 and #254)
+ *     when the customer asks for them. Nothing is started until "Suggest KPIs" is clicked:
+ *     unlike the registry/real-area fetches below, this is a minutes-long frontier-tier model
+ *     run, not something to run unprompted on page load. They
  *     are shown as adoptable candidates rather than as results, because a metric that cannot be
  *     edited, governed or reproduced is not something anyone should build a dashboard on --
  *     "adopt" calls `POST /kpis` for real, and only once the suggestion's own feasibility says
@@ -82,14 +97,20 @@ export default function KpiDiscoveryPage() {
  const setFocusAreaIds = (ids) => { setFocusState(ids); writeLocalJson(FOCUS_KEY, ids); };
 
  // The live suggestion run (F1, #234): idle until "Suggest KPIs" is clicked, since each run is
- // a real, multi-second frontier-tier model call, not something to fire on mount. `notes` is
- // the skill's own refusal channel -- why it proposed nothing, not a generic empty state.
+ // two real frontier-tier model calls that take minutes, not something to fire on mount. It is
+ // a run to poll, not a response to await (#254): `runId` is the row `POST /kpis/suggestions`
+ // returned and `startedAt` when this click started it, so the button can show elapsed time
+ // and the poll loop can give up at a ceiling. `notes` is the skill's own refusal channel --
+ // why it proposed nothing, not a generic empty state.
  const [suggestionState, setSuggestionState] = useState({
   status: "idle",
   suggestions: [],
   notes: "",
   error: null,
+  runId: null,
+  startedAt: null,
  });
+ const [suggestElapsed, setSuggestElapsed] = useState(0);
  // Which suggestions (by `identifier`) are mid-adopt, and the last adopt failure per identifier --
  // both keyed by identifier, not a single scalar, so concurrent adopts on two different cards
  // don't clear or unblock each other's still-pending state.
@@ -111,14 +132,32 @@ export default function KpiDiscoveryPage() {
  // request, forwarded as `signal` (both `apiGet`/`apiJson` already support one), aborted on
  // unmount so navigating away mid-request doesn't resolve into a `setState` on a gone component.
  const suggestAbortRef = useRef(null);
+ // The pending poll timer between two `GET /kpis/suggestions/{run_id}` calls -- cleared on
+ // unmount and on a new click, so a stale loop never wakes up and polls a run nobody wants.
+ const suggestPollTimerRef = useRef(null);
  const adoptAbortRefs = useRef(new Map());
  useEffect(
   () => () => {
    suggestAbortRef.current?.abort();
+   window.clearTimeout(suggestPollTimerRef.current);
    for (const controller of adoptAbortRefs.current.values()) controller.abort();
   },
   []
  );
+
+ // A once-a-second re-render while a run is in flight, so the button's elapsed counter ticks
+ // and a long run reads as alive rather than stuck. Stops (and resets) the moment it isn't.
+ useEffect(() => {
+  if (suggestionState.status !== "loading") {
+   setSuggestElapsed(0);
+   return undefined;
+  }
+  const startedAt = suggestionState.startedAt || Date.now();
+  const tick = () => setSuggestElapsed(Math.floor((Date.now() - startedAt) / 1000));
+  tick();
+  const id = window.setInterval(tick, 1000);
+  return () => window.clearInterval(id);
+ }, [suggestionState.status, suggestionState.startedAt]);
 
  useEffect(() => {
   let cancelled = false;
@@ -149,29 +188,86 @@ export default function KpiDiscoveryPage() {
   };
  }, []);
 
+ // Start a run, then poll it (#254). One `AbortController` covers the whole loop -- the POST
+ // and every GET after it -- so unmount or a second click cancels wherever it happens to be;
+ // the timer between polls is cleared alongside it. The backend closes a lost run as `failed`
+ // on its own, so the loop normally ends on the row's status; the ceiling below is for the
+ // contract stub, which serves the `queued` example forever, and for anything else that never
+ // turns terminal -- a spinner with no end is the failure mode this whole shape exists to remove.
  const runSuggestions = () => {
   suggestAbortRef.current?.abort();
+  window.clearTimeout(suggestPollTimerRef.current);
   const controller = new AbortController();
   suggestAbortRef.current = controller;
-  setSuggestionState({ status: "loading", suggestions: [], notes: "", error: null });
-  fetchKpiSuggestions(suggestBusinessArea, { signal: controller.signal })
-   .then((result) => {
-    setSuggestionState({
-     status: "ready",
-     suggestions: result?.suggestions || [],
-     notes: result?.notes || "",
-     error: null,
-    });
-   })
-   .catch((err) => {
-    if (err?.name === "AbortError") return;
-    setSuggestionState({
-     status: "error",
-     suggestions: [],
-     notes: "",
-     error: err?.detail || err?.message || "Something went wrong.",
-    });
+  const startedAt = Date.now();
+  setSuggestionState({
+   status: "loading",
+   suggestions: [],
+   notes: "",
+   error: null,
+   runId: null,
+   startedAt,
+  });
+
+  const fail = (message) =>
+   setSuggestionState({
+    status: "error",
+    suggestions: [],
+    notes: "",
+    error: message,
+    runId: null,
+    startedAt: null,
    });
+  const failWith = (err) => {
+   if (err?.name === "AbortError") return;
+   fail(err?.detail || err?.message || "Something went wrong.");
+  };
+
+  const poll = (runId) => {
+   if (controller.signal.aborted) return;
+   if (Date.now() - startedAt > SUGGEST_CEILING_MS) {
+    controller.abort();
+    fail("The run is taking longer than expected. Try again in a few minutes.");
+    return;
+   }
+   fetchKpiSuggestionRun(runId, { signal: controller.signal })
+    .then((run) => {
+     if (controller.signal.aborted) return;
+     if (run?.status === "succeeded") {
+      setSuggestionState({
+       status: "ready",
+       suggestions: run.result?.suggestions || [],
+       notes: run.result?.notes || "",
+       error: null,
+       runId,
+       startedAt: null,
+      });
+      return;
+     }
+     if (run?.status === "failed") {
+      fail(run.error || "The run failed without saying why.");
+      return;
+     }
+     // Tight at first (a fast run should feel fast), then relaxed: after half a minute the
+     // run is clearly a long one and a poll every few seconds is plenty.
+     const delay =
+      Date.now() - startedAt > SUGGEST_POLL_RELAX_AFTER_MS ? SUGGEST_POLL_RELAXED_MS : SUGGEST_POLL_MS;
+     suggestPollTimerRef.current = window.setTimeout(() => poll(runId), delay);
+    })
+    .catch(failWith);
+  };
+
+  startKpiSuggestionRun(suggestBusinessArea, { signal: controller.signal })
+   .then((run) => {
+    if (controller.signal.aborted) return;
+    if (!run?.id) {
+     fail("The run was not accepted.");
+     return;
+    }
+    setSuggestionState((prev) => ({ ...prev, runId: run.id }));
+    poll(run.id);
+   })
+   .catch(failWith);
  };
 
  const handleAdopt = (row) => {
@@ -321,8 +417,8 @@ export default function KpiDiscoveryPage() {
     </div>
    )}
 
-   {/* Suggest KPIs (F1, #234): a real, live call to the frontier-tier `kpi_suggestion` agent --
-       not fired on mount, since it is a several-second round trip the user should ask for. */}
+   {/* Suggest KPIs (F1, #234): a real, live run of the frontier-tier `kpi_suggestion` agent --
+       not fired on mount, since it takes minutes and is something the user should ask for. */}
    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-3">
     <span className="flex items-center gap-2 text-sm text-text-secondary">
      <Sparkles size={15} className="shrink-0 text-primary" />
@@ -335,7 +431,9 @@ export default function KpiDiscoveryPage() {
      className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
     >
      <Sparkles size={13} />
-     {suggestionState.status === "loading" ? "Asking the model…" : "Suggest KPIs"}
+     {suggestionState.status === "loading"
+      ? `Asking the model… ${suggestElapsed}s`
+      : "Suggest KPIs"}
     </button>
    </div>
 
