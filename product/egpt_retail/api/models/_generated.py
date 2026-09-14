@@ -343,13 +343,23 @@ class KpiSourceWrite(BaseModel):
 
 class KpiSuggestionRunRequest(BaseModel):
     """
-    What to run. Empty means suggest across every business area.
+    What to run. Empty means suggest across every business area with no focus.
+    `business_areas` is the focus: the areas the customer cares about, handed to the agents
+    as a priority ("propose for these first"), never as a filter -- a proposal outside them
+    is kept when the data clearly supports it. `business_area` (one id) is the older
+    narrowing filter, applied to what comes back; kept for callers written against 1.1.5,
+    new callers should send `business_areas`.
+
     """
 
     business_area: str | None = Field(
         None,
         description="A business area identifier. In 1.0.0 this is the shipped `business_area` vocabulary\n(`egpt_retail/ontology/vocabularies.json`) plus whatever a customer overlay adds, so it is\na string validated at runtime against the deployment's vocabulary, not an enum.\n",
         examples=["inventory", "sales", "supply_chain"],
+    )
+    business_areas: list[str] | None = Field(
+        None,
+        description="The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.",
     )
 
 
@@ -1369,6 +1379,10 @@ class KpiSuggestionRun(BaseModel):
     status: KpiSuggestionRunStatus
     business_area: str | None = Field(
         None, description="The area the run was narrowed to, or null for every area."
+    )
+    business_areas: list[str] | None = Field(
+        [],
+        description="The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.",
     )
     created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
     started_at: AwareDatetime | None = None

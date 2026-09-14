@@ -69,7 +69,10 @@ What was already decided about it, and still applies:
   rendered through the same `rowFromSuggestion` path as before) or `failed` (its `error` is
   shown as-is; a timeout names the bound it hit). A run is two frontier-tier model calls and
   takes minutes, so it is never fired on page load and the button counts elapsed seconds while
-  it waits. Adopting a suggestion is still `POST /kpis` (`createKpi`); nothing else is stored.
+  it waits. The run is started with a focus (contract 1.1.8, `business_areas`): the areas
+  chosen in the focus prompt, or every area the connected data supports when nothing is
+  chosen -- the agents propose for those first, and nothing is dropped for being outside
+  them. Adopting a suggestion is still `POST /kpis` (`createKpi`); nothing else is stored.
   The synchronous `GET /kpis/suggestions` is deprecated in the contract and no longer called
   here. Against the stub server the poll never turns terminal (the stub serves the `queued`
   example every time), which is what the 4-minute ceiling is for.

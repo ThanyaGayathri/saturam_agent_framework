@@ -117,15 +117,22 @@ export default function KpiDiscoveryPage() {
  const [adoptingIds, setAdoptingIds] = useState(() => new Set());
  const [adoptErrors, setAdoptErrors] = useState({});
 
- // A single focused area scopes the agent's search; zero or several ask it to range over
- // everything rather than firing one request per area (each is its own live model call).
- const suggestBusinessArea = focusAreaIds.length === 1 ? focusAreaIds[0] : undefined;
-
  // The real registry (C1, #232) -- fetched once, additive, never blocking: the seed/suggested
  // rows above render immediately regardless of this state. A failure is a small note, not a
  // crash -- the same posture `DashboardsPage.jsx`'s own real-data fetch already takes.
  const [realKpiState, setRealKpiState] = useState({ status: "loading", kpis: [] });
  const [realAreas, setRealAreas] = useState([]);
+
+ // The focus the agents are given (contract 1.1.8): the chosen areas, or every area the
+ // connected data supports when nothing is chosen, so the model always knows where attention
+ // is. Only ids the deployment's vocabulary knows are sent (a stored focus can predate it) --
+ // an unknown id would be refused, and a refused run helps nobody. A priority, not a filter.
+ const suggestBusinessAreas = useMemo(() => {
+  const known = new Set(realAreas.map((a) => a.id));
+  const chosen = focusAreaIds.filter((id) => known.has(id));
+  if (chosen.length) return chosen;
+  return realAreas.filter((a) => a.supported).map((a) => a.id);
+ }, [focusAreaIds, realAreas]);
 
  // `runSuggestions`/`handleAdopt` are click-triggered, not effects, but they need the same
  // unmount guard the two effects below already have -- an `AbortController` per in-flight
@@ -257,7 +264,7 @@ export default function KpiDiscoveryPage() {
     .catch(failWith);
   };
 
-  startKpiSuggestionRun(suggestBusinessArea, { signal: controller.signal })
+  startKpiSuggestionRun(suggestBusinessAreas, { signal: controller.signal })
    .then((run) => {
     if (controller.signal.aborted) return;
     if (!run?.id) {

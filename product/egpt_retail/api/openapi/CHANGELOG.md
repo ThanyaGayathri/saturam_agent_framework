@@ -109,6 +109,27 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.8 — 2026-09-15 — kpis: `KpiSuggestionRunRequest.business_areas`, a focus for the run (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one optional field on the request, one
+defaulted field echoed on the run -- so no negotiation and no major bump. Numbered 1.1.8:
+#259 (1.1.6) and #260 (1.1.7), open at the same time, already claim the two before it.
+
+- **`KpiSuggestionRunRequest.business_areas`** (array of `BusinessAreaId`, optional). The
+  discovery page's focus ("Which areas of the business do you care about most?") used to
+  reach the run only when exactly one area was chosen, and then only as a filter on what
+  came back -- the agents never heard it, and a narrowed run cost the same two model calls
+  for a subset of the answer. The focus now goes *into* the message both agents receive,
+  as a priority ("propose for these first and most thoroughly"), never as a filter: a
+  proposal outside the focus is kept when the data clearly supports it. Every id is checked
+  against the vocabulary before the row exists (422 otherwise); duplicates are dropped,
+  order is kept. The frontend sends the chosen areas, or every supported area when nothing
+  is chosen, so the agents always know where the customer's attention is.
+- **`KpiSuggestionRun.business_areas`** (array, default `[]`) echoes the focus on the `202`
+  and every poll.
+- **`business_area`** (one id, the after-the-fact narrowing filter) is unchanged and still
+  honoured, for callers written against 1.1.5; new callers should send `business_areas`.
+
 ## 1.1.5 — 2026-09-14 — kpis: suggestion runs, `POST /kpis/suggestions` + `GET /kpis/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for #254 (part of #222). Additive -- two new

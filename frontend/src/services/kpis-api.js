@@ -19,11 +19,15 @@ export function fetchKpiList() {
  * created_at, started_at, finished_at, result, error}`). A run is two frontier-tier model calls
  * and takes minutes, so it is a resource to poll (issue #254), not a response to await:
  * `fetchKpiSuggestionRun` until `status` is `succeeded` (then `result` is the suggestion list)
- * or `failed` (then `error` says why). `businessArea` narrows the run; omit it to suggest
- * across every area. Nothing is stored beyond the run row - a suggestion becomes a KPI only
- * through `createKpi`. */
-export function startKpiSuggestionRun(businessArea, { signal } = {}) {
-  const body = businessArea ? { business_area: businessArea } : {};
+ * or `failed` (then `error` says why). `businessAreas` is the focus (contract 1.1.8): the
+ * areas the customer cares about, handed to the agents as a priority -- "propose for these
+ * first" -- never as a filter, so nothing is dropped for being outside them. Send every
+ * supported area when nothing is chosen, so the agents always know where attention is; an
+ * empty list means no focus. Nothing is stored beyond the run row - a suggestion becomes a
+ * KPI only through `createKpi`. */
+export function startKpiSuggestionRun(businessAreas, { signal } = {}) {
+  const areas = Array.isArray(businessAreas) ? businessAreas.filter(Boolean) : [];
+  const body = areas.length ? { business_areas: areas } : {};
   return apiJson("/kpis/suggestions", "POST", body, { signal });
 }
 

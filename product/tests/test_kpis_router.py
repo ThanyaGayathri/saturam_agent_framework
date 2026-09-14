@@ -771,7 +771,16 @@ def test_suggestion_notes_keeps_kpis_notes_when_run_notes_is_empty():
 
 
 def _fake_run_suggestions(kpi_suggestions):
-    def _fake(settings, *, reader, existing_definitions, proposals, dry_run, agents):
+    def _fake(
+        settings,
+        *,
+        reader,
+        existing_definitions,
+        proposals,
+        dry_run,
+        agents,
+        focus_areas=(),
+    ):
         return _FakeSuggestionRunWithSuggestions(kpi_suggestions)
 
     return _fake
@@ -940,7 +949,14 @@ def test_list_kpi_suggestions_runs_a_deep_copy_of_each_cached_agent_not_the_orig
     captured_agents = {}
 
     def _fake_run_suggestions_capturing(
-        settings, *, reader, existing_definitions, proposals, dry_run, agents
+        settings,
+        *,
+        reader,
+        existing_definitions,
+        proposals,
+        dry_run,
+        agents,
+        focus_areas=(),
     ):
         captured_agents["agents"] = agents
         return _FakeSuggestionRunWithSuggestions([])
@@ -977,7 +993,13 @@ def test_list_kpi_suggestions_route_reaches_the_helper_with_the_given_business_a
     captured = {}
 
     def _fake_helper(
-        settings, *, definitions, vocabularies, business_area, include_sql
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
     ):
         captured["business_area"] = business_area
         captured["definitions"] = definitions
@@ -1023,7 +1045,13 @@ def test_get_kpis_suggestions_dispatches_to_the_suggestions_handler_not_get_kpi(
     calls = []
 
     def _fake_helper(
-        settings, *, definitions, vocabularies, business_area, include_sql
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
     ):
         calls.append(business_area)
         return wire_models.KpiSuggestionList(
@@ -1214,12 +1242,13 @@ class _FakeRunStore:
     def __init__(self):
         self.rows: dict = {}
 
-    def create(self, business_area):
+    def create(self, business_area, business_areas=()):
         record = SuggestionRunRecord(
             identifier=f"sr_{len(self.rows) + 1}",
             status=SuggestionRunStatus.QUEUED,
             business_area=business_area,
             created_at=datetime.now(timezone.utc),
+            business_areas=tuple(business_areas),
         )
         self.rows[record.identifier] = record
         return record
@@ -1296,7 +1325,13 @@ def _drain(client):
 
 def _suggesting(suggestions, *, notes=""):
     def _fake_helper(
-        settings, *, definitions, vocabularies, business_area, include_sql
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
     ):
         return wire_models.KpiSuggestionList(
             suggestions=list(suggestions), notes=notes, semantic_snapshot="snap.0"
@@ -1347,7 +1382,13 @@ def test_start_kpi_suggestion_run_with_no_body_runs_across_every_area(monkeypatc
     captured = {}
 
     def _fake_helper(
-        settings, *, definitions, vocabularies, business_area, include_sql
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
     ):
         captured["business_area"] = business_area
         captured["include_sql"] = include_sql
@@ -1569,3 +1610,91 @@ def test_list_kpi_suggestions_504s_past_the_timeout_instead_of_hanging(monkeypat
     assert response.status_code == 504
     assert "did not finish within 0.05s" in response.json()["detail"]
     assert "POST /kpis/suggestions" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Contract 1.1.8: `business_areas`, the focus a run is started with. It reaches the
+# pipeline as `focus_areas` (a priority in the agents' message), is echoed on the row, and
+# is validated before the row exists.
+# ---------------------------------------------------------------------------
+
+
+def test_start_kpi_suggestion_run_hands_the_focus_to_the_pipeline_and_echoes_it(
+    monkeypatch,
+):
+    captured = {}
+
+    def _fake_helper(
+        settings,
+        *,
+        definitions,
+        vocabularies,
+        business_area,
+        include_sql,
+        focus_areas=(),
+    ):
+        captured["focus_areas"] = tuple(focus_areas)
+        captured["business_area"] = business_area
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post(
+            "/kpis/suggestions",
+            json={"business_areas": ["sales", "supply_chain", "sales"]},
+        )
+        assert started.status_code == 202
+        # echoed, de-duplicated, order kept; the single-area filter stays off
+        assert started.json()["business_areas"] == ["sales", "supply_chain"]
+        assert started.json()["business_area"] is None
+        run_id = started.json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert captured == {
+        "focus_areas": ("sales", "supply_chain"),
+        "business_area": None,
+    }
+    assert polled["business_areas"] == ["sales", "supply_chain"]
+
+
+def test_start_kpi_suggestion_run_with_no_focus_sends_none_and_echoes_an_empty_list(
+    monkeypatch,
+):
+    captured = {}
+
+    def _fake_helper(settings, *, focus_areas=(), **kwargs):
+        captured["focus_areas"] = tuple(focus_areas)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _fake_helper)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions", json={})
+        assert started.json()["business_areas"] == []
+        _drain(client)
+
+    assert captured == {"focus_areas": ()}
+
+
+def test_start_kpi_suggestion_run_422s_on_an_unknown_focus_area_before_any_row_exists(
+    monkeypatch,
+):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        response = client.post(
+            "/kpis/suggestions", json={"business_areas": ["sales", "logistics"]}
+        )
+
+    assert response.status_code == 422
+    assert "logistics" in response.json()["detail"]
+    assert store.rows == {}

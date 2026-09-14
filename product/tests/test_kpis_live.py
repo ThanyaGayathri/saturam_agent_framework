@@ -796,3 +796,16 @@ def test_suggestion_run_store_get_returns_none_for_an_unknown_id(
     run_store: SuggestionRunStore,
 ) -> None:
     assert run_store.get("sr_livetest_missing") is None
+
+
+def test_suggestion_run_store_keeps_the_focus_a_run_was_started_with(
+    run_store: SuggestionRunStore,
+) -> None:
+    created = run_store.create("livetest", ["sales", "marketing"])
+    assert created.business_areas == ("sales", "marketing")
+    read = run_store.get(created.identifier)
+    assert read is not None and read.business_areas == ("sales", "marketing")
+
+    # no focus: an empty tuple, not None -- and an older row reads the same
+    plain = run_store.create("livetest")
+    assert plain.business_areas == ()

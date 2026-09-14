@@ -114,6 +114,7 @@ def run_suggestions(
     dry_run: bool = False,
     samples: Optional[Mapping[Tuple[str, str], Sequence[str]]] = None,
     existing_definitions: Optional[Sequence[Any]] = None,
+    focus_areas: Optional[Sequence[str]] = None,
 ) -> SuggestionRun:
     """Run both suggestion agents over the current semantic layer and file the results.
 
@@ -130,6 +131,12 @@ def run_suggestions(
     it fetches the registry snapshot up front, closes the control-plane connection, and only
     then calls this function -- ``registry`` stays ``None`` and is never touched. Every other
     caller keeps passing ``registry`` and this behaves exactly as before.
+
+    ``focus_areas`` are the business areas the customer said they care about (the
+    discovery page's focus). They reach both agents as a priority in the message
+    (:func:`render_focus`), never as a filter: what comes back is still judged by
+    ``assemble`` and stamped with the ontology's area, and nothing is dropped for being
+    outside the focus. ``None`` or empty means no focus, and the message is unchanged.
     """
     settings = settings or RetailSettings()
     if existing_definitions is not None:
@@ -161,7 +168,11 @@ def run_suggestions(
 
     kpi_drafts = _drafts_of(
         kpi_agent.run(
-            render_context(context, ask="Propose the KPIs this data supports.")
+            render_context(
+                context,
+                ask="Propose the KPIs this data supports.",
+                focus_areas=focus_areas,
+            )
         ),
         k12.KpiSuggestionDraftSet,
     )
@@ -177,7 +188,11 @@ def run_suggestions(
 
     use_case_drafts = _drafts_of(
         use_case_agent.run(
-            render_context(context, ask="Propose the use cases this data supports.")
+            render_context(
+                context,
+                ask="Propose the use cases this data supports.",
+                focus_areas=focus_areas,
+            )
         ),
         k13.UseCaseSuggestionDraftSet,
     )
@@ -227,6 +242,7 @@ async def arun_suggestions(
     dry_run: bool = False,
     samples: Optional[Mapping[Tuple[str, str], Sequence[str]]] = None,
     existing_definitions: Optional[Sequence[Any]] = None,
+    focus_areas: Optional[Sequence[str]] = None,
 ) -> SuggestionRun:
     """Async variant. Two model calls and several store reads happen off the event loop."""
     return await asyncio.to_thread(
@@ -242,4 +258,5 @@ async def arun_suggestions(
         dry_run=dry_run,
         samples=samples,
         existing_definitions=existing_definitions,
+        focus_areas=focus_areas,
     )

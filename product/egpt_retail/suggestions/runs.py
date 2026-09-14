@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
     "RUN_SCHEMA",
@@ -64,8 +64,12 @@ class SuggestionRunRecord:
 
     identifier: str
     status: SuggestionRunStatus
+    #: The one area the run was narrowed to (a filter on what comes back), or ``None``.
     business_area: Optional[str]
     created_at: datetime
+    #: The areas the customer asked the agents to propose for first (a priority in the
+    #: message, never a filter). Empty when the run was started with no focus.
+    business_areas: Tuple[str, ...] = ()
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     result: Optional[Mapping[str, Any]] = None
@@ -91,12 +95,17 @@ def _ddl(schema: str) -> Tuple[str, ...]:
         finished_at   timestamptz,
         result        jsonb,
         error         text,
+        business_areas jsonb NOT NULL DEFAULT '[]'::jsonb,
         CONSTRAINT kpi_suggestion_run_status_valid
             CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
         CONSTRAINT kpi_suggestion_run_outcome_matches_status
             CHECK ((status = 'succeeded') = (result IS NOT NULL)
                AND (status = 'failed') = (error IS NOT NULL))
     )""",
+        # A table provisioned before the focus existed (contract 1.1.5) gains the column
+        # in place, with the same "no focus" default every older row then reads as.
+        f"""ALTER TABLE {schema}.kpi_suggestion_run
+        ADD COLUMN IF NOT EXISTS business_areas jsonb NOT NULL DEFAULT '[]'::jsonb""",
         f"""CREATE INDEX IF NOT EXISTS kpi_suggestion_run_open
         ON {schema}.kpi_suggestion_run (status, created_at)""",
         f"""COMMENT ON TABLE {schema}.kpi_suggestion_run IS
@@ -106,7 +115,8 @@ def _ddl(schema: str) -> Tuple[str, ...]:
 
 
 _COLUMNS = (
-    "id, status, business_area, created_at, started_at, finished_at, result, error"
+    "id, status, business_area, created_at, started_at, finished_at, result, error, "
+    "business_areas"
 )
 
 
@@ -143,23 +153,33 @@ class SuggestionRunStore:
 
     # --- writing -----------------------------------------------------------------------
 
-    def create(self, business_area: Optional[str]) -> SuggestionRunRecord:
-        """Record a new, queued run and return it."""
+    def create(
+        self,
+        business_area: Optional[str],
+        business_areas: Sequence[str] = (),
+    ) -> SuggestionRunRecord:
+        """Record a new, queued run and return it. ``business_areas`` is the focus the run
+        was started with, kept on the row so the poll can echo what was asked for."""
         identifier = f"sr_{uuid.uuid4().hex}"
         with self._connection.cursor() as cursor:
             cursor.execute(
-                f"""INSERT INTO {self._schema}.kpi_suggestion_run (id, business_area)
-                    VALUES (%s, %s)
+                f"""INSERT INTO {self._schema}.kpi_suggestion_run
+                        (id, business_area, business_areas)
+                    VALUES (%s, %s, %s)
                     RETURNING {_COLUMNS}""",
-                (identifier, business_area),
+                (identifier, business_area, json.dumps(list(business_areas))),
             )
             row = cursor.fetchone()
         self._connection.commit()
         return _record(row)
 
-    async def acreate(self, business_area: Optional[str]) -> SuggestionRunRecord:
+    async def acreate(
+        self,
+        business_area: Optional[str],
+        business_areas: Sequence[str] = (),
+    ) -> SuggestionRunRecord:
         """Async variant."""
-        return await asyncio.to_thread(self.create, business_area)
+        return await asyncio.to_thread(self.create, business_area, business_areas)
 
     def mark_running(self, identifier: str) -> None:
         """``queued`` -> ``running``. A no-op on a row that has already moved on."""
@@ -273,9 +293,12 @@ def _record(row: Any) -> SuggestionRunRecord:
         finished_at,
         result,
         error,
+        business_areas,
     ) = row
     if isinstance(result, str):  # a driver that hands jsonb back undecoded
         result = json.loads(result)
+    if isinstance(business_areas, str):
+        business_areas = json.loads(business_areas)
     return SuggestionRunRecord(
         identifier=identifier,
         status=SuggestionRunStatus(status),
@@ -285,4 +308,5 @@ def _record(row: Any) -> SuggestionRunRecord:
         finished_at=finished_at,
         result=result,
         error=error,
+        business_areas=tuple(business_areas or ()),
     )

@@ -196,10 +196,21 @@ KpiSuggestionRunStatus:
 
 KpiSuggestionRunRequest:
   type: object
-  description: What to run. Empty means suggest across every business area.
+  description: |
+    What to run. Empty means suggest across every business area with no focus.
+    `business_areas` is the focus: the areas the customer cares about, handed to the agents
+    as a priority ("propose for these first"), never as a filter -- a proposal outside them
+    is kept when the data clearly supports it. `business_area` (one id) is the older
+    narrowing filter, applied to what comes back; kept for callers written against 1.1.5,
+    new callers should send `business_areas`.
   properties:
     business_area:
       $ref: './common.yaml#/BusinessAreaId'
+    business_areas:
+      type: array
+      description: The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.
+      items:
+        $ref: './common.yaml#/BusinessAreaId'
 
 KpiSuggestionRun:
   type: object
@@ -219,6 +230,12 @@ KpiSuggestionRun:
     business_area:
       type: [string, "null"]
       description: The area the run was narrowed to, or null for every area.
+    business_areas:
+      type: array
+      default: []
+      description: The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.
+      items:
+        $ref: './common.yaml#/BusinessAreaId'
     created_at:
       $ref: './common.yaml#/Timestamp'
     started_at:
