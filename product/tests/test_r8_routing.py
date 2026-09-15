@@ -155,11 +155,32 @@ def test_build_tier_providers_honors_a_non_default_model_provider() -> None:
     assert small.model_ids == ("claude-haiku-4-5",)
     assert frontier.model_ids == ("claude-sonnet-4-5",)
     # Only Azure OpenAI needs its deployment pinned on the client (see TierModelProvider's
-    # docstring); a non-Azure provider must not be handed that Azure-only kwarg.
+    # docstring); `capabilities()` never surfaces `_model_config` into `.notes` either way, so
+    # this reads the provider's actual config directly rather than asserting on a key that is
+    # never populated regardless of whether the pin fired.
     assert (
-        "azure_deployment" not in small.notes
-        and "azure_deployment" not in frontier.notes
+        providers.small._model_config == {} and providers.frontier._model_config == {}
     )
+
+
+def test_a_whitespace_padded_model_provider_still_pins_the_azure_deployment() -> None:
+    """A regression guard for the collision #268 was filed over: `FrontierModelProvider.__init__`
+    `.strip()`s `provider_key` before storing it, and `RetailSettings` has no
+    `str_strip_whitespace` config to normalize `EGPT_RETAIL_MODEL_PROVIDER` first (a stray space
+    is a realistic `.env`/compose-interpolation artifact). Comparing the *raw* argument against
+    `AZURE_PROVIDER_KEY` would fail this check while `capabilities()` still reported a clean
+    'azure-openai' key -- both tiers silently collapsing onto AZURE_OPENAI_DEPLOYMENT with no
+    error raised anywhere."""
+    providers = build_tier_providers(
+        _settings(
+            retail_model_provider=" azure-openai",
+            retail_azure_small_deployment="tiny",
+            retail_azure_deployment="huge",
+        )
+    )
+    assert providers.small.capabilities().provider_keys == (AZURE_PROVIDER_KEY,)
+    assert providers.small._model_config == {"azure_deployment": "tiny"}
+    assert providers.frontier._model_config == {"azure_deployment": "huge"}
 
 
 def test_build_tier_providers_refuses_an_unknown_model_provider() -> None:

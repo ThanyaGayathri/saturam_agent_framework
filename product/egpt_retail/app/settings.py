@@ -26,6 +26,7 @@ import re
 from typing import Literal, Optional
 
 from egpt.metrics import ProviderMode
+from egpt.providers.mode_b import FRONTIER_PROVIDER_KEYS
 from egpt.settings.sources import BrandedSettings
 from pydantic import Field, field_validator
 
@@ -254,12 +255,14 @@ class RetailSettings(BrandedSettings):
     retail_model_provider: str = Field(
         default="azure-openai",
         description="The Mode B registry key both tiers resolve under (EGPT_RETAIL_MODEL_PROVIDER), "
-        "e.g. 'azure-openai', 'anthropic', 'openai', 'aws-bedrock', 'google'. Default 'azure-openai' "
-        "matches production (D15) -- it is R8's routing table's provider today, not the only one it "
-        "can build (#268): retail_azure_deployment/retail_azure_small_deployment below carry the "
-        "model id for whichever key is set here, an Azure deployment name when this is left at its "
-        "default, a vendor model id otherwise. An unrecognized key is refused when the tier providers "
-        "are built (egpt.providers.mode_b.FrontierModelProvider), naming the key, not silently ignored.",
+        f"e.g. one of {', '.join(FRONTIER_PROVIDER_KEYS)} (egpt.providers.mode_b.FRONTIER_PROVIDER_KEYS "
+        "-- the curated shortlist, not a whitelist: any other registered Mode B key, including one "
+        "from an out-of-tree entry point, also resolves). Default 'azure-openai' matches production "
+        "(D15) -- it is R8's routing table's provider today, not the only one it can build (#268): "
+        "retail_azure_deployment/retail_azure_small_deployment below carry the model id for whichever "
+        "key is set here, an Azure deployment name when this is left at its default, a vendor model id "
+        "otherwise. An unrecognized key is refused when the tier providers are built "
+        "(egpt.providers.mode_b.FrontierModelProvider), naming the key, not silently ignored.",
     )
     retail_azure_deployment: str = Field(
         default="gpt-5.4",
