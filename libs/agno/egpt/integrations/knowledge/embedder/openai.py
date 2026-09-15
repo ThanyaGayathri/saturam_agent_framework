@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union, overload
 
 from typing_extensions import Literal
 
+from egpt.integrations.knowledge.embedder._embedding_ordering import sorted_embeddings
 from egpt.knowledge.embedder.base import Embedder
 from egpt.utils.log import log_info, log_warning
 
@@ -27,6 +28,19 @@ class OpenAIEmbedder(Embedder):
     client_params: Optional[Dict[str, Any]] = None
     openai_client: Optional[OpenAIClient] = None
     async_client: Optional[AsyncOpenAI] = None
+
+    #: ``get_embedding``/``async_get_embedding`` accept a ``List[str]`` and return one vector per
+    #: element, in order -- the same contract ``AzureOpenAIEmbedder`` declares, on the same
+    #: endpoint. ``ClassVar`` for the same reason as there: a declared capability of the class,
+    #: not a per-instance switch. Before this, a list passed here was sent as one request (the
+    #: endpoint accepts a list natively) and ``response.data[0]`` alone came back -- one vector
+    #: for N texts, which a caller batching an ontology into the store read as a count mismatch.
+    #:
+    #: Declaring this also has a side effect on ``egpt.memory.embedding``: a batching embedder's
+    #: calls are not usage-metered through ``MemoryEmbedder.embed_texts``/``aembed_texts`` (see
+    #: that method's docstring for why) -- ``OpenAIEmbedder`` now shares that known gap with
+    #: ``AzureOpenAIEmbedder``, deliberately, rather than as an incidental side effect of this flag.
+    accepts_text_batches: ClassVar[bool] = True
 
     def __post_init__(self):
         if self.dimensions is None:
@@ -63,7 +77,8 @@ class OpenAIEmbedder(Embedder):
         self.async_client = AsyncOpenAI(**filtered_params)
         return self.async_client
 
-    def response(self, text: str) -> CreateEmbeddingResponse:
+    def _request_params_for(self, text: Union[str, List[str]]) -> Dict[str, Any]:
+        """The one request shape every call below sends; ``input`` is a string or a list of them."""
         _request_params: Dict[str, Any] = {
             "input": text,
             "model": self.id,
@@ -76,14 +91,42 @@ class OpenAIEmbedder(Embedder):
             _request_params["dimensions"] = self.dimensions
         if self.request_params:
             _request_params.update(self.request_params)
-        return self.client.embeddings.create(**_request_params)
+        return _request_params
 
-    def get_embedding(self, text: str) -> List[float]:
+    def response(self, text: Union[str, List[str]]) -> CreateEmbeddingResponse:
+        return self.client.embeddings.create(**self._request_params_for(text))
+
+    @overload
+    def get_embedding(self, text: str) -> List[float]: ...
+    @overload
+    def get_embedding(self, text: List[str]) -> List[List[float]]: ...
+    def get_embedding(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
+        """One vector for a single text, or one vector per text, in order, for a list.
+
+        The plural form is one request: the endpoint accepts a list of inputs natively. Vectors
+        come back sorted by ``.index`` rather than trusted to arrive in request order -- the same
+        guard ``AzureOpenAIEmbedder.get_embedding`` takes, for the same reason: a documented
+        ordering is not an enforced one, and zipping against the wrong record fails silently.
+
+        An empty list returns ``[]`` without a request -- an empty ``input`` is not a documented
+        request shape, and every real caller (``MemoryEmbedder``, ``ontology/store.py``) already
+        short-circuits before reaching the embedder, so there is nothing to send and nothing to
+        gain from letting the API reject it instead.
+        """
+        if not isinstance(text, str) and not text:
+            return []
         try:
             response: CreateEmbeddingResponse = self.response(text=text)
-            return response.data[0].embedding
+            if isinstance(text, str):
+                return response.data[0].embedding
+            return sorted_embeddings(response, expected_count=len(text))
         except Exception as e:
-            log_warning(f"Failed to get embedding: {str(e)}")
+            # Distinct messages, matching `AzureOpenAIEmbedder`: a batch failure and a single-text
+            # failure are different production symptoms and should not read identically in a log.
+            if isinstance(text, str):
+                log_warning(f"Failed to get embedding: {str(e)}")
+            else:
+                log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
 
     def get_embedding_and_usage(self, text: str) -> Tuple[List[float], Optional[Dict]]:
@@ -99,43 +142,30 @@ class OpenAIEmbedder(Embedder):
             log_warning(f"Failed to get embedding and usage: {str(e)}")
             return [], None
 
-    async def async_get_embedding(self, text: str) -> List[float]:
-        req: Dict[str, Any] = {
-            "input": text,
-            "model": self.id,
-            "encoding_format": self.encoding_format,
-        }
-        if self.user is not None:
-            req["user"] = self.user
-        # Pass dimensions for text-embedding-3 models or when using custom base_url (third-party APIs)
-        if self.id.startswith("text-embedding-3") or self.base_url is not None:
-            req["dimensions"] = self.dimensions
-        if self.request_params:
-            req.update(self.request_params)
-
+    @overload
+    async def async_get_embedding(self, text: str) -> List[float]: ...
+    @overload
+    async def async_get_embedding(self, text: List[str]) -> List[List[float]]: ...
+    async def async_get_embedding(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
+        """Async twin of :meth:`get_embedding`: same call shape, same ordering guarantee, same
+        empty-list short-circuit."""
+        if not isinstance(text, str) and not text:
+            return []
         try:
-            response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**req)
-            return response.data[0].embedding
+            response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**self._request_params_for(text))
+            if isinstance(text, str):
+                return response.data[0].embedding
+            return sorted_embeddings(response, expected_count=len(text))
         except Exception as e:
-            log_warning(f"Failed to get async embedding: {str(e)}")
+            if isinstance(text, str):
+                log_warning(f"Failed to get async embedding: {str(e)}")
+            else:
+                log_warning(f"Failed to get async batch embeddings: {str(e)}")
             return []
 
     async def async_get_embedding_and_usage(self, text: str):
-        req: Dict[str, Any] = {
-            "input": text,
-            "model": self.id,
-            "encoding_format": self.encoding_format,
-        }
-        if self.user is not None:
-            req["user"] = self.user
-        # Pass dimensions for text-embedding-3 models or when using custom base_url (third-party APIs)
-        if self.id.startswith("text-embedding-3") or self.base_url is not None:
-            req["dimensions"] = self.dimensions
-        if self.request_params:
-            req.update(self.request_params)
-
         try:
-            response = await self.aclient.embeddings.create(**req)
+            response = await self.aclient.embeddings.create(**self._request_params_for(text))
             embedding = response.data[0].embedding
             usage = response.usage
             return embedding, usage.model_dump() if usage else None
@@ -162,22 +192,11 @@ class OpenAIEmbedder(Embedder):
         for i in range(0, len(texts), self.batch_size):
             batch_texts = texts[i : i + self.batch_size]
 
-            req: Dict[str, Any] = {
-                "input": batch_texts,
-                "model": self.id,
-                "encoding_format": self.encoding_format,
-            }
-            if self.user is not None:
-                req["user"] = self.user
-            # Pass dimensions for text-embedding-3 models or when using custom base_url (third-party APIs)
-            if self.id.startswith("text-embedding-3") or self.base_url is not None:
-                req["dimensions"] = self.dimensions
-            if self.request_params:
-                req.update(self.request_params)
-
             try:
-                response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**req)
-                batch_embeddings = [data.embedding for data in response.data]
+                response: CreateEmbeddingResponse = await self.aclient.embeddings.create(
+                    **self._request_params_for(batch_texts)
+                )
+                batch_embeddings = sorted_embeddings(response, expected_count=len(batch_texts))
                 all_embeddings.extend(batch_embeddings)
 
                 # For each embedding in the batch, add the same usage information
