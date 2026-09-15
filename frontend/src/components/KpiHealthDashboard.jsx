@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Activity,
   AlertCircle,
+  AlertTriangle,
   ArrowUpRight,
   BarChart2,
   DollarSign,
@@ -15,7 +16,6 @@ import {
   Truck,
   Users,
 } from "lucide-react";
-import { useKpiRegistry } from "../hooks/useKpiRegistry";
 import { useDemoProfile } from "../context/DemoProfileContext";
 import { useUseCaseCatalog } from "../hooks/useUseCaseCatalog";
 import { loadUseCaseCatalog, saveUseCaseCatalog } from "../storage/use-cases-catalog";
@@ -24,7 +24,9 @@ import { getUseCasesForRole } from "../domain/featured-use-cases";
 import { getKpiNamesForCatalogId } from "../domain/kpi-usecase-links";
 import { getSeedDecisionCardsForCatalog } from "../domain/decision-cards-catalog";
 import { COPILOT_DECISIONS_KEY } from "../storage/keys";
-import { DemoAreaSpark, DemoAreaSparkWithAxes, formatChartNumber } from "./shared/DemoSparkCharts";
+import { DemoAreaSpark, formatChartNumber } from "./shared/DemoSparkCharts";
+import { fetchKpiList, fetchKpiHealth, fetchKpiSeries, computeKpi } from "../services/kpis-api";
+import KpiTrend, { formatKpiValue } from "./kpi/KpiTrend";
 
 /** Seeded catalog IDs: anomalies tie to these use cases for demo storytelling. */
 const KPI_DASHBOARD_USE_CASES = {
@@ -154,23 +156,13 @@ const KPI_ICON_BY_NAME = {
 
 const TONE_CYCLE = ["purple", "amber", "blue", "green"];
 
-/** Deterministic sparkline seeded by KPI name + point count. Same name at
- *  different lengths keeps the same starting value so the tile doesn't jump
- *  when the range toggle changes the point count. */
-function mockSpark(name, points = 12) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  const trendUp = (h & 1) === 0;
-  let v = 30 + (h % 50);
-  const out = [];
-  for (let i = 0; i < points; i++) {
-    v += (trendUp ? 1 : -1) * (((h >> (i % 8)) & 7) - 3);
-    if (v < 15) v = 15 + (h & 7);
-    if (v > 95) v = 95 - (h & 7);
-    out.push(v);
-  }
-  return out;
-}
+/** Short label for a `KpiHealth.status` other than `fresh` (fresh needs no callout). */
+const HEALTH_STATUS_LABEL = {
+  stale: "Stale",
+  never_computed: "Not computed yet",
+  failed: "Failed",
+  not_scheduled: "Not scheduled",
+};
 
 const TONE = {
   purple: { bg: "bg-primary-light dark:bg-surface-tertiary dark:ring-1 dark:ring-primary/25", text: "text-primary", stroke: "#6941c6", fill: "rgba(105,65,198,0.12)" },
@@ -188,23 +180,6 @@ const TONE = {
     fill: "rgba(18,183,106,0.14)",
   },
 };
-
-function flattenActiveKpis(categories) {
-  const out = [];
-  for (const cat of categories || []) {
-    for (const sec of cat.sections || []) {
-      for (const k of sec.kpis || []) {
-        if (k.active !== false) out.push(k);
-      }
-    }
-  }
-  return out;
-}
-
-function pickSummaryKpis(kpis, names) {
-  const map = new Map(kpis.map((k) => [k.name, k]));
-  return names.map((n) => map.get(n)).filter(Boolean);
-}
 
 /**
  * Build the top-of-dashboard card list from:
@@ -236,28 +211,6 @@ function buildRoleSummaryKpiNames({ activeKpiNames, roleUseCases, anomalyKpiName
   return out;
 }
 
-/** Deterministic mock value + delta per KPI. Delta magnitude expands over the
- *  longer window so 30d shows a larger swing than 7d without changing the
- *  headline value (same KPI, same read). */
-function mockSummary(kpiName, range = "7d") {
-  let h = 0;
-  for (let i = 0; i < kpiName.length; i++) h = (h * 31 + kpiName.charCodeAt(i)) >>> 0;
-  const base = 100 + (h % 900) / 10;
-  const baseDelta = ((h >> 3) % 17) / 10 - 0.8;
-  const rangeScale = range === "30d" ? 3.2 : 1;
-  const delta = baseDelta * rangeScale;
-  const isPct = kpiName.includes("Rate") || kpiName.includes("Margin");
-  return {
-    display: isPct ? `${base.toFixed(1)}%` : base.toFixed(2),
-    delta,
-  };
-}
-
-const RANGE_COMPARE_LABEL = {
-  "7d": "vs prior week",
-  "30d": "vs prior 4 weeks",
-};
-
 /** Compact sparkline */
 function Spark({ data, stroke }) {
   const fillOpacityTop =
@@ -278,31 +231,59 @@ function Spark({ data, stroke }) {
   );
 }
 
-/** Trend chart with axes, edge to edge inside the card padding band */
-function TrendLine({ data, captionForIndex }) {
-  return (
-    <div className="-mx-5 mt-4 min-w-0 w-[calc(100%+2.5rem)] max-w-none">
-      <DemoAreaSparkWithAxes
-        data={data}
-        viewHeight={40}
-        stroke="#6941c6"
-        fillOpacityTop={0.22}
-        formatPoint={(v) => `${formatChartNumber(v)}%`}
-        captionForIndex={captionForIndex}
-      />
-    </div>
-  );
-}
-
 export default function KpiHealthDashboard() {
   const navigate = useNavigate();
   const { profileId, role, storageKeys } = useDemoProfile();
-  const { data, hydrated } = useKpiRegistry();
   const { entries: catalogEntries, setData: setCatalogData } = useUseCaseCatalog();
   const [range, setRange] = useState("7d");
+  const days = range === "30d" ? 30 : 7;
 
-  const activeKpis = useMemo(() => flattenActiveKpis(data?.categories), [data?.categories]);
-  const activeKpiNames = useMemo(() => new Set(activeKpis.map((k) => k.name)), [activeKpis]);
+  // The real registry (`GET /kpis`) -- only KPIs actually adopted via "Add to my metrics"
+  // (KPI Discovery's `createKpi`) land here, which is what makes this dashboard a reflection
+  // of that selection rather than an independent catalog.
+  const [registryState, setRegistryState] = useState({ status: "loading", kpis: [] });
+  useEffect(() => {
+    let cancelled = false;
+    fetchKpiList()
+      .then((kpis) => {
+        if (!cancelled) setRegistryState({ status: "ready", kpis });
+      })
+      .catch(() => {
+        if (!cancelled) setRegistryState({ status: "error", kpis: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Freshness per KPI (`GET /kpis/health`), keyed by identifier. Supplementary to the registry
+  // fetch above -- a failure here just means no staleness badge, not a blocked dashboard.
+  const [healthState, setHealthState] = useState({ status: "loading", byIdentifier: {} });
+  useEffect(() => {
+    let cancelled = false;
+    fetchKpiHealth()
+      .then((rows) => {
+        if (cancelled) return;
+        setHealthState({
+          status: "ready",
+          byIdentifier: Object.fromEntries((rows || []).map((h) => [h.identifier, h])),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setHealthState({ status: "error", byIdentifier: {} });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // A `rowset` KPI has no single value to trend or spark -- same gate `KpiTrend` itself applies.
+  const trendableKpis = useMemo(
+    () => registryState.kpis.filter((k) => k.result_shape !== "rowset"),
+    [registryState.kpis]
+  );
+  const kpiByName = useMemo(() => new Map(trendableKpis.map((k) => [k.name, k])), [trendableKpis]);
+  const activeKpiNames = useMemo(() => new Set(trendableKpis.map((k) => k.name)), [trendableKpis]);
 
   const summaryCards = useMemo(() => {
     const roleUseCases = getUseCasesForRole(catalogEntries, profileId, role);
@@ -313,21 +294,21 @@ export default function KpiHealthDashboard() {
       anomalyKpiNames,
       limit: 4,
     });
-    const anomalySet = new Set(anomalyKpiNames);
-    const sparkPoints = range === "30d" ? 12 : 7;
-    return names.map((name, i) => ({
-      name,
-      icon: KPI_ICON_BY_NAME[name] || Activity,
-      tone: TONE_CYCLE[i % TONE_CYCLE.length],
-      spark: mockSpark(name, sparkPoints),
-      warn: anomalySet.has(name),
-    }));
-  }, [catalogEntries, profileId, role, activeKpiNames, range]);
-
-  const summaryKpis = useMemo(
-    () => pickSummaryKpis(activeKpis, summaryCards.map((c) => c.name)),
-    [activeKpis, summaryCards]
-  );
+    return names.map((name, i) => {
+      const kpi = kpiByName.get(name);
+      const health = kpi ? healthState.byIdentifier[kpi.identifier] : null;
+      return {
+        name,
+        identifier: kpi?.identifier || null,
+        unit: kpi?.unit,
+        subjectArea: kpi?.subject_area || "",
+        icon: KPI_ICON_BY_NAME[name] || Activity,
+        tone: TONE_CYCLE[i % TONE_CYCLE.length],
+        healthStatus: health?.status || null,
+        warn: health?.status === "stale" || health?.status === "failed",
+      };
+    });
+  }, [catalogEntries, profileId, role, activeKpiNames, kpiByName, healthState.byIdentifier]);
 
   // Anomaly feed follows the role: only surface anomalies whose KPI is in the
   // shortlist above. If none intersect, fall back to all anomalies so the demo
@@ -338,18 +319,91 @@ export default function KpiHealthDashboard() {
     return matched.length ? matched : ANOMALIES;
   }, [summaryCards]);
 
-  // Trend chart follows the summary shortlist so switching role also updates
-  // the KPI options here. First card is selected by default; if none are
-  // available we fall back to a static label.
-  const trendOptions = summaryCards.map((c) => c.name);
+  // One KPI's series (`GET /kpis/{id}/series`), keyed by identifier and shared between the
+  // summary cards' sparklines and the trend panel below -- both read the same `days` window,
+  // so there is only ever one fetch per identifier per range, not one per surface.
+  const [seriesById, setSeriesById] = useState({});
+  const seriesAbortRefs = useRef(new Map());
+  const patchSeries = useCallback((identifier, patch) => {
+    setSeriesById((prev) => ({ ...prev, [identifier]: { ...(prev[identifier] || {}), ...patch } }));
+  }, []);
+  const loadSeries = useCallback(
+    (identifier, dimension) => {
+      if (!identifier) return;
+      seriesAbortRefs.current.get(identifier)?.abort();
+      const controller = new AbortController();
+      seriesAbortRefs.current.set(identifier, controller);
+      patchSeries(identifier, { status: "loading", error: null, retry: "load" });
+      fetchKpiSeries(identifier, { days, dimension, signal: controller.signal })
+        .then((data) => {
+          if (controller.signal.aborted) return;
+          patchSeries(identifier, { status: "ready", data, error: null });
+        })
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          patchSeries(identifier, {
+            status: "error",
+            error: err?.detail || err?.message || "Couldn't load values.",
+            retry: "load",
+          });
+        });
+    },
+    [patchSeries, days]
+  );
+  const computeSeries = useCallback(
+    (identifier) => {
+      if (!identifier) return;
+      seriesAbortRefs.current.get(identifier)?.abort();
+      const controller = new AbortController();
+      seriesAbortRefs.current.set(identifier, controller);
+      patchSeries(identifier, { status: "computing", error: null, retry: "compute" });
+      computeKpi(identifier, { signal: controller.signal })
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          if (result?.status === "failed") {
+            patchSeries(identifier, {
+              status: "error",
+              error: result.error || "the formula failed.",
+              retry: "compute",
+            });
+            return;
+          }
+          loadSeries(identifier);
+        })
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          patchSeries(identifier, {
+            status: "error",
+            error: err?.detail || err?.message || "Couldn't compute it.",
+            retry: "compute",
+          });
+        });
+    },
+    [patchSeries, loadSeries]
+  );
+  useEffect(
+    () => () => {
+      for (const controller of seriesAbortRefs.current.values()) controller.abort();
+    },
+    []
+  );
+
+  // Load (or reload, on a range change) every summary card's series in one pass.
+  useEffect(() => {
+    for (const card of summaryCards) {
+      if (card.identifier) loadSeries(card.identifier);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the identifiers + days baked into `loadSeries`/`summaryCards` already.
+  }, [summaryCards, days]);
+
+  // Trend panel follows the summary shortlist so switching role also updates the KPI options
+  // here. First card with a real identifier is selected by default.
+  const trendOptions = summaryCards.filter((c) => c.identifier);
   const [trendKpiName, setTrendKpiName] = useState("");
-  const effectiveTrendKpi = trendOptions.includes(trendKpiName)
-    ? trendKpiName
-    : trendOptions[0] || "Gross Margin Rate";
-  const trendData =
-    range === "7d"
-      ? [72, 70.5, 68.2, 69.1, 66.8, 65.5, 64.9]
-      : [74, 73, 71.5, 70.8, 69.2, 68.1, 67, 66.5, 65, 64.5, 63.8, 63];
+  const effectiveTrendCard =
+    trendOptions.find((c) => c.name === trendKpiName) || trendOptions[0] || null;
+  const trendIdentifier = effectiveTrendCard?.identifier || null;
+  const trendSeries = trendIdentifier ? seriesById[trendIdentifier] : null;
 
   const openPlaygroundExploration = (useCaseId) => {
     const cat = loadUseCaseCatalog(storageKeys.USE_CASE_CATALOG, profileId);
@@ -424,15 +478,21 @@ export default function KpiHealthDashboard() {
     );
   };
 
-  if (!hydrated) {
+  if (registryState.status === "loading") {
     return <p className="text-sm text-text-secondary">Loading dashboard…</p>;
   }
 
   return (
     <div className="w-full min-w-0">
       <p className="mb-4 text-sm text-text-secondary">
-        Track KPIs from the Registry. Automate responses from the anomaly feed below.
+        Track KPIs added via "Add to my metrics" in Discovery. Automate responses from the anomaly feed below.
       </p>
+      {registryState.status === "error" && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
+          <AlertTriangle size={15} className="shrink-0 text-status-warning" />
+          Couldn't load your KPI registry — try again shortly.
+        </div>
+      )}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[#ecfdf3] px-2.5 py-1 text-[11px] font-semibold text-[#067647] ring-1 ring-[#d1fadf]">
           <span className="h-1.5 w-1.5 rounded-full bg-[#12b76a]" aria-hidden />
@@ -466,14 +526,20 @@ export default function KpiHealthDashboard() {
       <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-tour-kpi-dash="tiles">
         {summaryCards.length === 0 ? (
           <p className="col-span-full text-sm text-text-secondary">
-            No active KPIs linked to the current role. Enable KPIs from the Registry, or switch role from the profile switcher.
+            No KPIs added yet. Go to Discovery and use "Add to my metrics" to see them tracked here.
           </p>
         ) : null}
         {summaryCards.map((card) => {
           const tone = TONE[card.tone];
-          const info = summaryKpis.find((k) => k.name === card.name);
-          const { display, delta } = mockSummary(card.name, range);
-          const up = delta >= 0;
+          const series = card.identifier ? seriesById[card.identifier] : null;
+          const seriesStatus = series?.status || "loading";
+          const seriesData = series?.data;
+          const points = (seriesData?.points || []).filter(
+            (p) => p.value !== null && p.value !== undefined
+          );
+          const hasValue = seriesStatus === "ready" && seriesData?.value !== null && seriesData?.value !== undefined;
+          const delta = seriesData?.delta;
+          const up = (delta ?? 0) >= 0;
           const Icon = card.icon;
           return (
             <div
@@ -488,26 +554,47 @@ export default function KpiHealthDashboard() {
                     {card.name}
                   </p>
                   <p className="mt-1.5 text-[28px] font-semibold leading-tight tracking-tight text-text-primary">
-                    {display}
+                    {hasValue
+                      ? formatKpiValue(card.unit, seriesData.value)
+                      : seriesStatus === "error"
+                        ? "—"
+                        : "…"}
                   </p>
-                  <p
-                    className={`mt-1 inline-flex items-center gap-1 text-xs font-semibold ${
-                      up ? "text-status-success" : "text-status-critical"
-                    }`}
-                  >
-                    {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                    {Math.abs(delta).toFixed(1)}% {RANGE_COMPARE_LABEL[range] || RANGE_COMPARE_LABEL["7d"]}
-                  </p>
+                  {hasValue && delta !== null && delta !== undefined ? (
+                    <p
+                      className={`mt-1 inline-flex items-center gap-1 text-xs font-semibold ${
+                        up ? "text-status-success" : "text-status-critical"
+                      }`}
+                    >
+                      {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                      {formatKpiValue(card.unit, Math.abs(delta))} vs previous night
+                    </p>
+                  ) : null}
                 </div>
                 <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone.bg} ${tone.text}`}>
                   <Icon size={16} />
                 </div>
               </div>
               <div className="-mx-1 mt-4 min-w-0 w-full">
-                <Spark data={card.spark} stroke={tone.stroke} />
+                {points.length > 1 ? (
+                  <Spark data={points.map((p) => p.value)} stroke={tone.stroke} />
+                ) : (
+                  <p className="py-2 text-[11px] text-text-muted">
+                    {seriesStatus === "loading" ? "Loading…" : "Not enough data yet."}
+                  </p>
+                )}
               </div>
-              {info ? (
-                <p className="mt-1 text-[11px] text-text-muted">{info.subjectArea || info.level || ""}</p>
+              {card.subjectArea ? (
+                <p className="mt-1 text-[11px] text-text-muted">{card.subjectArea}</p>
+              ) : null}
+              {card.healthStatus && card.healthStatus !== "fresh" ? (
+                <p
+                  className={`mt-1 text-[11px] font-semibold ${
+                    card.warn ? "text-status-warning" : "text-text-muted"
+                  }`}
+                >
+                  {HEALTH_STATUS_LABEL[card.healthStatus] || card.healthStatus}
+                </p>
               ) : null}
             </div>
           );
@@ -525,51 +612,45 @@ export default function KpiHealthDashboard() {
               </div>
               <div>
                 <h3 className="text-[15px] font-semibold tracking-tight text-text-primary">Trend analysis</h3>
-                <p className="text-[12px] text-text-muted">Week-over-week movement for the selected KPI</p>
+                <p className="text-[12px] text-text-muted">Nightly movement for the selected KPI, from gold</p>
               </div>
             </div>
-            <select
-              className="rounded-lg border border-border bg-surface-default px-3 py-1.5 text-xs font-semibold text-text-primary shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              value={effectiveTrendKpi}
-              onChange={(e) => setTrendKpiName(e.target.value)}
-              aria-label="KPI for trend"
-            >
-              {trendOptions.length === 0 ? (
-                <option value={effectiveTrendKpi}>{effectiveTrendKpi}</option>
-              ) : (
-                trendOptions.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
+            {trendOptions.length > 0 ? (
+              <select
+                className="rounded-lg border border-border bg-surface-default px-3 py-1.5 text-xs font-semibold text-text-primary shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                value={effectiveTrendCard?.name || ""}
+                onChange={(e) => setTrendKpiName(e.target.value)}
+                aria-label="KPI for trend"
+              >
+                {trendOptions.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.name}
                   </option>
-                ))
-              )}
-            </select>
+                ))}
+              </select>
+            ) : null}
           </div>
 
-          <div className="flex items-baseline gap-3">
-            <span className="text-[28px] font-semibold tracking-tight text-text-primary">
-              {trendData[trendData.length - 1].toFixed(1)}%
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-status-critical-light px-2 py-0.5 text-[11px] font-semibold text-status-critical dark:bg-status-critical/15">
-              <TrendingDown size={11} />
-              {Math.abs(trendData[0] - trendData[trendData.length - 1]).toFixed(1)} pts
-            </span>
-            <span className="text-[12px] text-text-muted">vs target 65%</span>
-          </div>
+          {trendIdentifier ? (
+            <KpiTrend
+              state={trendSeries || { status: "loading" }}
+              unit={effectiveTrendCard?.unit}
+              resultShape="scalar"
+              onRetry={() => {
+                const entry = seriesById[trendIdentifier];
+                if (entry?.retry === "compute") computeSeries(trendIdentifier);
+                else loadSeries(trendIdentifier, entry?.data?.dimension || undefined);
+              }}
+              onCompute={() => computeSeries(trendIdentifier)}
+              onPickDimension={(dimension) => loadSeries(trendIdentifier, dimension)}
+            />
+          ) : (
+            <p className="mt-3 rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-6 text-center text-sm text-text-muted">
+              No KPIs added yet. Add one from Discovery ("Add to my metrics") to see its trend here.
+            </p>
+          )}
 
-          <TrendLine
-            data={trendData}
-            captionForIndex={(i, n) =>
-              range === "7d"
-                ? (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i] ?? `Day ${i + 1}`)
-                : n <= 12
-                  ? `W${i + 1}`
-                  : `P${i + 1}`
-            }
-          />
-
-          <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-[12px] text-text-muted">
-            <span>Illustrative trend · not live data</span>
+          <div className="mt-4 flex items-center justify-end border-t border-border pt-3 text-[12px] text-text-muted">
             <button
               type="button"
               onClick={() => navigate("/monitor")}
