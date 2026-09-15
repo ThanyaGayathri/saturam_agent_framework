@@ -553,6 +553,19 @@ def _validated_business_area(
     return business_area
 
 
+def _validated_business_areas(
+    business_areas: Optional[Sequence[str]], vocabularies: VocabularySet
+) -> Tuple[str, ...]:
+    """The focus a run is started with: every id checked against the vocabulary (422 on
+    the first that is not), de-duplicated, order kept. Empty means no focus."""
+    seen: list[str] = []
+    for area in business_areas or ():
+        _validated_business_area(area, vocabularies)
+        if area not in seen:
+            seen.append(area)
+    return tuple(seen)
+
+
 def _filter_suggestions(
     suggestions: Sequence[wire.KpiSuggestion], business_area: Optional[str]
 ) -> list[wire.KpiSuggestion]:
@@ -669,11 +682,17 @@ def _list_kpi_suggestions(
     business_area: Optional[str],
     include_sql: bool,
     agents: Optional[Tuple[Any, Any]] = None,
+    focus_areas: Sequence[str] = (),
     on_phase: Optional[PhaseCallback] = None,
 ) -> wire.KpiSuggestionList:
     """#234/F1: on-demand KPI suggestions, read straight through to K12 -- see the module
     docstring for what this deliberately omits (prose, warehouse samples, and the wasted
     use-case agent call ``run_suggestions`` always makes alongside it).
+
+    Two different things can name areas here. ``business_area`` (the deprecated single id)
+    narrows what comes *back*, after the fact. ``focus_areas`` (the run request's
+    ``business_areas``) go *into* the message as a priority -- the agent proposes for them
+    first -- and nothing is dropped for being outside them.
 
     ``on_phase`` is forwarded to ``run_suggestions`` so a run row can record which stage
     the pass is in (``_execute_suggestion_run``); the synchronous route passes nothing.
@@ -725,6 +744,7 @@ def _list_kpi_suggestions(
             proposals=None,
             dry_run=True,
             agents=resolved_agents,
+            focus_areas=focus_areas,
             on_phase=on_phase,
         )
     suggestions = _filter_suggestions(run.kpis.suggestions, business_area)
@@ -820,6 +840,7 @@ def _run_out(
         id=record.identifier,
         status=wire.KpiSuggestionRunStatus(record.status.value),
         business_area=record.business_area,
+        business_areas=list(record.business_areas),
         created_at=record.created_at,
         started_at=record.started_at,
         finished_at=record.finished_at,
@@ -891,6 +912,7 @@ async def _execute_suggestion_run(
     settings: RetailSettings,
     snapshot: _SuggestionRegistrySnapshot,
     business_area: Optional[str],
+    focus_areas: Sequence[str] = (),
 ) -> None:
     """The executor behind ``POST /kpis/suggestions``: ``queued`` -> ``running`` -> one
     bounded ``_list_kpi_suggestions`` -> ``succeeded``/``failed``. Each row write opens and
@@ -912,6 +934,7 @@ async def _execute_suggestion_run(
                     vocabularies=snapshot.vocabularies,
                     business_area=business_area,
                     include_sql=True,
+                    focus_areas=focus_areas,
                     on_phase=_phase_reporter(run_id, settings),
                 ),
                 settings.retail_suggestion_timeout_seconds,
@@ -957,19 +980,32 @@ async def start_kpi_suggestion_run(
 ):
     """Start a run and return it ``queued`` (#254). ``kpis:read``, like the synchronous
     route: what is created is a run row, never a KPI -- adoption is still ``POST /kpis``.
-    The business area is validated before the row exists, so a 422 leaves nothing behind.
+    Every area named is validated before the row exists, so a 422 leaves nothing behind.
+
+    ``business_areas`` is the focus (contract 1.1.8): the areas the customer cares about,
+    handed to the agents as a priority. ``business_area`` is the older single narrowing
+    filter, still honoured. The frontend sends the first; the second stays for callers
+    written against 1.1.5.
     """
     settings = RetailSettings()
     business_area = _validated_business_area(
         body.business_area if body is not None else None, snapshot.vocabularies
     )
+    focus_areas = _validated_business_areas(
+        body.business_areas if body is not None else None, snapshot.vocabularies
+    )
     record, typical = await asyncio.to_thread(
         _with_run_store,
         settings,
-        lambda store: (store.create(business_area), store.typical_duration()),
+        lambda store: (
+            store.create(business_area, focus_areas),
+            store.typical_duration(),
+        ),
     )
     task = asyncio.create_task(
-        _execute_suggestion_run(record.identifier, settings, snapshot, business_area)
+        _execute_suggestion_run(
+            record.identifier, settings, snapshot, business_area, focus_areas
+        )
     )
     _suggestion_run_tasks.add(task)
     task.add_done_callback(_suggestion_run_tasks.discard)

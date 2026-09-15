@@ -2707,6 +2707,14 @@
             ],
             "description": "The area the run was narrowed to, or null for every area."
           },
+          "business_areas": {
+            "type": "array",
+            "default": [],
+            "description": "The focus the run was started with (`KpiSuggestionRunRequest.business_areas`), echoed so a poller can see what was asked for. Empty when none.",
+            "items": {
+              "$ref": "#/components/schemas/BusinessAreaId"
+            }
+          },
           "created_at": {
             "$ref": "#/components/schemas/Timestamp"
           },
@@ -2778,10 +2786,17 @@
       },
       "KpiSuggestionRunRequest": {
         "type": "object",
-        "description": "What to run. Empty means suggest across every business area.",
+        "description": "What to run. Empty means suggest across every business area with no focus.\n`business_areas` is the focus: the areas the customer cares about, handed to the agents\nas a priority (\"propose for these first\"), never as a filter -- a proposal outside them\nis kept when the data clearly supports it. `business_area` (one id) is the older\nnarrowing filter, applied to what comes back; kept for callers written against 1.1.5,\nnew callers should send `business_areas`.\n",
         "properties": {
           "business_area": {
             "$ref": "#/components/schemas/BusinessAreaId"
+          },
+          "business_areas": {
+            "type": "array",
+            "description": "The focus. Each id must be in the deployment's vocabulary (422 otherwise); duplicates are dropped, order is kept.",
+            "items": {
+              "$ref": "#/components/schemas/BusinessAreaId"
+            }
           }
         }
       },
@@ -7149,6 +7164,16 @@
               },
               "examples": {
                 "default": {
+                  "summary": "A focus -- the areas the customer cares about, proposed for first.",
+                  "value": {
+                    "business_areas": [
+                      "customer",
+                      "marketing"
+                    ]
+                  }
+                },
+                "narrowed": {
+                  "summary": "The older single-area filter (1.1.5), still honoured.",
                   "value": {
                     "business_area": "supply_chain"
                   }
@@ -7174,6 +7199,7 @@
                       "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
                       "status": "queued",
                       "business_area": "supply_chain",
+                      "business_areas": [],
                       "created_at": "2026-09-14T10:00:00Z",
                       "started_at": null,
                       "finished_at": null,
@@ -7357,6 +7383,7 @@
                       "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
                       "status": "running",
                       "business_area": "supply_chain",
+                      "business_areas": [],
                       "created_at": "2026-09-14T10:00:00Z",
                       "started_at": "2026-09-14T10:00:01Z",
                       "finished_at": null,
@@ -7371,6 +7398,7 @@
                       "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
                       "status": "succeeded",
                       "business_area": "supply_chain",
+                      "business_areas": [],
                       "created_at": "2026-09-14T10:00:00Z",
                       "started_at": "2026-09-14T10:00:01Z",
                       "finished_at": "2026-09-14T10:01:27Z",
@@ -7417,6 +7445,7 @@
                       "id": "sr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b",
                       "status": "failed",
                       "business_area": "supply_chain",
+                      "business_areas": [],
                       "created_at": "2026-09-14T10:00:00Z",
                       "started_at": "2026-09-14T10:00:01Z",
                       "finished_at": "2026-09-14T10:03:01Z",

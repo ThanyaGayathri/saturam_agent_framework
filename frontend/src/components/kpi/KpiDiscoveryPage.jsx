@@ -134,12 +134,6 @@ export default function KpiDiscoveryPage() {
  // panel until it is closed or the removal is retried.
  const [removeState, setRemoveState] = useState({ identifier: null, error: null });
 
- // A single focused area scopes the agent's search; zero or several ask it to range over
- // everything rather than firing one request per area (each is its own live model call). The
- // ids are the deployment's own vocabulary terms now (the prompt's options come from
- // `GET /business-areas`), so a narrowed run can no longer be refused as an unknown area.
- const suggestBusinessArea = focusAreaIds.length === 1 ? focusAreaIds[0] : undefined;
-
  // The real registry (C1, #232) -- fetched once, additive, never blocking: the seed/suggested
  // rows above render immediately regardless of this state. A failure is a small note, not a
  // crash -- the same posture `DashboardsPage.jsx`'s own real-data fetch already takes.
@@ -149,6 +143,25 @@ export default function KpiDiscoveryPage() {
  // the labels real rows are grouped under. Held here, not in the per-profile localStorage list
  // the rest of the app still reads -- that list is a different vocabulary and is left alone.
  const [areaState, setAreaState] = useState({ status: "loading", areas: [], error: null });
+
+ // The focus the agents are given (contract 1.1.8): the chosen areas, filtered against the
+ // deployment's real vocabulary (a stored focus can predate it -- an unknown id would be
+ // refused, and a refused run helps nobody). No focus at all sends nothing: the backend already
+ // treats that as "no focus" and leaves the prompt untouched, so there is nothing to prioritize
+ // by listing every supported area (review).
+ //
+ // While the vocabulary is still loading, filtering a genuine focus against it would empty it
+ // out and silently widen the run to "no focus" instead -- the "Suggest KPIs" button below is
+ // disabled for that window, so this case is a fallback, not the common path. If the fetch
+ // failed outright, there is no vocabulary to filter against at all; send the chosen ids as-is
+ // and let the backend's own validation be the source of truth (review).
+ const suggestBusinessAreas = useMemo(() => {
+  if (!focusAreaIds.length) return undefined;
+  if (areaState.status === "loading") return undefined;
+  if (areaState.status === "error") return focusAreaIds;
+  const known = new Set(areaState.areas.map((a) => a.id));
+  return focusAreaIds.filter((id) => known.has(id));
+ }, [focusAreaIds, areaState]);
 
  // One registry KPI's value over time (`GET /kpis/{id}/series`), keyed by identifier, for the
  // detail panel's `KpiTrend`: `{status: "loading"|"computing"|"ready"|"error", data, error,
@@ -398,7 +411,7 @@ export default function KpiDiscoveryPage() {
     .catch(failWith);
   };
 
-  startKpiSuggestionRun(suggestBusinessArea, { signal: controller.signal })
+  startKpiSuggestionRun(suggestBusinessAreas, { signal: controller.signal })
    .then((run) => {
     if (controller.signal.aborted) return;
     if (!run?.id) {
@@ -628,6 +641,16 @@ export default function KpiDiscoveryPage() {
     onCancel={cancelSuggestions}
     onDismiss={dismissReceipt}
    />
+
+   {/* A saved focus whose ids are all absent from the real vocabulary (deployment changed,
+       or the two vocabularies genuinely disagree) degrades to no focus rather than widening
+       to "everything" -- but that degrade should not be silent (review). */}
+   {focusAreaIds.length > 0 && suggestBusinessAreas?.length === 0 && (
+    <div className="flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
+     <AlertTriangle size={15} className="shrink-0 text-status-warning" />
+     Your saved focus areas don't match this deployment's business-area list — suggesting across all areas instead.
+    </div>
+   )}
 
    <KpiDiscovery
     rows={rows}
