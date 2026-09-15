@@ -16,9 +16,27 @@ a lost-update race on ``PATCH /kpis`` becomes one.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import traceback
 import uuid
-from typing import FrozenSet, Iterator, List, Optional, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import (
+    Any,
+    Callable,
+    FrozenSet,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+)
 
+from egpt.agent import Agent
+from egpt.utils.log import log_error
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from egpt_retail.api import models as wire
@@ -37,6 +55,7 @@ from egpt_retail.contracts.dashboards import (
 )
 from egpt_retail.contracts.kpi import FeasibilityVerdict, KpiDefinition, assess_registry
 from egpt_retail.contracts.semantic import available_tables
+from egpt_retail.contracts.vocabulary import VocabularySet
 from egpt_retail.dashboards.data import read_dashboard_data
 from egpt_retail.dashboards.store import (
     UNSET,
@@ -44,10 +63,17 @@ from egpt_retail.dashboards.store import (
     DashboardStore,
 )
 from egpt_retail.kpi.store import KpiRegistryStore
+from egpt_retail.skills import dashboard_suggestion as dsg
+from egpt_retail.suggestions.dashboard_agents import build_dashboard_suggestion_agent
+from egpt_retail.suggestions.dashboard_runs import (
+    DashboardSuggestionRunRecord,
+    DashboardSuggestionRunStore,
+)
 
 __all__ = ["router", "tile_readiness_refusal"]
 
 router = APIRouter()
+_T = TypeVar("_T")
 
 
 class DashboardValidationError(ValueError):
@@ -199,6 +225,261 @@ def _dashboard_out(dashboard: Dashboard) -> wire.Dashboard:
     )
 
 
+# --- dashboard suggestion runs ------------------------------------------------------------------
+#
+# Mirrors `api/routers/kpis.py`'s #254 shape (run recorded, `202` returned, executed as a task,
+# polled until terminal) for the same reason: a live model call takes long enough that it does
+# not belong inside one request, and the api serves from more than one instance. See
+# `egpt_retail.skills.dashboard_suggestion`'s module docstring for why this agent selects from
+# the ready registry rather than inventing a KPI the way K12 does.
+
+
+@dataclass(frozen=True)
+class _DashboardSuggestionSnapshot:
+    """What a dashboard suggestion run needs from the registry, read once up front -- the
+    ``ready`` subset only, the same set ``POST /dashboards`` itself requires every tile to
+    reference, so a suggestion is exactly as adoptable as a dashboard built by hand."""
+
+    ready_kpis: Tuple[KpiDefinition, ...]
+    vocabularies: VocabularySet
+
+
+def _dashboard_suggestion_snapshot() -> _DashboardSuggestionSnapshot:
+    """The ready-KPI snapshot a suggestion run needs, read and released up front -- not a
+    request-scoped ``Depends(_dashboard_store)``/``_kpi_store`` that would otherwise stay open
+    for the whole span of the live model call this snapshot feeds."""
+    settings = RetailSettings()
+    connection = pooled_control_plane_connection(settings)
+    try:
+        store = KpiRegistryStore(connection)
+        definitions = tuple(store.list())
+        vocabularies = store.vocabularies
+    finally:
+        connection.close()
+    with open_semantic_reader(settings) as reader:
+        tables = available_tables(reader)
+    feasibility = assess_registry(definitions, tables)
+    ready = tuple(
+        d
+        for d in definitions
+        if feasibility[d.identifier].verdict is FeasibilityVerdict.READY
+    )
+    return _DashboardSuggestionSnapshot(ready_kpis=ready, vocabularies=vocabularies)
+
+
+#: The dashboard suggestion agent, reused across requests until the ready-KPI set changes.
+#: CLAUDE.md: "Never create agents in loops -- reuse them for performance." Single-slot, like
+#: `kpis.py`'s own cache -- only the current ready set is ever worth serving a stale agent for.
+_dash_agent_cache_key: Optional[Tuple[str, ...]] = None
+_dash_agent_cache_agent: Optional[Agent] = None
+_dash_agent_cache_lock = threading.Lock()
+
+
+def _cached_dashboard_suggestion_agent(
+    settings: RetailSettings, snapshot: _DashboardSuggestionSnapshot
+) -> Agent:
+    """The suggestion agent for this ready-KPI snapshot, built once and reused. Keyed by the
+    sorted set of ready identifiers -- the same set its prompt embeds -- so a KPI registered,
+    retired, or moved off `ready` between requests invalidates the cache the next time this is
+    called. The returned ``Agent`` is shared across concurrent requests; callers must
+    ``deep_copy()`` before ``.run()`` (mirrors `kpis.py`'s `_cached_suggestion_agents`)."""
+    global _dash_agent_cache_key, _dash_agent_cache_agent
+    key = tuple(sorted(kpi.identifier for kpi in snapshot.ready_kpis))
+    with _dash_agent_cache_lock:
+        if _dash_agent_cache_key == key and _dash_agent_cache_agent is not None:
+            return _dash_agent_cache_agent
+        agent = build_dashboard_suggestion_agent(
+            settings,
+            ready_kpis=snapshot.ready_kpis,
+            vocabularies=snapshot.vocabularies,
+        )
+        _dash_agent_cache_key = key
+        _dash_agent_cache_agent = agent
+        return agent
+
+
+def _drafts_of(response: Any, schema: type) -> Any:
+    """The typed draft an agent returned, or a refusal that names what came back -- mirrors
+    `suggestions/run.py`'s own helper of the same name and purpose."""
+    content = getattr(response, "content", None)
+    if isinstance(content, schema):
+        return content
+    raise ValueError(
+        f"{schema.__name__} expected from the agent; got "
+        f"{type(content).__name__}: {str(content)[:120]!r}"
+    )
+
+
+def _build_dashboard_suggestion(
+    settings: RetailSettings,
+    *,
+    snapshot: _DashboardSuggestionSnapshot,
+    purpose: str,
+    agent: Optional[Agent] = None,
+) -> wire.DashboardSuggestion:
+    """One suggestion pass: run the agent, assemble its draft against the ready registry.
+    ``agent`` is a test-only seam (mirrors `kpis.py`'s own); a real call resolves it from the
+    cache and ``deep_copy()``s it first -- the cache shares one ``Agent`` across concurrent
+    requests, and ``.run()`` mutates unsynchronized per-agent state that isn't safe to race."""
+    resolved_agent = (
+        agent
+        if agent is not None
+        else _cached_dashboard_suggestion_agent(settings, snapshot).deep_copy()
+    )
+    draft = _drafts_of(resolved_agent.run(purpose), dsg.DashboardSuggestionDraft)
+    report = dsg.assemble(
+        draft, ready_kpis=snapshot.ready_kpis, vocabularies=snapshot.vocabularies
+    )
+    return report.suggestion
+
+
+class DashboardSuggestionTimeout(Exception):
+    """A dashboard suggestion run exceeded ``retail_suggestion_timeout_seconds``."""
+
+    def __init__(self, seconds: float) -> None:
+        super().__init__(f"The suggestion run did not finish within {seconds:g}s.")
+        self.seconds = seconds
+
+
+async def _run_bounded(fn: Callable[[], _T], timeout: float) -> _T:
+    """``fn`` on a worker thread, waited on for at most ``timeout`` seconds -- mirrors
+    `kpis.py`'s `_run_bounded`/#254 exactly; see its docstring for why the wait, not the work,
+    is what the bound cuts."""
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn), timeout)
+    except asyncio.TimeoutError as exc:
+        raise DashboardSuggestionTimeout(timeout) from exc
+
+
+#: Same grace period `kpis.py` gives a `queued`/`running` row before concluding its executor
+#: is gone -- generous, so a run still inside its own bound is never closed by a poll.
+_LOST_RUN_GRACE_SECONDS = 60.0
+
+
+def _stale_after(settings: RetailSettings) -> timedelta:
+    return timedelta(
+        seconds=settings.retail_suggestion_timeout_seconds + _LOST_RUN_GRACE_SECONDS
+    )
+
+
+@contextmanager
+def _open_suggestion_run_store(
+    settings: RetailSettings,
+) -> Iterator[DashboardSuggestionRunStore]:
+    """A ``DashboardSuggestionRunStore`` on its own pooled connection, released on exit -- not
+    a ``Depends``: the executor task needs one outside any request."""
+    connection = pooled_control_plane_connection(settings)
+    try:
+        yield DashboardSuggestionRunStore(connection)
+    finally:
+        connection.close()
+
+
+def _with_suggestion_run_store(
+    settings: RetailSettings, action: Callable[[DashboardSuggestionRunStore], _T]
+) -> _T:
+    with _open_suggestion_run_store(settings) as store:
+        return action(store)
+
+
+def _suggestion_run_out(
+    record: DashboardSuggestionRunRecord,
+) -> wire.DashboardSuggestionRun:
+    result: Optional[wire.DashboardSuggestion] = None
+    if record.result is not None:
+        result = wire.DashboardSuggestion.model_validate(record.result)
+    return wire.DashboardSuggestionRun(
+        id=record.identifier,
+        status=wire.DashboardSuggestionRunStatus(record.status.value),
+        purpose=record.purpose,
+        created_at=record.created_at,
+        started_at=record.started_at,
+        finished_at=record.finished_at,
+        result=result,
+        error=record.error,
+    )
+
+
+#: Strong references to in-flight executor tasks, so the event loop cannot collect one
+#: mid-run -- the same reason `kpis.py`'s own `_suggestion_run_tasks` set exists.
+_dashboard_suggestion_run_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _await_dashboard_suggestion_runs() -> None:
+    """Wait for every run this process has in flight -- a test-only seam, mirrors
+    `kpis.py`'s `_await_suggestion_runs`."""
+    if _dashboard_suggestion_run_tasks:
+        await asyncio.gather(
+            *list(_dashboard_suggestion_run_tasks), return_exceptions=True
+        )
+
+
+def _describe_suggestion_failure(exc: BaseException) -> str:
+    """What a `failed` row says -- mirrors `kpis.py`'s `_describe_failure`: the pipeline's own
+    refusals are readable and pass through; anything else is summarised by type only, since raw
+    exception text from a driver error can carry connection strings."""
+    if isinstance(exc, ValueError):
+        return str(exc)
+    return (
+        f"The suggestion run failed ({type(exc).__name__}); "
+        "the api log has the traceback."
+    )
+
+
+async def _execute_dashboard_suggestion_run(
+    run_id: str,
+    settings: RetailSettings,
+    snapshot: _DashboardSuggestionSnapshot,
+    purpose: str,
+) -> None:
+    """The executor behind `POST /dashboards/suggestions`: `queued` -> `running` -> one bounded
+    suggestion pass -> `succeeded`/`failed`. Each row write opens and releases its own
+    connection; the model call in between holds none."""
+    try:
+        await asyncio.to_thread(
+            _with_suggestion_run_store,
+            settings,
+            lambda store: store.mark_running(run_id),
+        )
+        try:
+            result = await _run_bounded(
+                lambda: _build_dashboard_suggestion(
+                    settings, snapshot=snapshot, purpose=purpose
+                ),
+                settings.retail_suggestion_timeout_seconds,
+            )
+        except DashboardSuggestionTimeout as exc:
+            timed_out = str(exc)
+            await asyncio.to_thread(
+                _with_suggestion_run_store,
+                settings,
+                lambda store: store.mark_failed(run_id, timed_out),
+            )
+            return
+        except Exception as exc:
+            log_error(
+                f"dashboard suggestion run {run_id} failed: {traceback.format_exc(limit=5)}"
+            )
+            failure = _describe_suggestion_failure(exc)
+            await asyncio.to_thread(
+                _with_suggestion_run_store,
+                settings,
+                lambda store: store.mark_failed(run_id, failure),
+            )
+            return
+        payload = result.model_dump(mode="json")
+        await asyncio.to_thread(
+            _with_suggestion_run_store,
+            settings,
+            lambda store: store.mark_succeeded(run_id, payload),
+        )
+    except Exception:
+        log_error(
+            f"dashboard suggestion run {run_id}: its outcome could not be recorded: "
+            f"{traceback.format_exc(limit=5)}"
+        )
+
+
 # --- routes ------------------------------------------------------------------------------------
 
 
@@ -327,3 +608,54 @@ async def get_dashboard_data(
     if dashboard is None or not dashboard.visible_to(_owner(request)):
         raise HTTPException(status_code=404, detail=f"No dashboard {dashboard_id!r}.")
     return await read_dashboard_data(dashboard)
+
+
+@router.post(
+    "/dashboards/suggestions",
+    response_model=wire.DashboardSuggestionRun,
+    status_code=202,
+)
+async def start_dashboard_suggestion_run(
+    body: wire.DashboardSuggestionRunRequest,
+    snapshot: _DashboardSuggestionSnapshot = Depends(_dashboard_suggestion_snapshot),
+    _: None = Depends(require_scopes("dashboards:read")),
+):
+    """Start a run and return it `queued`. `dashboards:read`, like the route it mirrors
+    (`POST /kpis/suggestions`): what is created is a run row, never a dashboard -- adoption is
+    still `POST /dashboards`."""
+    purpose = body.purpose.strip()
+    if not purpose:
+        raise HTTPException(status_code=422, detail="purpose must not be empty.")
+    settings = RetailSettings()
+    record = await asyncio.to_thread(
+        _with_suggestion_run_store, settings, lambda store: store.create(purpose)
+    )
+    task = asyncio.create_task(
+        _execute_dashboard_suggestion_run(
+            record.identifier, settings, snapshot, purpose
+        )
+    )
+    _dashboard_suggestion_run_tasks.add(task)
+    task.add_done_callback(_dashboard_suggestion_run_tasks.discard)
+    return _suggestion_run_out(record)
+
+
+@router.get(
+    "/dashboards/suggestions/{run_id}",
+    response_model=wire.DashboardSuggestionRun,
+)
+async def get_dashboard_suggestion_run(
+    run_id: str,
+    _: None = Depends(require_scopes("dashboards:read")),
+):
+    """The run, for polling. Reading applies the lost-run guard, so a row whose executor is
+    gone comes back `failed` here rather than `running` forever."""
+    settings = RetailSettings()
+    record = await asyncio.to_thread(
+        _with_suggestion_run_store,
+        settings,
+        lambda store: store.get(run_id, stale_after=_stale_after(settings)),
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"No suggestion run {run_id!r}.")
+    return _suggestion_run_out(record)

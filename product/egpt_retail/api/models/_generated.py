@@ -113,6 +113,37 @@ class DashboardFilterField(Enum):
     time_window = "time_window"
 
 
+class DashboardSuggestionRunRequest(BaseModel):
+    """
+    What to run. `purpose` is the caller's own words for what the dashboard should help them track.
+    """
+
+    purpose: str = Field(..., min_length=1)
+
+
+class DashboardSuggestionRunStatus(Enum):
+    """
+    Where a dashboard suggestion run is. The same four words as `KpiSuggestionRunStatus`.
+    """
+
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+
+
+class DashboardTileSuggestion(BaseModel):
+    """
+    One candidate metric for the dashboard. Always a real, registered, ready KPI -- the agent selects from this deployment's own registry, it does not invent one.
+    """
+
+    kpi_identifier: str
+    name: str
+    rationale: str = Field(
+        ..., description="One sentence naming why this metric fits the stated purpose."
+    )
+
+
 class DeliveryChannel(Enum):
     """
     Results are delivered in-app with an email pointer (D13). `email` and `slack` are pointers to the in-app result, never the result itself, so provenance stays attached.
@@ -1086,6 +1117,51 @@ class ConceptList(BaseModel):
 class DashboardFilter(BaseModel):
     field: DashboardFilterField
     value: str
+
+
+class DashboardSuggestion(BaseModel):
+    """
+    A suggested dashboard configuration for the given purpose, editable before creation. Every
+    tile names a real, ready KPI from this deployment's registry; the one filter this agent may
+    propose is `business_area`, the one `DashboardFilterField` with a well-defined value space
+    to draw from today -- `time_window` has no established value shape anywhere in this contract
+    yet (#222), so this agent never proposes one rather than inventing a format nothing else
+    would recognise.
+
+    """
+
+    name: str
+    tiles: list[DashboardTileSuggestion]
+    filters: list[DashboardFilter]
+    notes: str = Field(
+        ...,
+        description="Empty on a clean run; otherwise what was missing or why the list is short.",
+    )
+
+
+class DashboardSuggestionRun(BaseModel):
+    """
+    One run of the dashboard suggestion agent, started by `POST /dashboards/suggestions` and
+    polled at `GET /dashboards/suggestions/{run_id}` -- the same run-then-poll shape #254 gave
+    KPI suggestions, for the same reason: a live model call takes long enough that it does not
+    belong inside one request, and the api serves from more than one instance. `result` is
+    present once `status` is `succeeded`; `error` is why there is none, present once `failed`.
+    A run whose executor was lost (the serving instance restarted mid-run) is reported `failed`
+    by the read side after the deployment's timeout plus a grace period, never `running` forever.
+
+    """
+
+    id: str
+    status: DashboardSuggestionRunStatus
+    purpose: str | None = None
+    created_at: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
+    started_at: AwareDatetime | None = None
+    finished_at: AwareDatetime | None = None
+    result: DashboardSuggestion | None = None
+    error: str | None = Field(
+        None,
+        description="Written for the person polling. A timeout names the bound it hit.",
+    )
 
 
 class DashboardWrite(BaseModel):

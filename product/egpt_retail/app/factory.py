@@ -42,6 +42,7 @@ from egpt_retail.dashboards.store import DashboardStore
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.playground.store import PlaygroundStore
 from egpt_retail.semantic.proposals import ProposalStore
+from egpt_retail.suggestions.dashboard_runs import DashboardSuggestionRunStore
 from egpt_retail.suggestions.runs import SuggestionRunStore
 
 __all__ = ["OS_ID", "build_agent_os"]
@@ -104,6 +105,7 @@ def _ensure_control_plane_schemas(settings: RetailSettings) -> None:
         KpiRegistryStore(connection).ensure_schema()
         ProposalStore(connection).ensure_schema()
         SuggestionRunStore(connection).ensure_schema()
+        DashboardSuggestionRunStore(connection).ensure_schema()
     finally:
         connection.close()
 

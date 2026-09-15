@@ -163,3 +163,86 @@ DashboardData:
 DashboardFilterField:
   type: string
   enum: [business_area, time_window]
+
+DashboardSuggestionRunStatus:
+  type: string
+  description: Where a dashboard suggestion run is. The same four words as `KpiSuggestionRunStatus`.
+  enum: [queued, running, succeeded, failed]
+
+DashboardSuggestionRunRequest:
+  type: object
+  description: What to run. `purpose` is the caller's own words for what the dashboard should help them track.
+  required: [purpose]
+  properties:
+    purpose:
+      type: string
+      minLength: 1
+
+DashboardTileSuggestion:
+  type: object
+  description: One candidate metric for the dashboard. Always a real, registered, ready KPI -- the agent selects from this deployment's own registry, it does not invent one.
+  required: [kpi_identifier, name, rationale]
+  properties:
+    kpi_identifier: {type: string}
+    name: {type: string}
+    rationale:
+      type: string
+      description: One sentence naming why this metric fits the stated purpose.
+
+DashboardSuggestion:
+  type: object
+  description: |
+    A suggested dashboard configuration for the given purpose, editable before creation. Every
+    tile names a real, ready KPI from this deployment's registry; the one filter this agent may
+    propose is `business_area`, the one `DashboardFilterField` with a well-defined value space
+    to draw from today -- `time_window` has no established value shape anywhere in this contract
+    yet (#222), so this agent never proposes one rather than inventing a format nothing else
+    would recognise.
+  required: [name, tiles, filters, notes]
+  properties:
+    name: {type: string}
+    tiles:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/DashboardTileSuggestion'
+    filters:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/DashboardFilter'
+    notes:
+      type: string
+      description: Empty on a clean run; otherwise what was missing or why the list is short.
+
+DashboardSuggestionRun:
+  type: object
+  description: |
+    One run of the dashboard suggestion agent, started by `POST /dashboards/suggestions` and
+    polled at `GET /dashboards/suggestions/{run_id}` -- the same run-then-poll shape #254 gave
+    KPI suggestions, for the same reason: a live model call takes long enough that it does not
+    belong inside one request, and the api serves from more than one instance. `result` is
+    present once `status` is `succeeded`; `error` is why there is none, present once `failed`.
+    A run whose executor was lost (the serving instance restarted mid-run) is reported `failed`
+    by the read side after the deployment's timeout plus a grace period, never `running` forever.
+  required: [id, status, created_at]
+  properties:
+    id: {type: string}
+    status:
+      $ref: './dashboards.yaml#/DashboardSuggestionRunStatus'
+    purpose: {type: string}
+    created_at:
+      $ref: './common.yaml#/Timestamp'
+    started_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    finished_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    result:
+      oneOf:
+        - $ref: './dashboards.yaml#/DashboardSuggestion'
+        - type: "null"
+    error:
+      type: [string, "null"]
+      description: Written for the person polling. A timeout names the bound it hit.
