@@ -15,7 +15,7 @@ import {
  CATEGORY_LIST, CHANNELS, COMPARISONS, CREATED_AS, DIMENSIONS, DOCUMENT_TYPES, EXTRACTION_TEMPLATES,
  FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, PER_RUN_CAPS, POLL_INTERVALS,
  PROPOSED_CONTRACT_FIELDS, RECORD_GUARDRAILS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
- TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor,
+ TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor, templateFromText,
 } from "../../domain/use-case-autonomy";
 import {
  GAP_KIND, ORIGIN, applyPatch, blockingGaps, draftState, emptySpec, gapsFor, guardrailRule, proposeTitle,
@@ -337,9 +337,14 @@ export default function UseCaseComposeScreen() {
 
  const ingest = (msg, { viaAssistant = true } = {}) => {
   const mode = modeFromText(msg);
-  const base = mode === spec.shape ? spec : withShape(spec, mode, spec.category);
+  let base = mode === spec.shape ? spec : withShape(spec, mode, spec.category);
+  if (category?.templates && !base.template) {
+   const inferred = templateFromText(`${base.goal || ""} ${msg}`);
+   if (inferred) base = withTemplate({ ...base, goal: base.goal || msg }, inferred);
+  }
   let { patch, understood } = extract(msg, base, ctx);
   if (mode !== spec.shape) understood = [`output: ${category.trigger.find((t) => t.shape === mode)?.label.toLowerCase()}`, ...understood];
+  if (base.template && base.template !== spec.template) understood = [`read as: ${category.templates.find((t) => t.id === base.template)?.label.toLowerCase()}`, ...understood];
   if (!Object.keys(patch).length && viaAssistant) {
    const direct = directAnswer(msg, blocking[0]);
    if (direct) { patch = direct.patch || direct; understood = [direct.said || `${FIELD_META[blocking[0].field]?.label || blocking[0].field}: ${msg}`]; }
@@ -388,6 +393,7 @@ export default function UseCaseComposeScreen() {
    case "severity": patch = { severity: SEVERITIES.find((s) => s.label === value)?.value || spec.severity }; break;
    case "scope": patch = { scope: value }; break;
    case "candidates": { const c = concepts.find((x) => x.name === value); patch = { candidates: { concept: c?.name || value, conceptId: c?.id || null, filter: spec.candidates?.filter || "" } }; break; }
+   case "template": { const t = category.templates?.find((x) => x.label === value); if (t) { const next = commit(withTemplate(spec, t.id)); if (assistantOpen) respond([`read as: ${t.label.toLowerCase()}`], next, gapsFor(next, registryNames, measurable)); return; } break; }
    case "masterData": patch = { masterData: { ...(spec.masterData || {}), [gap.role]: value } }; break;
    case "mailbox": patch = { mailbox: value }; break;
    case "extractionTemplate": patch = { extractionTemplate: EXTRACTION_TEMPLATES.find((t) => t.label === value)?.id || spec.extractionTemplate }; break;
@@ -409,7 +415,12 @@ export default function UseCaseComposeScreen() {
 
  // ── Typing on the form ────────────────────────────────────────────────────────────────────
  const setField = (field, value) => setSpec((s) => {
-  const next = applyPatch(s, { [FIELD_META[field]?.key || field]: value }, ORIGIN.authored);
+  let base = s;
+  if (field === "goal" && categoryOf(s)?.templates && !s.template) {
+   const inferred = templateFromText(value);
+   if (inferred) base = withTemplate({ ...s, goal: value }, inferred);
+  }
+  const next = applyPatch(base, { [FIELD_META[field]?.key || field]: value }, ORIGIN.authored);
   const primary = registry.find((k) => k.name === next.metricIds[0]);
   return primary && next.origin.businessArea !== ORIGIN.authored ? { ...next, businessArea: primary.businessAreaId || "", origin: { ...next.origin, businessArea: ORIGIN.spec } } : next;
  });
@@ -437,7 +448,8 @@ export default function UseCaseComposeScreen() {
  if (!category || !shape) return <CategoryPicker onChoose={choose} />;
  const CategoryIcon = CATEGORY_ICON[category.id];
  const targets = writeTargets.length ? writeTargets : WRITEBACK_TARGETS;
- const example = category.examples.find((e) => (e.template ? e.template === spec.template : e.shape === spec.shape)) || category.examples[0];
+ const example = category.examples.find((e) => (e.template ? e.template === spec.template : e.shape === spec.shape)) || (category.templates && !spec.template ? null : category.examples[0]);
+ const examples = category.templates && !spec.template ? category.examples : example ? [example] : [];
 
  const fieldProps = (f) => ({ gap: gapFor(f), origin: originOf(f), suggestion: suggestionFor(f), onAsk: () => openAssistant(f), onUse: (opt) => useSuggestion(f, opt) });
 
@@ -747,7 +759,7 @@ export default function UseCaseComposeScreen() {
        <textarea rows={2} value={oneGoText} onChange={(e) => setOneGoText(e.target.value)} placeholder={example ? `e.g. ${example.prompt}` : "Say what you want, as you would to a colleague."} className="w-full resize-none rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-primary focus:outline-none" />
        <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={!oneGoText.trim()} onClick={fillFromDescription} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-40">Fill the form from this</button>
-        {example && <button type="button" onClick={() => setOneGoText(example.prompt)} className="text-xs font-semibold text-text-muted hover:text-primary">Use the {example.title} example</button>}
+        {examples.map((ex) => <button key={ex.title} type="button" onClick={() => setOneGoText(ex.prompt)} className="text-xs font-semibold text-text-muted hover:text-primary">Use the {ex.title} example</button>)}
         <span className="text-[11px] text-text-muted">Whatever it recognises is filled in; the rest stays for you or the assistant.</span>
        </div>
       </div>
@@ -764,32 +776,45 @@ export default function UseCaseComposeScreen() {
      )}
     </div>
 
-    <div className="rounded-xl border border-border bg-surface p-3">
+    {!(category.templates && !spec.template) && <div className="rounded-xl border border-border bg-surface p-3">
      <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">What it will do</p>
      <p className="mt-1 text-sm text-text-primary">{describeShape(spec)}</p>
      {shape.level >= 3 && <p className="mt-1.5 flex items-start gap-1.5 text-xs text-text-secondary"><Info size={13} className="mt-0.5 shrink-0 text-text-muted" />Because it makes changes, someone other than you switches it on{shape.level >= 4 ? " — an admin, since nobody approves each change" : ""}.</p>}
-    </div>
+    </div>}
 
     <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
      <Field name="goal" gap={gapFor("goal")} origin={originOf("goal")} hint="What this exists to do, in your words. Free text; it drives nothing." onAsk={() => openAssistant("goal")}>
       <textarea rows={2} value={spec.goal} onChange={(e) => setField("goal", e.target.value)} placeholder="e.g. Why is margin down, and where?" className={`${input} resize-none`} />
      </Field>
      <Field name="title" origin={spec.origin?.title === ORIGIN.authored ? ORIGIN.authored : spec.title ? "proposed" : null} hint="How it appears in the catalogue. Proposed from the KPIs; overwrite it any time.">
-      <input value={spec.title} onChange={(e) => setField("title", e.target.value)} placeholder="Proposed once there is a KPI" className={input} />
+      <input value={spec.title} onChange={(e) => setField("title", e.target.value)} placeholder="Proposed once there is enough to name it" className={input} />
      </Field>
     </div>
 
-    {category.templates && (
-     <Field name="template" origin={null}>
-      <div className="grid gap-2 sm:grid-cols-2">
-       {category.templates.map((t) => (
-        <button key={t.id} type="button" aria-pressed={spec.template === t.id} onClick={() => setTemplate(t.id)} className={`rounded-lg border px-3 py-2 text-left ${spec.template === t.id ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
-         <span className="block text-sm font-semibold text-text-primary">{t.label}</span>
-         <span className="block text-xs text-text-muted">{t.hint}</span>
-        </button>
-       ))}
-      </div>
-     </Field>
+    {/* A category with templates: read from the words, never asked up front. While undecided
+        the form is the goal alone, with a hint; once decided, one line says what was read and
+        offers to correct it. */}
+    {category.templates && !spec.template && (
+     <div className="rounded-xl border border-dashed border-border bg-surface-secondary/60 px-4 py-3">
+      <p className="text-sm text-text-primary">Say what arrives and the form will follow.</p>
+      <p className="mt-0.5 text-xs text-text-secondary">A KPI on a schedule — <em>“reorder SKUs below their reorder point”</em> — or a document — <em>“purchase orders arrive as PDFs in the orders mailbox”</em>. Write it in the goal above, describe it in one go, or ask the assistant.</p>
+      {String(spec.goal || "").trim().length > 12 && (
+       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="text-text-muted">I couldn't tell from that — is it</span>
+        {category.templates.map((t) => <button key={t.id} type="button" onClick={() => setTemplate(t.id)} className="rounded-full border border-border-light bg-surface px-2.5 py-1 font-semibold text-text-secondary hover:border-primary hover:text-primary">{t.label.toLowerCase()}</button>)}
+        <span className="text-text-muted">?</span>
+       </div>
+      )}
+     </div>
+    )}
+    {category.templates && spec.template && (
+     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-xs">
+      <Sparkles size={12} className="text-primary" />
+      <span className="text-text-secondary">Read from your description as</span>
+      <span className="font-semibold text-text-primary">{category.templates.find((t) => t.id === spec.template)?.label.toLowerCase()}</span>
+      <span className="text-text-muted">— {category.templates.find((t) => t.id === spec.template)?.hint}</span>
+      <button type="button" onClick={() => setTemplate(category.templates.find((t) => t.id !== spec.template)?.id)} className="ml-auto font-semibold text-text-muted hover:text-primary">Not this? Treat it as {category.templates.find((t) => t.id !== spec.template)?.label.toLowerCase()}</button>
+     </div>
     )}
 
     {category.trigger && (
@@ -807,12 +832,12 @@ export default function UseCaseComposeScreen() {
 
     {fields.filter((f) => f !== "schedule").map(renderField)}
 
-    <div className="grid gap-3 sm:grid-cols-2">
+    {!(category.templates && !spec.template) && <div className="grid gap-3 sm:grid-cols-2">
      <Field name="owner" gap={gapFor("owner")} origin={originOf("owner")} hint="Accountable once it is live." suggestion={suggestionFor("owner")} onAsk={() => openAssistant("owner")} onUse={(opt) => useSuggestion("owner", opt)}>
       <input value={spec.owner} onChange={(e) => setField("owner", e.target.value)} placeholder="Name or team" className={input} />
      </Field>
      {!fields.includes("pollInterval") && renderField("schedule")}
-    </div>
+    </div>}
 
     {dataGaps.map((g) => (
      <div key={g.id} className="flex flex-wrap items-start gap-2 rounded-xl border border-status-critical-border bg-status-critical-light px-3.5 py-2.5">

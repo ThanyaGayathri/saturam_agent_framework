@@ -1,4 +1,4 @@
-import { CATEGORIES, EXTRACTION_TEMPLATES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, MATCH_THRESHOLD_DEFAULTS, SHAPES, fieldsFor, requiresSeparationOfDuties } from "./use-case-autonomy";
+import { CATEGORIES, EXTRACTION_TEMPLATES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, MATCH_THRESHOLD_DEFAULTS, SHAPES, fieldsFor, requiresSeparationOfDuties, templateFromText } from "./use-case-autonomy";
 
 /**
  * The use-case spec: the thing a user reviews, completes and freezes.
@@ -111,7 +111,8 @@ export function withShape(spec, shape, category = spec.category, template = spec
  *  category spans two). */
 export function withCategory(spec, category, shape = null) {
  const c = CATEGORIES[category];
- const template = c?.templates ? c.templates[0].id : null;
+ // A category with templates starts undecided; the template is read from the requirement.
+ const template = c?.templates ? templateFromText(spec.goal) : null;
  return withShape(spec, shape || c?.shapes[0] || "inform", category, template);
 }
 
@@ -177,6 +178,11 @@ export function gapsFor(spec, registryNames, measurable) {
 
  if (!String(spec.goal || "").trim()) {
   push({ id: "goal", kind: GAP_KIND.missing, field: "goal", ask: "In a sentence, what is this for?" });
+ }
+ // A category with templates, and the words have not said which yet.
+ if (CATEGORIES[spec.category]?.templates && !spec.template) {
+  push({ id: "template", kind: GAP_KIND.missing, field: "template", ask: "What arrives — a KPI on a schedule, or a document (by email, in a folder)?", options: CATEGORIES[spec.category].templates.map((t) => t.label) });
+  return gaps;
  }
 
  // Metric terms typed but not yet resolved to a registry entry.

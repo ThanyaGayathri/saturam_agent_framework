@@ -161,6 +161,22 @@ export const CATEGORIES = {
 export const CATEGORY_LIST = Object.values(CATEGORIES);
 
 export const categoryOf = (spec) => CATEGORIES[spec.category] || null;
+
+/**
+ * Which template a Process Automation is, read from the person's own words. Never asked up
+ * front: the answer is in the requirement ("purchase orders arrive as PDFs" is a document;
+ * "reorder SKUs below their reorder point" is a KPI). Returns null when the words say neither,
+ * and the form stays neutral until they do.
+ */
+export function templateFromText(text) {
+ const t = String(text || "").toLowerCase();
+ const doc = /\b(pdf|attachment|e-?mail|mailbox|inbox|document|invoice|purchase orders?|\bpos?\b|scanned?|form|extract|ocr|return requests?|delivery notes?|rma)\b/.test(t);
+ const kpi = /\b(kpi|metric|rate\b|reorder point|safety stock|markdown|re-?price|price|parameter|tune|adjust|threshold|days of stock|turnover|coverage)\b/.test(t);
+ if (doc && !kpi) return "document_to_record";
+ if (kpi && !doc) return "kpi_change";
+ if (doc && kpi) return /\b(pdf|attachment|e-?mail|mailbox|inbox|document|invoice)\b/.test(t) ? "document_to_record" : "kpi_change";
+ return null;
+}
 export const templateOf = (spec) => categoryOf(spec)?.templates?.find((t) => t.id === spec.template) || null;
 
 /**
@@ -188,6 +204,7 @@ export function displayName(spec) {
 /** The form's fields: the backend shape's parameters, plus what the category adds. */
 export function fieldsFor(spec) {
  if (spec.template && TEMPLATE_FIELDS[spec.template]) return TEMPLATE_FIELDS[spec.template];
+ if (CATEGORIES[spec.category]?.templates && !spec.template) return [];
  const base = SHAPES[spec.shape]?.fields || [];
  const extra = categoryOf(spec)?.extraFields || [];
  if (!extra.length) return base;
@@ -224,7 +241,7 @@ export const FIELD_META = {
  schedule: { slot: "schedule", key: "schedule", label: "Frequency", hint: "When it runs. Starts the workflow; no step reads it." },
  goal: { slot: null, key: "goal", label: "Goal", hint: "What this exists to do, in your words. Free text; it drives nothing." },
  title: { slot: null, key: "title", label: "Title", hint: "How it appears in the catalogue." },
- template: { slot: null, key: "template", label: "Approach", hint: "What arrives: a KPI on a schedule, or a document. Decides the form and the workflow." },
+ template: { slot: null, key: "template", label: "What arrives", hint: "Read from your description: a KPI on a schedule, or a document. Decides the form and the workflow." },
  mailbox: { slot: "source mailbox", key: "mailbox", label: "Source mailbox", hint: "The connected mailbox the documents arrive in." },
  pollInterval: { slot: "schedule", key: "schedule", label: "Check every", hint: "How often the mailbox is polled. The trigger." },
  messageFilter: { slot: "message filter", key: "messageFilter", label: "Message filter", hint: "Which messages count. Everything else is left alone." },

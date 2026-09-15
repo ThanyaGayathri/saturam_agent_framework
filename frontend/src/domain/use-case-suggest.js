@@ -1,5 +1,5 @@
 import { KPI_DATA_CATALOG_DATASETS } from "./kpi-data-catalog";
-import { COMPARISONS, EXTRACTION_TEMPLATES, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, RECORD_GUARDRAILS, ROLLBACKS, SEVERITIES, TARGET_OBJECTS, TIMEOUT_BEHAVIOURS } from "./use-case-autonomy";
+import { CATEGORIES, COMPARISONS, EXTRACTION_TEMPLATES, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, RECORD_GUARDRAILS, ROLLBACKS, SEVERITIES, TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, templateFromText } from "./use-case-autonomy";
 import { guardrailRule } from "./use-case-spec";
 
 /**
@@ -294,6 +294,16 @@ export function suggestFor(gap, spec, ctx) {
    };
   }
 
+  case "template": {
+   const c = CATEGORIES[spec.category];
+   const inferred = templateFromText(spec.goal);
+   const opts = (c?.templates || []).map((t) => ({ label: t.label, why: t.hint, patch: { template: t.id } }));
+   return {
+    lead: inferred ? `Reading your description, this looks like: ${opts.find((o) => o.patch.template === inferred)?.label.toLowerCase()}.` : "I couldn't tell from the description whether a KPI or a document drives this.",
+    options: opts,
+    preferred: opts.find((o) => o.patch.template === inferred)?.label || null,
+   };
+  }
   case "mailbox": {
    const boxes = ctx.mailboxes || [];
    if (!boxes.length) return { lead: "No mailbox is connected yet. Add one under Configure → Data sources (Gmail or Microsoft 365).", options: [], preferred: null };
