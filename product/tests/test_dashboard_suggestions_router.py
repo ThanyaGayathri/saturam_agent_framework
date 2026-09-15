@@ -49,11 +49,17 @@ def _kpi(**overrides) -> KpiDefinition:
 def _suggestion(**overrides) -> wire_models.DashboardSuggestion:
     defaults = dict(
         name="Weekly engagement",
-        tiles=[
-            wire_models.DashboardTileSuggestion(
+        charts=[
+            wire_models.DashboardChartSuggestion(
+                title="Active analytics users",
+                chart=wire_models.ChartKind.line,
+                source=wire_models.TileSource.kpi,
                 kpi_identifier="session__active_analytics_user_count",
-                name="Active analytics user count",
+                description="Distinct users active in the week.",
                 rationale="Directly measures engagement.",
+                guard=wire_models.QueryGuardVerdict(
+                    status=wire_models.QueryGuardStatus.ok, detail=""
+                ),
             )
         ],
         filters=[],
@@ -61,6 +67,12 @@ def _suggestion(**overrides) -> wire_models.DashboardSuggestion:
     )
     defaults.update(overrides)
     return wire_models.DashboardSuggestion(**defaults)
+
+
+def _context(**overrides) -> dsg.SuggestionContext:
+    defaults = dict(kpis=(), tables=(), joins=(), chart_budget=None)
+    defaults.update(overrides)
+    return dsg.SuggestionContext(**defaults)
 
 
 class _FakeDashboardSuggestionRunStore:
@@ -92,6 +104,10 @@ class _FakeDashboardSuggestionRunStore:
                 started_at=datetime.now(timezone.utc),
             )
 
+    def mark_stage(self, identifier, stage):
+        if self.rows[identifier].status in self._OPEN:
+            self._set(identifier, stage=stage)
+
     def mark_succeeded(self, identifier, result):
         if self.rows[identifier].status in self._OPEN:
             self._set(
@@ -99,6 +115,7 @@ class _FakeDashboardSuggestionRunStore:
                 status=DashboardSuggestionRunStatus.SUCCEEDED,
                 result=dict(result),
                 finished_at=datetime.now(timezone.utc),
+                stage="done",
             )
 
     def mark_failed(self, identifier, error):
@@ -123,13 +140,20 @@ class _FakeDashboardSuggestionRunStore:
         return self.rows[identifier]
 
 
-def _run_client(monkeypatch, store, *, authorization=False, scopes=()):
+def _run_client(monkeypatch, store, *, authorization=False, scopes=(), ready_kpis=()):
     @contextmanager
     def _fake_open_run_store(settings):
         yield store
 
     monkeypatch.setattr(
         dashboards_module, "_open_suggestion_run_store", _fake_open_run_store
+    )
+    # The context walk opens a semantic reader; these tests never have one. What it would
+    # have built is handed straight to `_build_dashboard_suggestion`, which is faked too.
+    monkeypatch.setattr(
+        dashboards_module,
+        "_build_context",
+        lambda settings, snapshot, **kw: _context(kpis=snapshot.ready_kpis),
     )
 
     app = FastAPI()
@@ -143,7 +167,9 @@ def _run_client(monkeypatch, store, *, authorization=False, scopes=()):
 
     app.include_router(dashboards_module.router)
     app.dependency_overrides[dashboards_module._dashboard_suggestion_snapshot] = (
-        lambda: _DashboardSuggestionSnapshot(ready_kpis=(), vocabularies=_VOCABULARIES)
+        lambda: _DashboardSuggestionSnapshot(
+            ready_kpis=tuple(ready_kpis), vocabularies=_VOCABULARIES
+        )
     )
     return TestClient(app)
 
@@ -154,7 +180,11 @@ def _drain(client):
 
 
 def _suggesting(suggestion):
-    def _fake_helper(settings, *, snapshot, purpose, agent=None):
+    def _fake_helper(
+        settings, *, snapshot, purpose, agent=None, context=None, on_stage=None
+    ):
+        if on_stage:
+            on_stage("drafting")
         return suggestion
 
     return _fake_helper
@@ -189,10 +219,79 @@ def test_start_dashboard_suggestion_run_returns_202_queued_then_the_poll_reaches
     assert done["status"] == "succeeded"
     assert done["started_at"] is not None and done["finished_at"] is not None
     assert done["error"] is None
+    assert done["stage"] == "done"
     assert done["result"]["name"] == "Weekly engagement"
-    assert [t["kpi_identifier"] for t in done["result"]["tiles"]] == [
+    assert [c["kpi_identifier"] for c in done["result"]["charts"]] == [
         "session__active_analytics_user_count"
     ]
+    assert done["result"]["charts"][0]["source"] == "kpi"
+    assert done["result"]["charts"][0]["guard"]["status"] == "ok"
+
+
+def test_start_dashboard_suggestion_run_passes_the_selection_through_to_the_context(
+    monkeypatch,
+):
+    seen = {}
+
+    def _fake_context(settings, snapshot, **kw):
+        seen.update(kw)
+        return _context(kpis=snapshot.ready_kpis)
+
+    monkeypatch.setattr(
+        dashboards_module, "_build_dashboard_suggestion", _suggesting(_suggestion())
+    )
+    store = _FakeDashboardSuggestionRunStore()
+
+    with _run_client(monkeypatch, store, ready_kpis=(_kpi(),)) as client:
+        monkeypatch.setattr(dashboards_module, "_build_context", _fake_context)
+        started = client.post(
+            "/dashboards/suggestions",
+            json={
+                "purpose": "Where are stock-outs hurting margin?",
+                "kpi_identifiers": ["session__active_analytics_user_count"],
+                "table_names": ["orders", " products "],
+                "chart_budget": 3,
+            },
+        )
+        assert started.status_code == 202
+        _drain(client)
+
+    assert seen["kpi_identifiers"] == ["session__active_analytics_user_count"]
+    assert seen["table_names"] == ["orders", "products"]
+    assert seen["chart_budget"] == 3
+
+
+def test_start_dashboard_suggestion_run_422s_on_a_kpi_outside_the_ready_set(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        dashboards_module, "_build_dashboard_suggestion", _suggesting(_suggestion())
+    )
+    store = _FakeDashboardSuggestionRunStore()
+
+    with _run_client(monkeypatch, store, ready_kpis=(_kpi(),)) as client:
+        response = client.post(
+            "/dashboards/suggestions",
+            json={"purpose": "anything", "kpi_identifiers": ["not_ready__kpi"]},
+        )
+
+    assert response.status_code == 422
+    assert "not_ready__kpi" in response.json()["detail"]
+    assert store.rows == {}
+
+
+def test_get_dashboard_suggestion_run_exposes_the_stage_while_running(monkeypatch):
+    store = _FakeDashboardSuggestionRunStore()
+    record = store.create("in-flight purpose")
+    store.mark_running(record.identifier)
+    store.mark_stage(record.identifier, "guarding")
+
+    with _run_client(monkeypatch, store) as client:
+        polled = client.get(f"/dashboards/suggestions/{record.identifier}")
+
+    assert polled.status_code == 200
+    assert polled.json()["status"] == "running"
+    assert polled.json()["stage"] == "guarding"
 
 
 def test_start_dashboard_suggestion_run_422s_on_an_empty_purpose_before_any_row_exists(
@@ -211,7 +310,9 @@ def test_start_dashboard_suggestion_run_422s_on_an_empty_purpose_before_any_row_
 
 
 def test_get_dashboard_suggestion_run_reports_failure_from_the_executor(monkeypatch):
-    def _failing(settings, *, snapshot, purpose, agent=None):
+    def _failing(
+        settings, *, snapshot, purpose, agent=None, context=None, on_stage=None
+    ):
         raise ValueError("no ready KPI in this registry matches the purpose")
 
     monkeypatch.setattr(dashboards_module, "_build_dashboard_suggestion", _failing)
@@ -280,14 +381,12 @@ def test_get_dashboard_suggestion_run_leaves_a_recent_running_row_alone(monkeypa
 # ---------------------------------------------------------------------------
 
 
-def test_cached_dashboard_suggestion_agent_reuses_the_same_agent_for_an_unchanged_ready_set(
-    monkeypatch,
-):
+def _fake_agent_builder(monkeypatch):
     build_calls = []
 
-    def _fake_build(settings, *, ready_kpis, vocabularies):
+    def _fake_build(settings, *, context, vocabularies, db=None):
         agent = object()
-        build_calls.append(agent)
+        build_calls.append((agent, context))
         return agent
 
     monkeypatch.setattr(
@@ -295,54 +394,56 @@ def test_cached_dashboard_suggestion_agent_reuses_the_same_agent_for_an_unchange
     )
     monkeypatch.setattr(dashboards_module, "_dash_agent_cache_key", None)
     monkeypatch.setattr(dashboards_module, "_dash_agent_cache_agent", None)
+    return build_calls
 
+
+def test_cached_dashboard_suggestion_agent_reuses_the_same_agent_for_an_unchanged_context(
+    monkeypatch,
+):
+    build_calls = _fake_agent_builder(monkeypatch)
+    snapshot = _DashboardSuggestionSnapshot(
+        ready_kpis=(_kpi(identifier="a"), _kpi(identifier="b")),
+        vocabularies=_VOCABULARIES,
+    )
+    context = _context(kpis=(_kpi(identifier="a"),), chart_budget=4)
+    first = dashboards_module._cached_dashboard_suggestion_agent(
+        RetailSettings(), snapshot, context
+    )
+    second = dashboards_module._cached_dashboard_suggestion_agent(
+        RetailSettings(),
+        snapshot,
+        _context(kpis=(_kpi(identifier="a"),), chart_budget=4),
+    )
+
+    assert first is second
+    assert len(build_calls) == 1
+    assert build_calls[0][1] == context
+
+
+def test_cached_dashboard_suggestion_agent_rebuilds_when_the_selection_changes(
+    monkeypatch,
+):
+    build_calls = _fake_agent_builder(monkeypatch)
     snapshot = _DashboardSuggestionSnapshot(
         ready_kpis=(_kpi(identifier="a"), _kpi(identifier="b")),
         vocabularies=_VOCABULARIES,
     )
     first = dashboards_module._cached_dashboard_suggestion_agent(
-        RetailSettings(), snapshot
-    )
-    second = dashboards_module._cached_dashboard_suggestion_agent(
-        RetailSettings(), snapshot
-    )
-
-    assert first is second
-    assert len(build_calls) == 1
-
-
-def test_cached_dashboard_suggestion_agent_rebuilds_when_the_ready_set_changes(
-    monkeypatch,
-):
-    build_calls = []
-
-    def _fake_build(settings, *, ready_kpis, vocabularies):
-        agent = object()
-        build_calls.append(agent)
-        return agent
-
-    monkeypatch.setattr(
-        dashboards_module, "build_dashboard_suggestion_agent", _fake_build
-    )
-    monkeypatch.setattr(dashboards_module, "_dash_agent_cache_key", None)
-    monkeypatch.setattr(dashboards_module, "_dash_agent_cache_agent", None)
-
-    first = dashboards_module._cached_dashboard_suggestion_agent(
-        RetailSettings(),
-        _DashboardSuggestionSnapshot(
-            ready_kpis=(_kpi(identifier="a"),), vocabularies=_VOCABULARIES
-        ),
+        RetailSettings(), snapshot, _context(kpis=(_kpi(identifier="a"),))
     )
     second = dashboards_module._cached_dashboard_suggestion_agent(
         RetailSettings(),
-        _DashboardSuggestionSnapshot(
-            ready_kpis=(_kpi(identifier="a"), _kpi(identifier="b")),
-            vocabularies=_VOCABULARIES,
-        ),
+        snapshot,
+        _context(kpis=(_kpi(identifier="a"), _kpi(identifier="b"))),
+    )
+    third = dashboards_module._cached_dashboard_suggestion_agent(
+        RetailSettings(),
+        snapshot,
+        _context(kpis=(_kpi(identifier="a"), _kpi(identifier="b")), chart_budget=2),
     )
 
-    assert first is not second
-    assert len(build_calls) == 2
+    assert first is not second and second is not third
+    assert len(build_calls) == 3
 
 
 def test_drafts_of_raises_when_the_agent_returns_something_other_than_the_draft_schema():

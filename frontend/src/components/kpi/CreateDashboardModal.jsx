@@ -17,19 +17,26 @@ function metricFromKpi(kpi) {
   identifier: kpi.identifier,
   name: kpi.name || "",
   unit: kpi.unit || "",
+  description: kpi.description || "",
   businessArea: kpi.businessAreaId || kpi.business_area || "",
+  sourceTables: kpi.source_tables || kpi.sourceTables || [],
  };
 }
 
+/** One chart of a `DashboardSuggestion.charts` entry, given a local id the builder step
+ * tracks edits/deletes by (the wire has none until the tile is created). */
+function chartFromSuggestion(chart, index) {
+ return { ...chart, id: `sug_${index}` };
+}
+
 /**
- * Create dashboard: a mode picker (AI generated vs. manual), then either a chat-style purpose
- * step feeding an AI suggestion run or straight into the shared builder step. `rows`, when
- * given non-empty (the existing call site from `KpiDiscoveryPage.jsx`, selecting metrics from
- * the discovery grid), skips the mode picker entirely and opens straight into the manual
- * builder pre-filled with them - the same entry point as before, now also offering the filter
- * this flow adds.
+ * Create dashboard: a mode picker (AI generated vs. manual), then either a chat-style
+ * metrics-and-purpose step feeding a dashboard-composition run, or straight into the shared
+ * review/builder step. `rows`, when given non-empty (the existing call site from
+ * `KpiDiscoveryPage.jsx`, selecting metrics from the discovery grid), skips the mode picker
+ * entirely and opens straight into the manual builder, one chart per metric.
  *
- * `onCreate({ name, refresh, metrics, businessAreaFilter })` is the caller's job, same split as
+ * `onCreate({ name, refresh, charts, businessAreaFilter })` is the caller's job, same split as
  * before: this modal collects and edits state, the caller turns it into a `DashboardWrite` and
  * calls the API (`storage/dashboards.js`'s `buildDashboardWritePayload` does the turning).
  */
@@ -46,16 +53,29 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
 
  const [name, setName] = useState("");
  const [refresh, setRefresh] = useState(DEFAULT_REFRESH_SCHEDULE);
- const [metrics, setMetrics] = useState(() => initialRows.map((r) => metricFromKpi(r.kpi)));
+ const [purposeMetrics, setPurposeMetrics] = useState(() => initialRows.map((r) => metricFromKpi(r.kpi)));
+ const [extraTables, setExtraTables] = useState([]);
+ const [charts, setCharts] = useState(() =>
+  initialRows.map((r, i) => ({
+   id: `manual_${i}`,
+   title: r.kpi.name || "",
+   chart: "number",
+   source: "kpi",
+   kpi_identifier: r.kpi.identifier,
+   description: r.kpi.description || "",
+   guard: { status: "ok", detail: "" },
+  })),
+ );
  const [businessAreaFilter, setBusinessAreaFilter] = useState(null);
  const [aiSuggested, setAiSuggested] = useState(false);
  const [purpose, setPurpose] = useState("");
+ const [contextSummary, setContextSummary] = useState(null);
 
  const [submitting, setSubmitting] = useState(false);
  const [submitError, setSubmitError] = useState(null);
 
  // The metric picker and the filter dropdown both work off the real, `ready` registry - the
- // only KPIs a tile may legally reference. Fetched once; a failure just leaves both empty,
+ // only KPIs a chart may legally reference. Fetched once; a failure just leaves both empty,
  // the same non-fatal posture `DashboardsPage.jsx`'s own background fetch takes.
  const [readyKpis, setReadyKpis] = useState([]);
  useEffect(() => {
@@ -90,67 +110,36 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
 
  const suggestionRun = useDashboardSuggestionRun();
 
- const handleGenerate = (text) => {
+ const handleGenerate = ({ purpose: text, chartBudget }) => {
   setPurpose(text);
   setStep("ai-generating");
-  suggestionRun.start(text);
+  suggestionRun.start({
+   purpose: text,
+   kpiIdentifiers: purposeMetrics.map((m) => m.identifier),
+   tableNames: extraTables,
+   chartBudget,
+  });
  };
 
  // Once a run succeeds, prefill the builder from it and hand control to the person - nothing
  // here is final until they click Create.
  useEffect(() => {
   if (suggestionRun.status !== "ready" || !suggestionRun.result) return;
-  let cancelled = false;
   const result = suggestionRun.result;
-
-  const applyResult = (kpisForLookup) => {
-   if (cancelled) return;
-   const byIdentifier = new Map(kpisForLookup.map((k) => [k.identifier, k]));
-   setName(result.name || "");
-   setMetrics(
-    (result.tiles || []).map((tile) => ({
-     identifier: tile.kpi_identifier,
-     name: tile.name || byIdentifier.get(tile.kpi_identifier)?.name || tile.kpi_identifier,
-     unit: byIdentifier.get(tile.kpi_identifier)?.unit || "",
-     businessArea: byIdentifier.get(tile.kpi_identifier)?.businessArea || "",
-    })),
-   );
-   const areaFilter = (result.filters || []).find((f) => f.field === "business_area");
-   setBusinessAreaFilter(areaFilter ? areaFilter.value : null);
-   setAiSuggested(true);
-   setStep("builder");
-  };
-
-  // A fresh read, not the mount-time `readyKpis` snapshot: a run can take up to the backend's
-  // timeout plus its grace window (~180s+60s by default) - long enough for the registry to
-  // have moved since this modal opened. Looking a tile up against a stale local copy would
-  // fall back to a blank unit/business-area for a KPI the backend, at suggestion time, had
-  // just validated as ready. Also updates `readyKpis` itself, so the metric picker and filter
-  // dropdown are current too, not just this one prefill.
-  fetchKpiList()
-   .then((kpis) => {
-    if (cancelled) return;
-    const fresh = (kpis || [])
-     .filter((k) => k?.identifier && k?.feasibility?.verdict === "ready")
-     .map(metricFromKpi);
-    setReadyKpis(fresh);
-    applyResult(fresh);
-   })
-   .catch(() => applyResult(readyKpis));
-
-  return () => {
-   cancelled = true;
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKpis intentionally excluded:
-  // re-running this on every registry refresh would clobber in-progress edits to the result
-  // already prefilled below; the effect only reads it once, as the fetch-failure fallback.
+  setName(result.name || "");
+  setCharts((result.charts || []).map(chartFromSuggestion));
+  const areaFilter = (result.filters || []).find((f) => f.field === "business_area");
+  setBusinessAreaFilter(areaFilter ? areaFilter.value : null);
+  setContextSummary(result.context || null);
+  setAiSuggested(true);
+  setStep("builder");
  }, [suggestionRun.status, suggestionRun.result]);
 
  const submit = async () => {
   setSubmitting(true);
   setSubmitError(null);
   try {
-   await onCreate({ name, refresh, metrics, businessAreaFilter });
+   await onCreate({ name, refresh, charts, businessAreaFilter });
   } catch (err) {
    setSubmitError(err?.message || "Could not create the dashboard.");
    setSubmitting(false);
@@ -161,7 +150,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
   <Modal
    title="Create dashboard"
    onClose={onCancel}
-   maxWidth={step === "builder" ? "max-w-[720px]" : "max-w-[560px]"}
+   maxWidth={step === "builder" ? "max-w-[960px]" : "max-w-[640px]"}
   >
    {step === "mode" && (
     <ModePickerStep
@@ -180,6 +169,11 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
    {step === "ai-purpose" && (
     <AiPurposeStep
      initialPurpose={purpose}
+     metrics={purposeMetrics}
+     setMetrics={setPurposeMetrics}
+     readyKpis={readyKpis}
+     extraTables={extraTables}
+     setExtraTables={setExtraTables}
      onBack={() => setStep("mode")}
      onGenerate={handleGenerate}
     />
@@ -188,12 +182,13 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
    {step === "ai-generating" && (
     <AiGeneratingStep
      purpose={purpose}
+     stage={suggestionRun.stage}
      error={suggestionRun.status === "error" ? suggestionRun.error : null}
      onBack={() => {
       suggestionRun.reset();
       setStep("ai-purpose");
      }}
-     onRetry={() => handleGenerate(purpose)}
+     onRetry={() => handleGenerate({ purpose, chartBudget: null })}
     />
    )}
 
@@ -204,13 +199,14 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
      refresh={refresh}
      setRefresh={setRefresh}
      refreshOptions={REFRESH_OPTIONS}
-     metrics={metrics}
-     setMetrics={setMetrics}
+     charts={charts}
+     setCharts={setCharts}
      businessAreaFilter={businessAreaFilter}
      setBusinessAreaFilter={setBusinessAreaFilter}
      businessAreaOptions={businessAreaOptions}
      readyKpis={readyKpis}
      aiSuggested={aiSuggested}
+     contextSummary={contextSummary}
      notReadyCount={hasInitialRows ? notReadyCount : 0}
      onBack={
       aiSuggested

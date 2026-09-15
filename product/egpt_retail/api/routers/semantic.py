@@ -4,10 +4,11 @@
 
 K7's ``ProposalStore`` (``semantic/proposals.py``) is already fully built, tested, and in use
 by ``egpt-retail suggest`` (``entrypoints/suggest.py``) -- this router is the review screen's
-read and the two decisions a person can make, over HTTP, nothing more. The seven read-only
-``/semantic/*`` operations the contract also defines (``getSemanticSnapshot``,
-``listSemanticTables``, ...) are a materially larger, separate effort with no connection to
-this review-screen scope and stay unmounted here.
+read and the two decisions a person can make, over HTTP. Of the read-only ``/semantic/*``
+operations the contract also defines, ``listSemanticTables`` and ``getSemanticTable`` are
+mounted here too (contract 1.2.0): the dashboard chart editor shows a person the same table
+and column descriptions the compose agent was shown, and that pane reads them over HTTP. The
+rest (``getSemanticSnapshot``, concepts, join paths, harvests) stay unmounted.
 
 **Accept doubles as adopt, for KPI proposals only.** Accepting a ``kind: kpi`` proposal calls
 ``KpiRegistryStore.adopt_accepted`` in the same request -- confirmed idempotent
@@ -23,12 +24,14 @@ from __future__ import annotations
 
 from typing import Iterable, Iterator, List, Optional, Sequence
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_connection
-from egpt_retail.app.scopes import require_scopes
+from egpt_retail.app.scopes import caller_scopes, require_scopes
+from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.contracts.semantic import Column, SemanticReadError, Table, TableRef
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.semantic.proposals import (
     Proposal,
@@ -304,3 +307,98 @@ def accept_semantic_proposals_bulk(
         counts=_counts(proposals),
         refused=[_refusal_out(r) for r in outcome.refused],
     )
+
+
+# --- the read-only table surface (1.2.0) ---------------------------------------------------
+
+
+def _include_proposed_allowed(request: Request, include_proposed: bool) -> None:
+    """``include_proposed=true`` needs ``semantic:read_proposed`` (CHANGELOG 1.0.0: over HTTP
+    it is an attacker-controlled query parameter returning unreviewed rows). 403, not a
+    silently filtered 200."""
+    if not include_proposed or not getattr(
+        request.state, "authorization_enabled", False
+    ):
+        return
+    scopes, admin_scope = caller_scopes(request)
+    if "semantic:read_proposed" not in scopes and not admin_scope:
+        raise HTTPException(
+            status_code=403,
+            detail="Insufficient permissions. Required scopes: semantic:read_proposed.",
+        )
+
+
+def _table_ref_out(ref: TableRef) -> wire.TableRef:
+    return wire.TableRef(name=ref.name, schema=ref.schema, row_count=ref.row_count)
+
+
+def _column_out(column: Column) -> wire.Column:
+    return wire.Column(
+        name=column.name,
+        data_type=column.data_type,
+        nullable=column.nullable,
+        is_key=column.is_key,
+        is_personal_data=column.is_personal_data,
+        description=column.description,
+        sampled_values=list(column.sampled_values),
+        status=wire.ProposalStatus(column.status.value),
+        concept=column.concept,
+        meaning=column.meaning,
+        joinable=column.joinable,
+    )
+
+
+def _table_out(table: Table) -> wire.Table:
+    return wire.Table(
+        ref=_table_ref_out(table.ref),
+        columns=[_column_out(c) for c in table.columns],
+        description=table.description,
+        concepts=list(table.concepts),
+        status=wire.ProposalStatus(table.status.value),
+    )
+
+
+@router.get("/semantic/tables", response_model=wire.TableList)
+def list_semantic_tables(
+    request: Request,
+    include_proposed: bool = Query(default=False),
+    _: None = Depends(require_scopes("semantic:read")),
+):
+    _include_proposed_allowed(request, include_proposed)
+    settings = RetailSettings()
+    try:
+        with open_semantic_reader(settings) as reader:
+            refs = reader.list_tables(include_proposed=include_proposed)
+            snapshot = reader.snapshot()
+    except (SemanticReadError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return wire.TableList(
+        tables=[_table_ref_out(r) for r in refs],
+        snapshot=wire.Snapshot(
+            version=snapshot.version,
+            harvested_at=snapshot.harvested_at,
+            source=snapshot.source,
+        ),
+    )
+
+
+@router.get("/semantic/tables/{table_name}", response_model=wire.Table)
+def get_semantic_table(
+    table_name: str,
+    request: Request,
+    include_proposed: bool = Query(default=False),
+    _: None = Depends(require_scopes("semantic:read")),
+):
+    _include_proposed_allowed(request, include_proposed)
+    settings = RetailSettings()
+    try:
+        with open_semantic_reader(settings) as reader:
+            table = reader.get_table(table_name, include_proposed=include_proposed)
+    except (SemanticReadError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if table is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No table named '{table_name}' in the semantic layer.",
+        )
+    return _table_out(table)

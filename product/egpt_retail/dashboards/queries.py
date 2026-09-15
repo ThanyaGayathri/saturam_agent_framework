@@ -1,0 +1,681 @@
+"""The guarded runner behind ``query`` tiles (contract 1.2.0): check, rewrite, run, cache.
+
+Every statement a dashboard chart carries -- composed by the suggestion agent or typed into
+the chart editor -- passes through here before it touches the warehouse, and it passes
+through the *same* guard every other retail read does (``app/sql_guard.py``'s
+``build_warehouse_read_guard``: one read statement, tables restricted to the semantic layer,
+schemas limited to silver and gold). This module adds the three checks a person-facing chart
+needs on top of that guard, and makes each of them visible as a verdict rather than silent:
+
+* **Scope.** The statement may only read the tables the caller put in context (the selected
+  metrics' tables plus what they widened to). Outside that set is ``refused`` even when the
+  semantic layer would allow it -- the review screen said "tables this chart may read".
+* **Personal data.** A column the semantic layer marks ``is_personal_data`` is dropped from
+  the outermost projection (``rewritten``, the detail names it) and refused anywhere else --
+  a filter, a join key, a subquery -- because a value that never reaches the result can still
+  leak through what it selects. ``SELECT *`` over a table that has such a column is refused
+  outright: there is no projection to drop from.
+* **Row cap.** A missing ``LIMIT`` is added at the guard's ``row_cap``; one above it is
+  lowered (``rewritten``). The guard's ``effective_limit`` bounds the fetch too, so the cap
+  holds even for a statement the rewrite could not touch.
+
+Then the statement runs on the read-only warehouse connection with the guard's
+``statement_timeout``, and the result is serialised the way ``read_gold`` serialises a gold
+row (dates as ISO strings) except that numerics become ``float``: a chart plots them, and the
+exactness ``gold.kpi_value``'s ``numeric`` preserves matters for a KPI a customer reads as a
+figure, not for a bar's height.
+
+A ``query`` tile's result is cached in ``dashboard_query_result``
+(:mod:`egpt_retail.dashboards.query_results`) by :func:`refresh_query_tiles`, once when the
+tile is written and again on ``POST /dashboards/{id}/refresh``; ``GET /dashboards/{id}/data``
+reads the cache and never calls :func:`run_query`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import datetime as dt
+import decimal
+import json
+from dataclasses import dataclass, field
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    FrozenSet,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    cast,
+)
+
+import sqlglot
+from egpt.exceptions import SQLGuardRefusal
+from egpt.guardrails.sql_guard import SQLGuard
+from egpt.utils.log import log_warning
+from sqlalchemy.engine import Engine
+from sqlglot import expressions as exp
+
+from egpt_retail.api import models as wire
+from egpt_retail.app.db import build_warehouse_engine, build_warehouse_readonly_engine
+from egpt_retail.app.semantic import open_semantic_reader
+from egpt_retail.app.settings import RetailSettings
+from egpt_retail.app.sql_guard import build_warehouse_read_guard
+from egpt_retail.contracts.dashboards import Dashboard, Tile, TileSource
+from egpt_retail.contracts.semantic import SemanticRead
+from egpt_retail.dashboards.query_results import (
+    DashboardQueryResultStore,
+    QueryResultRecord,
+)
+
+__all__ = [
+    "PREVIEW_ROW_LIMIT",
+    "QueryVerdict",
+    "acheck_query",
+    "apersonal_data_columns",
+    "apreview_query",
+    "arefresh_query_tiles",
+    "arun_query",
+    "build_query_engine",
+    "check_query",
+    "personal_data_columns",
+    "preview_query",
+    "refresh_query_tiles",
+    "run_query",
+    "verdict_out",
+]
+
+#: What the chart editor's "Run preview" gets back at most. The tile's real result, cached on
+#: refresh, is bounded by the guard's ``row_cap`` instead.
+PREVIEW_ROW_LIMIT = 50
+
+PersonalDataLookup = Callable[[Sequence[str]], Mapping[str, FrozenSet[str]]]
+
+
+@dataclass(frozen=True)
+class QueryVerdict:
+    """What the checks made of one statement. ``sql`` is the statement as it would run --
+    the caller's own on ``ok``, the rewrite on ``rewritten``, the original on ``refused``."""
+
+    status: str  # "ok" | "rewritten" | "refused"
+    detail: str
+    sql: str
+    tables: Tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def runnable(self) -> bool:
+        return self.status != "refused"
+
+
+def verdict_out(verdict: QueryVerdict) -> wire.QueryGuardVerdict:
+    return wire.QueryGuardVerdict(
+        status=wire.QueryGuardStatus(verdict.status),
+        detail=verdict.detail,
+        tables=list(verdict.tables),
+    )
+
+
+def _no_personal_data(tables: Sequence[str]) -> Mapping[str, FrozenSet[str]]:
+    return {}
+
+
+# --- checking ------------------------------------------------------------------------------
+
+
+def _alias_map(statement: exp.Expression) -> Dict[str, str]:
+    """``alias_or_name -> bare table name`` for every real table the statement references,
+    so a column qualified by an alias can be attributed to its table."""
+    aliases: Dict[str, str] = {}
+    for table in statement.find_all(exp.Table):
+        if isinstance(table.this, exp.Func) or not table.name:
+            continue
+        aliases[table.alias_or_name.lower()] = table.name.lower()
+        aliases[table.name.lower()] = table.name.lower()
+    return aliases
+
+
+def _personal_hits(
+    columns: Iterable[exp.Column],
+    aliases: Mapping[str, str],
+    personal: Mapping[str, FrozenSet[str]],
+) -> List[str]:
+    """``table.column`` for every column reference that names personal data. An unqualified
+    reference is checked against every referenced table -- conservative on purpose."""
+    hits: List[str] = []
+    for column in columns:
+        name = column.name.lower()
+        qualifier = column.table.lower() if column.table else ""
+        if qualifier:
+            table = aliases.get(qualifier)
+            if table is not None and name in personal.get(table, frozenset()):
+                hits.append(f"{table}.{name}")
+            continue
+        for table, names in personal.items():
+            if name in names:
+                hits.append(f"{table}.{name}")
+    return sorted(set(hits))
+
+
+def _apply_personal_data_rule(
+    statement: exp.Expression, personal: Mapping[str, FrozenSet[str]]
+) -> Tuple[Optional[str], List[str]]:
+    """Drop personal-data columns from the outermost projection; refuse them anywhere else.
+    Returns ``(refusal_reason, dropped)`` -- exactly one of them is non-empty when the rule
+    fired, both empty when it did not."""
+    if not any(personal.values()):
+        return None, []
+    aliases = _alias_map(statement)
+
+    if not isinstance(statement, exp.Select):
+        # A UNION or a bare VALUES has no single projection to edit; refuse on any hit.
+        hits = _personal_hits(statement.find_all(exp.Column), aliases, personal)
+        if hits:
+            return (
+                f"References personal-data column(s) {', '.join(hits)}; remove them.",
+                [],
+            )
+        return None, []
+
+    if any(isinstance(e, exp.Star) for e in statement.expressions) or any(
+        isinstance(e, exp.Column) and isinstance(e.this, exp.Star)
+        for e in statement.expressions
+    ):
+        withheld = sorted(
+            f"{table}.{name}" for table, names in personal.items() for name in names
+        )
+        return (
+            "SELECT * over a table with personal-data column(s) "
+            f"({', '.join(withheld)}); name the columns you need instead.",
+            [],
+        )
+
+    kept: List[exp.Expression] = []
+    dropped: List[str] = []
+    for projection in statement.expressions:
+        hits = _personal_hits(projection.find_all(exp.Column), aliases, personal)
+        if hits:
+            dropped.extend(hits)
+            continue
+        kept.append(projection)
+    if not kept:
+        return (
+            "Every selected column is personal data "
+            f"({', '.join(sorted(set(dropped)))}); nothing would be left to chart.",
+            [],
+        )
+
+    # Anything outside the projection -- WHERE, JOIN ... ON, GROUP BY, a CTE body, a
+    # subquery -- is refused, not rewritten: a predicate on an email address still reveals
+    # it through which rows come back.
+    outside: List[str] = []
+    for node in statement.walk():
+        if node is statement:
+            continue
+        if isinstance(node, exp.Column):
+            in_projection = any(
+                node is p or any(node is c for c in p.find_all(exp.Column))
+                for p in statement.expressions
+            )
+            if not in_projection:
+                outside.extend(_personal_hits([node], aliases, personal))
+    if outside:
+        return (
+            "References personal-data column(s) "
+            f"{', '.join(sorted(set(outside)))} outside the SELECT list; remove them.",
+            [],
+        )
+
+    if dropped:
+        statement.set("expressions", kept)
+    return None, sorted(set(dropped))
+
+
+def _apply_row_cap(statement: exp.Expression, row_cap: int) -> Optional[str]:
+    """Add a missing ``LIMIT`` or lower one above ``row_cap``. Returns what changed, if
+    anything."""
+    limit = statement.args.get("limit")
+    if limit is None:
+        statement.set("limit", exp.Limit(expression=exp.Literal.number(row_cap)))
+        return f"Added LIMIT {row_cap} (the row cap)."
+    current = limit.expression
+    if isinstance(current, exp.Literal) and current.is_int:
+        requested = int(current.this)
+        if requested > row_cap:
+            limit.set("expression", exp.Literal.number(row_cap))
+            return f"Lowered LIMIT {requested} to {row_cap} (the row cap)."
+    return None
+
+
+def _check(
+    sql: str,
+    *,
+    tables: Tuple[str, ...],
+    guard: SQLGuard,
+    context_tables: Optional[FrozenSet[str]],
+    personal_data: PersonalDataLookup,
+) -> QueryVerdict:
+    """The checks after the guard has parsed and allow-listed the statement."""
+    if context_tables is not None:
+        outside = sorted(set(tables) - context_tables)
+        if outside:
+            return QueryVerdict(
+                status="refused",
+                detail=(
+                    f"Reads {', '.join(outside)}, which is not among the tables selected "
+                    "for this dashboard; add the table to the context or remove it from the "
+                    "query."
+                ),
+                sql=sql,
+                tables=tables,
+            )
+
+    statement = cast(exp.Expression, sqlglot.parse_one(sql, read=guard.dialect))
+    # Only the tables the statement reads can leak through it; a lookup that answers for
+    # more (a caller handing over the whole context) must not refuse a `SELECT *` over a
+    # table with no personal data because a different table has some.
+    personal = {
+        table: columns
+        for table, columns in personal_data(tables).items()
+        if table in tables
+    }
+    refusal, dropped = _apply_personal_data_rule(statement, personal)
+    if refusal is not None:
+        return QueryVerdict(status="refused", detail=refusal, sql=sql, tables=tables)
+
+    changes: List[str] = []
+    if dropped:
+        changes.append(
+            f"Dropped personal-data column(s) {', '.join(dropped)} from the SELECT list."
+        )
+    capped = _apply_row_cap(statement, guard.row_cap)
+    if capped:
+        changes.append(capped)
+
+    if not changes:
+        return QueryVerdict(status="ok", detail="", sql=sql, tables=tables)
+    return QueryVerdict(
+        status="rewritten",
+        detail=" ".join(changes),
+        sql=statement.sql(dialect=guard.dialect),
+        tables=tables,
+    )
+
+
+def check_query(
+    sql: str,
+    *,
+    guard: SQLGuard,
+    context_tables: Optional[FrozenSet[str]] = None,
+    personal_data: PersonalDataLookup = _no_personal_data,
+) -> QueryVerdict:
+    """The guard, then scope, personal data and the row cap -- see the module docstring.
+
+    ``context_tables`` narrows what the statement may read below the guard's own allow-list
+    (``None`` means the whole allow-list). ``personal_data`` answers, for the tables the
+    statement was found to read, which of their columns are personal data; the default says
+    none are, for a caller with no semantic reader in hand (a unit test, a cookbook section
+    over a fixture).
+    """
+    try:
+        tables = guard.check(sql)
+    except SQLGuardRefusal as exc:
+        return QueryVerdict(status="refused", detail=exc.message, sql=sql)
+    return _check(
+        sql,
+        tables=tables,
+        guard=guard,
+        context_tables=context_tables,
+        personal_data=personal_data,
+    )
+
+
+async def acheck_query(
+    sql: str,
+    *,
+    guard: SQLGuard,
+    context_tables: Optional[FrozenSet[str]] = None,
+    personal_data: PersonalDataLookup = _no_personal_data,
+) -> QueryVerdict:
+    """Async variant -- the guard's allow-list source may itself be async."""
+    try:
+        tables = await guard.acheck(sql)
+    except SQLGuardRefusal as exc:
+        return QueryVerdict(status="refused", detail=exc.message, sql=sql)
+    return await asyncio.to_thread(
+        _check,
+        sql,
+        tables=tables,
+        guard=guard,
+        context_tables=context_tables,
+        personal_data=personal_data,
+    )
+
+
+# --- semantic lookups ----------------------------------------------------------------------
+
+
+def personal_data_columns(
+    reader: SemanticRead, tables: Sequence[str]
+) -> Dict[str, FrozenSet[str]]:
+    """``table -> {column, ...}`` of the personal-data columns of each named table, as the
+    semantic layer marks them. A table the layer does not expose contributes nothing -- the
+    guard already refused it if the statement reads it."""
+    found: Dict[str, FrozenSet[str]] = {}
+    for name in tables:
+        table = reader.get_table(name)
+        if table is None:
+            continue
+        found[table.ref.name.lower()] = frozenset(
+            c.name.lower() for c in table.personal_data_columns
+        )
+    return found
+
+
+async def apersonal_data_columns(
+    reader: SemanticRead, tables: Sequence[str]
+) -> Dict[str, FrozenSet[str]]:
+    """Async variant."""
+    found: Dict[str, FrozenSet[str]] = {}
+    for name in tables:
+        table = await reader.aget_table(name)
+        if table is None:
+            continue
+        found[table.ref.name.lower()] = frozenset(
+            c.name.lower() for c in table.personal_data_columns
+        )
+    return found
+
+
+# --- running -------------------------------------------------------------------------------
+
+
+def build_query_engine(settings: RetailSettings) -> Engine:
+    """The read-only warehouse engine, or the warehouse role with a warning when no read-only
+    DSN is configured -- the same fallback ``read_gold`` makes, for the same reason: the guard
+    runs either way, and a dev stack without the reader role should still render a chart."""
+    if settings.retail_warehouse_readonly_db_url:
+        return build_warehouse_readonly_engine(settings)
+    log_warning(
+        "dashboard query: EGPT_RETAIL_WAREHOUSE_READONLY_DB_URL unset; reading through the "
+        "warehouse role"
+    )
+    return build_warehouse_engine(settings)
+
+
+def _serialise(value: Any) -> Any:
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    if isinstance(value, (dt.datetime, dt.date, dt.time)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return value
+
+
+def run_query(
+    engine: Engine,
+    sql: str,
+    *,
+    limit: int,
+    statement_timeout_ms: int,
+) -> Tuple[List[str], List[Dict[str, Any]], int]:
+    """Execute one already-checked statement and fetch at most ``limit`` rows.
+
+    Uses the DBAPI cursor directly rather than SQLAlchemy's ``text()``: ``text()`` reads
+    ``:name`` as a bind parameter, and a chart's SQL can legitimately contain one inside a
+    string literal (``'10:30'``). ``SET LOCAL statement_timeout`` scopes the bound to this
+    transaction, which is rolled back on the way out -- it never wrote, and must never look
+    as though it could have.
+    """
+    started = dt.datetime.now(dt.timezone.utc)
+    raw = engine.raw_connection()
+    try:
+        cursor = raw.cursor()
+        try:
+            cursor.execute(
+                "SET LOCAL statement_timeout = %s", (int(statement_timeout_ms),)
+            )
+            cursor.execute(sql)
+            columns = [d[0] for d in (cursor.description or ())]
+            fetched = cursor.fetchmany(int(limit)) if columns else []
+        finally:
+            cursor.close()
+        raw.rollback()
+    finally:
+        raw.close()
+    rows = [
+        {name: _serialise(value) for name, value in zip(columns, record)}
+        for record in fetched
+    ]
+    duration = int((dt.datetime.now(dt.timezone.utc) - started).total_seconds() * 1000)
+    return columns, rows, duration
+
+
+async def arun_query(
+    engine: Engine,
+    sql: str,
+    *,
+    limit: int,
+    statement_timeout_ms: int,
+) -> Tuple[List[str], List[Dict[str, Any]], int]:
+    """Async variant: the round trip on a worker thread."""
+    return await asyncio.to_thread(
+        run_query,
+        engine,
+        sql,
+        limit=limit,
+        statement_timeout_ms=statement_timeout_ms,
+    )
+
+
+def _first_line(exc: BaseException) -> str:
+    return (
+        str(getattr(exc, "orig", exc)).splitlines()[0]
+        if str(exc)
+        else type(exc).__name__
+    )
+
+
+# --- preview -------------------------------------------------------------------------------
+
+
+def _preview_out(
+    verdict: QueryVerdict,
+    columns: Sequence[str],
+    rows: Sequence[Mapping[str, Any]],
+    duration_ms: int,
+    error: Optional[str],
+) -> wire.QueryPreview:
+    return wire.QueryPreview(
+        guard=verdict_out(verdict),
+        sql=verdict.sql,
+        columns=list(columns),
+        rows=[dict(r) for r in rows],
+        duration_ms=duration_ms,
+        error=error,
+    )
+
+
+def preview_query(
+    settings: RetailSettings,
+    sql: str,
+    *,
+    table_names: Optional[Sequence[str]] = None,
+    limit: int = PREVIEW_ROW_LIMIT,
+    reader: Optional[SemanticRead] = None,
+    engine: Optional[Engine] = None,
+) -> wire.QueryPreview:
+    """Check ``sql`` and, when it passes, run it for at most ``limit`` rows. Nothing is
+    stored. ``reader``/``engine`` are seams for a caller that already holds them (the
+    refresh loop, a cookbook); a bare call opens and closes its own."""
+    context = (
+        frozenset(t.lower() for t in table_names) if table_names is not None else None
+    )
+    if reader is None:
+        with open_semantic_reader(settings) as opened:
+            return preview_query(
+                settings,
+                sql,
+                table_names=table_names,
+                limit=limit,
+                reader=opened,
+                engine=engine,
+            )
+    guard = build_warehouse_read_guard(reader)
+    verdict = check_query(
+        sql,
+        guard=guard,
+        context_tables=context,
+        personal_data=lambda tables: personal_data_columns(reader, tables),
+    )
+    if not verdict.runnable:
+        return _preview_out(verdict, [], [], 0, None)
+
+    owned_engine = engine is None
+    handle = engine if engine is not None else build_query_engine(settings)
+    try:
+        columns, rows, duration = run_query(
+            handle,
+            verdict.sql,
+            limit=guard.effective_limit(limit, sql=verdict.sql),
+            statement_timeout_ms=guard.statement_timeout_ms,
+        )
+    except Exception as exc:
+        return _preview_out(verdict, [], [], 0, _first_line(exc))
+    finally:
+        if owned_engine:
+            handle.dispose()
+    return _preview_out(verdict, columns, rows, duration, None)
+
+
+async def apreview_query(
+    settings: RetailSettings,
+    sql: str,
+    *,
+    table_names: Optional[Sequence[str]] = None,
+    limit: int = PREVIEW_ROW_LIMIT,
+    reader: Optional[SemanticRead] = None,
+    engine: Optional[Engine] = None,
+) -> wire.QueryPreview:
+    """Async variant: the whole preview on a worker thread, since it holds a Neo4j session
+    and a warehouse connection in turn."""
+    return await asyncio.to_thread(
+        preview_query,
+        settings,
+        sql,
+        table_names=table_names,
+        limit=limit,
+        reader=reader,
+        engine=engine,
+    )
+
+
+# --- refresh (fill the cache) --------------------------------------------------------------
+
+
+def refresh_query_tiles(
+    dashboard: Dashboard,
+    settings: RetailSettings,
+    results: DashboardQueryResultStore,
+    *,
+    only: Optional[Iterable[str]] = None,
+) -> Dict[str, QueryResultRecord]:
+    """Run every ``query`` tile of ``dashboard`` (or just the ids in ``only``) through the
+    guard and the warehouse, and replace each cached result. A refusal or a warehouse error
+    is cached as the tile's ``error`` so the dashboard can say why, never raised past here.
+    Returns the records written, keyed by tile id.
+    """
+    wanted = set(only) if only is not None else None
+    tiles = [
+        t
+        for t in dashboard.tiles
+        if t.source is TileSource.QUERY and (wanted is None or t.id in wanted)
+    ]
+    written: Dict[str, QueryResultRecord] = {}
+    if not tiles:
+        return written
+
+    with open_semantic_reader(settings) as reader:
+        guard = build_warehouse_read_guard(reader)
+        engine = build_query_engine(settings)
+        try:
+            for tile in tiles:
+                written[tile.id] = _refresh_one(
+                    dashboard, tile, reader, guard, engine, results
+                )
+        finally:
+            engine.dispose()
+    return written
+
+
+def _refresh_one(
+    dashboard: Dashboard,
+    tile: Tile,
+    reader: SemanticRead,
+    guard: SQLGuard,
+    engine: Engine,
+    results: DashboardQueryResultStore,
+) -> QueryResultRecord:
+    assert tile.query is not None  # a query tile, by construction
+    verdict = check_query(
+        tile.query.sql,
+        guard=guard,
+        context_tables=tile.query.source_tables,
+        personal_data=lambda tables: personal_data_columns(reader, tables),
+    )
+    if not verdict.runnable:
+        return results.put(
+            dashboard.id,
+            tile.id,
+            columns=[],
+            rows=[],
+            duration_ms=0,
+            error=f"guard refused: {verdict.detail}",
+            sql=verdict.sql,
+        )
+    try:
+        columns, rows, duration = run_query(
+            engine,
+            verdict.sql,
+            limit=guard.row_cap,
+            statement_timeout_ms=guard.statement_timeout_ms,
+        )
+    except Exception as exc:
+        return results.put(
+            dashboard.id,
+            tile.id,
+            columns=[],
+            rows=[],
+            duration_ms=0,
+            error=_first_line(exc),
+            sql=verdict.sql,
+        )
+    return results.put(
+        dashboard.id,
+        tile.id,
+        columns=columns,
+        rows=rows,
+        duration_ms=duration,
+        error=None,
+        sql=verdict.sql,
+    )
+
+
+async def arefresh_query_tiles(
+    dashboard: Dashboard,
+    settings: RetailSettings,
+    results: DashboardQueryResultStore,
+    *,
+    only: Optional[Iterable[str]] = None,
+) -> Dict[str, QueryResultRecord]:
+    """Async variant."""
+    return await asyncio.to_thread(
+        refresh_query_tiles, dashboard, settings, results, only=only
+    )
