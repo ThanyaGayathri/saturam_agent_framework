@@ -2552,7 +2552,7 @@
       },
       "KpiSuggestionRun": {
         "type": "object",
-        "description": "One run of the K12 suggestion agent, started by `POST /kpis/suggestions` and polled at\n`GET /kpis/suggestions/{run_id}` (#254). A run is two frontier-tier model calls and can\ntake minutes, so it is not served inside a request. `result` is the same\n`KpiSuggestionList` the synchronous route returns, present once `status` is `succeeded`;\n`error` is why there is none, present once `failed`. A run whose executor was lost\n(the serving instance restarted mid-run) is reported `failed` by the read side after the\ndeployment's timeout plus a grace period, never `running` forever.\n",
+        "description": "One run of the K12 suggestion agent, started by `POST /kpis/suggestions` and polled at\n`GET /kpis/suggestions/{run_id}` (#254). A run is two frontier-tier model calls and can\ntake minutes, so it is not served inside a request. `result` is the same\n`KpiSuggestionList` the synchronous route returns, present once `status` is `succeeded`;\n`error` is why there is none, present once `failed`. A run whose executor was lost\n(the serving instance restarted mid-run) is reported `failed` by the read side after the\ndeployment's timeout plus a grace period, never `running` forever.\n\nTwo fields are for the person waiting: `phase` is the stage a `running` run is in, and\n`typical_duration_seconds` is how long this deployment's recent runs took, so a screen\ncan set an expectation up front and show progress against it.\n",
         "required": [
           "id",
           "status",
@@ -2611,8 +2611,35 @@
               "null"
             ],
             "description": "Written for the person polling. A timeout names the bound it hit."
+          },
+          "phase": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KpiSuggestionRunPhase"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set while `running`, as each stage begins; null on a `queued` run and on a\n`running` one that has not reached its first stage yet. Kept as it was once the run\nis terminal, so a `failed` run says where it failed.\n"
+          },
+          "typical_duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The median wall-clock seconds of this deployment's last few successful runs, or null\nbefore any has succeeded. An expectation, not a bound: a run may take longer, and the\ndeployment's timeout is the only limit.\n"
           }
         }
+      },
+      "KpiSuggestionRunPhase": {
+        "type": "string",
+        "description": "The stage a `running` suggestion run is in, in order: `reading` (the semantic layer the\nagents are shown is being gathered), `proposing` (the model calls), `checking` (assembly\nand feasibility against the snapshot). What a screen's stepper shows.\n",
+        "enum": [
+          "reading",
+          "proposing",
+          "checking"
+        ]
       },
       "KpiSuggestionRunRequest": {
         "type": "object",
@@ -7016,7 +7043,9 @@
                       "started_at": null,
                       "finished_at": null,
                       "result": null,
-                      "error": null
+                      "error": null,
+                      "phase": null,
+                      "typical_duration_seconds": 94.0
                     }
                   }
                 }
@@ -7197,7 +7226,9 @@
                       "started_at": "2026-09-14T10:00:01Z",
                       "finished_at": null,
                       "result": null,
-                      "error": null
+                      "error": null,
+                      "phase": "proposing",
+                      "typical_duration_seconds": 94.0
                     }
                   },
                   "succeeded": {
@@ -7240,7 +7271,9 @@
                         "notes": "",
                         "semantic_snapshot": "r3-contract.1"
                       },
-                      "error": null
+                      "error": null,
+                      "phase": "checking",
+                      "typical_duration_seconds": 94.0
                     }
                   },
                   "failed": {
@@ -7253,7 +7286,9 @@
                       "started_at": "2026-09-14T10:00:01Z",
                       "finished_at": "2026-09-14T10:03:01Z",
                       "result": null,
-                      "error": "The suggestion run did not finish within 180s."
+                      "error": "The suggestion run did not finish within 180s.",
+                      "phase": "proposing",
+                      "typical_duration_seconds": 94.0
                     }
                   }
                 }
