@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Trash2, X, ExternalLink } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, X, ExternalLink } from "lucide-react";
 import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
@@ -38,6 +38,9 @@ export default function KpiDetailPanel({
  onRemove,
  removing = false,
  removeError = null,
+ onAdopt,
+ adopting = false,
+ adoptError = null,
 }) {
  // "Remove from my metrics" asks once before it acts: the row is gone from the registry for
  // good, and there is no undo beyond adopting it again. Confirmed inline, not in a modal --
@@ -242,10 +245,32 @@ export default function KpiDetailPanel({
  </ul>
  </section>
 
- {/* No local edit screen has ever heard of a real registry KPI -- routing there would be
+ {suggested ? (
+ /* Symmetric to the registry case below: a live suggestion is not persisted anywhere and
+ has no row in Configure's mapping tree either, so "Edit KPI" would be equally misleading
+ here. Adopting it first is the honest next step -- the same one the card offers -- after
+ which the panel becomes the registry row this button already knows how to edit. Gated
+ the same way the card's own adopt button is: only a `ready` suggestion with a formula
+ can become a real KPI. */
+ bucketFor(detailRow) === "ready" && detailRow.suggestion.proposed_sql && (
+ <div className="space-y-1.5">
+ <button
+ type="button"
+ disabled={adopting}
+ onClick={() => onAdopt?.(detailRow)}
+ className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Plus size={14} />
+ {adopting ? "Adding…" : "Add to my metrics"}
+ </button>
+ {adoptError && <p className="text-xs text-status-critical">{adoptError}</p>}
+ </div>
+ )
+ ) : (
+ /* No local edit screen has ever heard of a real registry KPI -- routing there would be
  misleading, not merely inert, so the link is hidden rather than left to silently do
- nothing. */}
- {!fromRegistry && (
+ nothing. */
+ !fromRegistry && (
  <button
  type="button"
  onClick={onEdit}
@@ -253,6 +278,7 @@ export default function KpiDetailPanel({
  >
  Edit KPI →
  </button>
+ )
  )}
 
  {/* The reverse of "Add to my metrics": a registry KPI can be removed here, where it was

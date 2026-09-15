@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
  Search, ChevronRight, ChevronDown, ChevronLeft,
  ChevronsLeft, ChevronsRight, Folder, FolderOpen,
@@ -93,6 +94,8 @@ const PAGE_SIZE = 10;
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function KpiMappings() {
+ const location = useLocation();
+ const navigate = useNavigate();
  const { data, setData, hydrated, updateCustomKpi } = useKpiRegistry();
  const { processes } = useProcesses();
  const { profileId, isMiddlebyProfile: isMiddleby } = useDemoProfile();
@@ -118,6 +121,19 @@ export default function KpiMappings() {
  const [editorOpen, setEditorOpen] = useState(false);
  // AddKpiPanel expects editTarget = { ci, si, ki } to edit, or null to create.
  const [editTarget, setEditTarget] = useState(null);
+
+ // Arriving from Discovery's "Edit KPI" (KpiDiscoveryPage.jsx), pre-targeted at the row that
+ // sent us here instead of landing on the generic table and making the customer re-find it.
+ // Consumed once and cleared from history state, so a later back-navigation or refresh to this
+ // same URL does not keep reopening the editor.
+ useEffect(() => {
+  const target = location.state?.editTarget;
+  if (!target) return;
+  setEditTarget(target);
+  setEditorOpen(true);
+  navigate(location.pathname, { replace: true, state: null });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only location.state should retrigger this
+ }, [location.state]);
 
  // ── Derived values ────────────────────────────────────────────────────────
  const autoMappedCount = useMemo(() => allRows.filter(r => mappingStatusForKpi(r.kpi) === "linked").length, [allRows]);

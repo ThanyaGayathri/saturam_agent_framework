@@ -713,8 +713,20 @@ export default function KpiDiscoveryPage() {
      nameToIdsMap={nameToIdsMap}
      profileId={profileId}
      processLabelById={processLabelById}
-     onEdit={() => { setDetailRow(null); navigate("/configure/domain-mapping"); }}
+     onEdit={() => {
+      // Only reachable for a real tree row (the panel hides "Edit KPI" for a suggestion and
+      // for a registry row), so categoryIndex/sectionIndex/kpiIndex are genuine positions in
+      // the domain-mapping tree, not a suggestion's -1/-1/identifier sentinel -- KpiMappings.jsx
+      // reads these back to open AddKpiPanel already pre-targeted at this exact row, instead of
+      // landing on the generic, unfiltered table and making the customer re-find it.
+      const { categoryIndex: ci, sectionIndex: si, kpiIndex: ki } = detailRow;
+      setDetailRow(null);
+      navigate("/configure/domain-mapping", { state: { editTarget: { ci, si, ki } } });
+     }}
      onClose={() => { setRemoveState({ identifier: null, error: null }); setDetailRow(null); }}
+     onAdopt={handleAdopt}
+     adopting={!!detailRow.suggestion && adoptingIds.has(detailRow.suggestion.identifier)}
+     adoptError={detailRow.suggestion && adoptErrors[detailRow.suggestion.identifier]}
      trend={detailIdentifier ? seriesById[detailIdentifier] || { status: "loading" } : null}
      onTrendRetry={() => {
       if (!detailIdentifier) return;
