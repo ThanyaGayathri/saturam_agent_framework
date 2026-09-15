@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.1.5",
+    "version": "1.1.7",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -538,7 +538,7 @@
       },
       "BusinessArea": {
         "type": "object",
-        "description": "One node of the business hierarchy. `id` is a term from the deployment's `business_area`\nvocabulary (shipped ontology plus overlay, D9/G10). `supported` is derived from confirmed\nmappings (K9), never asserted.\n",
+        "description": "One node of the business hierarchy. `id` is a term from the deployment's `business_area`\nvocabulary (shipped ontology plus overlay, D9/G10). `supported` is derived from confirmed\nmappings (K9), never asserted; `concept_count`, `table_count` and `reason` are the\nevidence behind it, so a screen can show why as well as whether.\n",
         "required": [
           "id",
           "label",
@@ -564,6 +564,23 @@
           },
           "supported": {
             "type": "boolean"
+          },
+          "concept_count": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Accepted concepts in this area that have a confirmed table mapping (K9). 0 when unsupported."
+          },
+          "table_count": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Distinct tables backing those concepts."
+          },
+          "reason": {
+            "type": "string",
+            "default": "",
+            "description": "K9's one-sentence account of why the area is or is not supported, ready to render."
           },
           "origin": {
             "$ref": "#/components/schemas/TermOrigin"
@@ -5868,7 +5885,10 @@
                           ],
                           "description": "Who the customers are and how they behave.",
                           "supported": true,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 2,
+                          "table_count": 2,
+                          "reason": "2 concept(s) mapped to 2 table(s): Contact, Customer."
                         },
                         {
                           "id": "product",
@@ -5880,7 +5900,10 @@
                           ],
                           "description": "What is sold, and how each product performs.",
                           "supported": true,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 1,
+                          "table_count": 1,
+                          "reason": "1 concept(s) mapped to 1 table(s): Product."
                         },
                         {
                           "id": "inventory",
@@ -5892,7 +5915,10 @@
                           ],
                           "description": "What is on hand, what is short, what is overstocked.",
                           "supported": true,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 1,
+                          "table_count": 2,
+                          "reason": "1 concept(s) mapped to 2 table(s): StockLevel."
                         },
                         {
                           "id": "supply_chain",
@@ -5903,7 +5929,10 @@
                           ],
                           "description": "Suppliers, lead times, fulfilment reliability.",
                           "supported": true,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 1,
+                          "table_count": 1,
+                          "reason": "1 concept(s) mapped to 1 table(s): Supplier."
                         },
                         {
                           "id": "marketing",
@@ -5914,7 +5943,10 @@
                           ],
                           "description": "Reach, engagement and campaign performance.",
                           "supported": false,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 0,
+                          "table_count": 0,
+                          "reason": "No table is mapped to any concept in this area, so nothing here can be answered from data yet."
                         },
                         {
                           "id": "sales",
@@ -5926,7 +5958,10 @@
                           ],
                           "description": "Revenue, conversion and pipeline.",
                           "supported": true,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 2,
+                          "table_count": 3,
+                          "reason": "2 concept(s) mapped to 3 table(s): Order, OrderLine."
                         },
                         {
                           "id": "store_ops",
@@ -5938,7 +5973,10 @@
                           ],
                           "description": "In-store operations.",
                           "supported": false,
-                          "origin": "overlay"
+                          "origin": "overlay",
+                          "concept_count": 0,
+                          "table_count": 0,
+                          "reason": "No table is mapped to any concept in this area, so nothing here can be answered from data yet."
                         }
                       ]
                     }
@@ -5954,7 +5992,10 @@
                           "subject_areas": [],
                           "description": "Who the customers are and how they behave.",
                           "supported": false,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 0,
+                          "table_count": 0,
+                          "reason": "No table is mapped to any concept in this area, so nothing here can be answered from data yet."
                         },
                         {
                           "id": "product",
@@ -5962,7 +6003,10 @@
                           "subject_areas": [],
                           "description": "What is sold, and how each product performs.",
                           "supported": false,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 0,
+                          "table_count": 0,
+                          "reason": "No table is mapped to any concept in this area, so nothing here can be answered from data yet."
                         },
                         {
                           "id": "inventory",
@@ -5970,7 +6014,10 @@
                           "subject_areas": [],
                           "description": "What is on hand, what is short, what is overstocked.",
                           "supported": false,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 0,
+                          "table_count": 0,
+                          "reason": "No table is mapped to any concept in this area, so nothing here can be answered from data yet."
                         },
                         {
                           "id": "supply_chain",
@@ -5978,7 +6025,10 @@
                           "subject_areas": [],
                           "description": "Suppliers, lead times, fulfilment reliability.",
                           "supported": false,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 0,
+                          "table_count": 0,
+                          "reason": "No table is mapped to any concept in this area, so nothing here can be answered from data yet."
                         },
                         {
                           "id": "marketing",
@@ -5986,7 +6036,10 @@
                           "subject_areas": [],
                           "description": "Reach, engagement and campaign performance.",
                           "supported": false,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 0,
+                          "table_count": 0,
+                          "reason": "No table is mapped to any concept in this area, so nothing here can be answered from data yet."
                         },
                         {
                           "id": "sales",
@@ -5994,7 +6047,10 @@
                           "subject_areas": [],
                           "description": "Revenue, conversion and pipeline.",
                           "supported": false,
-                          "origin": "core"
+                          "origin": "core",
+                          "concept_count": 0,
+                          "table_count": 0,
+                          "reason": "No table is mapped to any concept in this area, so nothing here can be answered from data yet."
                         }
                       ]
                     }

@@ -109,6 +109,24 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.7 — 2026-09-15 — configure: `BusinessArea.concept_count`, `.table_count`, `.reason` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- three optional, defaulted fields on an
+existing schema, nothing removed or renamed -- so no negotiation and no major bump.
+Numbered 1.1.7, not 1.1.6: PR #259 (`KpiSuggestionRun.phase`), open at the same time,
+already claims 1.1.6.
+
+- **`BusinessArea.concept_count` / `.table_count` / `.reason`.** The discovery page's focus
+  prompt ("Which areas of the business do you care about most?") now takes its options from
+  `GET /business-areas` instead of a browser-local list, and shows *why* an area is or is not
+  supported, not only whether. K9 already computed that evidence on every call -- the
+  accepted concepts with a confirmed table mapping, the tables behind them, and a sentence
+  either way -- and the router returned only the boolean. The three fields are that
+  evidence: the two counts, plus `AreaStatus.reason` verbatim. `0`/`0`/the "No table is
+  mapped" sentence on an unsupported area; an overlay-added area (no ontology concepts, so
+  K9 never lists it) reads the same. Derived from the graph on every call, never stored --
+  the same rule as KPI feasibility.
+
 ## 1.1.5 — 2026-09-14 — kpis: suggestion runs, `POST /kpis/suggestions` + `GET /kpis/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for #254 (part of #222). Additive -- two new

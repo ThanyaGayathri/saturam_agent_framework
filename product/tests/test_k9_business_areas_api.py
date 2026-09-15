@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Dict
 
 import pytest
 from fastapi import FastAPI, Request
@@ -35,6 +36,7 @@ from egpt_retail.ontology.business_areas import (
     write_overlay,
 )
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
+from egpt_retail.semantic.areas import AreaStatus
 
 CORE = json.loads(CORE_PATH.read_text())
 CORE_IDS = [term["value"] for term in CORE["vocabularies"]["business_area"]]
@@ -407,13 +409,24 @@ def _client(*, authorization: bool = False, scopes=()) -> TestClient:
     return TestClient(app)
 
 
+def _backed(*area_ids: str) -> Dict[str, AreaStatus]:
+    """K9's answer with the ids given supported, each by one concept on one table -- the
+    shape `_supported` returns, so the router's evidence fields have something to carry."""
+    return {
+        area_id: AreaStatus(
+            area_id, True, concepts=("Concept",), tables=("silver.table",)
+        )
+        for area_id in area_ids
+    }
+
+
 @pytest.fixture
 def graph_says(monkeypatch):
     """Pin K9's answer: the areas a confirmed mapping backs."""
 
     def _pin(*area_ids: str):
         monkeypatch.setattr(
-            router_module, "_supported", lambda settings: frozenset(area_ids)
+            router_module, "_supported", lambda settings: _backed(*area_ids)
         )
 
     _pin("sales")
@@ -461,6 +474,10 @@ def test_get_reflects_the_configured_overlay(graph_says, overlay_file):
     added = next(area for area in body["areas"] if area["id"] == "store_ops")
     assert added["origin"] == "overlay"
     assert added["supported"] is False
+    # an overlay-added area has no ontology concepts, so K9 never lists it: unsupported by
+    # construction, and it still carries K9's own sentence rather than a blank
+    assert added["concept_count"] == 0 and added["table_count"] == 0
+    assert added["reason"].startswith("No table is mapped")
 
 
 @pytest.mark.parametrize(
@@ -706,3 +723,50 @@ def test_the_factory_mounts_the_router():
     from egpt_retail.app import factory
 
     assert "business_areas_router" in inspect.getsource(factory.build_agent_os)
+
+
+# ---------------------------------------------------------------------------
+# Contract 1.1.7: the evidence behind `supported` -- counts and K9's sentence -- so the
+# discovery page's focus prompt can show why an area is or is not selectable.
+# ---------------------------------------------------------------------------
+
+
+def test_get_carries_k9_evidence_counts_and_reason(graph_says, no_overlay):
+    graph_says("sales")
+    body = _client().get("/business-areas").json()
+    by_id = {area["id"]: area for area in body["areas"]}
+    assert by_id["sales"]["concept_count"] == 1
+    assert by_id["sales"]["table_count"] == 1
+    assert by_id["sales"]["reason"].startswith("1 concept(s) mapped to 1 table(s)")
+    assert by_id["inventory"]["concept_count"] == 0
+    assert by_id["inventory"]["table_count"] == 0
+    assert by_id["inventory"]["reason"].startswith("No table is mapped")
+
+
+def test_supported_runs_k9_over_the_graphs_mappings(monkeypatch, no_overlay):
+    """The success branch of `_supported`, which every other test pins: one mapped
+    concept makes its ontology area supported, with the concept and table counted."""
+    ontology = load_ontology(ARTIFACT_PATH)
+    concept = next(c for c in ontology.concepts if c.business_area == "sales")
+
+    class _Reader:
+        def mapped_concepts(self):
+            return {concept.name: ["silver.orders", "silver.order_lines"]}
+
+    @contextmanager
+    def _open(settings):
+        yield _Reader()
+
+    monkeypatch.setattr(router_module, "open_semantic_reader", _open)
+
+    body = _client().get("/business-areas").json()
+    by_id = {area["id"]: area for area in body["areas"]}
+    assert by_id["sales"]["supported"] is True
+    assert by_id["sales"]["concept_count"] == 1
+    assert by_id["sales"]["table_count"] == 2
+    assert concept.name in by_id["sales"]["reason"]
+    assert all(
+        not area["supported"] and area["concept_count"] == 0
+        for area in body["areas"]
+        if area["id"] != "sales"
+    )
