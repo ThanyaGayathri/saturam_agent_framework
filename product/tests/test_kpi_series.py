@@ -209,16 +209,16 @@ def test_history_by_date_sorts_out_of_order_rows():
 
 def test_a_composite_dimension_must_match_every_key_not_any_single_one():
     rows = [
-        _row("2026-09-14", "1", brand="Acme", channel="online"),
-        _row("2026-09-14", "2", brand="Borealis", channel="retail"),
+        # No overlap with the request at all -- the correct `all()` fallback (`dimensions[0]`).
+        _row("2026-09-14", "1", brand="Zenith", channel="wholesale"),
+        # Shares only `brand` with the request -- what a buggy `any()` would pick instead.
+        _row("2026-09-14", "2", brand="Acme", channel="online"),
     ]
     kpi = _kpi(identifier="sales__orders_by_brand_channel", grain="brand,channel")
-    # Neither row agrees with the requested dimension on both keys at once (row 1 shares only
-    # `brand`, row 2 shares only `channel`) -- partial agreement on one key must not resolve it.
     series = series_from_gold(
         kpi, _result(rows, rows), dimension={"brand": "Acme", "channel": "retail"}
     )
-    assert series.dimension == {"brand": "Acme", "channel": "online"}
+    assert series.dimension == {"brand": "Zenith", "channel": "wholesale"}
 
 
 def test_duplicate_dimension_values_on_one_date_are_not_double_listed():

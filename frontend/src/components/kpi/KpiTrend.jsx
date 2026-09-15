@@ -85,6 +85,13 @@ function dimensionLabel(dimension) {
     .join(" · ");
 }
 
+/** A React `key`-safe identity for a dimension: keys and values both, so two distinct
+ * dimensions can never collide on the same string the way joining values alone
+ * (`dimensionLabel`) could if a value itself contained the join separator. */
+function dimensionKey(dimension) {
+  return JSON.stringify(Object.entries(dimension || {}).sort());
+}
+
 /** How wide one bar chart bar is, in view units -- clamped so a single point (nothing to
  * space against) is not absurdly wide and a dense series does not overlap. */
 function barWidth(xs) {
@@ -420,7 +427,7 @@ export default function KpiTrend({ state, unit, resultShape, onRetry, onCompute,
               // others' tight min/max) nor a dimension-chip switch (a whole new points/domain
               // from `onPickDimension`, keyboard-reachable with no mouse event to clear it)
               // carries `hover` state across into the new chart.
-              key={`${chartKind}-${dimensionLabel(data.dimension)}`}
+              key={`${chartKind}-${dimensionKey(data.dimension)}`}
               points={points}
               unit={valueUnit}
               asOf={data.as_of}
