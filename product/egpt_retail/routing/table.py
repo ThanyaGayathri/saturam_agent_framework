@@ -62,6 +62,7 @@ ROUTING_TABLE: Mapping[str, Tier] = MappingProxyType(
         # the first cut ran them from cookbooks with a pinned model, bypassing routing.
         "kpi_suggestion": Tier.FRONTIER,  # K12
         "use_case_suggestion": Tier.FRONTIER,  # K13
+        "dashboard_suggestion": Tier.FRONTIER,  # one frontier-tier call per dashboard-suggestion run
     }
 )
 

@@ -76,6 +76,21 @@ def test_every_registered_agent_has_a_row() -> None:
     assert {SYNONYM_PROPOSER_ID, JOIN_PATH_EXPLAINER_ID} <= ids
 
 
+def test_the_suggestion_agents_built_lazily_per_request_are_still_routed() -> None:
+    """K12/K13/dashboard-suggestion agents are built per suggestion run, not by ``build_agents``
+    at boot (see its own docstring), so ``test_every_registered_agent_has_a_row`` above cannot
+    see them -- it only inspects the static, boot-time agent list. ``dashboard_suggestion``
+    shipped with no row here and only surfaced as an ``UnroutedAgentError`` the first time
+    someone actually ran a dashboard suggestion. Pin all three directly so a future lazily-built
+    agent can't slip through the same gap."""
+    from egpt_retail.suggestions.agents import KPI_SUGGESTION_ID, USE_CASE_SUGGESTION_ID
+    from egpt_retail.suggestions.dashboard_agents import DASHBOARD_SUGGESTION_ID
+
+    assert tier_for(KPI_SUGGESTION_ID) == Tier.FRONTIER
+    assert tier_for(USE_CASE_SUGGESTION_ID) == Tier.FRONTIER
+    assert tier_for(DASHBOARD_SUGGESTION_ID) == Tier.FRONTIER
+
+
 def test_the_tier_vocabulary_is_the_contracts() -> None:
     """`ModelTier` in schemas/configure.yaml is `[small, frontier]`; `ProvenanceModelTier`
     adds `none`. The enum and NO_MODEL_TIER must be exactly those, or PlanStep.model_tier and
