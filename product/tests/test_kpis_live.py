@@ -866,6 +866,44 @@ def test_compute_kpi_writes_gold_and_the_series_reads_it_back(
     assert series.as_of is not None and series.as_of.date() == result.as_of
 
 
+def test_list_kpi_health_reports_fresh_for_a_kpi_just_computed(
+    store: KpiRegistryStore, warehouse: Any
+) -> None:
+    """``GET /kpis/health`` end to end: compute writes gold for exactly this KPI, then the
+    health row for its identifier reads back ``fresh`` with this run's own id -- the same
+    round trip ``test_compute_kpi_writes_gold_and_the_series_reads_it_back`` checks for the
+    series, now for the freshness row the KPI health tab reads."""
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from egpt_retail.api.routers.kpis import (
+        _warehouse_engine,
+        compute_kpi,
+        list_kpi_health,
+    )
+
+    store.save(_definition(sql="SELECT count(*) FROM crm_contact"))
+    try:
+        result = asyncio.run(compute_kpi(IDENT, store=store))
+    except HTTPException as exc:
+        pytest.skip(f"compute refused ({exc.status_code}): {exc.detail}")
+    if result.status.value == "failed":
+        pytest.skip(f"the formula failed against this warehouse: {result.error}")
+
+    engine_gen = _warehouse_engine()
+    engine = next(engine_gen)
+    try:
+        rows = asyncio.run(list_kpi_health(store=store, engine=engine))
+    finally:
+        engine_gen.close()  # runs `_warehouse_engine`'s `finally: engine.dispose()`
+
+    row = next(r for r in rows if r.identifier == IDENT)
+    assert row.status.value == "fresh"
+    assert row.last_run_id == result.run_id
+    assert row.staleness_hours is not None and row.staleness_hours >= 0
+
+
 def test_suggestion_run_store_phase_round_trips_and_only_a_running_row_takes_one(
     run_store: SuggestionRunStore,
 ) -> None:

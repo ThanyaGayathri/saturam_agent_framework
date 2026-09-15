@@ -35,10 +35,12 @@ from egpt_retail.api.routers.kpis import (
     _suggestion_notes,
     _SuggestionRegistrySnapshot,
     _validated_business_area,
+    _warehouse_engine,
     create_kpi,
     delete_kpi,
     get_kpi,
     get_kpi_feasibility,
+    list_kpi_health,
     list_kpi_suggestions,
     list_kpis,
     update_kpi,
@@ -659,6 +661,75 @@ def test_delete_kpi_404s_on_a_missing_identifier():
             "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
         )
     assert excinfo.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /kpis/health
+# ---------------------------------------------------------------------------
+
+
+class _ListableKpiStore(_FakeKpiStore):
+    """``_FakeKpiStore`` plus the unfiltered ``list()`` read ``list_kpi_health`` needs --
+    mirrors ``_suggestion_registry_snapshot``'s own unfiltered ``store.list()`` call."""
+
+    def list(self, business_area=None):
+        return list(self._by_id.values())
+
+
+async def _fake_akpi_health(kpis, engine, **kwargs):
+    """Stands in for a real gold read: one row per KPI, shaped exactly like
+    ``classify_health``'s own output (``test_r5_gold.py`` pins that shape)."""
+    return [
+        {
+            "kpi_id": kpi.identifier,
+            "identifier": kpi.identifier,
+            "status": "fresh",
+            "last_computed_at": "2026-09-14T02:20:00Z",
+            "as_of": "2026-09-13T23:59:59Z",
+            "staleness_hours": 8.5,
+            "last_run_id": "run_gold_20260914",
+            "last_error": None,
+        }
+        for kpi in kpis
+    ]
+
+
+def test_list_kpi_health_maps_every_registered_kpi_into_a_wire_kpi_health(monkeypatch):
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+    kpi = _kpi()
+    store = _ListableKpiStore(existing=kpi)
+
+    result = asyncio.run(list_kpi_health(store=store, engine=object()))
+
+    assert len(result) == 1
+    row = result[0]
+    assert isinstance(row, wire_models.KpiHealth)
+    assert row.kpi_id == kpi.identifier
+    assert row.identifier == kpi.identifier
+    assert row.status == wire_models.KpiHealthStatus.fresh
+    assert row.staleness_hours == 8.5
+    assert row.last_run_id == "run_gold_20260914"
+
+
+def test_list_kpi_health_returns_an_empty_list_for_an_empty_registry(monkeypatch):
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+    store = _ListableKpiStore(existing=None)
+
+    assert asyncio.run(list_kpi_health(store=store, engine=object())) == []
+
+
+def test_warehouse_engine_dependency_503s_when_the_warehouse_is_not_configured(
+    monkeypatch,
+):
+    def _refuse(settings):
+        raise RuntimeError("EGPT_RETAIL_WAREHOUSE_DB_URL is not set.")
+
+    monkeypatch.setattr(kpis_module, "build_warehouse_engine", _refuse)
+
+    with pytest.raises(HTTPException) as excinfo:
+        next(_warehouse_engine())
+    assert excinfo.value.status_code == 503
+    assert "EGPT_RETAIL_WAREHOUSE_DB_URL" in excinfo.value.detail
 
 
 # ---------------------------------------------------------------------------

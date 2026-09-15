@@ -89,9 +89,10 @@ from egpt.os.scopes import has_required_scopes
 from egpt.utils.log import log_error, log_warning
 from egpt.workflow.types import StepInput
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.engine import Engine
 
 from egpt_retail.api import models as wire
-from egpt_retail.app.db import pooled_control_plane_connection
+from egpt_retail.app.db import build_warehouse_engine, pooled_control_plane_connection
 from egpt_retail.app.scopes import caller_scopes, require_scopes
 from egpt_retail.app.semantic import open_semantic_reader
 from egpt_retail.app.settings import RetailSettings
@@ -120,6 +121,7 @@ from egpt_retail.suggestions.runs import (
     SuggestionRunRecord,
     SuggestionRunStore,
 )
+from egpt_retail.warehouse.health import akpi_health
 
 __all__ = ["router"]
 
@@ -1028,6 +1030,58 @@ async def list_kpi_suggestions(
             status_code=504,
             detail=f"{exc} Use POST /kpis/suggestions and poll the run instead.",
         ) from exc
+
+
+# --- health (R5's gold freshness, joined against the registry) ----------------------------
+#
+# Declared before `/kpis/{kpi_id}` (same reason `/kpis/suggestions` is, above): a path
+# parameter route registered first would otherwise swallow `/kpis/health` as `kpi_id="health"`.
+
+
+def _warehouse_engine() -> Iterator[Engine]:
+    """A warehouse ``Engine`` for the span of one request, disposed on exit.
+
+    ``kpi_health`` reads two gold tables directly over SQLAlchemy (``warehouse/health.py``)
+    rather than through the ``read_gold`` executor ``get_kpi_series`` uses below, so this opens
+    its own engine the same way ``executors/preflight.py``'s ``_read_gold_health`` does --
+    ``build_warehouse_engine`` builds a fresh, unpooled engine per call (unlike
+    ``_kpi_store``'s cached, pooled control-plane connection), so disposal here is what
+    releases it, not a return to a shared pool.
+
+    ``build_warehouse_engine`` raises ``RuntimeError`` when ``EGPT_RETAIL_WAREHOUSE_DB_URL``
+    is unset; turned into a ``503`` here, the same posture ``compute_kpi`` already takes for
+    "gold refused to run" -- freshness has nothing to report from a warehouse that was never
+    configured, not a 500.
+    """
+    settings = RetailSettings()
+    try:
+        engine = build_warehouse_engine(settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@router.get("/kpis/health", response_model=list[wire.KpiHealth])
+async def list_kpi_health(
+    store: KpiRegistryStore = Depends(_kpi_store),
+    engine: Engine = Depends(_warehouse_engine),
+    _: None = Depends(require_scopes("kpis:read")),
+):
+    """Freshness of every registered KPI, from gold. One row per KPI in the registry --
+    including ``never_computed``/``not_scheduled``, the two statuses only the registry half
+    of ``classify_health`` can produce, since gold has no run at all to read for those.
+
+    ``store.list()`` reads every KPI (no filter, mirroring ``_suggestion_registry_snapshot``'s
+    own unfiltered read) rather than only ``active`` ones: ``active`` is still the #231
+    placeholder every KPI reports ``true`` for (see ``GET /kpis``'s own docstring), so filtering
+    on it here would not narrow anything real yet.
+    """
+    definitions = store.list()
+    rows = await akpi_health(definitions, engine)
+    return [wire.KpiHealth.model_validate(row) for row in rows]
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
