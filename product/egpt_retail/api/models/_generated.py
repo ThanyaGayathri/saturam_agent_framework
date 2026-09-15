@@ -814,6 +814,23 @@ class UseCaseRunSummary(BaseModel):
     finished_at: AwareDatetime | None = None
 
 
+class UseCaseShape(Enum):
+    """
+    What the use case does to the world (1.2.0, R-15): nothing, notify, write after a person
+    approves, write unattended. The shape is a property of the spec -- each shape has its own
+    form, chosen before the form is filled -- and it decides the parameter list, the workflow
+    the orchestration compiler generates, the readiness checks, and who may activate.
+    Mirrors `contracts.use_case.UseCaseShape`; the shipped vocabulary `use_case_shape` renders
+    the same four.
+
+    """
+
+    inform = "inform"
+    alert = "alert"
+    recommend = "recommend"
+    act = "act"
+
+
 class UseCaseSource(Enum):
     """
     Whether the entry shipped with the product as a template or the customer authored it.
@@ -854,6 +871,20 @@ class UseCaseSuggestionList(BaseModel):
     suggestions: list[UseCaseSuggestion]
     notes: str
     semantic_snapshot: str | None = None
+
+
+class UseCaseTemplate(Enum):
+    """
+    The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the
+    Act sequence as section 07 describes it; `document_to_record` is the Act sequence a
+    document-driven automation needs -- receive, screen, extract, resolve -- before the same
+    guarded write. Both are Act. The interface reads the template from the requirement's own
+    words and never asks for it; the compiler checks it belongs to the shape.
+
+    """
+
+    kpi_change = "kpi_change"
+    document_to_record = "document_to_record"
 
 
 class UseCaseWrite(BaseModel):
@@ -1970,3 +2001,15 @@ class Spec(BaseModel):
     )
     extracted_by: SkillRef
     semantic_snapshot: str | None = None
+    shape: UseCaseShape | None = Field(
+        None,
+        description="The shape the form was filled against (1.2.0, R-15). Null only on a spec extracted\nbefore a shape was chosen; the compiler refuses a null shape rather than defaulting\nto Inform.\n",
+    )
+    template: UseCaseTemplate | None = Field(
+        None,
+        description="The sequence within the shape, where the shape has more than one (1.2.0). Null means the shape's own sequence.",
+    )
+    parameters: dict[str, Any] | None = Field(
+        None,
+        description="The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`{id, param}` (id from the template's guardrail catalogue: duplicate_po,\nunknown_sender, first_time_product, quantity_anomaly, due_date_sanity,\nrestricted_product) for `document_to_record`; `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n",
+    )

@@ -36,13 +36,19 @@ from typing import Any, Collection, Dict, FrozenSet, List, Mapping, Optional, Tu
 
 from egpt_retail.contracts.use_case import (
     SHAPE_PARAMETERS,
+    TEMPLATE_PARAMETERS,
+    TEMPLATE_SHAPE,
     TIER_FOR_ROLE,
     UseCaseShape,
+    UseCaseTemplate,
 )
 
 __all__ = [
+    "OPTIONAL_SLOTS",
     "SHAPE_STAGES",
+    "TEMPLATE_STAGES",
     "TRIGGER_SLOTS",
+    "UnknownTemplate",
     "CompiledWorkflow",
     "ParameterOrigin",
     "Stage",
@@ -58,6 +64,10 @@ __all__ = [
 
 class UnknownShape(ValueError):
     """The spec named no shape, or named one that is not one of the four."""
+
+
+class UnknownTemplate(ValueError):
+    """The spec named a template that does not exist, or one of another shape."""
 
 
 class ParameterOrigin(str, Enum):
@@ -301,6 +311,106 @@ SHAPE_STAGES: Mapping[UseCaseShape, Tuple[Stage, ...]] = {
     ),
 }
 
+#: The sequences a shape has more than one of. Keyed by template; ``KPI_CHANGE`` is the Act
+#: row of :data:`SHAPE_STAGES` itself, so a spec that names no template compiles exactly as
+#: before. ``DOCUMENT_TO_RECORD`` is the first document-driven sequence: receive, screen,
+#: extract, resolve, then the same write-side machinery Act already has. Every stage is a
+#: generic verb -- nothing here says "order" or "Salesforce" -- and the use case is the slot
+#: values, which is what lets a second document-driven use case reuse it with no new executor.
+TEMPLATE_STAGES: Mapping[UseCaseTemplate, Tuple[Stage, ...]] = {
+    UseCaseTemplate.KPI_CHANGE: SHAPE_STAGES[UseCaseShape.ACT],
+    UseCaseTemplate.DOCUMENT_TO_RECORD: (
+        Stage(
+            "Receive",
+            StageKind.EXECUTOR,
+            "receive_messages",
+            consumes=("source mailbox", "message filter"),
+            description=(
+                "New messages matching the filter, each processed once -- the message id is "
+                "the provenance key. None → the run is logged and nothing else happens."
+            ),
+        ),
+        Stage(
+            "Screen",
+            StageKind.BRANCH,
+            "screen_documents",
+            consumes=("document type",),
+            description=(
+                "Deterministic. Exactly one document of the declared type, from a known "
+                "sender, under the size limit; anything else is an exception before a model "
+                "is called."
+            ),
+        ),
+        Stage(
+            "Extract",
+            StageKind.MODEL,
+            role="extraction",
+            consumes=("extraction template", "example document"),
+            description=(
+                "One model step. Fills the template's schema from the document; a field not "
+                "on the document is null. Output validated against the schema before "
+                "anything downstream reads it."
+            ),
+        ),
+        Stage(
+            "Resolve",
+            StageKind.BRANCH,
+            "resolve_entities",
+            consumes=("master data", "match thresholds"),
+            description=(
+                "Scored matching against master data in a fixed order of attempts. Below "
+                "threshold is an exception with the closest candidate, never a guess."
+            ),
+        ),
+        Stage(
+            "Apply guardrails",
+            StageKind.BRANCH,
+            "apply_hard_limits",
+            consumes=("guardrails",),
+            guards_write=True,
+            description="Record-level checks. Any failure raises an exception; nothing is written.",
+        ),
+        Stage(
+            "Build record",
+            StageKind.EXECUTOR,
+            "build_record",
+            consumes=("target objects", "created as"),
+            description=(
+                "Maps the resolved fields onto the target's objects. A required field the "
+                "mapping cannot fill is an exception, not a blank."
+            ),
+        ),
+        Stage(
+            "Apply change limit",
+            StageKind.BRANCH,
+            "apply_per_run_cap",
+            consumes=("per-run cap",),
+            guards_write=True,
+        ),
+        Stage(
+            "Write", StageKind.EXECUTOR, "write_to_target", consumes=("write target",)
+        ),
+        Stage(
+            "Record rollback point",
+            StageKind.EXECUTOR,
+            "record_rollback_point",
+            consumes=("rollback",),
+            guards_write=True,
+        ),
+        Stage(
+            "Notify",
+            StageKind.EXECUTOR,
+            "send_email",
+            consumes=("recipient", "acknowledge"),
+            description=(
+                "The sender is acknowledged with the record number or the exception reason; "
+                "exceptions go to the configured address as well as the in-app record."
+            ),
+        ),
+        Stage("Record provenance", StageKind.EXECUTOR, "record_provenance"),
+    ),
+}
+
 #: Which spec or draft field fills each slot, as a dotted path into the contract's
 #: ``UseCaseDraft`` where the field exists there today (``step8.schedule`` is what the
 #: interface actually writes; a flat ``schedule`` is also accepted so a caller assembling a
@@ -326,7 +436,23 @@ _SLOT_VALUES: Mapping[str, Tuple[str, str]] = {
     "timeout behaviour": ("draft", "timeout_behaviour"),
     "per-run cap": ("draft", "per_run_cap"),
     "rollback": ("draft", "rollback"),
+    # Document-to-record slots. Flat keys until the contract carries them (R-15).
+    "source mailbox": ("draft", "source_mailbox"),
+    "message filter": ("draft", "message_filter"),
+    "document type": ("draft", "document_type"),
+    "extraction template": ("draft", "extraction_template"),
+    "example document": ("draft", "example_document"),
+    "master data": ("draft", "master_data"),
+    "match thresholds": ("draft", "match_thresholds"),
+    "acknowledge": ("draft", "acknowledge"),
+    "target objects": ("draft", "target_objects"),
+    "created as": ("draft", "created_as"),
 }
+
+#: Slots that may be empty without blocking publication: the value is optional by design.
+#: An example document improves extraction but a template's schema is enough to run; an
+#: acknowledgement is a courtesy, not a guard.
+OPTIONAL_SLOTS: FrozenSet[str] = frozenset({"example document", "acknowledge"})
 
 
 @dataclass
@@ -335,6 +461,9 @@ class CompiledWorkflow:
 
     use_case_id: str
     shape: UseCaseShape
+    #: The sequence within the shape, where the shape has more than one. None means the
+    #: shape's own sequence.
+    template: Optional[UseCaseTemplate] = None
     autonomy: Optional[str] = None
     #: The serialised workflow, in the shape ``plan_from_config`` walks.
     config: Dict[str, Any] = field(default_factory=lambda: {"steps": []})
@@ -391,8 +520,13 @@ class CompiledWorkflow:
             f"stage {stage!r} needs executor {ref!r}, which this deployment does not register"
             for stage, ref in self.missing_capabilities.items()
         ]
+        what = (
+            f"the {self.template.value} template"
+            if self.template
+            else f"the {self.shape.value} shape"
+        )
         reasons += [
-            f"the {self.shape.value} shape requires a {slot!r} parameter and nothing filled it"
+            f"{what} requires a {slot!r} parameter and nothing filled it"
             for slot in self.unfilled_slots
         ]
         return reasons
@@ -509,11 +643,59 @@ def _shape_of(spec: Mapping[str, Any], shape: Optional[Any]) -> UseCaseShape:
         ) from None
 
 
+def _template_of(
+    spec: Mapping[str, Any], template: Optional[Any], shape: UseCaseShape
+) -> Optional[UseCaseTemplate]:
+    """The sequence within the shape, if the spec names one. Never inferred here.
+
+    The interface reads the template from the requirement's own words and writes it into the
+    spec; the compiler only checks that what it was given exists and belongs to the shape. A
+    template of another shape is refused rather than silently re-shaped -- an Act sequence
+    compiled under Inform would drop its write guards.
+    """
+    raw = template if template is not None else spec.get("template")
+    if raw is None:
+        return None
+    if isinstance(raw, UseCaseTemplate):
+        resolved = raw
+    else:
+        try:
+            resolved = UseCaseTemplate(str(raw).strip().lower())
+        except ValueError:
+            raise UnknownTemplate(
+                f"{raw!r} is not a template "
+                f"({', '.join(t.value for t in UseCaseTemplate)})."
+            ) from None
+    if TEMPLATE_SHAPE[resolved] is not shape:
+        raise UnknownTemplate(
+            f"template {resolved.value!r} is a {TEMPLATE_SHAPE[resolved].value} sequence and "
+            f"cannot be compiled as {shape.value}."
+        )
+    return resolved
+
+
+def _spec_parameter(spec: Mapping[str, Any], slot: str) -> Any:
+    """``spec.parameters[slot]`` -- the per-shape form's values, keyed by slot name.
+
+    The contract's ``Spec.parameters`` (1.2.0) carries exactly the shape's or template's slot
+    list, so the compiler reads one place for every shape. Accepted under the slot name as
+    written ("per-run cap") and under its slug ("per_run_cap"), because the interface writes
+    the slug and a person types the name.
+    """
+    params = spec.get("parameters")
+    if not isinstance(params, Mapping):
+        return None
+    if slot in params:
+        return params[slot]
+    return params.get(_slug(slot))
+
+
 def compile_workflow(
     spec: Mapping[str, Any],
     *,
     registered_executors: Collection[str],
     shape: Optional[Any] = None,
+    template: Optional[Any] = None,
     autonomy: Optional[str] = None,
     draft: Optional[Mapping[str, Any]] = None,
     use_case_id: Optional[str] = None,
@@ -533,14 +715,28 @@ def compile_workflow(
     draft = draft or {}
     identifier = use_case_id or str(spec.get("use_case_id") or "use_case")
     resolved = _shape_of(spec, shape)
+    resolved_template = _template_of(spec, template, resolved)
     known = set(registered_executors)
     compiled = CompiledWorkflow(
-        use_case_id=identifier, shape=resolved, autonomy=autonomy
+        use_case_id=identifier,
+        shape=resolved,
+        template=resolved_template,
+        autonomy=autonomy,
+    )
+    stages = (
+        TEMPLATE_STAGES[resolved_template]
+        if resolved_template is not None
+        else SHAPE_STAGES[resolved]
+    )
+    slots = (
+        TEMPLATE_PARAMETERS[resolved_template]
+        if resolved_template is not None
+        else SHAPE_PARAMETERS[resolved]
     )
 
     steps: List[Dict[str, Any]] = []
     missing_gate = False
-    for index, stage in enumerate(SHAPE_STAGES[resolved], start=1):
+    for index, stage in enumerate(stages, start=1):
         step_id = f"{identifier}.{index:02d}.{_slug(stage.name)}"
         if stage.kind is StageKind.MODEL:
             agent_id = f"{identifier}__{stage.role or _slug(stage.name)}"
@@ -595,10 +791,18 @@ def compile_workflow(
     # already filled would do nothing -- and the origin of whichever won is recorded, because
     # "the approver set this cap" and "a model inferred this cap from a sentence" are
     # different facts about the same number.
-    for slot in SHAPE_PARAMETERS[resolved]:
+    for slot in slots:
         source, key = _SLOT_VALUES.get(slot, ("draft", _slug(slot)))
         authored = _lookup(draft, key)
-        spec_value = _lookup(spec, key) if source == "spec" else None
+        # The slot's own slug is always accepted on the draft, whatever legacy path the table
+        # names: a document-to-record form writes ``guardrails`` where the KPI form wrote
+        # ``step8.guardrail_amount``, and both are the "guardrails" slot.
+        if not _filled(authored):
+            authored = draft.get(_slug(slot))
+        # The per-shape form's values, then the extractor's legacy top-level fields.
+        spec_value = _spec_parameter(spec, slot)
+        if not _filled(spec_value) and source == "spec":
+            spec_value = _lookup(spec, key)
 
         if _filled(authored):
             compiled.parameters[slot] = authored
@@ -606,7 +810,7 @@ def compile_workflow(
         elif _filled(spec_value):
             compiled.parameters[slot] = spec_value
             compiled.parameter_origins[slot] = ParameterOrigin.SPEC
-        else:
+        elif slot not in OPTIONAL_SLOTS:
             compiled.unfilled_slots.append(slot)
 
     # A sequence missing its gate carries no steps at all. That is the one shortfall where a
@@ -618,7 +822,7 @@ def compile_workflow(
     if missing_gate:
         guards = [
             stage.name
-            for stage in SHAPE_STAGES[resolved]
+            for stage in stages
             if (stage.kind is StageKind.GATE or stage.guards_write)
             and stage.name in compiled.missing_capabilities
         ]
@@ -640,6 +844,7 @@ async def acompile_workflow(
     *,
     registered_executors: Collection[str],
     shape: Optional[Any] = None,
+    template: Optional[Any] = None,
     autonomy: Optional[str] = None,
     draft: Optional[Mapping[str, Any]] = None,
     use_case_id: Optional[str] = None,
@@ -650,6 +855,7 @@ async def acompile_workflow(
         spec,
         registered_executors=registered_executors,
         shape=shape,
+        template=template,
         autonomy=autonomy,
         draft=draft,
         use_case_id=use_case_id,
@@ -687,6 +893,32 @@ def capability_report(
             "satisfied_elsewhere": satisfied,
             "missing": missing,
             "parameters": list(SHAPE_PARAMETERS[shape]),
+        }
+    # Templates that are not simply a shape's own sequence get a row of their own, keyed
+    # ``<shape>/<template>`` so a reader sees which shape's guarantees they carry.
+    for tmpl, stages in TEMPLATE_STAGES.items():
+        shape = TEMPLATE_SHAPE[tmpl]
+        if stages is SHAPE_STAGES[shape]:
+            continue
+        missing = {
+            stage.name: stage.executor_ref or ""
+            for stage in stages
+            if stage.kind is not StageKind.MODEL
+            and not stage.satisfied_by
+            and (stage.executor_ref or "") not in known
+        }
+        satisfied = {
+            stage.name: stage.satisfied_by or ""
+            for stage in stages
+            if stage.satisfied_by
+        }
+        report[f"{shape.value}/{tmpl.value}"] = {
+            "stages": len(stages),
+            "model_steps": sum(1 for s in stages if s.kind is StageKind.MODEL),
+            "buildable": len(stages) - len(missing) - len(satisfied),
+            "satisfied_elsewhere": satisfied,
+            "missing": missing,
+            "parameters": list(TEMPLATE_PARAMETERS[tmpl]),
         }
     return report
 

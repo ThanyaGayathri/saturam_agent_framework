@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.1.7",
+    "version": "1.2.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -3744,6 +3744,33 @@
           },
           "semantic_snapshot": {
             "type": "string"
+          },
+          "shape": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UseCaseShape"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The shape the form was filled against (1.2.0, R-15). Null only on a spec extracted\nbefore a shape was chosen; the compiler refuses a null shape rather than defaulting\nto Inform.\n"
+          },
+          "template": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UseCaseTemplate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sequence within the shape, where the shape has more than one (1.2.0). Null means the shape's own sequence."
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`{id, param}` (id from the template's guardrail catalogue: duplicate_po,\nunknown_sender, first_time_product, quantity_anomaly, due_date_sanity,\nrestricted_product) for `document_to_record`; `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n"
           }
         }
       },
@@ -4457,6 +4484,16 @@
           }
         }
       },
+      "UseCaseShape": {
+        "type": "string",
+        "enum": [
+          "inform",
+          "alert",
+          "recommend",
+          "act"
+        ],
+        "description": "What the use case does to the world (1.2.0, R-15): nothing, notify, write after a person\napproves, write unattended. The shape is a property of the spec -- each shape has its own\nform, chosen before the form is filled -- and it decides the parameter list, the workflow\nthe orchestration compiler generates, the readiness checks, and who may activate.\nMirrors `contracts.use_case.UseCaseShape`; the shipped vocabulary `use_case_shape` renders\nthe same four.\n"
+      },
       "UseCaseSource": {
         "type": "string",
         "enum": [
@@ -4544,6 +4581,14 @@
             "type": "string"
           }
         }
+      },
+      "UseCaseTemplate": {
+        "type": "string",
+        "enum": [
+          "kpi_change",
+          "document_to_record"
+        ],
+        "description": "The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the\nAct sequence as section 07 describes it; `document_to_record` is the Act sequence a\ndocument-driven automation needs -- receive, screen, extract, resolve -- before the same\nguarded write. Both are Act. The interface reads the template from the requirement's own\nwords and never asks for it; the compiler checks it belongs to the shape.\n"
       },
       "UseCaseWrite": {
         "type": "object",

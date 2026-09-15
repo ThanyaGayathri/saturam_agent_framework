@@ -34,6 +34,16 @@ per-shape forms and cannot express an Alert at all. See open item **K-8**.
    starter is not a fact the workflow depends on.
 
 K13 may cite the second in a suggestion's ``template_id``. K15 uses only the first.
+
+**A third sense arrived with the first document-driven use case, and it is deliberately the
+first sense with one more axis.** Two use cases can share a shape and not a sequence: a
+Process Automation that tunes safety stock from a KPI and one that turns an emailed purchase
+order into a Salesforce order are both Act -- one unattended write, guarded, capped, reversible
+-- but nothing in the KPI-driven sequence reads a document, and nothing in the document-driven
+one reads gold. :class:`UseCaseTemplate` names the sequence within the shape; the shape still
+decides what the write may and may not do. A template is data (a stage table and a slot list),
+never a Python workflow, so the orchestration agent composes it the way it composes a shape.
+The test of the design: a second document-to-record use case must need no new executor.
 """
 
 from __future__ import annotations
@@ -44,7 +54,10 @@ from typing import Mapping, Tuple
 
 __all__ = [
     "SHAPE_PARAMETERS",
+    "TEMPLATE_PARAMETERS",
+    "TEMPLATE_SHAPE",
     "TIER_FOR_ROLE",
+    "UseCaseTemplate",
     "Autonomy",
     "UseCaseShape",
 ]
@@ -114,8 +127,63 @@ SHAPE_PARAMETERS: Mapping[UseCaseShape, Tuple[str, ...]] = MappingProxyType(
 )
 
 
+class UseCaseTemplate(str, Enum):
+    """The sequence within a shape, where a shape has more than one.
+
+    ``KPI_CHANGE`` is the Act sequence build-plan section 07 describes: read gold, select
+    candidates, propose, guard, cap, write. ``DOCUMENT_TO_RECORD`` is the Act sequence a
+    document-driven automation needs: receive, screen, extract, resolve, guard, build, cap,
+    write. Same shape, same guarantees around the write, different stages before it. The
+    interface never asks for this; it reads it from the requirement.
+    """
+
+    KPI_CHANGE = "kpi_change"
+    DOCUMENT_TO_RECORD = "document_to_record"
+
+
+#: Which shape each template is a sequence of. Both are Act today; a template of another shape
+#: would be added here, not inferred.
+TEMPLATE_SHAPE: Mapping[UseCaseTemplate, UseCaseShape] = MappingProxyType(
+    {
+        UseCaseTemplate.KPI_CHANGE: UseCaseShape.ACT,
+        UseCaseTemplate.DOCUMENT_TO_RECORD: UseCaseShape.ACT,
+    }
+)
+
+#: The parameters each template's spec form carries, in the form's order. ``KPI_CHANGE`` is
+#: exactly the Act shape's list; ``DOCUMENT_TO_RECORD`` replaces the KPI-driven front half
+#: (candidates, metrics) with the document-driven one and keeps the write-side slots
+#: (guardrails, write target, per-run cap, rollback, schedule) under the same names, because
+#: the executors that consume them are the same ones.
+TEMPLATE_PARAMETERS: Mapping[UseCaseTemplate, Tuple[str, ...]] = MappingProxyType(
+    {
+        UseCaseTemplate.KPI_CHANGE: SHAPE_PARAMETERS[UseCaseShape.ACT],
+        UseCaseTemplate.DOCUMENT_TO_RECORD: (
+            "source mailbox",
+            "message filter",
+            "document type",
+            "extraction template",
+            "example document",
+            "master data",
+            "match thresholds",
+            "guardrails",
+            "recipient",
+            "acknowledge",
+            "write target",
+            "target objects",
+            "created as",
+            "per-run cap",
+            "rollback",
+            "schedule",
+        ),
+    }
+)
+
+
 #: The model tier each model-step role runs on, from K14 section 1 under G6: explanation runs
 #: on the small tier, suggestion on the frontier tier because it is rare and quality-critical.
+#: Extraction runs on the frontier tier too: a mis-read quantity becomes a wrong order, and the
+#: cost is one call per document rather than per run.
 #:
 #: Here rather than in the authoring skill because both halves of K15 need it and must agree.
 #: The compiler emits it so activation can register the generated agent; the step-prompt skill
@@ -125,5 +193,6 @@ TIER_FOR_ROLE: Mapping[str, str] = MappingProxyType(
     {
         "explanation": "small",
         "proposal": "frontier",
+        "extraction": "frontier",
     }
 )

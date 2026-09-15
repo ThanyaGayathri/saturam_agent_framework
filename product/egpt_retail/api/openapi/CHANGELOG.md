@@ -109,6 +109,33 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.2.0 — 2026-09-15 — use-cases: `Spec.shape`, `Spec.template`, `Spec.parameters` (additive; closes R-15)
+
+Agreed by: Lane K (kiruthiga). Additive -- three optional fields on `Spec` and two new enums --
+so no negotiation; a minor bump rather than a patch because it is the field the whole
+create-use-case flow has been waiting on since open item R-15 (10 Sep).
+
+- **`Spec.shape`** -- the shape the form was filled against, mirroring
+  `contracts.use_case.UseCaseShape`. Until now `Spec` had no shape and the compiler read it
+  from a flat key; the interface has chosen the shape first since the per-shape forms landed.
+- **`Spec.template`** -- the sequence within a shape, where a shape has more than one. The
+  first is `document_to_record` under Act: a Process Automation that turns an emailed
+  document into a record. Same shape, same guarantees around the write; different stages
+  before it. `kpi_change` names the Act sequence that already existed. The interface reads
+  the template from the requirement's words; it is never a form field.
+- **`Spec.parameters`** -- the per-shape form's values keyed exactly by the shape's (or
+  template's) parameter list, so the gap check and the compiler read one place for every
+  shape instead of nine flat keys and `step8.*`. Value shapes for the structured ones
+  (guardrails, candidates, recipient, master data, thresholds) are written into the field's
+  description so the interface and the compiler cannot drift. The draft still wins over the
+  spec, and the compiled workflow records the origin of every value.
+
+Not changed, deliberately: `UseCaseDraft` keeps `step1.autonomy` and `step8.*`, because the
+activation screen reads them back; `Spec.delivery` stays, and `parameters.recipient.channels`
+carries the per-shape reading of the same fact. `TimeoutBehaviour`, `Rollback` and the
+document-template guardrail catalogue remain strings with their closed sets documented rather
+than enums -- they are content the product ships, not contract.
+
 ## 1.1.7 — 2026-09-15 — configure: `BusinessArea.concept_count`, `.table_count`, `.reason` (additive)
 
 Agreed by: product (nandha-saturam). Additive -- three optional, defaulted fields on an

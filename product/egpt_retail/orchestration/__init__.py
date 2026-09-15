@@ -20,10 +20,16 @@ from egpt_retail.orchestration.compiler import (
     compile_workflow,
     diff_against,
     normalise_config,
+    OPTIONAL_SLOTS,
+    TEMPLATE_STAGES,
+    UnknownTemplate,
 )
 
 __all__ = [
+    "OPTIONAL_SLOTS",
     "SHAPE_STAGES",
+    "TEMPLATE_STAGES",
+    "UnknownTemplate",
     "TRIGGER_SLOTS",
     "CompiledWorkflow",
     "ParameterOrigin",

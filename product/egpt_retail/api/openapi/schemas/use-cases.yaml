@@ -11,6 +11,27 @@ UseCaseSource:
   enum: [template, user]
   description: Whether the entry shipped with the product as a template or the customer authored it.
 
+UseCaseShape:
+  type: string
+  enum: [inform, alert, recommend, act]
+  description: |
+    What the use case does to the world (1.2.0, R-15): nothing, notify, write after a person
+    approves, write unattended. The shape is a property of the spec -- each shape has its own
+    form, chosen before the form is filled -- and it decides the parameter list, the workflow
+    the orchestration compiler generates, the readiness checks, and who may activate.
+    Mirrors `contracts.use_case.UseCaseShape`; the shipped vocabulary `use_case_shape` renders
+    the same four.
+
+UseCaseTemplate:
+  type: string
+  enum: [kpi_change, document_to_record]
+  description: |
+    The sequence within a shape, where a shape has more than one (1.2.0). `kpi_change` is the
+    Act sequence as section 07 describes it; `document_to_record` is the Act sequence a
+    document-driven automation needs -- receive, screen, extract, resolve -- before the same
+    guarded write. Both are Act. The interface reads the template from the requirement's own
+    words and never asks for it; the compiler checks it belongs to the shape.
+
 Autonomy:
   type: string
   enum: [copilot, autopilot]
@@ -180,6 +201,47 @@ Spec:
     extracted_by:
       $ref: './common.yaml#/SkillRef'
     semantic_snapshot: {type: string}
+    shape:
+      oneOf:
+        - $ref: './use-cases.yaml#/UseCaseShape'
+        - type: "null"
+      description: |
+        The shape the form was filled against (1.2.0, R-15). Null only on a spec extracted
+        before a shape was chosen; the compiler refuses a null shape rather than defaulting
+        to Inform.
+    template:
+      oneOf:
+        - $ref: './use-cases.yaml#/UseCaseTemplate'
+        - type: "null"
+      description: The sequence within the shape, where the shape has more than one (1.2.0). Null means the shape's own sequence.
+    parameters:
+      type: object
+      additionalProperties: true
+      description: |
+        The per-shape form's values, keyed by parameter name exactly as
+        `contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)
+        lists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,
+        recipient`; for Alert `metric, operator, threshold, scope, severity, recipient,
+        schedule`; for Recommend `candidates, metrics, guardrails, approver, write target,
+        timeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,
+        per-run cap, rollback, schedule`; for the `document_to_record` template `source
+        mailbox, message filter, document type, extraction template, example document,
+        master data, match thresholds, guardrails, recipient, acknowledge, write target,
+        target objects, created as, per-run cap, rollback, schedule`. Keys may be written as
+        the name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler
+        read this one place; a value the author typed on the form (the draft) still wins over
+        a value the extractor put here, and the compiled workflow records which.
+
+        Value shapes, so the interface and the compiler agree: `guardrails` is a list of
+        `{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of
+        `{id, param}` (id from the template's guardrail catalogue: duplicate_po,
+        unknown_sender, first_time_product, quantity_anomaly, due_date_sanity,
+        restricted_product) for `document_to_record`; `candidates` is `{concept, filter}`;
+        `recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;
+        `master data` is `{customer, contact, shipTo, product, orderHistory}` naming
+        semantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,
+        aiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;
+        `created as` is `draft` or `active`. Everything else is a string.
 
 GapKind:
   type: string
