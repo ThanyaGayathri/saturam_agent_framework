@@ -14,7 +14,7 @@ import logging
 import pytest
 from egpt.agent import AgentFactory
 from egpt.providers.escalation import EscalatingModelProvider
-from egpt.providers.model_provider import ModelResolveRequest
+from egpt.providers.model_provider import ModelProviderConfigError, ModelResolveRequest
 from egpt.workflow.types import StepInput, StepOutput
 
 from egpt_retail.app.components import (
@@ -184,8 +184,6 @@ def test_a_whitespace_padded_model_provider_still_pins_the_azure_deployment() ->
 
 
 def test_build_tier_providers_refuses_an_unknown_model_provider() -> None:
-    from egpt.providers.model_provider import ModelProviderConfigError
-
     with pytest.raises(ModelProviderConfigError, match="azure-openai-typo"):
         build_tier_providers(_settings(retail_model_provider="azure-openai-typo"))
 

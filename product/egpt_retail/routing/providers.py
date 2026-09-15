@@ -51,9 +51,12 @@ __all__ = [
 #: in ``model_id`` (the Azure deployment name) and in the window the small one declares.
 #:
 #: Does double duty as the sentinel ``TierModelProvider.__init__`` compares against to decide
-#: whether the Azure-only ``azure_deployment`` client pin applies -- harmless while Azure is the
-#: only Mode B provider with that failure mode, but a second provider needing an analogous pin
-#: would need its own condition rather than overloading this name.
+#: whether the Azure-only ``azure_deployment`` client pin applies. Before #268, Azure was the
+#: only reachable provider at all, so "no second case exists yet" was trivially true; now any of
+#: ``egpt.providers.mode_b.FRONTIER_PROVIDER_KEYS`` is one setting away, which is precisely the
+#: condition under which a second deployment-routed provider needing an analogous pin becomes
+#: plausible. Still not worth a lookup table of one member -- split this out the day a second
+#: provider actually needs its own client-side pin, not before.
 AZURE_PROVIDER_KEY = "azure-openai"
 
 
@@ -91,7 +94,7 @@ class TierModelProvider(FrontierModelProvider):
         # mode: each keys a request off `id` alone, which `model_id=deployment` below already
         # gives it, so nothing extra is pinned for them.
         #
-        # Decided against `provider_key.strip()`, not the raw argument. `FrontierModelProvider.
+        # Compared against `provider_key.strip()`, not the raw argument. `FrontierModelProvider.
         # __init__` `.strip()`s the same argument before storing/validating it, and
         # `RetailSettings` has no `str_strip_whitespace` config to normalize
         # `EGPT_RETAIL_MODEL_PROVIDER` first. Comparing the raw value let a stray space (a
@@ -128,7 +131,11 @@ class TierModelProvider(FrontierModelProvider):
             base,
             provider_keys=(self.provider_key,),
             context_window=self._context_window,
-            notes={**base.notes, "tier": self.tier.value, "model_id": self.model_id},
+            # Only `tier` here, not a duplicate of `model_ids` (already `(self.model_id,)` on
+            # `base`, two lines up): a `notes["model_id"]` key next to a real `model_ids` field
+            # of the same name invites a reader to treat them as two independent facts that
+            # could disagree, when they are the same value by construction.
+            notes={**base.notes, "tier": self.tier.value},
         )
 
 
