@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, FrozenSet, List, Optional, cast
+from typing import Any, Dict, List, Mapping, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -39,9 +39,9 @@ from egpt_retail.ontology.business_areas import (
 )
 from egpt_retail.ontology.model import ARTIFACT_PATH, load_ontology
 from egpt_retail.semantic.areas import (
+    AreaStatus,
     detect_areas,
     evidence_from_mappings,
-    supported_areas,
 )
 from egpt_retail.semantic.store import SemanticGraphStore
 
@@ -94,9 +94,11 @@ def _unavailable(exc: BaseException) -> HTTPException:
     )
 
 
-def _supported(settings: RetailSettings) -> FrozenSet[str]:
-    """K9, in one graph round trip: the areas some accepted concept with a confirmed table
-    mapping falls in, grouped by the area the *ontology* puts the concept in."""
+def _supported(settings: RetailSettings) -> Dict[str, AreaStatus]:
+    """K9, in one graph round trip: every area the ontology has concepts in, keyed by id,
+    each saying whether some accepted concept in it has a confirmed table mapping -- and
+    which concepts and tables those are, since the discovery screen shows the evidence,
+    not only the verdict. Grouped by the area the *ontology* puts the concept in."""
     overlay = _overlay_path(settings)
     try:
         # `load_ontology` itself now treats a configured-but-not-yet-created overlay path as
@@ -127,31 +129,38 @@ def _supported(settings: RetailSettings) -> FrozenSet[str]:
         if _is_graph_error(exc):
             raise _unavailable(exc) from exc
         raise
-    return frozenset(supported_areas(detect_areas(ontology, evidence)))
+    return {status.name: status for status in detect_areas(ontology, evidence)}
 
 
-def _area_out(area: BusinessAreaNode, supported: bool) -> wire.BusinessArea:
+def _area_out(area: BusinessAreaNode, status: AreaStatus) -> wire.BusinessArea:
     return wire.BusinessArea(
         id=area.id,
         label=area.label,
         subject_areas=list(area.subject_areas),
         description=area.description,
-        supported=supported,
+        supported=status.supported,
+        concept_count=len(status.concepts),
+        table_count=len(status.tables),
+        reason=status.reason,
         origin=wire.TermOrigin(area.origin.value),
     )
 
 
 def _hierarchy_out(
     hierarchy: BusinessAreaHierarchy,
-    supported: FrozenSet[str],
+    statuses: Mapping[str, AreaStatus],
     *,
     only_supported: bool,
 ) -> wire.BusinessAreaHierarchy:
-    areas: List[wire.BusinessArea] = [
-        _area_out(area, area.id in supported)
-        for area in hierarchy
-        if not only_supported or area.id in supported
-    ]
+    """``statuses`` is K9's answer per area. An area the overlay added has no concepts in
+    the ontology, so K9 never lists it: it is unsupported by construction, and gets K9's own
+    sentence for that rather than a blank."""
+    areas: List[wire.BusinessArea] = []
+    for area in hierarchy:
+        status = statuses.get(area.id) or AreaStatus(name=area.id, supported=False)
+        if only_supported and not status.supported:
+            continue
+        areas.append(_area_out(area, status))
     return wire.BusinessAreaHierarchy(vocabulary_version=hierarchy.version, areas=areas)
 
 

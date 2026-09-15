@@ -949,7 +949,8 @@ class BusinessArea(BaseModel):
     """
     One node of the business hierarchy. `id` is a term from the deployment's `business_area`
     vocabulary (shipped ontology plus overlay, D9/G10). `supported` is derived from confirmed
-    mappings (K9), never asserted.
+    mappings (K9), never asserted; `concept_count`, `table_count` and `reason` are the
+    evidence behind it, so a screen can show why as well as whether.
 
     """
 
@@ -962,6 +963,18 @@ class BusinessArea(BaseModel):
     subject_areas: list[str]
     description: str | None = ""
     supported: bool
+    concept_count: int | None = Field(
+        0,
+        description="Accepted concepts in this area that have a confirmed table mapping (K9). 0 when unsupported.",
+        ge=0,
+    )
+    table_count: int | None = Field(
+        0, description="Distinct tables backing those concepts.", ge=0
+    )
+    reason: str | None = Field(
+        "",
+        description="K9's one-sentence account of why the area is or is not supported, ready to render.",
+    )
     origin: TermOrigin | None = None
 
 

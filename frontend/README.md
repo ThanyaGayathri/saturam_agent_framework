@@ -31,8 +31,18 @@ What was already decided about it, and still applies:
   `useState(() => load*(...))` initialiser becomes an effect. Known cost, recorded in phase zero.
 - **Chat, sessions and schedules are framework endpoints** (`POST /agents/{id}/runs` over SSE,
   `/sessions`, `/schedules`); the contract adds only the retail delta.
-- **Business-area labels come from `GET /business-areas`**, not from a constant; the prototype's
-  ten areas versus the shipped vocabulary's six is Lane K's call before wiring.
+- **Business areas on the discovery page come from `GET /business-areas`**, not from a
+  constant: the labels real rows are grouped under, and the options of the focus prompt
+  ("Which areas of the business do you care about most?"), fetched when `/kpis/discover`
+  loads. Each area carries K9's verdict from the semantic graph -- `supported` when some
+  accepted concept in it has a confirmed table mapping -- with its evidence
+  (`concept_count`, `table_count`, `reason`, contract 1.1.7). Supported areas are the
+  choices, shown with the counts; unsupported ones are greyed with K9's sentence. A stored
+  focus is reconciled against the fetched list on load, so ids from an older vocabulary never
+  leave a "Ranked for" line with no pills. If the graph cannot be asked (503) the prompt says
+  so, offers a retry, and the list renders unranked rather than blank. Because the ids are
+  the deployment's own vocabulary terms, a single focused area narrows the suggestion run
+  again without being refused as an unknown area.
 - **Dashboards are wired to the real API** (D2, #233): `src/services/dashboards-api.js` calls
   `GET/POST/PATCH/DELETE /dashboards` and `GET /dashboards/{id}/data` directly, matching the
   local `Dashboard`/`Tile` shape D1 (#226) aligned field for field
@@ -51,9 +61,11 @@ What was already decided about it, and still applies:
   card and the real registry has very few entries until more get registered, so a real KPI
   shows its real, join-aware feasibility and a working identifier (closing the loop with D2's
   dashboard creation) while the rest of the demo catalogue is untouched. Each demo profile's own
-  local business-area list (`storage/business-areas.js`) is left as-is; it is not reconciled
-  with the shipped 7-area vocabulary `GET /business-areas` returns — the two are allowed to
-  coexist, and only real registry rows use the real labels.
+  local business-area list (`storage/business-areas.js`, localStorage
+  `retailgpt:business-areas:v1`) still feeds every other consumer -- Playground pills, the
+  Processes and Alerts filters, the Configure hierarchy editor, the registry dropdowns -- and
+  is not reconciled with the shipped vocabulary `GET /business-areas` returns; the discovery
+  page alone reads the real list, held in its own state, never written into that key.
 - **The KPI/use-case suggestion review screen is real** (F2, #235): `Configure > Proposals`
   (`components/configure/ConfigureProposals.jsx`) lists what `egpt-retail suggest` found via
   `GET /semantic/proposals`, and accepting a KPI proposal
