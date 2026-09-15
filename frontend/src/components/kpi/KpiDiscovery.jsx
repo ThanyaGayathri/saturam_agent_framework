@@ -393,6 +393,9 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
 export default function KpiDiscovery({
  rows,
  areas,
+ areasStatus = "ready",
+ areasError = null,
+ onRetryAreas,
  focusAreaIds,
  onFocusChange,
  onCreateDashboard,
@@ -456,7 +459,10 @@ export default function KpiDiscovery({
   [visibleRows, selected]
  );
 
- const answered = focusAreaIds.length > 0;
+ // Nothing is ranked until the question is answered. While the areas are still being fetched
+ // the question cannot be asked, so the list waits; if they cannot be fetched at all the list
+ // is shown unranked rather than held hostage to a question with no options.
+ const answered = areasStatus === "error" || (areasStatus === "ready" && focusAreaIds.length > 0);
 
  const toggle = (key) =>
   setSelected((prev) => {
@@ -469,7 +475,14 @@ export default function KpiDiscovery({
 
  return (
   <div className="space-y-6">
-   <KpiFocusPrompt areas={areas} selectedIds={focusAreaIds} onChange={onFocusChange} />
+   <KpiFocusPrompt
+    areas={areas}
+    selectedIds={focusAreaIds}
+    onChange={onFocusChange}
+    status={areasStatus}
+    error={areasError}
+    onRetry={onRetryAreas}
+   />
 
    {answered && allSources.length > 1 && (
     <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -515,7 +528,9 @@ export default function KpiDiscovery({
        re-sorting after would make the ranking look like it did nothing. */}
    {!answered && (
     <p className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-8 text-center text-sm text-text-muted">
-     Pick at least one area above to see what your connected data can measure.
+     {areasStatus === "loading"
+      ? "Checking which areas your connected data supports…"
+      : "Pick at least one area above to see what your connected data can measure."}
     </p>
    )}
 

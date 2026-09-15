@@ -20,23 +20,29 @@ const FEASIBILITY_STYLE = {
 };
 
 export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, processLabelById, onEdit, onClose }) {
- // A real registry KPI (C1, #232) carries the server's own join-aware `feasibility` -- shown
- // below instead of `mappingConfidenceForKpi`'s local heuristic score, which has nothing real
- // to compute from for a row the seed/dataset simulation has never heard of.
+ // A real registry KPI (C1, #232) and a live suggestion (F1, #234) both carry the server's
+ // own join-aware `feasibility` -- a set difference over the tables the semantic graph
+ // actually holds -- and that is what is shown below. `mappingConfidenceForKpi`'s score is
+ // the prototype's heuristic over the seed catalogue's local dataset links, which a real row
+ // never has: rendered for one, it always says "18 / 100, no enterprise datasets linked", a
+ // statement about the demo simulation, not about the KPI. Seed cards keep it.
  const fromRegistry = !!detailRow.kpi.fromRegistry;
- const conf = fromRegistry ? null : mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
- // A suggestion carries its own server-checked `feasibility` (the same one `bucketFor` reads in
- // KpiDiscovery.jsx) -- shown here too, not just for registry KPIs, so a blocked suggestion says
- // why instead of leaving this section empty. Falls back to "blocked, check didn't run" rather
- // than an absent object, matching `bucketFor`'s own "no verdict is not known ready" rule.
+ const suggested = !!(detailRow.suggested && detailRow.suggestion);
+ const conf =
+  fromRegistry || suggested ? null : mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
+ // A suggestion's `feasibility` is optional in the contract -- the one live producer always
+ // stamps it, but nothing enforces that. Fall back the same way the card view does (bucketFor,
+ // SuggestionReasons in KpiDiscovery.jsx) rather than silently dropping the whole section.
  const feasibility = fromRegistry
   ? detailRow.kpi.feasibility
-  : detailRow.suggested
-  ? detailRow.suggestion?.feasibility || {
-     verdict: "blocked",
-     rationale: "The feasibility check did not run for this suggestion.",
-    }
-  : null;
+  : suggested
+   ? detailRow.suggestion.feasibility || {
+      verdict: "blocked",
+      rationale: "The feasibility check did not run for this suggestion.",
+     }
+   : null;
+ // Fall back to the "blocked" look for an unmapped verdict, matching bucketFor's own
+ // "no verdict is not known ready" rule.
  const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] || FEASIBILITY_STYLE.blocked : null;
  const useCases = getCatalogEntriesForKpiName(detailRow.kpi.name, profileId);
  const processIds = Array.isArray(detailRow.kpi.processMapping) ? detailRow.kpi.processMapping : [];
