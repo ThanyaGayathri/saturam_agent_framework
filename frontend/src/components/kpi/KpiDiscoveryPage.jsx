@@ -80,6 +80,13 @@ const IDLE_SUGGESTION_STATE = {
 
 const FOCUS_KEY = "retailgpt:kpi-focus-areas";
 
+// The in-flight or last-completed suggestion run's id, mirrored into `?run=` (#276 -- suggestions
+// were lost on navigating away and back, since `suggestionState` is plain component state that
+// resets on remount). Same pattern `?unlocked=` already uses on this page: the URL, not
+// localStorage, because a run id is also worth sharing/bookmarking ("here's what it found"),
+// and it composes with browser back/forward the way local storage cannot.
+const RUN_PARAM = "run";
+
 /**
  * A KPI counts as enabled unless it has been explicitly switched off. Default-on is the right
  * polarity: default-off leaves a new workspace with an empty discovery list on the one screen
@@ -122,7 +129,18 @@ export default function KpiDiscoveryPage() {
  // is what `SuggestionRunPanel` turns a bare wait into. `notes` is the skill's own refusal
  // channel -- why it proposed nothing, not a generic empty state. `receipt` keeps the one-line
  // summary up after a run lands until it is dismissed.
- const [suggestionState, setSuggestionState] = useState(IDLE_SUGGESTION_STATE);
+ // Seeded from `?run=` when present, not `IDLE_SUGGESTION_STATE` unconditionally: the
+ // URL-sync effect and the restore effect below both run on this same mount, and if state
+ // started disagreeing with the URL (`runId: null` while the URL already names one), the sync
+ // effect would see that as "the run was cleared" and strip the param before the restore effect
+ // ever got to read it -- effects run in one commit, before any state update from either has
+ // re-rendered. Starting them in agreement removes the race instead of relying on ordering.
+ const [suggestionState, setSuggestionState] = useState(() => {
+  const restoringRunId = params.get(RUN_PARAM);
+  return restoringRunId
+   ? { ...IDLE_SUGGESTION_STATE, status: "loading", runId: restoringRunId, startedAt: Date.now() }
+   : IDLE_SUGGESTION_STATE;
+ });
  const [suggestElapsed, setSuggestElapsed] = useState(0);
  // Which suggestions (by `identifier`) are mid-adopt, and the last adopt failure per identifier --
  // both keyed by identifier, not a single scalar, so concurrent adopts on two different cards
@@ -330,55 +348,68 @@ export default function KpiDiscoveryPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, []);
 
- // Start a run, then poll it (#254). One `AbortController` covers the whole loop -- the POST
- // and every GET after it -- so unmount or a second click cancels wherever it happens to be;
- // the timer between polls is cleared alongside it. The backend closes a lost run as `failed`
- // on its own, so the loop normally ends on the row's status; the ceiling below is for the
- // contract stub, which serves the `queued` example forever, and for anything else that never
- // turns terminal -- a spinner with no end is the failure mode this whole shape exists to remove.
- const runSuggestions = () => {
-  suggestAbortRef.current?.abort();
-  window.clearTimeout(suggestPollTimerRef.current);
-  const controller = new AbortController();
-  suggestAbortRef.current = controller;
-  const startedAt = Date.now();
-  lastPhaseRef.current = null;
-  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt });
+ // `phase` is the last stage a poll reported before the run failed or was given up on -- the
+ // backend keeps it on a `failed` row for this (see `watchRun`'s ceiling check for the
+ // client-side case). Null when nothing was ever reported. Component-scope, not local to
+ // `watchRun`, so `runSuggestions`' own two failure paths (POST rejected outright, or accepted
+ // with no id) can reuse it too instead of hand-writing the same `IDLE_SUGGESTION_STATE`
+ // literal a second and third time -- a future field added here (already true of `phase`)
+ // would otherwise have to be remembered in three places.
+ const fail = (message, phase = null) =>
+  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "error", error: message, phase });
+ // What every poll (and the 202 from starting a run) tells the panel: the stage the run is in
+ // and the deployment's typical duration. Either may be null on a given read; keep what we had.
+ // Pure, as a functional setState updater must be (React may invoke it more than once for the
+ // same commit). Component-scope for the same reason as `fail` above -- `runSuggestions`'
+ // initial POST response is exactly this same merge, and used to hand-write it separately.
+ const absorb = (run) => (prev) => ({
+  ...prev,
+  runId: run.id || prev.runId,
+  phase: run.phase ?? prev.phase,
+  typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
+ });
 
-  // `phase` is the last stage a poll reported before the run failed or was given up on --
-  // the backend keeps it on a `failed` row for this (see the ceiling call below for the
-  // client-side case). Null when nothing was ever reported (a rejected POST, a network
-  // error before the first poll).
-  const fail = (message, phase = null) =>
-   setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "error", error: message, phase });
-  const failWith = (err) => {
-   if (err?.name === "AbortError") return;
-   fail(err?.detail || err?.message || "Something went wrong.");
-  };
-  // What every poll (and the 202) tells the panel: the stage the run is in and the
-  // deployment's typical duration. Either may be null on a given read; keep what we had.
-  // Pure, as a functional setState updater must be (React may invoke it more than once for
-  // the same commit) -- callers stash `run.phase` into lastPhaseRef themselves, where `run`
-  // is already in scope, rather than as a side effect in here.
-  const absorb = (run) => (prev) => ({
-   ...prev,
-   runId: run.id || prev.runId,
-   phase: run.phase ?? prev.phase,
-   typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
-  });
+ // Poll one run to a terminal state (#254). Shared by a fresh click (`runSuggestions`) and a
+ // page-load restore (the effect below, from `?run=` in the URL) -- both are "watch this run
+ // id until it's done," differing only in how they got the id and what "can't reach it" should
+ // do. One `AbortController` covers the whole loop, aborted on unmount, a second click, or a
+ // restore superseding it; the timer between polls is cleared alongside it. The backend closes
+ // a lost run as `failed` on its own, so the loop normally ends on the row's status; the
+ // ceiling below is for the contract stub, which serves the `queued` example forever, and for
+ // anything else that never turns terminal -- a spinner with no end is the failure mode this
+ // whole shape exists to remove.
+ const watchRun = useCallback((runId, startedAt, controller, { onLost } = {}) => {
+  // A run this client can no longer reach -- a ceiling timeout, a `failed` row, or a network
+  // rejection alike -- takes the same `(message, phase)` shape as `fail`, so every terminal-
+  // but-unreachable outcome routes through one place: a run just clicked shows why, the same
+  // as ever; a run recovered from the URL (`onLost` below) says nothing and quietly goes back
+  // to idle -- the customer never asked for this one, so failing to resume it should not read
+  // as a failure of anything they did.
+  const lost = onLost || fail;
+  // The ceiling is checked against the run's own start, not necessarily this call's: a restore
+  // seeds `startedAt` from client mount time (when the page loaded), not the original click, so
+  // a run still genuinely stuck server-side would otherwise get a fresh `SUGGEST_CEILING_MS`
+  // budget on every revisit and the client-side give-up below would never fire. Corrected to
+  // the row's own `started_at` (set once a run leaves `queued`, per the contract) the moment a
+  // poll reports one; stays at the client's own `startedAt` until then -- which is already
+  // correct for a `queued` run (nothing to correct it with yet) and for a fresh click (the two
+  // are the same instant anyway).
+  let ceilingStartedAt = startedAt;
 
-  const poll = (runId) => {
+  const poll = (id) => {
    if (controller.signal.aborted) return;
-   if (Date.now() - startedAt > SUGGEST_CEILING_MS) {
+   if (Date.now() - ceilingStartedAt > SUGGEST_CEILING_MS) {
     controller.abort();
     // The run may well have reported a stage on an earlier poll -- the ceiling is the
     // client giving up, not a run with no known phase, so carry the last one we saw.
-    fail("The run is taking longer than expected. Try again in a few minutes.", lastPhaseRef.current);
+    lost("The run is taking longer than expected. Try again in a few minutes.", lastPhaseRef.current);
     return;
    }
-   fetchKpiSuggestionRun(runId, { signal: controller.signal })
+   fetchKpiSuggestionRun(id, { signal: controller.signal })
     .then((run) => {
      if (controller.signal.aborted) return;
+     const serverStartedAt = run?.started_at ? Date.parse(run.started_at) : NaN;
+     if (!Number.isNaN(serverStartedAt)) ceilingStartedAt = serverStartedAt;
      if (run?.status === "succeeded") {
       setSuggestionState((prev) => ({
        ...prev,
@@ -386,7 +417,7 @@ export default function KpiDiscoveryPage() {
        suggestions: run.result?.suggestions || [],
        notes: run.result?.notes || "",
        error: null,
-       runId,
+       runId: id,
        startedAt: null,
        phase: null,
        serverStartedAt: run.started_at || null,
@@ -397,7 +428,7 @@ export default function KpiDiscoveryPage() {
       return;
      }
      if (run?.status === "failed") {
-      fail(run.error || "The run failed without saying why.", run.phase);
+      lost(run.error || "The run failed without saying why.", run.phase);
       return;
      }
      lastPhaseRef.current = run.phase ?? lastPhaseRef.current;
@@ -406,10 +437,37 @@ export default function KpiDiscoveryPage() {
      // run is clearly a long one and a poll every few seconds is plenty.
      const delay =
       Date.now() - startedAt > SUGGEST_POLL_RELAX_AFTER_MS ? SUGGEST_POLL_RELAXED_MS : SUGGEST_POLL_MS;
-     suggestPollTimerRef.current = window.setTimeout(() => poll(runId), delay);
+     suggestPollTimerRef.current = window.setTimeout(() => poll(id), delay);
     })
-    .catch(failWith);
+    .catch((err) => {
+     if (err?.name === "AbortError") return;
+     lost(err?.detail || err?.message || "Something went wrong.");
+    });
   };
+  poll(runId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, []);
+
+ // Abort whatever this run's watch was doing, drop its poll timer, and hand back a fresh
+ // `AbortController` with `lastPhaseRef` reset -- shared by a fresh click (`runSuggestions`)
+ // and a page-load restore (the effect below), so this bookkeeping only needs to stay correct
+ // in one place. `startedAt` is deliberately not part of it: the two callers seed it
+ // differently (a fresh click uses "now"; a restore reuses the run's already-seeded one).
+ const beginWatch = () => {
+  suggestAbortRef.current?.abort();
+  window.clearTimeout(suggestPollTimerRef.current);
+  const controller = new AbortController();
+  suggestAbortRef.current = controller;
+  lastPhaseRef.current = null;
+  return controller;
+ };
+
+ // Start a run, then watch it. Same "one AbortController for the whole loop" rule as
+ // `watchRun` -- a second click here cancels wherever the previous run's watch happened to be.
+ const runSuggestions = () => {
+  const controller = beginWatch();
+  const startedAt = Date.now();
+  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt });
 
   startKpiSuggestionRun(suggestBusinessAreas, { signal: controller.signal })
    .then((run) => {
@@ -420,10 +478,58 @@ export default function KpiDiscoveryPage() {
     }
     lastPhaseRef.current = run.phase ?? lastPhaseRef.current;
     setSuggestionState(absorb(run));
-    poll(run.id);
+    watchRun(run.id, startedAt, controller);
    })
-   .catch(failWith);
+   .catch((err) => {
+    if (controller.signal.aborted || err?.name === "AbortError") return;
+    fail(err?.detail || err?.message || "Something went wrong.");
+   });
  };
+
+ // Keeps `?run=` in step with `runId`: set while a run is in flight or holds a succeeded
+ // result, gone the moment it doesn't (cancelled, or `fail` resets to `IDLE_SUGGESTION_STATE`,
+ // whose `runId` is null). A failed run is therefore never left in the URL to restore into --
+ // restoring a page-load error for something nobody just clicked is not the point of this.
+ useEffect(() => {
+  const current = params.get(RUN_PARAM);
+  const next = suggestionState.runId;
+  if (next === current) return;
+  if (next) params.set(RUN_PARAM, next);
+  else params.delete(RUN_PARAM);
+  setParams(params, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [suggestionState.runId]);
+
+ // Resume a run named in the URL, on mount -- the other half of the effect above. Silent on
+ // failure (`onLost` below): a run this client cannot reach for whatever reason (the row aged
+ // out, a network blip) just falls back to the idle "Suggest KPIs" button rather than greeting
+ // a returning customer with an error for a run they did not just start.
+ //
+ // A per-invocation `AbortController`, not a ref flag guarding "already ran": `React.StrictMode`
+ // (main.jsx) mounts, cleans up and remounts every effect once in dev, and a ref flag would
+ // have the first (thrown-away) pass mark itself done before the real one ever gets to run --
+ // the same hazard the `fetchKpiList` effect above avoids with its own per-invocation `cancelled`
+ // closure. Returning a cleanup that aborts this invocation's controller is what lets the real
+ // mount proceed normally after the fake one is torn down.
+ //
+ // On-mount-only by design (empty deps below): this does not track live changes to `?run=`.
+ // Nothing links to `?run=` today (the URL-sync effect above only ever writes it, via
+ // `replace: true`), so a same-instance client-side navigation to a *different* `?run=` value
+ // without an unmount cannot happen yet -- but a future in-app link that does would leave the
+ // stale run on screen instead of restoring the new one, since this effect would not re-fire.
+ useEffect(() => {
+  const runId = params.get(RUN_PARAM);
+  if (!runId) return undefined;
+  const controller = beginWatch();
+  // The `useState` initializer above already seeded `suggestionState` with `status: "loading"`,
+  // this `runId`, and a `startedAt` for this exact restore -- nothing left to set here, so this
+  // just starts watching the run the state already names, off the already-seeded `startedAt`
+  // rather than recomputing (and re-setting) a second, slightly different one.
+  const startedAt = suggestionState.startedAt;
+  watchRun(runId, startedAt, controller, { onLost: () => setSuggestionState(IDLE_SUGGESTION_STATE) });
+  return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, []);
 
  // Cancel stops the waiting, not the run: the server finishes (or times out) on its own and
  // the row is simply never read again. The page goes back to the idle bar, with whatever
@@ -434,8 +540,13 @@ export default function KpiDiscoveryPage() {
   setSuggestionState((prev) => ({ ...prev, status: "idle", startedAt: null, phase: null, runId: null }));
  };
 
+ // Also clears `runId`, not just the receipt flag: the URL-sync effect keeps `?run=<id>` in
+ // the URL for as long as `runId` is set, and a restore of a completed run always sets
+ // `receipt: true` -- so leaving `runId` in place here would have a dismissed receipt reappear
+ // the next time this run is restored (navigate away and back, or reopen a bookmark). Clearing
+ // it leaves nothing to restore into.
  const dismissReceipt = () =>
-  setSuggestionState((prev) => ({ ...prev, receipt: false }));
+  setSuggestionState((prev) => ({ ...prev, receipt: false, runId: null }));
 
  const handleAdopt = (row) => {
   const suggestion = row.suggestion;
