@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 import {
  Search, ChevronRight, ChevronDown, ChevronLeft,
  ChevronsLeft, ChevronsRight, Folder, FolderOpen,
@@ -8,6 +7,7 @@ import {
 import { useKpiRegistry } from "../hooks/useKpiRegistry";
 import { useProcesses } from "../hooks/useProcesses";
 import { useBusinessAreas } from "../hooks/useBusinessAreas";
+import { useConsumeRouterState } from "../hooks/useConsumeRouterState";
 import { useDemoProfile } from "../context/DemoProfileContext";
 import { getDatasetById } from "../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../domain/kpi-usecase-links";
@@ -94,8 +94,6 @@ const PAGE_SIZE = 10;
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function KpiMappings() {
- const location = useLocation();
- const navigate = useNavigate();
  const { data, setData, hydrated, updateCustomKpi } = useKpiRegistry();
  const { processes } = useProcesses();
  const { profileId, isMiddlebyProfile: isMiddleby } = useDemoProfile();
@@ -124,16 +122,14 @@ export default function KpiMappings() {
 
  // Arriving from Discovery's "Edit KPI" (KpiDiscoveryPage.jsx), pre-targeted at the row that
  // sent us here instead of landing on the generic table and making the customer re-find it.
- // Consumed once and cleared from history state, so a later back-navigation or refresh to this
- // same URL does not keep reopening the editor.
+ // `useConsumeRouterState` clears just this key from history state once read, so a later
+ // back-navigation or refresh to this same URL does not keep reopening the editor.
+ const editTargetFromNav = useConsumeRouterState("editTarget");
  useEffect(() => {
-  const target = location.state?.editTarget;
-  if (!target) return;
-  setEditTarget(target);
+  if (!editTargetFromNav) return;
+  setEditTarget(editTargetFromNav);
   setEditorOpen(true);
-  navigate(location.pathname, { replace: true, state: null });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only location.state should retrigger this
- }, [location.state]);
+ }, [editTargetFromNav]);
 
  // ── Derived values ────────────────────────────────────────────────────────
  const autoMappedCount = useMemo(() => allRows.filter(r => mappingStatusForKpi(r.kpi) === "linked").length, [allRows]);
