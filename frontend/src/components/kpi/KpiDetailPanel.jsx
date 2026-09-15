@@ -4,15 +4,19 @@ import { AlertTriangle, Trash2, X, ExternalLink } from "lucide-react";
 import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
+import KpiTrend from "./KpiTrend";
 import { bucketFor, NOT_SELECTABLE_REASONS } from "./KpiDiscovery";
 
 /**
  * The definition surface for one KPI: description, unit, level, mapping confidence, the datasets
- * that feed it, and what uses it.
+ * that feed it, and what uses it. For a registry KPI, also its value over the last 30 nights
+ * (`KpiTrend`, from `GET /kpis/{id}/series`) -- the one place on the discovery page a number is
+ * shown, and every one of them a real nightly materialisation of the formula.
  *
  * Shared deliberately. Discovery ("what can my data measure?") and the master-data table ("what
  * backs this metric?") both need it, and a second, view-local panel is exactly how the two would
- * start disagreeing about what a KPI means.
+ * start disagreeing about what a KPI means. The trend is optional (`trend` prop): a caller that
+ * has no series state simply gets the definition surface it always had.
  */
 const FEASIBILITY_STYLE = {
  ready: { cls: "border-status-success/35 bg-status-success-light dark:bg-status-success/15", label: "text-status-success" },
@@ -27,6 +31,10 @@ export default function KpiDetailPanel({
  processLabelById,
  onEdit,
  onClose,
+ trend = null,
+ onTrendRetry,
+ onTrendCompute,
+ onTrendPickDimension,
  onRemove,
  removing = false,
  removeError = null,
@@ -91,6 +99,20 @@ export default function KpiDetailPanel({
  </p>
  )}
  </section>
+
+ {/* The value, first: for a registry KPI it is the reason to open this panel after "Add to my
+     metrics". Every point is gold's own nightly row for this formula (or today's, computed on
+     adopt); a KPI with none yet says so and offers the compute, never a placeholder line. */}
+ {fromRegistry && trend && (
+ <KpiTrend
+ state={trend}
+ unit={detailRow.kpi.unit}
+ resultShape={detailRow.kpi.resultShape}
+ onRetry={onTrendRetry}
+ onCompute={onTrendCompute}
+ onPickDimension={onTrendPickDimension}
+ />
+ )}
  <section className="grid grid-cols-2 gap-3 text-sm">
  {/* Unit is registry-only: a suggestion has no unit until it is adopted into the registry, so
      showing a dash here would read as broken rather than as "not yet governed". */}

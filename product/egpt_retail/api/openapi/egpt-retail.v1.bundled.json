@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.1.7",
+    "version": "1.1.9",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -2044,6 +2044,58 @@
           }
         }
       },
+      "KpiComputeResult": {
+        "type": "object",
+        "description": "The outcome of materialising one KPI for today's business date on demand -- the same\nguarded pass the nightly run performs (`materialise_gold`), narrowed to one identifier.\n`materialised` wrote today's row(s) and `GET /kpis/{kpi_id}/series` now has today's point;\n`failed` names the formula's own error; `skipped` names why the pass would not run it.\n",
+        "required": [
+          "kpi_identifier",
+          "as_of",
+          "status",
+          "rows_written",
+          "run_id"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date",
+            "description": "The business date written."
+          },
+          "status": {
+            "$ref": "#/components/schemas/KpiComputeStatus"
+          },
+          "rows_written": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "KpiComputeStatus": {
+        "type": "string",
+        "enum": [
+          "materialised",
+          "failed",
+          "skipped"
+        ],
+        "description": "Mirrors `gold.kpi_run.status` for the one KPI the call materialised."
+      },
       "KpiHealth": {
         "type": "object",
         "description": "Freshness from gold (R5). Every gold row is stamped with source and computation time; this is that stamp surfaced.",
@@ -2199,6 +2251,115 @@
             "default": ""
           }
         }
+      },
+      "KpiSeries": {
+        "type": "object",
+        "description": "One KPI's value over its last business dates, read from `gold.kpi_value` -- the same rows\na dashboard's `line`/`bar` tile plots, addressed by KPI rather than by tile. One point per\nbusiness date the KPI materialised for; a night with no row is absent, not `null` (`null`\nmeans the formula returned NULL that night). Nothing is recomputed on read.\n\nA KPI whose grain is not `overall` has one row per dimension value each night; `dimension`\nnames the one the points follow (the caller's choice, else the first seen) and\n`dimensions` lists every value the latest night carried, so a screen can offer the others.\n",
+        "required": [
+          "kpi_identifier",
+          "grain",
+          "interval",
+          "days",
+          "dimension",
+          "dimensions",
+          "points",
+          "value",
+          "delta",
+          "status"
+        ],
+        "properties": {
+          "kpi_identifier": {
+            "type": "string"
+          },
+          "grain": {
+            "$ref": "#/components/schemas/Grain"
+          },
+          "interval": {
+            "$ref": "#/components/schemas/KpiSeriesInterval"
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The window the points were read over, ending at `as_of`."
+          },
+          "unit": {
+            "type": "string",
+            "default": ""
+          },
+          "dimension": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "The grain-key values the points follow; `null` for an `overall` KPI."
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "Every dimension the latest business date carried, in gold's row order, capped at 25."
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "description": "Oldest first."
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The latest point's value; what a `number` tile of this KPI shows."
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "`value` minus the previous point's value; `null` with fewer than two points."
+          },
+          "as_of": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "computed_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/KpiHealthStatus"
+          },
+          "provenance_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "KpiSeriesInterval": {
+        "type": "string",
+        "enum": [
+          "day"
+        ],
+        "description": "The spacing of `KpiSeries.points`. Gold materialises once a night (D7), so `day` is the only interval today; a coarser one would be an aggregation this contract does not define."
       },
       "KpiSource": {
         "type": "object",
@@ -7739,6 +7900,316 @@
                     "value": {
                       "detail": "No KPI 'kpi_9999'.",
                       "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kpis/{kpi_id}/series": {
+      "get": {
+        "tags": [
+          "kpis"
+        ],
+        "operationId": "getKpiSeries",
+        "summary": "This KPI's value over its last business dates, from gold.",
+        "description": "The rows the nightly run materialised for this KPI over the last `days` business dates, one point per night that has a row -- what the discovery detail panel graphs after a KPI is adopted. A read of `gold.kpi_value`, never a recomputation, so a KPI adopted today has no point until it is computed (`POST /kpis/{kpi_id}/compute`, or tonight's run). A KPI with a grain other than `overall` follows one dimension at a time; `dimension` picks it, else the first seen.",
+        "x-egpt-scopes": [
+          "kpis:read"
+        ],
+        "parameters": [
+          {
+            "name": "kpi_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30
+            },
+            "description": "How many business dates back from the latest one to read."
+          },
+          {
+            "name": "dimension",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A JSON object of grain-key values (e.g. `{\"brand\":\"Acme\"}`) naming which row of a per-dimension KPI to follow. Ignored for an `overall` KPI."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The series. Empty `points` with `status` saying why is a valid answer, never a 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiSeries"
+                },
+                "examples": {
+                  "overall": {
+                    "value": {
+                      "kpi_identifier": "contact__contact_count",
+                      "grain": "overall",
+                      "interval": "day",
+                      "days": 30,
+                      "unit": "Count",
+                      "dimension": null,
+                      "dimensions": [],
+                      "points": [
+                        {
+                          "at": "2026-09-12T23:59:59Z",
+                          "value": 1240
+                        },
+                        {
+                          "at": "2026-09-13T23:59:59Z",
+                          "value": 1262
+                        },
+                        {
+                          "at": "2026-09-14T23:59:59Z",
+                          "value": 1284
+                        }
+                      ],
+                      "value": 1284,
+                      "delta": 22,
+                      "as_of": "2026-09-14T23:59:59Z",
+                      "computed_at": "2026-09-15T02:20:00Z",
+                      "status": "fresh",
+                      "provenance_ref": "run_gold_20260915"
+                    }
+                  },
+                  "by_dimension": {
+                    "value": {
+                      "kpi_identifier": "rfq__quote_requests_by_brand",
+                      "grain": "brand",
+                      "interval": "day",
+                      "days": 30,
+                      "unit": "",
+                      "dimension": {
+                        "brand": "Acme"
+                      },
+                      "dimensions": [
+                        {
+                          "brand": "Acme"
+                        },
+                        {
+                          "brand": "Borealis"
+                        }
+                      ],
+                      "points": [
+                        {
+                          "at": "2026-09-01T23:59:59Z",
+                          "value": 1
+                        },
+                        {
+                          "at": "2026-09-14T23:59:59Z",
+                          "value": 1
+                        }
+                      ],
+                      "value": 1,
+                      "delta": 0,
+                      "as_of": "2026-09-14T23:59:59Z",
+                      "computed_at": "2026-09-14T04:44:54Z",
+                      "status": "fresh",
+                      "provenance_ref": "run_gold_20260914"
+                    }
+                  },
+                  "never_computed": {
+                    "value": {
+                      "kpi_identifier": "websession__active_user_count",
+                      "grain": "overall",
+                      "interval": "day",
+                      "days": 30,
+                      "unit": "",
+                      "dimension": null,
+                      "dimensions": [],
+                      "points": [],
+                      "value": null,
+                      "delta": null,
+                      "as_of": null,
+                      "computed_at": null,
+                      "status": "never_computed",
+                      "provenance_ref": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such KPI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No KPI 'kpi_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`dimension` is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "bad_dimension": {
+                    "value": {
+                      "detail": "dimension must be a JSON object of grain-key values, e.g. {\"brand\": \"Acme\"}.",
+                      "code": "invalid_dimension"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kpis/{kpi_id}/compute": {
+      "post": {
+        "tags": [
+          "kpis"
+        ],
+        "operationId": "computeKpi",
+        "summary": "Materialise this KPI for today, now.",
+        "description": "The nightly gold pass (`materialise_gold`) narrowed to one KPI and today's business date -- bound, guarded, executed and stamped exactly as the scheduled run would, writing `gold.kpi_value` so `GET /kpis/{kpi_id}/series` gains today's point. What \"Add to my metrics\" calls so a newly adopted KPI has a value before its first night. A re-run on the same date overwrites that date's rows, never yesterday's. Refused while the warehouse's last load did not pass its gates or a load is in progress, same as the nightly run.",
+        "x-egpt-scopes": [
+          "kpis:write"
+        ],
+        "parameters": [
+          {
+            "name": "kpi_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run's outcome for this KPI. A formula that fails is a `200` with `status: failed`; the request itself did what it said.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiComputeResult"
+                },
+                "examples": {
+                  "materialised": {
+                    "value": {
+                      "kpi_identifier": "contact__contact_count",
+                      "as_of": "2026-09-15",
+                      "status": "materialised",
+                      "rows_written": 1,
+                      "run_id": "api_3f9c1e7b2a40",
+                      "error": null,
+                      "reason": null
+                    }
+                  },
+                  "failed": {
+                    "value": {
+                      "kpi_identifier": "supplier__on_time_rate_30d",
+                      "as_of": "2026-09-15",
+                      "status": "failed",
+                      "rows_written": 0,
+                      "run_id": "api_3f9c1e7b2a40",
+                      "error": "column supplier_deliveries.actual_date does not exist",
+                      "reason": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: kpis:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such KPI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No KPI 'kpi_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The KPI is not `ready`; there is nothing gold could compute.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "blocked": {
+                    "value": {
+                      "detail": "campaign__spend_per_order is blocked: missing from the semantic snapshot: campaign_spend, campaigns.",
+                      "code": "not_ready"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Gold refused to run -- the last load did not pass, or a load holds the warehouse lock. The message says which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "refused": {
+                    "value": {
+                      "detail": "the last finished load was 'blocked', not 'passed' (row count fell 40%); gold is not rebuilt from silver the gates refused.",
+                      "code": "gold_refused"
                     }
                   }
                 }

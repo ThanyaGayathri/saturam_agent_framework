@@ -16,11 +16,11 @@ import {
  * computed value against a confirmed definition -- there is no model call at render time, and
  * there must never be one.
  *
- * `series`/`delta` ship empty from the API today (`dashboards/data.py`'s own docstring: a real
- * series needs a gold-history reader, #227/E1, not built yet) -- a `line`/`bar` tile says so
- * rather than falling back to the old fabricated sparkline, which would look like a real trend
- * computed from a real number. `number`/`table` tiles are fully real: they only ever needed the
- * latest value, which `read_gold` already returns.
+ * `series`/`delta` are real: `dashboards/data.py` reads the KPI's last 30 nightly rows from
+ * gold (`read_gold`'s `history_days`), one point per night that has one. A `line`/`bar` tile
+ * with fewer than two points says so rather than falling back to the old fabricated sparkline,
+ * which would look like a real trend computed from a real number. The same rows, addressed by
+ * KPI rather than by tile, are what the discovery detail panel graphs (`KpiTrend.jsx`).
  */
 
 // `unit`-aware branches (%, day, currency) are contract-correct against `TileData.unit`, but

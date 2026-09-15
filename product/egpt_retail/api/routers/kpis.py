@@ -64,18 +64,31 @@ show, which is what the request path could not do without a fix that belongs els
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
 import traceback
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import timedelta
-from typing import Any, Callable, Iterator, Mapping, Optional, Sequence, Tuple, TypeVar
+from datetime import date, timedelta
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+)
 
 from egpt.agent import Agent
 from egpt.os.scopes import has_required_scopes
 from egpt.utils.log import log_error, log_warning
-from fastapi import APIRouter, Depends, HTTPException, Request
+from egpt.workflow.types import StepInput
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from egpt_retail.api import models as wire
 from egpt_retail.app.db import pooled_control_plane_connection
@@ -85,6 +98,7 @@ from egpt_retail.app.settings import RetailSettings
 from egpt_retail.contracts.kpi import (
     Dialect,
     Feasibility,
+    FeasibilityVerdict,
     KpiDefinition,
     KpiLevel,
     KpiOrigin,
@@ -96,6 +110,8 @@ from egpt_retail.contracts.kpi import (
     kpi_identifier,
 )
 from egpt_retail.contracts.vocabulary import VocabularySet
+from egpt_retail.executors.gold import materialise_gold
+from egpt_retail.kpi.series import DEFAULT_SERIES_DAYS, read_kpi_series
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
 from egpt_retail.suggestions.run import PhaseCallback, SuggestionRun, run_suggestions
@@ -1118,3 +1134,106 @@ def get_kpi_feasibility(
     if verdict is None:
         raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
     return _feasibility_out(verdict, snapshot_version)
+
+
+# --- one KPI's value over time, and computing it now --------------------------------------
+
+
+def _parsed_dimension(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    """``?dimension=`` as a JSON object of grain-key values, or a 422 saying what it must be.
+    Empty and absent are the same: follow the first dimension the latest night carried."""
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = None
+    if not isinstance(value, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "dimension must be a JSON object of grain-key values, "
+                'e.g. {"brand": "Acme"}.'
+            ),
+        )
+    return value
+
+
+@router.get("/kpis/{kpi_id}/series", response_model=wire.KpiSeries)
+async def get_kpi_series(
+    kpi_id: str,
+    days: int = Query(DEFAULT_SERIES_DAYS, ge=1, le=365),
+    dimension: Optional[str] = Query(None),
+    store: KpiRegistryStore = Depends(_kpi_store),
+    _: None = Depends(require_scopes("kpis:read")),
+):
+    """This KPI's points from gold over the last ``days`` business dates -- a read of what
+    the nightly run (or ``compute_kpi``) wrote, never a recomputation. A KPI with no gold
+    rows is a ``200`` with empty ``points`` and ``status: never_computed``: the KPI exists;
+    its value does not yet. ``async`` because ``read_gold`` is."""
+    definition = store.get(kpi_id)
+    if definition is None:
+        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
+    return await read_kpi_series(
+        definition, days=days, dimension=_parsed_dimension(dimension)
+    )
+
+
+@router.post("/kpis/{kpi_id}/compute", response_model=wire.KpiComputeResult)
+async def compute_kpi(
+    kpi_id: str,
+    store: KpiRegistryStore = Depends(_kpi_store),
+    _: None = Depends(require_scopes("kpis:write")),
+):
+    """The nightly ``materialise_gold`` pass, narrowed to this KPI and today's business date:
+    bound, guarded, executed and stamped exactly as the scheduled run would. What "Add to my
+    metrics" calls so a newly adopted KPI has a value before its first night.
+
+    ``409`` when the KPI is not ``ready`` -- gold skips a blocked KPI, so running the pass
+    would only report ``skipped``; saying so up front, with the feasibility rationale, is the
+    more useful answer. ``503`` when the pass itself refuses (the silver gates, the load lock:
+    ``StepOutput.stop``), the same two refusals the nightly run has. A formula that fails is
+    a ``200`` with ``status: failed`` and the error: the request did what it said.
+    """
+    definition = store.get(kpi_id)
+    if definition is None:
+        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
+    settings = RetailSettings()
+    feasibility_map, _snapshot = _feasibility_map(settings, store, [definition])
+    verdict = feasibility_map.get(definition.identifier)
+    if verdict is None:
+        raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")
+    if verdict.verdict is not FeasibilityVerdict.READY:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{kpi_id} is {verdict.verdict.value}: {verdict.rationale}",
+        )
+    run_id = f"api_{uuid.uuid4().hex[:12]}"
+    output = await materialise_gold(
+        StepInput(additional_data={"kpi_identifiers": [kpi_id], "run_id": run_id})
+    )
+    content: Mapping[str, Any] = (
+        output.content if isinstance(output.content, Mapping) else {}
+    )
+    if output.stop or not output.success:
+        raise HTTPException(
+            status_code=503,
+            detail=str(
+                content.get("refused") or output.error or "gold refused to run."
+            ),
+        )
+    for entry in content.get("results", ()):
+        if entry.get("kpi_identifier") != kpi_id:
+            continue
+        return wire.KpiComputeResult(
+            kpi_identifier=kpi_id,
+            as_of=date.fromisoformat(str(entry["as_of"])),
+            status=wire.KpiComputeStatus(str(entry["status"])),
+            rows_written=int(entry.get("rows_written") or 0),
+            run_id=str(entry.get("run_id") or run_id),
+            error=entry.get("error"),
+            reason=entry.get("reason"),
+        )
+    # The pass re-reads the registry itself; the row vanished between this route's own read
+    # and that one (same race `get_kpi_feasibility` guards against).
+    raise HTTPException(status_code=404, detail=f"No KPI {kpi_id!r}.")

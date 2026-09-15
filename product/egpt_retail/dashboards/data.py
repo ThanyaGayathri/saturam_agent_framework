@@ -24,7 +24,7 @@ on ``table`` tiles in a dashboard that mixes chart kinds -- costs exactly what i
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 from egpt.workflow.types import StepInput
@@ -33,6 +33,15 @@ from egpt_retail.alerts.condition import as_decimal
 from egpt_retail.api.models import DashboardData, KpiHealthStatus, SeriesPoint, TileData
 from egpt_retail.contracts.dashboards import ChartKind, Dashboard, Tile
 from egpt_retail.executors.gold import read_gold, row_for_grain_value
+from egpt_retail.kpi.series import (
+    end_of_business_day as _end_of_business_day,
+)
+from egpt_retail.kpi.series import (
+    history_by_date as _history_by_date,
+)
+from egpt_retail.kpi.series import (
+    status_for_missing as _status_for_missing,
+)
 
 __all__ = ["SERIES_LOOKBACK_DAYS", "read_dashboard_data"]
 
@@ -74,27 +83,6 @@ def _resolve_row(
     return None
 
 
-def _end_of_business_day(value: Optional[str]) -> Optional[datetime]:
-    """``read_gold``'s ``as_of`` is a bare business date (``date.isoformat()``, no time or
-    zone); ``TileData.as_of`` is a strict ``AwareDatetime``. The common.yaml and
-    dashboards.yaml worked examples both stamp a business date at its end
-    (``"...T23:59:59Z"``), the same convention gold's own freshness stamps use -- so that is
-    what this converts to, rather than midnight, which would read as a different moment."""
-    if value is None:
-        return None
-    return datetime.combine(
-        date.fromisoformat(value), time(23, 59, 59), tzinfo=timezone.utc
-    )
-
-
-def _status_for_missing(reason: str) -> KpiHealthStatus:
-    if "guard refused" in reason:
-        return KpiHealthStatus.failed
-    if "never materialised" in reason or "no gold row" in reason:
-        return KpiHealthStatus.never_computed
-    return KpiHealthStatus.failed
-
-
 def _empty_tile_data(
     tile: Tile,
     status: KpiHealthStatus,
@@ -118,18 +106,6 @@ def _empty_tile_data(
         computed_at=computed_at,
         provenance_ref=provenance_ref,
     )
-
-
-def _history_by_date(
-    history: Sequence[Mapping[str, Any]],
-) -> List[Tuple[str, List[Dict[str, Any]]]]:
-    """``read_gold``'s flat ``history`` rows grouped by business date, oldest first. The rows
-    arrive ordered by ``as_of`` already (the statement orders by the whole row, and ``as_of``
-    is its first column); sorting here only makes that independent of the reader."""
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
-    for row in history:
-        grouped.setdefault(str(row["as_of"]), []).append(dict(row))
-    return sorted(grouped.items())
 
 
 def _series_and_delta(
