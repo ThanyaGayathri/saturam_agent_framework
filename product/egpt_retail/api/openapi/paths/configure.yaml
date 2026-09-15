@@ -486,24 +486,24 @@
                 value:
                   vocabulary_version: "1.0.0"
                   areas:
-                    - {id: customer, label: Customer, subject_areas: [Customer Satisfaction, Returns Management, Contact Centre], description: Who the customers are and how they behave., supported: true, origin: core}
-                    - {id: product, label: Product, subject_areas: [Assortment Planning, Category Performance, Markdown Optimisation], description: "What is sold, and how each product performs.", supported: true, origin: core}
-                    - {id: inventory, label: Inventory, subject_areas: [Stock Health, Replenishment, Shrinkage & Loss], description: "What is on hand, what is short, what is overstocked.", supported: true, origin: core}
-                    - {id: supply_chain, label: Supply Chain, subject_areas: [Supplier Management, Delivery Management], description: "Suppliers, lead times, fulfilment reliability.", supported: true, origin: core}
-                    - {id: marketing, label: Marketing, subject_areas: [Traffic Sources, Promotions], description: "Reach, engagement and campaign performance.", supported: false, origin: core}
-                    - {id: sales, label: Sales, subject_areas: [Revenue, Conversion, Order Fulfillment], description: "Revenue, conversion and pipeline.", supported: true, origin: core}
-                    - {id: store_ops, label: Store Ops, subject_areas: [Labor & Staffing, Foot Traffic, Task Compliance], description: In-store operations., supported: false, origin: overlay}
+                    - {id: customer, label: Customer, subject_areas: [Customer Satisfaction, Returns Management, Contact Centre], description: Who the customers are and how they behave., supported: true, origin: core, concept_count: 2, table_count: 2, reason: "2 concept(s) mapped to 2 table(s): Contact, Customer."}
+                    - {id: product, label: Product, subject_areas: [Assortment Planning, Category Performance, Markdown Optimisation], description: "What is sold, and how each product performs.", supported: true, origin: core, concept_count: 1, table_count: 1, reason: "1 concept(s) mapped to 1 table(s): Product."}
+                    - {id: inventory, label: Inventory, subject_areas: [Stock Health, Replenishment, Shrinkage & Loss], description: "What is on hand, what is short, what is overstocked.", supported: true, origin: core, concept_count: 1, table_count: 2, reason: "1 concept(s) mapped to 2 table(s): StockLevel."}
+                    - {id: supply_chain, label: Supply Chain, subject_areas: [Supplier Management, Delivery Management], description: "Suppliers, lead times, fulfilment reliability.", supported: true, origin: core, concept_count: 1, table_count: 1, reason: "1 concept(s) mapped to 1 table(s): Supplier."}
+                    - {id: marketing, label: Marketing, subject_areas: [Traffic Sources, Promotions], description: "Reach, engagement and campaign performance.", supported: false, origin: core, concept_count: 0, table_count: 0, reason: "No table is mapped to any concept in this area, so nothing here can be answered from data yet."}
+                    - {id: sales, label: Sales, subject_areas: [Revenue, Conversion, Order Fulfillment], description: "Revenue, conversion and pipeline.", supported: true, origin: core, concept_count: 2, table_count: 3, reason: "2 concept(s) mapped to 3 table(s): Order, OrderLine."}
+                    - {id: store_ops, label: Store Ops, subject_areas: [Labor & Staffing, Foot Traffic, Task Compliance], description: In-store operations., supported: false, origin: overlay, concept_count: 0, table_count: 0, reason: "No table is mapped to any concept in this area, so nothing here can be answered from data yet."}
               unsupported_only_ontology:
                 summary: Before any source is connected -- every area exists, none is supported.
                 value:
                   vocabulary_version: "1.0.0"
                   areas:
-                    - {id: customer, label: Customer, subject_areas: [], description: Who the customers are and how they behave., supported: false, origin: core}
-                    - {id: product, label: Product, subject_areas: [], description: "What is sold, and how each product performs.", supported: false, origin: core}
-                    - {id: inventory, label: Inventory, subject_areas: [], description: "What is on hand, what is short, what is overstocked.", supported: false, origin: core}
-                    - {id: supply_chain, label: Supply Chain, subject_areas: [], description: "Suppliers, lead times, fulfilment reliability.", supported: false, origin: core}
-                    - {id: marketing, label: Marketing, subject_areas: [], description: "Reach, engagement and campaign performance.", supported: false, origin: core}
-                    - {id: sales, label: Sales, subject_areas: [], description: "Revenue, conversion and pipeline.", supported: false, origin: core}
+                    - {id: customer, label: Customer, subject_areas: [], description: Who the customers are and how they behave., supported: false, origin: core, concept_count: 0, table_count: 0, reason: "No table is mapped to any concept in this area, so nothing here can be answered from data yet."}
+                    - {id: product, label: Product, subject_areas: [], description: "What is sold, and how each product performs.", supported: false, origin: core, concept_count: 0, table_count: 0, reason: "No table is mapped to any concept in this area, so nothing here can be answered from data yet."}
+                    - {id: inventory, label: Inventory, subject_areas: [], description: "What is on hand, what is short, what is overstocked.", supported: false, origin: core, concept_count: 0, table_count: 0, reason: "No table is mapped to any concept in this area, so nothing here can be answered from data yet."}
+                    - {id: supply_chain, label: Supply Chain, subject_areas: [], description: "Suppliers, lead times, fulfilment reliability.", supported: false, origin: core, concept_count: 0, table_count: 0, reason: "No table is mapped to any concept in this area, so nothing here can be answered from data yet."}
+                    - {id: marketing, label: Marketing, subject_areas: [], description: "Reach, engagement and campaign performance.", supported: false, origin: core, concept_count: 0, table_count: 0, reason: "No table is mapped to any concept in this area, so nothing here can be answered from data yet."}
+                    - {id: sales, label: Sales, subject_areas: [], description: "Revenue, conversion and pipeline.", supported: false, origin: core, concept_count: 0, table_count: 0, reason: "No table is mapped to any concept in this area, so nothing here can be answered from data yet."}
       "403":
         $ref: '#/x-egpt-responses/InsufficientScope'
       "503":

@@ -37,7 +37,7 @@ const BUCKET_IDS = new Set(["ready", "partial", "blocked"]);
  * straight across. Everything else (seed KPIs) is still judged from `mappingStatusForKpi`'s local
  * dataset mapping. A suggestion with no verdict is not known to be ready, so it is blocked.
  */
-function bucketFor(row) {
+export function bucketFor(row) {
  if (row.suggested) {
   const verdict = row.suggestion?.feasibility?.verdict;
   return BUCKET_IDS.has(verdict) ? verdict : "blocked";
@@ -217,6 +217,33 @@ function SuggestionReasons({ suggestion, bucket }) {
  );
 }
 
+/**
+ * Why a card (or the detail panel) cannot be picked, keyed on the same `bucket` the buckets
+ * themselves are sorted by -- not on `row.suggested` alone. A suggestion can *also* land in the
+ * "blocked" bucket (missing data), and for that row "adopt it first" is actively wrong: adopting
+ * won't make it selectable, because the real blocker is data, not registry status. Blocked beats
+ * suggested, so the reason always agrees with the card's own body text (`SuggestionReasons`).
+ * Shared with `KpiDetailPanel`, which gives the identical reason in full rather than on hover.
+ */
+export const NOT_SELECTABLE_REASONS = {
+ blocked: { text: "Needs data you haven't connected.", node: "Needs data you haven't connected." },
+ adoptFirst: {
+  text: "Click \"Add to my metrics\" first. Dashboards can only include KPIs that are in your registry.",
+  node: (
+   <>
+    Click <strong className="font-bold italic text-text-primary">"Add to my metrics"</strong> first.
+    Dashboards can only include KPIs that are in your registry.
+   </>
+  ),
+ },
+};
+
+export function notSelectableReasonFor(row, bucket) {
+ if (bucket === "blocked") return NOT_SELECTABLE_REASONS.blocked;
+ if (row.suggested) return NOT_SELECTABLE_REASONS.adoptFirst;
+ return NOT_SELECTABLE_REASONS.blocked;
+}
+
 function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopting, adoptError }) {
  const { kpi } = row;
  const datasets = (kpi.datasetIds || []).map((id) => getDatasetById(id)).filter(Boolean);
@@ -224,6 +251,13 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
  // A candidate is not master data yet, so it cannot be put on a dashboard until it is adopted.
  // Blocked metrics stay inspectable -- "why can't I have this?" is answered in the panel.
  const selectable = bucket !== "blocked" && !row.suggested;
+ // Why a card cannot be picked, said on the disabled box itself: a suggestion is not a
+ // governed KPI yet (a dashboard tile needs a registered identifier, so "Add to my metrics"
+ // comes first), and a blocked metric has nothing to compute from. A dashed box that just
+ // sits there reads as broken.
+ // `text` is the plain form (for assistive tech); `node` is what the hover tooltip renders,
+ // which is a real element rather than a `title` so the action can be set in bold italics.
+ const notSelectableReason = notSelectableReasonFor(row, bucket);
 
  return (
   <div
@@ -245,7 +279,20 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
       {selected && <Check size={12} />}
      </span>
     ) : (
-     <span className="mt-0.5 h-[18px] w-[18px] shrink-0 rounded-[5px] border border-dashed border-border-light" />
+     <span className="group relative mt-0.5 shrink-0">
+      <span
+       tabIndex={0}
+       aria-disabled="true"
+       aria-label={`Not selectable: ${notSelectableReason.text}`}
+       className="block h-[18px] w-[18px] cursor-not-allowed rounded-[5px] border border-dashed border-border-light focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      />
+      <span
+       role="tooltip"
+       className="pointer-events-none absolute left-0 top-6 z-20 hidden w-64 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-normal leading-snug text-text-secondary shadow-lg group-hover:block group-focus-within:block"
+      >
+       {notSelectableReason.node}
+      </span>
+     </span>
     )}
     <div className="min-w-0 flex-1">
      <h4 className="text-sm font-bold text-text-primary">{kpi.name}</h4>
@@ -346,6 +393,9 @@ function KpiCard({ row, bucket, selected, onToggle, onOpenDetail, onAdopt, adopt
 export default function KpiDiscovery({
  rows,
  areas,
+ areasStatus = "ready",
+ areasError = null,
+ onRetryAreas,
  focusAreaIds,
  onFocusChange,
  onCreateDashboard,
@@ -409,7 +459,10 @@ export default function KpiDiscovery({
   [visibleRows, selected]
  );
 
- const answered = focusAreaIds.length > 0;
+ // Nothing is ranked until the question is answered. While the areas are still being fetched
+ // the question cannot be asked, so the list waits; if they cannot be fetched at all the list
+ // is shown unranked rather than held hostage to a question with no options.
+ const answered = areasStatus === "error" || (areasStatus === "ready" && focusAreaIds.length > 0);
 
  const toggle = (key) =>
   setSelected((prev) => {
@@ -422,7 +475,14 @@ export default function KpiDiscovery({
 
  return (
   <div className="space-y-6">
-   <KpiFocusPrompt areas={areas} selectedIds={focusAreaIds} onChange={onFocusChange} />
+   <KpiFocusPrompt
+    areas={areas}
+    selectedIds={focusAreaIds}
+    onChange={onFocusChange}
+    status={areasStatus}
+    error={areasError}
+    onRetry={onRetryAreas}
+   />
 
    {answered && allSources.length > 1 && (
     <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -468,7 +528,9 @@ export default function KpiDiscovery({
        re-sorting after would make the ranking look like it did nothing. */}
    {!answered && (
     <p className="rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-8 text-center text-sm text-text-muted">
-     Pick at least one area above to see what your connected data can measure.
+     {areasStatus === "loading"
+      ? "Checking which areas your connected data supports…"
+      : "Pick at least one area above to see what your connected data can measure."}
     </p>
    )}
 

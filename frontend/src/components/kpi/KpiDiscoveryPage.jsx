@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useProcesses } from "../../hooks/useProcesses";
-import { useBusinessAreas } from "../../hooks/useBusinessAreas";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { datasetIdsByLinkedKpiName, flattenKpiIndexRows } from "../../domain/kpi-mapping";
 import { readLocalJson, writeLocalJson } from "../../storage/local-json";
@@ -19,6 +18,7 @@ import {
  startKpiSuggestionRun,
  fetchKpiSuggestionRun,
  createKpi,
+ deleteKpi,
 } from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
 
@@ -85,7 +85,6 @@ export default function KpiDiscoveryPage() {
  const { data, hydrated } = useKpiRegistry();
  const { processes } = useProcesses();
  const { profileId } = useDemoProfile();
- const { areas: businessAreas } = useBusinessAreas();
 
  const [detailRow, setDetailRow] = useState(null);
  // Rows handed to the create modal. Non-empty means the modal is open.
@@ -116,13 +115,20 @@ export default function KpiDiscoveryPage() {
  // don't clear or unblock each other's still-pending state.
  const [adoptingIds, setAdoptingIds] = useState(() => new Set());
  const [adoptErrors, setAdoptErrors] = useState({});
+ // The reverse of adopting: one removal at a time, from the detail panel. `error` is the
+ // api's own account (a 409 names the dashboards still using the KPI) and stays with the
+ // panel until it is closed or the removal is retried.
+ const [removeState, setRemoveState] = useState({ identifier: null, error: null });
 
  // The real registry (C1, #232) -- fetched once, additive, never blocking: the seed/suggested
  // rows above render immediately regardless of this state. A failure is a small note, not a
  // crash -- the same posture `DashboardsPage.jsx`'s own real-data fetch already takes.
  const [realKpiState, setRealKpiState] = useState({ status: "loading", kpis: [] });
- const [realAreas, setRealAreas] = useState([]);
- const [realAreasStatus, setRealAreasStatus] = useState("loading");
+ // The business areas, from `GET /business-areas` on page load: the options the focus prompt
+ // offers (supported ones selectable, with K9's evidence; the rest greyed with its reason) and
+ // the labels real rows are grouped under. Held here, not in the per-profile localStorage list
+ // the rest of the app still reads -- that list is a different vocabulary and is left alone.
+ const [areaState, setAreaState] = useState({ status: "loading", areas: [], error: null });
 
  // The focus the agents are given (contract 1.1.8): the chosen areas, filtered against the
  // deployment's real vocabulary (a stored focus can predate it -- an unknown id would be
@@ -130,18 +136,18 @@ export default function KpiDiscoveryPage() {
  // treats that as "no focus" and leaves the prompt untouched, so there is nothing to prioritize
  // by listing every supported area (review).
  //
- // While `realAreas` is still loading, filtering a genuine focus against it would empty it out
- // and silently widen the run to "no focus" instead -- the "Suggest KPIs" button below is
+ // While the vocabulary is still loading, filtering a genuine focus against it would empty it
+ // out and silently widen the run to "no focus" instead -- the "Suggest KPIs" button below is
  // disabled for that window, so this case is a fallback, not the common path. If the fetch
  // failed outright, there is no vocabulary to filter against at all; send the chosen ids as-is
  // and let the backend's own validation be the source of truth (review).
  const suggestBusinessAreas = useMemo(() => {
   if (!focusAreaIds.length) return undefined;
-  if (realAreasStatus === "loading") return undefined;
-  if (realAreasStatus === "error") return focusAreaIds;
-  const known = new Set(realAreas.map((a) => a.id));
+  if (areaState.status === "loading") return undefined;
+  if (areaState.status === "error") return focusAreaIds;
+  const known = new Set(areaState.areas.map((a) => a.id));
   return focusAreaIds.filter((id) => known.has(id));
- }, [focusAreaIds, realAreas, realAreasStatus]);
+ }, [focusAreaIds, areaState]);
 
  // `runSuggestions`/`handleAdopt` are click-triggered, not effects, but they need the same
  // unmount guard the two effects below already have -- an `AbortController` per in-flight
@@ -152,11 +158,13 @@ export default function KpiDiscoveryPage() {
  // unmount and on a new click, so a stale loop never wakes up and polls a run nobody wants.
  const suggestPollTimerRef = useRef(null);
  const adoptAbortRefs = useRef(new Map());
+ const removeAbortRef = useRef(null);
  useEffect(
   () => () => {
    suggestAbortRef.current?.abort();
    window.clearTimeout(suggestPollTimerRef.current);
    for (const controller of adoptAbortRefs.current.values()) controller.abort();
+   removeAbortRef.current?.abort();
   },
   []
  );
@@ -189,23 +197,42 @@ export default function KpiDiscoveryPage() {
   };
  }, []);
 
- useEffect(() => {
-  let cancelled = false;
-  fetchBusinessAreas()
+ // Retriable (the prompt offers a Retry when the graph could not be asked), hence a function
+ // the effect calls rather than the effect itself. On success the persisted focus is reconciled
+ // first: ids this browser stored under an older vocabulary (or for an area since removed)
+ // would otherwise leave a collapsed "Ranked for" line with no pills on it. Both updates land
+ // in one commit, so the prompt never sees the new options with the old answer.
+ const areasAbortRef = useRef(null);
+ const loadAreas = () => {
+  areasAbortRef.current?.abort();
+  const controller = new AbortController();
+  areasAbortRef.current = controller;
+  setAreaState((prev) => ({ ...prev, status: "loading", error: null }));
+  fetchBusinessAreas({ signal: controller.signal })
    .then((hierarchy) => {
-    if (!cancelled) {
-     setRealAreas(hierarchy?.areas || []);
-     setRealAreasStatus("ready");
-    }
+    if (controller.signal.aborted) return;
+    const areas = hierarchy?.areas || [];
+    const known = new Set(areas.map((a) => a.id));
+    setFocusState((prev) => {
+     const kept = prev.filter((id) => known.has(id));
+     if (kept.length !== prev.length) writeLocalJson(FOCUS_KEY, kept);
+     return kept.length === prev.length ? prev : kept;
+    });
+    setAreaState({ status: "ready", areas, error: null });
    })
-   .catch(() => {
-    // Not fatal on its own: a real row without a resolved label still shows its raw
-    // business_area id (see realAreaLabel below) rather than disappearing.
-    if (!cancelled) setRealAreasStatus("error");
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    setAreaState({
+     status: "error",
+     areas: [],
+     error: { status: err?.status ?? null, detail: err?.detail || err?.message || "" },
+    });
    });
-  return () => {
-   cancelled = true;
-  };
+ };
+ useEffect(() => {
+  loadAreas();
+  return () => areasAbortRef.current?.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, []);
 
  // Start a run, then poll it (#254). One `AbortController` covers the whole loop -- the POST
@@ -344,9 +371,38 @@ export default function KpiDiscoveryPage() {
    });
  };
 
+ const handleRemove = (row) => {
+  const identifier = row?.kpi?.identifier;
+  if (!identifier) return;
+  removeAbortRef.current?.abort();
+  const controller = new AbortController();
+  removeAbortRef.current = controller;
+  setRemoveState({ identifier, error: null });
+  deleteKpi(identifier, { signal: controller.signal })
+   .then(() => {
+    if (controller.signal.aborted) return;
+    setRealKpiState((prev) => ({
+     ...prev,
+     kpis: prev.kpis.filter((k) => k.identifier !== identifier),
+    }));
+    setRemoveState({ identifier: null, error: null });
+    setDetailRow(null);
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    setRemoveState({
+     identifier: null,
+     error: err?.detail || err?.message || "Couldn't remove this KPI.",
+    });
+   })
+   .finally(() => {
+    if (removeAbortRef.current === controller) removeAbortRef.current = null;
+   });
+ };
+
  const realAreaLabelById = useMemo(
-  () => Object.fromEntries(realAreas.map((a) => [a.id, a.label])),
-  [realAreas]
+  () => Object.fromEntries(areaState.areas.map((a) => [a.id, a.label])),
+  [areaState.areas]
  );
  const realAreaLabel = (id) => realAreaLabelById[id] || id || "";
 
@@ -359,6 +415,9 @@ export default function KpiDiscoveryPage() {
  // Mirrors `suggested-candidates.js`'s own precedent for a non-tree row source: sentinel
  // `categoryIndex`/`sectionIndex` (-2 here, distinct from candidates' -1) keep `rowKey` unique
  // across every source `KpiDiscovery.jsx` merges together.
+ // The removal error belongs to the row it happened on; another row's panel must not show it.
+ const removeError = (row) => (row?.kpi?.fromRegistry ? removeState.error : null);
+
  const realRows = useMemo(
   () =>
    realKpiState.kpis.map((k, index) => ({
@@ -447,7 +506,7 @@ export default function KpiDiscoveryPage() {
     <button
      type="button"
      onClick={runSuggestions}
-     disabled={suggestionState.status === "loading" || realAreasStatus === "loading"}
+     disabled={suggestionState.status === "loading" || areaState.status === "loading"}
      className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
     >
      <Sparkles size={13} />
@@ -476,7 +535,10 @@ export default function KpiDiscoveryPage() {
 
    <KpiDiscovery
     rows={rows}
-    areas={businessAreas}
+    areas={areaState.areas}
+    areasStatus={areaState.status}
+    areasError={areaState.error}
+    onRetryAreas={loadAreas}
     focusAreaIds={focusAreaIds}
     onFocusChange={setFocusAreaIds}
     onOpenDetail={setDetailRow}
@@ -535,7 +597,10 @@ export default function KpiDiscoveryPage() {
      profileId={profileId}
      processLabelById={processLabelById}
      onEdit={() => { setDetailRow(null); navigate("/configure/domain-mapping"); }}
-     onClose={() => setDetailRow(null)}
+     onClose={() => { setRemoveState({ identifier: null, error: null }); setDetailRow(null); }}
+     onRemove={handleRemove}
+     removing={removeState.identifier === detailRow.kpi?.identifier}
+     removeError={removeError(detailRow)}
     />
    )}
   </div>
