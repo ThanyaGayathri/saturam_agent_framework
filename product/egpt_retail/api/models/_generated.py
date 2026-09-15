@@ -289,6 +289,16 @@ class JoinPath(BaseModel):
     )
 
 
+class KpiComputeStatus(Enum):
+    """
+    Mirrors `gold.kpi_run.status` for the one KPI the call materialised.
+    """
+
+    materialised = "materialised"
+    failed = "failed"
+    skipped = "skipped"
+
+
 class KpiHealthStatus(Enum):
     fresh = "fresh"
     stale = "stale"
@@ -329,6 +339,14 @@ class KpiOrigin(Enum):
 
     shipped = "shipped"
     customer = "customer"
+
+
+class KpiSeriesInterval(Enum):
+    """
+    The spacing of `KpiSeries.points`. Gold materialises once a night (D7), so `day` is the only interval today; a coarser one would be an aggregation this contract does not define.
+    """
+
+    day = "day"
 
 
 class KpiSourceWrite(BaseModel):
@@ -1308,6 +1326,24 @@ class JoinPathResponse(BaseModel):
     snapshot: Snapshot
 
 
+class KpiComputeResult(BaseModel):
+    """
+    The outcome of materialising one KPI for today's business date on demand -- the same
+    guarded pass the nightly run performs (`materialise_gold`), narrowed to one identifier.
+    `materialised` wrote today's row(s) and `GET /kpis/{kpi_id}/series` now has today's point;
+    `failed` names the formula's own error; `skipped` names why the pass would not run it.
+
+    """
+
+    kpi_identifier: str
+    as_of: date = Field(..., description="The business date written.")
+    status: KpiComputeStatus
+    rows_written: int = Field(..., ge=0)
+    run_id: str
+    error: str | None = None
+    reason: str | None = None
+
+
 class KpiHealth(BaseModel):
     """
     Freshness from gold (R5). Every gold row is stamped with source and computation time; this is that stamp surfaced.
@@ -1884,6 +1920,55 @@ class Kpi(BaseModel):
     process_ids: list[str] | None = None
     feasibility: Feasibility
     updated_at: AwareDatetime | None = Field(None, description="RFC 3339, always UTC.")
+
+
+class KpiSeries(BaseModel):
+    """
+    One KPI's value over its last business dates, read from `gold.kpi_value` -- the same rows
+    a dashboard's `line`/`bar` tile plots, addressed by KPI rather than by tile. One point per
+    business date the KPI materialised for; a night with no row is absent, not `null` (`null`
+    means the formula returned NULL that night). Nothing is recomputed on read.
+
+    A KPI whose grain is not `overall` has one row per dimension value each night; `dimension`
+    names the one the points follow (the caller's choice, else the first seen) and
+    `dimensions` lists every value the latest night carried, so a screen can offer the others.
+
+    """
+
+    kpi_identifier: str
+    grain: str = Field(
+        ...,
+        description="A term from the deployment's `grain` vocabulary (shipped ontology plus overlay). A string validated at runtime, not an enum -- see CHANGELOG 2.0.0 of the KPI formula shape.",
+        examples=["overall", "product", "supplier", "location", "time_period"],
+    )
+    interval: KpiSeriesInterval
+    days: int = Field(
+        ...,
+        description="The window the points were read over, ending at `as_of`.",
+        ge=1,
+    )
+    unit: str | None = ""
+    dimension: dict[str, Any] | None = Field(
+        ...,
+        description="The grain-key values the points follow; `null` for an `overall` KPI.",
+    )
+    dimensions: list[dict[str, Any]] = Field(
+        ...,
+        description="Every dimension the latest business date carried, in gold's row order, capped at 25.",
+    )
+    points: list[SeriesPoint] = Field(..., description="Oldest first.")
+    value: float | None = Field(
+        ...,
+        description="The latest point's value; what a `number` tile of this KPI shows.",
+    )
+    delta: float | None = Field(
+        ...,
+        description="`value` minus the previous point's value; `null` with fewer than two points.",
+    )
+    as_of: AwareDatetime | None = None
+    computed_at: AwareDatetime | None = None
+    status: KpiHealthStatus
+    provenance_ref: str | None = None
 
 
 class KpiWrite(BaseModel):

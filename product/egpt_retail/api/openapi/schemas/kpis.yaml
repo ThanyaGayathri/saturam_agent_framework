@@ -386,3 +386,90 @@ KpiImportRejection:
   properties:
     row: {type: integer}
     reason: {type: string}
+
+KpiSeriesInterval:
+  type: string
+  enum: [day]
+  description: The spacing of `KpiSeries.points`. Gold materialises once a night (D7), so `day` is the only interval today; a coarser one would be an aggregation this contract does not define.
+
+KpiSeries:
+  type: object
+  description: |
+    One KPI's value over its last business dates, read from `gold.kpi_value` -- the same rows
+    a dashboard's `line`/`bar` tile plots, addressed by KPI rather than by tile. One point per
+    business date the KPI materialised for; a night with no row is absent, not `null` (`null`
+    means the formula returned NULL that night). Nothing is recomputed on read.
+
+    A KPI whose grain is not `overall` has one row per dimension value each night; `dimension`
+    names the one the points follow (the caller's choice, else the first seen) and
+    `dimensions` lists every value the latest night carried, so a screen can offer the others.
+  required: [kpi_identifier, grain, interval, days, dimension, dimensions, points, value, delta, status]
+  properties:
+    kpi_identifier: {type: string}
+    grain:
+      $ref: './kpis.yaml#/Grain'
+    interval:
+      $ref: './kpis.yaml#/KpiSeriesInterval'
+    days:
+      type: integer
+      minimum: 1
+      description: The window the points were read over, ending at `as_of`.
+    unit: {type: string, default: ""}
+    dimension:
+      type: [object, "null"]
+      additionalProperties: true
+      description: The grain-key values the points follow; `null` for an `overall` KPI.
+    dimensions:
+      type: array
+      items:
+        type: object
+        additionalProperties: true
+      description: Every dimension the latest business date carried, in gold's row order, capped at 25.
+    points:
+      type: array
+      items:
+        $ref: './dashboards.yaml#/SeriesPoint'
+      description: Oldest first.
+    value:
+      type: [number, "null"]
+      description: The latest point's value; what a `number` tile of this KPI shows.
+    delta:
+      type: [number, "null"]
+      description: "`value` minus the previous point's value; `null` with fewer than two points."
+    as_of:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    computed_at:
+      oneOf:
+        - $ref: './common.yaml#/Timestamp'
+        - type: "null"
+    status:
+      $ref: './kpis.yaml#/KpiHealthStatus'
+    provenance_ref: {type: [string, "null"]}
+
+KpiComputeStatus:
+  type: string
+  enum: [materialised, failed, skipped]
+  description: Mirrors `gold.kpi_run.status` for the one KPI the call materialised.
+
+KpiComputeResult:
+  type: object
+  description: |
+    The outcome of materialising one KPI for today's business date on demand -- the same
+    guarded pass the nightly run performs (`materialise_gold`), narrowed to one identifier.
+    `materialised` wrote today's row(s) and `GET /kpis/{kpi_id}/series` now has today's point;
+    `failed` names the formula's own error; `skipped` names why the pass would not run it.
+  required: [kpi_identifier, as_of, status, rows_written, run_id]
+  properties:
+    kpi_identifier: {type: string}
+    as_of:
+      type: string
+      format: date
+      description: The business date written.
+    status:
+      $ref: './kpis.yaml#/KpiComputeStatus'
+    rows_written: {type: integer, minimum: 0}
+    run_id: {type: string}
+    error: {type: [string, "null"]}
+    reason: {type: [string, "null"]}

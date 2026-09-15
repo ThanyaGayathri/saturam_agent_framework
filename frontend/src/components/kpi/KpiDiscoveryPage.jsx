@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useProcesses } from "../../hooks/useProcesses";
@@ -19,6 +19,8 @@ import {
  startKpiSuggestionRun,
  fetchKpiSuggestionRun,
  createKpi,
+ fetchKpiSeries,
+ computeKpi,
  deleteKpi,
 } from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
@@ -161,6 +163,74 @@ export default function KpiDiscoveryPage() {
   return focusAreaIds.filter((id) => known.has(id));
  }, [focusAreaIds, areaState]);
 
+ // One registry KPI's value over time (`GET /kpis/{id}/series`), keyed by identifier, for the
+ // detail panel's `KpiTrend`: `{status: "loading"|"computing"|"ready"|"error", data, error,
+ // retry}`. Keyed rather than per-panel because the compute that "Add to my metrics" starts
+ // (`POST /kpis/{id}/compute`, a few seconds) outlives any one panel: the customer adopts, the
+ // panel is closed, they open the new card's panel -- and find it computing, or done, rather
+ // than a fresh "no values yet". `retry` remembers which call failed so "Try again" repeats it.
+ const [seriesById, setSeriesById] = useState({});
+ const seriesRef = useRef(seriesById);
+ seriesRef.current = seriesById;
+ const seriesAbortRefs = useRef(new Map());
+ const patchSeries = useCallback((identifier, patch) => {
+  setSeriesById((prev) => ({ ...prev, [identifier]: { ...(prev[identifier] || {}), ...patch } }));
+ }, []);
+ const loadSeries = useCallback(
+  (identifier, dimension) => {
+   seriesAbortRefs.current.get(identifier)?.abort();
+   const controller = new AbortController();
+   seriesAbortRefs.current.set(identifier, controller);
+   patchSeries(identifier, { status: "loading", error: null, retry: "load" });
+   fetchKpiSeries(identifier, { dimension, signal: controller.signal })
+    .then((data) => {
+     if (controller.signal.aborted) return;
+     patchSeries(identifier, { status: "ready", data, error: null });
+    })
+    .catch((err) => {
+     if (err?.name === "AbortError") return;
+     patchSeries(identifier, {
+      status: "error",
+      error: err?.detail || err?.message || "Couldn't load values.",
+      retry: "load",
+     });
+    });
+  },
+  [patchSeries]
+ );
+ const computeSeries = useCallback(
+  (identifier) => {
+   seriesAbortRefs.current.get(identifier)?.abort();
+   const controller = new AbortController();
+   seriesAbortRefs.current.set(identifier, controller);
+   patchSeries(identifier, { status: "computing", error: null, retry: "compute" });
+   computeKpi(identifier, { signal: controller.signal })
+    .then((result) => {
+     if (controller.signal.aborted) return;
+     // A formula that fails is a 200 saying so -- the request did what it said; the formula
+     // did not. Shown as the error it is, with the api's own words.
+     if (result?.status === "failed") {
+      patchSeries(identifier, {
+       status: "error",
+       error: result.error || "the formula failed.",
+       retry: "compute",
+      });
+      return;
+     }
+     loadSeries(identifier);
+    })
+    .catch((err) => {
+     if (err?.name === "AbortError") return;
+     patchSeries(identifier, {
+      status: "error",
+      error: err?.detail || err?.message || "Couldn't compute it.",
+      retry: "compute",
+     });
+    });
+  },
+  [patchSeries, loadSeries]
+ );
+
  // `runSuggestions`/`handleAdopt` are click-triggered, not effects, but they need the same
  // unmount guard the two effects below already have -- an `AbortController` per in-flight
  // request, forwarded as `signal` (both `apiGet`/`apiJson` already support one), aborted on
@@ -179,10 +249,19 @@ export default function KpiDiscoveryPage() {
    suggestAbortRef.current?.abort();
    window.clearTimeout(suggestPollTimerRef.current);
    for (const controller of adoptAbortRefs.current.values()) controller.abort();
+   for (const controller of seriesAbortRefs.current.values()) controller.abort();
    removeAbortRef.current?.abort();
   },
   []
  );
+
+ // Opening a registry KPI's panel loads its series once; an entry already there (ready, still
+ // computing from the adopt, or failed) is shown as it is rather than refetched.
+ const detailIdentifier = detailRow?.kpi?.fromRegistry ? detailRow.kpi.identifier : null;
+ useEffect(() => {
+  if (!detailIdentifier) return;
+  if (!seriesRef.current[detailIdentifier]) loadSeries(detailIdentifier);
+ }, [detailIdentifier, loadSeries]);
 
  // A once-a-second re-render while a run is in flight, so the panel's elapsed counter ticks
  // and its time-based bar moves -- a long run reads as alive rather than stuck. Stops (and
@@ -392,6 +471,18 @@ export default function KpiDiscoveryPage() {
      ...prev,
      suggestions: prev.suggestions.filter((s) => s.identifier !== suggestion.identifier),
     }));
+    // A panel open on the suggestion now shows the registry row it became -- the suggestion
+    // row is gone from the list, and the registry row is the one with a value to show.
+    setDetailRow((prev) =>
+     prev?.suggested && prev?.kpi?.identifier === suggestion.identifier
+      ? rowFromRegistryKpi(created, Number.MAX_SAFE_INTEGER)
+      : prev
+    );
+    // Today's value, now: the nightly gold pass for this one KPI, so the graph has its first
+    // point at once rather than after the first night. Runs whether or not a panel is open.
+    // Skipped for `rowset` KPIs: `KpiTrend` never shows a compute affordance or a line for
+    // one, so the call could only ever produce a skip the client already knows about.
+    if (created.result_shape !== "rowset") computeSeries(created.identifier);
    })
    .catch((err) => {
     if (err?.name === "AbortError") return;
@@ -456,32 +547,34 @@ export default function KpiDiscoveryPage() {
  // Mirrors `suggested-candidates.js`'s own precedent for a non-tree row source: sentinel
  // `categoryIndex`/`sectionIndex` (-2 here, distinct from candidates' -1) keep `rowKey` unique
  // across every source `KpiDiscovery.jsx` merges together.
+ const rowFromRegistryKpi = (k, index) => ({
+  kpi: {
+   name: k.name,
+   desc: k.description,
+   unit: k.unit,
+   businessAreaId: k.business_area,
+   subjectArea: k.subject_area || "",
+   datasetIds: k.dataset_ids || [],
+   active: k.active,
+   identifier: k.identifier,
+   feasibility: k.feasibility,
+   resultShape: k.result_shape,
+   fromRegistry: true,
+  },
+  categoryIndex: -2,
+  sectionIndex: -2,
+  kpiIndex: index,
+  // `KpiDetailPanel.jsx` renders these as "Business Area" / "Function" respectively -- the
+  // real area label is the business area, the subject area the finer-grained function.
+  categoryTitle: realAreaLabel(k.business_area) || k.business_area || "Your KPI registry",
+  sectionName: k.subject_area || "Your KPI registry",
+ });
  // The removal error belongs to the row it happened on; another row's panel must not show it.
  const removeError = (row) => (row?.kpi?.fromRegistry ? removeState.error : null);
 
  const realRows = useMemo(
-  () =>
-   realKpiState.kpis.map((k, index) => ({
-    kpi: {
-     name: k.name,
-     desc: k.description,
-     unit: k.unit,
-     businessAreaId: k.business_area,
-     subjectArea: k.subject_area || "",
-     datasetIds: k.dataset_ids || [],
-     active: k.active,
-     identifier: k.identifier,
-     feasibility: k.feasibility,
-     fromRegistry: true,
-    },
-    categoryIndex: -2,
-    sectionIndex: -2,
-    kpiIndex: index,
-    // `KpiDetailPanel.jsx` renders these as "Business Area" / "Function" respectively -- the
-    // real area label is the business area, the subject area the finer-grained function.
-    categoryTitle: realAreaLabel(k.business_area) || k.business_area || "Your KPI registry",
-    sectionName: k.subject_area || "Your KPI registry",
-   })),
+  () => realKpiState.kpis.map((k, index) => rowFromRegistryKpi(k, index)),
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `rowFromRegistryKpi` closes over `realAreaLabelById` only.
   [realKpiState.kpis, realAreaLabelById]
  );
 
@@ -624,6 +717,15 @@ export default function KpiDiscoveryPage() {
      processLabelById={processLabelById}
      onEdit={() => { setDetailRow(null); navigate("/configure/domain-mapping"); }}
      onClose={() => { setRemoveState({ identifier: null, error: null }); setDetailRow(null); }}
+     trend={detailIdentifier ? seriesById[detailIdentifier] || { status: "loading" } : null}
+     onTrendRetry={() => {
+      if (!detailIdentifier) return;
+      const entry = seriesById[detailIdentifier];
+      if (entry?.retry === "compute") computeSeries(detailIdentifier);
+      else loadSeries(detailIdentifier, entry?.data?.dimension || undefined);
+     }}
+     onTrendCompute={() => detailIdentifier && computeSeries(detailIdentifier)}
+     onTrendPickDimension={(dimension) => detailIdentifier && loadSeries(detailIdentifier, dimension)}
      onRemove={handleRemove}
      removing={removeState.identifier === detailRow.kpi?.identifier}
      removeError={removeError(detailRow)}

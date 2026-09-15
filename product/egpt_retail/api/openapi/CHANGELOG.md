@@ -109,6 +109,32 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.9 — 2026-09-15 — kpis: `GET /kpis/{kpi_id}/series` + `POST /kpis/{kpi_id}/compute` (additive)
+
+Agreed by: product (nandha-saturam), for the discovery detail panel's value graph (part of
+#222). Additive -- two new operations, four new schemas, nothing removed or renamed -- so no
+negotiation and no major bump. Numbered 1.1.9 because 1.1.6, 1.1.7 and 1.1.8 are claimed by
+open PRs (#259, #260, #261).
+
+- **`GET /kpis/{kpi_id}/series` → `KpiSeries`.** The value a KPI materialised over its last
+  `days` (default 30) business dates, read from `gold.kpi_value` by KPI identifier -- the
+  same rows `GET /dashboards/{id}/data` already plots for a `line`/`bar` tile, which was until
+  now the only way to reach them: a KPI had to be tiled on a saved dashboard to have a
+  history. One `SeriesPoint` per night that has a row (a missing night is absent, not
+  `null`), the latest `value`, its `delta` against the previous point, gold's stamps and a
+  `KpiHealthStatus`. A per-dimension KPI follows one `dimension` at a time and lists the
+  `dimensions` the latest night carried. A KPI with no gold rows is a `200` with empty
+  `points` and `status: never_computed`, never a 404: the KPI exists; its value does not yet.
+- **`POST /kpis/{kpi_id}/compute` → `KpiComputeResult`.** Runs the nightly `materialise_gold`
+  pass for exactly this KPI and today's date, so a KPI adopted from a suggestion has a value
+  the moment it is adopted rather than after its first night. `kpis:write`, because it writes
+  gold. `409` when the KPI is not `ready` (`not_ready`); `503` when gold itself refuses to run
+  (`gold_refused`: the silver gates or the load lock, the nightly run's own two refusals). A
+  formula that fails is a `200` with `status: failed` and the error -- the request did what it
+  said; the formula did not.
+- **`KpiSeriesInterval`** (`day`, the only interval gold has) and **`KpiComputeStatus`**
+  (`gold.kpi_run.status`'s three words) are the two enums.
+
 ## 1.1.8 — 2026-09-15 — kpis: `KpiSuggestionRunRequest.business_areas`, a focus for the run (additive)
 
 Agreed by: product (nandha-saturam). Additive -- one optional field on the request, one

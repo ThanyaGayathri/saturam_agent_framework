@@ -625,6 +625,95 @@
       "404":
         $ref: '#/x-egpt-responses/NotFound'
 
+/kpis/{kpi_id}/series:
+  get:
+    tags: [kpis]
+    operationId: getKpiSeries
+    summary: This KPI's value over its last business dates, from gold.
+    description: The rows the nightly run materialised for this KPI over the last `days` business dates, one point per night that has a row -- what the discovery detail panel graphs after a KPI is adopted. A read of `gold.kpi_value`, never a recomputation, so a KPI adopted today has no point until it is computed (`POST /kpis/{kpi_id}/compute`, or tonight's run). A KPI with a grain other than `overall` follows one dimension at a time; `dimension` picks it, else the first seen.
+    x-egpt-scopes: [kpis:read]
+    parameters:
+      - $ref: '#/x-egpt-parameters/kpiId'
+      - name: days
+        in: query
+        required: false
+        schema: {type: integer, minimum: 1, maximum: 365, default: 30}
+        description: How many business dates back from the latest one to read.
+      - name: dimension
+        in: query
+        required: false
+        schema: {type: string}
+        description: "A JSON object of grain-key values (e.g. `{\"brand\":\"Acme\"}`) naming which row of a per-dimension KPI to follow. Ignored for an `overall` KPI."
+    responses:
+      "200":
+        description: The series. Empty `points` with `status` saying why is a valid answer, never a 404.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiSeries'
+            examples:
+              overall:
+                value: {kpi_identifier: contact__contact_count, grain: overall, interval: day, days: 30, unit: Count, dimension: null, dimensions: [], points: [{at: "2026-09-12T23:59:59Z", value: 1240}, {at: "2026-09-13T23:59:59Z", value: 1262}, {at: "2026-09-14T23:59:59Z", value: 1284}], value: 1284, delta: 22, as_of: "2026-09-14T23:59:59Z", computed_at: "2026-09-15T02:20:00Z", status: fresh, provenance_ref: run_gold_20260915}
+              by_dimension:
+                value: {kpi_identifier: rfq__quote_requests_by_brand, grain: brand, interval: day, days: 30, unit: "", dimension: {brand: Acme}, dimensions: [{brand: Acme}, {brand: Borealis}], points: [{at: "2026-09-01T23:59:59Z", value: 1}, {at: "2026-09-14T23:59:59Z", value: 1}], value: 1, delta: 0, as_of: "2026-09-14T23:59:59Z", computed_at: "2026-09-14T04:44:54Z", status: fresh, provenance_ref: run_gold_20260914}
+              never_computed:
+                value: {kpi_identifier: websession__active_user_count, grain: overall, interval: day, days: 30, unit: "", dimension: null, dimensions: [], points: [], value: null, delta: null, as_of: null, computed_at: null, status: never_computed, provenance_ref: null}
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "422":
+        description: "`dimension` is not a JSON object."
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              bad_dimension:
+                value: {detail: "dimension must be a JSON object of grain-key values, e.g. {\"brand\": \"Acme\"}.", code: invalid_dimension}
+
+/kpis/{kpi_id}/compute:
+  post:
+    tags: [kpis]
+    operationId: computeKpi
+    summary: Materialise this KPI for today, now.
+    description: The nightly gold pass (`materialise_gold`) narrowed to one KPI and today's business date -- bound, guarded, executed and stamped exactly as the scheduled run would, writing `gold.kpi_value` so `GET /kpis/{kpi_id}/series` gains today's point. What "Add to my metrics" calls so a newly adopted KPI has a value before its first night. A re-run on the same date overwrites that date's rows, never yesterday's. Refused while the warehouse's last load did not pass its gates or a load is in progress, same as the nightly run.
+    x-egpt-scopes: [kpis:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/kpiId'
+    responses:
+      "200":
+        description: "The run's outcome for this KPI. A formula that fails is a `200` with `status: failed`; the request itself did what it said."
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/kpis.yaml#/KpiComputeResult'
+            examples:
+              materialised:
+                value: {kpi_identifier: contact__contact_count, as_of: "2026-09-15", status: materialised, rows_written: 1, run_id: api_3f9c1e7b2a40, error: null, reason: null}
+              failed:
+                value: {kpi_identifier: supplier__on_time_rate_30d, as_of: "2026-09-15", status: failed, rows_written: 0, run_id: api_3f9c1e7b2a40, error: "column supplier_deliveries.actual_date does not exist", reason: null}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
+      "409":
+        description: The KPI is not `ready`; there is nothing gold could compute.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              blocked:
+                value: {detail: "campaign__spend_per_order is blocked: missing from the semantic snapshot: campaign_spend, campaigns.", code: not_ready}
+      "503":
+        description: Gold refused to run -- the last load did not pass, or a load holds the warehouse lock. The message says which.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              refused:
+                value: {detail: "the last finished load was 'blocked', not 'passed' (row count fell 40%); gold is not rebuilt from silver the gates refused.", code: gold_refused}
+
 /kpi-sources:
   get:
     tags: [kpis]
