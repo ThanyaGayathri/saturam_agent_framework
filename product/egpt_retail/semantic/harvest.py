@@ -272,9 +272,17 @@ def _sample_values(
     catalogue rather than from a user, but a harvester that builds SQL by concatenation is one
     refactor away from being handed a name it did not read itself.
     """
+    # `%%I` reaches psycopg as written -- it is what psycopg needs to send a literal `%I` to
+    # Postgres's `format()`. The limit is an int constant, spliced with an f-string rather than
+    # a `%` format so nothing rewrites the `%%` escapes first (a `% SAMPLE_LIMIT` on this string
+    # collapsed them to `%I`, which psycopg refused: "only '%s', '%b', '%t' are allowed"). The
+    # `::text` casts are for psycopg's server-side binding: `format()` is variadic over `any`,
+    # so Postgres cannot infer a bound parameter's type from it ("could not determine data type
+    # of parameter $1") and has to be told.
     cursor.execute(
-        "SELECT format('SELECT DISTINCT %%I::text FROM %%I.%%I WHERE %%I IS NOT NULL LIMIT %s',"
-        " %%(col)s, %%(schema)s, %%(table)s, %%(col)s)" % SAMPLE_LIMIT,
+        "SELECT format('SELECT DISTINCT %%I::text FROM %%I.%%I WHERE %%I IS NOT NULL"
+        f" LIMIT {SAMPLE_LIMIT}', %(col)s::text, %(schema)s::text, %(table)s::text,"
+        " %(col)s::text)",
         {"col": column, "schema": schema, "table": table},
     )
     row = cursor.fetchone()
