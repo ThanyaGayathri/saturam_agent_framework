@@ -23,6 +23,7 @@ from egpt_retail.kpi import series as series_module
 from egpt_retail.kpi.series import (
     DEFAULT_SERIES_DAYS,
     MAX_DIMENSIONS,
+    history_by_date,
     read_kpi_series,
     series_from_gold,
 )
@@ -189,6 +190,75 @@ def test_multi_row_result_with_no_grain_key_columns_has_values_but_no_line():
     assert series.points == []
     assert series.status.value == "never_computed"
     assert series.as_of is not None
+
+
+def test_history_by_date_sorts_out_of_order_rows():
+    # `read_gold`'s history is normally already ordered by `as_of`; this pins the point of
+    # sorting here at all -- independence from the reader's own order.
+    history = [
+        _row("2026-09-14", "3"),
+        _row("2026-09-12", "1"),
+        _row("2026-09-13", "2"),
+    ]
+    assert [as_of for as_of, _ in history_by_date(history)] == [
+        "2026-09-12",
+        "2026-09-13",
+        "2026-09-14",
+    ]
+
+
+def test_a_composite_dimension_must_match_every_key_not_any_single_one():
+    rows = [
+        _row("2026-09-14", "1", brand="Acme", channel="online"),
+        _row("2026-09-14", "2", brand="Borealis", channel="retail"),
+    ]
+    kpi = _kpi(identifier="sales__orders_by_brand_channel", grain="brand,channel")
+    # Neither row agrees with the requested dimension on both keys at once (row 1 shares only
+    # `brand`, row 2 shares only `channel`) -- partial agreement on one key must not resolve it.
+    series = series_from_gold(
+        kpi, _result(rows, rows), dimension={"brand": "Acme", "channel": "retail"}
+    )
+    assert series.dimension == {"brand": "Acme", "channel": "online"}
+
+
+def test_duplicate_dimension_values_on_one_date_are_not_double_listed():
+    rows = [
+        _row("2026-09-14", "1", brand="Acme"),
+        _row("2026-09-14", "9", brand="Acme"),
+        _row("2026-09-14", "2", brand="Borealis"),
+    ]
+    kpi = _kpi(identifier="rfq__quote_requests_by_brand", grain="brand")
+    series = series_from_gold(kpi, _result(rows, rows))
+    assert series.dimensions == [{"brand": "Acme"}, {"brand": "Borealis"}]
+
+
+def test_two_rows_matching_the_same_dimension_on_one_date_resolve_to_the_first():
+    rows = [
+        _row("2026-09-14", "1", brand="Acme"),
+        _row("2026-09-14", "9", brand="Acme"),
+    ]
+    kpi = _kpi(identifier="rfq__quote_requests_by_brand", grain="brand")
+    series = series_from_gold(kpi, _result(rows, rows), dimension={"brand": "Acme"})
+    assert series.value == 1.0
+    assert len(series.points) == 1
+
+
+def test_a_dimension_key_that_is_not_a_grain_key_is_ignored():
+    kpi = _kpi(identifier="rfq__quote_requests_by_brand", grain="brand")
+    # `run_id` is a bookkeeping column, not a grain key -- it must not participate in row
+    # selection at all, ignored the same as no dimension having been given.
+    series = series_from_gold(
+        kpi, _by_brand_result(), dimension={"run_id": "run_gold_20260914"}
+    )
+    assert series.dimension == {"brand": "Acme"}
+
+
+def test_a_dimension_with_an_unrecognised_key_alongside_a_real_one_still_matches():
+    kpi = _kpi(identifier="rfq__quote_requests_by_brand", grain="brand")
+    series = series_from_gold(
+        kpi, _by_brand_result(), dimension={"brand": "Borealis", "run_id": "nope"}
+    )
+    assert series.dimension == {"brand": "Borealis"}
 
 
 # ---------------------------------------------------------------------------

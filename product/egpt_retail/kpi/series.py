@@ -173,7 +173,18 @@ def series_from_gold(
 
     followed: Optional[Dict[str, Any]] = None
     if keys:
-        matched = _row_for(rows, dimension) if dimension else None
+        # Restricted to the real grain keys before matching: an unrecognised key in the
+        # caller's `dimension` (e.g. `run_id`, a bookkeeping column, not a grain key at all)
+        # must not participate in row selection, even inertly -- ignoring it here means it is
+        # simply dropped rather than silently compared against a column it was never meant to
+        # name. An empty result after restricting is the same as no dimension having been
+        # given at all.
+        restricted = (
+            {key: value for key, value in dimension.items() if key in keys}
+            if dimension
+            else None
+        )
+        matched = _row_for(rows, restricted) if restricted else None
         followed = (
             _dimension_of(matched, keys)
             if matched is not None

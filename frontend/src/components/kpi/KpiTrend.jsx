@@ -102,11 +102,6 @@ function barWidth(xs) {
 function TrendChart({ points, unit, asOf, days, kind = DEFAULT_CHART_KIND }) {
   const ref = useRef(null);
   const [hover, setHover] = useState(null);
-  // A chart-kind switch recomputes `pts` under a different domain (bar's zero-anchored one
-  // vs. the others' tight min/max) without an intervening `mousemove` -- the kind picker is a
-  // sibling above the chart, so no `onMouseLeave` fires when a click lands on it while
-  // hovering. Left uncleared, the crosshair/tooltip would render at the old kind's position.
-  useEffect(() => setHover(null), [kind]);
 
   const end = new Date(asOf).getTime();
   const start = end - Math.max(days - 1, 1) * DAY_MS;
@@ -418,7 +413,20 @@ export default function KpiTrend({ state, unit, resultShape, onRetry, onCompute,
           {chartKind === "table" ? (
             <TrendTable points={points} unit={valueUnit} />
           ) : (
-            <TrendChart points={points} unit={valueUnit} asOf={data.as_of} days={data.days || 30} kind={chartKind} />
+            <TrendChart
+              // A fresh mount per kind/dimension pair, rather than an effect inside
+              // `TrendChart`, so a stale `hover` from the previous chart can never paint even
+              // for one frame: neither a chart-kind switch (bar's zero-anchored domain vs. the
+              // others' tight min/max) nor a dimension-chip switch (a whole new points/domain
+              // from `onPickDimension`, keyboard-reachable with no mouse event to clear it)
+              // carries `hover` state across into the new chart.
+              key={`${chartKind}-${dimensionLabel(data.dimension)}`}
+              points={points}
+              unit={valueUnit}
+              asOf={data.as_of}
+              days={data.days || 30}
+              kind={chartKind}
+            />
           )}
         </div>
         <p className="mt-2 text-[11px] text-text-muted">
