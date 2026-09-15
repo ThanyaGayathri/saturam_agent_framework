@@ -12,13 +12,17 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from egpt_retail.api import models as wire_models
 from egpt_retail.api.routers import dashboards as dashboards_module
 from egpt_retail.api.routers.dashboards import _DashboardSuggestionSnapshot
+from egpt_retail.app.settings import RetailSettings
+from egpt_retail.contracts.kpi import KpiDefinition
 from egpt_retail.contracts.vocabulary import load_vocabulary_set
+from egpt_retail.skills import dashboard_suggestion as dsg
 from egpt_retail.suggestions.dashboard_runs import (
     LOST_RUN_ERROR,
     DashboardSuggestionRunRecord,
@@ -26,6 +30,20 @@ from egpt_retail.suggestions.dashboard_runs import (
 )
 
 _VOCABULARIES = load_vocabulary_set()
+
+
+def _kpi(**overrides) -> KpiDefinition:
+    defaults = dict(
+        identifier="session__active_analytics_user_count",
+        name="Active analytics user count",
+        description="Distinct analytics users active in the period.",
+        sql="SELECT count(DISTINCT user_id) FROM sessions",
+        grain="overall",
+        business_area="marketing",
+        source_tables=frozenset({"sessions"}),
+    )
+    defaults.update(overrides)
+    return KpiDefinition(**defaults)
 
 
 def _suggestion(**overrides) -> wire_models.DashboardSuggestion:
@@ -251,3 +269,89 @@ def test_get_dashboard_suggestion_run_leaves_a_recent_running_row_alone(monkeypa
 
     assert polled.status_code == 200
     assert polled.json()["status"] == "running"
+
+
+# ---------------------------------------------------------------------------
+# `_cached_dashboard_suggestion_agent` -- the same reuse-across-requests contract
+# `_cached_suggestion_agents` has in `kpis.py` (Finding 4, PR #242 review: CLAUDE.md says
+# never create agents in loops). The routes above monkeypatch `_build_dashboard_suggestion`
+# entirely, so they never exercise the cache itself -- these do, directly, the same way
+# `test_kpis_router.py`'s own two tests of the same shape do for their counterpart.
+# ---------------------------------------------------------------------------
+
+
+def test_cached_dashboard_suggestion_agent_reuses_the_same_agent_for_an_unchanged_ready_set(
+    monkeypatch,
+):
+    build_calls = []
+
+    def _fake_build(settings, *, ready_kpis, vocabularies):
+        agent = object()
+        build_calls.append(agent)
+        return agent
+
+    monkeypatch.setattr(
+        dashboards_module, "build_dashboard_suggestion_agent", _fake_build
+    )
+    monkeypatch.setattr(dashboards_module, "_dash_agent_cache_key", None)
+    monkeypatch.setattr(dashboards_module, "_dash_agent_cache_agent", None)
+
+    snapshot = _DashboardSuggestionSnapshot(
+        ready_kpis=(_kpi(identifier="a"), _kpi(identifier="b")),
+        vocabularies=_VOCABULARIES,
+    )
+    first = dashboards_module._cached_dashboard_suggestion_agent(
+        RetailSettings(), snapshot
+    )
+    second = dashboards_module._cached_dashboard_suggestion_agent(
+        RetailSettings(), snapshot
+    )
+
+    assert first is second
+    assert len(build_calls) == 1
+
+
+def test_cached_dashboard_suggestion_agent_rebuilds_when_the_ready_set_changes(
+    monkeypatch,
+):
+    build_calls = []
+
+    def _fake_build(settings, *, ready_kpis, vocabularies):
+        agent = object()
+        build_calls.append(agent)
+        return agent
+
+    monkeypatch.setattr(
+        dashboards_module, "build_dashboard_suggestion_agent", _fake_build
+    )
+    monkeypatch.setattr(dashboards_module, "_dash_agent_cache_key", None)
+    monkeypatch.setattr(dashboards_module, "_dash_agent_cache_agent", None)
+
+    first = dashboards_module._cached_dashboard_suggestion_agent(
+        RetailSettings(),
+        _DashboardSuggestionSnapshot(
+            ready_kpis=(_kpi(identifier="a"),), vocabularies=_VOCABULARIES
+        ),
+    )
+    second = dashboards_module._cached_dashboard_suggestion_agent(
+        RetailSettings(),
+        _DashboardSuggestionSnapshot(
+            ready_kpis=(_kpi(identifier="a"), _kpi(identifier="b")),
+            vocabularies=_VOCABULARIES,
+        ),
+    )
+
+    assert first is not second
+    assert len(build_calls) == 2
+
+
+def test_drafts_of_raises_when_the_agent_returns_something_other_than_the_draft_schema():
+    """The guard `_build_dashboard_suggestion` relies on before handing a response to
+    `dsg.assemble` -- a run that fails structured output (no model configured, a refusal
+    string) must not reach `assemble` as if it were a real draft."""
+
+    class _FakeResponse:
+        content = "no model configured"
+
+    with pytest.raises(ValueError, match="DashboardSuggestionDraft expected"):
+        dashboards_module._drafts_of(_FakeResponse(), dsg.DashboardSuggestionDraft)

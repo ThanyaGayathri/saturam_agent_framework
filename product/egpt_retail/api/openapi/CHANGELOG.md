@@ -112,7 +112,7 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
 ## 1.1.6 — 2026-09-15 — dashboards: suggestion runs, `POST /dashboards/suggestions` + `GET /dashboards/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for the "Create dashboard" flow's AI-generated path
-(#222). Additive -- two new operations, four new schemas, nothing removed or renamed -- so no
+(#222). Additive -- two new operations, five new schemas, nothing removed or renamed -- so no
 negotiation and no major bump.
 
 - **`POST /dashboards/suggestions` → `202` `DashboardSuggestionRun`,

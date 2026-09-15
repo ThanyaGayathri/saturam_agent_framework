@@ -75,9 +75,17 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
   };
  }, []);
 
+ // Includes `businessAreaFilter` itself, not just `readyKpis`' own areas: the agent validates
+ // a suggested area against the deployment's full vocabulary, not against the subset actually
+ // represented among currently-ready KPIs, so a valid suggestion can name an area no ready KPI
+ // has yet. Without this, that value stays selected in state (and gets submitted) while the
+ // <select> silently falls back to "No filter", showing the user something that isn't true.
  const businessAreaOptions = useMemo(
-  () => Array.from(new Set(readyKpis.map((k) => k.businessArea).filter(Boolean))).sort(),
-  [readyKpis],
+  () =>
+   Array.from(
+    new Set([...readyKpis.map((k) => k.businessArea), businessAreaFilter].filter(Boolean)),
+   ).sort(),
+  [readyKpis, businessAreaFilter],
  );
 
  const suggestionRun = useDashboardSuggestionRun();
@@ -92,24 +100,50 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
  // here is final until they click Create.
  useEffect(() => {
   if (suggestionRun.status !== "ready" || !suggestionRun.result) return;
+  let cancelled = false;
   const result = suggestionRun.result;
-  const byIdentifier = new Map(readyKpis.map((k) => [k.identifier, k]));
-  setName(result.name || "");
-  setMetrics(
-   (result.tiles || []).map((tile) => ({
-    identifier: tile.kpi_identifier,
-    name: tile.name || byIdentifier.get(tile.kpi_identifier)?.name || tile.kpi_identifier,
-    unit: byIdentifier.get(tile.kpi_identifier)?.unit || "",
-    businessArea: byIdentifier.get(tile.kpi_identifier)?.businessArea || "",
-   })),
-  );
-  const areaFilter = (result.filters || []).find((f) => f.field === "business_area");
-  setBusinessAreaFilter(areaFilter ? areaFilter.value : null);
-  setAiSuggested(true);
-  setStep("builder");
+
+  const applyResult = (kpisForLookup) => {
+   if (cancelled) return;
+   const byIdentifier = new Map(kpisForLookup.map((k) => [k.identifier, k]));
+   setName(result.name || "");
+   setMetrics(
+    (result.tiles || []).map((tile) => ({
+     identifier: tile.kpi_identifier,
+     name: tile.name || byIdentifier.get(tile.kpi_identifier)?.name || tile.kpi_identifier,
+     unit: byIdentifier.get(tile.kpi_identifier)?.unit || "",
+     businessArea: byIdentifier.get(tile.kpi_identifier)?.businessArea || "",
+    })),
+   );
+   const areaFilter = (result.filters || []).find((f) => f.field === "business_area");
+   setBusinessAreaFilter(areaFilter ? areaFilter.value : null);
+   setAiSuggested(true);
+   setStep("builder");
+  };
+
+  // A fresh read, not the mount-time `readyKpis` snapshot: a run can take up to the backend's
+  // timeout plus its grace window (~180s+60s by default) - long enough for the registry to
+  // have moved since this modal opened. Looking a tile up against a stale local copy would
+  // fall back to a blank unit/business-area for a KPI the backend, at suggestion time, had
+  // just validated as ready. Also updates `readyKpis` itself, so the metric picker and filter
+  // dropdown are current too, not just this one prefill.
+  fetchKpiList()
+   .then((kpis) => {
+    if (cancelled) return;
+    const fresh = (kpis || [])
+     .filter((k) => k?.identifier && k?.feasibility?.verdict === "ready")
+     .map(metricFromKpi);
+    setReadyKpis(fresh);
+    applyResult(fresh);
+   })
+   .catch(() => applyResult(readyKpis));
+
+  return () => {
+   cancelled = true;
+  };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- readyKpis intentionally excluded:
   // re-running this on every registry refresh would clobber in-progress edits to the result
-  // already prefilled below.
+  // already prefilled below; the effect only reads it once, as the fetch-failure fallback.
  }, [suggestionRun.status, suggestionRun.result]);
 
  const submit = async () => {
