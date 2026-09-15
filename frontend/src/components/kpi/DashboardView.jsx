@@ -184,6 +184,12 @@ export default function DashboardView() {
  useEffect(() => {
   let cancelled = false;
   setDashboardState({ status: "loading", dashboard: null, error: null });
+  // A pending/in-flight edit belongs to the dashboard being left, not the one being opened --
+  // without this, an unconfirmed schedule pick survives a back/forward navigation (no `key`
+  // on this route, so the component isn't guaranteed to remount) and the confirm modal
+  // reopens on the new dashboard showing the old one's leftover value.
+  setPendingSchedule(null);
+  setSaving(false);
   // Both requests only need `dashboardId`, so they fire together rather than sequentially
   // (`/data` used to wait for the dashboard fetch to resolve first, doubling open latency).
   fetchDashboard(dashboardId)
@@ -261,7 +267,10 @@ export default function DashboardView() {
  // `confirmScheduleChange` below are what it calls.
  const handleScheduleChange = (e) => {
   const next = e.target.value;
-  if (next !== dashboard.refresh_schedule) setPendingSchedule(next);
+  // Always set, never conditionally skipped: re-selecting the dashboard's current value must
+  // clear a stale `pendingSchedule` from an earlier, since-abandoned pick, not leave the
+  // select/modal stuck showing it.
+  setPendingSchedule(next === dashboard.refresh_schedule ? null : next);
  };
 
  const cancelScheduleChange = () => setPendingSchedule(null);
