@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, RefreshCw, Trash2 } from "lucide-react";
+import Modal from "../ui/Modal";
 import { DemoAreaSpark, DemoAreaSparkWithAxes } from "../shared/DemoSparkCharts";
-import { CHART_KINDS, labelForRefresh, tilesToWrite } from "../../storage/dashboards";
+import { CHART_KINDS, REFRESH_OPTIONS, labelForRefresh, tilesToWrite } from "../../storage/dashboards";
 import {
  deleteDashboardApi,
  fetchDashboard,
@@ -152,7 +153,13 @@ export default function DashboardView() {
  const [dashboardState, setDashboardState] = useState({ status: "loading", dashboard: null, error: null });
  const [dataState, setDataState] = useState({ status: "loading", byTileId: {}, error: null });
  const [actionError, setActionError] = useState(null);
- const [savingChart, setSavingChart] = useState(false);
+ // Shared by every write this screen makes (a tile's chart type, the refresh schedule): see
+ // `setChart`'s own comment below for why one flag guards all of them, not one per edit.
+ const [saving, setSaving] = useState(false);
+ // The schedule picked but not yet confirmed -- `null` means the pill just shows
+ // `dashboard.refresh_schedule`. Kept separate from `dashboard` so Cancel is a no-op PATCH,
+ // not a second write to undo the first.
+ const [pendingSchedule, setPendingSchedule] = useState(null);
 
  // `dashboardId` this component is currently showing, readable inside async callbacks that
  // closed over an older value -- lets `loadData` (and the dashboard fetch) tell a stale
@@ -219,13 +226,14 @@ export default function DashboardView() {
 
  const { dashboard } = dashboardState;
 
- // Every tile's `<select>` is disabled while any chart-type PATCH is in flight (not just the
- // edited tile's) so a second edit can never fire before the first resolves -- otherwise two
- // concurrent PATCHes would each build their `tiles` array from the same stale `dashboard`
- // closure, and whichever resolves second would silently overwrite the other's edit.
+ // Every tile's `<select>` -- and now the schedule pill below -- is disabled while any write
+ // from this screen is in flight (not just the one being edited) so a second edit can never
+ // fire before the first resolves -- otherwise two concurrent PATCHes would each build their
+ // body from the same stale `dashboard` closure, and whichever resolves second would silently
+ // overwrite the other's edit.
  const setChart = async (tileId, chart) => {
   setActionError(null);
-  setSavingChart(true);
+  setSaving(true);
   const tiles = tilesToWrite(dashboard.tiles.map((t) => (t.id === tileId ? { ...t, chart } : t)));
   try {
    // `DashboardWrite.name` is required on every write, PATCH included (the contract's own
@@ -237,7 +245,35 @@ export default function DashboardView() {
   } catch (err) {
    setActionError(err?.message || "Could not change the chart type.");
   } finally {
-   setSavingChart(false);
+   setSaving(false);
+  }
+ };
+
+ // Picking a new schedule opens a confirmation modal rather than saving straight away (the
+ // change affects every future refresh, not just this view) -- `cancelScheduleChange` and
+ // `confirmScheduleChange` below are what it calls.
+ const handleScheduleChange = (e) => {
+  const next = e.target.value;
+  if (next !== dashboard.refresh_schedule) setPendingSchedule(next);
+ };
+
+ const cancelScheduleChange = () => setPendingSchedule(null);
+
+ const confirmScheduleChange = async () => {
+  const refreshSchedule = pendingSchedule;
+  setPendingSchedule(null);
+  setActionError(null);
+  setSaving(true);
+  try {
+   const updated = await updateDashboardApi(dashboard.id, {
+    name: dashboard.name,
+    refresh_schedule: refreshSchedule,
+   });
+   setDashboardState({ status: "ready", dashboard: updated, error: null });
+  } catch (err) {
+   setActionError(err?.message || "Could not change the schedule.");
+  } finally {
+   setSaving(false);
   }
  };
 
@@ -273,7 +309,21 @@ export default function DashboardView() {
      <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
       <span className="inline-flex items-center gap-1">
        <RefreshCw size={11} />
-       {labelForRefresh(dashboard.refresh_schedule)}
+       {/* Was read-only text; PATCH /dashboards/{id} already took `refresh_schedule`, this
+           screen just never offered a way to change it. Same edit-in-place shape as a
+           tile's chart-type select below, gated by the same confirmation modal a schedule
+           change deserves (it affects every future refresh, not just this view). */}
+       <select
+        aria-label="Refresh schedule"
+        value={pendingSchedule ?? dashboard.refresh_schedule}
+        onChange={handleScheduleChange}
+        disabled={saving}
+        className="rounded-md border border-border bg-surface-secondary px-1.5 py-1 text-[11px] font-medium text-text-secondary focus:border-primary focus:outline-none disabled:opacity-50"
+       >
+        {REFRESH_OPTIONS.map((o) => (
+         <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+       </select>
       </span>
       <span>{dashboard.tiles.length} metrics</span>
      </p>
@@ -316,10 +366,36 @@ export default function DashboardView() {
       tile={tile}
       data={dataState.byTileId[tile.id]}
       onChartChange={(chart) => setChart(tile.id, chart)}
-      chartDisabled={savingChart}
+      chartDisabled={saving}
      />
     ))}
    </div>
+
+   {pendingSchedule && (
+    <Modal title="Change refresh schedule?" onClose={cancelScheduleChange}>
+     <p className="text-sm text-text-secondary">
+      This dashboard will refresh{" "}
+      <span className="font-semibold text-text-primary">{labelForRefresh(pendingSchedule)}</span>{" "}
+      from now on.
+     </p>
+     <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
+      <button
+       type="button"
+       onClick={cancelScheduleChange}
+       className="rounded-lg px-3.5 py-2 text-sm font-semibold text-text-secondary hover:text-text-primary"
+      >
+       Cancel
+      </button>
+      <button
+       type="button"
+       onClick={confirmScheduleChange}
+       className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+      >
+       Save schedule
+      </button>
+     </div>
+    </Modal>
+   )}
 
    {/* Said once, plainly, rather than implied: the figures are computed, not generated. */}
    <p className="text-xs text-text-muted">
