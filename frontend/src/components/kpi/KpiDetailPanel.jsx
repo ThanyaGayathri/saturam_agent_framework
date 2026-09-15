@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { X, ExternalLink } from "lucide-react";
+import { AlertTriangle, Trash2, X, ExternalLink } from "lucide-react";
 import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
+import { bucketFor, NOT_SELECTABLE_REASONS } from "./KpiDiscovery";
 
 /**
  * The definition surface for one KPI: description, unit, level, mapping confidence, the datasets
@@ -18,14 +20,45 @@ const FEASIBILITY_STYLE = {
  blocked: { cls: "border-status-critical/35 bg-status-critical-light dark:bg-status-critical/15", label: "text-status-critical" },
 };
 
-export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, processLabelById, onEdit, onClose }) {
- // A real registry KPI (C1, #232) carries the server's own join-aware `feasibility` -- shown
- // below instead of `mappingConfidenceForKpi`'s local heuristic score, which has nothing real
- // to compute from for a row the seed/dataset simulation has never heard of.
+export default function KpiDetailPanel({
+ detailRow,
+ nameToIdsMap,
+ profileId,
+ processLabelById,
+ onEdit,
+ onClose,
+ onRemove,
+ removing = false,
+ removeError = null,
+}) {
+ // "Remove from my metrics" asks once before it acts: the row is gone from the registry for
+ // good, and there is no undo beyond adopting it again. Confirmed inline, not in a modal --
+ // the panel is already the focused surface.
+ const [confirmingRemove, setConfirmingRemove] = useState(false);
+ // A real registry KPI (C1, #232) and a live suggestion (F1, #234) both carry the server's
+ // own join-aware `feasibility` -- a set difference over the tables the semantic graph
+ // actually holds -- and that is what is shown below. `mappingConfidenceForKpi`'s score is
+ // the prototype's heuristic over the seed catalogue's local dataset links, which a real row
+ // never has: rendered for one, it always says "18 / 100, no enterprise datasets linked", a
+ // statement about the demo simulation, not about the KPI. Seed cards keep it.
  const fromRegistry = !!detailRow.kpi.fromRegistry;
- const conf = fromRegistry ? null : mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
- const feasibility = fromRegistry ? detailRow.kpi.feasibility : null;
- const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] : null;
+ const suggested = !!(detailRow.suggested && detailRow.suggestion);
+ const conf =
+  fromRegistry || suggested ? null : mappingConfidenceForKpi(detailRow.kpi, nameToIdsMap);
+ // A suggestion's `feasibility` is optional in the contract -- the one live producer always
+ // stamps it, but nothing enforces that. Fall back the same way the card view does (bucketFor,
+ // SuggestionReasons in KpiDiscovery.jsx) rather than silently dropping the whole section.
+ const feasibility = fromRegistry
+  ? detailRow.kpi.feasibility
+  : suggested
+   ? detailRow.suggestion.feasibility || {
+      verdict: "blocked",
+      rationale: "The feasibility check did not run for this suggestion.",
+     }
+   : null;
+ // Fall back to the "blocked" look for an unmapped verdict, matching bucketFor's own
+ // "no verdict is not known ready" rule.
+ const feasibilityStyle = feasibility ? FEASIBILITY_STYLE[feasibility.verdict] || FEASIBILITY_STYLE.blocked : null;
  const useCases = getCatalogEntriesForKpiName(detailRow.kpi.name, profileId);
  const processIds = Array.isArray(detailRow.kpi.processMapping) ? detailRow.kpi.processMapping : [];
  return (
@@ -48,6 +81,15 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">KPI</p>
  <p className="mt-1 text-base font-semibold text-text-primary">{detailRow.kpi.name}</p>
  <p className="mt-2 text-sm text-text-secondary">{detailRow.kpi.desc || "-"}</p>
+ {/* The same reason the card's disabled box gives on hover, said here in full: a proposal
+     is not a governed KPI yet, so it cannot be picked for a dashboard until adopted. Skipped
+     when the suggestion is itself blocked (missing data) -- adopting it wouldn't help, and the
+     Feasibility section below already names the real reason, so this would just contradict it. */}
+ {detailRow.suggested && bucketFor(detailRow) !== "blocked" && (
+ <p className="mt-3 rounded-lg border border-dashed border-border-light bg-surface-secondary px-3 py-2 text-xs leading-snug text-text-secondary">
+ {NOT_SELECTABLE_REASONS.adoptFirst.node}
+ </p>
+ )}
  </section>
  <section className="grid grid-cols-2 gap-3 text-sm">
  {/* Unit is registry-only: a suggestion has no unit until it is adopted into the registry, so
@@ -189,6 +231,56 @@ export default function KpiDetailPanel({ detailRow, nameToIdsMap, profileId, pro
  >
  Edit KPI →
  </button>
+ )}
+
+ {/* The reverse of "Add to my metrics": a registry KPI can be removed here, where it was
+ adopted. The api refuses while a dashboard still uses it (409), and says which. */}
+ {fromRegistry && onRemove && (
+ <section className="rounded-xl border border-border bg-surface-secondary p-4">
+ {!confirmingRemove ? (
+ <button
+ type="button"
+ onClick={() => setConfirmingRemove(true)}
+ disabled={removing}
+ className="inline-flex items-center gap-1.5 text-sm font-semibold text-status-critical hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Trash2 size={14} />
+ Remove from my metrics
+ </button>
+ ) : (
+ <div className="space-y-3">
+ <p className="text-sm text-text-secondary">
+ Remove <strong className="font-semibold text-text-primary">{detailRow.kpi.name}</strong> from your
+ registry? Dashboards using it must be changed first; you can adopt it again later.
+ </p>
+ <div className="flex items-center gap-3">
+ <button
+ type="button"
+ onClick={() => onRemove(detailRow)}
+ disabled={removing}
+ className="inline-flex items-center gap-1.5 rounded-lg bg-status-critical px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+ >
+ <Trash2 size={13} />
+ {removing ? "Removing…" : "Yes, remove"}
+ </button>
+ <button
+ type="button"
+ onClick={() => setConfirmingRemove(false)}
+ disabled={removing}
+ className="text-xs font-semibold text-text-secondary hover:text-text-primary"
+ >
+ Cancel
+ </button>
+ </div>
+ </div>
+ )}
+ {removeError && (
+ <p role="alert" className="mt-3 flex items-start gap-2 text-xs text-status-critical">
+ <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+ <span>Couldn't remove it: {removeError}</span>
+ </p>
+ )}
+ </section>
  )}
  </div>
  </aside>

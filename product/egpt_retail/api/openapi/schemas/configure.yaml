@@ -226,7 +226,8 @@ BusinessArea:
   description: |
     One node of the business hierarchy. `id` is a term from the deployment's `business_area`
     vocabulary (shipped ontology plus overlay, D9/G10). `supported` is derived from confirmed
-    mappings (K9), never asserted.
+    mappings (K9), never asserted; `concept_count`, `table_count` and `reason` are the
+    evidence behind it, so a screen can show why as well as whether.
   required: [id, label, subject_areas, supported]
   properties:
     id:
@@ -237,6 +238,20 @@ BusinessArea:
       items: {type: string}
     description: {type: string, default: ""}
     supported: {type: boolean}
+    concept_count:
+      type: integer
+      minimum: 0
+      default: 0
+      description: Accepted concepts in this area that have a confirmed table mapping (K9). 0 when unsupported.
+    table_count:
+      type: integer
+      minimum: 0
+      default: 0
+      description: Distinct tables backing those concepts.
+    reason:
+      type: string
+      default: ""
+      description: K9's one-sentence account of why the area is or is not supported, ready to render.
     origin:
       $ref: './configure.yaml#/TermOrigin'
 

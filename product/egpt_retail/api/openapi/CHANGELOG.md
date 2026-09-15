@@ -109,11 +109,12 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
-## 1.1.6 — 2026-09-15 — dashboards: suggestion runs, `POST /dashboards/suggestions` + `GET /dashboards/suggestions/{run_id}` (additive)
+## 1.1.8 — 2026-09-15 — dashboards: suggestion runs, `POST /dashboards/suggestions` + `GET /dashboards/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for the "Create dashboard" flow's AI-generated path
 (#222). Additive -- two new operations, five new schemas, nothing removed or renamed -- so no
-negotiation and no major bump.
+negotiation and no major bump. Numbered 1.1.8, not 1.1.6: PRs #259 (`KpiSuggestionRun.phase`)
+and #264 (`BusinessArea.concept_count`), open at the same time, already claim 1.1.6 and 1.1.7.
 
 - **`POST /dashboards/suggestions` → `202` `DashboardSuggestionRun`,
   `GET /dashboards/suggestions/{run_id}`.** The same run-then-poll shape 1.1.5 gave KPI
@@ -136,6 +137,43 @@ negotiation and no major bump.
   a parallel draft-only shape means a suggestion's filters round-trip into `POST /dashboards`
   unchanged, the same "renders without transformation" guarantee 1.1.5's `KpiSuggestion`
   carries for the discovery screen.
+
+## 1.1.6 — 2026-09-15 — kpis: `KpiSuggestionRun.phase` and `.typical_duration_seconds` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- two optional, nullable fields on an
+existing schema and one new enum, nothing removed or renamed -- so no negotiation and no
+major bump.
+
+- **`KpiSuggestionRun.phase`** (`KpiSuggestionRunPhase`: `reading` | `proposing` |
+  `checking`, nullable). 1.1.5 made the suggestion pass a run to poll, but a poll that only
+  ever said `running` left the screen a stopwatch and nothing else to show for a wait of a
+  minute or two. The executor now records the stage the pass is in as
+  `suggestions/run.py` reports each one: gathering the semantic layer, the model calls,
+  assembly and feasibility. Null on a `queued` run; kept once terminal, so a `failed` run
+  says where it failed.
+- **`KpiSuggestionRun.typical_duration_seconds`** (number, nullable). The median wall-clock
+  duration of the deployment's last five successful runs, read from the run table with the
+  row on both the `202` and the poll, so the screen can say "usually about a minute and a
+  half" from this deployment's own evidence before the run has done anything. Null until a
+  run has succeeded. An expectation, not a bound.
+
+## 1.1.7 — 2026-09-15 — configure: `BusinessArea.concept_count`, `.table_count`, `.reason` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- three optional, defaulted fields on an
+existing schema, nothing removed or renamed -- so no negotiation and no major bump.
+Numbered 1.1.7, not 1.1.6: PR #259 (`KpiSuggestionRun.phase`), open at the same time,
+already claims 1.1.6.
+
+- **`BusinessArea.concept_count` / `.table_count` / `.reason`.** The discovery page's focus
+  prompt ("Which areas of the business do you care about most?") now takes its options from
+  `GET /business-areas` instead of a browser-local list, and shows *why* an area is or is not
+  supported, not only whether. K9 already computed that evidence on every call -- the
+  accepted concepts with a confirmed table mapping, the tables behind them, and a sentence
+  either way -- and the router returned only the boolean. The three fields are that
+  evidence: the two counts, plus `AreaStatus.reason` verbatim. `0`/`0`/the "No table is
+  mapped" sentence on an unsupported area; an overlay-added area (no ontology concepts, so
+  K9 never lists it) reads the same. Derived from the graph on every call, never stored --
+  the same rule as KPI feasibility.
 
 ## 1.1.5 — 2026-09-14 — kpis: suggestion runs, `POST /kpis/suggestions` + `GET /kpis/suggestions/{run_id}` (additive)
 

@@ -372,6 +372,19 @@ class KpiSourceWrite(BaseModel):
     linked_kpi_ids: list[str] | None = None
 
 
+class KpiSuggestionRunPhase(Enum):
+    """
+    The stage a `running` suggestion run is in, in order: `reading` (the semantic layer the
+    agents are shown is being gathered), `proposing` (the model calls), `checking` (assembly
+    and feasibility against the snapshot). What a screen's stepper shows.
+
+    """
+
+    reading = "reading"
+    proposing = "proposing"
+    checking = "checking"
+
+
 class KpiSuggestionRunRequest(BaseModel):
     """
     What to run. Empty means suggest across every business area.
@@ -967,7 +980,8 @@ class BusinessArea(BaseModel):
     """
     One node of the business hierarchy. `id` is a term from the deployment's `business_area`
     vocabulary (shipped ontology plus overlay, D9/G10). `supported` is derived from confirmed
-    mappings (K9), never asserted.
+    mappings (K9), never asserted; `concept_count`, `table_count` and `reason` are the
+    evidence behind it, so a screen can show why as well as whether.
 
     """
 
@@ -980,6 +994,18 @@ class BusinessArea(BaseModel):
     subject_areas: list[str]
     description: str | None = ""
     supported: bool
+    concept_count: int | None = Field(
+        0,
+        description="Accepted concepts in this area that have a confirmed table mapping (K9). 0 when unsupported.",
+        ge=0,
+    )
+    table_count: int | None = Field(
+        0, description="Distinct tables backing those concepts.", ge=0
+    )
+    reason: str | None = Field(
+        "",
+        description="K9's one-sentence account of why the area is or is not supported, ready to render.",
+    )
     origin: TermOrigin | None = None
 
 
@@ -1439,6 +1465,10 @@ class KpiSuggestionRun(BaseModel):
     (the serving instance restarted mid-run) is reported `failed` by the read side after the
     deployment's timeout plus a grace period, never `running` forever.
 
+    Two fields are for the person waiting: `phase` is the stage a `running` run is in, and
+    `typical_duration_seconds` is how long this deployment's recent runs took, so a screen
+    can set an expectation up front and show progress against it.
+
     """
 
     id: str
@@ -1453,6 +1483,14 @@ class KpiSuggestionRun(BaseModel):
     error: str | None = Field(
         None,
         description="Written for the person polling. A timeout names the bound it hit.",
+    )
+    phase: KpiSuggestionRunPhase | None = Field(
+        None,
+        description="Set while `running`, as each stage begins; null on a `queued` run and on a\n`running` one that has not reached its first stage yet. Kept as it was once the run\nis terminal, so a `failed` run says where it failed.\n",
+    )
+    typical_duration_seconds: float | None = Field(
+        None,
+        description="The median wall-clock seconds of this deployment's last few successful runs, or null\nbefore any has succeeded. An expectation, not a bound: a run may take longer, and the\ndeployment's timeout is the only limit.\n",
     )
 
 
