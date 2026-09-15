@@ -337,3 +337,24 @@ class TestAzureOpenAIEmbedderBatching:
         )
 
         assert embedder.get_embedding(["a", "b", "c"]) == []
+
+    def test_a_short_response_is_refused_not_silently_accepted_as_one_fewer_vector(self, _mock_openai):
+        """Review finding on #270, round 3: a response with one fewer record than requested is a
+        clean permutation of *its own* (shorter) length, so a check against the response's own
+        data alone would pass it. Refused because the check is against the request size."""
+        mock_client, mock_response = _mock_openai
+        mock_response.data = [
+            MagicMock(index=0, embedding=[0.1, 0.1]),
+            MagicMock(index=1, embedding=[0.2, 0.2]),
+        ]
+
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+
+        embedder = AzureOpenAIEmbedder(
+            id="text-embedding-3-small",
+            api_key="test-key",
+            azure_endpoint="https://test.openai.azure.com/",
+            openai_client=mock_client,
+        )
+
+        assert embedder.get_embedding(["a", "b", "c"]) == []

@@ -119,7 +119,7 @@ class OpenAIEmbedder(Embedder):
             response: CreateEmbeddingResponse = self.response(text=text)
             if isinstance(text, str):
                 return response.data[0].embedding
-            return sorted_embeddings(response)
+            return sorted_embeddings(response, expected_count=len(text))
         except Exception as e:
             # Distinct messages, matching `AzureOpenAIEmbedder`: a batch failure and a single-text
             # failure are different production symptoms and should not read identically in a log.
@@ -155,7 +155,7 @@ class OpenAIEmbedder(Embedder):
             response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**self._request_params_for(text))
             if isinstance(text, str):
                 return response.data[0].embedding
-            return sorted_embeddings(response)
+            return sorted_embeddings(response, expected_count=len(text))
         except Exception as e:
             if isinstance(text, str):
                 log_warning(f"Failed to get async embedding: {str(e)}")
@@ -164,21 +164,8 @@ class OpenAIEmbedder(Embedder):
             return []
 
     async def async_get_embedding_and_usage(self, text: str):
-        req: Dict[str, Any] = {
-            "input": text,
-            "model": self.id,
-            "encoding_format": self.encoding_format,
-        }
-        if self.user is not None:
-            req["user"] = self.user
-        # Pass dimensions for text-embedding-3 models or when using custom base_url (third-party APIs)
-        if self.id.startswith("text-embedding-3") or self.base_url is not None:
-            req["dimensions"] = self.dimensions
-        if self.request_params:
-            req.update(self.request_params)
-
         try:
-            response = await self.aclient.embeddings.create(**req)
+            response = await self.aclient.embeddings.create(**self._request_params_for(text))
             embedding = response.data[0].embedding
             usage = response.usage
             return embedding, usage.model_dump() if usage else None
@@ -205,22 +192,11 @@ class OpenAIEmbedder(Embedder):
         for i in range(0, len(texts), self.batch_size):
             batch_texts = texts[i : i + self.batch_size]
 
-            req: Dict[str, Any] = {
-                "input": batch_texts,
-                "model": self.id,
-                "encoding_format": self.encoding_format,
-            }
-            if self.user is not None:
-                req["user"] = self.user
-            # Pass dimensions for text-embedding-3 models or when using custom base_url (third-party APIs)
-            if self.id.startswith("text-embedding-3") or self.base_url is not None:
-                req["dimensions"] = self.dimensions
-            if self.request_params:
-                req.update(self.request_params)
-
             try:
-                response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**req)
-                batch_embeddings = sorted_embeddings(response)
+                response: CreateEmbeddingResponse = await self.aclient.embeddings.create(
+                    **self._request_params_for(batch_texts)
+                )
+                batch_embeddings = sorted_embeddings(response, expected_count=len(batch_texts))
                 all_embeddings.extend(batch_embeddings)
 
                 # For each embedding in the batch, add the same usage information

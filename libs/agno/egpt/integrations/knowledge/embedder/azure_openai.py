@@ -168,7 +168,7 @@ class AzureOpenAIEmbedder(Embedder):
             # that it preserves order, but a documented behaviour is not an enforced one, and this
             # zips silently against the wrong record if it is ever wrong -- the same failure mode
             # `_as_vectors`' count check exists to catch on the memory pipeline side of this call.
-            return sorted_embeddings(response)
+            return sorted_embeddings(response, expected_count=len(text))
         except Exception as e:
             log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
@@ -230,7 +230,7 @@ class AzureOpenAIEmbedder(Embedder):
             return []
         response = await self._abatch_response(list(text))
         try:
-            return sorted_embeddings(response)
+            return sorted_embeddings(response, expected_count=len(text))
         except Exception as e:
             log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
@@ -276,7 +276,7 @@ class AzureOpenAIEmbedder(Embedder):
 
             try:
                 response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**req)
-                batch_embeddings = sorted_embeddings(response)
+                batch_embeddings = sorted_embeddings(response, expected_count=len(batch_texts))
                 all_embeddings.extend(batch_embeddings)
 
                 # For each embedding in the batch, add the same usage information

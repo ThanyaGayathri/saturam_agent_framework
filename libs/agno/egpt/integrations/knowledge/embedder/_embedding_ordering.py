@@ -16,26 +16,33 @@ if TYPE_CHECKING:
     from openai.types.create_embedding_response import CreateEmbeddingResponse
 
 
-def sorted_embeddings(response: "CreateEmbeddingResponse") -> List[List[float]]:
+def sorted_embeddings(response: "CreateEmbeddingResponse", expected_count: int) -> List[List[float]]:
     """One vector per input text, in request order, regardless of the order records arrive in.
 
     Sorting alone guards *order*, not *content*: a response with one duplicate index and one
     missing index still has the same length as a correct one, so a plain sort would silently
     return a same-length, wrong-content list past every downstream count check (``_as_vectors``,
     ``ontology/store.py``'s ``len(vectors) != len(concepts)`` guard). This checks the index set is
-    exactly ``range(len(data))`` -- a clean permutation, not merely a reorderable multiset -- and
-    raises rather than let a malformed response through disguised as a normal one (review finding
-    on #270, round 2). Every call site already wraps this in a ``try/except`` that logs and either
-    returns ``[]`` or falls back to per-text calls, so raising here reaches that existing handling
-    rather than needing its own.
+    exactly ``range(expected_count)`` -- a clean permutation of the *request* size, not merely of
+    however many records came back -- and raises rather than let a malformed response through
+    disguised as a normal one (review finding on #270, round 2).
+
+    ``expected_count`` is required, not inferred from ``len(response.data)``: validating a
+    response only against its own length would pass a short response too (N texts requested,
+    N-1 well-formed records returned, indices ``{0..N-2}`` -- a clean permutation of *that*
+    length) and silently return one fewer vector than requested (review finding on #270, round 3).
+    Every call site already wraps this in a ``try/except`` that logs and either returns ``[]`` or
+    falls back to per-text calls, so raising here reaches that existing handling rather than
+    needing its own.
     """
     data = list(response.data)
     indices = {item.index for item in data}
-    expected = set(range(len(data)))
-    if indices != expected:
+    expected = set(range(expected_count))
+    if len(data) != expected_count or indices != expected:
         raise ValueError(
-            f"embeddings response has an inconsistent index set: expected {sorted(expected)}, "
-            f"got {sorted(indices)} across {len(data)} records -- a duplicate or missing index "
-            "means at least one vector cannot be safely matched to its input text"
+            f"embeddings response has {len(data)} record(s) for {expected_count} input(s); index "
+            f"set was {sorted(indices)}, expected {sorted(expected)} -- a short response or a "
+            "duplicate/missing index means at least one vector cannot be safely matched to its "
+            "input text"
         )
     return [item.embedding for item in sorted(data, key=lambda item: item.index)]

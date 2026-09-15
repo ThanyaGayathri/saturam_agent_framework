@@ -78,6 +78,25 @@ class _AsyncMalformedIndexEmbeddings(_MalformedIndexEmbeddings):
         return super().create(**request)
 
 
+def _short_response_for(inputs):
+    """One fewer record than requested, but a *clean* permutation of its own (shorter) length --
+    the case a length-vs-own-data check cannot catch, only a length-vs-request-size check can."""
+    items = [SimpleNamespace(index=i, embedding=[float(i), float(i) + 0.5]) for i in range(len(inputs) - 1)]
+    return SimpleNamespace(data=items, usage=None)
+
+
+class _ShortResponseEmbeddings(_Embeddings):
+    def create(self, **request):
+        self.calls.append(request)
+        given = request["input"]
+        return _short_response_for(given if isinstance(given, list) else [given])
+
+
+class _AsyncShortResponseEmbeddings(_ShortResponseEmbeddings):
+    async def create(self, **request):  # type: ignore[override]
+        return super().create(**request)
+
+
 def _embedder(sync=True, embeddings=None):
     if embeddings is None:
         embeddings = _AsyncEmbeddings() if not sync else _Embeddings()
@@ -167,5 +186,22 @@ def test_a_response_with_a_duplicate_and_a_missing_index_is_refused_not_silently
 @pytest.mark.asyncio
 async def test_the_async_half_refuses_a_malformed_index_set_too():
     embedder, embeddings = _embedder(sync=False, embeddings=_AsyncMalformedIndexEmbeddings())
+    assert await embedder.async_get_embedding(["a", "b", "c"]) == []
+    assert len(embeddings.calls) == 1
+
+
+def test_a_short_response_is_refused_not_silently_accepted_as_one_fewer_vector():
+    """Review finding on #270, round 3: validating a response only against its own length would
+    pass a short response too -- N texts requested, N-1 well-formed records returned, indices
+    ``{0..N-2}``, a clean permutation of *that* length. Refused because the check is against the
+    request size (``expected_count``), not the response's own record count."""
+    embedder, embeddings = _embedder(embeddings=_ShortResponseEmbeddings())
+    assert embedder.get_embedding(["a", "b", "c"]) == []
+    assert len(embeddings.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_async_half_refuses_a_short_response_too():
+    embedder, embeddings = _embedder(sync=False, embeddings=_AsyncShortResponseEmbeddings())
     assert await embedder.async_get_embedding(["a", "b", "c"]) == []
     assert len(embeddings.calls) == 1
