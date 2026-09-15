@@ -251,18 +251,30 @@ class RetailSettings(BrandedSettings):
         description="Where the scheduler posts its callbacks (EGPT_RETAIL_SCHEDULER_BASE_URL). "
         "Defaults to the framework's own default, which is this process.",
     )
+    retail_model_provider: str = Field(
+        default="azure-openai",
+        description="The Mode B registry key both tiers resolve under (EGPT_RETAIL_MODEL_PROVIDER), "
+        "e.g. 'azure-openai', 'anthropic', 'openai', 'aws-bedrock', 'google'. Default 'azure-openai' "
+        "matches production (D15) -- it is R8's routing table's provider today, not the only one it "
+        "can build (#268): retail_azure_deployment/retail_azure_small_deployment below carry the "
+        "model id for whichever key is set here, an Azure deployment name when this is left at its "
+        "default, a vendor model id otherwise. An unrecognized key is refused when the tier providers "
+        "are built (egpt.providers.mode_b.FrontierModelProvider), naming the key, not silently ignored.",
+    )
     retail_azure_deployment: str = Field(
         default="gpt-5.4",
-        description="Azure OpenAI chat deployment for the frontier tier (EGPT_RETAIL_AZURE_DEPLOYMENT). "
-        "R8's routing table binds frontier-tier agents here and escalates small-tier agents here. "
-        "Credentials come from AZURE_OPENAI_* at call time, never at construction.",
+        description="Model id for the frontier tier (EGPT_RETAIL_AZURE_DEPLOYMENT) -- an Azure OpenAI "
+        "chat deployment name when retail_model_provider is left at its 'azure-openai' default, a "
+        "vendor model id (e.g. a Claude or GPT model name) for any other provider. R8's routing table "
+        "binds frontier-tier agents here and escalates small-tier agents here. Credentials come from "
+        "that provider's own SDK at call time, never at construction.",
     )
     retail_azure_small_deployment: str = Field(
         default="gpt-5.4-mini",
-        description="Azure OpenAI chat deployment for the small tier (EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT). "
-        "Both tiers are Azure OpenAI deployments on the same code path -- the build plan defers the "
-        "in-VPC GPU pool -- so 'small' is a cheaper deployment, not a different provider. Same "
-        "credential rule as the frontier deployment.",
+        description="Model id for the small tier (EGPT_RETAIL_AZURE_SMALL_DEPLOYMENT), read the same "
+        "way as retail_azure_deployment above. Both tiers resolve through the same Mode B provider on "
+        "the same code path -- the build plan defers the in-VPC GPU pool -- so 'small' is a cheaper "
+        "deployment/model, not a different provider from the frontier tier. Same credential rule.",
     )
     retail_small_context_window: int = Field(
         default=128_000,

@@ -139,6 +139,36 @@ def test_the_small_tier_declares_its_window_and_the_frontier_does_not() -> None:
     )
 
 
+def test_build_tier_providers_honors_a_non_default_model_provider() -> None:
+    """#268: the Mode B provider is a setting, not hardcoded to Azure. Pure construction and
+    capabilities() only -- resolving a non-Azure model needs that vendor's SDK installed, which
+    the `unit-drivers-absent` CI job does not guarantee, so this does not call `.resolve()`."""
+    providers = build_tier_providers(
+        _settings(
+            retail_model_provider="anthropic",
+            retail_azure_small_deployment="claude-haiku-4-5",
+            retail_azure_deployment="claude-sonnet-4-5",
+        )
+    )
+    small, frontier = providers.small.capabilities(), providers.frontier.capabilities()
+    assert small.provider_keys == frontier.provider_keys == ("anthropic",)
+    assert small.model_ids == ("claude-haiku-4-5",)
+    assert frontier.model_ids == ("claude-sonnet-4-5",)
+    # Only Azure OpenAI needs its deployment pinned on the client (see TierModelProvider's
+    # docstring); a non-Azure provider must not be handed that Azure-only kwarg.
+    assert (
+        "azure_deployment" not in small.notes
+        and "azure_deployment" not in frontier.notes
+    )
+
+
+def test_build_tier_providers_refuses_an_unknown_model_provider() -> None:
+    from egpt.providers.model_provider import ModelProviderConfigError
+
+    with pytest.raises(ModelProviderConfigError, match="azure-openai-typo"):
+        build_tier_providers(_settings(retail_model_provider="azure-openai-typo"))
+
+
 def test_the_resolved_model_is_pinned_to_its_tier_deployment_on_the_client(
     monkeypatch,
 ) -> None:
