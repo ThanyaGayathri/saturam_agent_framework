@@ -1,17 +1,23 @@
 """The provider objects behind the routing table, built once per process.
 
 Composition, not a new provider. Both tiers are the framework's ``FrontierModelProvider``
-(Mode B, ``azure-openai``); the small tier is wrapped in the framework's
-``EscalatingModelProvider`` with the frontier as its target. The only product-side class is
-``TierModelProvider``, which exists for one reason: ``FrontierModelProvider.capabilities()``
-never states a ``context_window`` -- it cannot, without asking a server -- and the escalation
-rule ``input_exceeds_context_window`` returns ``None`` on an unknown window, so without a
-declared one the pre-call escalation this package exists for could never fire.
+(Mode B); the small tier is wrapped in the framework's ``EscalatingModelProvider`` with the
+frontier as its target. Which Mode B registry key the tiers build under is
+``settings.retail_model_provider`` (``EGPT_RETAIL_MODEL_PROVIDER``), default ``azure-openai``
+-- production's provider today, not the only one this module can build (#268). The only
+product-side class is ``TierModelProvider``, which exists for two reasons: (1)
+``FrontierModelProvider.capabilities()`` never states a ``context_window`` -- it cannot,
+without asking a server -- and the escalation rule ``input_exceeds_context_window`` returns
+``None`` on an unknown window, so without a declared one the pre-call escalation this package
+exists for could never fire; (2) Azure OpenAI specifically needs its deployment pinned on the
+client (see the comment on ``TierModelProvider.__init__``), which no other Mode B provider
+needs.
 
 Nothing here calls a model. ``AzureOpenAI`` reads ``AZURE_OPENAI_*`` in ``_get_client_params``,
-at the first request, so a provider can be built and asked for its capabilities on a machine
-with no credential -- which is what lets ``/config`` list the agents and the cookbook prove
-the pre-call decision offline.
+at the first request (and every other Mode B backend reads its own credential the same lazy
+way), so a provider can be built and asked for its capabilities on a machine with no credential
+-- which is what lets ``/config`` list the agents and the cookbook prove the pre-call decision
+offline.
 """
 
 from __future__ import annotations
@@ -40,13 +46,26 @@ __all__ = [
     "route_agents",
 ]
 
-#: The registry key both tiers build under. One key, two deployments: the tiers differ in
-#: ``model_id`` (the Azure deployment name) and in the window the small one declares.
+#: The default registry key both tiers build under when no other provider is configured
+#: (``settings.retail_model_provider``, default). One key, two deployments: the tiers differ
+#: in ``model_id`` (the Azure deployment name) and in the window the small one declares.
+#:
+#: Does double duty as the sentinel ``TierModelProvider.__init__`` compares against to decide
+#: whether the Azure-only ``azure_deployment`` client pin applies. Before #268, Azure was the
+#: only reachable provider at all, so "no second case exists yet" was trivially true; now any of
+#: ``egpt.providers.mode_b.FRONTIER_PROVIDER_KEYS`` is one setting away, which is precisely the
+#: condition under which a second deployment-routed provider needing an analogous pin becomes
+#: plausible. Still not worth a lookup table of one member -- split this out the day a second
+#: provider actually needs its own client-side pin, not before.
 AZURE_PROVIDER_KEY = "azure-openai"
 
 
 class TierModelProvider(FrontierModelProvider):
-    """A Mode B provider pinned to one Azure deployment, that can state its context window.
+    """A Mode B provider pinned to one deployment/model id, that can state its context window.
+
+    ``provider_key`` names the Mode B registry key to build under -- ``azure-openai`` by
+    default (production's provider today, #268), but any other key Mode B accepts
+    (``anthropic``, ``openai``, ``aws-bedrock``, ``google``, ...) builds through the same path.
 
     ``name`` carries the tier so the framework's escalation log line reads
     ``small-tier -> frontier-tier`` rather than ``mode-b -> mode-b``. ``capabilities()``
@@ -61,19 +80,41 @@ class TierModelProvider(FrontierModelProvider):
         *,
         tier: Tier,
         deployment: str,
+        provider_key: str = AZURE_PROVIDER_KEY,
         context_window: Optional[int] = None,
         settings: Optional[Any] = None,
     ) -> None:
-        # `azure_deployment` pinned on the client, not only `id` on the request. Azure routes a
-        # call by the *client's* deployment (`/openai/deployments/<name>/...`) and ignores the
-        # request's `model`; `AzureOpenAI._get_client_params` falls back to the
-        # AZURE_OPENAI_DEPLOYMENT env var when the client has none. With that variable set --
-        # every developer's azure_key.env sets it -- both tiers would have hit the same
-        # deployment while reporting different ids, and routing would have been a label.
+        # `azure_deployment` pinned on the client, not only `id` on the request -- but only for
+        # Azure OpenAI. Azure routes a call by the *client's* deployment
+        # (`/openai/deployments/<name>/...`) and ignores the request's `model`;
+        # `AzureOpenAI._get_client_params` falls back to the AZURE_OPENAI_DEPLOYMENT env var
+        # when the client has none. With that variable set -- every developer's azure_key.env
+        # sets it -- both tiers would have hit the same deployment while reporting different
+        # ids, and routing would have been a label. No other Mode B provider has this failure
+        # mode: each keys a request off `id` alone, which `model_id=deployment` below already
+        # gives it, so nothing extra is pinned for them.
+        #
+        # Compared against `provider_key.strip()`, not the raw argument. `FrontierModelProvider.
+        # __init__` `.strip()`s the same argument before storing/validating it, and
+        # `RetailSettings` has no `str_strip_whitespace` config to normalize
+        # `EGPT_RETAIL_MODEL_PROVIDER` first. Comparing the raw value let a stray space (a
+        # `.env`/compose-interpolation artifact) fail this check while the base class still
+        # normalized to a clean `"azure-openai"` key -- `capabilities()` then reported a
+        # healthy provider while silently skipping the pin, and both tiers collapsed onto
+        # `AZURE_OPENAI_DEPLOYMENT` with no error raised anywhere, reintroducing #268. Computed
+        # before `super().__init__()` and passed through its own `model_config` parameter,
+        # rather than set afterward on the private `_model_config` it stores: that way this
+        # provider's config always went through the constructor's normal validation path, and
+        # never depends on that attribute's exact name staying stable in the base class.
+        model_config = (
+            {"azure_deployment": deployment}
+            if provider_key.strip() == AZURE_PROVIDER_KEY
+            else None
+        )
         super().__init__(
-            provider_key=AZURE_PROVIDER_KEY,
+            provider_key=provider_key,
             model_id=deployment,
-            model_config={"azure_deployment": deployment},
+            model_config=model_config,
             settings=settings,
         )
         self.tier = tier
@@ -88,9 +129,13 @@ class TierModelProvider(FrontierModelProvider):
         base = super().capabilities()
         return replace(
             base,
-            provider_keys=(AZURE_PROVIDER_KEY,),
+            provider_keys=(self.provider_key,),
             context_window=self._context_window,
-            notes={**base.notes, "tier": self.tier.value, "deployment": self.model_id},
+            # Only `tier` here, not a duplicate of `model_ids` (already `(self.model_id,)` on
+            # `base`, two lines up): a `notes["model_id"]` key next to a real `model_ids` field
+            # of the same name invites a reader to treat them as two independent facts that
+            # could disagree, when they are the same value by construction.
+            notes={**base.notes, "tier": self.tier.value},
         )
 
 
@@ -119,10 +164,13 @@ def build_tier_providers(settings: RetailSettings) -> TierProviders:
         small=TierModelProvider(
             tier=Tier.SMALL,
             deployment=settings.retail_azure_small_deployment,
+            provider_key=settings.retail_model_provider,
             context_window=settings.retail_small_context_window,
         ),
         frontier=TierModelProvider(
-            tier=Tier.FRONTIER, deployment=settings.retail_azure_deployment
+            tier=Tier.FRONTIER,
+            deployment=settings.retail_azure_deployment,
+            provider_key=settings.retail_model_provider,
         ),
     )
 

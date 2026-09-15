@@ -294,6 +294,7 @@
                       grain: supplier
                       result_shape: scalar
                       rationale: supplier_deliveries carries expected_date and actual_date for every delivery.
+                      business_value: Late suppliers erode the promise dates the storefront shows; tracking this flags a drifting supplier before a stockout does.
                       derived_from_tables: [supplier_deliveries]
                       confidence: high
                       proposed_sql: "SELECT AVG(actual_date - expected_date) FROM supplier_deliveries WHERE supplier_id = {supplier_id} AND actual_date IS NOT NULL"
@@ -374,6 +375,7 @@
                         grain: supplier
                         result_shape: scalar
                         rationale: supplier_deliveries carries expected_date and actual_date for every delivery.
+                        business_value: Late suppliers erode the promise dates the storefront shows; tracking this flags a drifting supplier before a stockout does.
                         derived_from_tables: [supplier_deliveries]
                         confidence: high
                         proposed_sql: "SELECT AVG(actual_date - expected_date) FROM supplier_deliveries WHERE supplier_id = {supplier_id} AND actual_date IS NOT NULL"

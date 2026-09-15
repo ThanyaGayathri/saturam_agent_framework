@@ -48,6 +48,7 @@ def _draft(**overrides: Any) -> k12.KpiSuggestionDraft:
         "result_shape": k12.DraftResultShape.SCALAR,
         "confidence": k12.DraftConfidence.HIGH,
         "rationale": "crm_deal.deal_id counts them.",
+        "business_value": "Tracks demand coming into sales before it converts to revenue.",
         "derived_from_tables": ["crm_deal"],
         "proposed_sql": "SELECT count(*) FROM crm_deal",
     }
@@ -148,6 +149,23 @@ class TestWhatReachesTheScreenIsTheContractType:
         report = k12.assemble(_set(_draft()), available_tables=TABLES)
         assert isinstance(report.suggestions[0], KpiSuggestion)
 
+    def test_business_value_is_carried_from_the_draft_to_the_contract_type(
+        self,
+    ) -> None:
+        """`business_value` answers a different question than `rationale` (why the metric is
+        worth tracking, not what data it derives from) and is assembled the same plain way --
+        no feasibility-style computation, just carried across, the same as `rationale` is."""
+        report = k12.assemble(
+            _set(
+                _draft(business_value="Catches falling demand before it hits revenue.")
+            ),
+            available_tables=TABLES,
+        )
+        assert (
+            report.suggestions[0].business_value
+            == "Catches falling demand before it hits revenue."
+        )
+
     def test_every_required_contract_field_is_populated(self) -> None:
         report = k12.assemble(_set(_draft()), available_tables=TABLES)
         dumped = report.suggestions[0].model_dump()
@@ -161,6 +179,17 @@ class TestWhatReachesTheScreenIsTheContractType:
         )
         for name in required:
             assert dumped[name] not in (None, "", []), name
+
+    def test_business_value_is_optional_on_the_contract_for_a_pre_existing_suggestion(
+        self,
+    ) -> None:
+        """A suggestion run persisted before this field existed reads back with no
+        `business_value` at all -- the field must not be required, or a stored row from
+        before this change becomes an unreadable contract violation."""
+        report = k12.assemble(_set(_draft()), available_tables=TABLES)
+        dumped = report.suggestions[0].model_dump()
+        del dumped["business_value"]
+        KpiSuggestion(**dumped)  # must not raise
 
     def test_the_skill_reference_is_stamped(self) -> None:
         report = k12.assemble(_set(_draft()), available_tables=TABLES)
@@ -321,6 +350,7 @@ def _proposal_draft(
         result_shape="scalar",
         confidence="high",
         rationale="crm_deal.deal_id counts them.",
+        business_value="Tracks demand coming into sales before it converts to revenue.",
         derived_from_tables=["silver.crm_deal"],
         proposed_sql=sql,
         catalogue_source=source,

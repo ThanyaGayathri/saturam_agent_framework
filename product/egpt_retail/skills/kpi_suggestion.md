@@ -81,6 +81,12 @@ Specific to this agent:
   has, propose it and put its name in `catalogue_source`. A curated definition with an
   industry benchmark behind it is worth more than a plausible invention, and a reviewer can
   check it against the source document.
+- **`business_value` answers a different question than `rationale`.** `rationale` traces the
+  metric to its data; `business_value` says why anyone should look at it -- what decision it
+  informs, what problem it lets someone catch early, or what it lets them stop guessing at.
+  "Late suppliers erode the promise dates the storefront shows" is a business value. "Derived
+  from `supplier_deliveries.expected_date` and `.actual_date`" is not one, even though it is
+  true -- that sentence belongs in `rationale`.
 
 ## 6. Output
 
@@ -100,6 +106,7 @@ invent is a field with nowhere to go.
 | `result_shape` | enum | `scalar` (one value per grain per run), `rowset` (many rows) |
 | `confidence` | enum | `high`, `medium`, `low` |
 | `rationale` | string | One sentence naming the tables or concepts it derives from |
+| `business_value` | string | One or two sentences on why this metric is worth tracking -- not where the data comes from |
 | `derived_from_tables` | string list | Every table the formula reads. Never empty |
 | `proposed_sql` | string or null | The formula, or null rather than a guess |
 | `catalogue_source` | string or null | The catalogue metric name this corresponds to |
@@ -140,6 +147,7 @@ For a harvest holding `crm_deal` (`deal_id`, `object_id`, `amount`, `stage`,
       "result_shape": "scalar",
       "confidence": "high",
       "rationale": "crm_deal.quote_request_source_url marks a deal as a quote request and deal_id counts them.",
+      "business_value": "A sudden drop in quote requests is an early signal of falling demand, well before it shows up in closed revenue.",
       "derived_from_tables": ["crm_deal"],
       "proposed_sql": "SELECT count(DISTINCT deal_id) FROM crm_deal WHERE quote_request_source_url IS NOT NULL",
       "catalogue_source": null

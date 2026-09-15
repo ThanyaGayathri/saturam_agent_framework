@@ -1489,6 +1489,10 @@ class KpiSuggestion(BaseModel):
     rationale: str = Field(
         ..., description="One sentence naming the tables or concepts it derives from."
     )
+    business_value: str | None = Field(
+        None,
+        description="One or two sentences on why this metric is worth tracking -- what it lets someone decide or catch, distinct from `rationale`'s data provenance. Null on a suggestion from before this field existed.",
+    )
     derived_from_tables: list[str] = Field(..., min_length=1)
     confidence: Confidence
     proposed_sql: str | None = None

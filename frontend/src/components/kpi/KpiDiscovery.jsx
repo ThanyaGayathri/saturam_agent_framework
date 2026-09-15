@@ -183,11 +183,14 @@ const VERDICT_LEAD = {
 };
 
 /**
- * The two reasons a suggestion arrives with, kept apart because they come from different places.
- * `rationale` is the agent's: why this metric follows from these tables. `feasibility.rationale`
- * is the executor's: whether those tables are actually here. When the verdict is negative the
- * executor's line leads, because "why you can't have it yet" is the one a person can act on; the
- * agent's line stays underneath so the proposal itself is still judgeable.
+ * The reasons a suggestion arrives with, kept apart because they come from different places
+ * and answer different questions. `rationale` is the agent's account of *why this metric
+ * follows from these tables* -- traceability. `business_value` (nullable: a suggestion from
+ * before this field existed has none) is the agent's account of *why anyone should look at
+ * it* -- motivation, never a claim about the data. `feasibility.rationale` is the executor's:
+ * whether the tables are actually here. When the verdict is negative the executor's line
+ * leads, because "why you can't have it yet" is the one a person can act on; the agent's
+ * lines stay underneath so the proposal itself is still judgeable.
  */
 function SuggestionReasons({ suggestion, bucket }) {
  if (bucket === "ready" && !suggestion.proposed_sql) {
@@ -200,7 +203,14 @@ function SuggestionReasons({ suggestion, bucket }) {
  }
  if (bucket === "ready") {
   return (
-   <p className="border-l-2 border-status-info pl-2.5 text-xs text-text-secondary">{suggestion.rationale}</p>
+   <div className="space-y-1.5">
+    <p className="border-l-2 border-status-info pl-2.5 text-xs text-text-secondary">{suggestion.rationale}</p>
+    {suggestion.business_value && (
+     <p className="pl-3 text-xs text-text-muted">
+      <span className="font-semibold">What value it provides:</span> {suggestion.business_value}
+     </p>
+    )}
+   </div>
   );
  }
  const v = VERDICT_LEAD[bucket];
@@ -213,6 +223,11 @@ function SuggestionReasons({ suggestion, bucket }) {
    <p className="pl-3 text-xs text-text-muted">
     <span className="font-semibold">Why it was proposed:</span> {suggestion.rationale}
    </p>
+   {suggestion.business_value && (
+    <p className="pl-3 text-xs text-text-muted">
+     <span className="font-semibold">What value it provides:</span> {suggestion.business_value}
+    </p>
+   )}
   </div>
  );
 }
