@@ -238,7 +238,8 @@ Spec:
         naming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,
         quantity_anomaly, due_date_sanity, restricted_product -- are still read);
         `extraction template` is a shipped template's id or an `ExtractionTemplate` object
-        the form assembled (1.4.0); `candidates` is `{concept, filter}`;
+        the form assembled (1.4.0); `target objects` is a shipped mapping's id or a
+        `RecordMapping` object the form assembled over the target's live fields (1.5.0); `candidates` is `{concept, filter}`;
         `recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;
         `master data` is `{customer, contact, shipTo, product, orderHistory}` naming
         semantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,
@@ -642,3 +643,107 @@ GuardrailRule:
       additionalProperties: {type: number}
     exception: {type: string}
     needs: {type: [string, "null"]}
+
+TargetObject:
+  type: object
+  description: One object a write target lets the integration create (1.5.0), read live from the target.
+  required: [name, label]
+  properties:
+    name: {type: string}
+    label: {type: string}
+    custom: {type: boolean, default: false}
+TargetField:
+  type: object
+  description: One createable field of a target object, read live (1.5.0).
+  required: [name, label, type, required]
+  properties:
+    name: {type: string}
+    label: {type: string}
+    type: {type: string, description: "The target's own type name: string, reference, date, double, picklist, ..."}
+    required: {type: boolean, description: "A create fails without it: not nillable and no default."}
+    reference_to:
+      type: array
+      items: {type: string}
+    length: {type: [integer, "null"]}
+    picklist_values:
+      type: array
+      items: {type: string}
+    custom: {type: boolean, default: false}
+TargetObjectDescription:
+  type: object
+  required: [name, label, fields]
+  properties:
+    name: {type: string}
+    label: {type: string}
+    fields:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/TargetField'
+MappingFieldRow:
+  type: object
+  description: |
+    One target field and where its value comes from (1.5.0). `source` is a list of source
+    expressions over the resolved document, the first non-empty winning: a header field by
+    name (`po_number`), `line.<field>`, `customer.<key>`, `ship_to.<key>`, `product.<key>`,
+    `$pricebook_id`, `$today`, or a literal `=Draft`. `transform` is one of `date`,
+    `date_not_before_today`, `number`, `text:<n>`.
+  required: [target, source]
+  properties:
+    target: {type: string}
+    source:
+      type: array
+      items: {type: string}
+    required: {type: boolean, default: false}
+    transform: {type: [string, "null"]}
+    label: {type: string, default: ""}
+ChildMapping:
+  type: object
+  required: [object, parent_field, fields]
+  properties:
+    object: {type: string}
+    parent_field: {type: string, description: "The child's reference to the parent, filled with the parent's new id."}
+    fields:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/MappingFieldRow'
+RecordMapping:
+  type: object
+  description: |
+    How a resolved document becomes the target's objects (1.5.0): a parent object with its
+    field rows, an optional child repeated per line, the status field `created as` sets, and
+    the rollback action. The two Salesforce mappings that ship are rows of this shape; a
+    mapping the form assembles over the target's live object metadata is stored on the spec
+    as the `target objects` parameter and runs the same interpreter.
+  required: [label, object, fields]
+  properties:
+    id: {type: string}
+    label: {type: string}
+    target: {type: string, default: salesforce}
+    object: {type: string}
+    record: {type: string, default: "", description: "What the mapping creates, matched against a template's `record` when suggesting."}
+    source:
+      type: string
+      enum: [shipped, suggested, authored]
+    fields:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/MappingFieldRow'
+    child:
+      oneOf:
+        - $ref: './use-cases.yaml#/ChildMapping'
+        - type: "null"
+    status_field: {type: [string, "null"]}
+    status_values:
+      type: object
+      additionalProperties: {type: string}
+      description: "`created as` value -> the status written: {draft: Draft, active: Activated}."
+    rollback_action: {type: string, default: delete}
+MappingSuggestRequest:
+  type: object
+  required: [template, parent]
+  properties:
+    template:
+      $ref: './use-cases.yaml#/ExtractionTemplate'
+    parent: {type: string, description: "The parent object's name, described live."}
+    child: {type: [string, "null"], description: "The per-line object's name, when there is one."}
+    label: {type: string}

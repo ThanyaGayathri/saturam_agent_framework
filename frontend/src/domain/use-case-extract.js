@@ -6,6 +6,7 @@ import { guardrailRule } from "./use-case-spec";
 import { POLL_INTERVALS, fieldsFor } from "./use-case-autonomy";
 import { findTemplate, loadTemplateCatalogue, matchTemplateInText, proposeTemplateNames } from "./extraction-templates";
 import { normalizeRules, suggestRules } from "./guardrail-rules";
+import { loadMappingCatalogue } from "./record-mappings";
 
 /**
  * Turns a message into a spec patch, for the shape already chosen.
@@ -171,8 +172,11 @@ export function extract(text, spec, ctx) {
   if (m) { patch.exceptionsTo = m[1]; understood.push(`exceptions to ${m[1]}`); }
  }
  if (need.has("targetObjects") && !spec.targetObjects) {
-  if (/\b(sales )?orders?\b/.test(rest) && /\bsalesforce\b/.test(rest)) { patch.targetObjects = "order_orderitem"; understood.push("creates: Order + OrderItem"); }
-  else if (/\bopportunit(y|ies)\b/.test(rest)) { patch.targetObjects = "opportunity"; understood.push("creates: Opportunity + Products"); }
+  const catalogue = loadMappingCatalogue();
+  const target = (spec.writeback || patch.writeback || "").toLowerCase();
+  const key = /salesforce/.test(target) ? "salesforce" : target;
+  const hit = catalogue.find((m) => (!key || m.target === key) && new RegExp(`\\b${m.record.replace(/_/g, " ")}s?\\b|\\b${m.object.toLowerCase()}s?\\b`).test(rest));
+  if (hit) { patch.targetObjects = hit.id; if (hit.source !== "shipped") patch.recordMappingDef = hit; understood.push(`creates: ${hit.label}`); }
  }
  if (need.has("createdAs")) {
   if (/\bas (a )?drafts?\b/.test(rest)) patch.createdAs = "draft";

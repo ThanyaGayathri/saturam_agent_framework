@@ -34,6 +34,7 @@ from egpt_retail.api.routers.extraction_templates import (
 from egpt_retail.api.routers.kpis import router as kpis_router
 from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.api.routers.semantic import router as semantic_router
+from egpt_retail.api.routers.targets import router as targets_router
 from egpt_retail.api.routers.use_cases import router as use_cases_router
 from egpt_retail.app.components import (
     abuild_memory_provider,
@@ -336,6 +337,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     base_app.include_router(semantic_router)
     base_app.include_router(use_cases_router)
     base_app.include_router(extraction_templates_router)
+    base_app.include_router(targets_router)
     _register_exception_handlers(base_app)
 
     os_app = EgptOS(

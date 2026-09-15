@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import date, timedelta
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import httpx
 
@@ -34,6 +34,11 @@ __all__ = [
     "aload_master_data",
     "write_record_tree",
     "awrite_record_tree",
+    "list_objects",
+    "alist_objects",
+    "describe_object",
+    "adescribe_object",
+    "COMMON_OBJECTS",
     "delete_record",
     "adelete_record",
 ]
@@ -307,8 +312,9 @@ def write_record_tree(
             {"object": child["object"], "id": child_id, "line_no": child.get("line_no")}
         )
     finish = tree.get("finish_status")
-    if finish and finish != tree["fields"].get("Status"):
-        client.update(str(tree["object"]), parent_id, {"Status": finish})
+    status_field = str(tree.get("status_field") or "Status")
+    if finish and finish != tree["fields"].get(status_field):
+        client.update(str(tree["object"]), parent_id, {status_field: finish})
     return {
         "id": parent_id,
         "url": f"{client.instance_url}/{parent_id}",
@@ -321,6 +327,94 @@ async def awrite_record_tree(
     client: SalesforceClient, tree: Mapping[str, Any]
 ) -> Dict[str, Any]:
     return await asyncio.to_thread(write_record_tree, client, tree)
+
+
+#: Objects a document-driven use case plausibly creates. The describe call lists hundreds;
+#: this is the shortlist the interface offers first, with "any other object" typed in.
+COMMON_OBJECTS: Tuple[str, ...] = (
+    "Order",
+    "OrderItem",
+    "Opportunity",
+    "OpportunityLineItem",
+    "Case",
+    "Lead",
+    "Contract",
+    "Quote",
+    "QuoteLineItem",
+    "Asset",
+    "Task",
+)
+
+
+def list_objects(
+    client: SalesforceClient, *, createable_only: bool = True
+) -> List[Dict[str, Any]]:
+    """Every object the org lets this integration create, name and label, common ones first."""
+    response = client._http.get(f"{client.base}/sobjects")
+    response.raise_for_status()
+    rows = []
+    for sobject in response.json().get("sobjects", []):
+        if createable_only and not sobject.get("createable"):
+            continue
+        rows.append(
+            {
+                "name": sobject["name"],
+                "label": sobject.get("label") or sobject["name"],
+                "custom": bool(sobject.get("custom")),
+            }
+        )
+    order = {name: i for i, name in enumerate(COMMON_OBJECTS)}
+    rows.sort(key=lambda r: (order.get(r["name"], len(order)), r["label"]))
+    return rows
+
+
+async def alist_objects(
+    client: SalesforceClient, *, createable_only: bool = True
+) -> List[Dict[str, Any]]:
+    return await asyncio.to_thread(
+        list_objects, client, createable_only=createable_only
+    )
+
+
+def describe_object(client: SalesforceClient, name: str) -> Dict[str, Any]:
+    """The fields a mapping can write on one object: name, label, type, whether a create
+    needs it (not nillable, no default, createable), what a reference points at, length,
+    and picklist values -- read live, so the form shows the org as it is."""
+    response = client._http.get(f"{client.base}/sobjects/{name}/describe")
+    if response.status_code == 404:
+        raise KeyError(f"no object {name!r} in this org")
+    response.raise_for_status()
+    body = response.json()
+    fields = []
+    for f in body.get("fields", []):
+        if not f.get("createable"):
+            continue
+        fields.append(
+            {
+                "name": f["name"],
+                "label": f.get("label") or f["name"],
+                "type": f.get("type"),
+                "required": not f.get("nillable", True)
+                and not f.get("defaultedOnCreate", False),
+                "reference_to": list(f.get("referenceTo") or []),
+                "length": f.get("length") or None,
+                "picklist_values": [
+                    p.get("value")
+                    for p in (f.get("picklistValues") or [])
+                    if p.get("active", True)
+                ][:50],
+                "custom": bool(f.get("custom")),
+            }
+        )
+    return {
+        "name": body.get("name", name),
+        "label": body.get("label", name),
+        "fields": fields,
+    }
+
+
+async def adescribe_object(client: SalesforceClient, name: str) -> Dict[str, Any]:
+    return await asyncio.to_thread(describe_object, client, name)
 
 
 def delete_record(client: SalesforceClient, sobject: str, record_id: str) -> None:

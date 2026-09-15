@@ -6053,3 +6053,56 @@ the extractor's instructions; the interface's rule suggester mirrors the platfor
 than calling it, so the two can drift -- the platform endpoint exists to switch to.
 
 ---
+
+### K18 -- the record mapping as data, over the target's live objects (no cookbook file; router + interface)
+
+**Package:** K18 (closes K-18), branch `usecase_processautomation`. Contract 1.5.0 (additive).
+
+**Status:** PASS (15 Sep 2026): unit tests DB-free, the new endpoints against the live org, the
+mapping editor in the browser, a platform rehearsal with a mapping the form assembled.
+
+**Description:** The write side was the last hard-coded piece of the document-to-record
+template: one code mapping from a purchase order onto Salesforce's Order and OrderItem. Now a
+mapping is data -- `documents/mapping.py` `RecordMapping`: a parent object with field rows
+(target field, source expressions over the resolved document, required, transform), an
+optional child per line, the status field `created as` sets, the rollback action -- and one
+interpreter (`apply_mapping`) evaluates it. The two Salesforce mappings that ship are rows of
+the shape; `mapping_from` accepts a shipped id or the object the form built, so the
+`target objects` parameter carries either. `documents/salesforce.py` reads the org live
+(`list_objects`, `describe_object`: createable fields with type, required, references, length,
+picklists) and `suggest_mapping` proposes rows from names -- references placed by type (the
+customer, the product's price entry, the standard price book, the ship-to), names by synonym,
+required target fields nothing matched listed with no source. `GET /targets/{target}/objects`,
+`GET /targets/{target}/objects/{object}`, `GET /record-mappings`,
+`POST /record-mappings/suggest`. In the interface, `domain/record-mappings.js` mirrors the
+shipped two, a workspace catalogue and the interpreter (the rehearse simulation's payload
+preview now comes from it); `RecordMappingField` lists the org's objects live, lets the person
+pick the parent and a per-line child, "Suggest from names", edit each row's source and
+transform, add rows from the object's own fields, see required fields the org needs that
+nothing covers, and keep the mapping to the catalogue and the spec.
+
+**Verification:**
+- `product/tests/test_k16_use_cases_router.py` (+4): the shipped mappings as data and the
+  interpreter's output (dates clamped, text truncated, status set, child rows per line); a
+  form-assembled mapping onto Case with a literal, a fallback and its own status values;
+  `suggest_mapping` placing references by type and names by synonym, skipping Status and the
+  redundant Product2Id; the targets router over a fake org (objects, describe, 404, shipped
+  list, suggest) and 503 without credentials.
+- Live: `list_objects` returned 730 createable objects with the common ones first; Order's
+  required fields are EffectiveDate and Status, OrderItem's OrderId, PricebookEntryId,
+  Quantity; a suggested Order + OrderItem mapping from the purchase-order template mapped
+  every row the shipped one has except the two the org does not require.
+- Browser: "New mapping" listed the org's 730 objects; Order + OrderItem chosen; "Suggest from
+  names" filled 10 parent rows and 4 line rows with sources and transforms; "Keep and use this
+  mapping" saved it and put it on the spec. The same mapping sent to the platform on the spec
+  activated (version 4) and rehearsed: 7 previewed, 9 exceptions, the first order's record
+  carrying `PoNumber`, `EffectiveDate`, `ShippingState: Rhode Island`, the line's
+  `PricebookEntryId` from the org and `UnitPrice 640` from the document. The spec was then
+  restored to the shipped mapping.
+
+**Left open:** one target (Salesforce); a second is a second client behind the same two
+endpoints. The mapping editor's source cell is a free text with the template's fields, the
+resolved entities and the run values offered as completions -- a picker with the same groups
+would be friendlier. `created as` still assumes a two-value status (draft/active).
+
+---

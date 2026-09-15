@@ -1,7 +1,8 @@
 import { KPI_DATA_CATALOG_DATASETS } from "./kpi-data-catalog";
 import { findTemplate, headerFields, lineFields, loadTemplateCatalogue, matchTemplateInText, proposeTemplateNames } from "./extraction-templates";
 import { needsOf, normalizeRules, ruleCheck, suggestRules } from "./guardrail-rules";
-import { CATEGORIES, COMPARISONS, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, ROLLBACKS, SEVERITIES, TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, templateFromText } from "./use-case-autonomy";
+import { loadMappingCatalogue } from "./record-mappings";
+import { CATEGORIES, COMPARISONS, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, ROLLBACKS, SEVERITIES, TIMEOUT_BEHAVIOURS, templateFromText } from "./use-case-autonomy";
 import { guardrailRule } from "./use-case-spec";
 
 /**
@@ -365,11 +366,12 @@ export function suggestFor(gap, spec, ctx) {
   }
   case "targetObjects": {
    const target = spec.writeback || (ctx.writeTargets || [])[0] || "";
-   const key = Object.keys(TARGET_OBJECTS).find((k) => target.toLowerCase().includes(k)) || "salesforce";
+   const key = /salesforce/i.test(target) ? "salesforce" : target.toLowerCase();
    const tpl = findTemplate(spec);
-   const opts = TARGET_OBJECTS[key] || [];
+   const opts = loadMappingCatalogue().filter((m) => m.target === key);
+   if (!opts.length) return { lead: `${target || "The target"} has no mapping yet. Build one on the form: pick the object it creates, and the platform suggests the rows from names.`, options: [], preferred: null };
    const preferred = opts.find((o) => tpl && o.record === tpl.record) || opts[0];
-   return { lead: `${target || "The target"} can create ${opts.map((o) => o.label).join(" or ")}.${preferred && tpl ? ` A ${tpl.label.toLowerCase()} becomes ${preferred.label}.` : ""}`, options: opts.map((o) => ({ label: o.label, why: `${o.fields.length} mapped fields`, patch: { targetObjects: o.id } })), preferred: preferred?.label || null };
+   return { lead: `${target || "The target"} can create ${opts.map((o) => o.label).join(" or ")}.${preferred && tpl ? ` A ${tpl.label.toLowerCase()} becomes ${preferred.label}.` : ""} A new object is mapped on the form over the org's own fields.`, options: opts.map((o) => ({ label: o.label, why: `${o.fields.length + (o.child?.fields.length || 0)} mapped fields${o.source === "shipped" ? "" : " · saved in this workspace"}`, patch: { targetObjects: o.id, recordMappingDef: o.source === "shipped" ? null : o } })), preferred: preferred?.label || null };
   }
   case "writeTarget": {
    const targets = ctx.writeTargets || [];

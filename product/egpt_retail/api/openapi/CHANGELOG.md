@@ -109,6 +109,19 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.5.0 — 2026-09-15 — the record mapping as data, over the target's live objects (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. New operations and schemas
+only.
+
+The last hard-coded piece of the document-to-record template was the write side: one code
+mapping from a resolved purchase order onto Salesforce's Order and OrderItem. Now:
+
+| Change | Why |
+|---|---|
+| **`RecordMapping`, `MappingFieldRow`, `ChildMapping`, `GET /record-mappings`, `POST /record-mappings/suggest`** | A mapping is a parent object with field rows -- each a target field and the source expressions its value comes from -- an optional child per line, the status field `created as` sets, and the rollback action. One interpreter evaluates it; the two Salesforce mappings that ship are rows of the shape; a mapping the form assembles is stored on the spec's `target objects` parameter. A suggestion is proposed deterministically from names over the live fields. |
+| **`GET /targets/{target}/objects`, `GET /targets/{target}/objects/{object}`, `TargetObject`, `TargetField`** | The form offers the org's own objects and their createable fields, read live with the platform's credentials -- required, type, what a reference points at -- so a person maps to what the org actually has, not to a list in code. |
+
 ## 1.4.0 — 2026-09-15 — extraction templates and guardrail rules as data (additive)
 
 Agreed by: Lane K, on Lane R's contract under the additive rule. New operations and new

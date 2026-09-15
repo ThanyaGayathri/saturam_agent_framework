@@ -610,15 +610,26 @@ def test_mapping_names_every_field_it_cannot_fill() -> None:
     )
     assert tree["finish_status"] == "Activated" and tree["fields"]["Status"] == "Draft"
     assert missing == [
-        "Order.AccountId (customer unresolved)",
+        "Order.AccountId (the resolved customer)",
         "Order.PoNumber (po_number)",
-        "Order.Pricebook2Id (standard pricebook id not loaded)",
-        "Order.Shipping* (ship-to unresolved)",
-        "OrderItem line 1: product has no pricebook entry",
-        "OrderItem line 1: unit price (none on document or product)",
+        "Order.Pricebook2Id (the standard pricebook)",
+        "Order.ShippingStreet (the resolved ship-to)",
+        "line 1: OrderItem.PricebookEntryId (the resolved product's price entry)",
+        "line 1: OrderItem.UnitPrice (line.unit_price or product.unit_price)",
     ]
+    # The second shipped mapping is data of the same shape: the same document, mapped to an
+    # Opportunity, fails on the same unresolved references and nothing else.
+    tree, missing = build_record_tree(
+        "salesforce", "opportunity", document, {"pricebook_id": "PB"}
+    )
+    assert (
+        tree["object"] == "Opportunity"
+        and tree["fields"]["StageName"] == "Prospecting"
+        and tree["finish_status"] is None
+    )
+    assert missing[0] == "Opportunity.AccountId (the resolved customer)"
     with pytest.raises(KeyError):
-        build_record_tree("salesforce", "opportunity", document)
+        build_record_tree("salesforce", "no_such_mapping", document)
 
 
 def test_act_executors_handle_a_kpi_proposal_too() -> None:

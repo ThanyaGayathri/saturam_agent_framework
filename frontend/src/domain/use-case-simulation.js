@@ -1,4 +1,5 @@
 import { evaluateRules, normalizeRules } from "./guardrail-rules";
+import { applyMapping, findMapping } from "./record-mappings";
 
 /**
  * The document-to-record simulation: run the specification over a sample set with the write
@@ -27,14 +28,14 @@ export const SAMPLE_ACCOUNTS = [
 ];
 
 export const SAMPLE_PRODUCTS = [
- { id: "P-105", code: "NW-105", name: "Interior Latex Paint, Eggshell White, 5 gal", uom: "EA" },
- { id: "P-110", code: "NW-110", name: "Xylene Solvent, 55 gal drum", uom: "DR", restricted: false },
- { id: "P-112", code: "NW-112", name: "Epoxy Floor Coating Kit, 2-part, 3 gal", uom: "EA" },
- { id: "P-118", code: "NW-118", name: "Marine Antifouling Paint, 1 gal", uom: "EA" },
- { id: "P-130", code: "NW-130", name: "Galvanised Deck Screws #10 x 2½, box 1000", uom: "BX" },
- { id: "P-140", code: "NW-140", name: "Roofing Membrane Adhesive, 5 gal", uom: "EA" },
- { id: "P-150", code: "NW-150", name: "Methyl Ethyl Ketone, 55 gal drum", uom: "DR", restricted: true },
- { id: "P-201", code: "NW-201", name: "Acetone C-P, 55 gal drum", uom: "DR" },
+ { id: "P-105", price: 118, code: "NW-105", name: "Interior Latex Paint, Eggshell White, 5 gal", uom: "EA" },
+ { id: "P-110", price: 640, code: "NW-110", name: "Xylene Solvent, 55 gal drum", uom: "DR", restricted: false },
+ { id: "P-112", price: 210, code: "NW-112", name: "Epoxy Floor Coating Kit, 2-part, 3 gal", uom: "EA" },
+ { id: "P-118", price: 96, code: "NW-118", name: "Marine Antifouling Paint, 1 gal", uom: "EA" },
+ { id: "P-130", price: 42, code: "NW-130", name: "Galvanised Deck Screws #10 x 2½, box 1000", uom: "BX" },
+ { id: "P-140", price: 88, code: "NW-140", name: "Roofing Membrane Adhesive, 5 gal", uom: "EA" },
+ { id: "P-150", price: 700, code: "NW-150", name: "Methyl Ethyl Ketone, 55 gal drum", uom: "DR", restricted: true },
+ { id: "P-201", price: 560, code: "NW-201", name: "Acetone C-P, 55 gal drum", uom: "DR" },
 ];
 
 /** Sixteen emails: seven clean, one per guardrail, two resolution failures, one scanned copy. */
@@ -114,8 +115,8 @@ export function simulateEmail(spec, email, alreadyCreated) {
  const doc = {
   sender: email.from,
   customer: { id: account.id, resolved: true, method: "sender_domain" },
-  header: { po_number: email.po, due_date: due.toISOString().slice(0, 10), order_total: resolved.reduce((s, l) => s + (l.price || 0) * l.qty, 0) },
-  lines: resolved.map((l, i) => ({ line_no: i + 1, description: l.desc, quantity: l.qty, unit_of_measure: l.uom, line_total: (l.price || 0) * l.qty, item: { id: l.productRec.id, name: l.productRec.name, restricted: !!l.productRec.restricted, resolved: true } })),
+  header: { po_number: email.po, po_date: today.toISOString().slice(0, 10), due_date: due.toISOString().slice(0, 10), order_total: resolved.reduce((s, l) => s + (l.productRec.price || 0) * l.qty, 0) },
+  lines: resolved.map((l, i) => ({ line_no: i + 1, description: l.desc, quantity: l.qty, unit_of_measure: l.uom, line_total: (l.productRec.price || 0) * l.qty, item: { id: l.productRec.id, name: l.productRec.name, restricted: !!l.productRec.restricted, resolved: true } })),
  };
  const verdict = evaluateRules(enabledRules(spec), doc, { history: HISTORY, masterData: spec.masterData || {}, seen: alreadyCreated, today });
  if (verdict) return stop(verdict.class, verdict.detail);
@@ -127,8 +128,22 @@ export function simulateEmail(spec, email, alreadyCreated) {
  return {
   id: email.id, from: email.from, subject: email.subject, po: email.po, status: "created", classification: null, steps,
   account, shipTo, lines: resolved,
-  payload: { Order: { AccountId: account.id, PoNumber: email.po, Status: spec.createdAs === "active" ? "Activated" : "Draft", ShippingStreet: shipTo.street, ShippingPostalCode: shipTo.postcode }, OrderItems: resolved.map((l) => ({ Product2Id: l.productRec.id, Quantity: l.qty, UoM: l.productRec.uom })) },
+  payload: previewPayload(spec, { doc, account, shipTo, resolved, email }),
  };
+}
+
+/** What the chosen mapping would write for this email: the same interpreter the platform runs. */
+function previewPayload(spec, { doc, account, shipTo, resolved, email }) {
+ const mapping = findMapping(spec);
+ if (!mapping) return { Order: { AccountId: account.id, PoNumber: email.po } };
+ const out = applyMapping(mapping, {
+  extracted: { ...doc.header, customer_name: account.name, ship_to_address: `${shipTo.street}, ${shipTo.postcode}`, delivery_instructions: "Deliver to receiving dock, weekdays 8-4." },
+  customer: { id: account.id, name: account.name },
+  ship_to: { street: shipTo.street, city: shipTo.city, state: shipTo.state, postcode: shipTo.postcode, country: "United States" },
+  lines: doc.lines.map((l, i) => ({ ...l, unit_price: resolved[i].productRec.price ?? null, product: { id: l.item.id, name: l.item.name, pricebook_entry_id: `PBE-${l.item.id.slice(2)}`, unit_price: resolved[i].productRec.price ?? null } })),
+  createdAs: spec.createdAs,
+ });
+ return { [out.object]: out.fields, ...(out.child ? { [out.child]: out.children } : {}), ...(out.missing.length ? { missing: out.missing } : {}) };
 }
 
 export function simulateDocumentToRecord(spec, emails = SAMPLE_EMAILS) {

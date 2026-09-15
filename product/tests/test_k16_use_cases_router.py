@@ -37,6 +37,13 @@ from egpt_retail.documents.guardrails import (
 )
 from egpt_retail.documents.template_draft import DraftedField, TemplateDraft
 from egpt_retail.documents.templates import template_from
+from egpt_retail.api.routers import targets as targets_module
+from egpt_retail.documents.mapping import (
+    SHIPPED_MAPPINGS,
+    apply_mapping,
+    mapping_from,
+    suggest_mapping,
+)
 
 
 class FakeStore:
@@ -855,3 +862,400 @@ def test_legacy_rows_and_the_preset_still_read_the_same() -> None:
         and custom.label == "Numeric range: total"
         and custom.exception_class == "OUT_OF_RANGE"
     )
+
+
+# --- K18: the record mapping as data ---------------------------------------------------------------
+
+
+ORDER_DESCRIBE = {
+    "name": "Order",
+    "label": "Order",
+    "fields": [
+        {
+            "name": "AccountId",
+            "label": "Account ID",
+            "type": "reference",
+            "required": False,
+            "reference_to": ["Account"],
+            "length": 18,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "EffectiveDate",
+            "label": "Order Start Date",
+            "type": "date",
+            "required": True,
+            "reference_to": [],
+            "length": None,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "Status",
+            "label": "Status",
+            "type": "picklist",
+            "required": True,
+            "reference_to": [],
+            "length": None,
+            "picklist_values": ["Draft", "Activated"],
+            "custom": False,
+        },
+        {
+            "name": "PoNumber",
+            "label": "PO Number",
+            "type": "string",
+            "required": False,
+            "reference_to": [],
+            "length": 80,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "Pricebook2Id",
+            "label": "Price Book ID",
+            "type": "reference",
+            "required": False,
+            "reference_to": ["Pricebook2"],
+            "length": 18,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "ShippingStreet",
+            "label": "Shipping Street",
+            "type": "textarea",
+            "required": False,
+            "reference_to": [],
+            "length": 255,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "Name",
+            "label": "Order Name",
+            "type": "string",
+            "required": False,
+            "reference_to": [],
+            "length": 80,
+            "picklist_values": [],
+            "custom": False,
+        },
+    ],
+}
+ITEM_DESCRIBE = {
+    "name": "OrderItem",
+    "label": "Order Product",
+    "fields": [
+        {
+            "name": "OrderId",
+            "label": "Order ID",
+            "type": "reference",
+            "required": True,
+            "reference_to": ["Order"],
+            "length": 18,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "PricebookEntryId",
+            "label": "Price Book Entry ID",
+            "type": "reference",
+            "required": True,
+            "reference_to": ["PricebookEntry"],
+            "length": 18,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "Product2Id",
+            "label": "Product ID",
+            "type": "reference",
+            "required": False,
+            "reference_to": ["Product2"],
+            "length": 18,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "Quantity",
+            "label": "Quantity",
+            "type": "double",
+            "required": True,
+            "reference_to": [],
+            "length": None,
+            "picklist_values": [],
+            "custom": False,
+        },
+        {
+            "name": "UnitPrice",
+            "label": "Unit Price",
+            "type": "currency",
+            "required": False,
+            "reference_to": [],
+            "length": None,
+            "picklist_values": [],
+            "custom": False,
+        },
+    ],
+}
+
+
+class _FakeSalesforce:
+    def list_objects(self):
+        return [
+            {"name": "Order", "label": "Order", "custom": False},
+            {"name": "OrderItem", "label": "Order Product", "custom": False},
+        ]
+
+    def describe(self, name):
+        if name == "Order":
+            return ORDER_DESCRIBE
+        if name == "OrderItem":
+            return ITEM_DESCRIBE
+        raise KeyError(f"no object {name!r} in this org")
+
+    def close(self):
+        pass
+
+
+@contextmanager
+def _targets_client(monkeypatch, fake: Any = None):
+    import egpt_retail.documents.salesforce as sf
+
+    if fake is not None:
+        monkeypatch.setattr(
+            sf, "list_objects", lambda client, **kw: client.list_objects()
+        )
+        monkeypatch.setattr(
+            sf, "describe_object", lambda client, name: client.describe(name)
+        )
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _fake_auth(request: Request, call_next):
+        request.state.authorization_enabled = False
+        return await call_next(request)
+
+    app.include_router(targets_module.router)
+    if fake is not None:
+        app.dependency_overrides[targets_module.target_client] = (
+            lambda target="salesforce": fake
+        )
+    with TestClient(app) as client:
+        yield client
+
+
+def test_shipped_mappings_are_data_and_the_interpreter_writes_them() -> None:
+    assert [m.id for m in SHIPPED_MAPPINGS.values()] == [
+        "order_orderitem",
+        "opportunity",
+    ]
+    order = mapping_from("Order + OrderItem (standard)")
+    assert (
+        order.object == "Order"
+        and order.child.object == "OrderItem"
+        and order.status_field == "Status"
+    )
+    document = {
+        "extracted": {
+            "po_number": "PO-1",
+            "po_date": "2026-09-14",
+            "due_date": "2026-10-01",
+            "delivery_instructions": "x" * 300,
+        },
+        "resolved": {
+            "customer": {"resolved": True, "id": "001A"},
+            "ship_to": {
+                "resolved": True,
+                "row": {
+                    "street": "1 Main",
+                    "city": "Boston",
+                    "state": "MA",
+                    "postcode": "02110",
+                },
+            },
+            "lines": [
+                {
+                    "line_no": 1,
+                    "quantity": 2,
+                    "unit_price": None,
+                    "description": "Paint",
+                    "product": {
+                        "resolved": True,
+                        "id": "01tA",
+                        "pricebook_entry_id": "01uA",
+                        "unit_price": 9.5,
+                    },
+                }
+            ],
+        },
+    }
+    tree, missing = apply_mapping(
+        order,
+        document,
+        {"pricebook_id": "01sA", "created_as": "active", "today": date(2026, 9, 15)},
+    )
+    assert missing == []
+    assert (
+        tree["fields"]["EffectiveDate"] == "2026-09-15"
+        and tree["fields"]["PoDate"] == "2026-09-14"
+    )
+    assert (
+        tree["fields"]["ShippingCountry"] == "United States"
+        and len(tree["fields"]["Description"]) == 255
+    )
+    assert (
+        tree["fields"]["Status"] == "Draft"
+        and tree["finish_status"] == "Activated"
+        and tree["status_field"] == "Status"
+    )
+    assert tree["children"][0]["fields"] == {
+        "PricebookEntryId": "01uA",
+        "Quantity": 2.0,
+        "UnitPrice": 9.5,
+        "ServiceDate": "2026-10-01",
+        "Description": "Paint",
+    }
+
+
+def test_a_mapping_the_form_assembled_runs_the_same_interpreter() -> None:
+    custom = mapping_from(
+        {
+            "label": "Case per return",
+            "target": "salesforce",
+            "object": "Case",
+            "fields": [
+                {"target": "AccountId", "source": ["customer.id"], "required": True},
+                {
+                    "target": "Subject",
+                    "source": "rma_reference | =Return",
+                    "required": True,
+                },
+                {"target": "Origin", "source": ["=Email"]},
+                {"target": "Description", "source": ["reason"], "transform": "text:20"},
+            ],
+            "status_values": {"draft": "New", "active": "Working"},
+            "status_field": "Status",
+        }
+    )
+    assert (
+        custom.id == "case_per_return"
+        and custom.child is None
+        and custom.fields[1].source == ("rma_reference", "=Return")
+    )
+    document = {
+        "extracted": {
+            "reason": "Damaged on arrival, box crushed",
+            "rma_reference": None,
+        },
+        "resolved": {"customer": {"resolved": True, "id": "001B"}},
+    }
+    tree, missing = apply_mapping(custom, document, {"created_as": "draft"})
+    assert missing == [] and tree["fields"] == {
+        "AccountId": "001B",
+        "Subject": "Return",
+        "Origin": "Email",
+        "Description": "Damaged on arrival, ",
+        "Status": "New",
+    }
+    with pytest.raises(ValueError):
+        mapping_from({"label": "Empty", "object": "Case", "fields": []})
+    with pytest.raises(KeyError):
+        mapping_from("nothing_like_this")
+
+
+def test_suggest_mapping_places_references_by_type_and_names_by_synonym() -> None:
+    suggested = suggest_mapping(
+        {
+            "header": [
+                "po_number",
+                "po_date",
+                "customer_name",
+                "delivery_instructions",
+            ],
+            "lines": ["line_no", "description", "quantity", "unit_price"],
+        },
+        ORDER_DESCRIBE,
+        ITEM_DESCRIBE,
+    )
+    rows = {r["target"]: r for r in suggested["fields"]}
+    assert rows["AccountId"]["source"] == ["customer.id"] and rows["Pricebook2Id"][
+        "source"
+    ] == ["$pricebook_id"]
+    assert rows["EffectiveDate"] == {
+        "target": "EffectiveDate",
+        "source": ["po_date"],
+        "required": True,
+        "transform": "date_not_before_today",
+        "label": "",
+    }
+    assert (
+        rows["PoNumber"]["source"] == ["po_number"]
+        and rows["PoNumber"]["transform"] == "text:80"
+    )
+    assert rows["ShippingStreet"]["source"] == ["ship_to.street"]
+    assert "Status" not in rows and "Name" not in rows, (
+        "the status is set by 'created as'; nothing named an order name"
+    )
+    child = {r["target"]: r for r in suggested["child"]["fields"]}
+    assert suggested["child"]["parent_field"] == "OrderId" and "OrderId" not in child
+    assert (
+        child["PricebookEntryId"]["source"] == ["product.pricebook_entry_id"]
+        and "Product2Id" not in child
+    )
+    assert child["Quantity"] == {
+        "target": "Quantity",
+        "source": ["line.quantity"],
+        "required": True,
+        "transform": "number",
+        "label": "",
+    }
+    assert suggested["status_field"] == "Status"
+    assert mapping_from(suggested).child.object == "OrderItem"
+
+
+def test_targets_router_reads_live_metadata_and_suggests(monkeypatch) -> None:
+    with _targets_client(monkeypatch, _FakeSalesforce()) as client:
+        assert [
+            o["name"] for o in client.get("/targets/salesforce/objects").json()
+        ] == ["Order", "OrderItem"]
+        described = client.get("/targets/salesforce/objects/Order").json()
+        assert described["name"] == "Order" and [
+            f["name"] for f in described["fields"] if f["required"]
+        ] == ["EffectiveDate", "Status"]
+        assert client.get("/targets/salesforce/objects/Ordr").status_code == 404
+        shipped = client.get("/record-mappings").json()
+        assert [m["id"] for m in shipped] == [
+            "order_orderitem",
+            "opportunity",
+        ] and shipped[0]["source"] == "shipped"
+        suggested = client.post(
+            "/record-mappings/suggest",
+            json={
+                "template": {
+                    "label": "Purchase order",
+                    "header": [
+                        {"name": "po_number", "required": True},
+                        {"name": "po_date"},
+                    ],
+                    "lines": [
+                        {"name": "line_no", "required": True},
+                        {"name": "quantity", "required": True},
+                    ],
+                },
+                "parent": "Order",
+                "child": "OrderItem",
+                "label": "Order + OrderItem",
+            },
+        ).json()
+        assert (
+            suggested["source"] == "suggested"
+            and suggested["object"] == "Order"
+            and suggested["child"]["object"] == "OrderItem"
+        )
+    with _targets_client(monkeypatch) as client:
+        # No credentials in this process: the target is unavailable, and says so.
+        monkeypatch.delenv("SF_LOGIN_URL", raising=False)
+        assert client.get("/targets/salesforce/objects").status_code == 503
+        assert client.get("/targets/sap/objects").status_code == 404

@@ -600,7 +600,9 @@ async def build_record(step_input: StepInput) -> StepOutput:
     target_system = (
         "salesforce" if "salesforce" in target_system.lower() else target_system.lower()
     )
-    objects = str(slot(step_input, "target objects", "order_orderitem"))
+    objects = slot(step_input, "target objects", "order_orderitem")
+    if not isinstance(objects, Mapping):
+        objects = str(objects)
     created_as = slot(step_input, "created as", "draft")
     options = {
         "created_as": created_as,
@@ -613,7 +615,7 @@ async def build_record(step_input: StepInput) -> StepOutput:
         document = dict(document)
         try:
             tree, missing = build_record_tree(target_system, objects, document, options)
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             add_exception(
                 batch, document, cls="NO_MAPPING", detail=str(exc), stage="build"
             )

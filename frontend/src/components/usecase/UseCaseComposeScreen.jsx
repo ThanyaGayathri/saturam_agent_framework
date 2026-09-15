@@ -15,7 +15,7 @@ import {
  CATEGORY_LIST, CHANNELS, COMPARISONS, CREATED_AS, DIMENSIONS, DOCUMENT_TYPES,
  FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, PER_RUN_CAPS, POLL_INTERVALS,
  PROPOSED_CONTRACT_FIELDS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
- TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor, templateFromText,
+ TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor, templateFromText,
 } from "../../domain/use-case-autonomy";
 import {
  GAP_KIND, ORIGIN, applyPatch, blockingGaps, draftState, emptySpec, gapsFor, guardrailRule, proposeTitle,
@@ -26,6 +26,8 @@ import { findTemplate, loadTemplateCatalogue } from "../../domain/extraction-tem
 import { normalizeRule, normalizeRules, suggestRules } from "../../domain/guardrail-rules";
 import ExtractionTemplateField from "./ExtractionTemplateField";
 import GuardrailRulesField from "./GuardrailRulesField";
+import RecordMappingField from "./RecordMappingField";
+import { loadMappingCatalogue } from "../../domain/record-mappings";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
 
@@ -403,7 +405,7 @@ export default function UseCaseComposeScreen() {
    case "extractionTemplate": { const t = loadTemplateCatalogue().find((x) => x.label === value); patch = t ? { extractionTemplate: t.id, extractionTemplateDef: t.source === "shipped" ? null : t } : {}; break; }
    case "recordGuardrails": { const rule = suggestRules(findTemplate(spec)).find((g) => g.label === value); patch = rule ? { recordGuardrails: [...normalizeRules(spec.recordGuardrails), rule] } : {}; break; }
    case "exceptionsTo": patch = { exceptionsTo: value }; break;
-   case "targetObjects": patch = { targetObjects: Object.values(TARGET_OBJECTS).flat().find((o) => o.label === value)?.id || spec.targetObjects }; break;
+   case "targetObjects": { const m = loadMappingCatalogue().find((x) => x.label === value); patch = m ? { targetObjects: m.id, recordMappingDef: m.source === "shipped" ? null : m } : {}; break; }
    case "objective": patch = { objective: { metric: value, direction: defaultOperatorFor(value) === "gt" ? "below" : "above", target: null, unit: unitOf(value) } }; break;
    case "guardrails": patch = { guardrails: spec.guardrails.map((g) => (g === gap.guardrail ? { ...g, metric: value, rule: guardrailRule({ ...g, metric: value }) } : g)) }; break;
    case "writeTarget": patch = { writeback: value }; break;
@@ -431,6 +433,7 @@ export default function UseCaseComposeScreen() {
  const setCondition = (part, value) => setSpec((s) => applyPatch(s, { condition: { ...(s.condition || { metric: s.metricIds[0] || null, operator: "gt", threshold: null }), unit: unitOf(s.metricIds[0]), [part]: value } }, ORIGIN.authored));
  const setNested = (field, part, value) => setSpec((s) => applyPatch(s, { [FIELD_META[field].key]: { ...(s[FIELD_META[field].key] || {}), [part]: value } }, ORIGIN.authored));
  const setExtractionTemplate = (id, def) => setSpec((s) => applyPatch(s, { extractionTemplate: id, extractionTemplateDef: def || null, extractionTemplateDraft: null, recordGuardrails: [] }, ORIGIN.authored));
+ const setRecordMapping = (id, def) => setSpec((s) => applyPatch(s, { targetObjects: id, recordMappingDef: def || null }, ORIGIN.authored));
  const setRecordGuardrails = (rows) => setSpec((s) => applyPatch(s, { recordGuardrails: rows.map(normalizeRule).filter(Boolean) }, ORIGIN.authored));
  const setObjective = (part, value) => setSpec((s) => applyPatch(s, { objective: { ...(s.objective || { metric: s.metricIds[0] || null, direction: "below", target: null, unit: "" }), ...(part === "metric" ? { unit: unitOf(value) } : {}), [part]: value } }, ORIGIN.authored));
  const setGuardrail = (i, part, value) => setSpec((s) => applyPatch(s, { guardrails: s.guardrails.map((g, j) => (j === i ? { ...g, [part]: value } : g)).map((g) => ({ ...g, rule: guardrailRule(g) })) }, ORIGIN.authored));
@@ -673,21 +676,12 @@ export default function UseCaseComposeScreen() {
     return <Field key={f} name={f} {...fieldProps(f)}><input value={spec.exceptionsTo} onChange={(e) => setField(f, e.target.value)} placeholder="orders-desk@yourcompany.com" className={input} /><p className="mt-1 text-[11px] text-text-muted">One email per exception: the classification in words, what was extracted, and a link to the in-app record with the document and the candidates.</p></Field>;
    case "acknowledge":
     return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5"><button type="button" aria-pressed={!!spec.acknowledge} onClick={() => setField(f, true)} className={chip(!!spec.acknowledge)}>Reply with the record number, or the reason</button><button type="button" aria-pressed={!spec.acknowledge} onClick={() => setField(f, false)} className={chip(!spec.acknowledge)}>No reply</button></div></Field>;
-   case "targetObjects": {
-    const key = Object.keys(TARGET_OBJECTS).find((k) => (spec.writeback || "").toLowerCase().includes(k));
-    const opts = key ? TARGET_OBJECTS[key] : [];
-    const chosen = opts.find((o) => o.id === spec.targetObjects);
+   case "targetObjects":
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
-      {!spec.writeback ? <p className="text-sm text-text-muted">Choose the target system first.</p> : (
-       <>
-        <div className="flex flex-wrap gap-1.5">{opts.map((o) => <button key={o.id} type="button" aria-pressed={spec.targetObjects === o.id} onClick={() => setField(f, o.id)} className={chip(spec.targetObjects === o.id)}>{o.label}</button>)}</div>
-        {chosen && <ul className="mt-2 grid gap-x-4 gap-y-0.5 font-mono text-[11px] text-text-secondary sm:grid-cols-2">{chosen.fields.map((m) => <li key={m}>{m}</li>)}</ul>}
-       </>
-      )}
+      <RecordMappingField spec={spec} template={findTemplate(spec)} target={spec.writeback} setMapping={setRecordMapping} />
      </Field>
     );
-   }
    case "createdAs":
     return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5">{CREATED_AS.map((c) => <button key={c.value} type="button" title={c.hint} aria-pressed={spec.createdAs === c.value} onClick={() => setField(f, c.value)} className={chip(spec.createdAs === c.value)}>{c.label}</button>)}</div></Field>;
    case "schedule":

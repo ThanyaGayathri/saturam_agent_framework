@@ -19,6 +19,7 @@
  */
 
 import { findTemplate } from "./extraction-templates";
+import { mappingLabel } from "./record-mappings";
 export const SHAPES = {
  inform: {
   id: "inform",
@@ -276,7 +277,7 @@ export const describeShape = (spec) => {
   case "act":
    if (spec.template === "document_to_record") {
     const tpl = findTemplate(spec);
-    return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves it against ${(spec.masterData && Object.values(spec.masterData).filter(Boolean).length) || 0} master-data objects, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${spec.targetObjects ? `${Object.values(TARGET_OBJECTS).flat().find((o) => o.id === spec.targetObjects)?.label.replace(/ \(standard\)/, "") || "a record"}` : "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"} — nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
+    return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves it against ${(spec.masterData && Object.values(spec.masterData).filter(Boolean).length) || 0} master-data objects, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${mappingLabel(spec)?.replace(/ \(standard\)/, "") || "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"} — nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
    }
    return `${spec.objective?.metric ? `Tunes the process to bring ${spec.objective.metric} ${spec.objective.direction || "to"} ${spec.objective.target ?? "target"}${spec.objective.unit || ""}. ` : ""}Executes on its own — changes ${spec.writeback || "a target system"} with nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run, with a rollback plan.`;
   default:
@@ -391,13 +392,9 @@ export const MATCH_THRESHOLD_DEFAULTS = { address: 0.75, product: 0.85, name: 0.
  *  is the purchase-order preset, for older imports. */
 export { PURCHASE_ORDER_RULES as RECORD_GUARDRAILS } from "./guardrail-rules";
 
-/** What the target creates. One entry per target system the platform knows how to write. */
-export const TARGET_OBJECTS = {
- salesforce: [
-  { id: "order_orderitem", label: "Order + OrderItem (standard)", record: "order", fields: ["Order.AccountId ← customer", "Order.PoNumber ← po_number", "Order.EffectiveDate ← po_date", "Order.Shipping* ← ship-to", "Order.Pricebook2Id ← standard pricebook", "OrderItem.PricebookEntryId ← product", "OrderItem.Quantity ← quantity", "OrderItem.UnitPrice ← unit_price", "OrderItem.ServiceDate ← due_date"] },
-  { id: "opportunity", label: "Opportunity + Products", record: "opportunity", fields: ["Opportunity.AccountId ← customer", "Opportunity.CloseDate ← due_date", "OpportunityLineItem ← lines"] },
- ],
-};
+/** What the target creates is a record mapping (`record-mappings.js`): the shipped two plus the
+ *  workspace's own. This alias keeps older imports working. */
+export { SHIPPED_MAPPINGS as TARGET_MAPPINGS } from "./record-mappings";
 
 export const CREATED_AS = [
  { value: "draft", label: "Draft", hint: "A person activates it in the target system." },

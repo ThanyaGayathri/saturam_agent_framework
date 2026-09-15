@@ -452,6 +452,23 @@ class KpiSuggestionRunStatus(Enum):
     failed = "failed"
 
 
+class MappingFieldRow(BaseModel):
+    """
+    One target field and where its value comes from (1.5.0). `source` is a list of source
+    expressions over the resolved document, the first non-empty winning: a header field by
+    name (`po_number`), `line.<field>`, `customer.<key>`, `ship_to.<key>`, `product.<key>`,
+    `$pricebook_id`, `$today`, or a literal `=Draft`. `transform` is one of `date`,
+    `date_not_before_today`, `number`, `text:<n>`.
+
+    """
+
+    target: str
+    source: list[str]
+    required: bool | None = False
+    transform: str | None = None
+    label: str | None = ""
+
+
 class ModelProvider(Enum):
     openai = "openai"
     anthropic = "anthropic"
@@ -625,6 +642,12 @@ class Recipient(BaseModel):
     address: str | None = Field(
         "", description="An email address or a Slack channel. Empty for `in_app`."
     )
+
+
+class Source1(Enum):
+    shipped = "shipped"
+    suggested = "suggested"
+    authored = "authored"
 
 
 class RefreshSchedule(Enum):
@@ -812,6 +835,42 @@ class TableRef(BaseModel):
     name: str
     schema_: str = Field(..., alias="schema")
     row_count: int | None = None
+
+
+class TargetField(BaseModel):
+    """
+    One createable field of a target object, read live (1.5.0).
+    """
+
+    name: str
+    label: str
+    type: str = Field(
+        ...,
+        description="The target's own type name: string, reference, date, double, picklist, ...",
+    )
+    required: bool = Field(
+        ..., description="A create fails without it: not nillable and no default."
+    )
+    reference_to: list[str] | None = None
+    length: int | None = None
+    picklist_values: list[str] | None = None
+    custom: bool | None = False
+
+
+class TargetObject(BaseModel):
+    """
+    One object a write target lets the integration create (1.5.0), read live from the target.
+    """
+
+    name: str
+    label: str
+    custom: bool | None = False
+
+
+class TargetObjectDescription(BaseModel):
+    name: str
+    label: str
+    fields: list[TargetField]
 
 
 class TermOrigin(Enum):
@@ -1142,6 +1201,15 @@ class ChatFilters(BaseModel):
     period: Period
     from_date: date | None = None
     to_date: date | None = None
+
+
+class ChildMapping(BaseModel):
+    object: str
+    parent_field: str = Field(
+        ...,
+        description="The child's reference to the parent, filled with the parent's new id.",
+    )
+    fields: list[MappingFieldRow]
 
 
 class CloudProfile(BaseModel):
@@ -1589,6 +1657,15 @@ class LlmModelWrite(BaseModel):
     is_default: bool | None = None
 
 
+class MappingSuggestRequest(BaseModel):
+    template: ExtractionTemplate
+    parent: str = Field(..., description="The parent object's name, described live.")
+    child: str | None = Field(
+        None, description="The per-line object's name, when there is one."
+    )
+    label: str | None = None
+
+
 class PlanStep(BaseModel):
     """
     One step of the compiled workflow. `ref` is an executor name from the registry or a skill identifier -- the same strings the stored workflow holds.
@@ -1691,6 +1768,35 @@ class ProposalList(BaseModel):
 class QualityAssessment(BaseModel):
     as_of: AwareDatetime = Field(..., description="RFC 3339, always UTC.")
     use_cases: list[UseCaseQuality]
+
+
+class RecordMapping(BaseModel):
+    """
+    How a resolved document becomes the target's objects (1.5.0): a parent object with its
+    field rows, an optional child repeated per line, the status field `created as` sets, and
+    the rollback action. The two Salesforce mappings that ship are rows of this shape; a
+    mapping the form assembles over the target's live object metadata is stored on the spec
+    as the `target objects` parameter and runs the same interpreter.
+
+    """
+
+    id: str | None = None
+    label: str
+    target: str | None = "salesforce"
+    object: str
+    record: str | None = Field(
+        "",
+        description="What the mapping creates, matched against a template's `record` when suggesting.",
+    )
+    source: Source1 | None = None
+    fields: list[MappingFieldRow]
+    child: ChildMapping | None = None
+    status_field: str | None = None
+    status_values: dict[str, str] | None = Field(
+        None,
+        description="`created as` value -> the status written: {draft: Draft, active: Activated}.",
+    )
+    rollback_action: str | None = "delete"
 
 
 class ReportBlockWrite(BaseModel):
@@ -2157,5 +2263,5 @@ class Spec(BaseModel):
     )
     parameters: dict[str, Any] | None = Field(
         None,
-        description="The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`GuardrailRule` rows for `document_to_record` (1.4.0; the legacy `{id, param}` rows\nnaming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,\nquantity_anomaly, due_date_sanity, restricted_product -- are still read);\n`extraction template` is a shipped template's id or an `ExtractionTemplate` object\nthe form assembled (1.4.0); `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n",
+        description="The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`GuardrailRule` rows for `document_to_record` (1.4.0; the legacy `{id, param}` rows\nnaming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,\nquantity_anomaly, due_date_sanity, restricted_product -- are still read);\n`extraction template` is a shipped template's id or an `ExtractionTemplate` object\nthe form assembled (1.4.0); `target objects` is a shipped mapping's id or a\n`RecordMapping` object the form assembled over the target's live fields (1.5.0); `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n",
     )

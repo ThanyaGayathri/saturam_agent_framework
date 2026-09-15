@@ -1,0 +1,141 @@
+# Write targets and record mappings (1.5.0, K18): the objects a target lets the platform create,
+# read live, and the mapping from a resolved document onto them, as data the form assembles.
+/targets/{target}/objects:
+  get:
+    tags: [use-cases]
+    operationId: listTargetObjects
+    summary: The objects the write target lets the platform create.
+    description: Read live from the target with the platform's own credentials (`env:salesforce` locally, a vault in the cloud). Common objects first.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - name: target
+        in: path
+        required: true
+        schema: {type: string, enum: [salesforce]}
+    responses:
+      "200":
+        description: Objects.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/TargetObject'
+            examples:
+              default:
+                value: [{name: Order, label: Order, custom: false}, {name: OrderItem, label: Order Product, custom: false}, {name: Opportunity, label: Opportunity, custom: false}]
+      "503":
+        description: The target is not reachable, or its credentials are not configured.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              no_credentials:
+                value: {detail: "env:salesforce: SF_LOGIN_URL, SF_CLIENT_ID, SF_CLIENT_SECRET not set in the environment", code: target_unavailable}
+/targets/{target}/objects/{object}:
+  get:
+    tags: [use-cases]
+    operationId: describeTargetObject
+    summary: The createable fields of one target object, read live.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - name: target
+        in: path
+        required: true
+        schema: {type: string, enum: [salesforce]}
+      - name: object
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The object.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/TargetObjectDescription'
+            examples:
+              default:
+                value: {name: Order, label: Order, fields: [{name: AccountId, label: Account ID, type: reference, required: false, reference_to: [Account], length: 18, picklist_values: [], custom: false}, {name: EffectiveDate, label: Order Start Date, type: date, required: true, reference_to: [], length: null, picklist_values: [], custom: false}, {name: PoNumber, label: PO Number, type: string, required: false, reference_to: [], length: 80, picklist_values: [], custom: false}]}
+      "404":
+        description: No such object.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "no object 'Ordr' in this org", code: not_found}
+      "503":
+        description: The target is not reachable.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              unreachable:
+                value: {detail: "Salesforce token request failed 400", code: target_unavailable}
+/record-mappings:
+  get:
+    tags: [use-cases]
+    operationId: listRecordMappings
+    summary: The record mappings that ship with the platform.
+    x-egpt-scopes: [use-cases:read]
+    responses:
+      "200":
+        description: Mappings.
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/use-cases.yaml#/RecordMapping'
+            examples:
+              default:
+                value:
+                  - {id: order_orderitem, label: "Order + OrderItem (standard)", target: salesforce, object: Order, record: order, source: shipped, fields: [{target: AccountId, source: [customer.id], required: true, transform: null, label: the resolved customer}, {target: PoNumber, source: [po_number], required: true, transform: null, label: ""}], child: {object: OrderItem, parent_field: OrderId, fields: [{target: PricebookEntryId, source: [product.pricebook_entry_id], required: true, transform: null, label: "the resolved product's price entry"}, {target: Quantity, source: [line.quantity], required: true, transform: number, label: ""}]}, status_field: Status, status_values: {draft: Draft, active: Activated}, rollback_action: delete}
+/record-mappings/suggest:
+  post:
+    tags: [use-cases]
+    operationId: suggestRecordMapping
+    summary: A mapping proposed from names, over the target's live fields.
+    description: |
+      Deterministic. The template's field names against the parent and child objects' field
+      names and labels, with the references a resolved document always carries -- the customer,
+      the product's price entry, the standard price book, the ship-to -- placed by type. Required
+      target fields nothing matched are listed with no source, for the person to fill.
+    x-egpt-scopes: [use-cases:read]
+    parameters:
+      - name: target
+        in: query
+        required: false
+        schema: {type: string, enum: [salesforce], default: salesforce}
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/MappingSuggestRequest'
+          examples:
+            default:
+              value: {template: {id: purchase_order, label: Purchase order, header: [{name: po_number, required: true}, {name: po_date}, {name: due_date}], lines: [{name: line_no, required: true}, {name: description, required: true}, {name: quantity, required: true}, {name: unit_price}]}, parent: Order, child: OrderItem, label: "Order + OrderItem"}
+    responses:
+      "200":
+        description: The suggested mapping.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/RecordMapping'
+            examples:
+              default:
+                value: {id: order_orderitem, label: "Order + OrderItem", target: salesforce, object: Order, record: order, source: suggested, fields: [{target: AccountId, source: [customer.id], required: false, transform: null, label: the resolved customer}, {target: EffectiveDate, source: [po_date], required: true, transform: date_not_before_today, label: ""}, {target: PoNumber, source: [po_number], required: false, transform: "text:80", label: ""}], child: {object: OrderItem, parent_field: OrderId, fields: [{target: PricebookEntryId, source: [product.pricebook_entry_id], required: true, transform: null, label: "the resolved product's price entry"}, {target: Quantity, source: [line.quantity], required: true, transform: number, label: ""}]}, status_field: Status, status_values: {draft: Draft, active: Activated}, rollback_action: delete}
+      "503":
+        description: The target is not reachable.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              unreachable:
+                value: {detail: "Salesforce token request failed 400", code: target_unavailable}

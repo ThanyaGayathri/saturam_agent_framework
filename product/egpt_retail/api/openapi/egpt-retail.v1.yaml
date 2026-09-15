@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Enterprise GPT API
-  version: 1.4.0
+  version: 1.5.0
   summary: Every endpoint the Enterprise GPT screens call.
   description: |
     The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.
@@ -70,6 +70,7 @@ x-egpt-path-fragments:
   - paths/kpis.yaml
   - paths/use-cases.yaml
   - paths/extraction-templates.yaml
+  - paths/targets.yaml
   - paths/playground.yaml
   - paths/dashboards.yaml
   - paths/monitoring.yaml

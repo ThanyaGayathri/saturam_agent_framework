@@ -1,7 +1,8 @@
 import { KPI_DATA_CATALOG_DATASETS } from "./kpi-data-catalog";
 import { findTemplate } from "./extraction-templates";
+import { findMapping } from "./record-mappings";
 import { PARAM_META, normalizeRules } from "./guardrail-rules";
-import { CHANNELS, COMPARISONS, CREATED_AS, DOCUMENT_TYPES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, POLL_INTERVALS, SCHEDULES, SHAPES, TARGET_OBJECTS, TIMEOUT_BEHAVIOURS } from "./use-case-autonomy";
+import { CHANNELS, COMPARISONS, CREATED_AS, DOCUMENT_TYPES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, POLL_INTERVALS, SCHEDULES, SHAPES, TIMEOUT_BEHAVIOURS } from "./use-case-autonomy";
 
 /**
  * The plan: how a frozen spec will actually run, as a sequence of steps a person can read and
@@ -185,7 +186,7 @@ export function slotValue(spec, slot) {
   case "recordGuardrails": { const rows = normalizeRules(spec.recordGuardrails); return rows.length ? rows.map((g) => { const ps = Object.entries(g.params || {}).map(([k, v]) => `${PARAM_META[k]?.label || k} ${v}${PARAM_META[k]?.unit || ""}`).join(", "); return `${g.label}${ps ? ` (${ps})` : ""}`; }).join(" · ") : null; }
   case "exceptionsTo": return spec.exceptionsTo || null;
   case "acknowledge": return spec.acknowledge ? "reply to the sender" : "no reply";
-  case "targetObjects": { const list = Object.values(TARGET_OBJECTS).flat(); return list.find((o) => o.id === spec.targetObjects)?.label || null; }
+  case "targetObjects": return findMapping(spec)?.label || null;
   case "createdAs": return CREATED_AS.find((c) => c.value === spec.createdAs)?.label || null;
   default: return null;
  }

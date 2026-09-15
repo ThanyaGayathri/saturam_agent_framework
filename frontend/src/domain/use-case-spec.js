@@ -77,6 +77,7 @@ export function emptySpec(goal = "", shape = null, category = null, template = n
   exampleDocument: null,
   extractionTemplateDef: null, // the chosen template's own definition when it is not a shipped one (K17)
   extractionTemplateDraft: null, // a document kind named in the description, not yet drafted (K17)
+  recordMappingDef: null, // the chosen mapping's own definition when it is not a shipped one (K18)
   masterData: { customer: "", contact: "", shipTo: "", product: "", orderHistory: "" },
   matchThresholds: { ...MATCH_THRESHOLD_DEFAULTS },
   recordGuardrails: [],

@@ -113,3 +113,18 @@ export function draftExtractionTemplate({ description, label, example }, { signa
 export function suggestGuardrailRules(template, { signal } = {}) {
   return apiJson("/guardrail-rules/suggest", "POST", template, { signal });
 }
+
+/** The objects the write target lets the platform create, read live (K18). */
+export function fetchTargetObjects(target = "salesforce", { signal } = {}) {
+  return apiGet(`/targets/${enc(target)}/objects`, { signal });
+}
+
+/** One target object's createable fields, read live (K18). */
+export function describeTargetObject(target, object, { signal } = {}) {
+  return apiGet(`/targets/${enc(target)}/objects/${enc(object)}`, { signal });
+}
+
+/** A record mapping proposed from names over the live fields (K18). */
+export function suggestRecordMapping({ template, parent, child, label }, { signal } = {}) {
+  return apiJson("/record-mappings/suggest", "POST", { template, parent, child: child || null, label: label || undefined }, { signal });
+}

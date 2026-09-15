@@ -1,6 +1,7 @@
 import { POLL_INTERVALS, SHAPES } from "./use-case-autonomy";
 import { findTemplate } from "./extraction-templates";
 import { normalizeRules } from "./guardrail-rules";
+import { findMapping } from "./record-mappings";
 
 /**
  * The spec as the platform's contract sees it (API 1.3.0): the catalog row, the stored spec
@@ -44,7 +45,7 @@ export function documentParameters(spec, sources = []) {
   recipient: spec.exceptionsTo || "",
   acknowledge: spec.acknowledge !== false,
   "write target": sourceRef(spec.writeback, sources),
-  "target objects": spec.targetObjects || "",
+  "target objects": (findMapping(spec)?.source !== "shipped" && findMapping(spec)) || spec.targetObjects || "",
   "created as": spec.createdAs || "draft",
   "per-run cap": spec.blastRadius || "",
   rollback: spec.rollback || "",

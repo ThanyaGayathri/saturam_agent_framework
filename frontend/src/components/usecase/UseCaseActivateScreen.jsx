@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { mappingLabel } from "../../domain/record-mappings";
 import { useNavigate } from "react-router-dom";
 import {
  Bell, Check, CircleUser, Coins, Layers, ListChecks, Rocket, RefreshCw, ShieldAlert, Tag, Target,
@@ -130,7 +131,7 @@ export default function UseCaseActivateScreen() {
     <Card Icon={ListChecks} title="What happens next">
      <ul className="space-y-1.5 text-sm text-text-secondary">
       <li>· Runs <strong className="text-text-primary">{(spec.template === "document_to_record" ? POLL_INTERVALS.find((x) => x.value === spec.schedule)?.label || first : first).toLowerCase()}</strong> once its trigger is on: locally the Run button below or the in-process poller, in the cloud the orchestrator (a Logic App on Azure, a Step Functions task on AWS) calling the same run endpoint.{spec.environment === "sandbox" ? " In the sandbox it writes nowhere and sends nothing outside the app." : ""}</li>
-      {spec.template === "document_to_record" && <li>· Each new document in {spec.mailbox} becomes {spec.targetObjects ? `an ${spec.targetObjects.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" + ").replace("Orderitem", "OrderItem")}` : "a record"} in {spec.writeback}; the mailbox is only read; each message is carried once by its id, never flagged, never deleted.</li>}
+      {spec.template === "document_to_record" && <li>· Each new document in {spec.mailbox} becomes {mappingLabel(spec) ? `${/^[aeiou]/i.test(mappingLabel(spec)) ? "an" : "a"} ${mappingLabel(spec)}` : "a record"} in {spec.writeback}; the mailbox is only read; each message is carried once by its id, never flagged, never deleted.</li>}
       <li>· Results land {shape.id === "alert" ? <>on the <strong className="text-text-primary">Alerts</strong> page{channels.length > 1 ? ` with a pointer by ${channels.filter((c) => c !== "In app").join(" and ")}` : ""}</> : <>in this use case's <strong className="text-text-primary">runs</strong>{channels.length > 1 ? ` with a pointer by ${channels.filter((c) => c !== "In app").join(" and ")}` : ""}</>}, for {spec.notify || spec.owner}.</li>
       {shape.level >= 3 && <li>· {shape.id === "recommend" ? `${spec.approver} gets each recommendation to release; ` : ""}every change to {spec.writeback} is stamped with its run{shape.id === "act" ? " and its rollback point" : ""}.</li>}
       <li>· Every run is recorded with what it read, decided and sent. {spec.owner} and any admin hold the kill switch.</li>
