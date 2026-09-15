@@ -669,11 +669,14 @@ def test_delete_kpi_404s_on_a_missing_identifier():
 
 
 class _ListableKpiStore(_FakeKpiStore):
-    """``_FakeKpiStore`` plus the unfiltered ``list()`` read ``list_kpi_health`` needs --
-    mirrors ``_suggestion_registry_snapshot``'s own unfiltered ``store.list()`` call."""
+    """``_FakeKpiStore`` plus the unfiltered ``list()``/``alist()`` read ``list_kpi_health``
+    needs -- mirrors ``_suggestion_registry_snapshot``'s own unfiltered ``store.list()`` call."""
 
     def list(self, business_area=None):
         return list(self._by_id.values())
+
+    async def alist(self, business_area=None):
+        return self.list(business_area=business_area)
 
 
 async def _fake_akpi_health(kpis, engine, **kwargs):
@@ -730,6 +733,54 @@ def test_warehouse_engine_dependency_503s_when_the_warehouse_is_not_configured(
         next(_warehouse_engine())
     assert excinfo.value.status_code == 503
     assert "EGPT_RETAIL_WAREHOUSE_DB_URL" in excinfo.value.detail
+
+
+def _health_app(monkeypatch, *, scopes):
+    """A real FastAPI app wired to the actual ``kpis.py`` router (not a direct function call),
+    so the scope-then-warehouse dependency order below is exercised through FastAPI's own
+    ``solve_dependencies`` rather than trusted from reading the signature."""
+
+    def _refuse(settings):
+        raise RuntimeError("EGPT_RETAIL_WAREHOUSE_DB_URL is not set.")
+
+    monkeypatch.setattr(kpis_module, "build_warehouse_engine", _refuse)
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+
+    app = FastAPI()
+    app.include_router(kpis_module.router)
+    app.dependency_overrides[kpis_module._kpi_store] = lambda: _ListableKpiStore(
+        existing=_kpi()
+    )
+
+    @app.middleware("http")
+    async def _fake_auth(request, call_next):
+        request.state.authorization_enabled = True
+        request.state.scopes = scopes
+        request.state.admin_scope = None
+        return await call_next(request)
+
+    return TestClient(app)
+
+
+def test_list_kpi_health_403s_before_the_warehouse_503_when_the_scope_is_missing(
+    monkeypatch,
+):
+    """The ordering fix: an unauthorized caller must be refused for that reason, not learn
+    that the warehouse is unconfigured before the scope check ever runs."""
+    client = _health_app(monkeypatch, scopes=[])
+    response = client.get("/kpis/health")
+    assert response.status_code == 403
+
+
+def test_list_kpi_health_503s_for_an_authorized_caller_when_the_warehouse_is_not_configured(
+    monkeypatch,
+):
+    """A caller who does hold the scope still gets the honest 503 -- the fix only reorders
+    which check runs first, it doesn't swallow the warehouse-unconfigured case."""
+    client = _health_app(monkeypatch, scopes=["kpis:read"])
+    response = client.get("/kpis/health")
+    assert response.status_code == 503
+    assert "EGPT_RETAIL_WAREHOUSE_DB_URL" in response.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

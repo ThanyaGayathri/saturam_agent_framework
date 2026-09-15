@@ -333,7 +333,17 @@ export default function KpiHealthDashboard() {
       seriesAbortRefs.current.get(identifier)?.abort();
       const controller = new AbortController();
       seriesAbortRefs.current.set(identifier, controller);
-      patchSeries(identifier, { status: "loading", error: null, retry: "load" });
+      // A range toggle or role switch re-fetches an identifier that may already be `ready` --
+      // keep showing its last value/sparkline (and `KpiTrend`'s own chart) while the refetch is
+      // in flight instead of flashing back to a loading skeleton on every toggle. Only a first
+      // load for this identifier (no `ready` data yet) shows the loading state.
+      setSeriesById((prev) => {
+        if (prev[identifier]?.status === "ready") return prev;
+        return {
+          ...prev,
+          [identifier]: { ...(prev[identifier] || {}), status: "loading", error: null, retry: "load" },
+        };
+      });
       fetchKpiSeries(identifier, { days, dimension, signal: controller.signal })
         .then((data) => {
           if (controller.signal.aborted) return;
@@ -579,8 +589,16 @@ export default function KpiHealthDashboard() {
                 {points.length > 1 ? (
                   <Spark data={points.map((p) => p.value)} stroke={tone.stroke} />
                 ) : (
-                  <p className="py-2 text-[11px] text-text-muted">
-                    {seriesStatus === "loading" ? "Loading…" : "Not enough data yet."}
+                  <p
+                    className={`py-2 text-[11px] ${
+                      seriesStatus === "error" ? "text-status-critical" : "text-text-muted"
+                    }`}
+                  >
+                    {seriesStatus === "loading"
+                      ? "Loading…"
+                      : seriesStatus === "error"
+                        ? "Couldn't load."
+                        : "Not enough data yet."}
                   </p>
                 )}
               </div>

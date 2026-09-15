@@ -1067,8 +1067,8 @@ def _warehouse_engine() -> Iterator[Engine]:
 @router.get("/kpis/health", response_model=list[wire.KpiHealth])
 async def list_kpi_health(
     store: KpiRegistryStore = Depends(_kpi_store),
-    engine: Engine = Depends(_warehouse_engine),
     _: None = Depends(require_scopes("kpis:read")),
+    engine: Engine = Depends(_warehouse_engine),
 ):
     """Freshness of every registered KPI, from gold. One row per KPI in the registry --
     including ``never_computed``/``not_scheduled``, the two statuses only the registry half
@@ -1078,8 +1078,14 @@ async def list_kpi_health(
     own unfiltered read) rather than only ``active`` ones: ``active`` is still the #231
     placeholder every KPI reports ``true`` for (see ``GET /kpis``'s own docstring), so filtering
     on it here would not narrow anything real yet.
+
+    ``engine`` is declared *after* the scope check (unlike every other route's dependency
+    order in this file, which is store-then-scope): ``_warehouse_engine`` raises a 503 naming
+    the unset config variable when the warehouse isn't configured, and FastAPI resolves
+    dependencies in declared order, so putting it before ``require_scopes`` would let an
+    unauthorized caller learn that detail before ever being told they lack the scope.
     """
-    definitions = store.list()
+    definitions = await store.alist()
     rows = await akpi_health(definitions, engine)
     return [wire.KpiHealth.model_validate(row) for row in rows]
 
