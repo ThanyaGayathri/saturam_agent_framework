@@ -119,6 +119,10 @@ class DashboardSuggestionRunRequest(BaseModel):
     """
 
     purpose: str = Field(..., min_length=1)
+    preselected_kpi_identifiers: list[str] | None = Field(
+        [],
+        description='KPIs the caller already picked before asking for a suggestion (e.g. selected on the KPI discovery grid before opening "Create dashboard"). Passed to the agent as already-chosen context, not validated here -- an unknown or no-longer-ready identifier is simply not one the agent can propose a tile for, the same as any other name it invents.',
+    )
 
 
 class DashboardSuggestionRunStatus(Enum):

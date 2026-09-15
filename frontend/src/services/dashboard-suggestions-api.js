@@ -13,9 +13,26 @@ import { apiGet, apiJson } from "../lib/api";
  * started_at, finished_at, result, error}`). Poll `fetchDashboardSuggestionRun` until `status`
  * is `succeeded` (then `result` is the suggested `{name, tiles, filters, notes}`) or `failed`
  * (then `error` says why). Nothing is stored beyond the run row - a suggestion becomes a
- * dashboard only through `createDashboardApi`. */
-export function startDashboardSuggestionRun(purpose, { signal } = {}) {
-  return apiJson("/dashboards/suggestions", "POST", { purpose }, { signal });
+ * dashboard only through `createDashboardApi`.
+ *
+ * `preselectedKpiIdentifiers`, when given, are KPIs the caller already picked (the discovery
+ * grid's "create from selection" flow) before asking for a suggestion - the agent takes them
+ * as already-chosen context. Optional: the plain "Create dashboard" entry point has none. */
+export function startDashboardSuggestionRun(
+  purpose,
+  { preselectedKpiIdentifiers, signal } = {},
+) {
+  return apiJson(
+    "/dashboards/suggestions",
+    "POST",
+    {
+      purpose,
+      ...(preselectedKpiIdentifiers?.length
+        ? { preselected_kpi_identifiers: preselectedKpiIdentifiers }
+        : {}),
+    },
+    { signal },
+  );
 }
 
 /** `GET /dashboards/suggestions/{run_id}` - one run, for polling. The backend closes a run

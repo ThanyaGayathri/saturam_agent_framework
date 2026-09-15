@@ -310,11 +310,46 @@ def _drafts_of(response: Any, schema: type) -> Any:
     )
 
 
+def _compose_suggestion_message(
+    purpose: str,
+    preselected_kpi_identifiers: Sequence[str],
+    ready_kpis: Sequence[KpiDefinition],
+) -> str:
+    """The per-run message sent to the agent: ``purpose``, plus -- when the caller already
+    picked KPIs (selected on the discovery grid before opening this flow) -- a line naming
+    them. Appended to the message rather than baked into the agent's instructions: those are
+    built once and cached per ready-KPI set (``_cached_dashboard_suggestion_agent``), shared
+    across concurrent requests, so they cannot carry one caller's selection.
+
+    Silently drops any identifier not in ``ready_kpis``: the agent's own closed list (section 3
+    of the prompt) is exactly that set, so naming one it structurally cannot select would only
+    confuse it. This is context for the agent's judgement, not a guarantee -- the caller's UI
+    is responsible for keeping a preselected metric on the dashboard regardless of whether the
+    agent's draft mentions it.
+    """
+    if not preselected_kpi_identifiers:
+        return purpose
+    by_identifier = {k.identifier: k for k in ready_kpis}
+    names = [
+        by_identifier[i].name
+        for i in dict.fromkeys(preselected_kpi_identifiers)
+        if i in by_identifier
+    ]
+    if not names:
+        return purpose
+    return (
+        f"{purpose}\n\n"
+        "Already selected by the caller before asking for this suggestion -- include these "
+        f"unless clearly unrelated to the purpose above: {', '.join(names)}."
+    )
+
+
 def _build_dashboard_suggestion(
     settings: RetailSettings,
     *,
     snapshot: _DashboardSuggestionSnapshot,
     purpose: str,
+    preselected_kpi_identifiers: Sequence[str] = (),
     agent: Optional[Agent] = None,
 ) -> wire.DashboardSuggestion:
     """One suggestion pass: run the agent, assemble its draft against the ready registry.
@@ -326,7 +361,10 @@ def _build_dashboard_suggestion(
         if agent is not None
         else _cached_dashboard_suggestion_agent(settings, snapshot).deep_copy()
     )
-    draft = _drafts_of(resolved_agent.run(purpose), dsg.DashboardSuggestionDraft)
+    message = _compose_suggestion_message(
+        purpose, preselected_kpi_identifiers, snapshot.ready_kpis
+    )
+    draft = _drafts_of(resolved_agent.run(message), dsg.DashboardSuggestionDraft)
     report = dsg.assemble(
         draft, ready_kpis=snapshot.ready_kpis, vocabularies=snapshot.vocabularies
     )
@@ -431,6 +469,7 @@ async def _execute_dashboard_suggestion_run(
     settings: RetailSettings,
     snapshot: _DashboardSuggestionSnapshot,
     purpose: str,
+    preselected_kpi_identifiers: Sequence[str] = (),
 ) -> None:
     """The executor behind `POST /dashboards/suggestions`: `queued` -> `running` -> one bounded
     suggestion pass -> `succeeded`/`failed`. Each row write opens and releases its own
@@ -444,7 +483,10 @@ async def _execute_dashboard_suggestion_run(
         try:
             result = await _run_bounded(
                 lambda: _build_dashboard_suggestion(
-                    settings, snapshot=snapshot, purpose=purpose
+                    settings,
+                    snapshot=snapshot,
+                    purpose=purpose,
+                    preselected_kpi_identifiers=preselected_kpi_identifiers,
                 ),
                 settings.retail_suggestion_timeout_seconds,
             )
@@ -626,13 +668,18 @@ async def start_dashboard_suggestion_run(
     purpose = body.purpose.strip()
     if not purpose:
         raise HTTPException(status_code=422, detail="purpose must not be empty.")
+    preselected_kpi_identifiers = body.preselected_kpi_identifiers or []
     settings = RetailSettings()
     record = await asyncio.to_thread(
         _with_suggestion_run_store, settings, lambda store: store.create(purpose)
     )
     task = asyncio.create_task(
         _execute_dashboard_suggestion_run(
-            record.identifier, settings, snapshot, purpose
+            record.identifier,
+            settings,
+            snapshot,
+            purpose,
+            preselected_kpi_identifiers=preselected_kpi_identifiers,
         )
     )
     _dashboard_suggestion_run_tasks.add(task)

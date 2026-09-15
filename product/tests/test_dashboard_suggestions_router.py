@@ -154,7 +154,9 @@ def _drain(client):
 
 
 def _suggesting(suggestion):
-    def _fake_helper(settings, *, snapshot, purpose, agent=None):
+    def _fake_helper(
+        settings, *, snapshot, purpose, preselected_kpi_identifiers=(), agent=None
+    ):
         return suggestion
 
     return _fake_helper
@@ -195,6 +197,62 @@ def test_start_dashboard_suggestion_run_returns_202_queued_then_the_poll_reaches
     ]
 
 
+def test_start_dashboard_suggestion_run_threads_preselected_kpis_to_the_builder(
+    monkeypatch,
+):
+    """KPIs the caller already picked on the discovery grid (`preselected_kpi_identifiers`)
+    reach `_build_dashboard_suggestion` -- the request field exists only to carry them there;
+    see `_compose_suggestion_message`'s own tests for what the agent is actually told."""
+    captured = {}
+
+    def _capturing(
+        settings, *, snapshot, purpose, preselected_kpi_identifiers=(), agent=None
+    ):
+        captured["preselected_kpi_identifiers"] = preselected_kpi_identifiers
+        return _suggestion()
+
+    monkeypatch.setattr(dashboards_module, "_build_dashboard_suggestion", _capturing)
+    store = _FakeDashboardSuggestionRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        client.post(
+            "/dashboards/suggestions",
+            json={
+                "purpose": "Track weekly engagement across our APAC accounts.",
+                "preselected_kpi_identifiers": ["session__active_analytics_user_count"],
+            },
+        )
+        _drain(client)
+
+    assert list(captured["preselected_kpi_identifiers"]) == [
+        "session__active_analytics_user_count"
+    ]
+
+
+def test_start_dashboard_suggestion_run_defaults_preselected_kpis_to_empty(monkeypatch):
+    """The field is optional -- the plain `Create dashboard` entry point (no KPI-page
+    selection) omits it entirely."""
+    captured = {}
+
+    def _capturing(
+        settings, *, snapshot, purpose, preselected_kpi_identifiers=(), agent=None
+    ):
+        captured["preselected_kpi_identifiers"] = preselected_kpi_identifiers
+        return _suggestion()
+
+    monkeypatch.setattr(dashboards_module, "_build_dashboard_suggestion", _capturing)
+    store = _FakeDashboardSuggestionRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        client.post(
+            "/dashboards/suggestions",
+            json={"purpose": "Track weekly engagement across our APAC accounts."},
+        )
+        _drain(client)
+
+    assert list(captured["preselected_kpi_identifiers"]) == []
+
+
 def test_start_dashboard_suggestion_run_422s_on_an_empty_purpose_before_any_row_exists(
     monkeypatch,
 ):
@@ -211,7 +269,9 @@ def test_start_dashboard_suggestion_run_422s_on_an_empty_purpose_before_any_row_
 
 
 def test_get_dashboard_suggestion_run_reports_failure_from_the_executor(monkeypatch):
-    def _failing(settings, *, snapshot, purpose, agent=None):
+    def _failing(
+        settings, *, snapshot, purpose, preselected_kpi_identifiers=(), agent=None
+    ):
         raise ValueError("no ready KPI in this registry matches the purpose")
 
     monkeypatch.setattr(dashboards_module, "_build_dashboard_suggestion", _failing)
@@ -355,3 +415,109 @@ def test_drafts_of_raises_when_the_agent_returns_something_other_than_the_draft_
 
     with pytest.raises(ValueError, match="DashboardSuggestionDraft expected"):
         dashboards_module._drafts_of(_FakeResponse(), dsg.DashboardSuggestionDraft)
+
+
+# ---------------------------------------------------------------------------
+# `_compose_suggestion_message` -- how a KPI-page selection reaches the agent. It rides in the
+# per-run message, not the agent's own instructions: those are built once and cached per ready
+# set (the section above), shared across concurrent requests, so they cannot carry one
+# caller's selection.
+# ---------------------------------------------------------------------------
+
+
+def test_compose_suggestion_message_is_unchanged_purpose_with_no_preselection():
+    assert (
+        dashboards_module._compose_suggestion_message(
+            "Track engagement.", (), (_kpi(),)
+        )
+        == "Track engagement."
+    )
+
+
+def test_compose_suggestion_message_names_preselected_ready_kpis():
+    kpis = (
+        _kpi(identifier="a", name="Metric A"),
+        _kpi(identifier="b", name="Metric B"),
+    )
+    message = dashboards_module._compose_suggestion_message(
+        "Track engagement.", ["a", "b"], kpis
+    )
+    assert message.startswith("Track engagement.\n\n")
+    assert "Metric A, Metric B" in message
+
+
+def test_compose_suggestion_message_drops_identifiers_the_ready_set_does_not_have():
+    """An identifier the frontend sent that is no longer ready (or never was) is dropped, not
+    surfaced as an error -- naming a KPI outside the agent's own closed list (section 3 of the
+    prompt) would only confuse it, not help it."""
+    kpis = (_kpi(identifier="a", name="Metric A"),)
+    message = dashboards_module._compose_suggestion_message(
+        "Track engagement.", ["a", "no-longer-ready"], kpis
+    )
+    assert (
+        message
+        == "Track engagement.\n\nAlready selected by the caller before asking for this suggestion -- include these unless clearly unrelated to the purpose above: Metric A."
+    )
+
+
+def test_compose_suggestion_message_falls_back_to_the_bare_purpose_when_none_are_ready():
+    kpis = (_kpi(identifier="a"),)
+    assert (
+        dashboards_module._compose_suggestion_message(
+            "Track engagement.", ["not-ready"], kpis
+        )
+        == "Track engagement."
+    )
+
+
+def test_compose_suggestion_message_dedupes_repeated_identifiers():
+    kpis = (_kpi(identifier="a", name="Metric A"),)
+    message = dashboards_module._compose_suggestion_message(
+        "Track engagement.", ["a", "a"], kpis
+    )
+    assert message.count("Metric A") == 1
+
+
+def test_build_dashboard_suggestion_sends_the_composed_message_to_the_agent():
+    """End to end through the real seam (the `agent=` override `_build_dashboard_suggestion`
+    documents as test-only): a preselected KPI reaches `.run()`, not just the helper that
+    composes it."""
+
+    class _FakeResponse:
+        def __init__(self, content):
+            self.content = content
+
+    class _FakeAgent:
+        def __init__(self):
+            self.received = None
+
+        def run(self, message):
+            self.received = message
+            return _FakeResponse(
+                dsg.DashboardSuggestionDraft(
+                    name="Weekly engagement",
+                    tiles=[
+                        dsg.DashboardTileDraft(
+                            kpi_identifier="a", rationale="Directly measures it."
+                        )
+                    ],
+                )
+            )
+
+    kpi = _kpi(identifier="a", name="Metric A")
+    fake_agent = _FakeAgent()
+    dashboards_module._build_dashboard_suggestion(
+        RetailSettings(),
+        snapshot=_DashboardSuggestionSnapshot(
+            ready_kpis=(kpi,), vocabularies=_VOCABULARIES
+        ),
+        purpose="Track engagement.",
+        preselected_kpi_identifiers=["a"],
+        agent=fake_agent,
+    )
+
+    assert fake_agent.received == (
+        "Track engagement.\n\n"
+        "Already selected by the caller before asking for this suggestion -- include these "
+        "unless clearly unrelated to the purpose above: Metric A."
+    )

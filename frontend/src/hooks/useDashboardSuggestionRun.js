@@ -1,9 +1,10 @@
 /**
- * Fire-and-poll a dashboard suggestion run: `start(purpose)` kicks it off, this hook polls
- * `GET /dashboards/suggestions/{run_id}` until it's `succeeded`/`failed`, tight at first and
- * relaxed after half a minute -- the same cadence `KpiDiscoveryPage.jsx`'s inline suggestion-run
- * state machine uses for `POST /kpis/suggestions` (#254), extracted here since this is a fresh
- * call site rather than a second copy of that page's logic.
+ * Fire-and-poll a dashboard suggestion run: `start(purpose, preselectedKpiIdentifiers)` kicks
+ * it off, this hook polls `GET /dashboards/suggestions/{run_id}` until it's
+ * `succeeded`/`failed`, tight at first and relaxed after half a minute -- the same cadence
+ * `KpiDiscoveryPage.jsx`'s inline suggestion-run state machine uses for `POST /kpis/suggestions`
+ * (#254), extracted here since this is a fresh call site rather than a second copy of that
+ * page's logic.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -34,7 +35,7 @@ export function useDashboardSuggestionRun() {
     [],
   );
 
-  const start = useCallback((purpose) => {
+  const start = useCallback((purpose, preselectedKpiIdentifiers) => {
     abortRef.current?.abort();
     window.clearTimeout(pollTimerRef.current);
     const controller = new AbortController();
@@ -73,7 +74,10 @@ export function useDashboardSuggestionRun() {
         .catch(failWith);
     };
 
-    startDashboardSuggestionRun(purpose, { signal: controller.signal })
+    startDashboardSuggestionRun(purpose, {
+      preselectedKpiIdentifiers,
+      signal: controller.signal,
+    })
       .then((run) => {
         if (controller.signal.aborted) return;
         if (!run?.id) {

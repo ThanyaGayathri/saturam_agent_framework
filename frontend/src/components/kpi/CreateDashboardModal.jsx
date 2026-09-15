@@ -23,11 +23,12 @@ function metricFromKpi(kpi) {
 
 /**
  * Create dashboard: a mode picker (AI generated vs. manual), then either a chat-style purpose
- * step feeding an AI suggestion run or straight into the shared builder step. `rows`, when
- * given non-empty (the existing call site from `KpiDiscoveryPage.jsx`, selecting metrics from
- * the discovery grid), skips the mode picker entirely and opens straight into the manual
- * builder pre-filled with them - the same entry point as before, now also offering the filter
- * this flow adds.
+ * step feeding an AI suggestion run or straight into the shared builder step. One flow for both
+ * entry points - `DashboardsPage.jsx`'s plain "Create dashboard" button and
+ * `KpiDiscoveryPage.jsx`'s "create from selection" - so `rows`, when given non-empty, no longer
+ * skips the mode picker; it only seeds the metrics both paths start from (the manual builder
+ * pre-filled with them directly, the AI path folding them into whatever it suggests below), so
+ * a KPI-page selection survives either choice.
  *
  * `onCreate({ name, refresh, metrics, businessAreaFilter })` is the caller's job, same split as
  * before: this modal collects and edits state, the caller turns it into a `DashboardWrite` and
@@ -40,13 +41,23 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
  );
  const hasInitialRows = initialRows.length > 0;
  const notReadyCount = (rows || []).length - initialRows.length;
+ const initialMetrics = useMemo(() => initialRows.map((r) => metricFromKpi(r.kpi)), [initialRows]);
+ // A plain, deterministic starting sentence for the AI path's purpose box when the caller
+ // arrives with a selection already made - not an LLM call just to draft a sentence the
+ // person can freely edit or replace before generating.
+ const suggestedPurpose = useMemo(() => {
+  const names = initialMetrics.map((m) => m.name).filter(Boolean);
+  if (names.length === 0) return "";
+  if (names.length === 1) return `Track ${names[0]}.`;
+  return `Track ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} together.`;
+ }, [initialMetrics]);
 
- const [step, setStep] = useState(hasInitialRows ? "builder" : "mode");
+ const [step, setStep] = useState("mode");
  const [mode, setMode] = useState(null);
 
  const [name, setName] = useState("");
  const [refresh, setRefresh] = useState(DEFAULT_REFRESH_SCHEDULE);
- const [metrics, setMetrics] = useState(() => initialRows.map((r) => metricFromKpi(r.kpi)));
+ const [metrics, setMetrics] = useState(initialMetrics);
  const [businessAreaFilter, setBusinessAreaFilter] = useState(null);
  const [aiSuggested, setAiSuggested] = useState(false);
  const [purpose, setPurpose] = useState("");
@@ -93,7 +104,10 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
  const handleGenerate = (text) => {
   setPurpose(text);
   setStep("ai-generating");
-  suggestionRun.start(text);
+  suggestionRun.start(
+   text,
+   initialMetrics.map((m) => m.identifier),
+  );
  };
 
  // Once a run succeeds, prefill the builder from it and hand control to the person - nothing
@@ -107,14 +121,17 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
    if (cancelled) return;
    const byIdentifier = new Map(kpisForLookup.map((k) => [k.identifier, k]));
    setName(result.name || "");
-   setMetrics(
-    (result.tiles || []).map((tile) => ({
-     identifier: tile.kpi_identifier,
-     name: tile.name || byIdentifier.get(tile.kpi_identifier)?.name || tile.kpi_identifier,
-     unit: byIdentifier.get(tile.kpi_identifier)?.unit || "",
-     businessArea: byIdentifier.get(tile.kpi_identifier)?.businessArea || "",
-    })),
-   );
+   const suggested = (result.tiles || []).map((tile) => ({
+    identifier: tile.kpi_identifier,
+    name: tile.name || byIdentifier.get(tile.kpi_identifier)?.name || tile.kpi_identifier,
+    unit: byIdentifier.get(tile.kpi_identifier)?.unit || "",
+    businessArea: byIdentifier.get(tile.kpi_identifier)?.businessArea || "",
+   }));
+   // Metrics picked on the KPI-discovery grid before opening this modal ride along into the
+   // AI path too, not just the manual one - the agent never sees them (it only takes a free-
+   // text purpose), so anything it left out is appended here rather than silently dropped.
+   const suggestedIds = new Set(suggested.map((m) => m.identifier));
+   setMetrics([...suggested, ...initialMetrics.filter((m) => !suggestedIds.has(m.identifier))]);
    const areaFilter = (result.filters || []).find((f) => f.field === "business_area");
    setBusinessAreaFilter(areaFilter ? areaFilter.value : null);
    setAiSuggested(true);
@@ -172,6 +189,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
      refreshOptions={REFRESH_OPTIONS}
      mode={mode}
      setMode={setMode}
+     preselectedCount={initialMetrics.length}
      onCancel={onCancel}
      onContinue={() => setStep(mode === "ai" ? "ai-purpose" : "builder")}
     />
@@ -179,7 +197,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
 
    {step === "ai-purpose" && (
     <AiPurposeStep
-     initialPurpose={purpose}
+     initialPurpose={purpose || suggestedPurpose}
      onBack={() => setStep("mode")}
      onGenerate={handleGenerate}
     />
@@ -222,7 +240,7 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
        : undefined
      }
      onChangeMode={
-      !hasInitialRows && !aiSuggested
+      !aiSuggested
        ? () => {
           setMode(null);
           setStep("mode");
