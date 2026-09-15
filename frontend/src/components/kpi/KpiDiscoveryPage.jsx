@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useProcesses } from "../../hooks/useProcesses";
-import { useBusinessAreas } from "../../hooks/useBusinessAreas";
 import { useDemoProfile } from "../../context/DemoProfileContext";
 import { datasetIdsByLinkedKpiName, flattenKpiIndexRows } from "../../domain/kpi-mapping";
 import { readLocalJson, writeLocalJson } from "../../storage/local-json";
@@ -87,7 +86,6 @@ export default function KpiDiscoveryPage() {
  const { data, hydrated } = useKpiRegistry();
  const { processes } = useProcesses();
  const { profileId } = useDemoProfile();
- const { areas: businessAreas } = useBusinessAreas();
 
  const [detailRow, setDetailRow] = useState(null);
  // Rows handed to the create modal. Non-empty means the modal is open.
@@ -120,14 +118,20 @@ export default function KpiDiscoveryPage() {
  const [adoptErrors, setAdoptErrors] = useState({});
 
  // A single focused area scopes the agent's search; zero or several ask it to range over
- // everything rather than firing one request per area (each is its own live model call).
+ // everything rather than firing one request per area (each is its own live model call). The
+ // ids are the deployment's own vocabulary terms now (the prompt's options come from
+ // `GET /business-areas`), so a narrowed run can no longer be refused as an unknown area.
  const suggestBusinessArea = focusAreaIds.length === 1 ? focusAreaIds[0] : undefined;
 
  // The real registry (C1, #232) -- fetched once, additive, never blocking: the seed/suggested
  // rows above render immediately regardless of this state. A failure is a small note, not a
  // crash -- the same posture `DashboardsPage.jsx`'s own real-data fetch already takes.
  const [realKpiState, setRealKpiState] = useState({ status: "loading", kpis: [] });
- const [realAreas, setRealAreas] = useState([]);
+ // The business areas, from `GET /business-areas` on page load: the options the focus prompt
+ // offers (supported ones selectable, with K9's evidence; the rest greyed with its reason) and
+ // the labels real rows are grouped under. Held here, not in the per-profile localStorage list
+ // the rest of the app still reads -- that list is a different vocabulary and is left alone.
+ const [areaState, setAreaState] = useState({ status: "loading", areas: [], error: null });
 
  // One registry KPI's value over time (`GET /kpis/{id}/series`), keyed by identifier, for the
  // detail panel's `KpiTrend`: `{status: "loading"|"computing"|"ready"|"error", data, error,
@@ -252,19 +256,42 @@ export default function KpiDiscoveryPage() {
   };
  }, []);
 
- useEffect(() => {
-  let cancelled = false;
-  fetchBusinessAreas()
+ // Retriable (the prompt offers a Retry when the graph could not be asked), hence a function
+ // the effect calls rather than the effect itself. On success the persisted focus is reconciled
+ // first: ids this browser stored under an older vocabulary (or for an area since removed)
+ // would otherwise leave a collapsed "Ranked for" line with no pills on it. Both updates land
+ // in one commit, so the prompt never sees the new options with the old answer.
+ const areasAbortRef = useRef(null);
+ const loadAreas = () => {
+  areasAbortRef.current?.abort();
+  const controller = new AbortController();
+  areasAbortRef.current = controller;
+  setAreaState((prev) => ({ ...prev, status: "loading", error: null }));
+  fetchBusinessAreas({ signal: controller.signal })
    .then((hierarchy) => {
-    if (!cancelled) setRealAreas(hierarchy?.areas || []);
+    if (controller.signal.aborted) return;
+    const areas = hierarchy?.areas || [];
+    const known = new Set(areas.map((a) => a.id));
+    setFocusState((prev) => {
+     const kept = prev.filter((id) => known.has(id));
+     if (kept.length !== prev.length) writeLocalJson(FOCUS_KEY, kept);
+     return kept.length === prev.length ? prev : kept;
+    });
+    setAreaState({ status: "ready", areas, error: null });
    })
-   .catch(() => {
-    // Not fatal on its own: a real row without a resolved label still shows its raw
-    // business_area id (see realAreaLabel below) rather than disappearing.
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    setAreaState({
+     status: "error",
+     areas: [],
+     error: { status: err?.status ?? null, detail: err?.detail || err?.message || "" },
+    });
    });
-  return () => {
-   cancelled = true;
-  };
+ };
+ useEffect(() => {
+  loadAreas();
+  return () => areasAbortRef.current?.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, []);
 
  // Start a run, then poll it (#254). One `AbortController` covers the whole loop -- the POST
@@ -416,8 +443,8 @@ export default function KpiDiscoveryPage() {
  };
 
  const realAreaLabelById = useMemo(
-  () => Object.fromEntries(realAreas.map((a) => [a.id, a.label])),
-  [realAreas]
+  () => Object.fromEntries(areaState.areas.map((a) => [a.id, a.label])),
+  [areaState.areas]
  );
  const realAreaLabel = (id) => realAreaLabelById[id] || id || "";
 
@@ -539,7 +566,10 @@ export default function KpiDiscoveryPage() {
 
    <KpiDiscovery
     rows={rows}
-    areas={businessAreas}
+    areas={areaState.areas}
+    areasStatus={areaState.status}
+    areasError={areaState.error}
+    onRetryAreas={loadAreas}
     focusAreaIds={focusAreaIds}
     onFocusChange={setFocusAreaIds}
     onOpenDetail={setDetailRow}
