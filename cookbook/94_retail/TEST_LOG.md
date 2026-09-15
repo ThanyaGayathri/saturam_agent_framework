@@ -6106,3 +6106,17 @@ resolved entities and the run values offered as completions -- a picker with the
 would be friendlier. `created as` still assumes a two-value status (draft/active).
 
 ---
+
+### K18 follow-up -- a rehearsal reads the real mailbox; no table before a run
+
+**Status:** PASS (15 Sep 2026). The rehearse screen no longer shows the interface's own
+arithmetic over the sample set before anything has run: for a document-driven use case it is
+the platform panel alone, and nothing appears until "Rehearse on the platform" is clicked. A
+rehearsal now reads the connected mailbox as it is (writes held, nothing flagged, the
+processed-id ledger not consulted) and falls back to the built-in sample set only when no
+mailbox or no extraction model resolves; the run result carries `rehearsal_source` and the
+panel says which. Verified against the seeded inbox through the local API: 16 received from
+the mailbox (subjects prefixed "Northwind sample:"), 7 previewed, 9 exceptions, 71 s with the
+real model.
+
+---

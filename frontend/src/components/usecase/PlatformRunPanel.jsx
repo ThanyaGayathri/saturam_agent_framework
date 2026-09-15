@@ -98,7 +98,7 @@ export default function PlatformRunPanel({ useCaseId, mode, label, description, 
       <div className="rounded-lg bg-status-warning-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-warning">{rows.held}</p><p className="text-[11px] text-text-muted">held for the next poll</p></div>
      </div>
      <p className="text-xs text-text-secondary">
-      {run.summary}{rows.notify ? ` · exceptions ${rows.notify.status === "sent" ? "emailed" : "composed for"} ${(rows.notify.to || []).join(", ")}` : ""}{rows.rollback?.points ? ` · ${rows.rollback.points} rollback point(s) recorded` : ""}{run.provenance_ref ? ` · provenance ${run.provenance_ref}` : ""}
+      {run.result?.rehearsal_source === "mailbox" ? "Read from your mailbox as it is now, nothing flagged. " : run.result?.rehearsal_source === "sample set" ? "Over the built-in sample set (no mailbox or no extraction model was reachable). " : ""}{run.summary}{rows.notify ? ` · exceptions ${rows.notify.status === "sent" ? "emailed" : "composed for"} ${(rows.notify.to || []).join(", ")}` : ""}{rows.rollback?.points ? ` · ${rows.rollback.points} rollback point(s) recorded` : ""}{run.provenance_ref ? ` · provenance ${run.provenance_ref}` : ""}
      </p>
      {Object.keys(rows.byClass).length > 0 && (
       <ul className="flex flex-wrap gap-1.5">

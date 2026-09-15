@@ -389,13 +389,30 @@ class UseCaseService:
                 sample_messages,
             )
 
-            options["messages"] = sample_messages()
+            # A rehearsal reads the real mailbox when one is connected -- "what would happen
+            # to the emails that are there now", with every write held -- and falls back to the
+            # sample set only when no mailbox resolves. The mailbox is never flagged and the
+            # processed-id ledger is not consulted, so a rehearsal always shows the whole inbox.
+            try:
+                resolve_credentials(
+                    options.get("source mailbox") or {},
+                    kind="mailbox",
+                    environ=self._environ,
+                )
+                mailbox_available = True
+            except CredentialUnavailable:
+                mailbox_available = False
             env = self._environ if self._environ is not None else os.environ
-            if (
-                not env.get("AZURE_OPENAI_API_KEY")
-                or self._agent_factory is not None
+            model_available = bool(env.get("AZURE_OPENAI_API_KEY")) and not (
+                self._agent_factory is not None
                 and self._agent_factory("extraction", "probe", "purchase_order") is None
-            ):
+            )
+            if not mailbox_available or not model_available:
+                options["messages"] = sample_messages()
+                options["rehearsal_source"] = "sample set"
+            else:
+                options["rehearsal_source"] = "mailbox"
+            if not model_available:
                 options["extractor"] = lambda document: expected_extraction(
                     str(document["message"]["id"])[1:5].upper()
                 )
@@ -491,6 +508,8 @@ class UseCaseService:
                 additional_data=options,
             )
             result = _result_of(output)
+            if result is not None and options.get("rehearsal_source"):
+                result["rehearsal_source"] = options["rehearsal_source"]
             provenance_ref = _provenance_of(output)
             summary = _summary_of(result)
             updated = await self.store.aupdate_run(
