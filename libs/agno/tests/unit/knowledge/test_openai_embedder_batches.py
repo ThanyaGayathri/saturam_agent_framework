@@ -40,8 +40,47 @@ class _AsyncEmbeddings(_Embeddings):
         return super().create(**request)
 
 
-def _embedder(sync=True):
-    embeddings = _AsyncEmbeddings() if not sync else _Embeddings()
+class _RaisingEmbeddings:
+    """A client whose ``create`` always fails -- proves the exception path is reached and ``[]``
+    is returned rather than the exception propagating."""
+
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **request):
+        self.calls.append(request)
+        raise RuntimeError("embeddings API unavailable")
+
+
+class _AsyncRaisingEmbeddings(_RaisingEmbeddings):
+    async def create(self, **request):  # type: ignore[override]
+        return super().create(**request)
+
+
+def _malformed_response_for(inputs):
+    """Same length as a correct response, but the index set has a duplicate (0 twice) and a gap
+    (no 2) -- the exact shape a plain sort cannot detect, only an index-set check can."""
+    items = [SimpleNamespace(index=0, embedding=[0.0, 0.5])] + [
+        SimpleNamespace(index=i, embedding=[float(i), float(i) + 0.5]) for i in range(len(inputs) - 1)
+    ]
+    return SimpleNamespace(data=items, usage=None)
+
+
+class _MalformedIndexEmbeddings(_Embeddings):
+    def create(self, **request):
+        self.calls.append(request)
+        given = request["input"]
+        return _malformed_response_for(given if isinstance(given, list) else [given])
+
+
+class _AsyncMalformedIndexEmbeddings(_MalformedIndexEmbeddings):
+    async def create(self, **request):  # type: ignore[override]
+        return super().create(**request)
+
+
+def _embedder(sync=True, embeddings=None):
+    if embeddings is None:
+        embeddings = _AsyncEmbeddings() if not sync else _Embeddings()
     client = SimpleNamespace(embeddings=embeddings)
     if sync:
         return OpenAIEmbedder(id="text-embedding-3-large", dimensions=2, openai_client=client), embeddings
@@ -86,3 +125,47 @@ async def test_async_get_embeddings_batch_and_usage_also_sorts_by_index():
     embedder, _ = _embedder(sync=False)
     embeddings, usage = await embedder.async_get_embeddings_batch_and_usage(["a", "b", "c"])
     assert embeddings == [[0.0, 0.5], [1.0, 1.5], [2.0, 2.5]]
+
+
+def test_an_empty_list_short_circuits_without_a_request():
+    embedder, embeddings = _embedder()
+    assert embedder.get_embedding([]) == []
+    assert embeddings.calls == []
+
+
+@pytest.mark.asyncio
+async def test_the_async_empty_list_short_circuits_too():
+    embedder, embeddings = _embedder(sync=False)
+    assert await embedder.async_get_embedding([]) == []
+    assert embeddings.calls == []
+
+
+def test_a_list_call_that_raises_returns_empty_not_the_exception():
+    embedder, embeddings = _embedder(embeddings=_RaisingEmbeddings())
+    assert embedder.get_embedding(["a", "b"]) == []
+    assert len(embeddings.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_async_list_call_that_raises_returns_empty_too():
+    embedder, embeddings = _embedder(sync=False, embeddings=_AsyncRaisingEmbeddings())
+    assert await embedder.async_get_embedding(["a", "b"]) == []
+    assert len(embeddings.calls) == 1
+
+
+def test_a_response_with_a_duplicate_and_a_missing_index_is_refused_not_silently_zipped():
+    """The failure mode the sort alone cannot catch: same length as the input, but the index set
+    has a duplicate and a gap, so a plain sort would zip at least one vector to the wrong text
+    with no error. The guard raises internally; ``get_embedding``'s existing except clause turns
+    that into a logged warning and ``[]``, exactly like any other request failure -- a wrong-shape
+    response is treated as a failure, not as a same-length success."""
+    embedder, embeddings = _embedder(embeddings=_MalformedIndexEmbeddings())
+    assert embedder.get_embedding(["a", "b", "c"]) == []
+    assert len(embeddings.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_async_half_refuses_a_malformed_index_set_too():
+    embedder, embeddings = _embedder(sync=False, embeddings=_AsyncMalformedIndexEmbeddings())
+    assert await embedder.async_get_embedding(["a", "b", "c"]) == []
+    assert len(embeddings.calls) == 1

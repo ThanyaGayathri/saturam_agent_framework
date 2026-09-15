@@ -283,3 +283,57 @@ class TestAzureOpenAIEmbedderBatching:
         embeddings, _usage = await embedder.async_get_embeddings_batch_and_usage(["a", "b", "c"])
 
         assert embeddings == [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
+
+    def test_an_empty_list_short_circuits_without_a_request(self, _mock_openai):
+        mock_client, _ = _mock_openai
+
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+
+        embedder = AzureOpenAIEmbedder(
+            id="text-embedding-3-small",
+            api_key="test-key",
+            azure_endpoint="https://test.openai.azure.com/",
+            openai_client=mock_client,
+        )
+
+        assert embedder.get_embedding([]) == []
+        mock_client.embeddings.create.assert_not_called()
+
+    @pytest.mark.asyncio()
+    async def test_the_async_empty_list_short_circuits_too(self, _mock_openai):
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+
+        async_mock = MagicMock()
+        async_mock.embeddings.create = AsyncMock()
+
+        embedder = AzureOpenAIEmbedder(
+            id="text-embedding-3-small",
+            api_key="test-key",
+            azure_endpoint="https://test.openai.azure.com/",
+            async_client=async_mock,
+        )
+
+        assert await embedder.async_get_embedding([]) == []
+        async_mock.embeddings.create.assert_not_called()
+
+    def test_a_response_with_a_duplicate_and_a_missing_index_is_refused_not_silently_zipped(self, _mock_openai):
+        """Same failure mode as the OpenAI-side test of the same name: same length as the input,
+        but the index set has a duplicate and a gap, so a plain sort cannot catch it -- only the
+        shared ``sorted_embeddings`` index-set check can. Refused, not silently zipped."""
+        mock_client, mock_response = _mock_openai
+        mock_response.data = [
+            MagicMock(index=0, embedding=[0.1, 0.1]),
+            MagicMock(index=0, embedding=[0.1, 0.1]),
+            MagicMock(index=1, embedding=[0.2, 0.2]),
+        ]
+
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+
+        embedder = AzureOpenAIEmbedder(
+            id="text-embedding-3-small",
+            api_key="test-key",
+            azure_endpoint="https://test.openai.azure.com/",
+            openai_client=mock_client,
+        )
+
+        assert embedder.get_embedding(["a", "b", "c"]) == []

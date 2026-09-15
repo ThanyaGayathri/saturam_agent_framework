@@ -107,14 +107,26 @@ class OpenAIEmbedder(Embedder):
         come back sorted by ``.index`` rather than trusted to arrive in request order -- the same
         guard ``AzureOpenAIEmbedder.get_embedding`` takes, for the same reason: a documented
         ordering is not an enforced one, and zipping against the wrong record fails silently.
+
+        An empty list returns ``[]`` without a request -- an empty ``input`` is not a documented
+        request shape, and every real caller (``MemoryEmbedder``, ``ontology/store.py``) already
+        short-circuits before reaching the embedder, so there is nothing to send and nothing to
+        gain from letting the API reject it instead.
         """
+        if not isinstance(text, str) and not text:
+            return []
         try:
             response: CreateEmbeddingResponse = self.response(text=text)
             if isinstance(text, str):
                 return response.data[0].embedding
             return sorted_embeddings(response)
         except Exception as e:
-            log_warning(f"Failed to get embedding: {str(e)}")
+            # Distinct messages, matching `AzureOpenAIEmbedder`: a batch failure and a single-text
+            # failure are different production symptoms and should not read identically in a log.
+            if isinstance(text, str):
+                log_warning(f"Failed to get embedding: {str(e)}")
+            else:
+                log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
 
     def get_embedding_and_usage(self, text: str) -> Tuple[List[float], Optional[Dict]]:
@@ -135,14 +147,20 @@ class OpenAIEmbedder(Embedder):
     @overload
     async def async_get_embedding(self, text: List[str]) -> List[List[float]]: ...
     async def async_get_embedding(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
-        """Async twin of :meth:`get_embedding`: same call shape, same ordering guarantee."""
+        """Async twin of :meth:`get_embedding`: same call shape, same ordering guarantee, same
+        empty-list short-circuit."""
+        if not isinstance(text, str) and not text:
+            return []
         try:
             response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**self._request_params_for(text))
             if isinstance(text, str):
                 return response.data[0].embedding
             return sorted_embeddings(response)
         except Exception as e:
-            log_warning(f"Failed to get async embedding: {str(e)}")
+            if isinstance(text, str):
+                log_warning(f"Failed to get async embedding: {str(e)}")
+            else:
+                log_warning(f"Failed to get async batch embeddings: {str(e)}")
             return []
 
     async def async_get_embedding_and_usage(self, text: str):

@@ -160,6 +160,8 @@ class AzureOpenAIEmbedder(Embedder):
             except Exception as e:
                 log_warning(f"Failed to get embedding: {str(e)}")
                 return []
+        if not text:
+            return []
         response = self._batch_response(list(text))
         try:
             # Sorted by `.index` rather than trusted to arrive in request order: the API documents
@@ -224,6 +226,8 @@ class AzureOpenAIEmbedder(Embedder):
             except Exception as e:
                 log_warning(f"Failed to get embedding: {str(e)}")
                 return []
+        if not text:
+            return []
         response = await self._abatch_response(list(text))
         try:
             return sorted_embeddings(response)
