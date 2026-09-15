@@ -53,6 +53,7 @@ function internalRowToShape(row) {
     apiKey: row.api_key,
     sslMode: row.ssl_mode,
     permissionLevel: row.permission_level,
+    credentialRef: row.extras?.credentialRef || "",
     seed: false,
   });
 }
@@ -72,7 +73,8 @@ function internalShapeToRow(record, profileId) {
     api_key: record.apiKey || null,
     ssl_mode: record.sslMode || "require",
     permission_level: record.permissionLevel === "read_write" ? "read_write" : "read_only",
-    extras: record.extras || {},
+    // No column of its own: the reference rides in extras, the row's open bag.
+    extras: { ...(record.extras || {}), credentialRef: record.credentialRef || "" },
     origin_seed_id: record.__originSeedId || null,
   };
 }

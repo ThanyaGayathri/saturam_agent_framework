@@ -35,6 +35,8 @@ from egpt_retail.alerts import aapply_alerts_ddl
 from egpt_retail.app.db import build_control_plane_db, build_control_plane_engine
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.delivery import aapply_delivery_ddl
+from egpt_retail.documents.rollback import aapply_rollback_ddl
+from egpt_retail.usecases import aapply_use_case_ddl
 
 __all__ = ["main", "amain"]
 
@@ -60,6 +62,10 @@ async def amain() -> int:
         for name in await aapply_delivery_ddl(engine):
             log.info("migrate: applied %s", name)
         for name in await aapply_alerts_ddl(engine):
+            log.info("migrate: applied %s", name)
+        for name in await aapply_use_case_ddl(engine):
+            log.info("migrate: applied %s", name)
+        for name in await aapply_rollback_ddl(engine):
             log.info("migrate: applied %s", name)
     finally:
         engine.dispose()

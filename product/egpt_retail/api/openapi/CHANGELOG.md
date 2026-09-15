@@ -109,6 +109,25 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.3.0 — 2026-09-15 — use-cases: a stored spec, a run mode, the run's own result (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. Every change has a default
+or is a new operation; no P0 caller changes.
+
+The first real `/use-cases` router (K16) needed four things the contract described only for
+an agent-driven flow:
+
+| Change | Why |
+|---|---|
+| **`PUT /use-cases/{id}/spec` (`saveUseCaseSpec`)** | The per-shape form *is* the spec (K15): the interface fills shape, template and parameters itself and never runs the extraction agent for a document-driven use case. `extracted_by: {identifier: interface.form}` keeps a hand-assembled spec distinguishable from an extracted one. |
+| **`?mode=live|rehearse` on `triggerUseCaseRun`, `RunMode`** | The rehearse screen and the live run share one code path: the same compiled workflow, with side effects held and the sample set injected. A simulation of its own in the interface was ahead of the platform and had already drifted from it (scanned copies). |
+| **`UseCaseRun.result`, `UseCaseRun.mode`** | The interface shows what a run created and what it held. `summary` is prose; `result` is the batch the last executor returned, and the screen reads it instead of re-running anything. |
+| **`ScheduleCadence` gains `hourly`, `every_15_minutes`, `every_5_minutes`, `every_minute`** | A mailbox is polled, not read nightly. The interface's poll intervals now have a contract value each. |
+
+Not in this version, on purpose: the orchestrator-facing trigger is still the same
+`POST /use-cases/{id}/runs` -- a Logic App on Azure or a Step Functions task on AWS calls it
+with the internal service token; the body of the run does not know which one did.
+
 ## 1.2.0 — 2026-09-15 — use-cases: `Spec.shape`, `Spec.template`, `Spec.parameters` (additive; closes R-15)
 
 Agreed by: Lane K (kiruthiga). Additive -- three optional fields on `Spec` and two new enums --

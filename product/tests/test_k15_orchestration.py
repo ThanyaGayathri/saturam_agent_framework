@@ -355,26 +355,37 @@ def test_every_executor_step_survives_r9s_plan_walker():
     assert len(plan["steps"]) == len(normalise_config(report.config))
 
 
-def test_a_generated_model_step_cannot_be_planned_until_r8_has_a_row():
-    """The finding K15 surfaced, recorded as a test so it cannot be forgotten.
+def test_a_generated_model_step_is_planned_by_its_role():
+    """The finding K15 surfaced (K-9), closed by K16.
 
     R8's ``ROUTING_TABLE`` is a static literal keyed by agent id, and K15 mints an agent id
-    per use case, so no hand-written table can contain one. R9's walker refuses the step --
-    correctly, an unrouted step has no model -- which means a generated Inform, Recommend or
-    Act is unplannable until activation can register a routing row. That path is Lane R's and
-    does not exist (K-9). This test passes today by asserting the refusal, and will fail the
-    day the gap closes, which is exactly when it should be revisited.
+    per use case, so no hand-written table could contain one -- and R9's walker refused the
+    step. The id carries the role (``<use_case_id>__<role>``), the tier follows from the role
+    under G6 (``TIER_FOR_ROLE``), and ``model_tier_for`` now reads it from there: a use case
+    activated yesterday is routed the same way as one shipped with the product.
     """
     report = compiled(UseCaseShape.INFORM)
     assert report.model_steps, "the Inform shape should carry an explanation step"
+    plan = plan_from_config(
+        report.config,
+        use_case_id=report.use_case_id,
+        version=1,
+        workflow_component_id=None,
+        executor_names=FULL,
+        agent_ids=[m["agent_id"] for m in report.model_steps],
+    )
+    agent_steps = [s for s in plan["steps"] if s["kind"] == "agent"]
+    assert (
+        agent_steps
+        and agent_steps[0]["model_tier"] == report.model_steps[0]["model_tier"]
+    )
     with pytest.raises(UnknownPlanRef, match="routing table"):
         plan_from_config(
-            report.config,
-            use_case_id=report.use_case_id,
+            {"steps": [{"type": "Step", "name": "x", "agent_id": "uc__no_such_role"}]},
+            use_case_id="uc",
             version=1,
             workflow_component_id=None,
             executor_names=FULL,
-            agent_ids=[m["agent_id"] for m in report.model_steps],
         )
 
 

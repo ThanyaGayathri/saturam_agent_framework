@@ -4,6 +4,10 @@ import { ArrowRight, ChevronDown, ChevronRight, FlaskConical, ShieldCheck } from
 import { CHANNELS, COMPARISONS, OPERATORS, SHAPES, estimatedRunsPerMonth } from "../../domain/use-case-autonomy";
 import { loadSpecDraft } from "../../domain/use-case-draft-spec";
 import { SAMPLE_EMAILS, simulateDocumentToRecord } from "../../domain/use-case-simulation";
+import { loadConfigureWorkspace } from "../../storage/configure-workspace";
+import { useDemoProfile } from "../../context/DemoProfileContext";
+import { syncUseCaseToPlatform } from "../../services/use-case-platform";
+import PlatformRunPanel from "./PlatformRunPanel";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 
@@ -122,6 +126,14 @@ export default function UseCaseRehearseScreen() {
  const doc = spec.template === "document_to_record";
  const sim = useMemo(() => (doc ? simulateDocumentToRecord(spec, SAMPLE_EMAILS) : null), [doc, spec]);
  const [open, setOpen] = useState(null);
+ const { profileId, storageKeys } = useDemoProfile();
+ const sources = useMemo(() => loadConfigureWorkspace(storageKeys.CONFIGURE_WORKSPACE, profileId).internalSources || [], [storageKeys.CONFIGURE_WORKSPACE, profileId]);
+ // The platform's own rehearsal: the compiled workflow over the same sample set, side
+ // effects held. Syncs the spec first so the run is of exactly what the form says.
+ const rehearseOnPlatform = async ({ signal }) => {
+  const synced = await syncUseCaseToPlatform(loadSpecDraft(), sources, { signal });
+  return synced.platform.useCaseId;
+ };
 
  const runs = estimatedRunsPerMonth(spec.schedule);
  const costPerRun = shape.level >= 3 ? 0.42 : shape.level === 2 ? 0.08 : 0.19;
@@ -197,6 +209,14 @@ export default function UseCaseRehearseScreen() {
       </div>
       <p className="mt-2 text-[11px] text-text-muted">The sample set with its expected values is the extraction step's golden set: the same 16 documents are re-scored whenever the template's brief changes.</p>
      </Section>
+
+     <PlatformRunPanel
+      mode="rehearse"
+      label="The same sixteen, through the platform"
+      description="The table above is the interface's own arithmetic. This runs the compiled workflow on the platform with every side effect held: the real extraction model, your master data, your guardrails. Nothing is written or sent."
+      beforeRun={rehearseOnPlatform}
+      createdAs={spec.createdAs}
+     />
     </>
    )}
 

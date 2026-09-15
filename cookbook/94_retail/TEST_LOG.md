@@ -5925,3 +5925,69 @@ and tree write against an `httpx.MockTransport`.
   follow it.
 
 ---
+
+### K16_use_case_api.py -- the `/use-cases` router, the interface wired to it (K16)
+
+**Package:** K16 (closes K-9), branch `usecase_processautomation`
+
+**Status:** PASS (15 Sep 2026): unit tests DB-free, the cookbook against the live local API,
+and the six-step builder in the browser end to end.
+
+**Description:** The first real router for the use-case operations the contract has
+described since 1.0.0: create, get, patch, delete, draft, spec (with 1.3.0's `PUT`), plan,
+preflight, activate, pause, runs (list, trigger with `?mode=live|rehearse`, get).
+`egpt_retail.usecases` holds the store (`retail_use_cases`, `retail_use_case_runs`), the
+service (compile through K15's compiler, preflight with checks a person can act on,
+activate with a version bump, run as a background task in the API process with the run row
+as the report), the runtime (`workflow_from_compiled`: executors by name from the registry,
+the Extract stage as a step owning one agent built from the role template and the
+extraction template's schema, run per document with `agent.arun`), credential references
+(`env:gmail`, `env:salesforce`, resolved by the platform, never sent by the interface) and
+the in-process poller (`EGPT_RETAIL_USE_CASE_POLLER`, off by default -- the local stand-in
+for a Logic App or a Step Functions task calling the same run endpoint).
+
+**Verification:**
+- `product/tests/test_k16_use_cases_router.py` (8 tests, in-memory store, real executors,
+  the sample set's expected extraction in place of the model): create -> spec -> preflight
+  (refuses without credentials, names `GMAIL_USER`) -> activate (409 with the checks; 200
+  with credentials, version 1, the compiled steps stored) -> plan -> rehearsal on a draft
+  and after activation (7 previewed, 9 exceptions, page text not on the wire, summary
+  "16 received, 7 previewed, 9 exception(s)") -> run list and `last_run`; a live run whose
+  IMAP login fails is a failed run row, not a 500; level 3 needs `use-cases:activate` with
+  authorization on; not-found paths; draft round trip and pause; `run_parameters` resolving
+  sources and master-data roles; `workflow_from_compiled` refusing unknown refs.
+- `K16_use_case_api.py` against `./scripts/run_local_api.sh` (Postgres 5532, Neo4j 7701,
+  the real org and the real model): preflight all five checks passing, activation version 1,
+  the eleven-step plan, a rehearsal succeeding in 55 s with the seven previewed orders
+  resolved against the org's master data and the nine expected exception classes;
+  `--live` against the unseeded inbox: `0 received`, the run logged, nothing else happened.
+- In the browser (port 3001 against 7777): Process Automation -> the Order Creation
+  Automation example -> "Fill the form from this" -> the two one-click suggestions, the
+  rollback and an owner -> readiness (three acknowledgements) -> plan approved -> Rehearse:
+  the interface's own table, then "Rehearse on the platform" running the compiled workflow
+  and rendering 16 / 7 / 9 / 0 with the class chips and the per-email rows -> Activate:
+  "Submit to go live" activating version 1 on the platform (authorization off locally, so
+  the caller is the admin) -> "Run now in the sandbox" succeeding again from the completion
+  screen. The API stayed responsive while the model step ran (18 polls answered during one
+  run), after the extraction step was moved to `agent.arun`.
+
+**Observations, all fixed in the same change:**
+- The first HTTP run blocked the event loop for the length of fifteen model calls: the
+  extraction step called the agent synchronously inside an async step. `aextract_documents`
+  and `aextract_with_agent` fixed it.
+- A run left `running` by a process restart sat there forever; `fail_stale_runs` at process
+  start marks it failed with the reason.
+- A fresh control plane had no provenance table, so every first run failed at its last step:
+  the factory now applies R7's provenance and delivery DDL at boot alongside K16's.
+- The message filter is optional (an empty filter is "every new message"), and a rehearsal
+  may run on a draft -- that is the order the builder runs in.
+- The mailbox is only ever read: `mark_seen` is off in the platform's runs and message ids
+  from earlier runs are passed as `processed_ids`, so a poll of a real inbox flags nothing.
+- A compiled model step is named `<use_case_id>__<role>`; `model_tier_for` now answers from
+  the role, which closes K-9 (R9's walker refused generated steps).
+
+**Left for the demo's owner, since both act on their accounts:** seed the inbox
+(`PA02_order_creation_pipeline.py --seed-mailbox`), set the message filter's pattern to
+"Northwind sample" and the environment to production in the builder, then "Run now".
+
+---

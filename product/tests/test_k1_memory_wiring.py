@@ -72,11 +72,44 @@ def test_ensure_control_plane_schemas_provisions_all_five_stores(monkeypatch):
         factory_module, "SuggestionRunStore", _fake_store("suggestion_run")
     )
 
+    class _FakeEngine:
+        def dispose(self):
+            pass
+
+    monkeypatch.setattr(
+        factory_module, "build_control_plane_engine", lambda settings: _FakeEngine()
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "apply_provenance_ddl",
+        lambda engine: calls.append("provenance"),
+    )
+    monkeypatch.setattr(
+        factory_module, "apply_delivery_ddl", lambda engine: calls.append("delivery")
+    )
+    monkeypatch.setattr(
+        factory_module, "apply_use_case_ddl", lambda engine: calls.append("use_cases")
+    )
+    monkeypatch.setattr(
+        factory_module, "apply_rollback_ddl", lambda engine: calls.append("rollback")
+    )
+
     factory_module._ensure_control_plane_schemas(
         RetailSettings(retail_db_url="postgresql+psycopg://u:p@127.0.0.1:1/db")
     )
 
-    assert calls == ["playground", "dashboard", "kpi", "proposal", "suggestion_run"]
+    # The five connection-based stores, then the four Engine-based tables.
+    assert calls == [
+        "playground",
+        "dashboard",
+        "kpi",
+        "proposal",
+        "suggestion_run",
+        "provenance",
+        "delivery",
+        "use_cases",
+        "rollback",
+    ]
 
 
 def test_lifespan_refuses_to_start_without_a_customer_slug():

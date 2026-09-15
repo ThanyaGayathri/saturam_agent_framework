@@ -20,7 +20,7 @@ import asyncio
 import base64
 import logging
 from datetime import date
-from typing import Any, Callable, Dict, List, Mapping
+from typing import Any, Awaitable, Callable, Dict, List, Mapping
 
 from egpt.workflow.types import StepInput, StepOutput
 
@@ -55,6 +55,7 @@ __all__ = [
     "receive_messages",
     "screen_documents",
     "extract_documents",
+    "aextract_documents",
     "resolve_entities",
     "build_record",
     "send_email",
@@ -70,12 +71,13 @@ DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 async def receive_messages(step_input: StepInput) -> StepOutput:
     """New messages from the source mailbox that match the filter, each one carried once.
 
-    Reads the ``source mailbox`` and ``message filter`` slots. The poll is IMAP with the
-    message flagged seen once fetched -- the only write this stage makes to the mailbox --
-    unless ``additional_data["messages"]`` hands the batch in directly, which is how the
-    rehearsal and the offline cookbook run the same executor over the sample set without a
-    socket. ``processed_ids`` (a collection of message ids already handled) drops repeats,
-    so a message the previous run saw is not carried twice.
+    Reads the ``source mailbox`` and ``message filter`` slots. The poll is IMAP over
+    ``BODY.PEEK``; ``mark_seen`` (off in the platform's runs) is the only write this stage
+    can make to the mailbox, and ``processed_ids`` -- the message ids earlier runs carried,
+    remembered by the platform -- is what keeps a message from being carried twice, so the
+    mailbox is only ever read. ``additional_data["messages"]`` hands the batch in directly,
+    which is how the rehearsal and the offline cookbook run the same executor over the
+    sample set without a socket.
 
     Never stops the run: an empty poll is content (``count: 0``) so a quiet hour is visibly
     quiet. The Screen stage after it is the branch.
@@ -285,6 +287,49 @@ def extract_documents(
     for document in batch.get("documents") or []:
         try:
             raw = extractor(document)
+        except Exception as exc:
+            add_exception(
+                batch,
+                document,
+                cls="EXTRACTION_FAILED",
+                detail=str(exc)[:200],
+                stage="extract",
+            )
+            continue
+        clean, problems = validate_extraction(template, raw)
+        document = dict(document)
+        document["extracted"] = clean
+        document["extraction_problems"] = problems
+        if problems:
+            add_exception(
+                batch,
+                document,
+                cls="EXTRACTION_INCOMPLETE",
+                detail="; ".join(problems)[:300],
+                stage="extract",
+            )
+            continue
+        survivors.append(document)
+    batch["documents"] = survivors
+    return batch
+
+
+AsyncExtractor = Callable[[Mapping[str, Any]], Awaitable[Mapping[str, Any]]]
+
+
+async def aextract_documents(
+    batch: Dict[str, Any],
+    extractor: AsyncExtractor,
+    *,
+    template_id: Any = "purchase_order",
+) -> Dict[str, Any]:
+    """:func:`extract_documents` with an awaitable extractor -- the model step runs on the
+    event loop, one document at a time, without blocking the server between calls."""
+    template = template_for(template_id)
+    survivors: List[Dict[str, Any]] = []
+    for document in batch.get("documents") or []:
+        try:
+            raw = await extractor(document)
         except Exception as exc:
             add_exception(
                 batch,

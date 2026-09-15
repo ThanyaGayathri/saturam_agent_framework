@@ -251,6 +251,13 @@ class RetailSettings(BrandedSettings):
         description="Where the scheduler posts its callbacks (EGPT_RETAIL_SCHEDULER_BASE_URL). "
         "Defaults to the framework's own default, which is this process.",
     )
+    retail_use_case_poller: bool = Field(
+        default=False,
+        description="Run activated use cases on their own poll interval from inside the API process "
+        "(EGPT_RETAIL_USE_CASE_POLLER). The local stand-in for the cloud orchestrator -- a Logic App "
+        "on Azure, a Step Functions task on AWS -- which calls POST /use-cases/{id}/runs instead. Off "
+        "by default: a run is a write, and a switch nobody threw should not make one.",
+    )
     retail_azure_deployment: str = Field(
         default="gpt-5.4",
         description="Azure OpenAI chat deployment for the frontier tier (EGPT_RETAIL_AZURE_DEPLOYMENT). "

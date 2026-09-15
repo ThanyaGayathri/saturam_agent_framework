@@ -593,6 +593,19 @@ class RunCost(BaseModel):
     output_tokens: int | None = None
 
 
+class RunMode(Enum):
+    """
+    `live` writes to the target and sends what it sends. `rehearse` (1.3.0) runs the same
+    compiled workflow with every side effect held and, where the template has one, over the
+    deployment's sample set -- the rehearse screen's numbers come from this, not from a
+    simulation of their own.
+
+    """
+
+    live = "live"
+    rehearse = "rehearse"
+
+
 class RunStatus(Enum):
     queued = "queued"
     running = "running"
@@ -614,10 +627,20 @@ class SavedPromptWrite(BaseModel):
 
 
 class ScheduleCadence(Enum):
+    """
+    The four the KPI shapes offer, plus the poll intervals a document-driven use case
+    offers (1.3.0): a mailbox is polled, not read nightly.
+
+    """
+
     once = "once"
     daily = "daily"
     weekly = "weekly"
     monthly = "monthly"
+    hourly = "hourly"
+    every_15_minutes = "every_15_minutes"
+    every_5_minutes = "every_5_minutes"
+    every_minute = "every_minute"
 
 
 class ScheduleDelivery(BaseModel):
@@ -805,6 +828,11 @@ class UseCaseRun(BaseModel):
     summary: str | None = ""
     blocked_reason: str | None = None
     cost: RunCost | None = None
+    mode: RunMode | None = None
+    result: dict[str, Any] | None = Field(
+        None,
+        description="What the run's last executor returned (1.3.0): for a document-to-record run, the batch\n-- `documents` carried through with what was written, `exceptions` with their class and\ndetail, `stats` per stage, `rollback` -- so the interface shows what was created and what\nwas held without re-running anything. Null while queued or running, and for a run that\nfailed before any executor returned.\n",
+    )
 
 
 class UseCaseRunSummary(BaseModel):

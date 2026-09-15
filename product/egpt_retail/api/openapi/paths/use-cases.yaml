@@ -433,6 +433,63 @@
             examples:
               not_found:
                 value: {detail: "No spec extracted for uc_0002 yet. POST to extract one.", code: not_found}
+  put:
+    tags: [use-cases]
+    operationId: saveUseCaseSpec
+    summary: Store a spec the interface assembled (1.3.0).
+    description: |
+      The per-shape form fills the spec directly -- shape, template and parameters -- without
+      running the extraction agent (the form is the spec, K15). This stores it whole and returns
+      it back. `extracted_by` records that the form produced it (`interface.form`), so a spec a
+      person assembled and one an agent extracted are distinguishable in the record.
+    x-egpt-scopes: [use-cases:write]
+    parameters:
+      - $ref: '#/x-egpt-parameters/useCaseId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/use-cases.yaml#/Spec'
+          examples:
+            document_to_record:
+              value:
+                use_case_id: uc_0007
+                question: Turn purchase-order emails into Salesforce orders.
+                business_area: sales
+                entities: [{concept: Customer, role: subject}, {concept: Product, role: subject}]
+                kpi_identifiers: []
+                grain: overall
+                notes: ""
+                extracted_by: {identifier: interface.form, version: "1"}
+                shape: act
+                template: document_to_record
+                parameters: {source mailbox: seed_gmail_orders, document type: pdf, extraction template: purchase_order, master data: {customer: ds-sf-account, product: ds-sf-product, shipTo: ds-sf-address, orderHistory: ds-sf-order}, guardrails: [{id: duplicate_po}, {id: restricted_product}], recipient: ops@example.com, write target: seed_salesforce_orders, target objects: order_orderitem, created as: draft, per-run cap: 50 records, rollback: Cancel the record and remove its lines, schedule: every_15_minutes}
+    responses:
+      "200":
+        description: Stored.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/use-cases.yaml#/Spec'
+            examples:
+              default:
+                value:
+                  use_case_id: uc_0007
+                  question: Turn purchase-order emails into Salesforce orders.
+                  business_area: sales
+                  entities: [{concept: Customer, role: subject}, {concept: Product, role: subject}]
+                  kpi_identifiers: []
+                  grain: overall
+                  notes: ""
+                  extracted_by: {identifier: interface.form, version: "1"}
+                  shape: act
+                  template: document_to_record
+                  parameters: {source mailbox: seed_gmail_orders, document type: pdf, extraction template: purchase_order, guardrails: [{id: duplicate_po}], recipient: ops@example.com, write target: seed_salesforce_orders, target objects: order_orderitem, created as: draft, per-run cap: 50 records, rollback: Cancel the record and remove its lines, schedule: every_15_minutes}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+      "404":
+        $ref: '#/x-egpt-responses/NotFound'
   post:
     tags: [use-cases]
     operationId: extractUseCaseSpec
@@ -750,9 +807,21 @@
     tags: [use-cases]
     operationId: triggerUseCaseRun
     summary: Run now, outside the schedule.
+    description: |
+      Queues one run of the compiled workflow and returns it; poll `GET /use-cases/{id}/runs/{run_id}`.
+      `mode=rehearse` (1.3.0) runs the same workflow with every side effect held -- no write to
+      the target, no message sent -- over the deployment's sample set where the template has one,
+      so the rehearse screen and the live run share one code path. In the cloud this is the
+      endpoint the orchestrator (a Logic App, a Step Functions task) calls; locally the
+      interface's Run button and the in-process poller call it.
     x-egpt-scopes: [use-cases:write]
     parameters:
       - $ref: '#/x-egpt-parameters/useCaseId'
+      - name: mode
+        in: query
+        required: false
+        schema:
+          $ref: '../schemas/use-cases.yaml#/RunMode'
     responses:
       "202":
         description: Queued. Poll the run.

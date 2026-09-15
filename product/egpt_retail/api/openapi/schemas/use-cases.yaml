@@ -374,6 +374,14 @@ RunStatus:
 RunTrigger:
   type: string
   enum: [schedule, manual, activation]
+RunMode:
+  type: string
+  enum: [live, rehearse]
+  description: |
+    `live` writes to the target and sends what it sends. `rehearse` (1.3.0) runs the same
+    compiled workflow with every side effect held and, where the template has one, over the
+    deployment's sample set -- the rehearse screen's numbers come from this, not from a
+    simulation of their own.
 
 UseCaseRunSummary:
   type: object
@@ -420,6 +428,17 @@ UseCaseRun:
     blocked_reason: {type: [string, "null"]}
     cost:
       $ref: './use-cases.yaml#/RunCost'
+    mode:
+      $ref: './use-cases.yaml#/RunMode'
+    result:
+      type: [object, "null"]
+      additionalProperties: true
+      description: |
+        What the run's last executor returned (1.3.0): for a document-to-record run, the batch
+        -- `documents` carried through with what was written, `exceptions` with their class and
+        detail, `stats` per stage, `rollback` -- so the interface shows what was created and what
+        was held without re-running anything. Null while queued or running, and for a run that
+        failed before any executor returned.
 
 UseCaseSuggestion:
   type: object
@@ -459,7 +478,10 @@ SpecEntityRole:
 
 ScheduleCadence:
   type: string
-  enum: [once, daily, weekly, monthly]
+  enum: [once, daily, weekly, monthly, hourly, every_15_minutes, every_5_minutes, every_minute]
+  description: |
+    The four the KPI shapes offer, plus the poll intervals a document-driven use case
+    offers (1.3.0): a mailbox is polled, not read nightly.
 
 DraftViewMode:
   type: string

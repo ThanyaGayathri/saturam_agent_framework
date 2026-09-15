@@ -451,8 +451,11 @@ _SLOT_VALUES: Mapping[str, Tuple[str, str]] = {
 
 #: Slots that may be empty without blocking publication: the value is optional by design.
 #: An example document improves extraction but a template's schema is enough to run; an
-#: acknowledgement is a courtesy, not a guard.
-OPTIONAL_SLOTS: FrozenSet[str] = frozenset({"example document", "acknowledge"})
+#: acknowledgement is a courtesy, not a guard; an empty message filter means every new
+#: message, which is a filter too.
+OPTIONAL_SLOTS: FrozenSet[str] = frozenset(
+    {"example document", "acknowledge", "message filter"}
+)
 
 
 @dataclass

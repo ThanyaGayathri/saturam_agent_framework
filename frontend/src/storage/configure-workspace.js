@@ -121,6 +121,7 @@ export const CONFIGURE_SEED_INTERNAL = [
  apiKey: "",
  sslMode: "require",
  permissionLevel: "read_write",
+ credentialRef: "env:gmail",
  seed: true,
  },
  {
@@ -137,6 +138,7 @@ export const CONFIGURE_SEED_INTERNAL = [
  apiKey: "",
  sslMode: "require",
  permissionLevel: "read_write",
+ credentialRef: "env:salesforce",
  seed: true,
  },
  {
@@ -190,8 +192,19 @@ export function normalizeInternal(s) {
  apiKey: s.apiKey || "",
  sslMode: s.sslMode || "require",
  permissionLevel: s.permissionLevel === "read_write" ? "read_write" : "read_only",
+ // Where the platform finds this source's credentials. The interface never holds a password
+ // for a mailbox or a CRM: it holds a reference ("env:gmail", "env:salesforce"; a vault path
+ // in the cloud) and the platform resolves it where the platform runs.
+ credentialRef: s.credentialRef || defaultCredentialRef(s.sourceType),
  seed: !!s.seed,
  };
+}
+
+/** The credential reference a source type resolves to when none was set. */
+export function defaultCredentialRef(sourceType) {
+ if (/gmail|microsoft365/.test(sourceType || "")) return "env:gmail";
+ if (sourceType === "salesforce") return "env:salesforce";
+ return "";
 }
 
 export const CONFIGURE_SEED_LLM = [

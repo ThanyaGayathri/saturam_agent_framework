@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -3434,6 +3434,14 @@
           }
         }
       },
+      "RunMode": {
+        "type": "string",
+        "enum": [
+          "live",
+          "rehearse"
+        ],
+        "description": "`live` writes to the target and sends what it sends. `rehearse` (1.3.0) runs the same\ncompiled workflow with every side effect held and, where the template has one, over the\ndeployment's sample set -- the rehearse screen's numbers come from this, not from a\nsimulation of their own.\n"
+      },
       "RunStatus": {
         "type": "string",
         "enum": [
@@ -3512,8 +3520,13 @@
           "once",
           "daily",
           "weekly",
-          "monthly"
-        ]
+          "monthly",
+          "hourly",
+          "every_15_minutes",
+          "every_5_minutes",
+          "every_minute"
+        ],
+        "description": "The four the KPI shapes offer, plus the poll intervals a document-driven use case\noffers (1.3.0): a mailbox is polled, not read nightly.\n"
       },
       "ScheduleDelivery": {
         "type": "object",
@@ -4452,6 +4465,17 @@
           },
           "cost": {
             "$ref": "#/components/schemas/RunCost"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/RunMode"
+          },
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "What the run's last executor returned (1.3.0): for a document-to-record run, the batch\n-- `documents` carried through with what was written, `exceptions` with their class and\ndetail, `stats` per stage, `rollback` -- so the interface shows what was created and what\nwas held without re-running anything. Null while queued or running, and for a run that\nfailed before any executor returned.\n"
           }
         }
       },
@@ -8954,6 +8978,184 @@
           }
         }
       },
+      "put": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "saveUseCaseSpec",
+        "summary": "Store a spec the interface assembled (1.3.0).",
+        "description": "The per-shape form fills the spec directly -- shape, template and parameters -- without\nrunning the extraction agent (the form is the spec, K15). This stores it whole and returns\nit back. `extracted_by` records that the form produced it (`interface.form`), so a spec a\nperson assembled and one an agent extracted are distinguishable in the record.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "parameters": [
+          {
+            "name": "use_case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Spec"
+              },
+              "examples": {
+                "document_to_record": {
+                  "value": {
+                    "use_case_id": "uc_0007",
+                    "question": "Turn purchase-order emails into Salesforce orders.",
+                    "business_area": "sales",
+                    "entities": [
+                      {
+                        "concept": "Customer",
+                        "role": "subject"
+                      },
+                      {
+                        "concept": "Product",
+                        "role": "subject"
+                      }
+                    ],
+                    "kpi_identifiers": [],
+                    "grain": "overall",
+                    "notes": "",
+                    "extracted_by": {
+                      "identifier": "interface.form",
+                      "version": "1"
+                    },
+                    "shape": "act",
+                    "template": "document_to_record",
+                    "parameters": {
+                      "source mailbox": "seed_gmail_orders",
+                      "document type": "pdf",
+                      "extraction template": "purchase_order",
+                      "master data": {
+                        "customer": "ds-sf-account",
+                        "product": "ds-sf-product",
+                        "shipTo": "ds-sf-address",
+                        "orderHistory": "ds-sf-order"
+                      },
+                      "guardrails": [
+                        {
+                          "id": "duplicate_po"
+                        },
+                        {
+                          "id": "restricted_product"
+                        }
+                      ],
+                      "recipient": "ops@example.com",
+                      "write target": "seed_salesforce_orders",
+                      "target objects": "order_orderitem",
+                      "created as": "draft",
+                      "per-run cap": "50 records",
+                      "rollback": "Cancel the record and remove its lines",
+                      "schedule": "every_15_minutes"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Spec"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "use_case_id": "uc_0007",
+                      "question": "Turn purchase-order emails into Salesforce orders.",
+                      "business_area": "sales",
+                      "entities": [
+                        {
+                          "concept": "Customer",
+                          "role": "subject"
+                        },
+                        {
+                          "concept": "Product",
+                          "role": "subject"
+                        }
+                      ],
+                      "kpi_identifiers": [],
+                      "grain": "overall",
+                      "notes": "",
+                      "extracted_by": {
+                        "identifier": "interface.form",
+                        "version": "1"
+                      },
+                      "shape": "act",
+                      "template": "document_to_record",
+                      "parameters": {
+                        "source mailbox": "seed_gmail_orders",
+                        "document type": "pdf",
+                        "extraction template": "purchase_order",
+                        "guardrails": [
+                          {
+                            "id": "duplicate_po"
+                          }
+                        ],
+                        "recipient": "ops@example.com",
+                        "write target": "seed_salesforce_orders",
+                        "target objects": "order_orderitem",
+                        "created as": "draft",
+                        "per-run cap": "50 records",
+                        "rollback": "Cancel the record and remove its lines",
+                        "schedule": "every_15_minutes"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks a scope this operation requires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: use-cases:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such use case.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "detail": "No use case 'uc_9999'.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "use-cases"
@@ -9846,6 +10048,7 @@
         ],
         "operationId": "triggerUseCaseRun",
         "summary": "Run now, outside the schedule.",
+        "description": "Queues one run of the compiled workflow and returns it; poll `GET /use-cases/{id}/runs/{run_id}`.\n`mode=rehearse` (1.3.0) runs the same workflow with every side effect held -- no write to\nthe target, no message sent -- over the deployment's sample set where the template has one,\nso the rehearse screen and the live run share one code path. In the cloud this is the\nendpoint the orchestrator (a Logic App, a Step Functions task) calls; locally the\ninterface's Run button and the in-process poller call it.\n",
         "x-egpt-scopes": [
           "use-cases:write"
         ],
@@ -9856,6 +10059,14 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RunMode"
             }
           }
         ],
