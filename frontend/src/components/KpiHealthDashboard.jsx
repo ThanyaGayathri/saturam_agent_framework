@@ -185,9 +185,24 @@ const TONE = {
  * Build the top-of-dashboard card list from:
  *   1. anomaly-flagged KPIs (so they read as "watch this"), then
  *   2. KPIs linked to the current role's use cases,
+ *   3. any other active, trendable registry KPI, most recently adopted first,
  * filtered to KPIs marked active in the registry and capped at 4.
+ *
+ * Tier 3 exists because 1 and 2 are both static, demo-seeded name lists (the role/use-case
+ * catalogue and `ANOMALIES` below) -- a KPI a customer actually adopted via "Add to my
+ * metrics" from a live suggestion run has whatever name the agent gave it, which will not
+ * generally match either list. Without this tier, a registry with real KPIs in it renders
+ * the "No KPIs added yet" empty state, which is exactly backwards: this dashboard's whole
+ * point (#280) is to reflect real adopted KPIs, not only ones that happen to share a name
+ * with the seed demo catalogue.
  */
-function buildRoleSummaryKpiNames({ activeKpiNames, roleUseCases, anomalyKpiNames, limit = 4 }) {
+function buildRoleSummaryKpiNames({
+  activeKpiNames,
+  roleUseCases,
+  anomalyKpiNames,
+  recentlyAdoptedNames = [],
+  limit = 4,
+}) {
   const seen = new Set();
   const out = [];
   // Role-scoped KPIs first so switching role visibly changes the shortlist.
@@ -203,6 +218,14 @@ function buildRoleSummaryKpiNames({ activeKpiNames, roleUseCases, anomalyKpiName
   // Fill remaining slots with anomaly-flagged KPIs (still filtered to active).
   for (const name of anomalyKpiNames) {
     if (activeKpiNames.has(name) && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+      if (out.length >= limit) return out;
+    }
+  }
+  // Fill whatever is still empty with real, active KPIs the curated lists above never named.
+  for (const name of recentlyAdoptedNames) {
+    if (!seen.has(name)) {
       seen.add(name);
       out.push(name);
       if (out.length >= limit) return out;
@@ -284,6 +307,16 @@ export default function KpiHealthDashboard() {
   );
   const kpiByName = useMemo(() => new Map(trendableKpis.map((k) => [k.name, k])), [trendableKpis]);
   const activeKpiNames = useMemo(() => new Set(trendableKpis.map((k) => k.name)), [trendableKpis]);
+  // Tier 3 of buildRoleSummaryKpiNames: every active, trendable KPI the registry actually
+  // has, most recently adopted/updated first -- what a live registry with no curated-catalogue
+  // match still has to show.
+  const recentlyAdoptedNames = useMemo(
+    () =>
+      [...trendableKpis]
+        .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
+        .map((k) => k.name),
+    [trendableKpis]
+  );
 
   const summaryCards = useMemo(() => {
     const roleUseCases = getUseCasesForRole(catalogEntries, profileId, role);
@@ -292,6 +325,7 @@ export default function KpiHealthDashboard() {
       activeKpiNames,
       roleUseCases,
       anomalyKpiNames,
+      recentlyAdoptedNames,
       limit: 4,
     });
     return names.map((name, i) => {
@@ -308,7 +342,15 @@ export default function KpiHealthDashboard() {
         warn: health?.status === "stale" || health?.status === "failed",
       };
     });
-  }, [catalogEntries, profileId, role, activeKpiNames, kpiByName, healthState.byIdentifier]);
+  }, [
+    catalogEntries,
+    profileId,
+    role,
+    activeKpiNames,
+    recentlyAdoptedNames,
+    kpiByName,
+    healthState.byIdentifier,
+  ]);
 
   // Anomaly feed follows the role: only surface anomalies whose KPI is in the
   // shortlist above. If none intersect, fall back to all anomalies so the demo
