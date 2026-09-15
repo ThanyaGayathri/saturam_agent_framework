@@ -88,6 +88,133 @@
               invalid:
                 value: {detail: "product__avg_rating is partial (missing: web_sessions) and cannot be tiled.", code: kpi_not_ready}
 
+/dashboards/suggestions:
+  post:
+    tags: [dashboards]
+    operationId: startDashboardSuggestionRun
+    summary: Start a dashboard suggestion run from a purpose; poll it for the result.
+    description: |
+      An agent proposing a dashboard configuration -- metrics, and where it applies, a
+      `business_area` filter -- for what the caller says they want to track, as a run rather
+      than a response: a live model call takes long enough that it does not belong inside one
+      request (the same shape #254 gave KPI suggestions). Returns the run `queued`; poll
+      `GET /dashboards/suggestions/{run_id}` until it is `succeeded` (then `result` is the
+      suggested configuration) or `failed` (then `error` says why). Nothing is stored beyond the
+      run row itself -- a suggestion becomes a dashboard only through `POST /dashboards`, so this
+      needs `dashboards:read`, not `dashboards:write`. Every suggested metric is a real,
+      registered, ready KPI: the agent selects from this deployment's own registry rather than
+      inventing one, so a suggestion here is exactly as adoptable as one built by hand.
+    x-egpt-scopes: [dashboards:read]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dashboards.yaml#/DashboardSuggestionRunRequest'
+          examples:
+            default:
+              value: {purpose: "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews."}
+    responses:
+      "202":
+        description: Accepted. Poll the run for completion.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/DashboardSuggestionRun'
+            examples:
+              default:
+                value:
+                  id: dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: queued
+                  purpose: "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews."
+                  created_at: "2026-09-15T10:00:00Z"
+                  started_at: null
+                  finished_at: null
+                  result: null
+                  error: null
+      "422":
+        description: The purpose was empty.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              empty:
+                value: {detail: "purpose must not be empty.", code: invalid_request}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
+/dashboards/suggestions/{run_id}:
+  get:
+    tags: [dashboards]
+    operationId: getDashboardSuggestionRun
+    summary: One dashboard suggestion run, for polling.
+    description: |
+      Poll until `status` is `succeeded` or `failed`. A run whose serving instance was lost
+      mid-run reports `failed` here once the deployment's timeout plus a grace period has
+      passed, so a poller always reaches a terminal state.
+    x-egpt-scopes: [dashboards:read]
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema: {type: string}
+    responses:
+      "200":
+        description: The run.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dashboards.yaml#/DashboardSuggestionRun'
+            examples:
+              running:
+                value:
+                  id: dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: running
+                  purpose: "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews."
+                  created_at: "2026-09-15T10:00:00Z"
+                  started_at: "2026-09-15T10:00:01Z"
+                  finished_at: null
+                  result: null
+                  error: null
+              succeeded:
+                value:
+                  id: dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: succeeded
+                  purpose: "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews."
+                  created_at: "2026-09-15T10:00:00Z"
+                  started_at: "2026-09-15T10:00:01Z"
+                  finished_at: "2026-09-15T10:00:42Z"
+                  result:
+                    name: Weekly APAC engagement health
+                    tiles:
+                      - {kpi_identifier: session__active_analytics_user_count, name: Active analytics user count, rationale: Tracks weekly engagement directly, and this deployment already computes it.}
+                    filters: [{field: business_area, value: marketing}]
+                    notes: ""
+                  error: null
+              failed:
+                summary: The bound was hit; the row says so instead of the request hanging.
+                value:
+                  id: dsr_2f6c1a9e4b7d4c0e8a1f3b5d7e9c2a4b
+                  status: failed
+                  purpose: "Track weekly engagement across our APAC accounts so I can catch drop-offs before quarterly reviews."
+                  created_at: "2026-09-15T10:00:00Z"
+                  started_at: "2026-09-15T10:00:01Z"
+                  finished_at: "2026-09-15T10:03:01Z"
+                  result: null
+                  error: "The suggestion run did not finish within 180s."
+      "404":
+        description: No such run.
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/Error'
+            examples:
+              not_found:
+                value: {detail: "No suggestion run 'dsr_missing'.", code: not_found}
+      "403":
+        $ref: '#/x-egpt-responses/InsufficientScope'
+
 /dashboards/{dashboard_id}:
   get:
     tags: [dashboards]
