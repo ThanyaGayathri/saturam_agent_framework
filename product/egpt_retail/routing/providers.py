@@ -49,6 +49,11 @@ __all__ = [
 #: The default registry key both tiers build under when no other provider is configured
 #: (``settings.retail_model_provider``, default). One key, two deployments: the tiers differ
 #: in ``model_id`` (the Azure deployment name) and in the window the small one declares.
+#:
+#: Does double duty as the sentinel ``TierModelProvider.__init__`` compares against to decide
+#: whether the Azure-only ``azure_deployment`` client pin applies -- harmless while Azure is the
+#: only Mode B provider with that failure mode, but a second provider needing an analogous pin
+#: would need its own condition rather than overloading this name.
 AZURE_PROVIDER_KEY = "azure-openai"
 
 
@@ -76,14 +81,6 @@ class TierModelProvider(FrontierModelProvider):
         context_window: Optional[int] = None,
         settings: Optional[Any] = None,
     ) -> None:
-        super().__init__(
-            provider_key=provider_key,
-            model_id=deployment,
-            settings=settings,
-        )
-        self.tier = tier
-        self.name = f"{tier.value}-tier"
-        self._context_window = context_window
         # `azure_deployment` pinned on the client, not only `id` on the request -- but only for
         # Azure OpenAI. Azure routes a call by the *client's* deployment
         # (`/openai/deployments/<name>/...`) and ignores the request's `model`;
@@ -91,20 +88,35 @@ class TierModelProvider(FrontierModelProvider):
         # when the client has none. With that variable set -- every developer's azure_key.env
         # sets it -- both tiers would have hit the same deployment while reporting different
         # ids, and routing would have been a label. No other Mode B provider has this failure
-        # mode: each keys a request off `id` alone, which `model_id=deployment` above already
+        # mode: each keys a request off `id` alone, which `model_id=deployment` below already
         # gives it, so nothing extra is pinned for them.
         #
-        # Decided against `self.provider_key` -- the *normalized* value `super().__init__` just
-        # stored -- rather than the raw `provider_key` argument. `FrontierModelProvider.__init__`
-        # `.strip()`s the argument before storing it, and `RetailSettings` has no
-        # `str_strip_whitespace` config to normalize `EGPT_RETAIL_MODEL_PROVIDER` first. Comparing
-        # the raw value let a stray space (a `.env`/compose-interpolation artifact) fail this
-        # check while the base class still normalized to a clean `"azure-openai"` key --
-        # `capabilities()` then reported a healthy provider while silently skipping the pin, and
-        # both tiers collapsed onto `AZURE_OPENAI_DEPLOYMENT` with no error raised anywhere,
-        # reintroducing #268.
-        if self.provider_key == AZURE_PROVIDER_KEY:
-            self._model_config = {"azure_deployment": deployment}
+        # Decided against `provider_key.strip()`, not the raw argument. `FrontierModelProvider.
+        # __init__` `.strip()`s the same argument before storing/validating it, and
+        # `RetailSettings` has no `str_strip_whitespace` config to normalize
+        # `EGPT_RETAIL_MODEL_PROVIDER` first. Comparing the raw value let a stray space (a
+        # `.env`/compose-interpolation artifact) fail this check while the base class still
+        # normalized to a clean `"azure-openai"` key -- `capabilities()` then reported a
+        # healthy provider while silently skipping the pin, and both tiers collapsed onto
+        # `AZURE_OPENAI_DEPLOYMENT` with no error raised anywhere, reintroducing #268. Computed
+        # before `super().__init__()` and passed through its own `model_config` parameter,
+        # rather than set afterward on the private `_model_config` it stores: that way this
+        # provider's config always went through the constructor's normal validation path, and
+        # never depends on that attribute's exact name staying stable in the base class.
+        model_config = (
+            {"azure_deployment": deployment}
+            if provider_key.strip() == AZURE_PROVIDER_KEY
+            else None
+        )
+        super().__init__(
+            provider_key=provider_key,
+            model_id=deployment,
+            model_config=model_config,
+            settings=settings,
+        )
+        self.tier = tier
+        self.name = f"{tier.value}-tier"
+        self._context_window = context_window
 
     @property
     def context_window(self) -> Optional[int]:
