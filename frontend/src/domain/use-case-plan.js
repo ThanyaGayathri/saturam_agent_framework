@@ -1,5 +1,7 @@
 import { KPI_DATA_CATALOG_DATASETS } from "./kpi-data-catalog";
-import { CHANNELS, COMPARISONS, CREATED_AS, DOCUMENT_TYPES, EXTRACTION_TEMPLATES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, POLL_INTERVALS, RECORD_GUARDRAILS, SCHEDULES, SHAPES, TARGET_OBJECTS, TIMEOUT_BEHAVIOURS } from "./use-case-autonomy";
+import { findTemplate } from "./extraction-templates";
+import { PARAM_META, normalizeRules } from "./guardrail-rules";
+import { CHANNELS, COMPARISONS, CREATED_AS, DOCUMENT_TYPES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, POLL_INTERVALS, SCHEDULES, SHAPES, TARGET_OBJECTS, TIMEOUT_BEHAVIOURS } from "./use-case-autonomy";
 
 /**
  * The plan: how a frozen spec will actually run, as a sequence of steps a person can read and
@@ -176,11 +178,11 @@ export function slotValue(spec, slot) {
   case "mailbox": return spec.mailbox || null;
   case "messageFilter": { const f = spec.messageFilter || {}; const parts = [f.unread && "unread", f.hasAttachment && "has attachment", f.notOwnDomain && "not own domain", f.senderPattern && `from ${f.senderPattern}`].filter(Boolean); return parts.length ? parts.join(", ") : "all messages"; }
   case "documentType": return DOCUMENT_TYPES.find((d) => d.value === spec.documentType)?.label || null;
-  case "extractionTemplate": return EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate)?.label || null;
+  case "extractionTemplate": return findTemplate(spec)?.label || null;
   case "exampleDocument": return spec.exampleDocument?.name || null;
   case "masterData": { const m = spec.masterData || {}; const bound = MASTER_DATA_ROLES.filter((r) => m[r.id]).map((r) => `${r.label} → ${m[r.id]}`); return bound.length ? bound.join(" · ") : null; }
   case "matchThresholds": { const t = spec.matchThresholds || {}; return `address ≥ ${t.address} · product ≥ ${t.product} · name ≥ ${t.name}${t.aiDisambiguation ? " · AI disambiguation on" : ""}`; }
-  case "recordGuardrails": { const rows = spec.recordGuardrails || []; return rows.length ? rows.map((g) => { const def = RECORD_GUARDRAILS.find((x) => x.id === g.id); return def ? `${def.label}${def.param && g.param != null ? ` (${def.param.label} ${g.param}${def.param.unit === "×" ? "×" : ` ${def.param.unit}`})` : ""}` : g.id; }).join(" · ") : null; }
+  case "recordGuardrails": { const rows = normalizeRules(spec.recordGuardrails); return rows.length ? rows.map((g) => { const ps = Object.entries(g.params || {}).map(([k, v]) => `${PARAM_META[k]?.label || k} ${v}${PARAM_META[k]?.unit || ""}`).join(", "); return `${g.label}${ps ? ` (${ps})` : ""}`; }).join(" · ") : null; }
   case "exceptionsTo": return spec.exceptionsTo || null;
   case "acknowledge": return spec.acknowledge ? "reply to the sender" : "no reply";
   case "targetObjects": { const list = Object.values(TARGET_OBJECTS).flat(); return list.find((o) => o.id === spec.targetObjects)?.label || null; }
@@ -269,7 +271,7 @@ function describe(st, spec, reads) {
   case "apply_hard_limits":
    if (spec.template === "document_to_record") {
     const rows = spec.recordGuardrails || [];
-    return { title: `Applies ${rows.length} business guardrail${rows.length === 1 ? "" : "s"}`, detail: "Record-level checks against master data and order history. Any failure stops the record and raises an exception with the guardrail that stopped it; nothing is written.", chips: rows.map((g) => RECORD_GUARDRAILS.find((x) => x.id === g.id)?.label || g.id), branch: { yes: "passes", no: "fails", outcome: "Exception, logged with the guardrail" } };
+    return { title: `Applies ${rows.length} business guardrail${rows.length === 1 ? "" : "s"}`, detail: "Record-level checks against master data and order history. Any failure stops the record and raises an exception with the guardrail that stopped it; nothing is written.", chips: normalizeRules(rows).map((g) => g.label), branch: { yes: "passes", no: "fails", outcome: "Exception, logged with the guardrail" } };
    }
    return {
     title: `Applies ${spec.guardrails.length} business guardrail${spec.guardrails.length === 1 ? "" : "s"}`,
@@ -307,7 +309,7 @@ function describe(st, spec, reads) {
   case "screen_documents":
    return { title: "Screens the message", detail: `Exactly one ${DOCUMENT_TYPES.find((d) => d.value === spec.documentType)?.label.toLowerCase() || "document"}, from a known sender, under the size limit. Anything else is an exception before a model runs.`, branch: { yes: "one document", no: "fails", outcome: "Exception: NO_DOCUMENT · MULTIPLE · UNKNOWN_SENDER" } };
   case "extraction":
-   return { title: `Extracts the ${EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate)?.label.toLowerCase() || "document"}`, detail: `Fills the template's schema — ${EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate)?.header.length || 0} header fields, ${EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate)?.lines.length || 0} per line — with a confidence and a page region per field. OCR when there is no text layer. Output validated against the schema; a field not on the document is null. Runs on the ${TIER_FOR_ROLE.extraction} tier.`, chips: [...(spec.exampleDocument ? [`example: ${spec.exampleDocument.name}`] : []), ...ROLE_TOOLS.extraction.map((t) => `may call ${t}`)] };
+   return { title: `Extracts the ${findTemplate(spec)?.label.toLowerCase() || "document"}`, detail: `Fills the template's schema — ${findTemplate(spec)?.header.length || 0} header fields, ${findTemplate(spec)?.lines.length || 0} per line — with a confidence and a page region per field. OCR when there is no text layer. Output validated against the schema; a field not on the document is null. Runs on the ${TIER_FOR_ROLE.extraction} tier.`, chips: [...(spec.exampleDocument ? [`example: ${spec.exampleDocument.name}`] : []), ...ROLE_TOOLS.extraction.map((t) => `may call ${t}`)] };
   case "resolve_entities":
    return { title: "Resolves against master data", detail: `${slotValue(spec, "master data") || "Customer, ship-to and products"} — a fixed order of attempts, scored; thresholds ${slotValue(spec, "match thresholds")}. Every resolution records its candidates and scores.`, branch: { yes: "all resolved", no: "not found / ambiguous", outcome: "Exception with the closest match and its score" } };
   case "build_record":

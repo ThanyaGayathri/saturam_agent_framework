@@ -3,7 +3,9 @@ import {
  TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS,
 } from "./use-case-autonomy";
 import { guardrailRule } from "./use-case-spec";
-import { EXTRACTION_TEMPLATES, POLL_INTERVALS, RECORD_GUARDRAILS, fieldsFor } from "./use-case-autonomy";
+import { POLL_INTERVALS, fieldsFor } from "./use-case-autonomy";
+import { findTemplate, loadTemplateCatalogue, matchTemplateInText, proposeTemplateNames } from "./extraction-templates";
+import { normalizeRules, suggestRules } from "./guardrail-rules";
 
 /**
  * Turns a message into a spec patch, for the shape already chosen.
@@ -156,8 +158,13 @@ export function extract(text, spec, ctx) {
   else if (/\b(email body|in the body|body of the email)\b/.test(rest)) { patch.documentType = "body"; understood.push("document: email body"); }
  }
  if (need.has("extractionTemplate") && !spec.extractionTemplate) {
-  const tpl = EXTRACTION_TEMPLATES.find((x) => new RegExp(`\\b${x.label.toLowerCase()}s?\\b|\\b${x.id.replace(/_/g, " ")}s?\\b`).test(rest)) || (/\bpos?\b|\bpurchase orders?\b/.test(rest) ? EXTRACTION_TEMPLATES[0] : null);
-  if (tpl) { patch.extractionTemplate = tpl.id; understood.push(`extraction template: ${tpl.label}`); }
+  const catalogue = loadTemplateCatalogue();
+  const tpl = matchTemplateInText(rest, catalogue);
+  if (tpl) { patch.extractionTemplate = tpl.id; if (tpl.source !== "shipped") patch.extractionTemplateDef = tpl; understood.push(`extraction template: ${tpl.label}`); }
+  else {
+   const proposed = proposeTemplateNames(rest, catalogue);
+   if (proposed.length) { patch.extractionTemplateDraft = proposed[0]; understood.push(`a new document kind: ${proposed[0].label} (fields to be drafted)`); }
+  }
  }
  if (need.has("exceptionsTo")) {
   const m = rest.match(/\b(?:exceptions?|failures?|anything it cannot [a-z ]+?|problems?)\s+(?:go|goes|sent|to|should go)?\s*(?:to\s+)?([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/) || rest.match(/\b(?:email|notify|tell)\s+([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/);
@@ -172,19 +179,23 @@ export function extract(text, spec, ctx) {
   else if (/\b(activated|as active|activate (it|them))\b/.test(rest)) { patch.createdAs = "active"; understood.push("created as: activated"); }
  }
  if (need.has("recordGuardrails")) {
-  const rows = [...(spec.recordGuardrails || [])];
+  const rows = normalizeRules(spec.recordGuardrails);
+  const tpl = findTemplate({ ...spec, ...patch });
+  const suggested = suggestRules(tpl);
   const cues = [
-   ["duplicate_po", /\bduplicate (po|purchase order)s?\b/],
-   ["unknown_sender", /\bunknown sender|unknown domain|sender (we|it) do(es)?n.t know\b/],
-   ["first_time_product", /\bfirst[- ]time products?|never ordered\b/],
-   ["quantity_anomaly", /\bquantity anomal|unusual quantit|quantity spikes?\b/],
-   ["due_date_sanity", /\bdue[- ]date|delivery date (sanity|check)\b/],
-   ["restricted_product", /\brestricted products?\b/],
+   ["duplicate_reference", /\bduplicate (po|purchase order|invoice|reference|number|document)s?\b|\bduplicates?\b/],
+   ["sender_known", /\bunknown sender|unknown domain|sender (we|it) do(es)?n.t know|known senders? only\b/],
+   ["first_time_item", /\bfirst[- ]time (product|item)s?|never ordered\b/],
+   ["quantity_outlier", /\bquantity anomal|unusual quantit|quantity spikes?|outlier/],
+   ["date_window", /\bdue[- ]date|delivery date (sanity|check)|dates? (are|is) (sane|valid|in range)\b/],
+   ["flagged_item", /\brestricted (product|item)s?|blocked (product|item)s?\b/],
+   ["total_matches_lines", /\btotals? (match|matches|add up|reconcile)|lines? add up\b/],
   ];
   let added = 0;
-  for (const [id, re] of cues) if (re.test(rest) && !rows.some((g) => g.id === id)) { rows.push({ id, param: RECORD_GUARDRAILS.find((x) => x.id === id)?.param?.default ?? null }); added += 1; }
-  if (/\b(all|every|the six|standard) (business )?guardrails?\b/.test(rest)) for (const g of RECORD_GUARDRAILS) if (!rows.some((r) => r.id === g.id)) { rows.push({ id: g.id, param: g.param?.default ?? null }); added += 1; }
-  if (added) { patch.recordGuardrails = rows; understood.push(`guardrails: ${rows.map((g) => RECORD_GUARDRAILS.find((x) => x.id === g.id)?.label).join(", ")}`); }
+  const add = (rule) => { if (rule && !rows.some((g) => g.id === rule.id)) { rows.push(rule); added += 1; } };
+  for (const [kind, re] of cues) if (re.test(rest)) add(suggested.find((g) => g.kind === kind));
+  if (/\b(all|every|the six|the standard|standard) (business |suggested )?(guardrails?|checks?)\b/.test(rest)) for (const g of suggested) add(g);
+  if (added) { patch.recordGuardrails = rows; understood.push(`guardrails: ${rows.map((g) => g.label).join(", ")}`); }
  }
  if (need.has("acknowledge")) {
   if (/\b(don.t|do not|no) (acknowledge|reply)\b/.test(rest)) { patch.acknowledge = false; understood.push("no acknowledgement to the sender"); }

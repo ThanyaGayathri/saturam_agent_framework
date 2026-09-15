@@ -10,8 +10,8 @@ last executor returned.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import date, datetime, timezone
+from typing import Any, Dict, List, Optional
 
 import pytest
 from fastapi import FastAPI, Request
@@ -27,6 +27,16 @@ from egpt_retail.usecases.service import (
     normalise_schedule,
 )
 from egpt_retail.usecases.store import new_run_id, new_use_case_id
+from egpt_retail.api.routers import extraction_templates as catalogue_module
+from egpt_retail.documents.guardrails import (
+    PURCHASE_ORDER_RULES,
+    RULE_KINDS,
+    check_document,
+    rules_from,
+    suggest_rules,
+)
+from egpt_retail.documents.template_draft import DraftedField, TemplateDraft
+from egpt_retail.documents.templates import template_from
 
 
 class FakeStore:
@@ -623,4 +633,225 @@ def test_compiled_to_dict_is_json_and_schedule_aliases() -> None:
         normalise_schedule("15m") == "every_15_minutes"
         and normalise_schedule("hourly") == "hourly"
         and normalise_schedule("") is None
+    )
+
+
+# --- K17: templates and guardrails as data -------------------------------------------------------
+
+
+CUSTOM_TEMPLATE = {
+    "label": "Delivery note",
+    "record": "receipt",
+    "header": [
+        {"name": "note_number", "required": True},
+        {"name": "supplier_name", "required": True},
+        {"name": "expected_delivery_date"},
+        {"name": "total"},
+    ],
+    "lines": [
+        {"name": "line_no", "required": True},
+        {"name": "description", "required": True},
+        {"name": "quantity", "required": True},
+        {"name": "line_total"},
+    ],
+}
+
+
+@contextmanager
+def _catalogue_client(agent: Any = None):
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _fake_auth(request: Request, call_next):
+        request.state.authorization_enabled = False
+        return await call_next(request)
+
+    app.include_router(catalogue_module.router)
+    app.dependency_overrides[catalogue_module.drafting_agent] = lambda: agent
+    with TestClient(app) as client:
+        yield client
+
+
+def test_shipped_templates_and_rule_kinds_are_served_as_data() -> None:
+    with _catalogue_client() as client:
+        templates = client.get("/extraction-templates").json()
+        assert [t["id"] for t in templates] == [
+            "purchase_order",
+            "supplier_invoice",
+            "return_request",
+        ]
+        assert templates[0]["source"] == "shipped" and templates[0]["header"][0] == {
+            "name": "po_number",
+            "required": True,
+            "hint": "",
+        }
+        kinds = client.get("/guardrail-rules/kinds").json()
+        assert {k["id"] for k in kinds} == set(RULE_KINDS)
+        suggested = client.post("/guardrail-rules/suggest", json=CUSTOM_TEMPLATE).json()
+        assert [r["kind"] for r in suggested] == [
+            "sender_known",
+            "duplicate_reference",
+            "date_window",
+            "flagged_item",
+            "first_time_item",
+            "quantity_outlier",
+            "total_matches_lines",
+        ]
+        assert (
+            suggested[1]["field"] == "note_number"
+            and suggested[-1]["line_field"] == "line_total"
+        )
+        assert (
+            client.post(
+                "/guardrail-rules/suggest",
+                json={"label": "Empty", "header": [], "lines": []},
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                "/extraction-templates/draft", json={"description": "x"}
+            ).status_code
+            == 503
+        )
+
+
+def test_drafting_returns_the_template_shape_from_the_model_s_draft() -> None:
+    class _Response:
+        content = TemplateDraft(
+            label="Delivery Note",
+            record="receipt",
+            header=[
+                DraftedField(name="Note Number", required=True, hint="top right"),
+                DraftedField(name="supplier_name", required=True),
+            ],
+            lines=[
+                DraftedField(name="line_no", required=True),
+                DraftedField(name="description", required=True),
+                DraftedField(name="quantity"),
+            ],
+            notes="No currency on the example.",
+        )
+
+    class _Agent:
+        prompts: List[str] = []
+
+        async def arun(self, prompt: str) -> Any:
+            self.prompts.append(prompt)
+            return _Response()
+
+    agent = _Agent()
+    from egpt_retail.documents.pdf import text_pdf
+    import base64
+
+    pdf_b64 = base64.b64encode(
+        text_pdf(["DELIVERY NOTE 771", "Supplier: Acme"])
+    ).decode()
+    with _catalogue_client(agent) as client:
+        drafted = client.post(
+            "/extraction-templates/draft",
+            json={
+                "description": "Suppliers email delivery notes as PDFs.",
+                "label": "Delivery note",
+                "example_document_b64": pdf_b64,
+            },
+        ).json()
+    template = drafted["template"]
+    assert (
+        template["id"] == "delivery_note"
+        and template["source"] == "drafted"
+        and template["record"] == "receipt"
+    )
+    assert template["header"][0] == {
+        "name": "note_number",
+        "required": True,
+        "hint": "top right",
+    }
+    assert drafted["notes"] == "No currency on the example."
+    assert (
+        "DELIVERY NOTE 771" in agent.prompts[0] and "Delivery note" in agent.prompts[0]
+    )
+
+
+def test_custom_template_runs_the_same_extractor_and_rules() -> None:
+    template = template_from(CUSTOM_TEMPLATE)
+    assert template.id == "delivery_note" and template.required_header == (
+        "note_number",
+        "supplier_name",
+    )
+    from egpt_retail.documents.extraction import (
+        extraction_instructions,
+        extraction_output_model,
+    )
+
+    assert "note_number*" in extraction_instructions(template)
+    model = extraction_output_model(template)
+    assert set(model.model_fields) == {
+        "note_number",
+        "supplier_name",
+        "expected_delivery_date",
+        "total",
+        "lines",
+    }
+
+    rules = rules_from([r.as_dict() for r in suggest_rules(template)])
+    doc = {
+        "message": {"sender": "x@bristolcoatings.example"},
+        "extracted": {
+            "note_number": "DN-1",
+            "expected_delivery_date": "2020-01-01",
+            "total": 500.0,
+            "lines": [{"line_no": 1, "quantity": 2, "line_total": 100.0}],
+        },
+        "resolved": {
+            "customer": {"resolved": True, "id": "A-001", "method": "sender_domain"},
+            "lines": [
+                {
+                    "line_no": 1,
+                    "quantity": 2,
+                    "line_total": 100.0,
+                    "product": {"resolved": False},
+                }
+            ],
+        },
+    }
+    verdict = check_document(
+        doc,
+        {"customer": [], "product": [], "order_history": []},
+        rules,
+        today=date(2026, 9, 15),
+    )
+    assert [e["class"] for e in verdict["exceptions"]] == [
+        "DATE_INVALID",
+        "TOTAL_MISMATCH",
+    ]
+    assert (
+        "expected delivery date 2020-01-01 is in the past"
+        in verdict["exceptions"][0]["detail"]
+    )
+
+
+def test_legacy_rows_and_the_preset_still_read_the_same() -> None:
+    legacy = rules_from(
+        [
+            {"id": "quantity_anomaly", "param": 5},
+            {"id": "due_date_sanity", "params": {"maxDays": 30}},
+            "restricted_product",
+        ]
+    )
+    assert [(r.id, r.kind, dict(r.params)) for r in legacy] == [
+        ("quantity_anomaly", "quantity_outlier", {"multiplier": 5.0}),
+        ("due_date_sanity", "date_window", {"max_days": 30.0}),
+        ("restricted_product", "flagged_item", {}),
+    ]
+    assert legacy[0].exception_class == "QUANTITY_ANOMALY"
+    assert [r.id for r in rules_from("all")] == [r.id for r in PURCHASE_ORDER_RULES]
+    assert rules_from([{"kind": "no_such_kind", "field": "x"}]) == []
+    custom = rules_from(
+        [{"kind": "numeric_range", "field": "total", "params": {"min": 0, "max": 100}}]
+    )[0]
+    assert (
+        custom.id == "numeric_range_total"
+        and custom.label == "Numeric range: total"
+        and custom.exception_class == "OUT_OF_RANGE"
     )

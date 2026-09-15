@@ -5991,3 +5991,65 @@ for a Logic App or a Step Functions task calling the same run endpoint).
 "Northwind sample" and the environment to production in the builder, then "Run now".
 
 ---
+
+### K17 -- extraction templates and business guardrails as data (no cookbook file; router + interface)
+
+**Package:** K17, branch `usecase_processautomation`. Contract 1.4.0 (additive).
+
+**Status:** PASS (15 Sep 2026): unit tests DB-free, the new endpoints against the live local
+API with the real model, the six-step builder in the browser.
+
+**Description:** The two sections of the document-to-record form that were lists in code --
+the extraction template and the business guardrails -- are catalogues a person extends from
+the interface, so a document kind onboarded tomorrow needs no engineer.
+
+- *Templates.* `documents/templates.py` `template_from` accepts a template object
+  (`{label, record, header, lines}` with `name*` strings or `{name, required, hint}` rows) as
+  well as a shipped id; the extractor's instructions, output schema and validation were
+  already generated from the field list, so nothing downstream changed.
+  `documents/template_draft.py` drafts a template from a description and an optional
+  example PDF with the extraction-tier model. `GET /extraction-templates`,
+  `POST /extraction-templates/draft`. In the interface, `domain/extraction-templates.js`
+  holds the shipped three plus a workspace catalogue (browser storage); the reader picks a
+  catalogue template from the wording or proposes a new kind it names ("delivery notes" ->
+  Delivery note); `ExtractionTemplateField` lets the person pick, copy-and-edit, or start a
+  new kind, draft its fields from the description and an example, edit them (required star,
+  add, remove) and keep it; the definition travels on the spec as `extraction template`.
+- *Guardrails.* `documents/guardrails.py` is a rule interpreter over eight kinds --
+  duplicate reference, sender known, first-time item, quantity outlier, date window, flagged
+  item, numeric range, total matches lines -- each applied to a field with parameters. The
+  six purchase-order checks are a preset with their old ids and exception classes, and the
+  legacy `{id, param}` rows still read. `suggest_rules(template)` proposes rules from field
+  names (a reference field -> duplicate check, a promised date -> date window, a quantity ->
+  outlier, a total with line totals -> reconciliation). `GET /guardrail-rules/kinds`,
+  `POST /guardrail-rules/suggest`. The interface mirrors the suggester and the interpreter in
+  `domain/guardrail-rules.js` (the rehearse simulation runs it) and `GuardrailRulesField`
+  shows the suggested rows for the chosen template with parameters, plus "Add a check" for
+  any kind on any field.
+
+**Verification:**
+- `product/tests/test_k16_use_cases_router.py` (+4): the catalogue endpoints serve the
+  shipped templates and the eight kinds; suggestions for a delivery-note template; drafting
+  through a fake agent returns the template shape with hints and notes; a custom template
+  runs the same extractor (instructions, schema) and the suggested rules over it raise
+  `DATE_INVALID` and `TOTAL_MISMATCH`; legacy rows and the preset read the same.
+  `test_k15_document_executors.py` unchanged and green: the sample set's sixteen outcomes are
+  identical under the interpreter.
+- Live API: `POST /extraction-templates/draft` with a delivery-note description returned in
+  5.6 s a `delivery_note` template creating a `receipt` with four required header fields
+  and three line fields, and honest notes about what the description did not say.
+- Browser: on the Order Creation Automation draft, the six legacy rows load checked under
+  "Suggested for purchase orders"; "New document kind" -> "Delivery note" -> "Draft the
+  fields" filled six header and six line fields in ~8 s (the model noted the label did not
+  match a goal about purchase orders); "Keep and use this template" saved it to the
+  catalogue and the guardrails section switched to seven suggestions from the delivery
+  note's own fields with an "All 7 suggested" one-click. A platform rehearsal with four rule
+  rows on the spec succeeded: 10 previewed, 6 exceptions, `guardrails_enabled` naming the
+  four.
+
+**Left open:** the write-side mapping (Order + OrderItem) is the third hard-coded piece and
+is next; field hints from a drafted template are stored and shown but not yet passed into
+the extractor's instructions; the interface's rule suggester mirrors the platform's rather
+than calling it, so the two can drift -- the platform endpoint exists to switch to.
+
+---

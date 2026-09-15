@@ -12,9 +12,9 @@ import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 import { KPI_DATA_CATALOG_DATASETS } from "../../domain/kpi-data-catalog";
 import { getKpiNamesForCatalogId } from "../../domain/kpi-usecase-links";
 import {
- CATEGORY_LIST, CHANNELS, COMPARISONS, CREATED_AS, DIMENSIONS, DOCUMENT_TYPES, EXTRACTION_TEMPLATES,
+ CATEGORY_LIST, CHANNELS, COMPARISONS, CREATED_AS, DIMENSIONS, DOCUMENT_TYPES,
  FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, PER_RUN_CAPS, POLL_INTERVALS,
- PROPOSED_CONTRACT_FIELDS, RECORD_GUARDRAILS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
+ PROPOSED_CONTRACT_FIELDS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
  TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor, templateFromText,
 } from "../../domain/use-case-autonomy";
 import {
@@ -22,6 +22,10 @@ import {
  withCategory, withShape, withTemplate,
 } from "../../domain/use-case-spec";
 import { extract, optionsForGap } from "../../domain/use-case-extract";
+import { findTemplate, loadTemplateCatalogue } from "../../domain/extraction-templates";
+import { normalizeRule, normalizeRules, suggestRules } from "../../domain/guardrail-rules";
+import ExtractionTemplateField from "./ExtractionTemplateField";
+import GuardrailRulesField from "./GuardrailRulesField";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
 
@@ -396,8 +400,8 @@ export default function UseCaseComposeScreen() {
    case "template": { const t = category.templates?.find((x) => x.label === value); if (t) { const next = commit(withTemplate(spec, t.id)); if (assistantOpen) respond([`read as: ${t.label.toLowerCase()}`], next, gapsFor(next, registryNames, measurable)); return; } break; }
    case "masterData": patch = { masterData: { ...(spec.masterData || {}), [gap.role]: value } }; break;
    case "mailbox": patch = { mailbox: value }; break;
-   case "extractionTemplate": patch = { extractionTemplate: EXTRACTION_TEMPLATES.find((t) => t.label === value)?.id || spec.extractionTemplate }; break;
-   case "recordGuardrails": { const def = RECORD_GUARDRAILS.find((g) => g.label === value); patch = def ? { recordGuardrails: [...(spec.recordGuardrails || []), { id: def.id, param: def.param?.default ?? null }] } : {}; break; }
+   case "extractionTemplate": { const t = loadTemplateCatalogue().find((x) => x.label === value); patch = t ? { extractionTemplate: t.id, extractionTemplateDef: t.source === "shipped" ? null : t } : {}; break; }
+   case "recordGuardrails": { const rule = suggestRules(findTemplate(spec)).find((g) => g.label === value); patch = rule ? { recordGuardrails: [...normalizeRules(spec.recordGuardrails), rule] } : {}; break; }
    case "exceptionsTo": patch = { exceptionsTo: value }; break;
    case "targetObjects": patch = { targetObjects: Object.values(TARGET_OBJECTS).flat().find((o) => o.label === value)?.id || spec.targetObjects }; break;
    case "objective": patch = { objective: { metric: value, direction: defaultOperatorFor(value) === "gt" ? "below" : "above", target: null, unit: unitOf(value) } }; break;
@@ -426,12 +430,8 @@ export default function UseCaseComposeScreen() {
  });
  const setCondition = (part, value) => setSpec((s) => applyPatch(s, { condition: { ...(s.condition || { metric: s.metricIds[0] || null, operator: "gt", threshold: null }), unit: unitOf(s.metricIds[0]), [part]: value } }, ORIGIN.authored));
  const setNested = (field, part, value) => setSpec((s) => applyPatch(s, { [FIELD_META[field].key]: { ...(s[FIELD_META[field].key] || {}), [part]: value } }, ORIGIN.authored));
- const toggleRecordGuardrail = (id) => setSpec((s) => {
-  const rows = s.recordGuardrails || [];
-  const def = RECORD_GUARDRAILS.find((g) => g.id === id);
-  return applyPatch(s, { recordGuardrails: rows.some((g) => g.id === id) ? rows.filter((g) => g.id !== id) : [...rows, { id, param: def?.param?.default ?? null }] }, ORIGIN.authored);
- });
- const setRecordGuardrailParam = (id, value) => setSpec((s) => applyPatch(s, { recordGuardrails: (s.recordGuardrails || []).map((g) => (g.id === id ? { ...g, param: value } : g)) }, ORIGIN.authored));
+ const setExtractionTemplate = (id, def) => setSpec((s) => applyPatch(s, { extractionTemplate: id, extractionTemplateDef: def || null, extractionTemplateDraft: null, recordGuardrails: [] }, ORIGIN.authored));
+ const setRecordGuardrails = (rows) => setSpec((s) => applyPatch(s, { recordGuardrails: rows.map(normalizeRule).filter(Boolean) }, ORIGIN.authored));
  const setObjective = (part, value) => setSpec((s) => applyPatch(s, { objective: { ...(s.objective || { metric: s.metricIds[0] || null, direction: "below", target: null, unit: "" }), ...(part === "metric" ? { unit: unitOf(value) } : {}), [part]: value } }, ORIGIN.authored));
  const setGuardrail = (i, part, value) => setSpec((s) => applyPatch(s, { guardrails: s.guardrails.map((g, j) => (j === i ? { ...g, [part]: value } : g)).map((g) => ({ ...g, rule: guardrailRule(g) })) }, ORIGIN.authored));
  const addGuardrail = () => setSpec((s) => { const g = { metric: s.metricIds[0] || "", operator: "gte", threshold: null, unit: "" }; return applyPatch(s, { guardrails: [...s.guardrails, { ...g, rule: guardrailRule(g) }] }, ORIGIN.authored); });
@@ -609,21 +609,12 @@ export default function UseCaseComposeScreen() {
    }
    case "documentType":
     return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5">{DOCUMENT_TYPES.map((d) => <button key={d.value} type="button" title={d.hint} aria-pressed={spec.documentType === d.value} onClick={() => setField(f, d.value)} className={chip(spec.documentType === d.value)}>{d.label}</button>)}</div></Field>;
-   case "extractionTemplate": {
-    const tpl = EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate);
+   case "extractionTemplate":
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
-      <div className="flex flex-wrap gap-1.5">{EXTRACTION_TEMPLATES.map((t) => <button key={t.id} type="button" aria-pressed={spec.extractionTemplate === t.id} onClick={() => setField(f, t.id)} className={chip(spec.extractionTemplate === t.id)}>{t.label}</button>)}</div>
-      {tpl && (
-       <div className="mt-2 grid gap-2 text-[11px] sm:grid-cols-2">
-        <div><p className="font-semibold uppercase tracking-wide text-text-muted">Header · {tpl.header.length}</p><p className="mt-0.5 font-mono text-text-secondary">{tpl.header.map((h) => h.replace("*", "")).join(" · ")}</p></div>
-        <div><p className="font-semibold uppercase tracking-wide text-text-muted">Per line · {tpl.lines.length}</p><p className="mt-0.5 font-mono text-text-secondary">{tpl.lines.map((h) => h.replace("*", "")).join(" · ")}</p></div>
-       </div>
-      )}
-      <p className="mt-1.5 text-[11px] text-text-muted">The AI step fills exactly these fields, each with a confidence and the page region it was read from. A field not on the document is null — it extracts, it never infers.</p>
+      <ExtractionTemplateField spec={spec} setTemplate={setExtractionTemplate} description={spec.goal} />
      </Field>
     );
-   }
    case "exampleDocument":
     return (
      <Field key={f} name={f} origin={originOf(f)}>
@@ -672,27 +663,12 @@ export default function UseCaseComposeScreen() {
      </Field>
     );
    }
-   case "recordGuardrails": {
-    const rows = spec.recordGuardrails || [];
-    const md = spec.masterData || {};
+   case "recordGuardrails":
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
-      <ul className="space-y-1">
-       {RECORD_GUARDRAILS.map((g) => {
-        const on = rows.find((r) => r.id === g.id);
-        const needsMissing = g.needs && !md[g.needs];
-        return (
-         <li key={g.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-2.5 py-1.5 ${on ? "border-primary/40 bg-primary-light/30" : "border-border-light"}`}>
-          <input type="checkbox" checked={!!on} onChange={() => toggleRecordGuardrail(g.id)} aria-label={g.label} />
-          <div className="min-w-0"><span className="text-xs font-semibold text-text-primary">{g.label}</span><span className="ml-1.5 text-[11px] text-text-secondary">{g.check}</span>{needsMissing && on && <span className="ml-1.5 text-[11px] text-status-warning">needs {MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()} bound</span>}<span className="ml-1.5 font-mono text-[10px] text-text-muted">→ {g.exception}</span></div>
-          {g.param && on ? <label className="flex items-center gap-1 text-[11px] text-text-muted">{g.param.label} <input type="number" value={on.param ?? g.param.default} onChange={(e) => setRecordGuardrailParam(g.id, e.target.value === "" ? null : Number(e.target.value))} className={`${input} w-16`} /> {g.param.unit}</label> : <span />}
-         </li>
-        );
-       })}
-      </ul>
+      <GuardrailRulesField spec={spec} template={findTemplate(spec)} setRules={setRecordGuardrails} />
      </Field>
     );
-   }
    case "exceptionsTo":
     return <Field key={f} name={f} {...fieldProps(f)}><input value={spec.exceptionsTo} onChange={(e) => setField(f, e.target.value)} placeholder="orders-desk@yourcompany.com" className={input} /><p className="mt-1 text-[11px] text-text-muted">One email per exception: the classification in words, what was extracted, and a link to the in-app record with the document and the candidates.</p></Field>;
    case "acknowledge":

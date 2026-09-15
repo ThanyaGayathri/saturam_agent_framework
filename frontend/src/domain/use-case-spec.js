@@ -1,4 +1,5 @@
-import { CATEGORIES, EXTRACTION_TEMPLATES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, MATCH_THRESHOLD_DEFAULTS, SHAPES, fieldsFor, requiresSeparationOfDuties, templateFromText } from "./use-case-autonomy";
+import { CATEGORIES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, MATCH_THRESHOLD_DEFAULTS, SHAPES, fieldsFor, requiresSeparationOfDuties, templateFromText } from "./use-case-autonomy";
+import { findTemplate, loadTemplateCatalogue } from "./extraction-templates";
 
 /**
  * The use-case spec: the thing a user reviews, completes and freezes.
@@ -74,6 +75,8 @@ export function emptySpec(goal = "", shape = null, category = null, template = n
   documentType: "pdf",
   extractionTemplate: "",
   exampleDocument: null,
+  extractionTemplateDef: null, // the chosen template's own definition when it is not a shipped one (K17)
+  extractionTemplateDraft: null, // a document kind named in the description, not yet drafted (K17)
   masterData: { customer: "", contact: "", shipTo: "", product: "", orderHistory: "" },
   matchThresholds: { ...MATCH_THRESHOLD_DEFAULTS },
   recordGuardrails: [],
@@ -138,14 +141,14 @@ export function applyPatch(spec, patch, origin) {
  *  building the same thing get the same name. Overwritten by anything typed. */
 export function proposeTitle(spec) {
  const m = spec.metricIds?.[0];
- if (spec.template === "document_to_record") { const t = EXTRACTION_TEMPLATES.find((x) => x.id === spec.extractionTemplate); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
+ if (spec.template === "document_to_record") { const t = findTemplate(spec); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
  if (!m) return "";
  switch (spec.shape) {
   case "inform": return `${m}${spec.dimensions?.length ? ` by ${spec.dimensions.slice(0, 2).join(" and ").toLowerCase()}` : ""}`;
   case "alert": return `${m} alert${spec.scope && spec.scope !== "Everywhere" ? ` — ${spec.scope.toLowerCase()}` : ""}`;
   case "recommend": return `${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : m} proposals${spec.candidates?.concept ? ` for ${spec.candidates.concept}` : ""}`;
   case "act":
-   if (spec.template === "document_to_record") { const t = EXTRACTION_TEMPLATES.find((x) => x.id === spec.extractionTemplate); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
+   if (spec.template === "document_to_record") { const t = findTemplate(spec); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
    return spec.objective?.metric ? `${spec.objective.metric} optimisation${spec.candidates?.concept ? ` · ${spec.candidates.concept}` : ""}` : `${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : m} updates${spec.candidates?.concept ? ` for ${spec.candidates.concept}` : ""}`;
   default: return m;
  }
@@ -247,7 +250,7 @@ export function gapsFor(spec, registryNames, measurable) {
   push({ id: "mailbox", kind: GAP_KIND.missing, field: "mailbox", ask: "Which connected mailbox do the documents arrive in?" });
  }
  if (need.has("extractionTemplate") && !spec.extractionTemplate) {
-  push({ id: "extractionTemplate", kind: GAP_KIND.missing, field: "extractionTemplate", ask: "What kind of document is it?", options: EXTRACTION_TEMPLATES.map((t) => t.label) });
+  push({ id: "extractionTemplate", kind: GAP_KIND.missing, field: "extractionTemplate", ask: "What kind of document is it?", options: loadTemplateCatalogue().map((t) => t.label) });
  }
  if (need.has("masterData")) {
   for (const role of MASTER_DATA_ROLES.filter((r) => r.required)) {

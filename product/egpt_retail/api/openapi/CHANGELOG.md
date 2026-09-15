@@ -109,6 +109,20 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.4.0 — 2026-09-15 — extraction templates and guardrail rules as data (additive)
+
+Agreed by: Lane K, on Lane R's contract under the additive rule. New operations and new
+schemas only; every existing value is still read.
+
+The first document-driven use case shipped with its template and its six guardrails in code
+(K15). Onboarding a second kind of document from the interface -- a delivery note tomorrow,
+with no engineer -- needs both to be data the person can extend, so:
+
+| Change | Why |
+|---|---|
+| **`ExtractionTemplate`, `GET /extraction-templates`, `POST /extraction-templates/draft`** | A template is a field list, and the extractor, its schema and its validation are generated from that list. The interface stores a template a person assembled (or the model drafted from the description and an example document) on the spec's `extraction template` parameter; the shipped three are rows of the same shape. |
+| **`GuardrailRule`, `GuardrailRuleKind`, `GET /guardrail-rules/kinds`, `POST /guardrail-rules/suggest`** | A guardrail is a *kind* the platform evaluates (eight: duplicate reference, sender known, first-time item, quantity outlier, date window, flagged item, numeric range, total matches lines) applied to a field with parameters. The six purchase-order rows are a preset with their old ids and exception classes, so nothing already authored changes; a new template's rules are suggested from its own field names. |
+
 ## 1.3.0 — 2026-09-15 — use-cases: a stored spec, a run mode, the run's own result (additive)
 
 Agreed by: Lane K, on Lane R's contract under the additive rule. Every change has a default

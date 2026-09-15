@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowRight, Check, ShieldCheck, X } from "lucide-react";
 import { KPI_DATA_CATALOG_DATASETS } from "../../domain/kpi-data-catalog";
-import { AUTONOMY, MASTER_DATA_ROLES, RECORD_GUARDRAILS, displayName } from "../../domain/use-case-autonomy";
+import { normalizeRules, unfedRules } from "../../domain/guardrail-rules";
+import { templateLabel } from "../../domain/extraction-templates";
+import { AUTONOMY, MASTER_DATA_ROLES, displayName } from "../../domain/use-case-autonomy";
 import { loadSpecDraft } from "../../domain/use-case-draft-spec";
 import { sensitiveColumnsForSource } from "../configure/semantic-model";
 
@@ -41,15 +43,15 @@ export default function UseCasePreflightScreen() {
    const md = spec.masterData || {};
    const bound = MASTER_DATA_ROLES.filter((r) => md[r.id]);
    const missingRequired = MASTER_DATA_ROLES.filter((r) => r.required && !md[r.id]);
-   const rows = spec.recordGuardrails || [];
-   const unfed = rows.map((g) => RECORD_GUARDRAILS.find((x) => x.id === g.id)).filter((g) => g?.needs && !md[g.needs]);
+   const rows = normalizeRules(spec.recordGuardrails);
+   const unfed = unfedRules(rows, md).map((u) => u.rule);
    const mdSets = KPI_DATA_CATALOG_DATASETS.filter((d) => bound.some((r) => md[r.id] && d.technicalName.toLowerCase().endsWith(md[r.id].toLowerCase().replace(/ /g, "_"))));
    const rowsLabel = mdSets.map((d) => `${d.technicalName.split(".").pop()} ${d.rowCountLabel}`).join(" · ");
    return [
     { id: "mailbox", title: "Source mailbox", level: spec.mailbox ? "pass" : "fail", detail: spec.mailbox ? `${spec.mailbox} is connected and readable; the mailbox is only read; each message is carried once by its id, never flagged, never deleted.` : "No mailbox chosen.", fix: spec.mailbox ? null : { label: "Choose a mailbox", to: spec_ } },
     { id: "target", title: "Target system", level: spec.writeback ? "pass" : "fail", detail: spec.writeback ? `${spec.writeback} is connected with write permission; ${spec.targetObjects === "order_orderitem" ? "Order + OrderItem" : spec.targetObjects ? spec.targetObjects.replace(/_/g, " + ") : "the target objects"} will be created as ${spec.createdAs || "draft"}.` : "No target system chosen.", fix: spec.writeback ? null : { label: "Choose a target system", to: spec_ } },
     { id: "masterdata", title: "Master data", level: missingRequired.length ? "fail" : "pass", detail: missingRequired.length ? `${missingRequired.map((r) => r.label).join(", ")} not bound.` : `${bound.length} objects bound and harvested: ${rowsLabel || bound.map((r) => md[r.id]).join(", ")}.`, fix: missingRequired.length ? { label: "Bind master data", to: spec_ } : null },
-    { id: "template", title: "Extraction template", level: spec.extractionTemplate ? (spec.exampleDocument ? "pass" : "warn") : "fail", detail: spec.extractionTemplate ? (spec.exampleDocument ? `${spec.extractionTemplate.replace(/_/g, " ")} with an example document — the AI step has a golden case to be scored against.` : `${spec.extractionTemplate.replace(/_/g, " ")} without an example document. The simulation still runs on the sample set; a real example improves extraction on your format.`) : "No template chosen.", fix: spec.extractionTemplate ? null : { label: "Choose a template", to: spec_ } },
+    { id: "template", title: "Extraction template", level: spec.extractionTemplate ? (spec.exampleDocument ? "pass" : "warn") : "fail", detail: spec.extractionTemplate ? (spec.exampleDocument ? `${templateLabel(spec) || spec.extractionTemplate.replace(/_/g, " ")} with an example document — the AI step has a golden case to be scored against.` : `${spec.extractionTemplate.replace(/_/g, " ")} without an example document. The simulation still runs on the sample set; a real example improves extraction on your format.`) : "No template chosen.", fix: spec.extractionTemplate ? null : { label: "Choose a template", to: spec_ } },
     { id: "guardrails", title: "Business guardrails", level: rows.length === 0 ? "fail" : unfed.length ? "warn" : "pass", detail: rows.length === 0 ? "No guardrail. A use case that writes needs at least one." : unfed.length ? `${rows.length} guardrails; ${unfed.map((g) => g.label).join(", ")} need${unfed.length === 1 ? "s" : ""} ${[...new Set(unfed.map((g) => MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()))].join(", ")} bound to run.` : `${rows.length} guardrails, evaluated as deterministic checks before any record is written — never by the AI step.`, fix: rows.length === 0 ? { label: "Add a guardrail", to: spec_ } : null },
     { id: "exceptions", title: "Exceptions", level: /@/.test(spec.exceptionsTo || "") ? "pass" : "fail", detail: /@/.test(spec.exceptionsTo || "") ? `Anything the automation cannot complete goes to ${spec.exceptionsTo}, and to the Alerts page.` : "No exceptions address.", fix: /@/.test(spec.exceptionsTo || "") ? null : { label: "Set the exceptions address", to: spec_ } },
     { id: "pii", title: "Personal data", level: "warn", detail: "Buyer names and email addresses are read from the documents and written to the target as contacts. Allowed for order processing; acknowledge that this use case handles personal data.", fix: null },

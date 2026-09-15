@@ -1,4 +1,6 @@
 import { POLL_INTERVALS, SHAPES } from "./use-case-autonomy";
+import { findTemplate } from "./extraction-templates";
+import { normalizeRules } from "./guardrail-rules";
 
 /**
  * The spec as the platform's contract sees it (API 1.3.0): the catalog row, the stored spec
@@ -34,11 +36,11 @@ export function documentParameters(spec, sources = []) {
   "source mailbox": sourceRef(spec.mailbox, sources),
   "message filter": { unseen_only: filter.unread !== false, subject_contains: filter.senderPattern || null, since_days: 7 },
   "document type": spec.documentType || "pdf",
-  "extraction template": spec.extractionTemplate || "",
+  "extraction template": (findTemplate(spec)?.source !== "shipped" && findTemplate(spec)) || spec.extractionTemplate || "",
   "example document": spec.exampleDocument?.name || spec.exampleDocument || null,
   "master data": spec.masterData || {},
   "match thresholds": spec.matchThresholds || {},
-  guardrails: (spec.recordGuardrails || []).map((g) => (g.param === undefined || g.param === null ? { id: g.id } : { id: g.id, param: g.param })),
+  guardrails: normalizeRules(spec.recordGuardrails).map((g) => ({ id: g.id, kind: g.kind, label: g.label, field: g.field, line_field: g.line_field, params: g.params, exception: g.exception })),
   recipient: spec.exceptionsTo || "",
   acknowledge: spec.acknowledge !== false,
   "write target": sourceRef(spec.writeback, sources),

@@ -1,5 +1,7 @@
 import { KPI_DATA_CATALOG_DATASETS } from "./kpi-data-catalog";
-import { CATEGORIES, COMPARISONS, EXTRACTION_TEMPLATES, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, RECORD_GUARDRAILS, ROLLBACKS, SEVERITIES, TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, templateFromText } from "./use-case-autonomy";
+import { findTemplate, headerFields, lineFields, loadTemplateCatalogue, matchTemplateInText, proposeTemplateNames } from "./extraction-templates";
+import { needsOf, normalizeRules, ruleCheck, suggestRules } from "./guardrail-rules";
+import { CATEGORIES, COMPARISONS, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, ROLLBACKS, SEVERITIES, TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, templateFromText } from "./use-case-autonomy";
 import { guardrailRule } from "./use-case-spec";
 
 /**
@@ -309,8 +311,18 @@ export function suggestFor(gap, spec, ctx) {
    if (!boxes.length) return { lead: "No mailbox is connected yet. Add one under Configure → Data sources (Gmail or Microsoft 365).", options: [], preferred: null };
    return { lead: `${boxes.length === 1 ? "One mailbox is connected" : `${boxes.length} mailboxes are connected`}: ${boxes.join(", ")}.`, options: boxes.map((b) => ({ label: b, why: "connected mailbox", patch: { mailbox: b } })), preferred: boxes[0] };
   }
-  case "extractionTemplate":
-   return { lead: `${EXTRACTION_TEMPLATES.length} document templates ship with the platform; each fixes the fields the AI step fills.`, options: EXTRACTION_TEMPLATES.map((t) => ({ label: t.label, why: `${t.header.length} header fields · ${t.lines.length} per line → creates ${t.record === "order" ? "an order" : `a ${t.record}`}`, patch: { extractionTemplate: t.id } })), preferred: EXTRACTION_TEMPLATES[0].label };
+  case "extractionTemplate": {
+   const catalogue = loadTemplateCatalogue();
+   const proposed = proposeTemplateNames(spec.goal || "", catalogue);
+   const options = catalogue.map((t) => ({ label: t.label, why: `${t.source === "shipped" ? "ships with the platform" : "saved in this workspace"} · ${headerFields(t).length} header fields, ${lineFields(t).length} per line → creates ${t.record === "order" ? "an order" : `a ${t.record}`}`, patch: { extractionTemplate: t.id, extractionTemplateDef: t.source === "shipped" ? null : t } }));
+   for (const p of proposed) options.unshift({ label: `New: ${p.label}`, why: "named in your description and not in the catalogue yet — the platform drafts its fields, you edit them", patch: { extractionTemplateDraft: p } });
+   const inText = matchTemplateInText(spec.goal || "", catalogue);
+   return {
+    lead: proposed.length ? `Your description names a ${proposed[0].label.toLowerCase()}, which no template covers yet. Draft one from the description, or pick a catalogue template.` : `${catalogue.length} document templates are in the catalogue; each fixes the fields the AI step fills. A new kind is drafted from your description and an example.`,
+    options,
+    preferred: proposed.length ? `New: ${proposed[0].label}` : inText?.label || catalogue[0].label,
+   };
+  }
   case "masterData": {
    const role = MASTER_DATA_ROLES.find((r) => r.id === gap.role);
    if (!role) return null;
@@ -337,11 +349,15 @@ export function suggestFor(gap, spec, ctx) {
    };
   }
   case "recordGuardrails": {
-   const have = new Set((spec.recordGuardrails || []).map((g) => g.id));
+   const have = new Set(normalizeRules(spec.recordGuardrails).map((g) => g.id));
    const m = spec.masterData || {};
-   const options = RECORD_GUARDRAILS.filter((g) => !have.has(g.id)).map((g) => ({ label: g.label, why: `${g.check.toLowerCase()}${g.needs && !m[g.needs] ? ` — needs ${MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()} bound` : ""}`, patch: { recordGuardrails: [...(spec.recordGuardrails || []), { id: g.id, param: g.param?.default ?? null }] } }));
-   const all = { label: "All six", why: "duplicate PO, unknown sender, first-time product, quantity anomaly, due-date sanity, restricted product", patch: { recordGuardrails: RECORD_GUARDRAILS.map((g) => ({ id: g.id, param: g.param?.default ?? null })) } };
-   return { lead: `Six record-level guardrails ship for this template. ${m.orderHistory ? "Order history is bound, so the three history checks can run." : "Three of them need order history bound under master data."}`, options: [all, ...options], preferred: "All six" };
+   const tpl = findTemplate(spec);
+   const suggested = suggestRules(tpl);
+   if (!tpl) return { lead: "Pick the document template first; the checks are suggested from its fields.", options: [], preferred: null };
+   const options = suggested.filter((g) => !have.has(g.id)).map((g) => ({ label: g.label, why: `${ruleCheck(g).toLowerCase()}${needsOf(g) && !m[needsOf(g)] ? ` — needs ${MASTER_DATA_ROLES.find((r) => r.id === needsOf(g))?.label.toLowerCase()} bound` : ""}`, patch: { recordGuardrails: [...normalizeRules(spec.recordGuardrails), g] } }));
+   const all = { label: `All ${suggested.length} suggested`, why: suggested.map((g) => g.label.toLowerCase()).join(", "), patch: { recordGuardrails: suggested } };
+   const history = suggested.filter((g) => needsOf(g) === "orderHistory").length;
+   return { lead: `${suggested.length} checks follow from the ${tpl.label.toLowerCase()}'s own fields. ${m.orderHistory ? "History is bound, so the history checks can run." : history ? `${history} of them need history bound under master data.` : ""}`.trim(), options: [all, ...options], preferred: all.label };
   }
   case "exceptionsTo": {
    const guess = spec.owner && /@/.test(spec.owner) ? spec.owner : null;
@@ -350,7 +366,7 @@ export function suggestFor(gap, spec, ctx) {
   case "targetObjects": {
    const target = spec.writeback || (ctx.writeTargets || [])[0] || "";
    const key = Object.keys(TARGET_OBJECTS).find((k) => target.toLowerCase().includes(k)) || "salesforce";
-   const tpl = EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate);
+   const tpl = findTemplate(spec);
    const opts = TARGET_OBJECTS[key] || [];
    const preferred = opts.find((o) => tpl && o.record === tpl.record) || opts[0];
    return { lead: `${target || "The target"} can create ${opts.map((o) => o.label).join(" or ")}.${preferred && tpl ? ` A ${tpl.label.toLowerCase()} becomes ${preferred.label}.` : ""}`, options: opts.map((o) => ({ label: o.label, why: `${o.fields.length} mapped fields`, patch: { targetObjects: o.id } })), preferred: preferred?.label || null };

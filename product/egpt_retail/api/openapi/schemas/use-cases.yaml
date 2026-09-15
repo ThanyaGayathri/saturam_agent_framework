@@ -234,9 +234,11 @@ Spec:
 
         Value shapes, so the interface and the compiler agree: `guardrails` is a list of
         `{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of
-        `{id, param}` (id from the template's guardrail catalogue: duplicate_po,
-        unknown_sender, first_time_product, quantity_anomaly, due_date_sanity,
-        restricted_product) for `document_to_record`; `candidates` is `{concept, filter}`;
+        `GuardrailRule` rows for `document_to_record` (1.4.0; the legacy `{id, param}` rows
+        naming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,
+        quantity_anomaly, due_date_sanity, restricted_product -- are still read);
+        `extraction template` is a shipped template's id or an `ExtractionTemplate` object
+        the form assembled (1.4.0); `candidates` is `{concept, filter}`;
         `recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;
         `master data` is `{customer, contact, shipTo, product, orderHistory}` naming
         semantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,
@@ -555,3 +557,88 @@ RunCost:
     model_tier: {type: string}
     input_tokens: {type: integer}
     output_tokens: {type: integer}
+
+ExtractionTemplateField:
+  type: object
+  required: [name]
+  properties:
+    name: {type: string, description: "snake_case field name; the extraction step fills exactly this."}
+    required: {type: boolean, default: false}
+    hint:
+      type: string
+      default: ""
+      description: Where on the document the field is usually found, for the extractor.
+ExtractionTemplate:
+  type: object
+  description: |
+    A document kind the Extract stage fills (1.4.0). The three shipped ones are rows of the
+    same shape; a template a person assembles on the form, or the model drafts from a
+    description and an example, is stored on the use case's spec as the `extraction template`
+    parameter and runs the same extractor. Nothing about a template is code.
+  required: [label, header, lines]
+  properties:
+    id:
+      type: string
+      description: Slug; derived from the label when absent.
+    label: {type: string}
+    record: {type: string, default: "", description: "What one document becomes: order, payable, return, receipt."}
+    header:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/ExtractionTemplateField'
+    lines:
+      type: array
+      items:
+        $ref: './use-cases.yaml#/ExtractionTemplateField'
+    source:
+      type: string
+      enum: [shipped, drafted, authored]
+      description: Where the template came from; `authored` when absent.
+ExtractionTemplateDraftRequest:
+  type: object
+  required: [description]
+  properties:
+    description: {type: string, description: "The use case's own words: what arrives and what it should become."}
+    label: {type: string, description: "The document kind's name, when the person has one."}
+    example_text: {type: string, description: "The text of an example document, when one is at hand."}
+    example_document_b64: {type: string, description: "A PDF of an example document, base64; its text layer is read server-side."}
+ExtractionTemplateDraft:
+  type: object
+  required: [template, notes]
+  properties:
+    template:
+      $ref: './use-cases.yaml#/ExtractionTemplate'
+    notes: {type: string, description: "What the model was unsure about; empty on a clean draft."}
+GuardrailRuleKind:
+  type: object
+  description: A kind of check the platform can evaluate (1.4.0). A guardrail is one of these applied to a field with parameters.
+  required: [id, label, check, scope, params, exception]
+  properties:
+    id: {type: string}
+    label: {type: string}
+    check: {type: string, description: "The check in plain words, with {field} and parameter placeholders."}
+    scope: {type: string, enum: [header, line, any, none]}
+    params:
+      type: object
+      additionalProperties: {type: number}
+      description: Parameter names with their defaults.
+    needs: {type: [string, "null"], description: "The master-data role the check reads, or null."}
+    exception: {type: string}
+GuardrailRule:
+  type: object
+  description: |
+    One business guardrail (1.4.0): a kind applied to a field, with its parameters and the
+    exception it raises. The `guardrails` parameter of a `document_to_record` spec is a list
+    of these; the six purchase-order rows keep their ids and exception classes as a preset.
+  required: [id, kind]
+  properties:
+    id: {type: string}
+    kind: {type: string}
+    label: {type: string}
+    field: {type: [string, "null"]}
+    line_field: {type: [string, "null"], description: "For total checks, the line field summed; for item checks, the resolved entity on the line."}
+    params:
+      type: object
+      additionalProperties: {type: number}
+    exception: {type: string}
+    needs: {type: [string, "null"]}

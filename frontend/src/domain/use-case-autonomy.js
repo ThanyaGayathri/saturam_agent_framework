@@ -18,6 +18,7 @@
  * compiler's stage table (`use-case-plan.js`) agree on what a value is called.
  */
 
+import { findTemplate } from "./extraction-templates";
 export const SHAPES = {
  inform: {
   id: "inform",
@@ -274,7 +275,7 @@ export const describeShape = (spec) => {
    return `Recommends changes to ${spec.writeback || "a target system"}. ${spec.approver || "An approver"} releases each one before anything is written.`;
   case "act":
    if (spec.template === "document_to_record") {
-    const tpl = EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate);
+    const tpl = findTemplate(spec);
     return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves it against ${(spec.masterData && Object.values(spec.masterData).filter(Boolean).length) || 0} master-data objects, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${spec.targetObjects ? `${Object.values(TARGET_OBJECTS).flat().find((o) => o.id === spec.targetObjects)?.label.replace(/ \(standard\)/, "") || "a record"}` : "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"} — nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
    }
    return `${spec.objective?.metric ? `Tunes the process to bring ${spec.objective.metric} ${spec.objective.direction || "to"} ${spec.objective.target ?? "target"}${spec.objective.unit || ""}. ` : ""}Executes on its own — changes ${spec.writeback || "a target system"} with nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run, with a rollback plan.`;
@@ -371,16 +372,9 @@ export const DOCUMENT_TYPES = [
  { value: "either", label: "Either", hint: "Attachment first, body if none." },
 ];
 
-/** Shipped document templates: a schema the extraction role fills. Content, not code. */
-export const EXTRACTION_TEMPLATES = [
- {
-  id: "purchase_order", label: "Purchase order", record: "order",
-  header: ["po_number*", "po_date", "customer_name*", "buyer_name", "buyer_email", "ship_to_address*", "bill_to_address", "due_date", "currency", "payment_terms", "order_total", "delivery_instructions"],
-  lines: ["line_no*", "customer_part_number", "supplier_product_code", "description*", "quantity*", "unit_of_measure*", "unit_price", "line_total", "line_due_date", "line_notes"],
- },
- { id: "supplier_invoice", label: "Supplier invoice", record: "payable", header: ["invoice_number*", "invoice_date*", "supplier_name*", "po_reference", "due_date", "currency", "total*"], lines: ["line_no*", "description*", "quantity", "unit_price", "line_total*", "tax"] },
- { id: "return_request", label: "Return request", record: "return", header: ["rma_reference", "customer_name*", "order_reference*", "reason"], lines: ["line_no*", "product*", "quantity*", "condition"] },
-];
+/** Shipped document templates. The catalogue, custom templates and the field helpers live in
+ *  `extraction-templates.js`; this alias keeps older imports working. */
+export { SHIPPED_TEMPLATES as EXTRACTION_TEMPLATES } from "./extraction-templates";
 
 /** The roles a document-to-record use case resolves against. Each binds to a concept. */
 export const MASTER_DATA_ROLES = [
@@ -393,15 +387,9 @@ export const MASTER_DATA_ROLES = [
 
 export const MATCH_THRESHOLD_DEFAULTS = { address: 0.75, product: 0.85, name: 0.8, ambiguity: 0.05, aiDisambiguation: true };
 
-/** Record-level guardrails: check · parameter · exception. Typed rows, like the KPI ones. */
-export const RECORD_GUARDRAILS = [
- { id: "duplicate_po", label: "Duplicate PO", check: "An order for this customer with the same PO number already exists", param: { key: "lookbackMonths", label: "lookback", default: 12, unit: "months" }, needs: "orderHistory", exception: "DUPLICATE_PO" },
- { id: "unknown_sender", label: "Unknown sender", check: "The sender's email domain matches no customer or contact", param: null, needs: "customer", exception: "UNKNOWN_SENDER" },
- { id: "first_time_product", label: "First-time product", check: "This customer has never ordered this product", param: { key: "lookbackMonths", label: "lookback", default: 12, unit: "months" }, needs: "orderHistory", exception: "FIRST_TIME_PRODUCT" },
- { id: "quantity_anomaly", label: "Quantity anomaly", check: "Quantity is more than N × this customer's median for the product", param: { key: "multiplier", label: "N", default: 3, unit: "×" }, needs: "orderHistory", exception: "QUANTITY_ANOMALY" },
- { id: "due_date_sanity", label: "Due-date sanity", check: "Due date is in the past, unparseable, or more than N days out", param: { key: "maxDays", label: "max", default: 180, unit: "days" }, needs: null, exception: "DUE_DATE_INVALID" },
- { id: "restricted_product", label: "Restricted product", check: "A resolved product is flagged restricted or inactive", param: null, needs: "product", exception: "RESTRICTED_PRODUCT" },
-];
+/** Business guardrails are rules over the template fields (`guardrail-rules.js`). This alias
+ *  is the purchase-order preset, for older imports. */
+export { PURCHASE_ORDER_RULES as RECORD_GUARDRAILS } from "./guardrail-rules";
 
 /** What the target creates. One entry per target system the platform knows how to write. */
 export const TARGET_OBJECTS = {

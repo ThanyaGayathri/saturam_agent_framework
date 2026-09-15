@@ -28,6 +28,9 @@ from starlette.middleware.cors import CORSMiddleware
 
 from egpt_retail.api.routers.business_areas import router as business_areas_router
 from egpt_retail.api.routers.dashboards import router as dashboards_router
+from egpt_retail.api.routers.extraction_templates import (
+    router as extraction_templates_router,
+)
 from egpt_retail.api.routers.kpis import router as kpis_router
 from egpt_retail.api.routers.playground import router as playground_router
 from egpt_retail.api.routers.semantic import router as semantic_router
@@ -332,6 +335,7 @@ def build_agent_os(settings: RetailSettings) -> EgptOS:
     base_app.include_router(kpis_router)
     base_app.include_router(semantic_router)
     base_app.include_router(use_cases_router)
+    base_app.include_router(extraction_templates_router)
     _register_exception_handlers(base_app)
 
     os_app = EgptOS(

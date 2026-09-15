@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from egpt.workflow.types import StepInput, StepOutput
 
-from egpt_retail.documents.guardrails import check_document, guardrails_from
+from egpt_retail.documents.guardrails import check_document, rules_from
 from egpt_retail.executors.batch import (
     add_exception,
     batch_from,
@@ -108,7 +108,7 @@ async def apply_hard_limits(step_input: StepInput) -> StepOutput:
             success=True,
             stop=True,
         )
-    enabled = guardrails_from(slot(step_input, "guardrails", "all"))
+    enabled = rules_from(slot(step_input, "guardrails", "all"))
     master = _master_rows(step_input, batch)
     survivors: List[Dict[str, Any]] = []
     skipped: set = set()
@@ -143,7 +143,7 @@ async def apply_hard_limits(step_input: StepInput) -> StepOutput:
         survivors.append(document)
     batch["documents"] = survivors
     batch.setdefault("stats", {})["passed_guardrails"] = len(survivors)
-    batch["guardrails_enabled"] = [g.id for g, _ in enabled]
+    batch["guardrails_enabled"] = [rule.id for rule in enabled]
     batch["guardrails_skipped"] = sorted(skipped)
     nothing_left = not survivors and not batch["exceptions"]
     return StepOutput(content=batch, success=True, stop=nothing_left)

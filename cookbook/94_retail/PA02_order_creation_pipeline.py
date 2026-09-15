@@ -343,7 +343,40 @@ def _finish(
     return 0 if (summary["mismatches"] or 0) == 0 else 1
 
 
+def _already_seeded(mailbox: Any) -> set:
+    """The sample subjects already in the inbox, so a rerun after a Gmail throttle sends
+    only what is missing rather than a second copy of everything."""
+    import email.header
+    import imaplib
+
+    subjects: set = set()
+    client = imaplib.IMAP4_SSL(mailbox.imap_host)
+    try:
+        client.login(mailbox.user, mailbox.password)
+        client.select(mailbox.folder)
+        status, data = client.search(None, "SUBJECT", f'"{SEED_PREFIX.rstrip(": ")}"')
+        for uid in (data[0] or b"").split() if status == "OK" else []:
+            status, parts = client.fetch(uid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
+            for part in parts:
+                if isinstance(part, tuple):
+                    raw = part[1].decode("utf-8", "replace").partition(":")[2].strip()
+                    decoded = "".join(
+                        (t.decode(enc or "utf-8") if isinstance(t, bytes) else t)
+                        for t, enc in email.header.decode_header(raw)
+                    )
+                    subjects.add(decoded.replace(SEED_PREFIX, "", 1).strip())
+    finally:
+        try:
+            client.logout()
+        except Exception:
+            pass
+    return subjects
+
+
 def seed_mailbox() -> int:
+    """Send the sample emails to the inbox. Idempotent: subjects already there are skipped,
+    and a temporary SMTP refusal (Gmail's 421 rate limit) is retried on a fresh connection
+    after a pause rather than aborting the batch part-way."""
     _load_env("gmail.env")
     mailbox = mailbox_from(None)
     if not mailbox.configured:
@@ -351,12 +384,24 @@ def seed_mailbox() -> int:
             "gmail.env is missing: GMAIL_USER and GMAIL_APP_PASSWORD are needed to seed the inbox"
         )
         return 2
-    client = smtplib.SMTP(mailbox.smtp_host, mailbox.smtp_port)
-    client.starttls()
-    client.login(mailbox.user, mailbox.password)
+    present = _already_seeded(mailbox)
+    if present:
+        print(f"  {len(present)} sample emails already in the inbox; sending the rest")
+
+    def connect() -> smtplib.SMTP:
+        client = smtplib.SMTP(mailbox.smtp_host, mailbox.smtp_port)
+        client.starttls()
+        client.login(mailbox.user, mailbox.password)
+        return client
+
+    client = connect()
     sent = 0
+    skipped = 0
     try:
         for message in sample_messages():
+            if message.subject in present:
+                skipped += 1
+                continue
             mail = EmailMessage()
             mail["From"] = mailbox.user
             mail["To"] = mailbox.user
@@ -372,13 +417,35 @@ def seed_mailbox() -> int:
                 subtype="pdf",
                 filename=attachment.filename,
             )
-            client.send_message(mail)
+            for attempt in range(1, 5):
+                try:
+                    client.send_message(mail)
+                    break
+                except (smtplib.SMTPDataError, smtplib.SMTPServerDisconnected) as exc:
+                    code = getattr(exc, "smtp_code", 0)
+                    if attempt == 4 or not (400 <= int(code or 421) < 500):
+                        raise
+                    wait = 15 * attempt
+                    print(
+                        f"  Gmail refused temporarily ({code}); waiting {wait}s and reconnecting"
+                    )
+                    try:
+                        client.quit()
+                    except Exception:
+                        pass
+                    time.sleep(wait)
+                    client = connect()
             sent += 1
             print(f"  sent {message.subject:<28} reply-to {message.sender}")
+            time.sleep(2)  # Gmail throttles bursts of attachments from one account
     finally:
-        client.quit()
+        try:
+            client.quit()
+        except Exception:
+            pass
     print(
-        f"\n{sent} sample emails sent to {mailbox.user}. Give Gmail a minute, then run --live."
+        f"\n{sent} sample emails sent to {mailbox.user}, {skipped} already there. "
+        "Give Gmail a minute, then run the use case."
     )
     return 0
 

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -1432,6 +1432,111 @@
           }
         }
       },
+      "ExtractionTemplate": {
+        "type": "object",
+        "description": "A document kind the Extract stage fills (1.4.0). The three shipped ones are rows of the\nsame shape; a template a person assembles on the form, or the model drafts from a\ndescription and an example, is stored on the use case's spec as the `extraction template`\nparameter and runs the same extractor. Nothing about a template is code.\n",
+        "required": [
+          "label",
+          "header",
+          "lines"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Slug; derived from the label when absent."
+          },
+          "label": {
+            "type": "string"
+          },
+          "record": {
+            "type": "string",
+            "default": "",
+            "description": "What one document becomes: order, payable, return, receipt."
+          },
+          "header": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionTemplateField"
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionTemplateField"
+            }
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "shipped",
+              "drafted",
+              "authored"
+            ],
+            "description": "Where the template came from; `authored` when absent."
+          }
+        }
+      },
+      "ExtractionTemplateDraft": {
+        "type": "object",
+        "required": [
+          "template",
+          "notes"
+        ],
+        "properties": {
+          "template": {
+            "$ref": "#/components/schemas/ExtractionTemplate"
+          },
+          "notes": {
+            "type": "string",
+            "description": "What the model was unsure about; empty on a clean draft."
+          }
+        }
+      },
+      "ExtractionTemplateDraftRequest": {
+        "type": "object",
+        "required": [
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "The use case's own words: what arrives and what it should become."
+          },
+          "label": {
+            "type": "string",
+            "description": "The document kind's name, when the person has one."
+          },
+          "example_text": {
+            "type": "string",
+            "description": "The text of an example document, when one is at hand."
+          },
+          "example_document_b64": {
+            "type": "string",
+            "description": "A PDF of an example document, base64; its text layer is read server-side."
+          }
+        }
+      },
+      "ExtractionTemplateField": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "snake_case field name; the extraction step fills exactly this."
+          },
+          "required": {
+            "type": "boolean",
+            "default": false
+          },
+          "hint": {
+            "type": "string",
+            "default": "",
+            "description": "Where on the document the field is usually found, for the extractor."
+          }
+        }
+      },
       "Feasibility": {
         "type": "object",
         "required": [
@@ -1573,6 +1678,103 @@
           "refused"
         ],
         "description": "What R6's SQL guard decided. A refused statement never reached the database."
+      },
+      "GuardrailRule": {
+        "type": "object",
+        "description": "One business guardrail (1.4.0): a kind applied to a field, with its parameters and the\nexception it raises. The `guardrails` parameter of a `document_to_record` spec is a list\nof these; the six purchase-order rows keep their ids and exception classes as a preset.\n",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_field": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For total checks, the line field summed; for item checks, the resolved entity on the line."
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "exception": {
+            "type": "string"
+          },
+          "needs": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "GuardrailRuleKind": {
+        "type": "object",
+        "description": "A kind of check the platform can evaluate (1.4.0). A guardrail is one of these applied to a field with parameters.",
+        "required": [
+          "id",
+          "label",
+          "check",
+          "scope",
+          "params",
+          "exception"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "check": {
+            "type": "string",
+            "description": "The check in plain words, with {field} and parameter placeholders."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "header",
+              "line",
+              "any",
+              "none"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Parameter names with their defaults."
+          },
+          "needs": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The master-data role the check reads, or null."
+          },
+          "exception": {
+            "type": "string"
+          }
+        }
       },
       "Harvest": {
         "type": "object",
@@ -3783,7 +3985,7 @@
           "parameters": {
             "type": "object",
             "additionalProperties": true,
-            "description": "The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`{id, param}` (id from the template's guardrail catalogue: duplicate_po,\nunknown_sender, first_time_product, quantity_anomaly, due_date_sanity,\nrestricted_product) for `document_to_record`; `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n"
+            "description": "The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`GuardrailRule` rows for `document_to_record` (1.4.0; the legacy `{id, param}` rows\nnaming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,\nquantity_anomaly, due_date_sanity, restricted_product -- are still read);\n`extraction template` is a shipped template's id or an `ExtractionTemplate` object\nthe form assembled (1.4.0); `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n"
           }
         }
       },
@@ -10242,6 +10444,363 @@
                       "detail": "No use case 'uc_9999'.",
                       "code": "not_found"
                     }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/extraction-templates": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listExtractionTemplates",
+        "summary": "The document kinds that ship with the platform.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExtractionTemplate"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "purchase_order",
+                        "label": "Purchase order",
+                        "record": "order",
+                        "source": "shipped",
+                        "header": [
+                          {
+                            "name": "po_number",
+                            "required": true
+                          },
+                          {
+                            "name": "customer_name",
+                            "required": true
+                          },
+                          {
+                            "name": "ship_to_address",
+                            "required": true
+                          },
+                          {
+                            "name": "due_date"
+                          }
+                        ],
+                        "lines": [
+                          {
+                            "name": "line_no",
+                            "required": true
+                          },
+                          {
+                            "name": "description",
+                            "required": true
+                          },
+                          {
+                            "name": "quantity",
+                            "required": true
+                          },
+                          {
+                            "name": "unit_of_measure",
+                            "required": true
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/extraction-templates/draft": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "draftExtractionTemplate",
+        "summary": "Draft a template's fields from a description and an example document.",
+        "description": "The extraction model reads the description (and the example's text, when one is\nsupplied) and proposes a field list in the template's shape, every field snake_case, the\nones the description calls essential marked required. The person edits and keeps it; the\ndraft is never stored by itself.\n",
+        "x-egpt-scopes": [
+          "use-cases:write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionTemplateDraftRequest"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "description": "Suppliers email delivery notes as PDFs; create a goods receipt per note.",
+                    "label": "Delivery note"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The draft.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionTemplateDraft"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "template": {
+                        "id": "delivery_note",
+                        "label": "Delivery note",
+                        "record": "receipt",
+                        "source": "drafted",
+                        "header": [
+                          {
+                            "name": "note_number",
+                            "required": true
+                          },
+                          {
+                            "name": "supplier_name",
+                            "required": true
+                          },
+                          {
+                            "name": "delivery_date",
+                            "required": true
+                          },
+                          {
+                            "name": "po_reference"
+                          }
+                        ],
+                        "lines": [
+                          {
+                            "name": "line_no",
+                            "required": true
+                          },
+                          {
+                            "name": "description",
+                            "required": true
+                          },
+                          {
+                            "name": "quantity",
+                            "required": true
+                          },
+                          {
+                            "name": "unit_of_measure"
+                          }
+                        ]
+                      },
+                      "notes": ""
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token lacks `use-cases:write`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": "Insufficient permissions. Required scopes: use-cases:write.",
+                      "code": "insufficient_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No extraction model is configured, so nothing can draft.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "no_model": {
+                    "value": {
+                      "detail": "No extraction model is configured (AZURE_OPENAI_API_KEY).",
+                      "code": "model_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/guardrail-rules/kinds": {
+      "get": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "listGuardrailRuleKinds",
+        "summary": "The kinds of check the platform can evaluate.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Rule kinds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GuardrailRuleKind"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "duplicate_reference",
+                        "label": "Duplicate reference",
+                        "check": "A record for this customer with the same {field} already exists (last {lookback_months} months)",
+                        "scope": "header",
+                        "params": {
+                          "lookback_months": 12
+                        },
+                        "needs": "order_history",
+                        "exception": "DUPLICATE_REFERENCE"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/guardrail-rules/suggest": {
+      "post": {
+        "tags": [
+          "use-cases"
+        ],
+        "operationId": "suggestGuardrailRules",
+        "summary": "The rules a template's own fields call for.",
+        "description": "Deterministic. A reference-like header field proposes a duplicate check, a promised date a date window, a quantity an outlier check, a total a reconciliation with the lines. The person turns them on.",
+        "x-egpt-scopes": [
+          "use-cases:read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionTemplate"
+              },
+              "examples": {
+                "default": {
+                  "value": {
+                    "label": "Supplier invoice",
+                    "header": [
+                      {
+                        "name": "invoice_number",
+                        "required": true
+                      },
+                      {
+                        "name": "due_date"
+                      },
+                      {
+                        "name": "total",
+                        "required": true
+                      }
+                    ],
+                    "lines": [
+                      {
+                        "name": "line_no",
+                        "required": true
+                      },
+                      {
+                        "name": "description",
+                        "required": true
+                      },
+                      {
+                        "name": "quantity"
+                      },
+                      {
+                        "name": "line_total",
+                        "required": true
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Suggested rules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GuardrailRule"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "id": "sender_known",
+                        "kind": "sender_known",
+                        "label": "Sender known",
+                        "field": null,
+                        "params": {},
+                        "exception": "UNKNOWN_SENDER",
+                        "needs": "customer"
+                      },
+                      {
+                        "id": "duplicate_invoice_number",
+                        "kind": "duplicate_reference",
+                        "label": "Duplicate invoice number",
+                        "field": "invoice_number",
+                        "params": {
+                          "lookback_months": 12
+                        },
+                        "exception": "DUPLICATE_REFERENCE",
+                        "needs": "order_history"
+                      },
+                      {
+                        "id": "total_total",
+                        "kind": "total_matches_lines",
+                        "label": "Total matches the lines",
+                        "field": "total",
+                        "line_field": "line_total",
+                        "params": {
+                          "tolerance": 0.01
+                        },
+                        "exception": "TOTAL_MISMATCH",
+                        "needs": null
+                      }
+                    ]
                   }
                 }
               }

@@ -197,6 +197,45 @@ class ExecutionCost(BaseModel):
     )
 
 
+class Source(Enum):
+    """
+    Where the template came from; `authored` when absent.
+    """
+
+    shipped = "shipped"
+    drafted = "drafted"
+    authored = "authored"
+
+
+class ExtractionTemplateDraftRequest(BaseModel):
+    description: str = Field(
+        ...,
+        description="The use case's own words: what arrives and what it should become.",
+    )
+    label: str | None = Field(
+        None, description="The document kind's name, when the person has one."
+    )
+    example_text: str | None = Field(
+        None, description="The text of an example document, when one is at hand."
+    )
+    example_document_b64: str | None = Field(
+        None,
+        description="A PDF of an example document, base64; its text layer is read server-side.",
+    )
+
+
+class ExtractionTemplateField(BaseModel):
+    name: str = Field(
+        ...,
+        description="snake_case field name; the extraction step fills exactly this.",
+    )
+    required: bool | None = False
+    hint: str | None = Field(
+        "",
+        description="Where on the document the field is usually found, for the extractor.",
+    )
+
+
 class FeasibilityVerdict(Enum):
     """
     The result of a set difference, never an opinion. Mirrors `egpt_retail.contracts.kpi.FeasibilityVerdict`.
@@ -239,6 +278,55 @@ class GuardDecision(Enum):
 
     allowed = "allowed"
     refused = "refused"
+
+
+class GuardrailRule(BaseModel):
+    """
+    One business guardrail (1.4.0): a kind applied to a field, with its parameters and the
+    exception it raises. The `guardrails` parameter of a `document_to_record` spec is a list
+    of these; the six purchase-order rows keep their ids and exception classes as a preset.
+
+    """
+
+    id: str
+    kind: str
+    label: str | None = None
+    field: str | None = None
+    line_field: str | None = Field(
+        None,
+        description="For total checks, the line field summed; for item checks, the resolved entity on the line.",
+    )
+    params: dict[str, float] | None = None
+    exception: str | None = None
+    needs: str | None = None
+
+
+class Scope(Enum):
+    header = "header"
+    line = "line"
+    any = "any"
+    none = "none"
+
+
+class GuardrailRuleKind(BaseModel):
+    """
+    A kind of check the platform can evaluate (1.4.0). A guardrail is one of these applied to a field with parameters.
+    """
+
+    id: str
+    label: str
+    check: str = Field(
+        ...,
+        description="The check in plain words, with {field} and parameter placeholders.",
+    )
+    scope: Scope
+    params: dict[str, float] = Field(
+        ..., description="Parameter names with their defaults."
+    )
+    needs: str | None = Field(
+        None, description="The master-data role the check reads, or null."
+    )
+    exception: str
 
 
 class HarvestRequest(BaseModel):
@@ -1211,6 +1299,36 @@ class ExternalIntegrationWrite(BaseModel):
     webhook_secret: str | None = None
 
 
+class ExtractionTemplate(BaseModel):
+    """
+    A document kind the Extract stage fills (1.4.0). The three shipped ones are rows of the
+    same shape; a template a person assembles on the form, or the model drafts from a
+    description and an example, is stored on the use case's spec as the `extraction template`
+    parameter and runs the same extractor. Nothing about a template is code.
+
+    """
+
+    id: str | None = Field(
+        None, description="Slug; derived from the label when absent."
+    )
+    label: str
+    record: str | None = Field(
+        "", description="What one document becomes: order, payable, return, receipt."
+    )
+    header: list[ExtractionTemplateField]
+    lines: list[ExtractionTemplateField]
+    source: Source | None = Field(
+        None, description="Where the template came from; `authored` when absent."
+    )
+
+
+class ExtractionTemplateDraft(BaseModel):
+    template: ExtractionTemplate
+    notes: str = Field(
+        ..., description="What the model was unsure about; empty on a clean draft."
+    )
+
+
 class Feasibility(BaseModel):
     kpi_id: str
     verdict: FeasibilityVerdict
@@ -2039,5 +2157,5 @@ class Spec(BaseModel):
     )
     parameters: dict[str, Any] | None = Field(
         None,
-        description="The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`{id, param}` (id from the template's guardrail catalogue: duplicate_po,\nunknown_sender, first_time_product, quantity_anomaly, due_date_sanity,\nrestricted_product) for `document_to_record`; `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n",
+        description="The per-shape form's values, keyed by parameter name exactly as\n`contracts.use_case.SHAPE_PARAMETERS[shape]` (or `TEMPLATE_PARAMETERS[template]`)\nlists them (1.2.0, R-15): for Inform `metrics, dimensions, comparison, schedule,\nrecipient`; for Alert `metric, operator, threshold, scope, severity, recipient,\nschedule`; for Recommend `candidates, metrics, guardrails, approver, write target,\ntimeout behaviour, schedule`; for Act `candidates, metrics, guardrails, write target,\nper-run cap, rollback, schedule`; for the `document_to_record` template `source\nmailbox, message filter, document type, extraction template, example document,\nmaster data, match thresholds, guardrails, recipient, acknowledge, write target,\ntarget objects, created as, per-run cap, rollback, schedule`. Keys may be written as\nthe name or its slug (`per-run cap` or `per_run_cap`). The gap check and the compiler\nread this one place; a value the author typed on the form (the draft) still wins over\na value the extractor put here, and the compiled workflow records which.\n\nValue shapes, so the interface and the compiler agree: `guardrails` is a list of\n`{metric, operator (gte|lte), threshold, unit}` for the KPI shapes and a list of\n`GuardrailRule` rows for `document_to_record` (1.4.0; the legacy `{id, param}` rows\nnaming the purchase-order preset -- duplicate_po, unknown_sender, first_time_product,\nquantity_anomaly, due_date_sanity, restricted_product -- are still read);\n`extraction template` is a shipped template's id or an `ExtractionTemplate` object\nthe form assembled (1.4.0); `candidates` is `{concept, filter}`;\n`recipient` is `{who, channels[]}` where channels are `DeliveryChannel` values;\n`master data` is `{customer, contact, shipTo, product, orderHistory}` naming\nsemantic-layer objects; `match thresholds` is `{address, product, name, ambiguity,\naiDisambiguation}`; `timeout behaviour` is one of `cancel, remind, escalate, proceed`;\n`created as` is `draft` or `active`. Everything else is a string.\n",
     )

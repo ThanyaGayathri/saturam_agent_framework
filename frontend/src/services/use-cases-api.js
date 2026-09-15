@@ -95,3 +95,21 @@ export async function pollUseCaseRun(useCaseId, runId, { signal, onTick, maxMs =
     });
   }
 }
+
+/** The document kinds that ship with the platform (K17). */
+export function fetchExtractionTemplates({ signal } = {}) {
+  return apiGet("/extraction-templates", { signal });
+}
+
+/** Draft a template's fields from a description and, optionally, an example document (K17).
+ *  `example` is `{ text }` or `{ documentB64 }`. */
+export function draftExtractionTemplate({ description, label, example }, { signal } = {}) {
+  const body = { description, label: label || undefined, example_text: example?.text || undefined, example_document_b64: example?.documentB64 || undefined };
+  return apiJson("/extraction-templates/draft", "POST", body, { signal });
+}
+
+/** The rules a template's own fields call for, from the platform (K17). The interface has the
+ *  same suggester in `domain/guardrail-rules.js` for when the API is not reachable. */
+export function suggestGuardrailRules(template, { signal } = {}) {
+  return apiJson("/guardrail-rules/suggest", "POST", template, { signal });
+}

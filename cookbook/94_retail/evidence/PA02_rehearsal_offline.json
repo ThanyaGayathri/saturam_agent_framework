@@ -1,5 +1,5 @@
 {
-  "ran_at": "20260915T111802Z",
+  "ran_at": "20260915T140149Z",
   "live": false,
   "model": false,
   "outcomes": {
@@ -23,7 +23,7 @@
   "mismatches": 0,
   "rollback": {
     "policy": "Cancel the record and remove its lines",
-    "run_id": "2b76031e-44e0-45c5-bd3d-65474ae8143c",
+    "run_id": "cf47d297-0215-4a61-ba6e-11f433effd48",
     "points": 0,
     "persisted": false,
     "records": []

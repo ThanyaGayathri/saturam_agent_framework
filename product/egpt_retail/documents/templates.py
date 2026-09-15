@@ -10,6 +10,7 @@ blank on the record.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -17,7 +18,9 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 __all__ = [
     "ExtractionTemplate",
     "EXTRACTION_TEMPLATES",
+    "template_from",
     "template_for",
+    "template_to_dict",
     "validate_extraction",
     "schema_for",
 ]
@@ -115,13 +118,69 @@ EXTRACTION_TEMPLATES: Mapping[str, ExtractionTemplate] = MappingProxyType(
 )
 
 
-def template_for(identifier: Any) -> ExtractionTemplate:
-    """The template a slot value names. Accepts the id or the label, case-insensitively."""
-    key = str(identifier or "").strip().lower()
+def _slug(text: str) -> str:
+    return (
+        re.sub(r"[^a-z0-9]+", "_", str(text).strip().lower()).strip("_") or "document"
+    )
+
+
+def _field_tuple(raw: Any) -> Tuple[str, bool]:
+    """``"po_number*"`` or ``{"name": "po_number", "required": true}`` -> ``(name, required)``."""
+    if isinstance(raw, Mapping):
+        return _slug(str(raw.get("name") or raw.get("id") or "")), bool(
+            raw.get("required", False)
+        )
+    text = str(raw or "").strip()
+    return _slug(text.rstrip("*")), text.endswith("*")
+
+
+def template_from(value: Any) -> ExtractionTemplate:
+    """The template a slot value names or carries.
+
+    A string is an id or a label of a shipped template. A mapping is a template the person
+    assembled on the form (K17): ``{id?, label, record?, header: [...], lines: [...]}`` with
+    fields as ``"name*"`` strings or ``{name, required}`` objects. Nothing about a template
+    is code, so a use case onboarded tomorrow with a document kind the platform has never
+    seen runs the same extractor with its own field list.
+    """
+    if isinstance(value, ExtractionTemplate):
+        return value
+    if isinstance(value, Mapping):
+        label = str(
+            value.get("label") or value.get("name") or value.get("id") or "Document"
+        )
+        identifier = _slug(str(value.get("id") or label))
+        header = tuple(_field_tuple(f) for f in value.get("header") or [])
+        lines = tuple(_field_tuple(f) for f in value.get("lines") or [])
+        header = tuple(f for f in header if f[0])
+        lines = tuple(f for f in lines if f[0])
+        if not header and not lines:
+            shipped = EXTRACTION_TEMPLATES.get(identifier)
+            if shipped is not None:
+                return shipped
+            raise ValueError(f"extraction template {label!r} declares no fields")
+        record = str(value.get("record") or value.get("creates") or identifier)
+        return ExtractionTemplate(identifier, label, record, header, lines)
+    key = str(value or "").strip().lower()
     for template in EXTRACTION_TEMPLATES.values():
         if key in (template.id, template.label.lower()):
             return template
-    raise KeyError(f"unknown extraction template {identifier!r}")
+    raise KeyError(f"unknown extraction template {value!r}")
+
+
+def template_for(identifier: Any) -> ExtractionTemplate:
+    """Alias of :func:`template_from`, kept for the callers that pass an id."""
+    return template_from(identifier)
+
+
+def template_to_dict(template: ExtractionTemplate) -> Dict[str, Any]:
+    return {
+        "id": template.id,
+        "label": template.label,
+        "record": template.record,
+        "header": [f"{n}{'*' if r else ''}" for n, r in template.header],
+        "lines": [f"{n}{'*' if r else ''}" for n, r in template.lines],
+    }
 
 
 def schema_for(template: ExtractionTemplate) -> Dict[str, Any]:

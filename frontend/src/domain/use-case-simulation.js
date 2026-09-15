@@ -1,4 +1,4 @@
-import { RECORD_GUARDRAILS } from "./use-case-autonomy";
+import { evaluateRules, normalizeRules } from "./guardrail-rules";
 
 /**
  * The document-to-record simulation: run the specification over a sample set with the write
@@ -57,9 +57,11 @@ export const SAMPLE_EMAILS = [
  { id: "E-16", from: "orders@harbormarine.example", subject: "PO HM-4492", po: "HM-4492", account: "A-003", shipTo: { street: "9 Pier Ln", postcode: "02740" }, dueDays: 10, lines: [{ desc: "Marine antifouling paint 1 gal", part: "", qty: 12, uom: "EA", product: "P-118", score: 0.93 }], scanned: false, trap: "ship_to_ambiguous" },
 ];
 
-const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
-const enabled = (spec, id) => (spec.recordGuardrails || []).find((g) => g.id === id);
-const paramOf = (spec, id) => { const g = enabled(spec, id); const def = RECORD_GUARDRAILS.find((x) => x.id === id); return g?.param ?? def?.param?.default ?? null; };
+const enabledRules = (spec) => normalizeRules(spec.recordGuardrails);
+const hasKind = (spec, kind) => enabledRules(spec).some((r) => r.kind === kind);
+
+/** The sample accounts' history in the rule interpreter's shape. */
+const HISTORY = SAMPLE_ACCOUNTS.flatMap((a) => Object.entries(a.history).flatMap(([pid, qs]) => qs.map((q, i) => ({ account_id: a.id, reference: `HIST-${a.id}-${pid}-${i}`, product_id: pid, quantity: q }))));
 
 /** Run one email through screen → extract → resolve → guardrails → build, writes off. */
 export function simulateEmail(spec, email, alreadyCreated) {
@@ -71,7 +73,6 @@ export function simulateEmail(spec, email, alreadyCreated) {
  const domain = email.from.split("@")[1];
  const account = SAMPLE_ACCOUNTS.find((a) => a.domain === domain) || null;
  if (domain === OWN_DOMAIN) return stop("NOT_A_PURCHASE_ORDER", "Sent from our own domain.");
- if (enabled(spec, "unknown_sender") && !account) return stop("UNKNOWN_SENDER", `${domain} matches no customer or contact.`);
  steps.push("screened");
 
  // Extract. A scanned copy has no text layer; the platform's reader refuses it before a model
@@ -79,15 +80,19 @@ export function simulateEmail(spec, email, alreadyCreated) {
  if (email.scanned) return stop("SCANNED_DOCUMENT", "No text layer in the PDF; OCR is not enabled, so nothing was extracted.");
  steps.push("extracted");
 
- // Resolve: customer
- if (!account) return stop("CUSTOMER_NOT_FOUND", `No account for ${domain}; name match below ${t.name}.`);
+ // Resolve: customer. An unknown sender is the sender_known rule's call when it is on;
+ // otherwise a name match below threshold is CUSTOMER_NOT_FOUND.
+ if (!account) {
+  if (hasKind(spec, "sender_known")) return stop("UNKNOWN_SENDER", `${domain} matches no customer or contact.`);
+  return stop("CUSTOMER_NOT_FOUND", `No account for ${domain}; name match below ${t.name}.`);
+ }
  // Resolve: ship-to
  const byPost = account.addresses.filter((a) => a.postcode === email.shipTo.postcode);
  const streetNo = (email.shipTo.street.match(/^\d+/) || [])[0];
- const byNo = byPost.filter((a) => a.street.startsWith(streetNo || " "));
+ const byNo = byPost.filter((a) => a.street.startsWith(streetNo || "\u0000"));
  const shipTo = email.trap === "ship_to_ambiguous" ? null : byNo[0] || (byPost.length === 1 ? byPost[0] : null);
  if (!shipTo) {
-  if (byPost.length > 1) return stop("SHIP_TO_AMBIGUOUS", `${byPost.length} addresses at ${email.shipTo.postcode} within ${t.ambiguity} of each other: ${byPost.map((a) => a.street).join(" / ")}.`);
+  if (byPost.length > 1) return stop("SHIP_TO_AMBIGUOUS", `${byPost.length} addresses at ${email.shipTo.postcode} within ${t.ambiguity} of each other: ${byPost.map((a) => a.street).join(" / ")}. The document does not say which.`);
   return stop("SHIP_TO_NOT_FOUND", `No address for ${account.name} at ${email.shipTo.postcode}.`);
  }
  // Resolve: products
@@ -97,29 +102,28 @@ export function simulateEmail(spec, email, alreadyCreated) {
   const product = byPart ? SAMPLE_PRODUCTS.find((p) => p.id === byPart) : line.product && line.score >= (t.product ?? 0.85) ? SAMPLE_PRODUCTS.find((p) => p.id === line.product) : null;
   if (!product) {
    const closest = SAMPLE_PRODUCTS.find((p) => p.id === line.closest);
-   return stop("PRODUCT_NOT_FOUND", `Line "${line.desc}": ${closest ? `closest match ${closest.name} (${line.score.toFixed(2)})` : "no candidate"} — below ${t.product}.`);
+   return stop("PRODUCT_NOT_FOUND", `Line "${line.desc}": ${closest ? `closest match ${closest.name} (${line.score.toFixed(2)})` : "no candidate"} — below the ${t.product ?? 0.85} threshold.`);
   }
   resolved.push({ ...line, productRec: product });
  }
  steps.push("resolved");
 
- // Guardrails
- const lookback = paramOf(spec, "duplicate_po");
- if (enabled(spec, "duplicate_po") && alreadyCreated.has(`${account.id}:${email.po}`)) return stop("DUPLICATE_PO", `An order for ${account.name} with PO ${email.po} already exists (created earlier in this set; lookback ${lookback} months).`);
- for (const line of resolved) {
-  if (enabled(spec, "restricted_product") && line.productRec.restricted) return stop("RESTRICTED_PRODUCT", `${line.productRec.name} is flagged restricted.`);
-  const hist = account.history[line.productRec.id];
-  if (enabled(spec, "first_time_product") && !hist) return stop("FIRST_TIME_PRODUCT", `${account.name} has never ordered ${line.productRec.name} (lookback ${paramOf(spec, "first_time_product")} months).`);
-  const n = paramOf(spec, "quantity_anomaly");
-  if (enabled(spec, "quantity_anomaly") && hist && line.qty > n * median(hist)) return stop("QUANTITY_ANOMALY", `${line.qty} ${line.uom} of ${line.productRec.name}; median for ${account.name} is ${median(hist)} — more than ${n}×.`);
- }
- const maxDays = paramOf(spec, "due_date_sanity");
- if (enabled(spec, "due_date_sanity") && (email.dueDays < 0 || email.dueDays > maxDays)) return stop("DUE_DATE_INVALID", email.dueDays < 0 ? `Due date is ${-email.dueDays} days in the past.` : `Due date is ${email.dueDays} days out (max ${maxDays}).`);
+ // Guardrails: the same rule interpreter the platform runs, over the extracted shape.
+ const today = new Date();
+ const due = new Date(today.getTime() + email.dueDays * 86400000);
+ const doc = {
+  sender: email.from,
+  customer: { id: account.id, resolved: true, method: "sender_domain" },
+  header: { po_number: email.po, due_date: due.toISOString().slice(0, 10), order_total: resolved.reduce((s, l) => s + (l.price || 0) * l.qty, 0) },
+  lines: resolved.map((l, i) => ({ line_no: i + 1, description: l.desc, quantity: l.qty, unit_of_measure: l.uom, line_total: (l.price || 0) * l.qty, item: { id: l.productRec.id, name: l.productRec.name, restricted: !!l.productRec.restricted, resolved: true } })),
+ };
+ const verdict = evaluateRules(enabledRules(spec), doc, { history: HISTORY, masterData: spec.masterData || {}, seen: alreadyCreated, today });
+ if (verdict) return stop(verdict.class, verdict.detail);
  steps.push("validated");
 
  // Build
  steps.push("built");
- alreadyCreated.add(`${account.id}:${email.po}`);
+ alreadyCreated.add(`${account.id}:${String(email.po).toLowerCase()}`);
  return {
   id: email.id, from: email.from, subject: email.subject, po: email.po, status: "created", classification: null, steps,
   account, shipTo, lines: resolved,
