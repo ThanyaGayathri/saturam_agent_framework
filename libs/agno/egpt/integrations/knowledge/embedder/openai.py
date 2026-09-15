@@ -3,6 +3,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union, overload
 
 from typing_extensions import Literal
 
+from egpt.integrations.knowledge.embedder._embedding_ordering import sorted_embeddings
 from egpt.knowledge.embedder.base import Embedder
 from egpt.utils.log import log_info, log_warning
 
@@ -34,6 +35,11 @@ class OpenAIEmbedder(Embedder):
     #: not a per-instance switch. Before this, a list passed here was sent as one request (the
     #: endpoint accepts a list natively) and ``response.data[0]`` alone came back -- one vector
     #: for N texts, which a caller batching an ontology into the store read as a count mismatch.
+    #:
+    #: Declaring this also has a side effect on ``egpt.memory.embedding``: a batching embedder's
+    #: calls are not usage-metered through ``MemoryEmbedder.embed_texts``/``aembed_texts`` (see
+    #: that method's docstring for why) -- ``OpenAIEmbedder`` now shares that known gap with
+    #: ``AzureOpenAIEmbedder``, deliberately, rather than as an incidental side effect of this flag.
     accepts_text_batches: ClassVar[bool] = True
 
     def __post_init__(self):
@@ -106,7 +112,7 @@ class OpenAIEmbedder(Embedder):
             response: CreateEmbeddingResponse = self.response(text=text)
             if isinstance(text, str):
                 return response.data[0].embedding
-            return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
+            return sorted_embeddings(response)
         except Exception as e:
             log_warning(f"Failed to get embedding: {str(e)}")
             return []
@@ -134,7 +140,7 @@ class OpenAIEmbedder(Embedder):
             response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**self._request_params_for(text))
             if isinstance(text, str):
                 return response.data[0].embedding
-            return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
+            return sorted_embeddings(response)
         except Exception as e:
             log_warning(f"Failed to get async embedding: {str(e)}")
             return []
@@ -196,7 +202,7 @@ class OpenAIEmbedder(Embedder):
 
             try:
                 response: CreateEmbeddingResponse = await self.aclient.embeddings.create(**req)
-                batch_embeddings = [data.embedding for data in response.data]
+                batch_embeddings = sorted_embeddings(response)
                 all_embeddings.extend(batch_embeddings)
 
                 # For each embedding in the batch, add the same usage information

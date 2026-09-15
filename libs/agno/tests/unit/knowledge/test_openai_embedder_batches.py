@@ -74,3 +74,15 @@ async def test_the_async_half_has_the_same_contract():
     vectors = await embedder.async_get_embedding(["a", "b"])
     assert vectors == [[0.0, 0.5], [1.0, 1.5]]
     assert [c["input"] for c in embeddings.calls] == ["one", ["a", "b"]]
+
+
+@pytest.mark.asyncio
+async def test_async_get_embeddings_batch_and_usage_also_sorts_by_index():
+    """Review finding on #270: this method sends the same list-input request as
+    ``async_get_embedding`` but read ``response.data`` back in raw order, with no sort guard --
+    the same bug this PR fixes elsewhere in this file, missed on this call site. ``_response_for``
+    already returns records out of order, so a regression here would zip a vector to the wrong
+    text rather than merely fail an equality check."""
+    embedder, _ = _embedder(sync=False)
+    embeddings, usage = await embedder.async_get_embeddings_batch_and_usage(["a", "b", "c"])
+    assert embeddings == [[0.0, 0.5], [1.0, 1.5], [2.0, 2.5]]

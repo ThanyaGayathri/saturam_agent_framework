@@ -694,9 +694,10 @@ class MemoryEmbedder:
         ``AzureOpenAIEmbedder._response`` wraps its argument in ``[text]``, so a list argument
         becomes a nested list of one and the request is sent wrong). So a batching embedder's calls
         are not metered through this hook today -- a known gap for ``AzureOpenAIEmbedder`` (Mode
-        B's paid default) and ``SentenceTransformerEmbedder`` (Mode A's, though that one runs
-        in-process with no API cost to meter anyway) -- tracked as follow-up rather than risking a
-        corrupted embedding request to close it here. A caller that also implements
+        B's paid default), ``OpenAIEmbedder`` (declares the same capability as of #269/#270, for the
+        same reason) and ``SentenceTransformerEmbedder`` (Mode A's, though that one runs in-process
+        with no API cost to meter anyway) -- tracked as follow-up rather than risking a corrupted
+        embedding request to close it here. A caller that also implements
         ``async_get_embeddings_batch_and_usage`` is unaffected by this gap on write-back, since
         that path does not go through this wrapper at all.
         """

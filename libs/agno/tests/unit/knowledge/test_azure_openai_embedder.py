@@ -255,3 +255,31 @@ class TestAzureOpenAIEmbedderBatching:
         result = await embedder.async_get_embedding(["a", "b", "c"])
 
         assert result == [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
+
+    @pytest.mark.asyncio()
+    async def test_async_get_embeddings_batch_and_usage_also_sorts_by_index(self, _mock_openai):
+        """Review finding on #270: this method sends the same list-input request as
+        ``async_get_embedding`` but read ``response.data`` back in raw order, with no sort guard --
+        the same bug closed elsewhere in this class, missed on this call site."""
+        _, mock_response = _mock_openai
+        mock_response.data = [
+            MagicMock(index=2, embedding=[0.3, 0.3]),
+            MagicMock(index=0, embedding=[0.1, 0.1]),
+            MagicMock(index=1, embedding=[0.2, 0.2]),
+        ]
+
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+
+        async_mock = MagicMock()
+        async_mock.embeddings.create = AsyncMock(return_value=mock_response)
+
+        embedder = AzureOpenAIEmbedder(
+            id="text-embedding-3-small",
+            api_key="test-key",
+            azure_endpoint="https://test.openai.azure.com/",
+            async_client=async_mock,
+        )
+
+        embeddings, _usage = await embedder.async_get_embeddings_batch_and_usage(["a", "b", "c"])
+
+        assert embeddings == [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
