@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
  Search, ChevronRight, ChevronDown, ChevronLeft,
  ChevronsLeft, ChevronsRight, Folder, FolderOpen,
@@ -7,6 +7,7 @@ import {
 import { useKpiRegistry } from "../hooks/useKpiRegistry";
 import { useProcesses } from "../hooks/useProcesses";
 import { useBusinessAreas } from "../hooks/useBusinessAreas";
+import { useConsumeRouterState } from "../hooks/useConsumeRouterState";
 import { useDemoProfile } from "../context/DemoProfileContext";
 import { getDatasetById } from "../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../domain/kpi-usecase-links";
@@ -118,6 +119,17 @@ export default function KpiMappings() {
  const [editorOpen, setEditorOpen] = useState(false);
  // AddKpiPanel expects editTarget = { ci, si, ki } to edit, or null to create.
  const [editTarget, setEditTarget] = useState(null);
+
+ // Arriving from Discovery's "Edit KPI" (KpiDiscoveryPage.jsx), pre-targeted at the row that
+ // sent us here instead of landing on the generic table and making the customer re-find it.
+ // `useConsumeRouterState` clears just this key from history state once read, so a later
+ // back-navigation or refresh to this same URL does not keep reopening the editor.
+ const editTargetFromNav = useConsumeRouterState("editTarget");
+ useEffect(() => {
+  if (!editTargetFromNav) return;
+  setEditTarget(editTargetFromNav);
+  setEditorOpen(true);
+ }, [editTargetFromNav]);
 
  // ── Derived values ────────────────────────────────────────────────────────
  const autoMappedCount = useMemo(() => allRows.filter(r => mappingStatusForKpi(r.kpi) === "linked").length, [allRows]);

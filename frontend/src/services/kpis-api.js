@@ -92,3 +92,14 @@ export function computeKpi(identifier, { signal } = {}) {
 export function deleteKpi(identifier, { signal } = {}) {
   return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "DELETE", undefined, { signal });
 }
+
+/** `PATCH /kpis/{kpi_id}` - edit an already-adopted KPI's definition. `body` is a `KpiWrite`,
+ * same shape as `createKpi`: the required fields (`name`, `description`, `business_area`,
+ * `grain`, `sql`, `source_tables`) must be sent in full every time -- the api carries forward
+ * only the *optional* ones (concept, unit, level, ...) omitted from the body, not the required
+ * ones. Editing `sql` moves the KPI back to review: the server drops `validated_against_snapshot`
+ * whenever `sql`/`source_tables` change. 422s naming the defect the same way `createKpi` does;
+ * 409 if the row changed between the server's own read and write of it (retry by re-fetching). */
+export function updateKpi(identifier, body, { signal } = {}) {
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "PATCH", body, { signal });
+}

@@ -22,6 +22,7 @@ import {
  fetchKpiSeries,
  computeKpi,
  deleteKpi,
+ updateKpi,
 } from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
 
@@ -151,6 +152,10 @@ export default function KpiDiscoveryPage() {
  // api's own account (a 409 names the dashboards still using the KPI) and stays with the
  // panel until it is closed or the removal is retried.
  const [removeState, setRemoveState] = useState({ identifier: null, error: null });
+ // A registry row's description/sql edit (`PATCH /kpis/{id}`), one at a time from whichever
+ // panel is open. A suggestion's edit never reaches here -- it is a local patch to
+ // `suggestionState.suggestions`, always synchronous, with nothing to load or fail.
+ const [updateState, setUpdateState] = useState({ identifier: null, saving: false, error: null });
 
  // The real registry (C1, #232) -- fetched once, additive, never blocking: the seed/suggested
  // rows above render immediately regardless of this state. A failure is a small note, not a
@@ -262,6 +267,7 @@ export default function KpiDiscoveryPage() {
  const lastPhaseRef = useRef(null);
  const adoptAbortRefs = useRef(new Map());
  const removeAbortRef = useRef(null);
+ const updateAbortRef = useRef(null);
  useEffect(
   () => () => {
    suggestAbortRef.current?.abort();
@@ -269,6 +275,7 @@ export default function KpiDiscoveryPage() {
    for (const controller of adoptAbortRefs.current.values()) controller.abort();
    for (const controller of seriesAbortRefs.current.values()) controller.abort();
    removeAbortRef.current?.abort();
+   updateAbortRef.current?.abort();
   },
   []
  );
@@ -643,6 +650,75 @@ export default function KpiDiscoveryPage() {
    });
  };
 
+ // A suggestion is never persisted until adopted, so "editing" it is just rewriting the draft
+ // this page is already holding in `suggestionState.suggestions` -- no request, and nothing
+ // that can fail. Routed through `rowFromSuggestion` (not a manual spread) so the row's `kpi.desc`
+ // etc. stay in sync with `suggestion.description`/`proposed_sql`, the same derivation every
+ // other suggestion row already goes through.
+ const handleEditSuggestionDraft = (row, patch) => {
+  const identifier = row?.suggestion?.identifier;
+  if (!identifier) return;
+  const next = { ...row.suggestion, description: patch.description, proposed_sql: patch.sql };
+  setSuggestionState((prev) => ({
+   ...prev,
+   suggestions: prev.suggestions.map((s) => (s.identifier === identifier ? next : s)),
+  }));
+  setDetailRow((prev) =>
+   prev?.suggested && prev?.suggestion?.identifier === identifier
+    ? rowFromSuggestion(next, prev.kpiIndex)
+    : prev
+  );
+ };
+
+ // The reverse of `handleAdopt`'s create -- `PATCH /kpis/{id}` on an already-governed KPI.
+ // `KpiWrite`'s required fields (name, business_area, grain, source_tables) must be resent in
+ // full even though only description/sql are what the form actually changed -- see
+ // `updateKpi`'s own doc comment for why. `detailRow` is refreshed only on success, which is
+ // also what closes `KpiDetailPanel`'s edit form (see its `useEffect` on `detailRow`); a
+ // failure leaves both the row and the customer's unsaved edit exactly where they were.
+ const handleUpdateKpi = (row, patch) => {
+  const identifier = row?.kpi?.identifier;
+  if (!identifier) return;
+  updateAbortRef.current?.abort();
+  const controller = new AbortController();
+  updateAbortRef.current = controller;
+  setUpdateState({ identifier, saving: true, error: null });
+  updateKpi(
+   identifier,
+   {
+    name: row.kpi.name,
+    description: patch.description,
+    business_area: row.kpi.businessAreaId,
+    grain: row.kpi.grain,
+    sql: patch.sql,
+    source_tables: row.kpi.sourceTables || [],
+   },
+   { signal: controller.signal }
+  )
+   .then((updated) => {
+    if (controller.signal.aborted) return;
+    setRealKpiState((prev) => ({
+     ...prev,
+     kpis: prev.kpis.map((k) => (k.identifier === identifier ? updated : k)),
+    }));
+    setDetailRow((prev) =>
+     prev?.kpi?.identifier === identifier ? rowFromRegistryKpi(updated, prev.kpiIndex) : prev
+    );
+    setUpdateState({ identifier: null, saving: false, error: null });
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    setUpdateState({
+     identifier,
+     saving: false,
+     error: err?.detail || err?.message || "Couldn't save changes.",
+    });
+   })
+   .finally(() => {
+    if (updateAbortRef.current === controller) updateAbortRef.current = null;
+   });
+ };
+
  const realAreaLabelById = useMemo(
   () => Object.fromEntries(areaState.areas.map((a) => [a.id, a.label])),
   [areaState.areas]
@@ -671,6 +747,11 @@ export default function KpiDiscoveryPage() {
    feasibility: k.feasibility,
    resultShape: k.result_shape,
    fromRegistry: true,
+   // Carried through only so an edit (`handleUpdateKpi` below) can resend the required fields
+   // `PATCH /kpis/{id}` demands every time -- not shown anywhere in the panel itself.
+   sql: k.sql,
+   grain: k.grain,
+   sourceTables: k.source_tables || [],
   },
   categoryIndex: -2,
   sectionIndex: -2,
@@ -682,6 +763,9 @@ export default function KpiDiscoveryPage() {
  });
  // The removal error belongs to the row it happened on; another row's panel must not show it.
  const removeError = (row) => (row?.kpi?.fromRegistry ? removeState.error : null);
+ // Same reasoning as `removeError`, for `handleUpdateKpi`'s save.
+ const updateError = (row) =>
+  row?.kpi?.fromRegistry && updateState.identifier === row.kpi.identifier ? updateState.error : null;
 
  const realRows = useMemo(
   () => realKpiState.kpis.map((k, index) => rowFromRegistryKpi(k, index)),
@@ -824,8 +908,29 @@ export default function KpiDiscoveryPage() {
      nameToIdsMap={nameToIdsMap}
      profileId={profileId}
      processLabelById={processLabelById}
-     onEdit={() => { setDetailRow(null); navigate("/configure/domain-mapping"); }}
-     onClose={() => { setRemoveState({ identifier: null, error: null }); setDetailRow(null); }}
+     onEdit={() => {
+      // Only reachable for a real tree row (the panel hides "Edit KPI" for a suggestion and
+      // for a registry row), so categoryIndex/sectionIndex/kpiIndex are genuine positions in
+      // the domain-mapping tree, not a suggestion's -1/-1/identifier sentinel -- KpiMappings.jsx
+      // reads these back to open AddKpiPanel already pre-targeted at this exact row, instead of
+      // landing on the generic, unfiltered table and making the customer re-find it.
+      const { categoryIndex: ci, sectionIndex: si, kpiIndex: ki } = detailRow;
+      setDetailRow(null);
+      navigate("/configure/domain-mapping", { state: { editTarget: { ci, si, ki } } });
+     }}
+     onClose={() => {
+      setRemoveState({ identifier: null, error: null });
+      setUpdateState({ identifier: null, saving: false, error: null });
+      setDetailRow(null);
+     }}
+     onAdopt={handleAdopt}
+     adopting={!!detailRow.suggestion && adoptingIds.has(detailRow.suggestion.identifier)}
+     adoptError={detailRow.suggestion && adoptErrors[detailRow.suggestion.identifier]}
+     onSaveEdit={(patch) =>
+      detailRow.suggested ? handleEditSuggestionDraft(detailRow, patch) : handleUpdateKpi(detailRow, patch)
+     }
+     savingEdit={updateState.identifier === detailRow.kpi?.identifier && updateState.saving}
+     editError={updateError(detailRow)}
      trend={detailIdentifier ? seriesById[detailIdentifier] || { status: "loading" } : null}
      onTrendRetry={() => {
       if (!detailIdentifier) return;
