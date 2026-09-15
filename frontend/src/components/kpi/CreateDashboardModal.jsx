@@ -130,8 +130,14 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
    // Metrics picked on the KPI-discovery grid before opening this modal ride along into the
    // AI path too, not just the manual one - the agent never sees them (it only takes a free-
    // text purpose), so anything it left out is appended here rather than silently dropped.
+   // Checked against `byIdentifier` (the same fresh lookup `suggested` above uses, not the
+   // mount-time `initialMetrics` snapshot): a run can take minutes, long enough for a
+   // preselected KPI to drop out of `ready` while it's in flight, and a KPI the backend no
+   // longer considers ready must not ride into the dashboard unvalidated just because it was
+   // ready when the modal opened.
    const suggestedIds = new Set(suggested.map((m) => m.identifier));
-   setMetrics([...suggested, ...initialMetrics.filter((m) => !suggestedIds.has(m.identifier))]);
+   const stillReadyInitial = initialMetrics.filter((m) => byIdentifier.has(m.identifier));
+   setMetrics([...suggested, ...stillReadyInitial.filter((m) => !suggestedIds.has(m.identifier))]);
    const areaFilter = (result.filters || []).find((f) => f.field === "business_area");
    setBusinessAreaFilter(areaFilter ? areaFilter.value : null);
    setAiSuggested(true);
@@ -235,6 +241,12 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
        ? () => {
           setAiSuggested(false);
           suggestionRun.reset();
+          // Abandoning the AI suggestion reverts to the preselected KPIs, not whatever it
+          // last generated - otherwise a later "Change mode" -> Manual carries the abandoned
+          // result's tiles/name/filter into what should be a fresh manual flow.
+          setMetrics(initialMetrics);
+          setName("");
+          setBusinessAreaFilter(null);
           setStep("ai-purpose");
          }
        : undefined
@@ -243,6 +255,9 @@ export default function CreateDashboardModal({ rows, onCancel, onCreate }) {
       !aiSuggested
        ? () => {
           setMode(null);
+          setMetrics(initialMetrics);
+          setName("");
+          setBusinessAreaFilter(null);
           setStep("mode");
          }
        : undefined

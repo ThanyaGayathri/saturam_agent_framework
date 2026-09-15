@@ -13,6 +13,7 @@ it); ``providers`` builds the provider objects and is only imported by ``app.com
 """
 
 from egpt_retail.routing.table import (
+    LAZILY_BUILT_AGENT_IDS,
     NO_MODEL_TIER,
     ROUTING_TABLE,
     Tier,
@@ -23,6 +24,7 @@ from egpt_retail.routing.table import (
 )
 
 __all__ = [
+    "LAZILY_BUILT_AGENT_IDS",
     "NO_MODEL_TIER",
     "ROUTING_TABLE",
     "Tier",

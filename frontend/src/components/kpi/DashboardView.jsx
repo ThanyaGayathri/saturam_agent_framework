@@ -234,15 +234,22 @@ export default function DashboardView() {
  const setChart = async (tileId, chart) => {
   setActionError(null);
   setSaving(true);
+  // `/dashboards/:dashboardId` has no `key`, so this component isn't guaranteed to remount on
+  // a param-only navigation -- checked against `currentDashboardIdRef` the same way `loadData`
+  // guards its own response, so a PATCH that resolves after the user has navigated to a
+  // different dashboard can't apply its (now stale) result on top of that one's state.
+  const dashboardIdAtCall = dashboard.id;
   const tiles = tilesToWrite(dashboard.tiles.map((t) => (t.id === tileId ? { ...t, chart } : t)));
   try {
    // `DashboardWrite.name` is required on every write, PATCH included (the contract's own
    // `updateDashboard` example always sends it: `{name: ..., visibility: ...}`) - only
    // `description`/`tiles`/`filters`/`refresh_schedule`/`visibility` are genuinely optional.
    const updated = await updateDashboardApi(dashboard.id, { name: dashboard.name, tiles });
+   if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
    setDashboardState({ status: "ready", dashboard: updated, error: null });
    loadData(dashboard.id);
   } catch (err) {
+   if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
    setActionError(err?.message || "Could not change the chart type.");
   } finally {
    setSaving(false);
@@ -261,6 +268,8 @@ export default function DashboardView() {
 
  const confirmScheduleChange = async () => {
   const refreshSchedule = pendingSchedule;
+  // Same staleness guard as `setChart` above -- see its comment.
+  const dashboardIdAtCall = dashboard.id;
   setPendingSchedule(null);
   setActionError(null);
   setSaving(true);
@@ -269,8 +278,10 @@ export default function DashboardView() {
     name: dashboard.name,
     refresh_schedule: refreshSchedule,
    });
+   if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
    setDashboardState({ status: "ready", dashboard: updated, error: null });
   } catch (err) {
+   if (currentDashboardIdRef.current !== dashboardIdAtCall) return;
    setActionError(err?.message || "Could not change the schedule.");
   } finally {
    setSaving(false);

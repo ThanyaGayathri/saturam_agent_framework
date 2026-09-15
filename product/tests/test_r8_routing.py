@@ -10,6 +10,7 @@ table by executor name rather than warning and writing "none".
 from __future__ import annotations
 
 import logging
+from types import MappingProxyType
 
 import pytest
 from egpt.agent import AgentFactory
@@ -28,6 +29,7 @@ from egpt_retail.app.db import build_control_plane_db
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.executors.provenance import _model_tier
 from egpt_retail.routing import (
+    LAZILY_BUILT_AGENT_IDS,
     NO_MODEL_TIER,
     ROUTING_TABLE,
     Tier,
@@ -89,6 +91,42 @@ def test_the_suggestion_agents_built_lazily_per_request_are_still_routed() -> No
     assert tier_for(KPI_SUGGESTION_ID) == Tier.FRONTIER
     assert tier_for(USE_CASE_SUGGESTION_ID) == Tier.FRONTIER
     assert tier_for(DASHBOARD_SUGGESTION_ID) == Tier.FRONTIER
+
+
+def test_lazily_built_agent_ids_matches_the_known_three() -> None:
+    """`LAZILY_BUILT_AGENT_IDS` is what `build_agents` asserts routed at boot (its own
+    docstring in `routing/table.py`) -- keep it in sync with the ids the test above pins by
+    name, so the boot-time check and this hand-written one never quietly drift apart."""
+    from egpt_retail.suggestions.agents import KPI_SUGGESTION_ID, USE_CASE_SUGGESTION_ID
+    from egpt_retail.suggestions.dashboard_agents import DASHBOARD_SUGGESTION_ID
+
+    assert LAZILY_BUILT_AGENT_IDS == {
+        KPI_SUGGESTION_ID,
+        USE_CASE_SUGGESTION_ID,
+        DASHBOARD_SUGGESTION_ID,
+    }
+
+
+def test_build_agents_fails_at_boot_when_a_lazily_built_agent_loses_its_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gap #272 fixed (`dashboard_suggestion` shipped with no `ROUTING_TABLE` row, caught
+    only the first time someone ran a live suggestion) is now caught at boot for every id in
+    `LAZILY_BUILT_AGENT_IDS`, not only by the hand-written regression test above -- delete
+    one's row and confirm `build_agents` itself refuses to come up, the same way it already
+    would for a static agent missing one."""
+    import egpt_retail.routing.table as table_module
+
+    trimmed = MappingProxyType(
+        {
+            k: v
+            for k, v in table_module.ROUTING_TABLE.items()
+            if k != "dashboard_suggestion"
+        }
+    )
+    monkeypatch.setattr(table_module, "ROUTING_TABLE", trimmed)
+    with pytest.raises(UnroutedAgentError, match="dashboard_suggestion"):
+        _agents()
 
 
 def test_the_tier_vocabulary_is_the_contracts() -> None:
