@@ -9,6 +9,7 @@ same split `test_r13_dashboards.py` documents for R13.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import replace
@@ -59,6 +60,7 @@ from egpt_retail.contracts.vocabulary import load_vocabulary_set
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiDeleteResult
 from egpt_retail.suggestions.runs import (
     LOST_RUN_ERROR,
+    SuggestionRunPhase,
     SuggestionRunRecord,
     SuggestionRunStatus,
 )
@@ -780,6 +782,7 @@ def _fake_run_suggestions(kpi_suggestions):
         dry_run,
         agents,
         focus_areas=(),
+        on_phase=None,
     ):
         return _FakeSuggestionRunWithSuggestions(kpi_suggestions)
 
@@ -957,6 +960,7 @@ def test_list_kpi_suggestions_runs_a_deep_copy_of_each_cached_agent_not_the_orig
         dry_run,
         agents,
         focus_areas=(),
+        on_phase=None,
     ):
         captured_agents["agents"] = agents
         return _FakeSuggestionRunWithSuggestions([])
@@ -1241,6 +1245,8 @@ class _FakeRunStore:
 
     def __init__(self):
         self.rows: dict = {}
+        #: What `typical_duration()` answers; a test sets it to stand for history.
+        self.typical = None
 
     def create(self, business_area, business_areas=()):
         record = SuggestionRunRecord(
@@ -1263,6 +1269,10 @@ class _FakeRunStore:
                 status=SuggestionRunStatus.RUNNING,
                 started_at=datetime.now(timezone.utc),
             )
+
+    def mark_phase(self, identifier, phase):
+        if self.rows[identifier].status is SuggestionRunStatus.RUNNING:
+            self._set(identifier, phase=SuggestionRunPhase(phase))
 
     def mark_succeeded(self, identifier, result):
         if self.rows[identifier].status in self._OPEN:
@@ -1293,6 +1303,9 @@ class _FakeRunStore:
         ):
             self.mark_failed(identifier, LOST_RUN_ERROR)
         return self.rows[identifier]
+
+    def typical_duration(self, *, sample=5):
+        return self.typical
 
 
 def _run_client(monkeypatch, store, *, authorization=False, scopes=()):
@@ -1332,6 +1345,7 @@ def _suggesting(suggestions, *, notes=""):
         business_area,
         include_sql,
         focus_areas=(),
+        on_phase=None,
     ):
         return wire_models.KpiSuggestionList(
             suggestions=list(suggestions), notes=notes, semantic_snapshot="snap.0"
@@ -1389,6 +1403,7 @@ def test_start_kpi_suggestion_run_with_no_body_runs_across_every_area(monkeypatc
         business_area,
         include_sql,
         focus_areas=(),
+        on_phase=None,
     ):
         captured["business_area"] = business_area
         captured["include_sql"] = include_sql
@@ -1632,6 +1647,7 @@ def test_start_kpi_suggestion_run_hands_the_focus_to_the_pipeline_and_echoes_it(
         business_area,
         include_sql,
         focus_areas=(),
+        on_phase=None,
     ):
         captured["focus_areas"] = tuple(focus_areas)
         captured["business_area"] = business_area
@@ -1698,3 +1714,144 @@ def test_start_kpi_suggestion_run_422s_on_an_unknown_focus_area_before_any_row_e
     assert response.status_code == 422
     assert "logistics" in response.json()["detail"]
     assert store.rows == {}
+
+
+# ---------------------------------------------------------------------------
+# `KpiSuggestionRun.phase` and `.typical_duration_seconds` (contract 1.1.6): what the
+# waiting screen is built on. The executor records each stage the pipeline reports; the
+# typical duration rides along with the row on the 202 and on every poll.
+# ---------------------------------------------------------------------------
+
+
+def test_the_202_and_the_poll_both_carry_the_deployments_typical_duration(monkeypatch):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+    store.typical = 94.0
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions")
+        assert started.status_code == 202
+        assert started.json()["typical_duration_seconds"] == 94.0
+        assert started.json()["phase"] is None  # queued: nothing has begun
+        run_id = started.json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "succeeded"
+    assert polled["typical_duration_seconds"] == 94.0
+
+
+def test_typical_duration_is_null_before_any_run_has_succeeded(monkeypatch):
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _suggesting([]))
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        started = client.post("/kpis/suggestions")
+
+    assert started.json()["typical_duration_seconds"] is None
+
+
+def test_a_running_run_reports_the_phase_the_pipeline_is_in(monkeypatch):
+    """The fake pipeline reports `proposing` and then holds until the test has polled, so
+    the poll observes a `running` row mid-stage -- the state the stepper renders."""
+    reached_proposing = threading.Event()
+    release = threading.Event()
+
+    def _held(settings, *, on_phase=None, **kwargs):
+        on_phase(SuggestionRunPhase.READING)
+        on_phase(SuggestionRunPhase.PROPOSING)
+        reached_proposing.set()
+        release.wait(timeout=5)
+        on_phase(SuggestionRunPhase.CHECKING)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _held)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        assert reached_proposing.wait(timeout=5)
+        mid_run = client.get(f"/kpis/suggestions/{run_id}").json()
+        release.set()
+        _drain(client)
+        done = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert mid_run["status"] == "running"
+    assert mid_run["phase"] == "proposing"
+    # the last stage reported stays on the terminal row
+    assert done["status"] == "succeeded"
+    assert done["phase"] == "checking"
+
+
+def test_a_failed_run_keeps_the_phase_it_failed_in(monkeypatch):
+    def _refusing(settings, *, on_phase=None, **kwargs):
+        on_phase(SuggestionRunPhase.READING)
+        on_phase(SuggestionRunPhase.PROPOSING)
+        raise ValueError("KpiSuggestionDraftSet expected from the agent; got str: 'no'")
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _refusing)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "failed"
+    assert polled["phase"] == "proposing"
+
+
+def test_a_phase_reported_after_the_timeout_closed_the_run_does_not_relabel_it(
+    monkeypatch,
+):
+    monkeypatch.setenv("EGPT_RETAIL_SUGGESTION_TIMEOUT_SECONDS", "0.05")
+
+    def _slow(settings, *, on_phase=None, **kwargs):
+        on_phase(SuggestionRunPhase.READING)
+        time.sleep(0.3)
+        on_phase(SuggestionRunPhase.CHECKING)  # the orphaned thread, still reporting
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _slow)
+    store = _FakeRunStore()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        time.sleep(0.4)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "failed"
+    assert polled["phase"] == "reading"
+
+
+def test_a_phase_write_that_fails_does_not_fail_the_run(monkeypatch):
+    """The phase is a courtesy to the poller; the run's outcome must not depend on it."""
+
+    class _PhaseWriteBroken(_FakeRunStore):
+        def mark_phase(self, identifier, phase):
+            raise RuntimeError("connection reset by peer")
+
+    def _reporting(settings, *, on_phase=None, **kwargs):
+        on_phase(SuggestionRunPhase.READING)
+        return wire_models.KpiSuggestionList(
+            suggestions=[], notes="", semantic_snapshot="snap.0"
+        )
+
+    monkeypatch.setattr(kpis_module, "_list_kpi_suggestions", _reporting)
+    warned = []
+    monkeypatch.setattr(kpis_module, "log_warning", warned.append)
+    store = _PhaseWriteBroken()
+
+    with _run_client(monkeypatch, store) as client:
+        run_id = client.post("/kpis/suggestions").json()["id"]
+        _drain(client)
+        polled = client.get(f"/kpis/suggestions/{run_id}").json()
+
+    assert polled["status"] == "succeeded"
+    assert polled["phase"] is None
+    assert any("not recorded" in entry for entry in warned)

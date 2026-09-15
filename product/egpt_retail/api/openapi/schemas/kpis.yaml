@@ -194,6 +194,14 @@ KpiSuggestionRunStatus:
   description: Where a suggestion run is. The same four words as `HarvestStatus`, for the same shape.
   enum: [queued, running, succeeded, failed]
 
+KpiSuggestionRunPhase:
+  type: string
+  description: |
+    The stage a `running` suggestion run is in, in order: `reading` (the semantic layer the
+    agents are shown is being gathered), `proposing` (the model calls), `checking` (assembly
+    and feasibility against the snapshot). What a screen's stepper shows.
+  enum: [reading, proposing, checking]
+
 KpiSuggestionRunRequest:
   type: object
   description: |
@@ -222,6 +230,10 @@ KpiSuggestionRun:
     `error` is why there is none, present once `failed`. A run whose executor was lost
     (the serving instance restarted mid-run) is reported `failed` by the read side after the
     deployment's timeout plus a grace period, never `running` forever.
+
+    Two fields are for the person waiting: `phase` is the stage a `running` run is in, and
+    `typical_duration_seconds` is how long this deployment's recent runs took, so a screen
+    can set an expectation up front and show progress against it.
   required: [id, status, created_at]
   properties:
     id: {type: string}
@@ -253,6 +265,20 @@ KpiSuggestionRun:
     error:
       type: [string, "null"]
       description: Written for the person polling. A timeout names the bound it hit.
+    phase:
+      oneOf:
+        - $ref: './kpis.yaml#/KpiSuggestionRunPhase'
+        - type: "null"
+      description: |
+        Set while `running`, as each stage begins; null on a `queued` run and on a
+        `running` one that has not reached its first stage yet. Kept as it was once the run
+        is terminal, so a `failed` run says where it failed.
+    typical_duration_seconds:
+      type: [number, "null"]
+      description: |
+        The median wall-clock seconds of this deployment's last few successful runs, or null
+        before any has succeeded. An expectation, not a bound: a run may take longer, and the
+        deployment's timeout is the only limit.
 
 KpiHealthStatus:
   type: string

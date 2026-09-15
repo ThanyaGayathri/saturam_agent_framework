@@ -28,6 +28,7 @@ from egpt_retail.suggestions import (
     run_suggestions,
 )
 from egpt_retail.suggestions.context import render_context
+from egpt_retail.suggestions.runs import SuggestionRunPhase
 
 # --- stand-ins ------------------------------------------------------------------------
 
@@ -205,7 +206,7 @@ USE_CASE_DRAFTS = k13.UseCaseSuggestionDraftSet(
 )
 
 
-def _run(*, dry_run=False, proposals=None, knowledge=None, focus_areas=None):
+def _run(*, dry_run=False, proposals=None, knowledge=None, focus_areas=None, on_phase=None):
     kpi_agent, use_case_agent = FakeAgent(KPI_DRAFTS), FakeAgent(USE_CASE_DRAFTS)
     run = run_suggestions(
         RetailSettings(retail_customer_slug="t"),
@@ -216,6 +217,7 @@ def _run(*, dry_run=False, proposals=None, knowledge=None, focus_areas=None):
         agents=(kpi_agent, use_case_agent),
         dry_run=dry_run,
         focus_areas=focus_areas,
+        on_phase=on_phase,
     )
     return run, kpi_agent, use_case_agent
 
@@ -475,3 +477,28 @@ def test_no_focus_leaves_the_message_exactly_as_before():
     assert "focus:" not in kpi_agent.messages[-1]
     _, kpi_agent, _ = _run(dry_run=True, focus_areas=[])
     assert "focus:" not in kpi_agent.messages[-1]
+
+
+# --- phases ----------------------------------------------------------------------------
+
+
+def test_the_pass_reports_its_three_stages_in_order_and_once_each():
+    """What `KpiSuggestionRun.phase` is built on: reading, then both model calls under
+    one `proposing`, then both assemblies under one `checking` -- never back to a stage
+    already passed, which is what lets a screen show the stages as a stepper."""
+    phases = []
+    run, kpi_agent, use_case_agent = _run(dry_run=True, on_phase=phases.append)
+
+    assert phases == [
+        SuggestionRunPhase.READING,
+        SuggestionRunPhase.PROPOSING,
+        SuggestionRunPhase.CHECKING,
+    ]
+    # and the reorder changed nothing about what either agent was asked
+    assert kpi_agent.messages and use_case_agent.messages
+    assert run.kpis.suggestions and run.use_cases.suggestions
+
+
+def test_the_pass_runs_without_a_phase_listener():
+    run, _, _ = _run(dry_run=True)
+    assert run.kpis.suggestions

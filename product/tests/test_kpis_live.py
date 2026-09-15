@@ -29,6 +29,7 @@ from egpt_retail.contracts.kpi import KpiDefinition
 from egpt_retail.kpi.store import KpiRegistryStore
 from egpt_retail.suggestions.runs import (
     LOST_RUN_ERROR,
+    SuggestionRunPhase,
     SuggestionRunStatus,
     SuggestionRunStore,
 )
@@ -809,3 +810,91 @@ def test_suggestion_run_store_keeps_the_focus_a_run_was_started_with(
     # no focus: an empty tuple, not None -- and an older row reads the same
     plain = run_store.create("livetest")
     assert plain.business_areas == ()
+
+
+def test_suggestion_run_store_phase_round_trips_and_only_a_running_row_takes_one(
+    run_store: SuggestionRunStore,
+) -> None:
+    created = run_store.create("livetest")
+
+    # queued: no stage has begun, a report is ignored
+    run_store.mark_phase(created.identifier, SuggestionRunPhase.READING)
+    queued = run_store.get(created.identifier)
+    assert queued is not None and queued.phase is None
+
+    run_store.mark_running(created.identifier)
+    run_store.mark_phase(created.identifier, SuggestionRunPhase.PROPOSING)
+    running = run_store.get(created.identifier)
+    assert running is not None
+    assert running.status is SuggestionRunStatus.RUNNING
+    assert running.phase is SuggestionRunPhase.PROPOSING
+
+    # terminal keeps the last stage, and a late report cannot relabel it
+    run_store.mark_succeeded(
+        created.identifier, {"suggestions": [], "notes": "", "semantic_snapshot": "l"}
+    )
+    run_store.mark_phase(created.identifier, SuggestionRunPhase.CHECKING)
+    done = run_store.get(created.identifier)
+    assert done is not None
+    assert done.status is SuggestionRunStatus.SUCCEEDED
+    assert done.phase is SuggestionRunPhase.PROPOSING
+
+
+@pytest.mark.anyio
+async def test_suggestion_run_store_amark_phase_agrees_with_its_sync_twin(
+    run_store: SuggestionRunStore,
+) -> None:
+    created = await run_store.acreate("livetest")
+    await run_store.amark_running(created.identifier)
+    await run_store.amark_phase(created.identifier, SuggestionRunPhase.CHECKING)
+    running = await run_store.aget(created.identifier)
+    assert running is not None and running.phase is SuggestionRunPhase.CHECKING
+
+
+def test_suggestion_run_store_typical_duration_is_a_median_of_the_newest_successes(
+    run_store: SuggestionRunStore, control_plane: Any
+) -> None:
+    """Three successes of 10s, 100s and 30s, made the newest rows in the table (the demo
+    stack shares this database, so older successes may exist): the median of the newest
+    three is 30, a failed run of any length is not counted, and the newest two alone
+    give the midpoint of those two."""
+    seconds = {}
+    for duration in (10, 100, 30):
+        created = run_store.create("livetest")
+        run_store.mark_running(created.identifier)
+        run_store.mark_succeeded(
+            created.identifier,
+            {"suggestions": [], "notes": "", "semantic_snapshot": "l"},
+        )
+        seconds[created.identifier] = duration
+    failed = run_store.create("livetest")
+    run_store.mark_running(failed.identifier)
+    run_store.mark_failed(failed.identifier, "timed out")
+    with control_plane.cursor() as cur:
+        # newest first in `finished_at` order: 30s (the last created) is the newest
+        for offset, (identifier, duration) in enumerate(reversed(seconds.items())):
+            cur.execute(
+                "UPDATE semantic.kpi_suggestion_run"
+                " SET started_at = now() + interval '1 day' - make_interval(secs => %s),"
+                "     finished_at = now() + interval '1 day' - make_interval(secs => %s)"
+                " WHERE id = %s",
+                (duration + offset * 1000, offset * 1000, identifier),
+            )
+        cur.execute(
+            "UPDATE semantic.kpi_suggestion_run"
+            " SET started_at = now() + interval '1 day' - interval '5000 seconds',"
+            "     finished_at = now() + interval '1 day'"
+            " WHERE id = %s",
+            (failed.identifier,),
+        )
+    control_plane.commit()
+
+    assert run_store.typical_duration(sample=3) == 30.0
+    assert run_store.typical_duration(sample=2) == 65.0  # newest two: 30s and 100s
+
+
+@pytest.mark.anyio
+async def test_suggestion_run_store_atypical_duration_agrees_with_its_sync_twin(
+    run_store: SuggestionRunStore,
+) -> None:
+    assert await run_store.atypical_duration() == run_store.typical_duration()

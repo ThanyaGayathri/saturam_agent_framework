@@ -74,7 +74,7 @@ from typing import Any, Callable, Iterator, Mapping, Optional, Sequence, Tuple, 
 
 from egpt.agent import Agent
 from egpt.os.scopes import has_required_scopes
-from egpt.utils.log import log_error
+from egpt.utils.log import log_error, log_warning
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from egpt_retail.api import models as wire
@@ -98,8 +98,12 @@ from egpt_retail.contracts.kpi import (
 from egpt_retail.contracts.vocabulary import VocabularySet
 from egpt_retail.kpi.store import KpiConcurrentUpdateError, KpiRegistryStore
 from egpt_retail.suggestions.agents import build_suggestion_agents, load_catalogue
-from egpt_retail.suggestions.run import SuggestionRun, run_suggestions
-from egpt_retail.suggestions.runs import SuggestionRunRecord, SuggestionRunStore
+from egpt_retail.suggestions.run import PhaseCallback, SuggestionRun, run_suggestions
+from egpt_retail.suggestions.runs import (
+    SuggestionRunPhase,
+    SuggestionRunRecord,
+    SuggestionRunStore,
+)
 
 __all__ = ["router"]
 
@@ -663,6 +667,7 @@ def _list_kpi_suggestions(
     include_sql: bool,
     agents: Optional[Tuple[Any, Any]] = None,
     focus_areas: Sequence[str] = (),
+    on_phase: Optional[PhaseCallback] = None,
 ) -> wire.KpiSuggestionList:
     """#234/F1: on-demand KPI suggestions, read straight through to K12 -- see the module
     docstring for what this deliberately omits (prose, warehouse samples, and the wasted
@@ -672,6 +677,9 @@ def _list_kpi_suggestions(
     narrows what comes *back*, after the fact. ``focus_areas`` (the run request's
     ``business_areas``) go *into* the message as a priority -- the agent proposes for them
     first -- and nothing is dropped for being outside them.
+
+    ``on_phase`` is forwarded to ``run_suggestions`` so a run row can record which stage
+    the pass is in (``_execute_suggestion_run``); the synchronous route passes nothing.
 
     ``definitions``/``vocabularies`` come from :func:`_suggestion_registry_snapshot`, read
     before the store's pooled connection was released, rather than a live ``KpiRegistryStore``
@@ -721,6 +729,7 @@ def _list_kpi_suggestions(
             dry_run=True,
             agents=resolved_agents,
             focus_areas=focus_areas,
+            on_phase=on_phase,
         )
     suggestions = _filter_suggestions(run.kpis.suggestions, business_area)
     if not include_sql:
@@ -787,11 +796,18 @@ def _with_run_store(
 
 
 def _run_out(
-    record: SuggestionRunRecord, *, include_sql: bool
+    record: SuggestionRunRecord,
+    *,
+    include_sql: bool,
+    typical_duration_seconds: Optional[float] = None,
 ) -> wire.KpiSuggestionRun:
     """The wire shape of a run row. The stored ``result`` always carries ``proposed_sql``;
     the ``kpis:write`` gate (``_may_read_sql``) is applied here, per reader, exactly as the
-    synchronous route applies it -- one run, read differently by a viewer and an editor."""
+    synchronous route applies it -- one run, read differently by a viewer and an editor.
+
+    ``typical_duration_seconds`` is the deployment's own recent history
+    (``SuggestionRunStore.typical_duration``), read alongside the row by the caller so the
+    screen can set an expectation before the run has done anything."""
     result: Optional[wire.KpiSuggestionList] = None
     if record.result is not None:
         result = wire.KpiSuggestionList.model_validate(record.result)
@@ -814,7 +830,38 @@ def _run_out(
         finished_at=record.finished_at,
         result=result,
         error=record.error,
+        phase=(
+            wire.KpiSuggestionRunPhase(record.phase.value)
+            if record.phase is not None
+            else None
+        ),
+        typical_duration_seconds=typical_duration_seconds,
     )
+
+
+def _read_run_with_history(
+    store: SuggestionRunStore, run_id: str, stale_after: timedelta
+) -> Tuple[Optional[SuggestionRunRecord], Optional[float]]:
+    """The row and the typical duration, in one visit to the store."""
+    return store.get(run_id, stale_after=stale_after), store.typical_duration()
+
+
+def _phase_reporter(run_id: str, settings: RetailSettings) -> PhaseCallback:
+    """The ``on_phase`` listener for one run: each stage the pipeline reports is written to
+    the row, on its own short-lived connection, from the worker thread the pass runs on.
+    Never raises -- the row's phase is a courtesy to the poller, and a failure to write it
+    must not fail the run it describes."""
+
+    def _report(phase: SuggestionRunPhase) -> None:
+        try:
+            _with_run_store(settings, lambda store: store.mark_phase(run_id, phase))
+        except Exception:
+            log_warning(
+                f"suggestion run {run_id}: phase {phase.value!r} not recorded: "
+                f"{traceback.format_exc(limit=3)}"
+            )
+
+    return _report
 
 
 #: Strong references to in-flight executor tasks, so the event loop cannot collect one
@@ -872,6 +919,7 @@ async def _execute_suggestion_run(
                     business_area=business_area,
                     include_sql=True,
                     focus_areas=focus_areas,
+                    on_phase=_phase_reporter(run_id, settings),
                 ),
                 settings.retail_suggestion_timeout_seconds,
             )
@@ -930,10 +978,13 @@ async def start_kpi_suggestion_run(
     focus_areas = _validated_business_areas(
         body.business_areas if body is not None else None, snapshot.vocabularies
     )
-    record = await asyncio.to_thread(
+    record, typical = await asyncio.to_thread(
         _with_run_store,
         settings,
-        lambda store: store.create(business_area, focus_areas),
+        lambda store: (
+            store.create(business_area, focus_areas),
+            store.typical_duration(),
+        ),
     )
     task = asyncio.create_task(
         _execute_suggestion_run(
@@ -942,7 +993,9 @@ async def start_kpi_suggestion_run(
     )
     _suggestion_run_tasks.add(task)
     task.add_done_callback(_suggestion_run_tasks.discard)
-    return _run_out(record, include_sql=_may_read_sql(request))
+    return _run_out(
+        record, include_sql=_may_read_sql(request), typical_duration_seconds=typical
+    )
 
 
 @router.get("/kpis/suggestions/{run_id}", response_model=wire.KpiSuggestionRun)
@@ -955,14 +1008,16 @@ async def get_kpi_suggestion_run(
     ``stale_after``), so a row whose executor is gone comes back ``failed`` here rather than
     ``running`` forever."""
     settings = RetailSettings()
-    record = await asyncio.to_thread(
+    record, typical = await asyncio.to_thread(
         _with_run_store,
         settings,
-        lambda store: store.get(run_id, stale_after=_stale_after(settings)),
+        lambda store: _read_run_with_history(store, run_id, _stale_after(settings)),
     )
     if record is None:
         raise HTTPException(status_code=404, detail=f"No suggestion run {run_id!r}.")
-    return _run_out(record, include_sql=_may_read_sql(request))
+    return _run_out(
+        record, include_sql=_may_read_sql(request), typical_duration_seconds=typical
+    )
 
 
 @router.get("/kpis/suggestions", response_model=wire.KpiSuggestionList, deprecated=True)

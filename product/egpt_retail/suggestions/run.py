@@ -11,7 +11,16 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, FrozenSet, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    FrozenSet,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from egpt_retail.app.settings import RetailSettings
 from egpt_retail.skills import kpi_suggestion as k12
@@ -22,8 +31,15 @@ from egpt_retail.suggestions.context import (
     gather_context,
     render_context,
 )
+from egpt_retail.suggestions.runs import SuggestionRunPhase
 
-__all__ = ["SuggestionRun", "arun_suggestions", "run_suggestions"]
+__all__ = ["PhaseCallback", "SuggestionRun", "arun_suggestions", "run_suggestions"]
+
+#: What a caller passes as ``on_phase`` to hear each stage begin: ``reading`` (the semantic
+#: layer is being gathered), ``proposing`` (the model calls), ``checking`` (assembly and
+#: feasibility). Called on the thread the pass runs on, so it must be quick and must not
+#: raise -- a listener that fails would fail the pass it is only observing.
+PhaseCallback = Callable[[SuggestionRunPhase], None]
 
 #: What a deployment has wired, for K13's shape gate. A literal until Lane R's settings say
 #: which capability each shape's executors supply (R-12, R-14); `delivery_channel` alone is
@@ -115,6 +131,7 @@ def run_suggestions(
     samples: Optional[Mapping[Tuple[str, str], Sequence[str]]] = None,
     existing_definitions: Optional[Sequence[Any]] = None,
     focus_areas: Optional[Sequence[str]] = None,
+    on_phase: Optional[PhaseCallback] = None,
 ) -> SuggestionRun:
     """Run both suggestion agents over the current semantic layer and file the results.
 
@@ -137,6 +154,12 @@ def run_suggestions(
     (:func:`render_focus`), never as a filter: what comes back is still judged by
     ``assemble`` and stamped with the ontology's area, and nothing is dropped for being
     outside the focus. ``None`` or empty means no focus, and the message is unchanged.
+
+    ``on_phase`` hears each of the pass's three stages begin (:data:`PhaseCallback`). The
+    two model calls run back to back and both assemblies follow, rather than interleaving
+    them, so that "proposing" and "checking" are each one contiguous stage a person can be
+    shown -- the agents are independent (neither reads the other's output), so the order
+    changes nothing about what either produces.
     """
     settings = settings or RetailSettings()
     if existing_definitions is not None:
@@ -150,6 +173,11 @@ def run_suggestions(
     existing = [definition.identifier for definition in definitions]
     by_identifier = {definition.identifier: definition for definition in definitions}
 
+    def _phase(phase: SuggestionRunPhase) -> None:
+        if on_phase is not None:
+            on_phase(phase)
+
+    _phase(SuggestionRunPhase.READING)
     context = gather_context(
         reader,
         knowledge=knowledge,
@@ -166,6 +194,7 @@ def run_suggestions(
         )
     kpi_agent, use_case_agent = agents
 
+    _phase(SuggestionRunPhase.PROPOSING)
     kpi_drafts = _drafts_of(
         kpi_agent.run(
             render_context(
@@ -176,16 +205,6 @@ def run_suggestions(
         ),
         k12.KpiSuggestionDraftSet,
     )
-    kpi_report = k12.assemble(
-        kpi_drafts,
-        available_tables=context.available_tables,
-        snapshot_version=context.snapshot,
-        known_identifiers=existing,
-        area_of_concept=context.area_of_concept,
-        # The same join-aware verdict the registry shows after adoption.
-        known_unjoinable=reader.unjoinable_oracle(),
-    )
-
     use_case_drafts = _drafts_of(
         use_case_agent.run(
             render_context(
@@ -195,6 +214,17 @@ def run_suggestions(
             )
         ),
         k13.UseCaseSuggestionDraftSet,
+    )
+
+    _phase(SuggestionRunPhase.CHECKING)
+    kpi_report = k12.assemble(
+        kpi_drafts,
+        available_tables=context.available_tables,
+        snapshot_version=context.snapshot,
+        known_identifiers=existing,
+        area_of_concept=context.area_of_concept,
+        # The same join-aware verdict the registry shows after adoption.
+        known_unjoinable=reader.unjoinable_oracle(),
     )
     use_case_report = k13.assemble(
         use_case_drafts,
@@ -243,6 +273,7 @@ async def arun_suggestions(
     samples: Optional[Mapping[Tuple[str, str], Sequence[str]]] = None,
     existing_definitions: Optional[Sequence[Any]] = None,
     focus_areas: Optional[Sequence[str]] = None,
+    on_phase: Optional[PhaseCallback] = None,
 ) -> SuggestionRun:
     """Async variant. Two model calls and several store reads happen off the event loop."""
     return await asyncio.to_thread(
@@ -259,4 +290,5 @@ async def arun_suggestions(
         samples=samples,
         existing_definitions=existing_definitions,
         focus_areas=focus_areas,
+        on_phase=on_phase,
     )

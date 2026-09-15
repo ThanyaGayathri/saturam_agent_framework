@@ -8,6 +8,7 @@ import { readLocalJson, writeLocalJson } from "../../storage/local-json";
 import { AlertTriangle, Sparkles } from "lucide-react";
 import KpiDiscovery from "./KpiDiscovery";
 import KpiDetailPanel from "./KpiDetailPanel";
+import SuggestionRunPanel from "./SuggestionRunPanel";
 import CreateDashboardModal from "./CreateDashboardModal";
 import { tileWriteFromKpi } from "../../storage/dashboards";
 import { createDashboardApi } from "../../services/dashboards-api";
@@ -30,6 +31,21 @@ const SUGGEST_POLL_MS = 2000;
 const SUGGEST_POLL_RELAXED_MS = 5000;
 const SUGGEST_POLL_RELAX_AFTER_MS = 30_000;
 const SUGGEST_CEILING_MS = 4 * 60 * 1000;
+
+const IDLE_SUGGESTION_STATE = {
+ status: "idle",
+ suggestions: [],
+ notes: "",
+ error: null,
+ runId: null,
+ startedAt: null,
+ phase: null,
+ typicalDuration: null,
+ serverStartedAt: null,
+ serverFinishedAt: null,
+ clientSeconds: null,
+ receipt: false,
+};
 
 /**
  * "What my data supports" -- the discovery surface, and the default tab of the KPIs hub.
@@ -98,17 +114,13 @@ export default function KpiDiscoveryPage() {
  // The live suggestion run (F1, #234): idle until "Suggest KPIs" is clicked, since each run is
  // two real frontier-tier model calls that take minutes, not something to fire on mount. It is
  // a run to poll, not a response to await (#254): `runId` is the row `POST /kpis/suggestions`
- // returned and `startedAt` when this click started it, so the button can show elapsed time
- // and the poll loop can give up at a ceiling. `notes` is the skill's own refusal channel --
- // why it proposed nothing, not a generic empty state.
- const [suggestionState, setSuggestionState] = useState({
-  status: "idle",
-  suggestions: [],
-  notes: "",
-  error: null,
-  runId: null,
-  startedAt: null,
- });
+ // returned and `startedAt` when this click started it, so the panel can show elapsed time
+ // and the poll loop can give up at a ceiling. `phase` and `typicalDuration` are what the row
+ // says on each poll -- the stage the run is in and how long runs usually take here -- which
+ // is what `SuggestionRunPanel` turns a bare wait into. `notes` is the skill's own refusal
+ // channel -- why it proposed nothing, not a generic empty state. `receipt` keeps the one-line
+ // summary up after a run lands until it is dismissed.
+ const [suggestionState, setSuggestionState] = useState(IDLE_SUGGESTION_STATE);
  const [suggestElapsed, setSuggestElapsed] = useState(0);
  // Which suggestions (by `identifier`) are mid-adopt, and the last adopt failure per identifier --
  // both keyed by identifier, not a single scalar, so concurrent adopts on two different cards
@@ -157,6 +169,9 @@ export default function KpiDiscoveryPage() {
  // The pending poll timer between two `GET /kpis/suggestions/{run_id}` calls -- cleared on
  // unmount and on a new click, so a stale loop never wakes up and polls a run nobody wants.
  const suggestPollTimerRef = useRef(null);
+ // The last phase any poll (or the 202) reported for the in-flight run, read by the ceiling
+ // timeout below -- state updates are async, so a ref is what a synchronous check can read.
+ const lastPhaseRef = useRef(null);
  const adoptAbortRefs = useRef(new Map());
  const removeAbortRef = useRef(null);
  useEffect(
@@ -169,8 +184,9 @@ export default function KpiDiscoveryPage() {
   []
  );
 
- // A once-a-second re-render while a run is in flight, so the button's elapsed counter ticks
- // and a long run reads as alive rather than stuck. Stops (and resets) the moment it isn't.
+ // A once-a-second re-render while a run is in flight, so the panel's elapsed counter ticks
+ // and its time-based bar moves -- a long run reads as alive rather than stuck. Stops (and
+ // resets) the moment it isn't.
  useEffect(() => {
   if (suggestionState.status !== "loading") {
    setSuggestElapsed(0);
@@ -247,54 +263,66 @@ export default function KpiDiscoveryPage() {
   const controller = new AbortController();
   suggestAbortRef.current = controller;
   const startedAt = Date.now();
-  setSuggestionState({
-   status: "loading",
-   suggestions: [],
-   notes: "",
-   error: null,
-   runId: null,
-   startedAt,
-  });
+  lastPhaseRef.current = null;
+  setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "loading", startedAt });
 
-  const fail = (message) =>
-   setSuggestionState({
-    status: "error",
-    suggestions: [],
-    notes: "",
-    error: message,
-    runId: null,
-    startedAt: null,
-   });
+  // `phase` is the last stage a poll reported before the run failed or was given up on --
+  // the backend keeps it on a `failed` row for this (see the ceiling call below for the
+  // client-side case). Null when nothing was ever reported (a rejected POST, a network
+  // error before the first poll).
+  const fail = (message, phase = null) =>
+   setSuggestionState({ ...IDLE_SUGGESTION_STATE, status: "error", error: message, phase });
   const failWith = (err) => {
    if (err?.name === "AbortError") return;
    fail(err?.detail || err?.message || "Something went wrong.");
   };
+  // What every poll (and the 202) tells the panel: the stage the run is in and the
+  // deployment's typical duration. Either may be null on a given read; keep what we had.
+  // Pure, as a functional setState updater must be (React may invoke it more than once for
+  // the same commit) -- callers stash `run.phase` into lastPhaseRef themselves, where `run`
+  // is already in scope, rather than as a side effect in here.
+  const absorb = (run) => (prev) => ({
+   ...prev,
+   runId: run.id || prev.runId,
+   phase: run.phase ?? prev.phase,
+   typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
+  });
 
   const poll = (runId) => {
    if (controller.signal.aborted) return;
    if (Date.now() - startedAt > SUGGEST_CEILING_MS) {
     controller.abort();
-    fail("The run is taking longer than expected. Try again in a few minutes.");
+    // The run may well have reported a stage on an earlier poll -- the ceiling is the
+    // client giving up, not a run with no known phase, so carry the last one we saw.
+    fail("The run is taking longer than expected. Try again in a few minutes.", lastPhaseRef.current);
     return;
    }
    fetchKpiSuggestionRun(runId, { signal: controller.signal })
     .then((run) => {
      if (controller.signal.aborted) return;
      if (run?.status === "succeeded") {
-      setSuggestionState({
+      setSuggestionState((prev) => ({
+       ...prev,
        status: "ready",
        suggestions: run.result?.suggestions || [],
        notes: run.result?.notes || "",
        error: null,
        runId,
        startedAt: null,
-      });
+       phase: null,
+       serverStartedAt: run.started_at || null,
+       serverFinishedAt: run.finished_at || null,
+       clientSeconds: (Date.now() - startedAt) / 1000,
+       receipt: true,
+      }));
       return;
      }
      if (run?.status === "failed") {
-      fail(run.error || "The run failed without saying why.");
+      fail(run.error || "The run failed without saying why.", run.phase);
       return;
      }
+     lastPhaseRef.current = run.phase ?? lastPhaseRef.current;
+     setSuggestionState(absorb(run));
      // Tight at first (a fast run should feel fast), then relaxed: after half a minute the
      // run is clearly a long one and a poll every few seconds is plenty.
      const delay =
@@ -311,11 +339,24 @@ export default function KpiDiscoveryPage() {
      fail("The run was not accepted.");
      return;
     }
-    setSuggestionState((prev) => ({ ...prev, runId: run.id }));
+    lastPhaseRef.current = run.phase ?? lastPhaseRef.current;
+    setSuggestionState(absorb(run));
     poll(run.id);
    })
    .catch(failWith);
  };
+
+ // Cancel stops the waiting, not the run: the server finishes (or times out) on its own and
+ // the row is simply never read again. The page goes back to the idle bar, with whatever
+ // suggestions an earlier run left in place.
+ const cancelSuggestions = () => {
+  suggestAbortRef.current?.abort();
+  window.clearTimeout(suggestPollTimerRef.current);
+  setSuggestionState((prev) => ({ ...prev, status: "idle", startedAt: null, phase: null, runId: null }));
+ };
+
+ const dismissReceipt = () =>
+  setSuggestionState((prev) => ({ ...prev, receipt: false }));
 
  const handleAdopt = (row) => {
   const suggestion = row.suggestion;
@@ -497,24 +538,16 @@ export default function KpiDiscoveryPage() {
    )}
 
    {/* Suggest KPIs (F1, #234): a real, live run of the frontier-tier `kpi_suggestion` agent --
-       not fired on mount, since it takes minutes and is something the user should ask for. */}
-   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-border-light bg-surface-secondary px-4 py-3">
-    <span className="flex items-center gap-2 text-sm text-text-secondary">
-     <Sparkles size={15} className="shrink-0 text-primary" />
-     Ask the model what else your connected data could measure.
-    </span>
-    <button
-     type="button"
-     onClick={runSuggestions}
-     disabled={suggestionState.status === "loading" || areaState.status === "loading"}
-     className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
-    >
-     <Sparkles size={13} />
-     {suggestionState.status === "loading"
-      ? `Asking the model… ${suggestElapsed}s`
-      : "Suggest KPIs"}
-    </button>
-   </div>
+       not fired on mount, since it takes minutes and is something the user should ask for.
+       While it runs, the bar is the run's own status panel (stage, expectation, cancel); when
+       it lands, a receipt; on failure, the reason and a retry. */}
+   <SuggestionRunPanel
+    run={suggestionState}
+    elapsed={suggestElapsed}
+    onStart={runSuggestions}
+    onCancel={cancelSuggestions}
+    onDismiss={dismissReceipt}
+   />
 
    {/* A saved focus whose ids are all absent from the real vocabulary (deployment changed,
        or the two vocabularies genuinely disagree) degrades to no focus rather than widening
@@ -523,13 +556,6 @@ export default function KpiDiscoveryPage() {
     <div className="flex items-center gap-2 rounded-xl border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-sm text-text-secondary">
      <AlertTriangle size={15} className="shrink-0 text-status-warning" />
      Your saved focus areas don't match this deployment's business-area list — suggesting across all areas instead.
-    </div>
-   )}
-
-   {suggestionState.status === "error" && (
-    <div className="flex items-center gap-2 rounded-xl border border-status-critical-border bg-status-critical-light px-4 py-2.5 text-sm text-status-critical">
-     <AlertTriangle size={15} className="shrink-0" />
-     Couldn't get suggestions: {suggestionState.error}
     </div>
    )}
 
