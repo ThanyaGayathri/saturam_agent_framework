@@ -20,6 +20,7 @@ import {
  createKpi,
  fetchKpiSeries,
  computeKpi,
+ deleteKpi,
 } from "../../services/kpis-api";
 import { fetchBusinessAreas } from "../../services/business-areas-api";
 
@@ -116,6 +117,10 @@ export default function KpiDiscoveryPage() {
  // don't clear or unblock each other's still-pending state.
  const [adoptingIds, setAdoptingIds] = useState(() => new Set());
  const [adoptErrors, setAdoptErrors] = useState({});
+ // The reverse of adopting: one removal at a time, from the detail panel. `error` is the
+ // api's own account (a 409 names the dashboards still using the KPI) and stays with the
+ // panel until it is closed or the removal is retried.
+ const [removeState, setRemoveState] = useState({ identifier: null, error: null });
 
  // A single focused area scopes the agent's search; zero or several ask it to range over
  // everything rather than firing one request per area (each is its own live model call). The
@@ -210,12 +215,14 @@ export default function KpiDiscoveryPage() {
  // unmount and on a new click, so a stale loop never wakes up and polls a run nobody wants.
  const suggestPollTimerRef = useRef(null);
  const adoptAbortRefs = useRef(new Map());
+ const removeAbortRef = useRef(null);
  useEffect(
   () => () => {
    suggestAbortRef.current?.abort();
    window.clearTimeout(suggestPollTimerRef.current);
    for (const controller of adoptAbortRefs.current.values()) controller.abort();
    for (const controller of seriesAbortRefs.current.values()) controller.abort();
+   removeAbortRef.current?.abort();
   },
   []
  );
@@ -442,6 +449,35 @@ export default function KpiDiscoveryPage() {
    });
  };
 
+ const handleRemove = (row) => {
+  const identifier = row?.kpi?.identifier;
+  if (!identifier) return;
+  removeAbortRef.current?.abort();
+  const controller = new AbortController();
+  removeAbortRef.current = controller;
+  setRemoveState({ identifier, error: null });
+  deleteKpi(identifier, { signal: controller.signal })
+   .then(() => {
+    if (controller.signal.aborted) return;
+    setRealKpiState((prev) => ({
+     ...prev,
+     kpis: prev.kpis.filter((k) => k.identifier !== identifier),
+    }));
+    setRemoveState({ identifier: null, error: null });
+    setDetailRow(null);
+   })
+   .catch((err) => {
+    if (err?.name === "AbortError") return;
+    setRemoveState({
+     identifier: null,
+     error: err?.detail || err?.message || "Couldn't remove this KPI.",
+    });
+   })
+   .finally(() => {
+    if (removeAbortRef.current === controller) removeAbortRef.current = null;
+   });
+ };
+
  const realAreaLabelById = useMemo(
   () => Object.fromEntries(areaState.areas.map((a) => [a.id, a.label])),
   [areaState.areas]
@@ -479,6 +515,9 @@ export default function KpiDiscoveryPage() {
   categoryTitle: realAreaLabel(k.business_area) || k.business_area || "Your KPI registry",
   sectionName: k.subject_area || "Your KPI registry",
  });
+ // The removal error belongs to the row it happened on; another row's panel must not show it.
+ const removeError = (row) => (row?.kpi?.fromRegistry ? removeState.error : null);
+
  const realRows = useMemo(
   () => realKpiState.kpis.map((k, index) => rowFromRegistryKpi(k, index)),
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `rowFromRegistryKpi` closes over `realAreaLabelById` only.
@@ -628,7 +667,7 @@ export default function KpiDiscoveryPage() {
      profileId={profileId}
      processLabelById={processLabelById}
      onEdit={() => { setDetailRow(null); navigate("/configure/domain-mapping"); }}
-     onClose={() => setDetailRow(null)}
+     onClose={() => { setRemoveState({ identifier: null, error: null }); setDetailRow(null); }}
      trend={detailIdentifier ? seriesById[detailIdentifier] || { status: "loading" } : null}
      onTrendRetry={() => {
       if (!detailIdentifier) return;
@@ -638,6 +677,9 @@ export default function KpiDiscoveryPage() {
      }}
      onTrendCompute={() => detailIdentifier && computeSeries(detailIdentifier)}
      onTrendPickDimension={(dimension) => detailIdentifier && loadSeries(detailIdentifier, dimension)}
+     onRemove={handleRemove}
+     removing={removeState.identifier === detailRow.kpi?.identifier}
+     removeError={removeError(detailRow)}
     />
    )}
   </div>
