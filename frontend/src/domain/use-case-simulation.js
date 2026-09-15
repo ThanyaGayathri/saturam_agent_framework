@@ -37,7 +37,7 @@ export const SAMPLE_PRODUCTS = [
  { id: "P-201", code: "NW-201", name: "Acetone C-P, 55 gal drum", uom: "DR" },
 ];
 
-/** Sixteen emails: eight clean, one per guardrail, three resolution failures, one scanned copy. */
+/** Sixteen emails: seven clean, one per guardrail, two resolution failures, one scanned copy. */
 export const SAMPLE_EMAILS = [
  { id: "E-01", from: "purchasing@bristolcoatings.example", subject: "PO 27012128", po: "27012128", account: "A-001", shipTo: { street: "386 Metacom Avenue", postcode: "02809" }, dueDays: 13, lines: [{ desc: "XYLENE SOLVENT 1 DRUM = 395LBS", part: "306727", qty: 8, uom: "DR", product: "P-110", score: 1 }], scanned: false },
  { id: "E-02", from: "aallison@lycomingfab.example", subject: "Purchase Order 177948", po: "177948", account: "A-002", shipTo: { street: "652 Oliver Street", postcode: "17701" }, dueDays: 14, lines: [{ desc: "ACETONE C-P (55 GAL DRUM)", part: "MRO-000601", qty: 3, uom: "DR", product: "P-201", score: 1 }], scanned: false },
@@ -74,8 +74,10 @@ export function simulateEmail(spec, email, alreadyCreated) {
  if (enabled(spec, "unknown_sender") && !account) return stop("UNKNOWN_SENDER", `${domain} matches no customer or contact.`);
  steps.push("screened");
 
- // Extract
- steps.push(email.scanned ? "extracted (OCR)" : "extracted");
+ // Extract. A scanned copy has no text layer; the platform's reader refuses it before a model
+ // is called (OCR is not in this version), and so does the simulation.
+ if (email.scanned) return stop("SCANNED_DOCUMENT", "No text layer in the PDF; OCR is not enabled, so nothing was extracted.");
+ steps.push("extracted");
 
  // Resolve: customer
  if (!account) return stop("CUSTOMER_NOT_FOUND", `No account for ${domain}; name match below ${t.name}.`);
@@ -149,6 +151,6 @@ export function simulateDocumentToRecord(spec, emails = SAMPLE_EMAILS) {
   exceptions: results.filter((r) => r.status === "exception").length,
   byClass,
   straightThrough: results.length ? Math.round((done / results.length) * 100) : 0,
-  ocr: results.filter((r) => r.steps.includes("extracted (OCR)")).length,
+  scanned: results.filter((r) => r.classification === "SCANNED_DOCUMENT").length,
  };
 }

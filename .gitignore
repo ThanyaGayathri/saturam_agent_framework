@@ -133,3 +133,8 @@ CLAUDE_PRIVATE.md
 pyrightconfig.json
 .python-version
 CLAUDE_PRIVATE.md
+
+# PA02 live-run state: per-inbox processed ids and per-run rollback ledgers, never shared
+cookbook/94_retail/evidence/PA02_processed.json
+cookbook/94_retail/evidence/PA02_rollback_*.json
+cookbook/94_retail/evidence/PA02_live_*.json

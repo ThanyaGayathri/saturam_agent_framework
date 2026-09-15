@@ -684,6 +684,11 @@ def test_metadata_names_exactly_the_registered_executors():
         "check_explanation_grounding",
         "evaluate_alert_condition",
         "check_golden_gate",
+        # K15's four branches: each returns stop=True, only when nothing at all is left.
+        "screen_documents",
+        "resolve_entities",
+        "apply_hard_limits",
+        "apply_per_run_cap",
     }
 
 

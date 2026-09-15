@@ -148,7 +148,7 @@ export default function UseCaseRehearseScreen() {
     <>
      <Section title={`Over the sample set: ${sim.created} of ${sim.total} would have been created with nobody touching them`}>
       <p className="text-sm text-text-secondary">
-       {sim.total} emails from six trade customers, one purchase-order format ({sim.ocr} scanned). The write to {spec.writeback || "the target"} was disabled; everything else ran: screening, extraction, resolution against master data, {(spec.recordGuardrails || []).length} guardrails, the change limit.
+       {sim.total} emails from six trade customers, one purchase-order format ({sim.scanned} scanned copy, refused before extraction). The write to {spec.writeback || "the target"} was disabled; everything else ran: screening, extraction, resolution against master data, {(spec.recordGuardrails || []).length} guardrails, the change limit.
       </p>
       <div className="mt-3 grid grid-cols-4 gap-2 text-center">
        <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{sim.total}</p><p className="text-[11px] text-text-muted">emails</p></div>

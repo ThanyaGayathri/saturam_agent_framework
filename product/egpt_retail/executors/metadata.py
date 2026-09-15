@@ -262,5 +262,82 @@ EXECUTOR_METADATA: Mapping[str, ExecutorMetadata] = MappingProxyType(
             True,
             1,
         ),
+        # K15 / K-15 -- the document-to-record template's five, and the Act shape's four.
+        # The branches among them (screen, resolve, guardrails, cap) stop the run only when
+        # nothing at all is left -- no documents and no exceptions -- because an exception
+        # that never reaches the Notify stage is one nobody sees. ``permits_or_blocks`` is
+        # true for exactly those four: they are the ones that return ``stop=True``.
+        "receive_messages": ExecutorMetadata(
+            "Receive messages",
+            "Poll the source mailbox for new messages matching the filter, each carried once by message id.",
+            ("source mailbox", "message filter"),
+            ("messages",),
+            False,
+            10,
+        ),
+        "screen_documents": ExecutorMetadata(
+            "Screen documents",
+            "Exactly one PDF, under the size limit, from a sender that is not ignored, with a text layer; read it once. Anything else is an exception before a model is called.",
+            ("messages", "document type"),
+            ("documents", "exceptions"),
+            True,
+            5,
+        ),
+        "resolve_entities": ExecutorMetadata(
+            "Resolve against master data",
+            "Customer by sender domain then name; ship-to among the customer's sites; product by part number, code, then description. Below threshold or a tie is an exception with the closest candidate.",
+            ("documents", "master data", "match thresholds"),
+            ("documents", "exceptions"),
+            True,
+            10,
+        ),
+        "apply_hard_limits": ExecutorMetadata(
+            "Apply guardrails",
+            "The enabled record guardrails over every resolved document (or the amount bound over a proposal's changes). Any failure holds that document; the rest go on.",
+            ("documents", "guardrails"),
+            ("documents", "exceptions"),
+            True,
+            2,
+        ),
+        "build_record": ExecutorMetadata(
+            "Build the record",
+            "Map the resolved fields onto the target's objects. A required field the mapping cannot fill is an exception, not a blank.",
+            ("documents", "target objects", "created as"),
+            ("documents", "exceptions"),
+            False,
+            1,
+        ),
+        "apply_per_run_cap": ExecutorMetadata(
+            "Apply the change limit",
+            "At most N writes this run; everything past the cap is held and reported, in arrival order.",
+            ("documents", "per-run cap"),
+            ("documents", "exceptions"),
+            True,
+            1,
+        ),
+        "write_to_target": ExecutorMetadata(
+            "Write to the target",
+            "Create each built record in the write target, or under dry run report what would have been created. A failed write is an exception on that document; the rest still go.",
+            ("documents", "write target"),
+            ("documents", "exceptions"),
+            False,
+            30,
+        ),
+        "record_rollback_point": ExecutorMetadata(
+            "Record the rollback point",
+            "One ledger row per record created, with the reverse action the mapping declared, so the run can be undone record by record.",
+            ("documents", "rollback"),
+            ("rollback",),
+            False,
+            2,
+        ),
+        "send_email": ExecutorMetadata(
+            "Notify by email",
+            "The run's created records and exceptions, by class, to the configured address through the source mailbox's own SMTP; composed and held under dry run.",
+            ("documents", "exceptions", "recipient"),
+            ("delivery",),
+            False,
+            5,
+        ),
     }
 )

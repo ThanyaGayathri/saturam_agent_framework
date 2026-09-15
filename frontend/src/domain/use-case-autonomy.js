@@ -366,7 +366,7 @@ export const POLL_INTERVALS = [
 ];
 
 export const DOCUMENT_TYPES = [
- { value: "pdf", label: "PDF attachment", hint: "Text or scanned; OCR when there is no text layer." },
+ { value: "pdf", label: "PDF attachment", hint: "Text layer required; a scanned copy is an exception in this version." },
  { value: "body", label: "Email body", hint: "The order is written in the message." },
  { value: "either", label: "Either", hint: "Attachment first, body if none." },
 ];

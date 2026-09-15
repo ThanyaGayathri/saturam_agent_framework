@@ -5835,3 +5835,93 @@ results -- the `GET /kpis/suggestions` route does not thread a knowledge store i
 blocking a real non-empty suggestion and not investigated further here.
 
 ---
+
+### PA01_salesforce_master_data.py -- Northwind master data into the Salesforce trial org (PA01)
+
+**Package:** PA01 (Order Creation Automation, branch `usecase_processautomation`)
+
+**Status:** PASS (live against the trial org, 15 Sep 2026; re-run after adding product aliases)
+
+**Description:** Loads the sample distributor's master data through client-credentials OAuth
+against the org's My Domain: six accounts with `Email_Domain__c`, eight ship-to sites as
+child accounts, six contacts, twenty-five products (four `Restricted__c`) with standard
+pricebook entries, customer part numbers as `domain=part` pairs and, since this run, trade
+aliases in `Description` (`UoM: DR; Aliases: MEK 55 gal drum`), and 27 Activated history
+orders. Idempotent on natural keys: the re-run updated the two aliased products and created
+nothing else.
+
+**Result:** `loaded: {"products": 25, "accounts": 6, "sites": 8, "contacts": 6,
+"orders_created": 0}`; `org now holds: {"accounts": 8, "contacts": 6, "products": 25,
+"restricted": 4, "orders": 27, "order_items": 27}`. Picklist lesson recorded in the loader:
+state and country must be full names (`Rhode Island`, `United States`); `PricebookEntry`'s
+`Product2Id`/`Pricebook2Id` are immutable after insert and are stripped from updates.
+
+---
+
+### PA02_order_creation_pipeline.py -- the document-to-record executors over the sample set (K15 / K-15)
+
+**Package:** K15 (closes K-15), branch `usecase_processautomation`
+
+**Status:** PASS, three ways (15 Sep 2026):
+
+1. **Offline** (no credentials): sixteen sample emails injected, the expected extraction
+   standing in for the model step, sample master data, every write a dry run. All sixteen
+   outcomes match the use-case definition -- seven previewed for creation, E-08 (the scanned
+   copy) `SCANNED_DOCUMENT` at Screen before any model is called, and one each of
+   `DUPLICATE_PO` (E-09, a resend caught within the run), `UNKNOWN_SENDER` (E-10),
+   `FIRST_TIME_PRODUCT` (E-11), `QUANTITY_ANOMALY` (E-12, 300 against a median of 30),
+   `DUE_DATE_INVALID` (E-13), `RESTRICTED_PRODUCT` (E-14, via the `MEK` alias),
+   `PRODUCT_NOT_FOUND` (E-15, "Solvent, drum" scores 0.82 under 0.85 with xylene as the
+   closest candidate), `SHIP_TO_AMBIGUOUS` (E-16, two sites at 9 Pier Lane and no unit named).
+   `mismatches against the definition: 0`. Per-stage carry: 16 received, 15 screened in, 12
+   resolved, 7 through guardrails, 7 built, 7 capped, 7 previewed, 0 rollback points (nothing
+   written), notify previewed with the summary body.
+2. **`--model`** (Azure OpenAI, `gpt-5.4` deployment): the Extract stage as a real agent
+   built from `ROLE_TEMPLATES["extraction"]` and a schema generated from the
+   `purchase_order` template. Fifteen documents extracted at 2.6-5.1 s each; every one scored
+   5/5 on the checked header fields (PO number, customer name, ship-to, due date, total) with
+   the right line count and quantities. Downstream outcomes identical to the offline run.
+3. **Live pieces, individually**: `load_master_data` against the real org returned 6
+   customers, 8 sites, 24 contacts, 42 products (the org's own samples included), the
+   standard pricebook id and 27 history rows, with `NW-150` carrying `uom=DR`,
+   `aliases=['MEK 55 gal drum']`, `restricted=True`. One clean sample (E-02) run through
+   resolve -> guardrails -> build -> write -> rollback point with `dry_run=False` created a
+   Draft Order (`801g800000o92ozAAA`, Pennsylvania, one OrderItem at the document's price)
+   and recorded one rollback point; `delete_record` on that point removed it and a query for
+   the PO returned nothing. `--live` (dry run) logged into the Gmail inbox over IMAP with the
+   app password and found no `Northwind sample` messages, stopping at Screen with
+   `count: 0` -- the inbox has not been seeded (`--seed-mailbox` sends mail on the owner's
+   behalf and is theirs to run).
+
+**Description:** The chain of nine registered executors (`receive_messages`,
+`screen_documents`, `resolve_entities`, `apply_hard_limits`, `build_record`,
+`apply_per_run_cap`, `write_to_target`, `record_rollback_point`, `send_email`) driven step by
+step with `StepInput`, the way the compiled `act/document_to_record` workflow drives them.
+`capability_report` now shows that template with nothing missing, and the Act shape missing
+only `select_candidates`. Unit coverage in `product/tests/test_k15_document_executors.py`
+(24 tests): the sample set end to end, a dropped guardrail and a lowered threshold changing
+the outcome, the cap holding overflow in arrival order, the empty poll, model extractions
+merged by message id and validated, the PDF writer round-tripping through `pypdf`, the
+matching order of attempts, guardrail priority and the within-run duplicate, due-date
+bounds, the mapping naming every unfillable field, the KPI-proposal path through the Act
+four, IMAP peek-and-flag with a fake client, SMTP through a fake, and the Salesforce loader
+and tree write against an `httpx.MockTransport`.
+
+**Observations:**
+- Two rules fell out of running it rather than designing it. A branch stage stops the run
+  only when no documents *and* no exceptions remain -- stopping on "no documents survived"
+  left the exceptions unsent. And guardrails evaluate in a fixed priority order so the most
+  serious class heads a multi-failure (E-14 is restricted, not first-time).
+- The ship-to resolver refuses a same-number, same-postcode tie outright ("9 Pier Ln" with
+  "9 Pier Lane" and "9 Pier Lane, Unit B" on file) instead of letting the fuzzy score pick
+  the shorter one; and the exact-street match takes the longest site street that heads the
+  document's address, so "9 Pier Lane, Unit B" resolves to Unit B and not its parent.
+- `token_set_ratio` alone gave "Solvent, drum" a perfect score against xylene; the mean with
+  `token_sort_ratio` is what makes 0.85 a meaningful threshold.
+- The model copies a `-` placeholder in the part-number column as `-`; the resolver
+  normalises that to empty and falls through to the description, as it should.
+- OCR is a v1 non-goal and the scanned copy is an exception, not a guess; the interface's
+  rehearsal shows E-08 as "extracted (OCR)", which is ahead of the platform and should
+  follow it.
+
+---

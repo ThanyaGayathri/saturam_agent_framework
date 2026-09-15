@@ -47,9 +47,11 @@ from egpt.workflow.types import OnError
 from pydantic import BaseModel
 
 from egpt_retail.app.settings import RetailSettings
+from egpt_retail.executors.act import ACT_EXECUTORS
 from egpt_retail.executors.alerts import ALERT_EXECUTORS, evaluate_alerts
 from egpt_retail.executors.areas import detect_business_areas
 from egpt_retail.executors.delivery import deliver_in_app
+from egpt_retail.executors.documents import DOCUMENT_EXECUTORS
 from egpt_retail.executors.gaps import check_spec_gaps
 from egpt_retail.executors.gold import GOLD_EXECUTORS, materialise_gold, read_gold
 from egpt_retail.executors.golden_gate import check_golden_gate
@@ -192,6 +194,13 @@ R14_EXECUTORS = (assess_execution_health, list_silent_schedules, assess_quality)
 #: ``test_executor_registry_doc_coverage.py`` walks every row of that document and asserts it
 #: resolves via ``build_registry()``, so this direction of drift fails CI for every package.
 GOLDEN_EXECUTORS = (check_golden_gate,)
+
+#: K15's nine (K-15): the document-to-record template's five (``executors/documents.py``)
+#: and the Act shape's four write-side verbs (``executors/act.py``), which the stage tables
+#: in ``orchestration/compiler.py`` named before anything existed to build them. With these
+#: registered, ``capability_report`` shows both ``act`` rows publishable for the first time;
+#: the one stage still not an executor is Extract, which is a model step by design.
+K15_EXECUTORS = DOCUMENT_EXECUTORS + ACT_EXECUTORS
 
 _SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 _SYNONYM_PROPOSER_PROMPT = _SKILLS_DIR / "EXAMPLE.md"
@@ -547,6 +556,7 @@ def build_registry() -> Registry:
         + R14_EXECUTORS
         + K_EXECUTORS
         + GOLDEN_EXECUTORS
+        + K15_EXECUTORS
     ):
         registry.functions.append(executor)
     assert_registry_valid(registry.functions)

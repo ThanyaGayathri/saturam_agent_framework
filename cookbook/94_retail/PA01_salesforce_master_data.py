@@ -27,7 +27,9 @@ Modelling choices, stated so nobody re-derives them:
   demo and honest about being an approximation.
 * **Unit of measure**: the org's ``QuantityUnitOfMeasure`` picklist carries only ``Each``, so
   the selling unit goes in ``Product2.Description`` as ``UoM: DR`` and the resolver reads it
-  from there.
+  from there. Trade names a purchase order uses instead of ours follow in the same field as
+  ``Aliases: MEK 55 gal drum|...`` (``PRODUCT_ALIASES``); the resolver scores a description
+  against the name and every alias.
 * **History orders are Activated** so they count as real history; the use case creates new
   orders as Draft.
 
@@ -123,6 +125,9 @@ ACCOUNTS = [
 ]
 
 # code, name, uom, unit price, restricted
+#: What a customer's purchase order calls a product when it does not use our name.
+PRODUCT_ALIASES = {"NW-150": ("MEK 55 gal drum",), "NW-201": ("Acetone drum",)}
+
 PRODUCTS = [
     ("NW-105", "Interior Latex Paint, Eggshell White, 5 gal", "EA", 68.00, False),
     ("NW-106", "Interior Latex Paint, Flat White, 5 gal", "EA", 62.00, False),
@@ -285,6 +290,10 @@ def load(sf: Sf, seed: int = 7) -> Dict[str, Any]:
             parts_by_code.setdefault(code, []).append(f"{a['domain']}={part}")
     product_ids: Dict[str, str] = {}
     for code, name, uom, price, restricted in PRODUCTS:
+        aliases = PRODUCT_ALIASES.get(code, ())
+        description = f"UoM: {uom}" + (
+            f"; Aliases: {'|'.join(aliases)}" if aliases else ""
+        )
         pid = sf.upsert(
             "Product2",
             f"ProductCode = {soql_str(code)}",
@@ -293,7 +302,7 @@ def load(sf: Sf, seed: int = 7) -> Dict[str, Any]:
                 "ProductCode": code,
                 "IsActive": True,
                 "Family": "Northwind",
-                "Description": f"UoM: {uom}",
+                "Description": description,
                 "QuantityUnitOfMeasure": "Each",
                 "Restricted__c": restricted,
                 "Customer_Part_Number__c": ";".join(parts_by_code.get(code, [])),

@@ -1,0 +1,160 @@
+{
+  "ran_at": "20260915T111054Z",
+  "live": false,
+  "model": true,
+  "outcomes": {
+    "E-01": "previewed",
+    "E-02": "previewed",
+    "E-03": "previewed",
+    "E-04": "previewed",
+    "E-05": "previewed",
+    "E-06": "previewed",
+    "E-07": "previewed",
+    "E-08": "SCANNED_DOCUMENT",
+    "E-10": "UNKNOWN_SENDER",
+    "E-15": "PRODUCT_NOT_FOUND",
+    "E-16": "SHIP_TO_AMBIGUOUS",
+    "E-09": "DUPLICATE_PO",
+    "E-11": "FIRST_TIME_PRODUCT",
+    "E-12": "QUANTITY_ANOMALY",
+    "E-13": "DUE_DATE_INVALID",
+    "E-14": "RESTRICTED_PRODUCT"
+  },
+  "mismatches": 0,
+  "rollback": {
+    "policy": "Cancel the record and remove its lines",
+    "run_id": "2dc746f9-cd33-4e6b-820d-ccaeafa2b18c",
+    "points": 0,
+    "persisted": false,
+    "records": []
+  },
+  "notify": {
+    "status": "previewed",
+    "to": [
+      "ops@northwind.example"
+    ],
+    "subject": "[Enterprise GPT] 7 created, 9 exception(s)"
+  },
+  "extraction_scores": [
+    {
+      "sample": "E-01",
+      "seconds": 5.1,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-02",
+      "seconds": 2.8,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-03",
+      "seconds": 3.6,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-04",
+      "seconds": 3.2,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-05",
+      "seconds": 2.6,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-06",
+      "seconds": 3.0,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-07",
+      "seconds": 2.8,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-09",
+      "seconds": 3.3,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-10",
+      "seconds": 3.0,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-11",
+      "seconds": 3.1,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-12",
+      "seconds": 3.1,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-13",
+      "seconds": 3.3,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-14",
+      "seconds": 3.0,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-15",
+      "seconds": 4.0,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    },
+    {
+      "sample": "E-16",
+      "seconds": 3.1,
+      "header_matches": 5,
+      "header_checked": 5,
+      "line_count_ok": true,
+      "quantities_ok": true
+    }
+  ]
+}
