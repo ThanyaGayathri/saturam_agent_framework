@@ -231,15 +231,15 @@ export default function KpiDiscoveryPage() {
   };
   // What every poll (and the 202) tells the panel: the stage the run is in and the
   // deployment's typical duration. Either may be null on a given read; keep what we had.
-  const absorb = (run) => (prev) => {
-   lastPhaseRef.current = run.phase ?? prev.phase;
-   return {
-    ...prev,
-    runId: run.id || prev.runId,
-    phase: lastPhaseRef.current,
-    typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
-   };
-  };
+  // Pure, as a functional setState updater must be (React may invoke it more than once for
+  // the same commit) -- callers stash `run.phase` into lastPhaseRef themselves, where `run`
+  // is already in scope, rather than as a side effect in here.
+  const absorb = (run) => (prev) => ({
+   ...prev,
+   runId: run.id || prev.runId,
+   phase: run.phase ?? prev.phase,
+   typicalDuration: run.typical_duration_seconds ?? prev.typicalDuration,
+  });
 
   const poll = (runId) => {
    if (controller.signal.aborted) return;
@@ -274,6 +274,7 @@ export default function KpiDiscoveryPage() {
       fail(run.error || "The run failed without saying why.", run.phase);
       return;
      }
+     lastPhaseRef.current = run.phase ?? lastPhaseRef.current;
      setSuggestionState(absorb(run));
      // Tight at first (a fast run should feel fast), then relaxed: after half a minute the
      // run is clearly a long one and a poll every few seconds is plenty.
@@ -291,6 +292,7 @@ export default function KpiDiscoveryPage() {
      fail("The run was not accepted.");
      return;
     }
+    lastPhaseRef.current = run.phase ?? lastPhaseRef.current;
     setSuggestionState(absorb(run));
     poll(run.id);
    })
