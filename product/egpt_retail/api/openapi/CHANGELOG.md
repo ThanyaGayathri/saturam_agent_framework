@@ -109,6 +109,21 @@ Agreed by: Lane R (contract owner). Additive, so no negotiation and no major bum
   `check_spec_gaps` now loads it. A screen keyed on the enum gains one row to render; every
   existing value is unchanged.
 
+## 1.1.10 — 2026-09-16 — kpis: `KpiSuggestion.business_value` (additive)
+
+Agreed by: product (nandha-saturam). Additive -- one new, nullable, non-required field on an
+existing schema -- so no negotiation and no major bump.
+
+- **`KpiSuggestion.business_value`** (string or null, not required). K12's `rationale` answers
+  "what data is this derived from" -- traceability, not motivation. Nothing in the contract
+  said why a proposed metric is worth tracking at all, which the discovery screen's "Why the
+  model proposed it" panel needed to answer on its own. `business_value` is the agent's
+  one-or-two-sentence answer to that, rendered alongside `rationale` rather than folded into
+  it, since the two are different claims with different evidence: one traces to tables, the
+  other to what a customer would do differently once they can see the number. Nullable and
+  outside `required` rather than a breaking bump: a suggestion run persisted before this field
+  existed reads back with `business_value: null`, not a contract violation.
+
 ## 1.1.8 — 2026-09-15 — dashboards: suggestion runs, `POST /dashboards/suggestions` + `GET /dashboards/suggestions/{run_id}` (additive)
 
 Agreed by: product (nandha-saturam), for the "Create dashboard" flow's AI-generated path

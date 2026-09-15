@@ -156,6 +156,7 @@ KPI_DRAFTS = k12.KpiSuggestionDraftSet(
             result_shape="scalar",
             confidence="high",
             rationale="crm_deal.deal_id counts them.",
+            business_value="Tracks demand coming into sales before it converts to revenue.",
             derived_from_tables=["silver.crm_deal"],
             proposed_sql="SELECT count(DISTINCT deal_id) FROM crm_deal",
             catalogue_source="Quote request volume",
@@ -170,6 +171,7 @@ KPI_DRAFTS = k12.KpiSuggestionDraftSet(
             result_shape="scalar",
             confidence="medium",
             rationale="crm_contact has contact_id.",
+            business_value="Flags how many contacts a campaign could actually reach.",
             derived_from_tables=["crm_contact"],
             proposed_sql=None,
             catalogue_source=None,
@@ -206,7 +208,9 @@ USE_CASE_DRAFTS = k13.UseCaseSuggestionDraftSet(
 )
 
 
-def _run(*, dry_run=False, proposals=None, knowledge=None, focus_areas=None, on_phase=None):
+def _run(
+    *, dry_run=False, proposals=None, knowledge=None, focus_areas=None, on_phase=None
+):
     kpi_agent, use_case_agent = FakeAgent(KPI_DRAFTS), FakeAgent(USE_CASE_DRAFTS)
     run = run_suggestions(
         RetailSettings(retail_customer_slug="t"),
