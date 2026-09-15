@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, FlaskConical, ShieldCheck } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, FlaskConical, ShieldCheck } from "lucide-react";
 import { CHANNELS, COMPARISONS, OPERATORS, SHAPES, estimatedRunsPerMonth } from "../../domain/use-case-autonomy";
 import { loadSpecDraft } from "../../domain/use-case-draft-spec";
+import { SAMPLE_EMAILS, simulateDocumentToRecord } from "../../domain/use-case-simulation";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 
@@ -118,6 +119,10 @@ export default function UseCaseRehearseScreen() {
   return { considered, struck, struckTotal, surviving, perRun, cap, held, samples };
  }, [spec, s, metric, unit]);
 
+ const doc = spec.template === "document_to_record";
+ const sim = useMemo(() => (doc ? simulateDocumentToRecord(spec, SAMPLE_EMAILS) : null), [doc, spec]);
+ const [open, setOpen] = useState(null);
+
  const runs = estimatedRunsPerMonth(spec.schedule);
  const costPerRun = shape.level >= 3 ? 0.42 : shape.level === 2 ? 0.08 : 0.19;
  const title = spec.title?.trim() || spec.goal?.trim() || "Untitled use case";
@@ -130,7 +135,7 @@ export default function UseCaseRehearseScreen() {
      <FlaskConical size={22} className="text-primary" /> Simulation
     </h1>
     <p className="mt-1 max-w-2xl text-sm text-text-secondary">
-     <strong className="text-text-primary">{title}</strong>, run against the last 90 days with every side effect switched off. This is what it
+     <strong className="text-text-primary">{title}</strong>, run {doc ? "over the sample set" : "against the last 90 days"} with every side effect switched off. This is what it
      <strong className="text-text-primary"> would have</strong> done.
     </p>
    </div>
@@ -139,7 +144,63 @@ export default function UseCaseRehearseScreen() {
     <ShieldCheck size={13} /> Sandbox · nothing was written, sent or changed
    </div>
 
-   {shape.id === "inform" && (
+   {doc && sim && (
+    <>
+     <Section title={`Over the sample set: ${sim.created} of ${sim.total} would have been created with nobody touching them`}>
+      <p className="text-sm text-text-secondary">
+       {sim.total} emails from six trade customers, one purchase-order format ({sim.ocr} scanned). The write to {spec.writeback || "the target"} was disabled; everything else ran: screening, extraction, resolution against master data, {(spec.recordGuardrails || []).length} guardrails, the change limit.
+      </p>
+      <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+       <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{sim.total}</p><p className="text-[11px] text-text-muted">emails</p></div>
+       <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{sim.created}</p><p className="text-[11px] text-text-muted">would have been created</p></div>
+       <div className="rounded-lg bg-status-critical-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-critical">{sim.exceptions}</p><p className="text-[11px] text-text-muted">exceptions</p></div>
+       <div className="rounded-lg bg-status-warning-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-warning">{sim.held}</p><p className="text-[11px] text-text-muted">held for the next poll</p></div>
+      </div>
+      <p className="mt-3 text-sm text-text-secondary">Straight-through rate <strong className="text-text-primary">{sim.straightThrough}%</strong> on a sample set built with one email per exception type — live traffic runs higher. The bar for production is 70%, measured live; what matters here is that every exception is the right one.</p>
+      {Object.keys(sim.byClass).length > 0 && (
+       <ul className="mt-2 flex flex-wrap gap-1.5">
+        {Object.entries(sim.byClass).map(([k, n]) => <li key={k} className="rounded-md border border-border bg-surface-secondary px-2 py-0.5 font-mono text-[11px] text-text-primary">{k} <span className="text-status-critical">×{n}</span></li>)}
+       </ul>
+      )}
+     </Section>
+
+     <Section title="Every email, what it would have done">
+      <div className="overflow-x-auto rounded-lg border border-border">
+       <table className="w-full min-w-[560px] text-sm">
+        <thead className="bg-surface-secondary text-[11px] uppercase tracking-wide text-text-muted">
+         <tr><th className="px-3 py-2 text-left">From</th><th className="px-3 py-2 text-left">PO</th><th className="px-3 py-2 text-left">Reached</th><th className="px-3 py-2 text-left">Outcome</th></tr>
+        </thead>
+        <tbody>
+         {sim.results.map((r) => (
+          <Fragment key={r.id}>
+           <tr className="cursor-pointer border-t border-border hover:bg-surface-secondary/60" onClick={() => setOpen(open === r.id ? null : r.id)}>
+            <td className="px-3 py-2 text-text-secondary">{open === r.id ? <ChevronDown size={12} className="mr-1 inline" /> : <ChevronRight size={12} className="mr-1 inline" />}{r.from}</td>
+            <td className="px-3 py-2 font-mono text-xs text-text-primary">{r.po}</td>
+            <td className="px-3 py-2 text-xs text-text-muted">{r.steps[r.steps.length - 1]}</td>
+            <td className="px-3 py-2">{r.status === "created" ? <span className="rounded-full bg-status-success-light px-2 py-0.5 text-[11px] font-semibold text-status-success">created · {spec.createdAs === "active" ? "Activated" : "Draft"}</span> : r.status === "held" ? <span className="rounded-full bg-status-warning-light px-2 py-0.5 text-[11px] font-semibold text-status-warning">held</span> : <span className="rounded-full bg-status-critical-light px-2 py-0.5 font-mono text-[11px] font-semibold text-status-critical">{r.classification}</span>}</td>
+           </tr>
+           {open === r.id && (
+            <tr className="border-t border-border-light bg-surface-secondary/40">
+             <td colSpan={4} className="px-4 py-3 text-xs text-text-secondary">
+              <p className="mb-1"><span className="font-semibold text-text-primary">Subject</span> {r.subject} · <span className="font-semibold text-text-primary">steps</span> {r.steps.join(" → ")}</p>
+              {r.detail && <p className="mb-1"><span className="font-semibold text-status-critical">Why</span> {r.detail}</p>}
+              {r.account && <p className="mb-1"><span className="font-semibold text-text-primary">Resolved</span> {r.account.name} · ship-to {r.shipTo.street}, {r.shipTo.postcode} · {r.lines.map((l) => `${l.qty} ${l.productRec.uom} ${l.productRec.name} (${l.score >= 1 ? "part number" : l.score.toFixed(2)})`).join("; ")}</p>}
+              {r.payload && <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-surface p-2 font-mono text-[11px] text-text-primary">{JSON.stringify(r.payload, null, 1)}</pre>}
+              {r.status === "exception" && <p className="mt-1 text-text-muted">Would have been emailed to {spec.exceptionsTo || "the exceptions address"} and recorded on the Alerts page. Nothing written.</p>}
+             </td>
+            </tr>
+           )}
+          </Fragment>
+         ))}
+        </tbody>
+       </table>
+      </div>
+      <p className="mt-2 text-[11px] text-text-muted">The sample set with its expected values is the extraction step's golden set: the same 16 documents are re-scored whenever the template's brief changes.</p>
+     </Section>
+    </>
+   )}
+
+   {!doc && shape.id === "inform" && (
     <Section title="The answer it would have given">
      <p className="text-sm text-text-secondary">
       <strong className="text-text-primary">{inform.worst.name}</strong> accounts for most of the movement in {metric}
@@ -168,7 +229,7 @@ export default function UseCaseRehearseScreen() {
     </Section>
    )}
 
-   {shape.id === "alert" && (
+   {!doc && shape.id === "alert" && (
     <Section title={`It would have fired ${alert.events.length} time${alert.events.length === 1 ? "" : "s"} in 90 days`}>
      <p className="text-sm text-text-secondary">
       {alert.events.length >= 5 ? "That is often. Consider a higher threshold or a longer window before this goes live." : "A manageable number for the people it notifies."}
@@ -188,7 +249,7 @@ export default function UseCaseRehearseScreen() {
     </Section>
    )}
 
-   {shape.level >= 3 && (
+   {!doc && shape.level >= 3 && (
     <>
      <Section title="What it would have recommended">
       <p className="text-sm text-text-secondary">
@@ -253,9 +314,11 @@ export default function UseCaseRehearseScreen() {
    )}
 
    <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-secondary px-4 py-3 text-sm">
-    <span className="text-text-secondary">Estimated cost{shape.id === "alert" ? " (no AI on a run)" : ""}</span>
+    <span className="text-text-secondary">Estimated cost{shape.id === "alert" ? " (no AI on a run)" : doc ? " (one AI step per document)" : ""}</span>
     <span className="text-text-primary">
-     <strong>{runs}</strong> runs / month × ~{costPerRun.toFixed(2)} credits = <strong>~{(runs * costPerRun).toFixed(0)} credits / month</strong>
+     {doc
+      ? <><strong>~{Math.round(sim.total * 4)}</strong> documents / month × ~0.12 credits = <strong>~{Math.round(sim.total * 4 * 0.12)} credits / month</strong> · polls themselves cost nothing</>
+      : <><strong>{runs}</strong> runs / month × ~{costPerRun.toFixed(2)} credits = <strong>~{(runs * costPerRun).toFixed(0)} credits / month</strong></>}
     </span>
    </section>
 

@@ -5,7 +5,7 @@ import {
  UserCheck,
 } from "lucide-react";
 import {
- CHANNELS, OPERATORS, SCHEDULES, SHAPES, TIMEOUT_BEHAVIOURS, categoryOf, displayName, estimatedRunsPerMonth,
+ CHANNELS, OPERATORS, POLL_INTERVALS, SCHEDULES, SHAPES, TIMEOUT_BEHAVIOURS, categoryOf, displayName, estimatedRunsPerMonth,
  requiresAdminActivation, requiresSeparationOfDuties,
 } from "../../domain/use-case-autonomy";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
@@ -101,12 +101,13 @@ export default function UseCaseActivateScreen() {
      <p className="mt-1 max-w-2xl text-sm text-text-secondary">
       {done.status === "active"
        ? <><strong className="text-text-primary">{title}</strong> is live in {done.environment}. The frozen version runs; a change to the spec is a new version.</>
-       : <><strong className="text-text-primary">{title}</strong> is frozen and waiting for {done.to} to activate it. Nothing runs until they do; they see the same plan, rehearsal and cost you saw.</>}
+       : <><strong className="text-text-primary">{title}</strong> is frozen and waiting for {done.to} to activate it. Nothing runs until they do; they see the same workflow, simulation and cost you saw.</>}
      </p>
     </div>
     <Card Icon={ListChecks} title="What happens next">
      <ul className="space-y-1.5 text-sm text-text-secondary">
-      <li>· First run: <strong className="text-text-primary">{first.toLowerCase()}</strong>{spec.environment === "sandbox" ? " — in the sandbox, so it writes nowhere and sends nothing outside the app" : ""}.</li>
+      <li>· First run: <strong className="text-text-primary">{(spec.template === "document_to_record" ? POLL_INTERVALS.find((x) => x.value === spec.schedule)?.label || first : first).toLowerCase()}</strong>{spec.environment === "sandbox" ? " — in the sandbox, so it writes nowhere and sends nothing outside the app" : ""}.</li>
+      {spec.template === "document_to_record" && <li>· Each new document in {spec.mailbox} becomes {spec.targetObjects ? `an ${spec.targetObjects.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" + ").replace("Orderitem", "OrderItem")}` : "a record"} in {spec.writeback}; the message is labelled <code className="font-mono text-[11px]">egpt/processed</code> or <code className="font-mono text-[11px]">egpt/exception</code>.</li>}
       <li>· Results land {shape.id === "alert" ? <>on the <strong className="text-text-primary">Alerts</strong> page{channels.length > 1 ? ` with a pointer by ${channels.filter((c) => c !== "In app").join(" and ")}` : ""}</> : <>in this use case's <strong className="text-text-primary">runs</strong>{channels.length > 1 ? ` with a pointer by ${channels.filter((c) => c !== "In app").join(" and ")}` : ""}</>}, for {spec.notify || spec.owner}.</li>
       {shape.level >= 3 && <li>· {shape.id === "recommend" ? `${spec.approver} gets each recommendation to release; ` : ""}every change to {spec.writeback} is stamped with its run{shape.id === "act" ? " and its rollback point" : ""}.</li>}
       <li>· Every run is recorded with what it read, decided and sent. {spec.owner} and any admin hold the kill switch.</li>
@@ -184,11 +185,11 @@ export default function UseCaseActivateScreen() {
     <div className="grid gap-3 sm:grid-cols-2">
      <label className="block"><span className="text-xs font-semibold text-text-secondary">Runs</span>
       <select value={spec.schedule} onChange={(e) => set("schedule", e.target.value)} className="mt-1 w-full rounded-lg border border-border bg-surface px-2.5 py-2 text-sm focus:border-primary focus:outline-none">
-       {SCHEDULES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+       {(spec.template === "document_to_record" ? POLL_INTERVALS : SCHEDULES).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select></label>
      <div>
-      <span className="text-xs font-semibold text-text-secondary">{shape.level >= 3 ? "Owner is told" : "Delivered to"}</span>
-      <p className="mt-1 text-sm text-text-primary"><strong>{spec.notify || spec.owner || "nobody yet"}</strong></p>
+      <span className="text-xs font-semibold text-text-secondary">{spec.template === "document_to_record" ? "Exceptions go to" : shape.level >= 3 ? "Owner is told" : "Delivered to"}</span>
+      <p className="mt-1 text-sm text-text-primary"><strong>{spec.template === "document_to_record" ? spec.exceptionsTo || "nobody yet" : spec.notify || spec.owner || "nobody yet"}</strong></p>
       <div className="mt-1 flex flex-wrap gap-1">
        {channels.map((c) => <span key={c} className="rounded-full border border-border bg-surface-secondary px-2 py-0.5 text-[11px] font-semibold text-text-secondary">{c}</span>)}
       </div>
@@ -217,7 +218,12 @@ export default function UseCaseActivateScreen() {
     </Card>
    )}
 
-   {shape.id === "act" && (
+   {shape.id === "act" && spec.template === "document_to_record" && (
+    <Card Icon={ShieldAlert} title="Document to record, unattended" aside={<FromSpec navigate={navigate} />}>
+     <p className="text-sm text-text-secondary">Polls <strong className="text-text-primary">{spec.mailbox || "the mailbox"}</strong> {POLL_INTERVALS.find((p) => p.value === spec.schedule)?.label.toLowerCase() || ""}. Each {spec.extractionTemplate?.replace(/_/g, " ") || "document"} is extracted, resolved, checked by {(spec.recordGuardrails || []).length} guardrails, and created in <strong className="text-text-primary">{spec.writeback}</strong> as {spec.createdAs === "active" ? "activated" : "a draft"} — at most <strong className="text-text-primary">{spec.blastRadius}</strong> per poll. Exceptions go to <strong className="text-text-primary">{spec.exceptionsTo}</strong>{spec.acknowledge ? "; the sender is acknowledged either way" : ""}. Rollback: <strong className="text-text-primary">{spec.rollback}</strong>. A kill switch stops the poll; in-flight documents complete.</p>
+    </Card>
+   )}
+   {shape.id === "act" && spec.template !== "document_to_record" && (
     <Card Icon={ShieldAlert} title={spec.objective?.metric ? "Optimisation, unattended" : "Unattended"} aside={<FromSpec navigate={navigate} />}>
      <p className="text-sm text-text-secondary">{objectiveText(spec.objective) ? <>Tunes the process towards <strong className="text-text-primary">{objectiveText(spec.objective)}</strong>. </> : null}Runs unattended. {spec.guardrails.length} business guardrail{spec.guardrails.length === 1 ? "" : "s"}, then at most <strong className="text-text-primary">{spec.blastRadius}</strong> per run; every change to <strong className="text-text-primary">{spec.writeback}</strong> records its rollback point — <strong className="text-text-primary">{spec.rollback}</strong>. A kill switch is available to the owner and any admin.</p>
     </Card>
@@ -233,7 +239,7 @@ export default function UseCaseActivateScreen() {
    )}
 
    <Card Icon={Coins} title="Cost">
-    <p className="text-sm text-text-secondary"><strong className="text-text-primary">{runs}</strong> runs / month × ~{costPerRun.toFixed(2)} credits ≈ <strong className="text-text-primary">{(runs * costPerRun).toFixed(0)} credits / month</strong>, against the tenant budget.{shape.id === "alert" ? " No model is called on a run." : ""}</p>
+    {spec.template === "document_to_record" ? <p className="text-sm text-text-secondary">One AI step per document, ~0.12 credits; polls cost nothing. At ~60 documents a month, <strong className="text-text-primary">≈ 7 credits / month</strong>, against the tenant budget.</p> : <p className="text-sm text-text-secondary"><strong className="text-text-primary">{runs}</strong> runs / month × ~{costPerRun.toFixed(2)} credits ≈ <strong className="text-text-primary">{(runs * costPerRun).toFixed(0)} credits / month</strong>, against the tenant budget.{shape.id === "alert" ? " No model is called on a run." : ""}</p>}
    </Card>
 
    <Card Icon={Target} title="How you will know it worked">

@@ -3,7 +3,7 @@ import {
  TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS,
 } from "./use-case-autonomy";
 import { guardrailRule } from "./use-case-spec";
-import { fieldsFor } from "./use-case-autonomy";
+import { EXTRACTION_TEMPLATES, POLL_INTERVALS, RECORD_GUARDRAILS, fieldsFor } from "./use-case-autonomy";
 
 /**
  * Turns a message into a spec patch, for the shape already chosen.
@@ -133,6 +133,64 @@ export function extract(text, spec, ctx) {
   }
  }
 
+ // ── Document to record ──────────────────────────────────────────────────────────────────
+ if (need.has("mailbox")) {
+  // Mailbox: any connected mailbox named, or "the orders mailbox" / "our inbox" → the one mailbox source.
+  const boxes = (ctx.mailboxes || []);
+  const named = boxes.find((b) => rest.includes(b.toLowerCase().split(/\s*[-–]\s*/)[0]) && /mail|inbox/.test(rest));
+  const generic = /\b(mailbox|inbox|by email|via email|arrive(s)? (by|in|as) (email|e-mail)|emailed)\b/.test(rest) && boxes.length === 1 ? boxes[0] : null;
+  const pick = named || generic;
+  if (pick && !spec.mailbox) { patch.mailbox = pick; understood.push(`source mailbox: ${pick}`); }
+ }
+ if (need.has("pollInterval")) {
+  const m = rest.match(/\b(?:every|each)\s+(\d+)?\s*(minute|min|hour)s?\b|\bhourly\b/);
+  if (m) {
+   const n = parseInt(m[1] || "1", 10); const unit = m[2] || "hour";
+   const v = /hour/.test(unit) ? "hourly" : n <= 1 ? "1m" : n <= 5 ? "5m" : "15m";
+   patch.schedule = v; understood.push(`checks ${POLL_INTERVALS.find((p) => p.value === v)?.label.toLowerCase()}`);
+  }
+ }
+ if (need.has("documentType")) {
+  if (/\b(pdf|attachment)s?\b/.test(rest) && /\b(body|text of the email)\b/.test(rest)) { patch.documentType = "either"; understood.push("document: attachment or email body"); }
+  else if (/\bpdfs?\b|\battachments?\b/.test(rest)) { patch.documentType = "pdf"; understood.push("document: PDF attachment"); }
+  else if (/\b(email body|in the body|body of the email)\b/.test(rest)) { patch.documentType = "body"; understood.push("document: email body"); }
+ }
+ if (need.has("extractionTemplate") && !spec.extractionTemplate) {
+  const tpl = EXTRACTION_TEMPLATES.find((x) => new RegExp(`\\b${x.label.toLowerCase()}s?\\b|\\b${x.id.replace(/_/g, " ")}s?\\b`).test(rest)) || (/\bpos?\b|\bpurchase orders?\b/.test(rest) ? EXTRACTION_TEMPLATES[0] : null);
+  if (tpl) { patch.extractionTemplate = tpl.id; understood.push(`extraction template: ${tpl.label}`); }
+ }
+ if (need.has("exceptionsTo")) {
+  const m = rest.match(/\b(?:exceptions?|failures?|anything it cannot [a-z ]+?|problems?)\s+(?:go|goes|sent|to|should go)?\s*(?:to\s+)?([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/) || rest.match(/\b(?:email|notify|tell)\s+([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/);
+  if (m) { patch.exceptionsTo = m[1]; understood.push(`exceptions to ${m[1]}`); }
+ }
+ if (need.has("targetObjects") && !spec.targetObjects) {
+  if (/\b(sales )?orders?\b/.test(rest) && /\bsalesforce\b/.test(rest)) { patch.targetObjects = "order_orderitem"; understood.push("creates: Order + OrderItem"); }
+  else if (/\bopportunit(y|ies)\b/.test(rest)) { patch.targetObjects = "opportunity"; understood.push("creates: Opportunity + Products"); }
+ }
+ if (need.has("createdAs")) {
+  if (/\bas (a )?drafts?\b/.test(rest)) patch.createdAs = "draft";
+  else if (/\b(activated|as active|activate (it|them))\b/.test(rest)) { patch.createdAs = "active"; understood.push("created as: activated"); }
+ }
+ if (need.has("recordGuardrails")) {
+  const rows = [...(spec.recordGuardrails || [])];
+  const cues = [
+   ["duplicate_po", /\bduplicate (po|purchase order)s?\b/],
+   ["unknown_sender", /\bunknown sender|unknown domain|sender (we|it) do(es)?n.t know\b/],
+   ["first_time_product", /\bfirst[- ]time products?|never ordered\b/],
+   ["quantity_anomaly", /\bquantity anomal|unusual quantit|quantity spikes?\b/],
+   ["due_date_sanity", /\bdue[- ]date|delivery date (sanity|check)\b/],
+   ["restricted_product", /\brestricted products?\b/],
+  ];
+  let added = 0;
+  for (const [id, re] of cues) if (re.test(rest) && !rows.some((g) => g.id === id)) { rows.push({ id, param: RECORD_GUARDRAILS.find((x) => x.id === id)?.param?.default ?? null }); added += 1; }
+  if (/\b(all|every|the six|standard) (business )?guardrails?\b/.test(rest)) for (const g of RECORD_GUARDRAILS) if (!rows.some((r) => r.id === g.id)) { rows.push({ id: g.id, param: g.param?.default ?? null }); added += 1; }
+  if (added) { patch.recordGuardrails = rows; understood.push(`guardrails: ${rows.map((g) => RECORD_GUARDRAILS.find((x) => x.id === g.id)?.label).join(", ")}`); }
+ }
+ if (need.has("acknowledge")) {
+  if (/\b(don.t|do not|no) (acknowledge|reply)\b/.test(rest)) { patch.acknowledge = false; understood.push("no acknowledgement to the sender"); }
+  else if (/\b(acknowledge|confirm back to|reply to the (sender|buyer))\b/.test(rest)) { patch.acknowledge = true; understood.push("acknowledges the sender"); }
+ }
+
  // Metrics.
  if (need.has("metrics") || need.has("metric")) {
   const { ids, terms } = metricsIn(rest, registryNames, spec.metricIds);
@@ -192,12 +250,13 @@ export function extract(text, spec, ctx) {
  }
 
  // Schedule -- the trigger.
- if (/\b(every hour|hourly)\b/.test(rest)) patch.schedule = "hourly";
+ if (need.has("pollInterval")) { /* the poll interval above is the schedule */ }
+ else if (/\b(every hour|hourly)\b/.test(rest)) patch.schedule = "hourly";
  else if (/\b(every (morning|day)|daily|each morning)\b/.test(rest)) patch.schedule = "daily";
  else if (/\b(every (monday|week)|weekly|mondays?)\b/.test(rest)) patch.schedule = "weekly";
  else if (/\b(monthly|every month|month end|first of the month)\b/.test(rest)) patch.schedule = "monthly";
  else if (/\b(on demand|when (i|someone) asks?|manually)\b/.test(rest)) patch.schedule = "manual";
- if (patch.schedule) understood.push(`runs ${patch.schedule}`);
+ if (patch.schedule && !need.has("pollInterval")) understood.push(`runs ${patch.schedule}`);
 
  // Guardrails: each limit clause becomes { metric, operator, threshold }. The metric is the
  // registry name in the clause; a clause naming none is kept with the metric blank and asked about.
@@ -248,10 +307,11 @@ export function extract(text, spec, ctx) {
 
  // Per-run cap.
  if (need.has("perRunCap") && !spec.blastRadius) {
-  const m = rest.match(/\b(?:at most|no more than|up to|max(?:imum)?(?: of)?|cap(?:ped)?(?: it| this| the run| each run)? (?:at|to))\s+(\d+(?:\.\d+)?)\s*(%|skus?|items?|products?|lines?|rows?)?/);
+  const m = rest.match(/\b(?:at most|no more than|up to|max(?:imum)?(?: of)?|cap(?:ped)?(?: it| this| the run| each run)? (?:at|to))\s+(\d+(?:\.\d+)?)\s*(%|skus?|items?|products?|lines?|rows?|orders?|records?|documents?|emails?)?/);
   if (m) {
    const n = m[1];
-   const cap = m[2] === "%" ? `${n}% of catalogue` : `${n} SKUs`;
+   const noun = m[2] && /order|record|document|email/.test(m[2]) ? m[2].replace(/s$/, "") + "s" : null;
+   const cap = m[2] === "%" ? `${n}% of catalogue` : noun ? `${n} ${noun}` : spec.template === "document_to_record" ? `${n} records` : `${n} SKUs`;
    patch.blastRadius = PER_RUN_CAPS.includes(cap) ? cap : cap;
    understood.push(`change limit: ${patch.blastRadius} per run`);
   }

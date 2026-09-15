@@ -1,4 +1,4 @@
-import { CATEGORIES, FIELD_META, LIMIT_OPERATORS, SHAPES, fieldsFor, requiresSeparationOfDuties } from "./use-case-autonomy";
+import { CATEGORIES, EXTRACTION_TEMPLATES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, MATCH_THRESHOLD_DEFAULTS, SHAPES, fieldsFor, requiresSeparationOfDuties } from "./use-case-autonomy";
 
 /**
  * The use-case spec: the thing a user reviews, completes and freezes.
@@ -36,9 +36,10 @@ export const ORIGIN = { spec: "spec", authored: "authored", assumed: "assumed" }
 // separation of duties can be enforced at activation rather than advised.
 export const AUTHOR = "A. Mehta";
 
-export function emptySpec(goal = "", shape = null, category = null) {
+export function emptySpec(goal = "", shape = null, category = null, template = null) {
  return {
   category,
+  template,
   shape,
   shapeChosen: !!shape,
   // Derived. The later screens read `AUTONOMY[spec.autonomy].level`; the shape is the autonomy.
@@ -67,6 +68,19 @@ export function emptySpec(goal = "", shape = null, category = null) {
   // recommend / act
   candidates: null,
   objective: null,
+  // document to record
+  mailbox: "",
+  messageFilter: { unread: true, hasAttachment: true, notOwnDomain: true, senderPattern: "" },
+  documentType: "pdf",
+  extractionTemplate: "",
+  exampleDocument: null,
+  masterData: { customer: "", contact: "", shipTo: "", product: "", orderHistory: "" },
+  matchThresholds: { ...MATCH_THRESHOLD_DEFAULTS },
+  recordGuardrails: [],
+  exceptionsTo: "",
+  acknowledge: true,
+  targetObjects: "",
+  createdAs: "draft",
   guardrails: [],
   approver: "",
   writeback: "",
@@ -83,9 +97,9 @@ export function emptySpec(goal = "", shape = null, category = null) {
 
 /** Pick (or change) the shape. Changing it clears the fields the new shape does not carry, so a
  *  threshold typed for an alert cannot leak into a recommendation as a guardrail. */
-export function withShape(spec, shape, category = spec.category) {
- const keep = new Set(fieldsFor({ shape, category }).map((f) => FIELD_META[f].key));
- const blank = emptySpec(spec.goal, shape, category);
+export function withShape(spec, shape, category = spec.category, template = spec.template) {
+ const keep = new Set(fieldsFor({ shape, category, template }).map((f) => FIELD_META[f].key));
+ const blank = emptySpec(spec.goal, shape, category, template);
  const next = { ...blank, title: spec.title, owner: spec.owner, author: spec.author, environment: spec.environment, delivery: spec.delivery, notifyChannels: spec.notifyChannels || blank.notifyChannels, businessArea: spec.businessArea || "" };
  for (const key of keep) next[key] = spec[key] ?? blank[key];
  next.metricTerms = keep.has("metricIds") ? spec.metricTerms || [] : [];
@@ -97,7 +111,13 @@ export function withShape(spec, shape, category = spec.category) {
  *  category spans two). */
 export function withCategory(spec, category, shape = null) {
  const c = CATEGORIES[category];
- return withShape(spec, shape || c?.shapes[0] || "inform", category);
+ const template = c?.templates ? c.templates[0].id : null;
+ return withShape(spec, shape || c?.shapes[0] || "inform", category, template);
+}
+
+/** Switch the template within a category; the shape stays, the form changes. */
+export function withTemplate(spec, template) {
+ return withShape(spec, spec.shape, spec.category, template);
 }
 
 /** Apply a patch and record where each value came from. */
@@ -117,12 +137,15 @@ export function applyPatch(spec, patch, origin) {
  *  building the same thing get the same name. Overwritten by anything typed. */
 export function proposeTitle(spec) {
  const m = spec.metricIds?.[0];
+ if (spec.template === "document_to_record") { const t = EXTRACTION_TEMPLATES.find((x) => x.id === spec.extractionTemplate); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
  if (!m) return "";
  switch (spec.shape) {
   case "inform": return `${m}${spec.dimensions?.length ? ` by ${spec.dimensions.slice(0, 2).join(" and ").toLowerCase()}` : ""}`;
   case "alert": return `${m} alert${spec.scope && spec.scope !== "Everywhere" ? ` — ${spec.scope.toLowerCase()}` : ""}`;
   case "recommend": return `${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : m} proposals${spec.candidates?.concept ? ` for ${spec.candidates.concept}` : ""}`;
-  case "act": return spec.objective?.metric ? `${spec.objective.metric} optimisation${spec.candidates?.concept ? ` · ${spec.candidates.concept}` : ""}` : `${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : m} updates${spec.candidates?.concept ? ` for ${spec.candidates.concept}` : ""}`;
+  case "act":
+   if (spec.template === "document_to_record") { const t = EXTRACTION_TEMPLATES.find((x) => x.id === spec.extractionTemplate); return t ? `${t.label} → ${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : "record"}` : ""; }
+   return spec.objective?.metric ? `${spec.objective.metric} optimisation${spec.candidates?.concept ? ` · ${spec.candidates.concept}` : ""}` : `${spec.writeback ? spec.writeback.split(/\s*[-–]\s*/)[0] : m} updates${spec.candidates?.concept ? ` for ${spec.candidates.concept}` : ""}`;
   default: return m;
  }
 }
@@ -213,6 +236,26 @@ export function gapsFor(spec, registryNames, measurable) {
   } else if (!String(spec.candidates.filter || "").trim()) {
    push({ id: "candidates-filter", kind: GAP_KIND.missing, field: "candidates", ask: `Which ${spec.candidates.concept.toLowerCase()}? Give the filter — e.g. "more than 8 weeks of cover".` });
   }
+ }
+ if (need.has("mailbox") && !spec.mailbox) {
+  push({ id: "mailbox", kind: GAP_KIND.missing, field: "mailbox", ask: "Which connected mailbox do the documents arrive in?" });
+ }
+ if (need.has("extractionTemplate") && !spec.extractionTemplate) {
+  push({ id: "extractionTemplate", kind: GAP_KIND.missing, field: "extractionTemplate", ask: "What kind of document is it?", options: EXTRACTION_TEMPLATES.map((t) => t.label) });
+ }
+ if (need.has("masterData")) {
+  for (const role of MASTER_DATA_ROLES.filter((r) => r.required)) {
+   if (!spec.masterData?.[role.id]) push({ id: `masterData-${role.id}`, kind: GAP_KIND.missing, field: "masterData", role: role.id, ask: `Which business object is the ${role.label.toLowerCase()} resolved against?` });
+  }
+ }
+ if (need.has("recordGuardrails") && (spec.recordGuardrails || []).length === 0) {
+  push({ id: "recordGuardrails", kind: GAP_KIND.missing, field: "recordGuardrails", ask: "Which business guardrails should stop a record before it is written? At least one." });
+ }
+ if (need.has("exceptionsTo") && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(spec.exceptionsTo || "")) {
+  push({ id: "exceptionsTo", kind: GAP_KIND.missing, field: "exceptionsTo", ask: "Which email address should exceptions go to?" });
+ }
+ if (need.has("targetObjects") && !spec.targetObjects) {
+  push({ id: "targetObjects", kind: GAP_KIND.missing, field: "targetObjects", ask: "What should be created in the target system?" });
  }
  if (need.has("objective")) {
   if (!spec.objective?.metric) {

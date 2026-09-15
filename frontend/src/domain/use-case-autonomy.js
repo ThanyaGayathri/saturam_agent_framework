@@ -123,13 +123,26 @@ export const CATEGORIES = {
   id: "process_automation",
   label: "Process Automation",
   plain: "Execute a defined action within limits",
-  blurb: "Carries out a rule-based action unattended — reorder, re-price, re-assign — inside business guardrails, a change limit per run, and a rollback plan. Switched on by an admin.",
+  blurb: "Carries out a rule-based action unattended — reorder, re-price, create a record from a document — inside business guardrails, a change limit per run, and a rollback plan. Switched on by an admin.",
   sideEffect: "a change to a target system, unattended",
   shapes: ["act"],
-  examples: [{
-   shape: "act", title: "Low-Stock Auto-Reorder", templateId: null,
-   prompt: "Every morning, reorder SKUs below their reorder point using days of stock remaining and inventory turnover. Never order beyond 60 days of cover. Write to the inventory system, at most 100 SKUs per run, and keep the previous order quantity so it can be restored.",
-  }],
+  // Two templates share the shape. Which one is chosen on the form, not on the card: it is a
+  // question about the input -- a KPI or a document -- and the person answers it once they
+  // know what arrives.
+  templates: [
+   { id: "kpi_change", label: "Change a parameter from a KPI", hint: "Reads KPIs on a schedule, recommends a change per record, writes it within limits." },
+   { id: "document_to_record", label: "Create a record from a document", hint: "A document arrives — by email, in a folder — is extracted, resolved against master data, checked, and written as a record." },
+  ],
+  examples: [
+   {
+    shape: "act", template: "kpi_change", title: "Low-Stock Auto-Reorder", templateId: null,
+    prompt: "Every morning, reorder SKUs below their reorder point using days of stock remaining and inventory turnover. Never order beyond 60 days of cover. Write to the inventory system, at most 100 SKUs per run, and keep the previous order quantity so it can be restored.",
+   },
+   {
+    shape: "act", template: "document_to_record", title: "Order Creation Automation", templateId: null,
+    prompt: "Create sales orders in Salesforce from purchase orders that arrive as PDFs in the orders mailbox, checking every 5 minutes. Send exceptions to orders-desk@northwind.example. At most 20 orders per run.",
+   },
+  ],
  },
  process_optimization: {
   id: "process_optimization",
@@ -148,17 +161,33 @@ export const CATEGORIES = {
 export const CATEGORY_LIST = Object.values(CATEGORIES);
 
 export const categoryOf = (spec) => CATEGORIES[spec.category] || null;
+export const templateOf = (spec) => categoryOf(spec)?.templates?.find((t) => t.id === spec.template) || null;
+
+/**
+ * The document-to-record template's form, in order. Slots named as the compiler's stage table
+ * names them. Nothing here is a KPI: the input is a document, the "candidates" are messages,
+ * and the AI step extracts rather than recommends.
+ */
+export const TEMPLATE_FIELDS = {
+ document_to_record: [
+  "mailbox", "pollInterval", "messageFilter", "documentType", "extractionTemplate", "exampleDocument",
+  "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge",
+  "writeTarget", "targetObjects", "createdAs", "perRunCap", "rollback",
+ ],
+};
 
 /** The category name a person sees, with the trigger where the category spans two shapes. */
 export function displayName(spec) {
  const c = categoryOf(spec);
  if (!c) return SHAPES[spec.shape]?.label || "Use case";
  if (c.trigger) { const t = c.trigger.find((x) => x.shape === spec.shape); return t ? `${c.label} · ${t.label.replace(/^\w/, (ch) => ch.toLowerCase())}` : c.label; }
+ if (c.templates) { const t = c.templates.find((x) => x.id === spec.template); return t ? `${c.label} · ${t.label.replace(/^\w/, (ch) => ch.toLowerCase())}` : c.label; }
  return c.label;
 }
 
 /** The form's fields: the backend shape's parameters, plus what the category adds. */
 export function fieldsFor(spec) {
+ if (spec.template && TEMPLATE_FIELDS[spec.template]) return TEMPLATE_FIELDS[spec.template];
  const base = SHAPES[spec.shape]?.fields || [];
  const extra = categoryOf(spec)?.extraFields || [];
  if (!extra.length) return base;
@@ -195,13 +224,27 @@ export const FIELD_META = {
  schedule: { slot: "schedule", key: "schedule", label: "Frequency", hint: "When it runs. Starts the workflow; no step reads it." },
  goal: { slot: null, key: "goal", label: "Goal", hint: "What this exists to do, in your words. Free text; it drives nothing." },
  title: { slot: null, key: "title", label: "Title", hint: "How it appears in the catalogue." },
+ template: { slot: null, key: "template", label: "Approach", hint: "What arrives: a KPI on a schedule, or a document. Decides the form and the workflow." },
+ mailbox: { slot: "source mailbox", key: "mailbox", label: "Source mailbox", hint: "The connected mailbox the documents arrive in." },
+ pollInterval: { slot: "schedule", key: "schedule", label: "Check every", hint: "How often the mailbox is polled. The trigger." },
+ messageFilter: { slot: "message filter", key: "messageFilter", label: "Message filter", hint: "Which messages count. Everything else is left alone." },
+ documentType: { slot: "document type", key: "documentType", label: "Document type", hint: "Where the order is: an attachment, the email body, or either." },
+ extractionTemplate: { slot: "extraction template", key: "extractionTemplate", label: "Extraction template", hint: "The schema the AI step fills. Shipped templates; the fields are fixed per template." },
+ exampleDocument: { slot: "example document", key: "exampleDocument", label: "Example document", hint: "One sample of the format with its expected values. Becomes the AI step's example." },
+ masterData: { slot: "master data", key: "masterData", label: "Master data", hint: "The business objects the document is resolved against, from the connected system's semantic layer." },
+ matchThresholds: { slot: "match thresholds", key: "matchThresholds", label: "Match thresholds", hint: "Below the threshold is an exception, never a guess. The AI step may only choose between candidates above it." },
+ recordGuardrails: { slot: "guardrails", key: "recordGuardrails", label: "Business guardrails", hint: "Checks on the resolved record before anything is written. Any failure stops the record and raises an exception." },
+ exceptionsTo: { slot: "recipient", key: "exceptionsTo", label: "Exceptions go to", hint: "An email address for anything the automation could not complete. The in-app record always exists." },
+ acknowledge: { slot: "acknowledge", key: "acknowledge", label: "Acknowledge the sender", hint: "Reply with the created record's number, or the exception reason." },
+ targetObjects: { slot: "target objects", key: "targetObjects", label: "Target objects", hint: "What is created in the target system, and how the extracted fields map onto it." },
+ createdAs: { slot: "created as", key: "createdAs", label: "Created as", hint: "The status a new record starts in. Draft keeps a person's activation in the loop without an approval step." },
  mode: { slot: null, key: "shape", label: "Output", hint: "Every run, or only when a KPI crosses a threshold. Decides which workflow is generated." },
  objective: { slot: "objective", key: "objective", label: "Objective", hint: "The KPI this tunes the process towards, and the target. Carried into the AI step's brief; not a contract slot yet." },
 };
 
 /** The slots the backend has no contract field for yet (open item R-15). Shown on the form, sent
  *  as flat keys, and flagged so a demo audience knows which fields are proposed. */
-export const PROPOSED_CONTRACT_FIELDS = new Set(["operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective"]);
+export const PROPOSED_CONTRACT_FIELDS = new Set(["operator", "threshold", "severity", "candidates", "approver", "writeTarget", "timeoutBehaviour", "perRunCap", "rollback", "objective", "mailbox", "messageFilter", "documentType", "extractionTemplate", "exampleDocument", "masterData", "matchThresholds", "recordGuardrails", "exceptionsTo", "acknowledge", "targetObjects", "createdAs"]);
 
 export const describeShape = (spec) => {
  const m = spec.metricIds?.[0];
@@ -213,6 +256,10 @@ export const describeShape = (spec) => {
   case "recommend":
    return `Recommends changes to ${spec.writeback || "a target system"}. ${spec.approver || "An approver"} releases each one before anything is written.`;
   case "act":
+   if (spec.template === "document_to_record") {
+    const tpl = EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate);
+    return `Watches ${spec.mailbox || "a mailbox"} for ${tpl ? `${tpl.label.toLowerCase()}s` : "documents"}${spec.documentType === "pdf" ? " as PDF attachments" : ""}, extracts each one, resolves it against ${(spec.masterData && Object.values(spec.masterData).filter(Boolean).length) || 0} master-data objects, checks ${(spec.recordGuardrails || []).length} business guardrail${(spec.recordGuardrails || []).length === 1 ? "" : "s"}, and creates ${spec.targetObjects ? `${Object.values(TARGET_OBJECTS).flat().find((o) => o.id === spec.targetObjects)?.label.replace(/ \(standard\)/, "") || "a record"}` : "a record"} in ${spec.writeback || "the target system"} as ${spec.createdAs === "active" ? "active" : "a draft"} — nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run. Anything it cannot complete goes to ${spec.exceptionsTo || "the exceptions address"}.`;
+   }
    return `${spec.objective?.metric ? `Tunes the process to bring ${spec.objective.metric} ${spec.objective.direction || "to"} ${spec.objective.target ?? "target"}${spec.objective.unit || ""}. ` : ""}Executes on its own — changes ${spec.writeback || "a target system"} with nobody in the loop, at most ${spec.blastRadius || "a limit you set"} per run, with a rollback plan.`;
   default:
    return "Choose what it should do.";
@@ -290,6 +337,66 @@ export const CHANNELS = [
  { value: "email", label: "Email" },
  { value: "slack", label: "Slack", providerId: "slack" },
  { value: "teams", label: "Teams", providerId: "teams" },
+];
+
+// ── Document-to-record closed sets ──────────────────────────────────────────────────────────
+
+export const POLL_INTERVALS = [
+ { value: "1m", label: "Every minute" },
+ { value: "5m", label: "Every 5 minutes" },
+ { value: "15m", label: "Every 15 minutes" },
+ { value: "hourly", label: "Every hour" },
+];
+
+export const DOCUMENT_TYPES = [
+ { value: "pdf", label: "PDF attachment", hint: "Text or scanned; OCR when there is no text layer." },
+ { value: "body", label: "Email body", hint: "The order is written in the message." },
+ { value: "either", label: "Either", hint: "Attachment first, body if none." },
+];
+
+/** Shipped document templates: a schema the extraction role fills. Content, not code. */
+export const EXTRACTION_TEMPLATES = [
+ {
+  id: "purchase_order", label: "Purchase order", record: "order",
+  header: ["po_number*", "po_date", "customer_name*", "buyer_name", "buyer_email", "ship_to_address*", "bill_to_address", "due_date", "currency", "payment_terms", "order_total", "delivery_instructions"],
+  lines: ["line_no*", "customer_part_number", "supplier_product_code", "description*", "quantity*", "unit_of_measure*", "unit_price", "line_total", "line_due_date", "line_notes"],
+ },
+ { id: "supplier_invoice", label: "Supplier invoice", record: "payable", header: ["invoice_number*", "invoice_date*", "supplier_name*", "po_reference", "due_date", "currency", "total*"], lines: ["line_no*", "description*", "quantity", "unit_price", "line_total*", "tax"] },
+ { id: "return_request", label: "Return request", record: "return", header: ["rma_reference", "customer_name*", "order_reference*", "reason"], lines: ["line_no*", "product*", "quantity*", "condition"] },
+];
+
+/** The roles a document-to-record use case resolves against. Each binds to a concept. */
+export const MASTER_DATA_ROLES = [
+ { id: "customer", label: "Customer", concept: "Customer", hint: "Matched by sender email domain, then by name.", required: true },
+ { id: "contact", label: "Buyer contact", concept: "Contact", hint: "Matched by sender email.", required: false },
+ { id: "shipTo", label: "Ship-to", concept: "Location", hint: "The customer's addresses; matched on postcode + street number, then full text.", required: true },
+ { id: "product", label: "Product", concept: "Product", hint: "Matched by customer part number, then product code, then description.", required: true },
+ { id: "orderHistory", label: "Order history", concept: "Order", hint: "Past orders per customer; powers the history guardrails.", required: false },
+];
+
+export const MATCH_THRESHOLD_DEFAULTS = { address: 0.75, product: 0.85, name: 0.8, ambiguity: 0.05, aiDisambiguation: true };
+
+/** Record-level guardrails: check · parameter · exception. Typed rows, like the KPI ones. */
+export const RECORD_GUARDRAILS = [
+ { id: "duplicate_po", label: "Duplicate PO", check: "An order for this customer with the same PO number already exists", param: { key: "lookbackMonths", label: "lookback", default: 12, unit: "months" }, needs: "orderHistory", exception: "DUPLICATE_PO" },
+ { id: "unknown_sender", label: "Unknown sender", check: "The sender's email domain matches no customer or contact", param: null, needs: "customer", exception: "UNKNOWN_SENDER" },
+ { id: "first_time_product", label: "First-time product", check: "This customer has never ordered this product", param: { key: "lookbackMonths", label: "lookback", default: 12, unit: "months" }, needs: "orderHistory", exception: "FIRST_TIME_PRODUCT" },
+ { id: "quantity_anomaly", label: "Quantity anomaly", check: "Quantity is more than N × this customer's median for the product", param: { key: "multiplier", label: "N", default: 3, unit: "×" }, needs: "orderHistory", exception: "QUANTITY_ANOMALY" },
+ { id: "due_date_sanity", label: "Due-date sanity", check: "Due date is in the past, unparseable, or more than N days out", param: { key: "maxDays", label: "max", default: 180, unit: "days" }, needs: null, exception: "DUE_DATE_INVALID" },
+ { id: "restricted_product", label: "Restricted product", check: "A resolved product is flagged restricted or inactive", param: null, needs: "product", exception: "RESTRICTED_PRODUCT" },
+];
+
+/** What the target creates. One entry per target system the platform knows how to write. */
+export const TARGET_OBJECTS = {
+ salesforce: [
+  { id: "order_orderitem", label: "Order + OrderItem (standard)", record: "order", fields: ["Order.AccountId ← customer", "Order.PoNumber ← po_number", "Order.EffectiveDate ← po_date", "Order.Shipping* ← ship-to", "Order.Pricebook2Id ← standard pricebook", "OrderItem.PricebookEntryId ← product", "OrderItem.Quantity ← quantity", "OrderItem.UnitPrice ← unit_price", "OrderItem.ServiceDate ← due_date"] },
+  { id: "opportunity", label: "Opportunity + Products", record: "opportunity", fields: ["Opportunity.AccountId ← customer", "Opportunity.CloseDate ← due_date", "OpportunityLineItem ← lines"] },
+ ],
+};
+
+export const CREATED_AS = [
+ { value: "draft", label: "Draft", hint: "A person activates it in the target system." },
+ { value: "active", label: "Activated", hint: "Live on creation." },
 ];
 
 export const TIMEOUT_BEHAVIOURS = [

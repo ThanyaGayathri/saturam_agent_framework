@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
- AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight, Gauge, HelpCircle, Info, Lock,
- MessageSquare, Plus, Save, Send, Sparkles, Wand2, Workflow, X,
+ AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight, FileText, Gauge, HelpCircle, Info, Lock,
+ MessageSquare, Plus, Save, Send, Sparkles, Upload, Wand2, Workflow, X,
 } from "lucide-react";
 import { useKpiRegistry } from "../../hooks/useKpiRegistry";
 import { useUseCaseCatalog } from "../../hooks/useUseCaseCatalog";
@@ -12,13 +12,14 @@ import { flattenKpiIndexRows } from "../../domain/kpi-mapping";
 import { KPI_DATA_CATALOG_DATASETS } from "../../domain/kpi-data-catalog";
 import { getKpiNamesForCatalogId } from "../../domain/kpi-usecase-links";
 import {
- CATEGORY_LIST, CHANNELS, COMPARISONS, DIMENSIONS, FIELD_META, LIMIT_OPERATORS, OPERATORS,
- PER_RUN_CAPS, PROPOSED_CONTRACT_FIELDS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
- TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor,
+ CATEGORY_LIST, CHANNELS, COMPARISONS, CREATED_AS, DIMENSIONS, DOCUMENT_TYPES, EXTRACTION_TEMPLATES,
+ FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, PER_RUN_CAPS, POLL_INTERVALS,
+ PROPOSED_CONTRACT_FIELDS, RECORD_GUARDRAILS, ROLLBACKS, SCHEDULES, SCOPES, SEVERITIES, SHAPES,
+ TARGET_OBJECTS, TIMEOUT_BEHAVIOURS, WRITEBACK_TARGETS, categoryOf, describeShape, displayName, fieldsFor,
 } from "../../domain/use-case-autonomy";
 import {
  GAP_KIND, ORIGIN, applyPatch, blockingGaps, draftState, emptySpec, gapsFor, guardrailRule, proposeTitle,
- withCategory, withShape,
+ withCategory, withShape, withTemplate,
 } from "../../domain/use-case-spec";
 import { extract, optionsForGap } from "../../domain/use-case-extract";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
@@ -166,7 +167,9 @@ function CategoryPicker({ onChoose }) {
          <span className="font-semibold text-text-primary">For example</span> · {c.examples.map((e) => e.title).join(" · ")}
         </p>
         <div className="mt-3 flex flex-wrap gap-1">
-         {fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
+         {c.templates
+          ? c.templates.map((t) => <span key={t.id} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{t.label}</span>)
+          : fields.filter((f) => f !== "schedule").map((f) => <span key={f} className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-[11px] font-medium text-text-secondary">{FIELD_META[f].label}</span>)}
         </div>
         <p className="mt-3 text-[11px] text-text-muted">Side effect: {c.sideEffect}.{SHAPES[c.shapes[0]].level >= 3 ? ` Switched on by someone other than the author${SHAPES[c.shapes[0]].level >= 4 ? " — an admin" : ""}.` : ""}</p>
        </button>
@@ -193,12 +196,13 @@ export default function UseCaseComposeScreen() {
  const measurable = useMemo(() => { const set = new Set(); for (const ds of KPI_DATA_CATALOG_DATASETS) for (const n of ds.linkedKpiNames || []) set.add(n); return set; }, []);
  const concepts = useMemo(() => KPI_DATA_CATALOG_DATASETS.map((d) => ({ id: d.id, name: entityName(d.technicalName), technicalName: d.technicalName, sourceLabel: d.sourceLabel, columns: d.attributeTags || [], kpis: d.linkedKpiNames || [] })), []);
  const workspace = useMemo(() => loadConfigureWorkspace(storageKeys.CONFIGURE_WORKSPACE, profileId), [storageKeys.CONFIGURE_WORKSPACE, profileId]);
- const writeTargets = useMemo(() => (workspace.internalSources || []).filter((s) => s.permissionLevel === "read_write").map((s) => s.name), [workspace]);
+ const writeTargets = useMemo(() => (workspace.internalSources || []).filter((s) => s.permissionLevel === "read_write" && !/gmail|microsoft365/.test(s.sourceType)).map((s) => s.name), [workspace]);
+ const mailboxes = useMemo(() => (workspace.internalSources || []).filter((s) => /gmail|microsoft365/.test(s.sourceType)).map((s) => s.name), [workspace]);
  const channels = useMemo(() => CHANNELS.map((c) => {
   const integration = c.providerId ? (workspace.externalIntegrations || []).find((e) => e.providerId === c.providerId && e.status === "active") : null;
   return { ...c, configured: !c.providerId || !!integration, target: integration?.name || null };
  }), [workspace]);
- const ctx = useMemo(() => ({ registry, registryNames, concepts, writeTargets }), [registry, registryNames, concepts, writeTargets]);
+ const ctx = useMemo(() => ({ registry, registryNames, concepts, writeTargets, mailboxes }), [registry, registryNames, concepts, writeTargets, mailboxes]);
 
  const templateId = params.get("template");
  const [spec, setSpecState] = useState(() => {
@@ -215,7 +219,7 @@ export default function UseCaseComposeScreen() {
 
  const category = categoryOf(spec);
  const shape = SHAPES[spec.shape];
- const fields = useMemo(() => (shape ? fieldsFor(spec) : []), [shape, spec.shape, spec.category]);
+ const fields = useMemo(() => (shape ? fieldsFor(spec) : []), [shape, spec.shape, spec.category, spec.template]);
  const gaps = useMemo(() => gapsFor(spec, registryNames, measurable), [spec, registryNames, measurable]);
  const blocking = blockingGaps(gaps);
  const dataGaps = gaps.filter((g) => g.kind === GAP_KIND.data);
@@ -238,6 +242,7 @@ export default function UseCaseComposeScreen() {
   if (!next.title.trim() || next.origin.title === ORIGIN.spec) next = { ...next, title: proposeTitle(next), origin: { ...next.origin, title: ORIGIN.spec } };
   const primary = registry.find((k) => k.name === next.metricIds[0]);
   if (primary && (!next.businessArea || next.origin.businessArea !== ORIGIN.authored)) next = { ...next, businessArea: primary.businessAreaId || "", origin: { ...next.origin, businessArea: ORIGIN.spec } };
+  if (next.template === "document_to_record" && !next.businessArea) next = { ...next, businessArea: "sales", origin: { ...next.origin, businessArea: ORIGIN.spec } };
   if (next.condition && primary && next.condition.unit !== (primary.unit || "")) next = { ...next, condition: { ...next.condition, unit: primary.unit || "" } };
   next = persist(next);
   setSpecState(next);
@@ -255,6 +260,12 @@ export default function UseCaseComposeScreen() {
  const setMode = (shapeId) => {
   if (shapeId === spec.shape) return;
   const next = persist(withShape(spec, shapeId, spec.category));
+  setSpecState(next);
+  lastAsked.current = null;
+ };
+ const setTemplate = (id) => {
+  if (id === spec.template) return;
+  const next = persist(withTemplate(spec, id));
   setSpecState(next);
   lastAsked.current = null;
  };
@@ -303,6 +314,7 @@ export default function UseCaseComposeScreen() {
    }
    case "objective-target": { const n = parseFloat((text.match(/\d+(?:\.\d+)?/) || [])[0]); return Number.isNaN(n) ? null : { patch: { objective: { ...spec.objective, target: n } }, said: `target: ${n}` }; }
    case "recipient": return { notify: text };
+   case "exceptionsTo": return /@/.test(text) ? { exceptionsTo: text.match(/[^\s]+@[^\s]+/)[0] } : null;
    case "approver": case "approver-sod": return { approver: text };
    case "owner": return { owner: text };
    case "candidates-filter": return { candidates: { ...spec.candidates, filter: text } };
@@ -376,6 +388,12 @@ export default function UseCaseComposeScreen() {
    case "severity": patch = { severity: SEVERITIES.find((s) => s.label === value)?.value || spec.severity }; break;
    case "scope": patch = { scope: value }; break;
    case "candidates": { const c = concepts.find((x) => x.name === value); patch = { candidates: { concept: c?.name || value, conceptId: c?.id || null, filter: spec.candidates?.filter || "" } }; break; }
+   case "masterData": patch = { masterData: { ...(spec.masterData || {}), [gap.role]: value } }; break;
+   case "mailbox": patch = { mailbox: value }; break;
+   case "extractionTemplate": patch = { extractionTemplate: EXTRACTION_TEMPLATES.find((t) => t.label === value)?.id || spec.extractionTemplate }; break;
+   case "recordGuardrails": { const def = RECORD_GUARDRAILS.find((g) => g.label === value); patch = def ? { recordGuardrails: [...(spec.recordGuardrails || []), { id: def.id, param: def.param?.default ?? null }] } : {}; break; }
+   case "exceptionsTo": patch = { exceptionsTo: value }; break;
+   case "targetObjects": patch = { targetObjects: Object.values(TARGET_OBJECTS).flat().find((o) => o.label === value)?.id || spec.targetObjects }; break;
    case "objective": patch = { objective: { metric: value, direction: defaultOperatorFor(value) === "gt" ? "below" : "above", target: null, unit: unitOf(value) } }; break;
    case "guardrails": patch = { guardrails: spec.guardrails.map((g) => (g === gap.guardrail ? { ...g, metric: value, rule: guardrailRule({ ...g, metric: value }) } : g)) }; break;
    case "writeTarget": patch = { writeback: value }; break;
@@ -396,6 +414,13 @@ export default function UseCaseComposeScreen() {
   return primary && next.origin.businessArea !== ORIGIN.authored ? { ...next, businessArea: primary.businessAreaId || "", origin: { ...next.origin, businessArea: ORIGIN.spec } } : next;
  });
  const setCondition = (part, value) => setSpec((s) => applyPatch(s, { condition: { ...(s.condition || { metric: s.metricIds[0] || null, operator: "gt", threshold: null }), unit: unitOf(s.metricIds[0]), [part]: value } }, ORIGIN.authored));
+ const setNested = (field, part, value) => setSpec((s) => applyPatch(s, { [FIELD_META[field].key]: { ...(s[FIELD_META[field].key] || {}), [part]: value } }, ORIGIN.authored));
+ const toggleRecordGuardrail = (id) => setSpec((s) => {
+  const rows = s.recordGuardrails || [];
+  const def = RECORD_GUARDRAILS.find((g) => g.id === id);
+  return applyPatch(s, { recordGuardrails: rows.some((g) => g.id === id) ? rows.filter((g) => g.id !== id) : [...rows, { id, param: def?.param?.default ?? null }] }, ORIGIN.authored);
+ });
+ const setRecordGuardrailParam = (id, value) => setSpec((s) => applyPatch(s, { recordGuardrails: (s.recordGuardrails || []).map((g) => (g.id === id ? { ...g, param: value } : g)) }, ORIGIN.authored));
  const setObjective = (part, value) => setSpec((s) => applyPatch(s, { objective: { ...(s.objective || { metric: s.metricIds[0] || null, direction: "below", target: null, unit: "" }), ...(part === "metric" ? { unit: unitOf(value) } : {}), [part]: value } }, ORIGIN.authored));
  const setGuardrail = (i, part, value) => setSpec((s) => applyPatch(s, { guardrails: s.guardrails.map((g, j) => (j === i ? { ...g, [part]: value } : g)).map((g) => ({ ...g, rule: guardrailRule(g) })) }, ORIGIN.authored));
  const addGuardrail = () => setSpec((s) => { const g = { metric: s.metricIds[0] || "", operator: "gte", threshold: null, unit: "" }; return applyPatch(s, { guardrails: [...s.guardrails, { ...g, rule: guardrailRule(g) }] }, ORIGIN.authored); });
@@ -412,7 +437,7 @@ export default function UseCaseComposeScreen() {
  if (!category || !shape) return <CategoryPicker onChoose={choose} />;
  const CategoryIcon = CATEGORY_ICON[category.id];
  const targets = writeTargets.length ? writeTargets : WRITEBACK_TARGETS;
- const example = category.examples.find((e) => e.shape === spec.shape) || category.examples[0];
+ const example = category.examples.find((e) => (e.template ? e.template === spec.template : e.shape === spec.shape)) || category.examples[0];
 
  const fieldProps = (f) => ({ gap: gapFor(f), origin: originOf(f), suggestion: suggestionFor(f), onAsk: () => openAssistant(f), onUse: (opt) => useSuggestion(f, opt) });
 
@@ -540,13 +565,143 @@ export default function UseCaseComposeScreen() {
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
       <div className="flex flex-wrap items-center gap-1.5">
-       {PER_RUN_CAPS.map((c) => <button key={c} type="button" aria-pressed={spec.blastRadius === c} onClick={() => setField(f, c)} className={chip(spec.blastRadius === c)}>{c}</button>)}
-       <input value={PER_RUN_CAPS.includes(spec.blastRadius) ? "" : spec.blastRadius || ""} onChange={(e) => setField(f, e.target.value || null)} placeholder="or type one" className={`${input} w-32`} />
+       {(spec.template === "document_to_record" ? ["10 records", "20 records", "50 records"] : PER_RUN_CAPS).map((c) => <button key={c} type="button" aria-pressed={spec.blastRadius === c} onClick={() => setField(f, c)} className={chip(spec.blastRadius === c)}>{c}</button>)}
+       <input value={[...PER_RUN_CAPS, "10 records", "20 records", "50 records"].includes(spec.blastRadius) ? "" : spec.blastRadius || ""} onChange={(e) => setField(f, e.target.value || null)} placeholder="or type one" className={`${input} w-32`} />
       </div>
      </Field>
     );
    case "rollback":
-    return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{ROLLBACKS.map((r) => <button key={r} type="button" aria-pressed={spec.rollback === r} onClick={() => setField(f, r)} className={chip(spec.rollback === r)}>{r}</button>)}</div></Field>;
+    return <Field key={f} name={f} {...fieldProps(f)}><div className="flex flex-wrap gap-1.5">{(spec.template === "document_to_record" ? ["Cancel the record and remove its lines", ROLLBACKS[2]] : ROLLBACKS).map((r) => <button key={r} type="button" aria-pressed={spec.rollback === r} onClick={() => setField(f, r)} className={chip(spec.rollback === r)}>{r}</button>)}</div></Field>;
+   case "mailbox":
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <select value={spec.mailbox} onChange={(e) => setField(f, e.target.value)} className={`${select} w-full`}>
+       <option value="">Choose a connected mailbox…</option>
+       {mailboxes.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      {!mailboxes.length && <p className="mt-1 text-[11px] text-status-warning">No mailbox is connected. Add Gmail or a Microsoft 365 mailbox under Configure → Data sources.</p>}
+     </Field>
+    );
+   case "pollInterval":
+    return <Field key={f} name={f} origin={originOf("schedule")}><div className="flex flex-wrap gap-1.5">{POLL_INTERVALS.map((p) => <button key={p.value} type="button" aria-pressed={spec.schedule === p.value} onClick={() => setField("schedule", p.value)} className={chip(spec.schedule === p.value)}>{p.label}</button>)}</div></Field>;
+   case "messageFilter": {
+    const mf = spec.messageFilter || {};
+    return (
+     <Field key={f} name={f} origin={originOf(f)}>
+      <div className="flex flex-wrap items-center gap-1.5">
+       {[["unread", "Unread only"], ["hasAttachment", "Has an attachment"], ["notOwnDomain", "Not from our own domain"]].map(([k, l]) => <button key={k} type="button" aria-pressed={!!mf[k]} onClick={() => setNested(f, k, !mf[k])} className={chip(!!mf[k])}>{l}</button>)}
+       <input value={mf.senderPattern || ""} onChange={(e) => setNested(f, "senderPattern", e.target.value)} placeholder="optional: sender or subject pattern" className={`${input} w-64`} />
+      </div>
+     </Field>
+    );
+   }
+   case "documentType":
+    return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5">{DOCUMENT_TYPES.map((d) => <button key={d.value} type="button" title={d.hint} aria-pressed={spec.documentType === d.value} onClick={() => setField(f, d.value)} className={chip(spec.documentType === d.value)}>{d.label}</button>)}</div></Field>;
+   case "extractionTemplate": {
+    const tpl = EXTRACTION_TEMPLATES.find((t) => t.id === spec.extractionTemplate);
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="flex flex-wrap gap-1.5">{EXTRACTION_TEMPLATES.map((t) => <button key={t.id} type="button" aria-pressed={spec.extractionTemplate === t.id} onClick={() => setField(f, t.id)} className={chip(spec.extractionTemplate === t.id)}>{t.label}</button>)}</div>
+      {tpl && (
+       <div className="mt-2 grid gap-2 text-[11px] sm:grid-cols-2">
+        <div><p className="font-semibold uppercase tracking-wide text-text-muted">Header · {tpl.header.length}</p><p className="mt-0.5 font-mono text-text-secondary">{tpl.header.map((h) => h.replace("*", "")).join(" · ")}</p></div>
+        <div><p className="font-semibold uppercase tracking-wide text-text-muted">Per line · {tpl.lines.length}</p><p className="mt-0.5 font-mono text-text-secondary">{tpl.lines.map((h) => h.replace("*", "")).join(" · ")}</p></div>
+       </div>
+      )}
+      <p className="mt-1.5 text-[11px] text-text-muted">The AI step fills exactly these fields, each with a confidence and the page region it was read from. A field not on the document is null — it extracts, it never infers.</p>
+     </Field>
+    );
+   }
+   case "exampleDocument":
+    return (
+     <Field key={f} name={f} origin={originOf(f)}>
+      {spec.exampleDocument ? (
+       <div className="flex items-center gap-2 text-sm"><FileText size={14} className="text-primary" /><span className="font-medium text-text-primary">{spec.exampleDocument.name}</span><span className="text-xs text-text-muted">· expected values attached</span><button type="button" onClick={() => setField(f, null)} className="text-text-muted hover:text-status-critical" aria-label="Remove example"><X size={12} /></button></div>
+      ) : (
+       <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => setField(f, { name: "PO-27012128-sample.pdf", expected: true })} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-semibold text-text-secondary hover:border-primary hover:text-primary"><Upload size={12} /> Upload a sample document</button>
+        <span className="text-[11px] text-text-muted">One PDF of the format, with its expected values. Optional; it becomes the AI step's example and the first golden case.</span>
+       </div>
+      )}
+     </Field>
+    );
+   case "masterData": {
+    const md = spec.masterData || {};
+    const gapRoles = new Set(blocking.filter((g) => g.field === "masterData").map((g) => g.role));
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <div className="grid gap-1.5">
+       {MASTER_DATA_ROLES.map((r) => (
+        <div key={r.id} className={`grid grid-cols-[9rem_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-1 ${gapRoles.has(r.id) ? "bg-status-warning-light/50" : ""}`}>
+         <span className="text-xs font-semibold text-text-primary" title={r.hint}>{r.label}{r.required ? "" : <span className="font-normal text-text-muted"> · optional</span>}</span>
+         <select value={md[r.id] || ""} onChange={(e) => setNested(f, r.id, e.target.value)} className={select}>
+          <option value="">{r.concept} → choose an object…</option>
+          {concepts.map((c) => <option key={c.id} value={c.name}>{c.name} · {c.sourceLabel}</option>)}
+         </select>
+        </div>
+       ))}
+      </div>
+      <p className="mt-1.5 text-[11px] text-text-muted">Bound to concepts in the semantic layer — Customer, Contact, Location, Product, Order — not to the target's table names, so the same template works when the master data lives elsewhere.</p>
+     </Field>
+    );
+   }
+   case "matchThresholds": {
+    const t = spec.matchThresholds || {};
+    const row = (k, label) => (
+     <label key={k} className="flex items-center gap-2 text-xs text-text-secondary"><span className="w-28 font-semibold text-text-primary">{label}</span><input type="range" min="0.5" max="1" step="0.05" value={t[k] ?? 0.8} onChange={(e) => setNested(f, k, Number(e.target.value))} className="flex-1" /><span className="w-10 tabular-nums">≥ {(t[k] ?? 0.8).toFixed(2)}</span></label>
+    );
+    return (
+     <Field key={f} name={f} origin={originOf(f)}>
+      <div className="grid gap-1.5 sm:grid-cols-2">{row("address", "Address")}{row("product", "Product")}{row("name", "Customer name")}
+       <label className="flex items-center gap-2 text-xs text-text-secondary"><span className="w-28 font-semibold text-text-primary">Ambiguous within</span><input type="number" step="0.01" min="0" max="0.2" value={t.ambiguity ?? 0.05} onChange={(e) => setNested(f, "ambiguity", Number(e.target.value))} className={`${input} w-20`} /><span>of the best</span></label>
+      </div>
+      <button type="button" aria-pressed={!!t.aiDisambiguation} onClick={() => setNested(f, "aiDisambiguation", !t.aiDisambiguation)} className={`mt-2 ${chip(!!t.aiDisambiguation)}`}>AI disambiguation between candidates above threshold</button>
+      <p className="mt-1.5 text-[11px] text-text-muted">Below threshold is an exception with the closest match and its score — never a guess.</p>
+     </Field>
+    );
+   }
+   case "recordGuardrails": {
+    const rows = spec.recordGuardrails || [];
+    const md = spec.masterData || {};
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      <ul className="space-y-1">
+       {RECORD_GUARDRAILS.map((g) => {
+        const on = rows.find((r) => r.id === g.id);
+        const needsMissing = g.needs && !md[g.needs];
+        return (
+         <li key={g.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border px-2.5 py-1.5 ${on ? "border-primary/40 bg-primary-light/30" : "border-border-light"}`}>
+          <input type="checkbox" checked={!!on} onChange={() => toggleRecordGuardrail(g.id)} aria-label={g.label} />
+          <div className="min-w-0"><span className="text-xs font-semibold text-text-primary">{g.label}</span><span className="ml-1.5 text-[11px] text-text-secondary">{g.check}</span>{needsMissing && on && <span className="ml-1.5 text-[11px] text-status-warning">needs {MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()} bound</span>}<span className="ml-1.5 font-mono text-[10px] text-text-muted">→ {g.exception}</span></div>
+          {g.param && on ? <label className="flex items-center gap-1 text-[11px] text-text-muted">{g.param.label} <input type="number" value={on.param ?? g.param.default} onChange={(e) => setRecordGuardrailParam(g.id, e.target.value === "" ? null : Number(e.target.value))} className={`${input} w-16`} /> {g.param.unit}</label> : <span />}
+         </li>
+        );
+       })}
+      </ul>
+     </Field>
+    );
+   }
+   case "exceptionsTo":
+    return <Field key={f} name={f} {...fieldProps(f)}><input value={spec.exceptionsTo} onChange={(e) => setField(f, e.target.value)} placeholder="orders-desk@yourcompany.com" className={input} /><p className="mt-1 text-[11px] text-text-muted">One email per exception: the classification in words, what was extracted, and a link to the in-app record with the document and the candidates.</p></Field>;
+   case "acknowledge":
+    return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5"><button type="button" aria-pressed={!!spec.acknowledge} onClick={() => setField(f, true)} className={chip(!!spec.acknowledge)}>Reply with the record number, or the reason</button><button type="button" aria-pressed={!spec.acknowledge} onClick={() => setField(f, false)} className={chip(!spec.acknowledge)}>No reply</button></div></Field>;
+   case "targetObjects": {
+    const key = Object.keys(TARGET_OBJECTS).find((k) => (spec.writeback || "").toLowerCase().includes(k));
+    const opts = key ? TARGET_OBJECTS[key] : [];
+    const chosen = opts.find((o) => o.id === spec.targetObjects);
+    return (
+     <Field key={f} name={f} {...fieldProps(f)}>
+      {!spec.writeback ? <p className="text-sm text-text-muted">Choose the target system first.</p> : (
+       <>
+        <div className="flex flex-wrap gap-1.5">{opts.map((o) => <button key={o.id} type="button" aria-pressed={spec.targetObjects === o.id} onClick={() => setField(f, o.id)} className={chip(spec.targetObjects === o.id)}>{o.label}</button>)}</div>
+        {chosen && <ul className="mt-2 grid gap-x-4 gap-y-0.5 font-mono text-[11px] text-text-secondary sm:grid-cols-2">{chosen.fields.map((m) => <li key={m}>{m}</li>)}</ul>}
+       </>
+      )}
+     </Field>
+    );
+   }
+   case "createdAs":
+    return <Field key={f} name={f} origin={originOf(f)}><div className="flex flex-wrap gap-1.5">{CREATED_AS.map((c) => <button key={c.value} type="button" title={c.hint} aria-pressed={spec.createdAs === c.value} onClick={() => setField(f, c.value)} className={chip(spec.createdAs === c.value)}>{c.label}</button>)}</div></Field>;
    case "schedule":
     return <Field key={f} name={f} origin={originOf(f)}><select value={spec.schedule} onChange={(e) => setField(f, e.target.value)} className={`${select} w-full`}>{SCHEDULES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></Field>;
    default:
@@ -624,6 +779,19 @@ export default function UseCaseComposeScreen() {
      </Field>
     </div>
 
+    {category.templates && (
+     <Field name="template" origin={null}>
+      <div className="grid gap-2 sm:grid-cols-2">
+       {category.templates.map((t) => (
+        <button key={t.id} type="button" aria-pressed={spec.template === t.id} onClick={() => setTemplate(t.id)} className={`rounded-lg border px-3 py-2 text-left ${spec.template === t.id ? "border-primary bg-primary-light/50" : "border-border bg-surface hover:border-primary"}`}>
+         <span className="block text-sm font-semibold text-text-primary">{t.label}</span>
+         <span className="block text-xs text-text-muted">{t.hint}</span>
+        </button>
+       ))}
+      </div>
+     </Field>
+    )}
+
     {category.trigger && (
      <Field name="mode" origin={null}>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -643,7 +811,7 @@ export default function UseCaseComposeScreen() {
      <Field name="owner" gap={gapFor("owner")} origin={originOf("owner")} hint="Accountable once it is live." suggestion={suggestionFor("owner")} onAsk={() => openAssistant("owner")} onUse={(opt) => useSuggestion("owner", opt)}>
       <input value={spec.owner} onChange={(e) => setField("owner", e.target.value)} placeholder="Name or team" className={input} />
      </Field>
-     {renderField("schedule")}
+     {!fields.includes("pollInterval") && renderField("schedule")}
     </div>
 
     {dataGaps.map((g) => (

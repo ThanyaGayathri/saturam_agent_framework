@@ -162,7 +162,7 @@ export default function UseCasePlanScreen() {
     </span>
    </div>
    <p className="text-xs text-text-muted">
-    {plan.stages.filter((s) => s.satisfiedBy).length} of the {plan.stages.length} steps already covered by the nightly KPI computation, {plan.stages.filter((s) => s.guardsWrite).length} that a change may not run without. Every decision point is an automated step; an AI step, where there is one, explains or recommends and never decides.
+    {spec.template === "document_to_record" ? `Runs once per document found; ${plan.stages.filter((s) => s.guardsWrite).length} steps that a change may not run without.` : `${plan.stages.filter((s) => s.satisfiedBy).length} of the ${plan.stages.length} steps already covered by the nightly KPI computation, ${plan.stages.filter((s) => s.guardsWrite).length} that a change may not run without.`} Every decision point is an automated step; an AI step, where there is one, explains or recommends and never decides.
    </p>
 
    <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold w-fit">
