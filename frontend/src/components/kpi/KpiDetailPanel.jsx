@@ -332,6 +332,33 @@ export default function KpiDetailPanel({
  </ul>
  </section>
 
+ {detailRow.suggested && detailRow.suggestion && (
+ <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">
+ <p className="text-[10px] font-semibold uppercase tracking-wide text-status-info">Why the model proposed it</p>
+ <p className="mt-2 text-sm text-text-secondary">{detailRow.suggestion.rationale}</p>
+ {detailRow.suggestion.business_value && (
+ <>
+ <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-primary">What value it provides</p>
+ <p className="mt-2 text-sm text-text-secondary">{detailRow.suggestion.business_value}</p>
+ </>
+ )}
+ {detailRow.suggestion.derived_from_tables?.length > 0 && (
+ <p className="mt-2 text-xs text-text-muted">
+ Derived from: {detailRow.suggestion.derived_from_tables.join(", ")}
+ {detailRow.suggestion.confidence ? ` · ${detailRow.suggestion.confidence} confidence` : ""}
+ </p>
+ )}
+ {detailRow.suggestion.proposed_sql && (
+ <>
+ <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-status-info">Proposed formula</p>
+ <pre className="mt-1 overflow-x-auto rounded-lg bg-surface-default p-3 text-xs text-text-primary whitespace-pre-wrap break-words">
+ {detailRow.suggestion.proposed_sql}
+ </pre>
+ </>
+ )}
+ </section>
+ )}
+
  {suggested && (
  <div className="space-y-3">
  {editingDraft ? (

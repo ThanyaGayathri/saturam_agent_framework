@@ -67,11 +67,13 @@ import asyncio
 import json
 import re
 import threading
+import time
 import traceback
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -723,6 +725,28 @@ def _list_kpi_suggestions(
     need to widen the cache lock around two live model calls.
     """
     business_area = _validated_business_area(business_area, vocabularies)
+    if settings.retail_suggestion_replay:
+        # DEMO/TESTING ONLY: replay a saved result instead of calling the model. The phases
+        # are still reported, a few seconds apart, so the page's run panel behaves as it
+        # would on a real run. `retail_suggestion_replay` is unset in every real deployment
+        # (its own description says so); this branch is inert unless someone sets it.
+        replayed = wire.KpiSuggestionList.model_validate(
+            json.loads(Path(settings.retail_suggestion_replay).read_text())
+        )
+        for phase, pause in (
+            (SuggestionRunPhase.READING, 2.0),
+            (SuggestionRunPhase.PROPOSING, 5.0),
+            (SuggestionRunPhase.CHECKING, 1.5),
+        ):
+            if on_phase is not None:
+                on_phase(phase)
+            time.sleep(pause)
+        suggestions = _filter_suggestions(replayed.suggestions, business_area)
+        if not include_sql:
+            suggestions = [
+                s.model_copy(update={"proposed_sql": None}) for s in suggestions
+            ]
+        return replayed.model_copy(update={"suggestions": suggestions})
     if agents is not None:
         resolved_agents = agents
     else:

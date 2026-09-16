@@ -1057,6 +1057,71 @@ def test_list_kpi_suggestions_nulls_proposed_sql_when_include_sql_is_false(
 
 
 # ---------------------------------------------------------------------------
+# retail_suggestion_replay -- demo/testing rehearsal without a live model call
+# ---------------------------------------------------------------------------
+
+
+def test_suggestion_replay_returns_the_saved_file_without_calling_the_model(
+    monkeypatch, tmp_path
+):
+    """`retail_suggestion_replay` short-circuits before `run_suggestions` is ever reached --
+    patched here to raise, so this test fails loudly if the replay branch stops short-
+    circuiting rather than silently falling through to a real (test-breaking) model call."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[_suggestion(identifier="a", business_area="supply_chain")],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("run_suggestions must not run while replay is set")
+
+    monkeypatch.setattr(kpis_module, "run_suggestions", _must_not_be_called)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+
+
+def test_suggestion_replay_still_applies_the_business_area_filter_and_sql_gate(
+    monkeypatch, tmp_path
+):
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[
+            _suggestion(
+                identifier="a",
+                business_area="supply_chain",
+                proposed_sql="SELECT 1 FROM supplier_deliveries",
+            ),
+            _suggestion(identifier="b", business_area="marketing"),
+        ],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area="supply_chain",
+        include_sql=False,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+    assert result.suggestions[0].proposed_sql is None
+
+
+# ---------------------------------------------------------------------------
 # _cached_suggestion_agents -- Finding 4 (PR #242 review): CLAUDE.md says never create agents
 # in loops; every real request was building two fresh `Agent`s from scratch.
 # ---------------------------------------------------------------------------

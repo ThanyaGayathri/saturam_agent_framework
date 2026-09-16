@@ -204,10 +204,12 @@ function SuggestionReasons({ suggestion, bucket }) {
  if (bucket === "ready") {
   return (
    <div className="space-y-1.5">
-    <p className="border-l-2 border-status-info pl-2.5 text-xs text-text-secondary">{suggestion.rationale}</p>
+    <p className="border-l-2 border-status-info pl-2.5 text-xs text-text-secondary">
+     <span className="font-semibold text-status-info">Why the model proposed it:</span> {suggestion.rationale}
+    </p>
     {suggestion.business_value && (
      <p className="pl-3 text-xs text-text-muted">
-      <span className="font-semibold">What value it provides:</span> {suggestion.business_value}
+      <span className="font-semibold text-primary">What value it provides:</span> {suggestion.business_value}
      </p>
     )}
    </div>
@@ -225,7 +227,7 @@ function SuggestionReasons({ suggestion, bucket }) {
    </p>
    {suggestion.business_value && (
     <p className="pl-3 text-xs text-text-muted">
-     <span className="font-semibold">What value it provides:</span> {suggestion.business_value}
+     <span className="font-semibold text-primary">What value it provides:</span> {suggestion.business_value}
     </p>
    )}
   </div>
