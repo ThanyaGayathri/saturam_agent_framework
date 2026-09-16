@@ -8,6 +8,7 @@ import {
   BarChart2,
   DollarSign,
   Gauge,
+  Minus,
   Package,
   ShoppingCart,
   Sparkles,
@@ -26,7 +27,7 @@ import { getSeedDecisionCardsForCatalog } from "../domain/decision-cards-catalog
 import { COPILOT_DECISIONS_KEY } from "../storage/keys";
 import { DemoAreaSpark, formatChartNumber } from "./shared/DemoSparkCharts";
 import { fetchKpiList, fetchKpiHealth, fetchKpiSeries, computeKpi } from "../services/kpis-api";
-import KpiTrend, { formatKpiValue } from "./kpi/KpiTrend";
+import KpiTrend, { formatKpiValue, sameDimension } from "./kpi/KpiTrend";
 
 /** Seeded catalog IDs: anomalies tie to these use cases for demo storytelling. */
 const KPI_DASHBOARD_USE_CASES = {
@@ -372,24 +373,41 @@ export default function KpiHealthDashboard() {
   const loadSeries = useCallback(
     (identifier, dimension) => {
       if (!identifier) return;
-      seriesAbortRefs.current.get(identifier)?.abort();
+      // A dedicated `:load` slot -- distinct from `computeSeries`'s `:compute` slot below --
+      // so an in-flight "Compute today's value" POST is never silently aborted by an unrelated
+      // reload for the same identifier (e.g. the range/role summary-cards effect).
+      const abortKey = `${identifier}:load`;
+      seriesAbortRefs.current.get(abortKey)?.abort();
       const controller = new AbortController();
-      seriesAbortRefs.current.set(identifier, controller);
-      // A range toggle or role switch re-fetches an identifier that may already be `ready` --
-      // keep showing its last value/sparkline (and `KpiTrend`'s own chart) while the refetch is
-      // in flight instead of flashing back to a loading skeleton on every toggle. Only a first
-      // load for this identifier (no `ready` data yet) shows the loading state.
+      seriesAbortRefs.current.set(abortKey, controller);
+      // A range toggle or role switch re-fetches an identifier that may already be `ready` for
+      // the *same* dimension -- keep showing its last value/sparkline (and `KpiTrend`'s own
+      // chart) while that refetch is in flight instead of flashing back to a loading skeleton.
+      // A dimension switch (`onPickDimension`) requests a different slice of the same
+      // identifier, though, so it does not qualify for that suppression and shows the loading
+      // state like a first load would.
       setSeriesById((prev) => {
-        if (prev[identifier]?.status === "ready") return prev;
+        const entry = prev[identifier];
+        const sameSlice = entry?.status === "ready" && sameDimension(dimension, entry?.data?.dimension);
+        if (sameSlice) return prev;
         return {
           ...prev,
-          [identifier]: { ...(prev[identifier] || {}), status: "loading", error: null, retry: "load" },
+          [identifier]: {
+            ...(entry || {}),
+            status: "loading",
+            error: null,
+            retry: "load",
+            // The dimension this in-flight request is actually for -- read back on retry after
+            // a failure, since a failed fetch never reaches the `.then` that would otherwise
+            // stamp it onto `data.dimension`.
+            pendingDimension: dimension,
+          },
         };
       });
       fetchKpiSeries(identifier, { days, dimension, signal: controller.signal })
         .then((data) => {
           if (controller.signal.aborted) return;
-          patchSeries(identifier, { status: "ready", data, error: null });
+          patchSeries(identifier, { status: "ready", data, error: null, pendingDimension: undefined });
         })
         .catch((err) => {
           if (err?.name === "AbortError") return;
@@ -397,6 +415,7 @@ export default function KpiHealthDashboard() {
             status: "error",
             error: err?.detail || err?.message || "Couldn't load values.",
             retry: "load",
+            pendingDimension: dimension,
           });
         });
     },
@@ -405,9 +424,10 @@ export default function KpiHealthDashboard() {
   const computeSeries = useCallback(
     (identifier) => {
       if (!identifier) return;
-      seriesAbortRefs.current.get(identifier)?.abort();
+      const abortKey = `${identifier}:compute`;
+      seriesAbortRefs.current.get(abortKey)?.abort();
       const controller = new AbortController();
-      seriesAbortRefs.current.set(identifier, controller);
+      seriesAbortRefs.current.set(abortKey, controller);
       patchSeries(identifier, { status: "computing", error: null, retry: "compute" });
       computeKpi(identifier, { signal: controller.signal })
         .then((result) => {
@@ -440,13 +460,24 @@ export default function KpiHealthDashboard() {
     []
   );
 
-  // Load (or reload, on a range change) every summary card's series in one pass.
+  // The identifier set alone, not `summaryCards` itself: `summaryCards` (above) also depends on
+  // `catalogEntries` and `healthState.byIdentifier`, both of which can get a new array/object
+  // reference (a Supabase realtime refresh, `healthState` resolving) without the underlying set
+  // of shown KPIs changing -- keying the reload effect below off `summaryCards` directly would
+  // abort+restart every visible card's in-flight series fetch on each such unrelated reference
+  // change.
+  const summaryIdentifiersKey = useMemo(
+    () => summaryCards.map((c) => c.identifier).filter(Boolean).join(","),
+    [summaryCards]
+  );
+
+  // Load (or reload, on a range/identifier-set change) every summary card's series in one pass.
   useEffect(() => {
     for (const card of summaryCards) {
       if (card.identifier) loadSeries(card.identifier);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the identifiers + days baked into `loadSeries`/`summaryCards` already.
-  }, [summaryCards, days]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by summaryIdentifiersKey (the stable identifier set) + days; summaryCards itself is read fresh from the closure, not a dep.
+  }, [summaryIdentifiersKey, days]);
 
   // Trend panel follows the summary shortlist so switching role also updates the KPI options
   // here. First card with a real identifier is selected by default.
@@ -589,9 +620,14 @@ export default function KpiHealthDashboard() {
           const points = (seriesData?.points || []).filter(
             (p) => p.value !== null && p.value !== undefined
           );
-          const hasValue = seriesStatus === "ready" && seriesData?.value !== null && seriesData?.value !== undefined;
+          // Gated on the value itself, not `seriesStatus`: a background refresh that fails
+          // (range/role toggle re-fetching an already-`ready` identifier) never clears
+          // `seriesData` -- only a `.catch` that patches `status`/`error` -- so the last known
+          // value stays valid and worth showing even while `seriesStatus` is `"error"`.
+          const hasValue = seriesData?.value !== null && seriesData?.value !== undefined;
+          const staleAfterError = seriesStatus === "error" && hasValue;
           const delta = seriesData?.delta;
-          const up = (delta ?? 0) >= 0;
+          const deltaDirection = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
           const Icon = card.icon;
           return (
             <div
@@ -608,17 +644,29 @@ export default function KpiHealthDashboard() {
                   <p className="mt-1.5 text-[28px] font-semibold leading-tight tracking-tight text-text-primary">
                     {hasValue
                       ? formatKpiValue(card.unit, seriesData.value)
-                      : seriesStatus === "error"
-                        ? "—"
-                        : "…"}
+                      : seriesStatus === "loading"
+                        ? "…"
+                        : seriesStatus === "error"
+                          ? "—"
+                          : "N/A"}
                   </p>
                   {hasValue && delta !== null && delta !== undefined ? (
                     <p
                       className={`mt-1 inline-flex items-center gap-1 text-xs font-semibold ${
-                        up ? "text-status-success" : "text-status-critical"
+                        deltaDirection === "up"
+                          ? "text-status-success"
+                          : deltaDirection === "down"
+                            ? "text-status-critical"
+                            : "text-text-muted"
                       }`}
                     >
-                      {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                      {deltaDirection === "up" ? (
+                        <TrendingUp size={12} />
+                      ) : deltaDirection === "down" ? (
+                        <TrendingDown size={12} />
+                      ) : (
+                        <Minus size={12} />
+                      )}
                       {formatKpiValue(card.unit, Math.abs(delta))} vs previous night
                     </p>
                   ) : null}
@@ -644,6 +692,11 @@ export default function KpiHealthDashboard() {
                   </p>
                 )}
               </div>
+              {staleAfterError ? (
+                <p className="mt-1 text-[11px] font-semibold text-status-critical">
+                  Couldn't refresh -- showing the last known value.
+                </p>
+              ) : null}
               {card.subjectArea ? (
                 <p className="mt-1 text-[11px] text-text-muted">{card.subjectArea}</p>
               ) : null}
@@ -695,11 +748,15 @@ export default function KpiHealthDashboard() {
             <KpiTrend
               state={trendSeries || { status: "loading" }}
               unit={effectiveTrendCard?.unit}
-              resultShape="scalar"
+              resultShape={effectiveTrendCard?.result_shape || "scalar"}
               onRetry={() => {
                 const entry = seriesById[trendIdentifier];
                 if (entry?.retry === "compute") computeSeries(trendIdentifier);
-                else loadSeries(trendIdentifier, entry?.data?.dimension || undefined);
+                // `pendingDimension` is the dimension the *failed* request was actually for --
+                // `entry.data.dimension` is only the last *successfully* loaded one, which is
+                // stale (the previous dimension, not the one that just failed) after a
+                // dimension switch fails.
+                else loadSeries(trendIdentifier, entry?.pendingDimension ?? entry?.data?.dimension ?? undefined);
               }}
               onCompute={() => computeSeries(trendIdentifier)}
               onPickDimension={(dimension) => loadSeries(trendIdentifier, dimension)}

@@ -1044,9 +1044,12 @@ def _warehouse_engine() -> Iterator[Engine]:
     ``kpi_health`` reads two gold tables directly over SQLAlchemy (``warehouse/health.py``)
     rather than through the ``read_gold`` executor ``get_kpi_series`` uses below, so this opens
     its own engine the same way ``executors/preflight.py``'s ``_read_gold_health`` does --
-    ``build_warehouse_engine`` builds a fresh, unpooled engine per call (unlike
-    ``_kpi_store``'s cached, pooled control-plane connection), so disposal here is what
-    releases it, not a return to a shared pool.
+    ``build_warehouse_engine`` builds a fresh engine (``create_engine``'s default ``QueuePool``,
+    not a single unpooled connection) per call, unlike ``_kpi_store``'s cached, pooled
+    control-plane connection, so disposal here tears the whole per-call pool down rather than
+    returning a connection to a shared one. ``preflight.py``'s call site pays this roughly once
+    per workflow run; this route pays it once per dashboard mount, a much higher frequency --
+    worth revisiting with a small cached engine if that turns out to matter in practice.
 
     ``build_warehouse_engine`` raises ``RuntimeError`` when ``EGPT_RETAIL_WAREHOUSE_DB_URL``
     is unset; turned into a ``503`` here, the same posture ``compute_kpi`` already takes for
@@ -1066,6 +1069,7 @@ def _warehouse_engine() -> Iterator[Engine]:
 
 @router.get("/kpis/health", response_model=list[wire.KpiHealth])
 async def list_kpi_health(
+    request: Request,
     store: KpiRegistryStore = Depends(_kpi_store),
     _: None = Depends(require_scopes("kpis:read")),
     engine: Engine = Depends(_warehouse_engine),
@@ -1084,10 +1088,21 @@ async def list_kpi_health(
     the unset config variable when the warehouse isn't configured, and FastAPI resolves
     dependencies in declared order, so putting it before ``require_scopes`` would let an
     unauthorized caller learn that detail before ever being told they lack the scope.
+
+    ``last_error`` is the database's own refusal text verbatim (``warehouse/health.py``) --
+    comparably sensitive to ``Kpi.sql``/``proposed_sql``, which this router already gates
+    behind ``kpis:write`` via ``_may_read_sql``. Gated here the same way, so a ``kpis:read``-only
+    caller sees every other field but not the raw error string.
     """
     definitions = await store.alist()
     rows = await akpi_health(definitions, engine)
-    return [wire.KpiHealth.model_validate(row) for row in rows]
+    include_sql = _may_read_sql(request)
+    return [
+        wire.KpiHealth.model_validate(
+            row if include_sql else {**row, "last_error": None}
+        )
+        for row in rows
+    ]
 
 
 @router.get("/kpis/{kpi_id}", response_model=wire.Kpi)
