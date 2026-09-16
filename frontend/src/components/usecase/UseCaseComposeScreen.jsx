@@ -27,7 +27,8 @@ import { normalizeRule, normalizeRules, suggestRules } from "../../domain/guardr
 import ExtractionTemplateField from "./ExtractionTemplateField";
 import GuardrailRulesField from "./GuardrailRulesField";
 import RecordMappingField from "./RecordMappingField";
-import { loadMappingCatalogue } from "../../domain/record-mappings";
+import { findMapping, loadMappingCatalogue } from "../../domain/record-mappings";
+import { roleReason, rolesNeeded } from "../../domain/use-case-roles";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 import { defaultOperatorFor, suggestFor } from "../../domain/use-case-suggest";
 
@@ -605,7 +606,7 @@ export default function UseCaseComposeScreen() {
      <Field key={f} name={f} origin={originOf(f)}>
       <div className="flex flex-wrap items-center gap-1.5">
        {[["unread", "Unread only"], ["hasAttachment", "Has an attachment"], ["notOwnDomain", "Not from our own domain"]].map(([k, l]) => <button key={k} type="button" aria-pressed={!!mf[k]} onClick={() => setNested(f, k, !mf[k])} className={chip(!!mf[k])}>{l}</button>)}
-       <input value={mf.senderPattern || ""} onChange={(e) => setNested(f, "senderPattern", e.target.value)} placeholder="optional: sender or subject pattern" className={`${input} w-64`} />
+       <input value={mf.senderPattern || ""} onChange={(e) => setNested(f, "senderPattern", e.target.value)} placeholder="optional: words the subject must contain" className={`${input} w-64`} />
       </div>
      </Field>
     );
@@ -634,20 +635,26 @@ export default function UseCaseComposeScreen() {
    case "masterData": {
     const md = spec.masterData || {};
     const gapRoles = new Set(blocking.filter((g) => g.field === "masterData").map((g) => g.role));
+    const needed = new Map(rolesNeeded(spec).map((r) => [r.id, r]));
+    const hasMapping = !!findMapping(spec);
     return (
      <Field key={f} name={f} {...fieldProps(f)}>
+      {!hasMapping && <p className="mb-1.5 text-[11px] text-status-warning">Choose the record mapping first — which roles this use case resolves follows from what the mapping reads and the guardrails need.</p>}
       <div className="grid gap-1.5">
-       {MASTER_DATA_ROLES.map((r) => (
-        <div key={r.id} className={`grid grid-cols-[9rem_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-1 ${gapRoles.has(r.id) ? "bg-status-warning-light/50" : ""}`}>
-         <span className="text-xs font-semibold text-text-primary" title={r.hint}>{r.label}{r.required ? "" : <span className="font-normal text-text-muted"> · optional</span>}</span>
-         <select value={md[r.id] || ""} onChange={(e) => setNested(f, r.id, e.target.value)} className={select}>
-          <option value="">{r.concept} → choose an object…</option>
-          {concepts.map((c) => <option key={c.id} value={c.name}>{c.name} · {c.sourceLabel}</option>)}
-         </select>
-        </div>
-       ))}
+       {MASTER_DATA_ROLES.map((r) => {
+        const why = needed.has(r.id) ? roleReason(spec, r.id) : null;
+        return (
+         <div key={r.id} className={`grid grid-cols-[11rem_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-1 ${gapRoles.has(r.id) ? "bg-status-warning-light/50" : needed.has(r.id) ? "" : "opacity-60"}`}>
+          <span className="text-xs font-semibold text-text-primary" title={r.hint}>{r.label}<span className="block font-normal text-[10px] text-text-muted">{why || "not used by this use case"}</span></span>
+          <select value={md[r.id] || ""} onChange={(e) => setNested(f, r.id, e.target.value)} className={select}>
+           <option value="">{r.concept} → {needed.has(r.id) ? "choose an object…" : "not needed"}</option>
+           {concepts.map((c) => <option key={c.id} value={c.name}>{c.name} · {c.sourceLabel}</option>)}
+          </select>
+         </div>
+        );
+       })}
       </div>
-      <p className="mt-1.5 text-[11px] text-text-muted">Bound to concepts in the semantic layer — Customer, Contact, Location, Product, Order — not to the target's table names, so the same template works when the master data lives elsewhere.</p>
+      <p className="mt-1.5 text-[11px] text-text-muted">Bound to concepts in the semantic layer — Customer, Contact, Location, Product, Order — not to the target's table names. Only the roles the mapping reads and the guardrails need are resolved; a document that maps no product is never asked for one.</p>
      </Field>
     );
    }

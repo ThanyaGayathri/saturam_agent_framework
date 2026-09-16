@@ -27,6 +27,9 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import httpx
 
 __all__ = [
+    "history_plan",
+    "load_target_history",
+    "aload_target_history",
     "API_VERSION",
     "SalesforceClient",
     "client_from",
@@ -321,6 +324,118 @@ def write_record_tree(
         "written": written,
         "status": finish,
     }
+
+
+def _relationship(field_name: str) -> str:
+    """The relationship name a lookup field is traversed by in SOQL: ``OrderId`` ->
+    ``Order``, ``Parent__c`` -> ``Parent__r``."""
+    if field_name.endswith("__c"):
+        return field_name[:-3] + "__r"
+    return field_name[:-2] if field_name.endswith("Id") else field_name
+
+
+def history_plan(
+    mapping: Any, reference_field: Optional[str], *, since: str
+) -> Optional[Dict[str, Any]]:
+    """How to read the target's own history for the history guardrails, built from the
+    mapping: the parent field bound to ``customer.id`` is the account, the field the
+    template's reference is mapped onto is the reference, and a child bound to a product
+    (directly, or through its price-book entry) contributes the item and its quantity.
+    Returns ``{"soql": ..., "paths": {history column -> SOQL path}}``, or None when the
+    mapping binds no account -- history is per account or nothing."""
+    parent_fields = list(getattr(mapping, "fields", ()) or ())
+    child = getattr(mapping, "child", None)
+
+    def bound_to(rows: Sequence[Any], *sources: str) -> Optional[str]:
+        for row in rows:
+            if any(str(x) in sources for x in (row.source or ())):
+                return str(row.target)
+        return None
+
+    account = bound_to(parent_fields, "customer.id")
+    if not account:
+        return None
+    reference = bound_to(parent_fields, reference_field) if reference_field else None
+    if child is not None:
+        child_rows = list(child.fields or ())
+        product = bound_to(child_rows, "product.id")
+        entry = bound_to(child_rows, "product.pricebook_entry_id")
+        quantity = bound_to(child_rows, "line.quantity")
+        item = product or (f"{_relationship(entry)}.Product2Id" if entry else None)
+        if item:
+            rel = _relationship(str(child.parent_field))
+            paths = {
+                "record_id": str(child.parent_field),
+                "account_id": f"{rel}.{account}",
+                "date": f"{rel}.CreatedDate",
+                "product_id": item,
+                **({"reference": f"{rel}.{reference}"} if reference else {}),
+                **({"quantity": quantity} if quantity else {}),
+            }
+            return {
+                "soql": f"SELECT {', '.join(paths.values())} FROM {child.object} "
+                f"WHERE {rel}.CreatedDate >= {since}",
+                "paths": paths,
+            }
+    paths = {
+        "record_id": "Id",
+        "account_id": account,
+        "date": "CreatedDate",
+        **({"reference": reference} if reference else {}),
+    }
+    return {
+        "soql": f"SELECT {', '.join(paths.values())} FROM {mapping.object} "
+        f"WHERE CreatedDate >= {since}",
+        "paths": paths,
+    }
+
+
+def _walk(row: Mapping[str, Any], path: str) -> Any:
+    value: Any = row
+    for part in path.split("."):
+        if not isinstance(value, Mapping):
+            return None
+        value = value.get(part)
+    return value
+
+
+def load_target_history(
+    client: SalesforceClient,
+    mapping: Any,
+    reference_field: Optional[str],
+    *,
+    history_days: int = 400,
+) -> List[Dict[str, Any]]:
+    """The target object's own recent records as history rows (``account_id``,
+    ``reference``, ``product_id``, ``quantity``, ``date``, ``record_id``) -- what the
+    duplicate, first-time and outlier guardrails read for a use case whose target is not
+    the Order."""
+    since = (date.today() - timedelta(days=history_days)).isoformat() + "T00:00:00Z"
+    plan = history_plan(mapping, reference_field, since=since)
+    if plan is None:
+        return []
+    rows: List[Dict[str, Any]] = []
+    for record in client.query(plan["soql"]):
+        row = {key: _walk(record, path) for key, path in plan["paths"].items()}
+        row["date"] = str(row.get("date") or "")[:10]
+        rows.append({"reference": None, "product_id": None, "quantity": None, **row})
+    return rows
+
+
+async def aload_target_history(
+    client: SalesforceClient,
+    mapping: Any,
+    reference_field: Optional[str],
+    *,
+    history_days: int = 400,
+) -> List[Dict[str, Any]]:
+    return await asyncio.to_thread(
+        load_target_history,
+        client,
+        mapping,
+        reference_field,
+        history_days=history_days,
+    )
 
 
 async def awrite_record_tree(

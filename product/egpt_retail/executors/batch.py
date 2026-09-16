@@ -112,11 +112,13 @@ def add_exception(
 ) -> Dict[str, Any]:
     """Move one document into the exceptions list. Returns the exception row."""
     message: Mapping[str, Any] = document.get("message") or {}
+    extracted: Mapping[str, Any] = document.get("extracted") or {}
     row = {
         "message_id": message.get("id"),
         "sender": message.get("sender"),
         "subject": message.get("subject"),
-        "po_number": (document.get("extracted") or {}).get("po_number"),
+        "reference": document.get("reference") or extracted.get("po_number"),
+        "po_number": extracted.get("po_number"),
         "class": cls,
         "detail": detail,
         "stage": stage,

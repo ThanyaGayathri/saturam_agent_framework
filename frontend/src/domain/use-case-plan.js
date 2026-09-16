@@ -1,6 +1,7 @@
 import { KPI_DATA_CATALOG_DATASETS } from "./kpi-data-catalog";
 import { findTemplate } from "./extraction-templates";
 import { findMapping } from "./record-mappings";
+import { resolutionPlan } from "./use-case-roles";
 import { PARAM_META, normalizeRules } from "./guardrail-rules";
 import { CHANNELS, COMPARISONS, CREATED_AS, DOCUMENT_TYPES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, OPERATORS, POLL_INTERVALS, SCHEDULES, SHAPES, TIMEOUT_BEHAVIOURS } from "./use-case-autonomy";
 
@@ -312,7 +313,11 @@ function describe(st, spec, reads) {
   case "extraction":
    return { title: `Extracts the ${findTemplate(spec)?.label.toLowerCase() || "document"}`, detail: `Fills the template's schema — ${findTemplate(spec)?.header.length || 0} header fields, ${findTemplate(spec)?.lines.length || 0} per line — with a confidence and a page region per field. OCR when there is no text layer. Output validated against the schema; a field not on the document is null. Runs on the ${TIER_FOR_ROLE.extraction} tier.`, chips: [...(spec.exampleDocument ? [`example: ${spec.exampleDocument.name}`] : []), ...ROLE_TOOLS.extraction.map((t) => `may call ${t}`)] };
   case "resolve_entities":
-   return { title: "Resolves against master data", detail: `${slotValue(spec, "master data") || "Customer, ship-to and products"} — a fixed order of attempts, scored; thresholds ${slotValue(spec, "match thresholds")}. Every resolution records its candidates and scores.`, branch: { yes: "all resolved", no: "not found / ambiguous", outcome: "Exception with the closest match and its score" } };
+  {
+   const plan = resolutionPlan(spec);
+   const reads = plan.length ? plan.map((r) => `${r.label.toLowerCase()} from ${r.reads.replace(/`/g, "")}`).join("; ") : "nothing — the mapping reads no master-data role and no guardrail needs one";
+   return { title: "Resolves against master data", detail: `Only the roles this use case reads: ${reads}. A fixed order of attempts, scored; thresholds ${slotValue(spec, "match thresholds")}. Every resolution records its candidates and scores.`, branch: { yes: "all resolved", no: "not found / ambiguous", outcome: "Exception with the closest match and its score" } };
+  }
   case "build_record":
    return { title: `Builds ${slotValue(spec, "target objects") || "the record"}`, detail: `Maps the resolved fields onto the target's objects, created as ${slotValue(spec, "created as")?.toLowerCase() || "draft"}. A required field the mapping cannot fill is an exception, not a blank.` };
   case "send_email":

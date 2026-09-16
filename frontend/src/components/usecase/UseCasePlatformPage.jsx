@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ExternalLink, Pause, Pencil, Play } from "lucide-react";
 import PlatformRunPanel from "./PlatformRunPanel";
 import RunHistory from "./RunHistory";
+import PlanViews from "./PlanViews";
 import { STATUS_PILL } from "../UseCaseGallery";
 import { cadenceLabel, specFromPlatform } from "../../domain/use-case-platform";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
@@ -36,6 +37,14 @@ export default function UseCasePlatformPage() {
 
   const pill = STATUS_PILL[useCase?.status] || STATUS_PILL.draft;
   const spec = useMemo(() => useCase && (useCase.tags || []).includes("document_to_record") ? { template: "document_to_record" } : {}, [useCase]);
+  // "How it runs": the plan derived from the spec the platform holds -- the same views the
+  // person approved in the builder, without reopening the builder or touching the draft.
+  const [tab, setTab] = useState("runs");
+  const [fullSpec, setFullSpec] = useState(null);
+  useEffect(() => {
+    if (tab !== "flow" || fullSpec || !useCase) return;
+    fetchUseCaseSpec(id).then((platformSpec) => setFullSpec(specFromPlatform(useCase, platformSpec, emptySpec()))).catch((err) => setError(err?.detail || err?.message || "The platform did not return the spec."));
+  }, [tab, fullSpec, useCase, id]);
   const pause = async () => { setBusy(true); try { await pauseUseCase(id); await load(); } finally { setBusy(false); } };
   const resume = async () => { setBusy(true); try { await activateUseCase(id, {}); await load(); } catch (err) { setError(err?.detail || err?.message); } finally { setBusy(false); } };
   const edit = async () => {
@@ -81,12 +90,20 @@ export default function UseCasePlatformPage() {
             ].map(([k, v]) => <div key={k} className="rounded-xl border border-border bg-surface px-3 py-2.5"><p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{k}</p><p className="mt-0.5 text-sm font-semibold text-text-primary">{v}</p></div>)}
           </div>
 
-          {useCase.status === "activated" && (
+          <div className="flex w-fit items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold">
+            {[["runs", "Runs"], ["flow", "How it runs"]].map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setTab(v)} aria-pressed={tab === v} className={`rounded-md px-3 py-1 ${tab === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>{label}</button>
+            ))}
+          </div>
+
+          {tab === "flow" && (fullSpec ? <PlanViews spec={fullSpec} /> : <p className="text-sm text-text-muted">Reading the specification…</p>)}
+
+          {tab === "runs" && useCase.status === "activated" && (
             <PlatformRunPanel useCaseId={id} mode="live" label="Run it now" description="Polls the mailbox, creates the records, sends the exceptions: the same run the schedule makes. Each message is carried once, so a second run finds only what is new." createdAs="draft" onFinished={load} />
           )}
 
-          <RunHistory runs={runs} onRefresh={load} createdAs="draft" />
-          <p className="text-[11px] text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : ""}</p>
+          {tab === "runs" && <RunHistory runs={runs} onRefresh={load} createdAs="draft" />}
+          {tab === "runs" && <p className="text-[11px] text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : ""}</p>}
         </>
       )}
     </div>

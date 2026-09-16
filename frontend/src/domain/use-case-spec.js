@@ -1,5 +1,6 @@
-import { CATEGORIES, FIELD_META, LIMIT_OPERATORS, MASTER_DATA_ROLES, MATCH_THRESHOLD_DEFAULTS, SHAPES, fieldsFor, requiresSeparationOfDuties, templateFromText } from "./use-case-autonomy";
+import { CATEGORIES, FIELD_META, LIMIT_OPERATORS, MATCH_THRESHOLD_DEFAULTS, SHAPES, fieldsFor, requiresSeparationOfDuties, templateFromText } from "./use-case-autonomy";
 import { findTemplate, loadTemplateCatalogue } from "./extraction-templates";
+import { rolesNeeded } from "./use-case-roles";
 
 /**
  * The use-case spec: the thing a user reviews, completes and freezes.
@@ -254,7 +255,9 @@ export function gapsFor(spec, registryNames, measurable) {
   push({ id: "extractionTemplate", kind: GAP_KIND.missing, field: "extractionTemplate", ask: "What kind of document is it?", options: loadTemplateCatalogue().map((t) => t.label) });
  }
  if (need.has("masterData")) {
-  for (const role of MASTER_DATA_ROLES.filter((r) => r.required)) {
+  // Only the roles this use case resolves. A role the mapping reads blocks; a role only a
+  // guardrail needs is the readiness check's warning (the rule is skipped, never passed).
+  for (const { role } of rolesNeeded(spec).filter((r) => r.by.includes("mapping") || r.by.includes("dependency"))) {
    if (!spec.masterData?.[role.id]) push({ id: `masterData-${role.id}`, kind: GAP_KIND.missing, field: "masterData", role: role.id, ask: `Which business object is the ${role.label.toLowerCase()} resolved against?` });
   }
  }

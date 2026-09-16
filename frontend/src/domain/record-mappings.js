@@ -106,6 +106,7 @@ export function sourceOptions(template, { lineScope = false } = {}) {
  const lines = lineScope ? lineFields(template).map((f) => ({ value: `line.${f.name}`, label: `line.${f.name}`, group: "Document line" })) : [];
  const resolved = [
   { value: "customer.id", label: "customer.id", group: "Resolved" }, { value: "customer.name", label: "customer.name", group: "Resolved" },
+  { value: "contact.id", label: "contact.id", group: "Resolved" }, { value: "contact.name", label: "contact.name", group: "Resolved" }, { value: "contact.email", label: "contact.email", group: "Resolved" },
   { value: "ship_to.street", label: "ship_to.street", group: "Resolved" }, { value: "ship_to.city", label: "ship_to.city", group: "Resolved" }, { value: "ship_to.state", label: "ship_to.state", group: "Resolved" }, { value: "ship_to.postcode", label: "ship_to.postcode", group: "Resolved" }, { value: "ship_to.country", label: "ship_to.country", group: "Resolved" },
   ...(lineScope ? [{ value: "product.id", label: "product.id", group: "Resolved" }, { value: "product.pricebook_entry_id", label: "product.pricebook_entry_id", group: "Resolved" }, { value: "product.unit_price", label: "product.unit_price", group: "Resolved" }, { value: "product.name", label: "product.name", group: "Resolved" }] : []),
  ];

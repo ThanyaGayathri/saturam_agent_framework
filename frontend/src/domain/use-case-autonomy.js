@@ -377,13 +377,15 @@ export const DOCUMENT_TYPES = [
  *  `extraction-templates.js`; this alias keeps older imports working. */
 export { SHIPPED_TEMPLATES as EXTRACTION_TEMPLATES } from "./extraction-templates";
 
-/** The roles a document-to-record use case resolves against. Each binds to a concept. */
+/** The roles a document-to-record use case can resolve against. Each binds to a concept. Which
+ *  of them a given use case needs is not fixed here: `use-case-roles.js` derives it from the
+ *  mapping's source expressions (`prefix`) and the guardrails, plus `depends`. */
 export const MASTER_DATA_ROLES = [
- { id: "customer", label: "Customer", concept: "Customer", hint: "Matched by sender email domain, then by name.", required: true },
- { id: "contact", label: "Buyer contact", concept: "Contact", hint: "Matched by sender email.", required: false },
- { id: "shipTo", label: "Ship-to", concept: "Location", hint: "The customer's addresses; matched on postcode + street number, then full text.", required: true },
- { id: "product", label: "Product", concept: "Product", hint: "Matched by customer part number, then product code, then description.", required: true },
- { id: "orderHistory", label: "Order history", concept: "Order", hint: "Past orders per customer; powers the history guardrails.", required: false },
+ { id: "customer", label: "Sender account", concept: "Customer", prefix: "customer.", depends: [], hint: "The organisation the document comes from — a customer or a supplier — matched by sender email domain, then by name." },
+ { id: "contact", label: "Sender contact", concept: "Contact", prefix: "contact.", depends: ["customer"], hint: "The person who sent it, matched by sender email." },
+ { id: "shipTo", label: "Ship-to site", concept: "Location", prefix: "ship_to.", depends: ["customer"], hint: "The account's addresses; matched on postcode + street number, then full text." },
+ { id: "product", label: "Product", concept: "Product", prefix: "product.", depends: [], hint: "Matched by the sender's part number, then product code, then description." },
+ { id: "orderHistory", label: "Record history", concept: "Order", prefix: null, depends: ["customer"], hint: "What the target already holds per account; powers the history guardrails." },
 ];
 
 export const MATCH_THRESHOLD_DEFAULTS = { address: 0.75, product: 0.85, name: 0.8, ambiguity: 0.05, aiDisambiguation: true };

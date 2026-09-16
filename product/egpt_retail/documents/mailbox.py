@@ -59,6 +59,12 @@ class MessageFilter:
     subject_contains: Optional[str] = None
     since_days: Optional[int] = 7
     max_messages: int = 50
+    #: Skip messages whose sender is in the mailbox's own domain (our own summaries and
+    #: acknowledgements, for one).
+    not_own_domain: bool = False
+    #: Skip messages that carry no attachment. Decided once bodies are read: a headers-only
+    #: listing cannot tell and keeps them; the Screen stage refuses them on a run.
+    has_attachment: bool = False
 
 
 @dataclass(frozen=True)
@@ -172,6 +178,8 @@ def filter_from(value: Any) -> MessageFilter:
             if value.get("since_days") is not None
             else 7,
             max_messages=int(value.get("max_messages") or 50),
+            not_own_domain=bool(value.get("not_own_domain", False)),
+            has_attachment=bool(value.get("has_attachment", False)),
         )
     if isinstance(value, str) and value.strip():
         return MessageFilter(subject_contains=value.strip())
@@ -244,6 +252,10 @@ def _fetched_items(parts: Sequence[Any]) -> List[Tuple[bytes, bytes]]:
     ]
 
 
+def _domain_of(address: str) -> str:
+    return address.rsplit("@", 1)[-1].strip().lower() if "@" in address else ""
+
+
 def _search_criteria(message_filter: MessageFilter) -> List[str]:
     criteria: List[str] = ["UNSEEN"] if message_filter.unseen_only else ["ALL"]
     if message_filter.since_days is not None:
@@ -298,6 +310,16 @@ def fetch_messages(
                 uid_match = re.match(rb"\s*(\d+)\s", meta)
                 uid = uid_match.group(1).decode() if uid_match else chunk[0]
                 message = parse_message(uid, raw)
+                if message_filter.not_own_domain and _domain_of(
+                    message.sender
+                ) == _domain_of(config.user):
+                    continue
+                if (
+                    message_filter.has_attachment
+                    and not headers_only
+                    and not message.attachments
+                ):
+                    continue
                 if headers_only:
                     size_match = re.search(rb"RFC822.SIZE (\d+)", meta)
                     message = Message(

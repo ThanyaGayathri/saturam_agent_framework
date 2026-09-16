@@ -35,6 +35,8 @@ from egpt_retail.documents.golden import (
     score_case,
 )
 from egpt_retail.documents.guardrails import rules_from
+from egpt_retail.documents.mapping import mapping_from
+from egpt_retail.documents.roles import ROLES, roles_needed
 from egpt_retail.documents.mailbox import fetch_messages, filter_from, mailbox_from
 from egpt_retail.documents.samples import (
     expected_extraction,
@@ -324,6 +326,21 @@ class UseCaseService:
                 )
         return self._preflight_result(use_case_id, checks)
 
+    def current_parameters(self, row: Mapping[str, Any]) -> Dict[str, Any]:
+        """The parameters a probe, a mailbox listing or a generated case should use: the
+        current spec compiled now, so an edit on the form is what the readiness screen
+        checks -- never a snapshot a rehearsal left behind. Falls back to the snapshot,
+        then the raw spec, when the current spec does not compile."""
+        try:
+            return dict(self.compile(row).parameters)
+        except Exception:
+            compiled = row.get("compiled") or {}
+            return dict(
+                compiled.get("parameters")
+                or (row.get("spec") or {}).get("parameters")
+                or {}
+            )
+
     def probe(self, use_case_id: str, check: str) -> Dict[str, Any]:
         """One live connectivity probe (K19): actually open the thing the preflight only
         confirmed credentials for, and report what was found. ``check`` is one of
@@ -331,12 +348,7 @@ class UseCaseService:
         row = self.store.get(use_case_id)
         if row is None:
             raise NotFound(use_case_id)
-        compiled = row.get("compiled") or {}
-        parameters = (
-            compiled.get("parameters")
-            or (row.get("spec") or {}).get("parameters")
-            or {}
-        )
+        parameters = self.current_parameters(row)
         started = time.monotonic()
 
         def result(passed: bool, reason: str, **extra: Any) -> Dict[str, Any]:
@@ -372,31 +384,44 @@ class UseCaseService:
                 )
                 from egpt_retail.documents.salesforce import client_from
 
+                target_object = self._mapping_for(parameters)
+                target_object = target_object.object if target_object else "Order"
                 client = client_from(credentials)
                 try:
-                    objects = client.query("SELECT COUNT() FROM Order")
+                    objects = client.query(f"SELECT COUNT() FROM {target_object}")
                     instance = client.instance_url
                 finally:
                     client.close()
                 return result(
                     True,
-                    f"Token issued by {instance}; the integration can read and create Orders.",
+                    f"Token issued by {instance}; the integration can read and create "
+                    f"{target_object} records.",
                     instance=instance,
                     existing_orders=len(objects),
+                    existing_records=len(objects),
+                    object=target_object,
                 )
             if check == "master_data":
                 master = self._master_rows_for(parameters)
                 counts = {k: len(v) for k, v in master.items() if isinstance(v, list)}
-                missing = [k for k in ("customer", "product") if not counts.get(k)]
+                needed = self._roles_needed(parameters)
+                missing = [
+                    k
+                    for k in ("customer", "contact", "ship_to", "product")
+                    if k in needed and not counts.get(k)
+                ]
                 summary = ", ".join(
-                    f"{k.replace('_', ' ')} {n}" for k, n in counts.items()
+                    f"{ROLES[k].label.lower() if k in ROLES else k} {n}"
+                    for k, n in counts.items()
+                    if k in needed
                 )
                 return result(
                     not missing,
-                    f"Read from the org: {summary}."
+                    f"Read from the org: {summary or 'nothing this use case resolves against'}."
                     if not missing
-                    else f"The org has no {', '.join(missing)} rows to resolve against ({summary}).",
+                    else f"The org has no {', '.join(ROLES[k].label.lower() for k in missing)} rows to resolve against ({summary}).",
                     counts=counts,
+                    roles=sorted(needed),
                 )
             if check == "model":
                 env = self._environ if self._environ is not None else os.environ
@@ -668,12 +693,7 @@ class UseCaseService:
     def generate_cases(self, row: Mapping[str, Any]) -> List[Dict[str, Any]]:
         """Cases the platform invents for this use case: the curated sixteen for the shipped
         purchase-order template, the field-driven generator for any other."""
-        compiled = row.get("compiled") or {}
-        parameters = (
-            compiled.get("parameters")
-            or (row.get("spec") or {}).get("parameters")
-            or {}
-        )
+        parameters = self.current_parameters(row)
         template = template_from(
             parameters.get("extraction template") or "purchase_order"
         )
@@ -711,7 +731,27 @@ class UseCaseService:
             return out
         master = self._master_rows_for(parameters)
         return generate_cases(
-            template, master, rules_from(parameters.get("guardrails") or "all")
+            template,
+            master,
+            rules_from(parameters.get("guardrails") or "all"),
+            roles=self._roles_needed(parameters),
+        )
+
+    @staticmethod
+    def _mapping_for(parameters: Mapping[str, Any]) -> Optional[Any]:
+        objects = parameters.get("target objects") or "order_orderitem"
+        try:
+            return mapping_from(
+                objects if isinstance(objects, Mapping) else str(objects)
+            )
+        except (KeyError, ValueError):
+            return None
+
+    @classmethod
+    def _roles_needed(cls, parameters: Mapping[str, Any]) -> set:
+        """The master-data roles this use case resolves (``documents/roles.py``)."""
+        return roles_needed(
+            cls._mapping_for(parameters), parameters.get("guardrails") or "all"
         )
 
     def _master_rows_for(self, parameters: Mapping[str, Any]) -> Dict[str, Any]:
@@ -741,12 +781,7 @@ class UseCaseService:
         row = self.store.get(use_case_id)
         if row is None:
             raise NotFound(use_case_id)
-        compiled = row.get("compiled") or {}
-        parameters = (
-            compiled.get("parameters")
-            or (row.get("spec") or {}).get("parameters")
-            or {}
-        )
+        parameters = self.current_parameters(row)
         options = run_parameters(parameters, environ=self._environ, strict=True)
         mailbox = mailbox_from(options.get("source mailbox"))
         messages = fetch_messages(

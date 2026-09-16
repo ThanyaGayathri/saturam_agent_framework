@@ -2,6 +2,7 @@ import { POLL_INTERVALS, SHAPES } from "./use-case-autonomy";
 import { findTemplate } from "./extraction-templates";
 import { normalizeRules } from "./guardrail-rules";
 import { findMapping } from "./record-mappings";
+import { rolesNeeded } from "./use-case-roles";
 
 /**
  * The spec as the platform's contract sees it (API 1.3.0): the catalog row, the stored spec
@@ -35,7 +36,7 @@ export function documentParameters(spec, sources = []) {
  const filter = spec.messageFilter || {};
  return {
   "source mailbox": sourceRef(spec.mailbox, sources),
-  "message filter": { unseen_only: filter.unread !== false, subject_contains: filter.senderPattern || null, since_days: 7 },
+  "message filter": { unseen_only: filter.unread !== false, subject_contains: filter.senderPattern || null, since_days: 7, has_attachment: filter.hasAttachment !== false, not_own_domain: !!filter.notOwnDomain },
   "document type": spec.documentType || "pdf",
   "extraction template": (findTemplate(spec)?.source !== "shipped" && findTemplate(spec)) || spec.extractionTemplate || "",
   "example document": spec.exampleDocument?.name || spec.exampleDocument || null,
@@ -95,8 +96,9 @@ export function useCaseWrite(spec) {
 
 /** `Spec`: what the form produced, marked as the form's. */
 export function specPayload(spec, useCaseId, sources = []) {
+ // The concepts a document use case touches: the roles it resolves, and what it creates.
  const concepts = spec.template === "document_to_record"
-  ? [{ concept: "Customer", role: "subject" }, { concept: "Product", role: "subject" }, { concept: "Order", role: "measure" }]
+  ? [...rolesNeeded(spec).filter((r) => r.id !== "orderHistory").map((r) => ({ concept: r.role.concept, role: "subject" })), ...(findMapping(spec)?.object ? [{ concept: findMapping(spec).object, role: "measure" }] : [])]
   : [];
  return {
   use_case_id: useCaseId,
@@ -141,6 +143,13 @@ export function cadenceLabel(cadence) {
  * one row per email with what it reached and why. The same rows for a rehearsal and a live
  * run; only `status` and the record's url differ.
  */
+/** The text a line is shown by: its first item-like field, else its first string. */
+function lineText(line) {
+ for (const k of ["description", "product", "item", "material", "article", "product_description", "item_description", "product_name", "item_name"]) if (line?.[k]) return String(line[k]);
+ const first = Object.entries(line || {}).find(([k, v]) => typeof v === "string" && v && k !== "line_no" && k !== "product");
+ return first ? first[1] : "";
+}
+
 export function runResultRows(result) {
  if (!result) return null;
  const rows = [];
@@ -151,18 +160,20 @@ export function runResultRows(result) {
   const site = resolved.ship_to?.row || {};
   const created = w.status === "written" || w.status === "previewed";
   rows.push({
-   id: m.id || `${m.sender}-${d.extracted?.po_number}`,
+   id: m.id || `${m.sender}-${d.reference ?? d.extracted?.po_number}`,
    from: m.sender,
    subject: m.subject,
-   po: d.extracted?.po_number,
+   po: d.reference ?? d.extracted?.po_number,
    status: created ? "created" : "held",
    classification: null,
    detail: null,
    steps: ["screened", "extracted", "resolved", "validated", "built", w.status === "written" ? "written" : "previewed"],
    account: resolved.customer?.resolved ? { name: resolved.customer.name } : null,
    shipTo: { street: site.street || resolved.ship_to?.name || "", postcode: site.postcode || "" },
-   lines: (resolved.lines || []).map((l) => ({ qty: l.quantity, desc: l.description, score: l.product?.score ?? 0, productRec: { name: l.product?.name || l.description, uom: l.product?.uom || l.unit_of_measure || "" } })),
-   payload: d.record ? { Order: d.record.fields, OrderItems: (d.record.children || []).map((c) => c.fields) } : null,
+   lines: (resolved.lines || []).map((l) => ({ qty: l.quantity, desc: lineText(l), score: l.product?.score ?? 0, productRec: l.product ? { name: l.product?.name || lineText(l), uom: l.product?.uom || l.unit_of_measure || "" } : null })),
+   payload: d.record ? { [d.record.object || "Record"]: d.record.fields, ...((d.record.children || []).length ? { [`${d.record.children[0].object || "Line"}s`]: d.record.children.map((c) => c.fields) } : {}) } : null,
+   object: d.record?.object || null,
+   value: d.record?.value ?? null,
    url: w.url || null,
    recordId: w.id || null,
    recordStatus: w.record_status || null,
@@ -173,7 +184,7 @@ export function runResultRows(result) {
    id: e.message_id || `${e.sender}-${e.subject}`,
    from: e.sender,
    subject: e.subject,
-   po: e.po_number || "",
+   po: e.reference ?? e.po_number ?? "",
    status: e.class === "PER_RUN_CAP" ? "held" : "exception",
    classification: e.class,
    detail: e.detail,
@@ -200,6 +211,9 @@ export function runResultRows(result) {
   written: rows.filter((r) => r.recordId).length,
   notify: result.status ? { status: result.status, to: result.to } : null,
   rollback: result.rollback || null,
+  // The run says which header field the documents are known by (`po_number`, `rma_reference`).
+  referenceLabel: result.reference_field ? String(result.reference_field).replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()) : "Reference",
+  objects: [...new Set(rows.map((r) => r.object).filter(Boolean))],
  };
 }
 
@@ -237,7 +251,7 @@ export function specFromPlatform(useCase, platformSpec, base) {
   ...next,
   mailbox: name(p["source mailbox"]),
   schedule: scheduleFromCadence(p.schedule || useCase.schedule),
-  messageFilter: { ...(base.messageFilter || {}), unread: filter.unseen_only !== false, senderPattern: filter.subject_contains || "" },
+  messageFilter: { ...(base.messageFilter || {}), unread: filter.unseen_only !== false, senderPattern: filter.subject_contains || "", hasAttachment: filter.has_attachment !== false, notOwnDomain: !!filter.not_own_domain },
   documentType: p["document type"] || "pdf",
   extractionTemplate: template && typeof template === "object" ? template.id : template || "",
   extractionTemplateDef: template && typeof template === "object" ? template : null,
@@ -269,14 +283,17 @@ export function runStats(run) {
  const written = docs.filter((d) => d.written?.status === "written");
  const previewed = docs.filter((d) => d.written?.status === "previewed");
  const held = exceptions.filter((e) => e.class === "PER_RUN_CAP").length;
- const value = docs.reduce((sum, d) => sum + (d.record?.children || []).reduce((s, c) => s + (Number(c.fields?.Quantity) || 0) * (Number(c.fields?.UnitPrice) || 0), 0), 0);
+ // The backend prices each record tree (`record.value`); older runs are summed from their lines.
+ const value = docs.reduce((sum, d) => sum + (d.record?.value != null ? Number(d.record.value) || 0 : (d.record?.children || []).reduce((s, c) => s + (Number(c.fields?.Quantity) || 0) * (Number(c.fields?.UnitPrice) || 0), 0)), 0);
+ const hasValue = docs.some((d) => d.record?.value != null || (d.record?.children || []).some((c) => c.fields?.Quantity != null && c.fields?.UnitPrice != null));
+ const objects = [...new Set(docs.map((d) => d.record?.object).filter(Boolean))];
  const byClass = {};
  for (const e of exceptions) byClass[e.class] = (byClass[e.class] || 0) + 1;
  const durationMs = run?.finished_at && run?.started_at ? new Date(run.finished_at) - new Date(run.started_at) : null;
  return {
   received, created: written.length, previewed: previewed.length, exceptions: exceptions.length - held, held,
-  value, byClass, idle: received === 0, durationMs,
-  records: written.map((d) => ({ po: d.extracted?.po_number, url: d.written?.url, customer: d.resolved?.customer?.name })),
+  value, hasValue, objects, byClass, idle: received === 0, durationMs,
+  records: written.map((d) => ({ po: d.reference ?? d.extracted?.po_number, url: d.written?.url, customer: d.resolved?.customer?.name, object: d.record?.object || null })),
   notify: result.status || null, recipients: result.to || [],
  };
 }

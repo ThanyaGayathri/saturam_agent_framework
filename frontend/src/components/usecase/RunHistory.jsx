@@ -19,7 +19,8 @@ export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
  const [showIdle, setShowIdle] = useState(false);
  const stats = useMemo(() => runs.map((r) => ({ run: r, s: runStats(r) })), [runs]);
  const live = stats.filter((x) => x.run.mode === "live");
- const totals = live.reduce((t, { s }) => ({ received: t.received + s.received, created: t.created + s.created, exceptions: t.exceptions + s.exceptions, value: t.value + s.value }), { received: 0, created: 0, exceptions: 0, value: 0 });
+ const totals = live.reduce((t, { s }) => ({ received: t.received + s.received, created: t.created + s.created, exceptions: t.exceptions + s.exceptions, value: t.value + s.value, hasValue: t.hasValue || s.hasValue }), { received: 0, created: 0, exceptions: 0, value: 0, hasValue: false });
+ const objectLabel = [...new Set(stats.flatMap((x) => x.s.objects))].join(" / ") || "record";
  const idleCount = stats.filter((x) => x.s.idle && x.run.status === "succeeded").length;
  const visible = showIdle ? stats : stats.filter((x) => !(x.s.idle && x.run.status === "succeeded"));
  const maxReceived = Math.max(1, ...live.map((x) => x.s.received));
@@ -38,7 +39,9 @@ export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
      <div className="rounded-lg bg-surface-secondary px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-text-primary">{totals.received}</p><p className="text-[11px] text-text-muted">documents received, live</p></div>
      <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{totals.created}</p><p className="text-[11px] text-text-muted">records created</p></div>
-     <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{money(totals.value)}</p><p className="text-[11px] text-text-muted">order value created</p></div>
+     {totals.hasValue
+      ? <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{money(totals.value)}</p><p className="text-[11px] text-text-muted">value of the {objectLabel.toLowerCase()}s created</p></div>
+      : <div className="rounded-lg bg-status-success-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-success">{objectLabel}</p><p className="text-[11px] text-text-muted">what each document becomes</p></div>}
      <div className="rounded-lg bg-status-critical-light px-3 py-2.5"><p className="text-2xl font-bold tabular-nums text-status-critical">{totals.exceptions}</p><p className="text-[11px] text-text-muted">held for a person, with a reason</p></div>
     </div>
    )}
@@ -66,7 +69,7 @@ export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
            <span className="bg-status-critical-dot" style={{ width: `${(s.exceptions / maxReceived) * 100}%` }} />
            <span className="bg-status-warning-dot" style={{ width: `${(s.held / maxReceived) * 100}%` }} />
           </span>
-          <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> in → <strong className="text-status-success">{s.created + s.previewed}</strong> {run.mode === "rehearse" ? "would be created" : "created"}{s.value ? <span className="text-status-success"> ({money(s.value)})</span> : null} · <strong className="text-status-critical">{s.exceptions}</strong> held{s.held ? ` · ${s.held} over the cap` : ""}</span>
+          <span className="text-xs text-text-secondary"><strong className="text-text-primary">{s.received}</strong> in → <strong className="text-status-success">{s.created + s.previewed}</strong> {run.mode === "rehearse" ? "would be created" : "created"}{s.hasValue && s.value ? <span className="text-status-success"> ({money(s.value)})</span> : null} · <strong className="text-status-critical">{s.exceptions}</strong> held{s.held ? ` · ${s.held} over the cap` : ""}</span>
           {Object.keys(s.byClass).length > 0 && (
            <span className="flex flex-wrap gap-1">{Object.entries(s.byClass).slice(0, 4).map(([k, n]) => <span key={k} className="rounded bg-status-critical-light px-1.5 py-0.5 font-mono text-[10px] text-status-critical">{k}{n > 1 ? ` ×${n}` : ""}</span>)}{Object.keys(s.byClass).length > 4 && <span className="text-[10px] text-text-muted">+{Object.keys(s.byClass).length - 4}</span>}</span>
           )}
@@ -82,7 +85,7 @@ export default function RunHistory({ runs, onRefresh, createdAs = "draft" }) {
         <div className="border-t border-border-light px-4 pb-3">
          {s.records.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-           {s.records.map((r) => r.url ? <a key={r.po} href={r.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-status-success-border bg-status-success-light px-2 py-0.5 font-semibold text-status-success hover:underline">PO {r.po} · {r.customer} <ExternalLink size={10} /></a> : <span key={r.po} className="rounded-md bg-surface-secondary px-2 py-0.5">PO {r.po}</span>)}
+           {s.records.map((r) => r.url ? <a key={r.po} href={r.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-status-success-border bg-status-success-light px-2 py-0.5 font-semibold text-status-success hover:underline">{r.object || "Record"} {r.po}{r.customer ? ` · ${r.customer}` : ""} <ExternalLink size={10} /></a> : <span key={r.po} className="rounded-md bg-surface-secondary px-2 py-0.5">{r.object || "Record"} {r.po}</span>)}
           </div>
          )}
          {s.notify && <p className="mt-2 text-[11px] text-text-muted">Exceptions {s.notify === "sent" ? "emailed to" : s.notify === "previewed" ? "composed for" : ""} {s.recipients.join(", ")}{run.provenance_ref ? ` · provenance ${run.provenance_ref}` : ""}</p>}

@@ -6,6 +6,7 @@ import { normalizeRules, unfedRules } from "../../domain/guardrail-rules";
 import { templateLabel } from "../../domain/extraction-templates";
 import { mappingLabel } from "../../domain/record-mappings";
 import { AUTONOMY, MASTER_DATA_ROLES, displayName } from "../../domain/use-case-autonomy";
+import { rolesNeeded } from "../../domain/use-case-roles";
 import { loadSpecDraft } from "../../domain/use-case-draft-spec";
 import { runUseCasePreflightProbe } from "../../services/use-cases-api";
 import { syncUseCaseToPlatform } from "../../services/use-case-platform";
@@ -81,8 +82,11 @@ export default function UseCasePreflightScreen() {
   const spec_ = "/use-cases/builder/compose";
   if (spec.template === "document_to_record") {
    const md = spec.masterData || {};
-   const bound = MASTER_DATA_ROLES.filter((r) => md[r.id]);
-   const missingRequired = MASTER_DATA_ROLES.filter((r) => r.required && !md[r.id]);
+   const needed = rolesNeeded(spec);
+   const neededRoles = needed.map((r) => r.role);
+   const bound = neededRoles.filter((r) => md[r.id]);
+   // A role the mapping reads is a failure when unbound; one only a guardrail needs is the guardrails check's warning.
+   const missingRequired = needed.filter((r) => !md[r.id] && (r.by.includes("mapping") || r.by.includes("dependency"))).map((r) => r.role);
    const rows = normalizeRules(spec.recordGuardrails);
    const unfed = unfedRules(rows, md).map((u) => u.rule);
    const mdSets = KPI_DATA_CATALOG_DATASETS.filter((d) => bound.some((r) => md[r.id] && d.technicalName.toLowerCase().endsWith(md[r.id].toLowerCase().replace(/ /g, "_"))));
@@ -90,7 +94,7 @@ export default function UseCasePreflightScreen() {
    return [
     { id: "mailbox", title: "Source mailbox", level: spec.mailbox ? "pass" : "fail", detail: spec.mailbox ? `${spec.mailbox} is connected and readable; the mailbox is only read; each message is carried once by its id, never flagged, never deleted.` : "No mailbox chosen.", fix: spec.mailbox ? null : { label: "Choose a mailbox", to: spec_ } },
     { id: "target", title: "Target system", level: spec.writeback ? "pass" : "fail", detail: spec.writeback ? `${spec.writeback} is connected with write permission; ${mappingLabel(spec) || (spec.targetObjects ? spec.targetObjects.replace(/_/g, " + ") : "the target objects")} will be created as ${spec.createdAs || "draft"}.` : "No target system chosen.", fix: spec.writeback ? null : { label: "Choose a target system", to: spec_ } },
-    { id: "masterdata", title: "Master data", level: missingRequired.length ? "fail" : "pass", detail: missingRequired.length ? `${missingRequired.map((r) => r.label).join(", ")} not bound.` : `${bound.length} objects bound and harvested: ${rowsLabel || bound.map((r) => md[r.id]).join(", ")}.`, fix: missingRequired.length ? { label: "Bind master data", to: spec_ } : null },
+    { id: "masterdata", title: "Master data", level: missingRequired.length ? "fail" : "pass", detail: missingRequired.length ? `${missingRequired.map((r) => r.label).join(", ")} not bound.` : neededRoles.length === 0 ? "This use case resolves against nothing: its mapping reads no master-data role and no guardrail needs one." : `${bound.length} role${bound.length === 1 ? "" : "s"} bound — ${bound.map((r) => `${r.label.toLowerCase()} → ${md[r.id]}`).join(", ")}${rowsLabel ? ` (${rowsLabel})` : ""}. Roles the mapping does not read are not resolved.`, fix: missingRequired.length ? { label: "Bind master data", to: spec_ } : null },
     { id: "model", title: "Extraction model", level: "warn", detail: "Probing…", fix: null },
     { id: "template", title: "Extraction template", level: spec.extractionTemplate ? (spec.exampleDocument ? "pass" : "warn") : "fail", detail: spec.extractionTemplate ? (spec.exampleDocument ? `${templateLabel(spec) || spec.extractionTemplate.replace(/_/g, " ")} with an example document — the AI step has a golden case to be scored against.` : `${spec.extractionTemplate.replace(/_/g, " ")} without an example document. Extraction works from the template's fields alone; an example of your own format makes it better, and the rehearse screen can save one as a golden case.`) : "No template chosen.", fix: spec.extractionTemplate ? null : { label: "Choose a template", to: spec_ } },
     { id: "guardrails", title: "Business guardrails", level: rows.length === 0 ? "fail" : unfed.length ? "warn" : "pass", detail: rows.length === 0 ? "No guardrail. A use case that writes needs at least one." : unfed.length ? `${rows.length} guardrails; ${unfed.map((g) => g.label).join(", ")} need${unfed.length === 1 ? "s" : ""} ${[...new Set(unfed.map((g) => MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()))].join(", ")} bound to run.` : `${rows.length} guardrails, evaluated as deterministic checks before any record is written — never by the AI step.`, fix: rows.length === 0 ? { label: "Add a guardrail", to: spec_ } : null },

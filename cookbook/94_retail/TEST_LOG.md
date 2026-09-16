@@ -6227,3 +6227,93 @@ and the activity feed with "Purchase order → Salesforce ran: 0 received". The 
 listed nine runs (schedule, Run now, rehearsals) with each run's result expandable.
 
 ---
+
+### PA03_return_request_cases.py -- a second document use case from configuration alone (K21)
+
+**Package:** K21, branch `usecase_processautomation`. No contract change.
+
+**Status:** PASS (16 Sep 2026): offline cookbook, unit tests, the platform API with the real
+model and the live org, the compose screen in the browser.
+
+**Description:** The validation before this package found that the Resolve stage was still
+the purchase order's: every document was resolved as a customer with a ship-to and a product
+per line, from the fields `customer_name`, `ship_to_address` and `description`, so a return
+request bound for a Case died at Resolve with `SHIP_TO_NOT_FOUND` and `PRODUCT_NOT_FOUND`
+on every document. Now roles are data (`documents/roles.py`, mirrored by
+`frontend/src/domain/use-case-roles.js`): a use case resolves only the roles its mapping's
+source expressions read and its guardrails need, plus what those depend on
+(`roles_needed`); the field each role reads is derived from the template's names or
+declared on it as `resolution` (`resolution_sources`); the document's reference is the
+template's first reference-like header or its `reference` (`reference_field`). The sender
+contact is a resolved role (`contact.id`) a mapping can read; the history guardrails read
+the target object's own records when the target is not the Order
+(`salesforce.history_plan` / `load_target_history`); the exception rows, the summary email,
+the results table and the run history say the record's object and the document's reference
+instead of "PO"; `record.value` prices a record tree when its lines carry a quantity and a
+price and is absent otherwise. The form's master-data section shows why each role is
+needed and greys the rest; the gap and readiness checks require only the roles the mapping
+reads. `suggest_mapping` binds a Contact reference to `contact.id`, puts the reference on
+a Subject/Name nobody else took, skips picklists, and takes `status_values` from the
+picklist's own values (New / Working for a Case).
+
+**Verification:** `product/tests/test_k21_roles.py` (19 tests): the order mapping with its
+preset needs exactly the four roles it always did and the sixteen samples land exactly where
+they did (7 created, 9 exceptions, same classes, `reference == po_number`); the Case mapping
+needs only the sender account and contact; every generated return-request case lands as
+expected through the unchanged executors with no ship-to and no product asked for; the
+target history plan for Order reads OrderItem through the price-book entry and for Case
+reads the Case itself; the mapping suggestion rules. The cookbook offline: 7 of 7 cases
+(three clean, unknown sender, duplicate pair, scanned copy) as expected, `roles resolved:
+contact, customer, order_history`. On the platform (use case created through
+`POST /use-cases` + `PUT /spec` with the return-request template, a Case mapping and two
+suggested guardrails, activated in the sandbox): the target probe answered "can read and
+create Case records", the master-data probe "sender account 6, sender contact 24, record
+history 44", and a rehearsal over the generated set with the real model and the org's
+master data passed 7 of 7 -- four Cases previewed with real Account and Contact ids,
+`Status: New`, `Origin: Email`. `--write-samples` wrote the seven PDFs with
+`expected.json` and a README to `~/Downloads/northwind-samples/returns/`. Full product
+suite 1332 passed; ruff, mypy and the contract check clean; `vite build` clean.
+
+---
+
+### K21 follow-up -- "How it runs" on a built use case
+
+**Status:** PASS (16 Sep 2026): in the browser on the owner's use case.
+
+**Description:** The pipeline and orchestration views lived only in the builder's step 4, over
+the draft in the browser, so the flow of an already built use case was reachable only through
+Edit. The views are now `PlanViews.jsx`, shared by that step and by a new "How it runs" tab on
+the use-case page (`/use-cases/platform/:id`), which reads the spec the platform holds
+(`GET /use-cases/{id}/spec` through `specFromPlatform`) and derives the plan from it --
+read-only, the draft untouched, the Runs tab unchanged.
+
+**Verification:** Opened the owner's use case, "How it runs": "11 steps in a fixed order, 15
+values taken from the specification; 11 automated, 1 AI, 0 approval steps"; Pipeline showed
+the five phases (Intake, Understand, Check, Write, Report); Orchestration showed the trigger
+"Every 5 minutes" and the eleven nodes with their executors and inputs. `vite build` clean.
+
+---
+
+### K21 follow-up -- a saved spec is the spec; every message-filter chip reaches the reader
+
+**Status:** PASS (16 Sep 2026): unit tests, the live API against the owner's draft.
+
+**Description:** A rehearsal stores a compiled snapshot on a draft, and the probes, the
+mailbox listing and the generated set preferred that snapshot over the spec -- so a filter
+typed after a rehearsal ("e234324") was saved but "36 messages match" and the mailbox tab
+still listed every Northwind sample. Now `PUT /spec` drops a draft's snapshot (an activated
+use case keeps its activated one until re-activation) and the previews compile the current
+spec (`UseCaseService.current_parameters`). Separately, the form's "Has an attachment" and
+"Not from our own domain" chips were never sent: `MessageFilter` gained `has_attachment` and
+`not_own_domain`, the form sends both, and the reader honours them (own-domain senders
+dropped on every read; no-attachment messages dropped once bodies are read -- a headers-only
+listing keeps them and the Screen stage refuses them on a run). The phrase field's
+placeholder now says what it is: words the subject must contain.
+
+**Verification:** `test_a_drafts_snapshot_is_dropped_on_save_and_previews_recompile`,
+`test_filter_from_reads_every_chip`,
+`test_own_domain_and_no_attachment_are_skipped_and_the_phrase_is_searched`. Live: after the
+restart, `GET /use-cases/uc_07831f3a/mailbox/messages` returned 0 and the mailbox probe said
+"0 message(s) match the filter right now" for the filter "e234324". Suite 1335 passed.
+
+---

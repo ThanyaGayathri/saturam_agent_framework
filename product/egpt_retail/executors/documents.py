@@ -31,7 +31,11 @@ from egpt_retail.documents.mailbox import (
     mailbox_from,
     send_mail,
 )
-from egpt_retail.documents.mapping import build_record_tree
+from egpt_retail.documents.mapping import (
+    build_record_tree,
+    mapping_from,
+    record_value,
+)
 from egpt_retail.documents.matching import (
     resolve_customer,
     resolve_product,
@@ -39,6 +43,12 @@ from egpt_retail.documents.matching import (
     thresholds_from,
 )
 from egpt_retail.documents.reader import PDF_MAGIC, read_document
+from egpt_retail.documents.roles import (
+    reference_field,
+    reference_of,
+    resolution_sources,
+    roles_needed,
+)
 from egpt_retail.documents.templates import template_for, validate_extraction
 from egpt_retail.executors.batch import (
     add_exception,
@@ -304,6 +314,7 @@ def extract_documents(
         clean, problems = validate_extraction(template, raw)
         document = dict(document)
         document["extracted"] = clean
+        document["reference"] = reference_of(template, clean)
         document["extraction_problems"] = problems
         if problems:
             add_exception(
@@ -347,6 +358,7 @@ async def aextract_documents(
         clean, problems = validate_extraction(template, raw)
         document = dict(document)
         document["extracted"] = clean
+        document["reference"] = reference_of(template, clean)
         document["extraction_problems"] = problems
         if problems:
             add_exception(
@@ -385,11 +397,16 @@ def _merge_model_extractions(
 
 async def resolve_entities(step_input: StepInput) -> StepOutput:
     """Scored matching of the extracted fields against master data, in a fixed order of
-    attempts per role (``documents/matching.py``): customer, then the customer's ship-to,
+    attempts per role (``documents/matching.py``): the sender's account, then its ship-to,
     then each line's product. Below threshold is an exception with the closest candidate
     (``CUSTOMER_NOT_FOUND``, ``SHIP_TO_NOT_FOUND``, ``SHIP_TO_AMBIGUOUS``,
     ``PRODUCT_NOT_FOUND``, ``PRODUCT_AMBIGUOUS``); a customer the sender does not identify
-    is not an exception here -- that is the ``unknown_sender`` guardrail's call.
+    is not an exception here -- that is the ``sender_known`` guardrail's call.
+
+    Which roles are resolved is the use case's, not this stage's (K21): the roles the
+    ``target objects`` mapping reads and the ``guardrails`` need
+    (``documents/roles.py``), and the field each role reads comes from the ``extraction
+    template``. A mapping that never reads a ship-to or a product is not asked for one.
 
     Reads the ``master data`` slot: the normalised rows directly, or ``{"source":
     "salesforce", ...}`` to load them through ``documents/salesforce.py`` (the write
@@ -407,6 +424,7 @@ async def resolve_entities(step_input: StepInput) -> StepOutput:
             stop=True,
         )
     template_id = slot(step_input, "extraction template", "purchase_order")
+    template = template_for(template_id)
     batch = _merge_model_extractions(
         batch, step_input.previous_step_content, template_id
     )
@@ -414,6 +432,8 @@ async def resolve_entities(step_input: StepInput) -> StepOutput:
     if extractor is not None and any("extracted" not in d for d in batch["documents"]):
         batch = extract_documents(batch, extractor, template_id=template_id)
 
+    needed = _roles_needed(step_input)
+    sources = resolution_sources(template)
     master = await _master_data(step_input)
     thresholds = thresholds_from(slot(step_input, "match thresholds"))
     survivors: List[Dict[str, Any]] = []
@@ -429,98 +449,111 @@ async def resolve_entities(step_input: StepInput) -> StepOutput:
             )
             continue
         extracted = document["extracted"]
+        document.setdefault("reference", reference_of(template, extracted))
         message = document.get("message") or {}
         sender = str(message.get("sender") or "")
         resolved: Dict[str, Any] = {}
         failures: List[str] = []
+        domain = str(message.get("sender_domain") or "")
 
-        customer = resolve_customer(
-            master,
-            sender=sender,
-            customer_name=extracted.get("customer_name"),
-            thresholds=thresholds,
-        )
-        resolved["customer"] = customer.as_dict()
-        if not customer.resolved:
-            # A sender whose domain is nobody's and whose name matches nobody is, to the
-            # person reading the exception, an unknown sender -- the same class the
-            # guardrail of that name raises, so the mailbox shows one class, not two.
-            cls = "UNKNOWN_SENDER" if "@" in sender else "CUSTOMER_NOT_FOUND"
-            failures.append(
-                f"{cls}: {customer.reason}"
-                + (
-                    f" (closest: {customer.closest.get('name')})"
-                    if customer.closest
-                    else ""
-                )
-            )
-
-        if customer.resolved and customer.row is not None:
-            ship_to = resolve_ship_to(
+        if "customer" in needed:
+            name_field = (sources.get("customer") or {}).get("name")
+            customer = resolve_customer(
                 master,
-                account_id=customer.row.get("id"),
-                address=extracted.get("ship_to_address"),
+                sender=sender,
+                customer_name=extracted.get(name_field) if name_field else None,
                 thresholds=thresholds,
             )
-            resolved["ship_to"] = {**ship_to.as_dict(), "row": ship_to.row}
-            if not ship_to.resolved:
-                cls = (
-                    "SHIP_TO_AMBIGUOUS"
-                    if "within" in ship_to.reason
-                    or "does not say which" in ship_to.reason
-                    else "SHIP_TO_NOT_FOUND"
-                )
-                failures.append(f"{cls}: {ship_to.reason}")
-            domain = str(
-                customer.row.get("email_domain") or message.get("sender_domain") or ""
-            )
-        else:
-            domain = str(message.get("sender_domain") or "")
-
-        lines: List[Dict[str, Any]] = []
-        for line in extracted.get("lines") or []:
-            product = resolve_product(
-                master,
-                customer_domain=domain,
-                customer_part_number=line.get("customer_part_number"),
-                supplier_product_code=line.get("supplier_product_code"),
-                description=line.get("description"),
-                thresholds=thresholds,
-            )
-            entry = dict(line)
-            entry["product"] = product.as_dict()
-            if product.row is not None:
-                entry["product"].update(
-                    {
-                        k: product.row.get(k)
-                        for k in (
-                            "code",
-                            "uom",
-                            "restricted",
-                            "active",
-                            "pricebook_entry_id",
-                            "unit_price",
-                        )
-                    }
-                )
-            elif "no part number" not in product.reason:
-                cls = (
-                    "PRODUCT_AMBIGUOUS"
-                    if "within" in product.reason
-                    else "PRODUCT_NOT_FOUND"
-                )
+            resolved["customer"] = customer.as_dict()
+            if not customer.resolved:
+                # A sender whose domain is nobody's and whose name matches nobody is, to
+                # the person reading the exception, an unknown sender -- the same class
+                # the guardrail of that name raises, so the mailbox shows one class, not
+                # two.
+                cls = "UNKNOWN_SENDER" if "@" in sender else "CUSTOMER_NOT_FOUND"
                 failures.append(
-                    f"{cls}: line {line.get('line_no')} {line.get('description')!r}: {product.reason}"
+                    f"{cls}: {customer.reason}"
                     + (
-                        f" (closest: {product.closest.get('name')})"
-                        if product.closest
+                        f" (closest: {customer.closest.get('name')})"
+                        if customer.closest
                         else ""
                     )
                 )
-            else:
-                failures.append(
-                    f"PRODUCT_NOT_FOUND: line {line.get('line_no')}: {product.reason}"
+            elif customer.row is not None:
+                domain = str(customer.row.get("email_domain") or domain)
+                if "contact" in needed:
+                    resolved["contact"] = _resolve_contact(
+                        master, sender=sender, account_id=customer.row.get("id")
+                    )
+                if "ship_to" in needed:
+                    address_field = (sources.get("ship_to") or {}).get("address")
+                    ship_to = resolve_ship_to(
+                        master,
+                        account_id=customer.row.get("id"),
+                        address=extracted.get(address_field) if address_field else None,
+                        thresholds=thresholds,
+                    )
+                    resolved["ship_to"] = {**ship_to.as_dict(), "row": ship_to.row}
+                    if not ship_to.resolved:
+                        cls = (
+                            "SHIP_TO_AMBIGUOUS"
+                            if "within" in ship_to.reason
+                            or "does not say which" in ship_to.reason
+                            else "SHIP_TO_NOT_FOUND"
+                        )
+                        failures.append(f"{cls}: {ship_to.reason}")
+
+        lines: List[Dict[str, Any]] = []
+        product_fields = sources.get("product") or {}
+        for line in extracted.get("lines") or []:
+            entry = dict(line)
+            if "product" in needed:
+                product = resolve_product(
+                    master,
+                    customer_domain=domain,
+                    customer_part_number=_field(
+                        line, product_fields, "customer_part_number"
+                    ),
+                    supplier_product_code=_field(
+                        line, product_fields, "supplier_product_code"
+                    ),
+                    description=_field(line, product_fields, "description"),
+                    thresholds=thresholds,
                 )
+                entry["product"] = product.as_dict()
+                shown = _field(line, product_fields, "description")
+                if product.row is not None:
+                    entry["product"].update(
+                        {
+                            k: product.row.get(k)
+                            for k in (
+                                "code",
+                                "uom",
+                                "restricted",
+                                "active",
+                                "pricebook_entry_id",
+                                "unit_price",
+                            )
+                        }
+                    )
+                elif "no part number" not in product.reason:
+                    cls = (
+                        "PRODUCT_AMBIGUOUS"
+                        if "within" in product.reason
+                        else "PRODUCT_NOT_FOUND"
+                    )
+                    failures.append(
+                        f"{cls}: line {line.get('line_no')} {shown!r}: {product.reason}"
+                        + (
+                            f" (closest: {product.closest.get('name')})"
+                            if product.closest
+                            else ""
+                        )
+                    )
+                else:
+                    failures.append(
+                        f"PRODUCT_NOT_FOUND: line {line.get('line_no')}: {product.reason}"
+                    )
             lines.append(entry)
         resolved["lines"] = lines
         document["resolved"] = resolved
@@ -537,9 +570,54 @@ async def resolve_entities(step_input: StepInput) -> StepOutput:
     batch["documents"] = survivors
     batch.setdefault("stats", {})["resolved"] = len(survivors)
     batch["master_data_roles"] = sorted(k for k in master if k != "pricebook_id")
+    batch["roles_needed"] = sorted(needed)
+    batch["reference_field"] = reference_field(template)
     batch["pricebook_id"] = master.get("pricebook_id")
     nothing_left = not survivors and not batch["exceptions"]
     return StepOutput(content=batch, success=True, stop=nothing_left)
+
+
+def _field(line: Mapping[str, Any], fields: Mapping[str, Any], role_key: str) -> Any:
+    name = fields.get(role_key)
+    return line.get(name) if name else None
+
+
+def _roles_needed(step_input: StepInput) -> set:
+    """The roles this use case resolves: what its mapping reads and its guardrails need.
+    A spec without a mapping slot is the order use case as first shipped."""
+    objects = slot(step_input, "target objects", "order_orderitem")
+    try:
+        mapping = mapping_from(
+            objects if isinstance(objects, Mapping) else str(objects)
+        )
+    except (KeyError, ValueError):
+        mapping = None
+    return roles_needed(mapping, slot(step_input, "guardrails", "all"))
+
+
+def _resolve_contact(
+    master: Mapping[str, Any], *, sender: str, account_id: Any
+) -> Dict[str, Any]:
+    """The sender as a known contact of the resolved account. Not finding one is not an
+    exception: a mapping row that requires the contact says so on the record."""
+    wanted = sender.strip().lower()
+    for contact in master.get("contact") or []:
+        if str(contact.get("email") or "").lower() == wanted and (
+            account_id is None or contact.get("account_id") == account_id
+        ):
+            return {
+                "resolved": True,
+                "method": "sender_email",
+                "id": contact.get("id"),
+                "name": contact.get("name"),
+                "email": contact.get("email"),
+                "account_id": contact.get("account_id"),
+            }
+    return {
+        "resolved": False,
+        "method": None,
+        "reason": f"{sender or 'the sender'} is not a contact of this account",
+    }
 
 
 async def _master_data(step_input: StepInput) -> Dict[str, Any]:
@@ -626,6 +704,7 @@ async def build_record(step_input: StepInput) -> StepOutput:
             )
             continue
         document["record"] = tree
+        tree["value"] = record_value(tree)
         if missing:
             add_exception(
                 batch,
@@ -660,9 +739,13 @@ def _summary_lines(batch: Mapping[str, Any]) -> List[str]:
             customer = ((document.get("resolved") or {}).get("customer") or {}).get(
                 "name"
             )
+            reference = document.get("reference") or extracted.get("po_number")
+            record = (document.get("record") or {}).get("object") or "record"
             lines.append(
-                f"  PO {extracted.get('po_number')} for {customer}: "
-                f"{written.get('status', 'built')} {written.get('url') or written.get('id') or ''}".rstrip()
+                f"  {reference or document.get('message', {}).get('subject')}"
+                + (f" for {customer}" if customer else "")
+                + f" -> {record} {written.get('status', 'built')} "
+                f"{written.get('url') or written.get('id') or ''}".rstrip()
             )
         lines.append("")
     if exceptions:

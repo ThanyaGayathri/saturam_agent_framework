@@ -23,7 +23,7 @@ import base64
 import re
 from datetime import date, timedelta
 from statistics import median
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Collection, Dict, List, Mapping, Optional, Sequence
 
 from egpt_retail.documents.guardrails import Rule
 from egpt_retail.documents.pdf import image_only_pdf, text_pdf
@@ -36,6 +36,7 @@ GENERATED_CASE_SOURCE = "generated"
 _REFERENCE = re.compile(r"(number|reference|ref|no)$")
 _DOC_DATE = re.compile(r"^(po|invoice|order|note|document|issue)_date$|^date$")
 _FUTURE_DATE = re.compile(r"(due|deliver|requested|deadline|expected|ship)")
+_REASON = re.compile(r"(reason|notes|comments|remarks|issue|complaint)")
 _NAME = re.compile(r"(customer|supplier|vendor|buyer|account)_name$|^name$")
 _ADDRESS = re.compile(r"address")
 _EMAIL = re.compile(r"email")
@@ -144,6 +145,8 @@ def _header_value(
         return "Net 30"
     if _INSTRUCTIONS.search(name):
         return "Deliver to the receiving dock, weekdays 8-4."
+    if _REASON.search(name):
+        return "Two drums arrived dented; contents unusable."
     if "date" in name:
         return today.isoformat()
     return None
@@ -211,9 +214,11 @@ def generate_cases(
     *,
     today: Optional[date] = None,
     clean: int = 3,
+    roles: Optional[Collection[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Cases invented from the template's fields and the master data: ``clean`` clean ones,
-    one per enabled rule kind that trips it, one unplaceable item, one scanned copy."""
+    one per enabled rule kind that trips it, one unplaceable item (when the use case
+    resolves products -- ``roles``, all of them when not given), one scanned copy."""
     today = today or date.today()
     products = _products(master) or [
         {
@@ -261,11 +266,21 @@ def generate_cases(
             )
             or float(chosen.get("unit_price") or 10.0) * qty
         )
+        # The document's own reference goes to its first reference-like header; any other
+        # (an order reference on a return, a PO reference on an invoice) gets its own.
+        reference_field = next(
+            (
+                n
+                for n, _ in template.header
+                if _REFERENCE.search(n) and not n.startswith("line")
+            ),
+            None,
+        )
         header = {
             name: _header_value(
                 name,
                 ctx,
-                reference=ref,
+                reference=ref if name == reference_field else f"ORD-{2000 + counter}",
                 today=today,
                 total=total,
                 twist=header_twist or {},
@@ -432,7 +447,7 @@ def generate_cases(
             )
         )
     item_field = next((n for n, _ in template.lines if _ITEM.match(n)), None)
-    if item_field:
+    if item_field and (roles is None or "product" in roles):
         cases.append(
             make(
                 "Item nobody sells",

@@ -138,7 +138,7 @@ export function RunResultView({ run, live, createdAs, onAccept }) {
      <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full min-w-[560px] text-sm">
        <thead className="bg-surface-secondary text-[11px] uppercase tracking-wide text-text-muted">
-        <tr><th className="px-3 py-2 text-left">From</th><th className="px-3 py-2 text-left">PO</th><th className="px-3 py-2 text-left">Reached</th><th className="px-3 py-2 text-left">Outcome</th></tr>
+        <tr><th className="px-3 py-2 text-left">From</th><th className="px-3 py-2 text-left">{rows.referenceLabel}</th><th className="px-3 py-2 text-left">Reached</th><th className="px-3 py-2 text-left">Outcome</th></tr>
        </thead>
        <tbody>
         {rows.results.map((r) => (
@@ -160,7 +160,7 @@ export function RunResultView({ run, live, createdAs, onAccept }) {
             <td colSpan={4} className="px-4 py-3 text-xs text-text-secondary">
              <p className="mb-1"><span className="font-semibold text-text-primary">Subject</span> {r.subject} · <span className="font-semibold text-text-primary">steps</span> {r.steps.join(" → ")}</p>
              {r.detail && <p className="mb-1"><span className="font-semibold text-status-critical">Why</span> {r.detail}</p>}
-             {r.account && <p className="mb-1"><span className="font-semibold text-text-primary">Resolved</span> {r.account.name}{r.shipTo?.street ? ` · ship-to ${r.shipTo.street}${r.shipTo.postcode ? `, ${r.shipTo.postcode}` : ""}` : ""} · {r.lines.map((l) => `${l.qty} ${l.productRec.uom || ""} ${l.productRec.name} (${l.score >= 1 ? "exact" : Number(l.score).toFixed(2)})`).join("; ")}</p>}
+             {r.account && <p className="mb-1"><span className="font-semibold text-text-primary">Resolved</span> {r.account.name}{r.shipTo?.street ? ` · ship-to ${r.shipTo.street}${r.shipTo.postcode ? `, ${r.shipTo.postcode}` : ""}` : ""}{r.lines.some((l) => l.productRec) ? ` · ${r.lines.filter((l) => l.productRec).map((l) => `${l.qty ?? ""} ${l.productRec.uom || ""} ${l.productRec.name} (${l.score >= 1 ? "exact" : Number(l.score).toFixed(2)})`.trim()).join("; ")}` : r.lines.length ? ` · ${r.lines.length} line${r.lines.length === 1 ? "" : "s"} (no product resolution in this use case)` : ""}</p>}
              {r.payload && <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-surface p-2 font-mono text-[11px] text-text-primary">{JSON.stringify(r.payload, null, 1)}</pre>}
             </td>
            </tr>

@@ -124,7 +124,11 @@ async def apply_hard_limits(step_input: StepInput) -> StepOutput:
         seen.append(
             (
                 customer.get("id"),
-                str((document.get("extracted") or {}).get("po_number") or ""),
+                str(
+                    document.get("reference")
+                    or (document.get("extracted") or {}).get("po_number")
+                    or ""
+                ),
             )
         )
         if verdict["exceptions"]:
@@ -163,16 +167,35 @@ def _master_rows(step_input: StepInput, batch: Mapping[str, Any]) -> Dict[str, A
     if isinstance(batch.get("master_data"), Mapping):
         return dict(batch["master_data"])
     # The resolver loaded from a source; it leaves the roles it saw, not the rows. History
-    # is what the guardrails need and the resolver did not keep, so reload it.
+    # is what the guardrails need and the resolver did not keep, so reload it: the Order's
+    # history from its items, any other target's from the target itself (K21).
     roles = batch.get("master_data_roles") or []
     if roles and "order_history" in roles:
-        from egpt_retail.documents.salesforce import client_from, load_master_data
+        from egpt_retail.documents.mapping import mapping_from
+        from egpt_retail.documents.salesforce import (
+            client_from,
+            load_master_data,
+            load_target_history,
+        )
 
+        objects = slot(step_input, "target objects", "order_orderitem")
+        try:
+            mapping = mapping_from(
+                objects if isinstance(objects, Mapping) else str(objects)
+            )
+        except (KeyError, ValueError):
+            mapping = None
         client = client_from(slot(step_input, "write target"))
         try:
-            return load_master_data(
-                client, roles=("customer", "product", "order_history")
+            if mapping is None or mapping.object == "Order":
+                return load_master_data(
+                    client, roles=("customer", "product", "order_history")
+                )
+            rows = load_master_data(client, roles=("customer", "product"))
+            rows["order_history"] = load_target_history(
+                client, mapping, batch.get("reference_field")
             )
+            return rows
         finally:
             client.close()
     return {}
@@ -419,6 +442,8 @@ async def record_rollback_point(step_input: StepInput) -> StepOutput:
                 "record_id": str(written.get("id")),
                 "action": str(reverse.get("action") or "delete"),
                 "content": {
+                    "reference": document.get("reference")
+                    or (document.get("extracted") or {}).get("po_number"),
                     "po_number": (document.get("extracted") or {}).get("po_number"),
                     "written": written.get("written"),
                     "policy": policy,

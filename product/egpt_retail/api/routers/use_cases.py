@@ -254,7 +254,13 @@ async def save_use_case_spec(
     before = await service.store.aget(use_case_id)
     if before is None:
         raise _not_found(use_case_id)
-    row = await service.store.aupdate(use_case_id, spec=spec)
+    # A saved spec is the spec: the compiled snapshot a rehearsal left on a draft is of
+    # the previous one and would keep answering the probes and the mailbox listing.
+    # An activated use case keeps its activated snapshot until it is activated again.
+    if before.get("status") == "activated":
+        row = await service.store.aupdate(use_case_id, spec=spec)
+    else:
+        row = await service.store.aupdate(use_case_id, spec=spec, compiled=None)
     assert row is not None
     # Regression (K19): a change to the template, the guardrails, the mapping or the
     # thresholds re-runs every golden case in the background, so the preflight's

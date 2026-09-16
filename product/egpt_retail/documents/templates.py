@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from dataclasses import field as dc_field
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -37,6 +38,12 @@ class ExtractionTemplate:
     header: Tuple[Tuple[str, bool], ...]
     #: Line fields, ``(name, required)``.
     lines: Tuple[Tuple[str, bool], ...]
+    #: The header field a document is known by (``po_number``); None derives it from the
+    #: names (``documents/roles.py``).
+    reference: Optional[str] = None
+    #: Which fields feed each master-data role, when the names alone would not say:
+    #: ``{"customer": {"name": "vendor"}, "product": {"description": "item"}}``.
+    resolution: Mapping[str, Any] = dc_field(default_factory=dict)
 
     @property
     def required_header(self) -> Tuple[str, ...]:
@@ -160,7 +167,16 @@ def template_from(value: Any) -> ExtractionTemplate:
                 return shipped
             raise ValueError(f"extraction template {label!r} declares no fields")
         record = str(value.get("record") or value.get("creates") or identifier)
-        return ExtractionTemplate(identifier, label, record, header, lines)
+        resolution = value.get("resolution")
+        return ExtractionTemplate(
+            identifier,
+            label,
+            record,
+            header,
+            lines,
+            str(value["reference"]) if value.get("reference") else None,
+            dict(resolution) if isinstance(resolution, Mapping) else {},
+        )
     key = str(value or "").strip().lower()
     for template in EXTRACTION_TEMPLATES.values():
         if key in (template.id, template.label.lower()):
@@ -180,6 +196,8 @@ def template_to_dict(template: ExtractionTemplate) -> Dict[str, Any]:
         "record": template.record,
         "header": [f"{n}{'*' if r else ''}" for n, r in template.header],
         "lines": [f"{n}{'*' if r else ''}" for n, r in template.lines],
+        **({"reference": template.reference} if template.reference else {}),
+        **({"resolution": dict(template.resolution)} if template.resolution else {}),
     }
 
 

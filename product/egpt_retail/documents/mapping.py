@@ -14,7 +14,8 @@ Source expressions, in the order a person would write them on the form:
     po_number                   a header field the extractor filled
     extracted.po_number         the same, spelled out
     line.quantity               a line field (child rows only)
-    customer.id / customer.name the resolved customer row
+    customer.id / customer.name the resolved sender account row
+    contact.id / contact.name   the resolved sender contact row
     ship_to.street ...          the resolved ship-to site row (street, city, state, postcode, country)
     product.pricebook_entry_id  the resolved product row on the line (id, name, code, unit_price, ...)
     $pricebook_id, $today       run-level values
@@ -45,6 +46,7 @@ __all__ = [
     "mapping_from",
     "mapping_to_dict",
     "apply_mapping",
+    "record_value",
     "build_record_tree",
     "suggest_mapping",
 ]
@@ -431,6 +433,7 @@ def apply_mapping(
     extracted: Mapping[str, Any] = document.get("extracted") or {}
     resolved: Mapping[str, Any] = document.get("resolved") or {}
     customer = resolved.get("customer") or {}
+    contact = resolved.get("contact") or {}
     ship_to = resolved.get("ship_to") or {}
     run_values = {
         "pricebook_id": options.get("pricebook_id"),
@@ -440,6 +443,7 @@ def apply_mapping(
     base: Dict[str, Any] = {
         "extracted": extracted,
         "customer": customer if customer.get("resolved") else {},
+        "contact": contact if contact.get("resolved") else {},
         "ship_to": ship_to.get("row") or {} if ship_to.get("resolved") else {},
         "$": run_values,
     }
@@ -497,6 +501,39 @@ def apply_mapping(
     return tree, missing
 
 
+_QUANTITY_FIELDS = ("Quantity", "Qty__c")
+_PRICE_FIELDS = ("UnitPrice", "ListPrice", "Unit_Price__c")
+_AMOUNT_FIELDS = ("Amount", "TotalAmount", "Total_Amount__c", "Total__c", "Amount__c")
+
+
+def record_value(tree: Mapping[str, Any]) -> Optional[float]:
+    """The monetary value a record tree carries, for the run summary: the lines' quantity
+    times unit price when the child rows carry both, else a parent amount field, else
+    None. A display figure -- the target computes its own totals."""
+    total = 0.0
+    found = False
+    for child in tree.get("children") or []:
+        fields = child.get("fields") or {}
+        quantity = next((fields.get(k) for k in _QUANTITY_FIELDS if k in fields), None)
+        price = next((fields.get(k) for k in _PRICE_FIELDS if k in fields), None)
+        try:
+            if quantity is not None and price is not None:
+                total += float(quantity) * float(price)
+                found = True
+        except (TypeError, ValueError):
+            continue
+    if found:
+        return round(total, 2)
+    fields = tree.get("fields") or {}
+    for key in _AMOUNT_FIELDS:
+        if fields.get(key) is not None:
+            try:
+                return round(float(fields[key]), 2)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def build_record_tree(
     target: str,
     objects: Any,
@@ -540,9 +577,13 @@ _SYNONYMS: Mapping[str, Tuple[str, ...]] = MappingProxyType(
         "invoice_number": ("invoicenumber", "invoicenumber__c", "name"),
         "delivery_instructions": ("description", "shippinginstructions", "notes"),
         "reason": ("description", "reason"),
+        "rma_reference": ("rmanumber", "rmareference", "rma"),
+        "order_reference": ("ordernumber", "orderreference", "order", "ponumber"),
+        "condition": ("condition", "type"),
     }
 )
 _NORMALISE = re.compile(r"[^a-z0-9]+")
+_REFERENCE_LIKE = re.compile(r"(number|reference|ref|id|no)$")
 
 
 def _norm(text: str) -> str:
@@ -605,8 +646,8 @@ def suggest_mapping(
                     source, row_label = ["$pricebook_id"], "the standard pricebook"
                 elif "Product2" in refs:
                     source, row_label = ["product.id"], "the resolved product"
-                elif "Contact" in refs:
-                    source = []
+                elif "Contact" in refs and not line_scope:
+                    source, row_label = ["contact.id"], "the resolved sender contact"
             elif name.lower().startswith("shipping") and not line_scope:
                 part = name[len("Shipping") :].lower()
                 source = {
@@ -617,6 +658,10 @@ def suggest_mapping(
                     "country": ["ship_to.country", "=United States"],
                 }.get(part, [])
                 row_label = "the resolved ship-to" if source else ""
+            elif kind == "picklist":
+                # A picklist takes one of the target's own values, not the document's
+                # free text: the person picks a literal (=Email), or 'created as' sets it.
+                candidate = None
             else:
                 candidate = match(
                     [c for c in candidates if c not in used], target_field
@@ -657,6 +702,45 @@ def suggest_mapping(
                         ),
                     }
                 )
+        # A record's title (Subject, Name) when nothing on the document took the reference:
+        # the reference is what a person would type there. An Order whose PoNumber took it
+        # keeps its Name empty.
+        if not line_scope:
+            reference = next(
+                (
+                    c
+                    for c in candidates
+                    if _REFERENCE_LIKE.search(c) and not c.startswith("line")
+                ),
+                None,
+            )
+            title = next(
+                (
+                    f
+                    for f in obj.get("fields") or []
+                    if _norm(f.get("name", "")) in {"subject", "name", "title"}
+                    and str(f.get("type") or "").lower() in {"string", "textarea"}
+                ),
+                None,
+            )
+            if (
+                reference
+                and reference not in used
+                and title is not None
+                and not any(r["target"] == title.get("name") for r in rows)
+            ):
+                used.add(reference)
+                rows.append(
+                    {
+                        "target": str(title.get("name")),
+                        "source": [reference],
+                        "required": bool(title.get("required")),
+                        "transform": f"text:{int(title['length'])}"
+                        if title.get("length")
+                        else None,
+                        "label": "the document's reference",
+                    }
+                )
         # A line that names its price-book entry names its product through it; mapping both
         # is redundant and, when they disagree, refused by the target.
         if any(r["source"] == ["product.pricebook_entry_id"] for r in rows):
@@ -664,15 +748,23 @@ def suggest_mapping(
         return rows
 
     parent_name = str(parent.get("name") or "")
-    status_field = next(
+    status = next(
         (
-            str(f.get("name"))
+            f
             for f in parent.get("fields") or []
             if str(f.get("name", "")).lower() == "status"
             and str(f.get("type", "")).lower() == "picklist"
         ),
         None,
     )
+    status_field = str(status.get("name")) if status else None
+    # 'created as' maps onto the status picklist's own values: the first is the draft
+    # (Draft, New), the next the active one (Activated, Working). The person can change it.
+    values = [str(v) for v in (status.get("picklist_values") or [])] if status else []
+    status_values = {
+        "draft": values[0] if values else "Draft",
+        "active": values[1] if len(values) > 1 else "Activated",
+    }
     out: Dict[str, Any] = {
         "id": _slug(
             label or (f"{parent_name}_{child.get('name')}" if child else parent_name)
@@ -686,7 +778,7 @@ def suggest_mapping(
         "fields": rows_for(parent, header, line_scope=False),
         "child": None,
         "status_field": status_field,
-        "status_values": {"draft": "Draft", "active": "Activated"},
+        "status_values": status_values,
         "rollback_action": "delete",
     }
     if child and child.get("name"):
