@@ -677,8 +677,10 @@ async def arefresh_query_tiles(
     ``api/routers/dashboards.py`` already do via ``asyncio.run(...)``, since neither has one of
     its own to await this on) or by degrading to the strictly serial loop round 3 deleted --
     which would silently reintroduce that loop's own copy of round 2's fault-isolation finding
-    alongside it. No caller needs a sync entrypoint (both are plain ``def`` routes that already
-    call this via ``asyncio.run``); please don't add one just to satisfy the general rule.
+    alongside it. No caller needs a sync entrypoint: ``_compute_query_tiles`` (called from the
+    four plain ``def`` write routes) and ``refresh_dashboard``'s nested ``_refresh`` (a sync
+    helper thread-offloaded from that one *async* route, not a route itself) already call this
+    via ``asyncio.run``; please don't add a sync twin just to satisfy the general rule.
     """
     wanted = set(only) if only is not None else None
     tiles = [
