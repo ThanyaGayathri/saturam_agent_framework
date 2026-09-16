@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink, Pause, Pencil, Play, RefreshCw } from "lucide-react";
-import PlatformRunPanel, { RunResultView } from "./PlatformRunPanel";
+import { ArrowLeft, ExternalLink, Pause, Pencil, Play } from "lucide-react";
+import PlatformRunPanel from "./PlatformRunPanel";
+import RunHistory from "./RunHistory";
 import { STATUS_PILL } from "../UseCaseGallery";
 import { cadenceLabel, specFromPlatform } from "../../domain/use-case-platform";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
@@ -15,8 +16,6 @@ import { activateUseCase, fetchUseCase, fetchUseCaseSpec, listUseCaseRuns, pause
  * each run's own result, and the three things a person does to it -- run it now, pause or
  * resume it, or edit it, which reopens the builder on the same spec.
  */
-const RUN_STATUS = { succeeded: "bg-status-success-light text-status-success", failed: "bg-status-critical-light text-status-critical", blocked: "bg-status-warning-light text-status-warning", running: "bg-status-info-light text-status-info", queued: "bg-surface-secondary text-text-secondary", cancelled: "bg-surface-secondary text-text-muted" };
-const TRIGGER = { manual: "Run now", schedule: "Schedule", regression: "Regression", activation: "Activation" };
 
 export default function UseCasePlatformPage() {
   const { id } = useParams();
@@ -24,7 +23,6 @@ export default function UseCasePlatformPage() {
   const [useCase, setUseCase] = useState(null);
   const [runs, setRuns] = useState([]);
   const [error, setError] = useState(null);
-  const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -87,34 +85,7 @@ export default function UseCasePlatformPage() {
             <PlatformRunPanel useCaseId={id} mode="live" label="Run it now" description="Polls the mailbox, creates the records, sends the exceptions: the same run the schedule makes. Each message is carried once, so a second run finds only what is new." createdAs="draft" onFinished={load} />
           )}
 
-          <section className="rounded-xl border border-border bg-surface p-4">
-            <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-text-primary">Run history</h2><button type="button" onClick={load} className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary"><RefreshCw size={11} /> Refresh</button></div>
-            {runs.length === 0 ? <p className="mt-2 text-sm text-text-muted">No runs yet.</p> : (
-              <div className="mt-2 overflow-x-auto rounded-lg border border-border">
-                <table className="w-full min-w-[640px] text-sm">
-                  <thead className="bg-surface-secondary text-[11px] uppercase tracking-wide text-text-muted"><tr><th className="px-3 py-2 text-left">Started</th><th className="px-3 py-2 text-left">Trigger</th><th className="px-3 py-2 text-left">Mode</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Summary</th></tr></thead>
-                  <tbody>
-                    {runs.map((r) => (
-                      <Fragment key={r.id}>
-                        <tr className="cursor-pointer border-t border-border hover:bg-surface-secondary/60" onClick={() => setOpen(open === r.id ? null : r.id)}>
-                          <td className="px-3 py-2 text-text-secondary">{open === r.id ? <ChevronDown size={12} className="mr-1 inline" /> : <ChevronRight size={12} className="mr-1 inline" />}{new Date(r.started_at).toLocaleString()} <span className="text-text-muted">· {relativeTimeFromNow(r.started_at)}</span></td>
-                          <td className="px-3 py-2 text-xs text-text-secondary">{TRIGGER[r.trigger] || r.trigger}</td>
-                          <td className="px-3 py-2 text-xs text-text-secondary">{r.mode}</td>
-                          <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${RUN_STATUS[r.status] || RUN_STATUS.queued}`}>{r.status}</span></td>
-                          <td className="px-3 py-2 text-xs text-text-secondary">{r.summary || r.blocked_reason || ""}{r.provenance_ref && <span className="ml-1 text-text-muted">· {r.provenance_ref}</span>}</td>
-                        </tr>
-                        {open === r.id && (
-                          <tr className="border-t border-border-light bg-surface-secondary/30"><td colSpan={5} className="px-4 pb-3">
-                            {r.result ? <RunResultView run={r} live={r.mode === "live"} createdAs="draft" /> : <p className="py-2 text-xs text-text-muted">{r.blocked_reason || "No result recorded for this run."}</p>}
-                          </td></tr>
-                        )}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          <RunHistory runs={runs} onRefresh={load} createdAs="draft" />
           <p className="text-[11px] text-text-muted"><ExternalLink size={11} className="inline" /> Created records link into the target from each run's rows. {spec.template === "document_to_record" ? "Each message is processed once by its id; re-seed the mailbox to run the demo again." : ""}</p>
         </>
       )}

@@ -501,11 +501,19 @@ def _po_lines(email: Mapping[str, Any], today: date) -> List[str]:
     return lines
 
 
-def sample_messages(*, today: Optional[date] = None) -> List[Message]:
-    """The sixteen emails as ``Message`` objects with their PDFs attached."""
+def sample_messages(
+    *, today: Optional[date] = None, batch: Optional[str] = None
+) -> List[Message]:
+    """The sixteen emails as ``Message`` objects with their PDFs attached. ``batch`` suffixes
+    every PO number (``27012128-B2``) so a second seeding of a live mailbox carries new
+    orders rather than sixteen duplicates of the ones the first run created."""
     today = today or date.today()
     messages: List[Message] = []
-    for email in SAMPLE_EMAILS:
+    for raw in SAMPLE_EMAILS:
+        email = dict(raw)
+        if batch:
+            email["po"] = f"{raw['po']}-{batch}"
+            email["subject"] = f"{raw['subject']} {batch}"
         data = (
             image_only_pdf()
             if email["id"] == SCANNED_EMAIL_ID
@@ -513,7 +521,7 @@ def sample_messages(*, today: Optional[date] = None) -> List[Message]:
         )
         messages.append(
             Message(
-                id=f"<{email['id'].lower()}@sample.{OWN_DOMAIN}>",
+                id=f"<{email['id'].lower()}{('-' + batch.lower()) if batch else ''}@sample.{OWN_DOMAIN}>",
                 sender=email["from"],
                 subject=email["subject"],
                 received_at=f"{today.isoformat()}T08:{int(email['id'][2:]):02d}:00+00:00",

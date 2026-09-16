@@ -254,3 +254,31 @@ export function specFromPlatform(useCase, platformSpec, base) {
   rollback: p.rollback || "",
  };
 }
+
+/**
+ * What one run was worth (K20): counts by outcome, the exception classes, and the order
+ * value of the records it created -- summed from each record's line children where the
+ * mapping wrote a quantity and a unit price. Real numbers from the run's own result; a run
+ * that polled and found nothing is `idle`.
+ */
+export function runStats(run) {
+ const result = run?.result || {};
+ const docs = result.documents || [];
+ const exceptions = result.exceptions || [];
+ const received = result.stats?.received ?? docs.length + exceptions.length;
+ const written = docs.filter((d) => d.written?.status === "written");
+ const previewed = docs.filter((d) => d.written?.status === "previewed");
+ const held = exceptions.filter((e) => e.class === "PER_RUN_CAP").length;
+ const value = docs.reduce((sum, d) => sum + (d.record?.children || []).reduce((s, c) => s + (Number(c.fields?.Quantity) || 0) * (Number(c.fields?.UnitPrice) || 0), 0), 0);
+ const byClass = {};
+ for (const e of exceptions) byClass[e.class] = (byClass[e.class] || 0) + 1;
+ const durationMs = run?.finished_at && run?.started_at ? new Date(run.finished_at) - new Date(run.started_at) : null;
+ return {
+  received, created: written.length, previewed: previewed.length, exceptions: exceptions.length - held, held,
+  value, byClass, idle: received === 0, durationMs,
+  records: written.map((d) => ({ po: d.extracted?.po_number, url: d.written?.url, customer: d.resolved?.customer?.name })),
+  notify: result.status || null, recipients: result.to || [],
+ };
+}
+
+export const money = (n) => n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
