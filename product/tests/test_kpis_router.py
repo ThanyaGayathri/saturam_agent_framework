@@ -1121,6 +1121,36 @@ def test_suggestion_replay_still_applies_the_business_area_filter_and_sql_gate(
     assert result.suggestions[0].proposed_sql is None
 
 
+def test_suggestion_replay_skips_the_phase_sleeps_when_on_phase_is_none(
+    monkeypatch, tmp_path
+):
+    """The deprecated sync `GET /kpis/suggestions` route calls `_list_kpi_suggestions` with no
+    `on_phase` at all, so there is no run panel for the phase pauses to animate. With replay set,
+    the sleep loop must be skipped entirely rather than blocking ~8.5s for nothing."""
+    saved = wire_models.KpiSuggestionList(
+        suggestions=[_suggestion(identifier="a", business_area="supply_chain")],
+        notes="",
+    )
+    replay_path = tmp_path / "replay.json"
+    replay_path.write_text(saved.model_dump_json())
+
+    def _must_not_sleep(_seconds):
+        raise AssertionError("time.sleep must not run when on_phase is None")
+
+    monkeypatch.setattr(time, "sleep", _must_not_sleep)
+
+    result = _list_kpi_suggestions(
+        RetailSettings(retail_suggestion_replay=str(replay_path)),
+        definitions=(),
+        vocabularies=_VOCABULARIES,
+        business_area=None,
+        include_sql=True,
+        on_phase=None,
+    )
+
+    assert [s.identifier for s in result.suggestions] == ["a"]
+
+
 # ---------------------------------------------------------------------------
 # _cached_suggestion_agents -- Finding 4 (PR #242 review): CLAUDE.md says never create agents
 # in loops; every real request was building two fresh `Agent`s from scratch.

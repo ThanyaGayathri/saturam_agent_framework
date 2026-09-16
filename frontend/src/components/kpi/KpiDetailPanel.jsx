@@ -5,7 +5,7 @@ import { mappingConfidenceForKpi } from "../../domain/kpi-mapping";
 import { getDatasetById } from "../../domain/kpi-data-catalog";
 import { getCatalogEntriesForKpiName } from "../../domain/kpi-usecase-links";
 import KpiTrend from "./KpiTrend";
-import { bucketFor, NOT_SELECTABLE_REASONS } from "./KpiDiscovery";
+import { bucketFor, NOT_SELECTABLE_REASONS, SUGGESTION_RATIONALE_LABEL, SUGGESTION_VALUE_LABEL } from "./KpiDiscovery";
 
 /**
  * The definition surface for one KPI: description, unit, level, mapping confidence, the datasets
@@ -332,13 +332,13 @@ export default function KpiDetailPanel({
  </ul>
  </section>
 
- {detailRow.suggested && detailRow.suggestion && (
+ {suggested && (
  <section className="rounded-xl border border-status-info/40 bg-status-info-light/40 p-4 dark:bg-status-info/10">
- <p className="text-[10px] font-semibold uppercase tracking-wide text-status-info">Why the model proposed it</p>
+ <p className="text-[10px] font-semibold uppercase tracking-wide text-status-info">{SUGGESTION_RATIONALE_LABEL}</p>
  <p className="mt-2 text-sm text-text-secondary">{detailRow.suggestion.rationale}</p>
  {detailRow.suggestion.business_value && (
  <>
- <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-primary">What value it provides</p>
+ <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-primary">{SUGGESTION_VALUE_LABEL}</p>
  <p className="mt-2 text-sm text-text-secondary">{detailRow.suggestion.business_value}</p>
  </>
  )}

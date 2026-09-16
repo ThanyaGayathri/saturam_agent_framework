@@ -733,14 +733,16 @@ def _list_kpi_suggestions(
         replayed = wire.KpiSuggestionList.model_validate(
             json.loads(Path(settings.retail_suggestion_replay).read_text())
         )
-        for phase, pause in (
-            (SuggestionRunPhase.READING, 2.0),
-            (SuggestionRunPhase.PROPOSING, 5.0),
-            (SuggestionRunPhase.CHECKING, 1.5),
-        ):
-            if on_phase is not None:
+        # The pauses exist to give the run panel time to show each phase; with no callback
+        # there is no panel to animate (the deprecated sync route passes none), so skip them.
+        if on_phase is not None:
+            for phase, pause in (
+                (SuggestionRunPhase.READING, 2.0),
+                (SuggestionRunPhase.PROPOSING, 5.0),
+                (SuggestionRunPhase.CHECKING, 1.5),
+            ):
                 on_phase(phase)
-            time.sleep(pause)
+                time.sleep(pause)
         suggestions = _filter_suggestions(replayed.suggestions, business_area)
         if not include_sql:
             suggestions = [
