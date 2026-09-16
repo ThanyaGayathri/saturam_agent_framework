@@ -72,7 +72,10 @@ function formatAxis(value) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
 }
 
-function sameDimension(a, b) {
+/** Whether two `dimension` objects (`{region: "west"}`-shaped, or absent) pick out the same
+ * slice. Exported so callers (`KpiHealthDashboard.jsx`) can tell "same slice, newer data" apart
+ * from "a different slice for the same identifier" without re-implementing this comparison. */
+export function sameDimension(a, b) {
   if (!a || !b) return !a && !b;
   const ka = Object.keys(a);
   const kb = Object.keys(b);

@@ -59,6 +59,14 @@ export function createKpi(body, { signal } = {}) {
   return apiJson("/kpis", "POST", body, { signal });
 }
 
+/** `GET /kpis/health` - freshness of every registered KPI from gold (a `KpiHealth[]`:
+ * `{kpi_id, identifier, status, last_computed_at, as_of, staleness_hours, last_run_id,
+ * last_error}`). `status` is one of `fresh`/`stale`/`never_computed`/`failed`/`not_scheduled` -
+ * every registered KPI gets a row, even one gold has never materialised. */
+export function fetchKpiHealth({ signal } = {}) {
+  return apiGet("/kpis/health", { signal });
+}
+
 /** `GET /kpis/{kpi_id}/series` - one KPI's value over its last `days` business dates, read
  * from gold (a `KpiSeries`: `{kpi_identifier, grain, interval: "day", days, unit, dimension,
  * dimensions, points: [{at, value}], value, delta, as_of, computed_at, status,

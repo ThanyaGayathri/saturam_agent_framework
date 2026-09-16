@@ -35,10 +35,12 @@ from egpt_retail.api.routers.kpis import (
     _suggestion_notes,
     _SuggestionRegistrySnapshot,
     _validated_business_area,
+    _warehouse_engine,
     create_kpi,
     delete_kpi,
     get_kpi,
     get_kpi_feasibility,
+    list_kpi_health,
     list_kpi_suggestions,
     list_kpis,
     update_kpi,
@@ -659,6 +661,201 @@ def test_delete_kpi_404s_on_a_missing_identifier():
             "does_not_exist", _FakeRequest(authorization_enabled=False), store=store
         )
     assert excinfo.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /kpis/health
+# ---------------------------------------------------------------------------
+
+
+class _ListableKpiStore(_FakeKpiStore):
+    """``_FakeKpiStore`` plus the unfiltered ``list()``/``alist()`` read ``list_kpi_health``
+    needs -- mirrors ``_suggestion_registry_snapshot``'s own unfiltered ``store.list()`` call."""
+
+    def list(self, business_area=None):
+        return list(self._by_id.values())
+
+    async def alist(self, business_area=None):
+        return self.list(business_area=business_area)
+
+
+async def _fake_akpi_health(kpis, engine, **kwargs):
+    """Stands in for a real gold read: one row per KPI, shaped exactly like
+    ``classify_health``'s own output (``test_r5_gold.py`` pins that shape)."""
+    return [
+        {
+            "kpi_id": kpi.identifier,
+            "identifier": kpi.identifier,
+            "status": "fresh",
+            "last_computed_at": "2026-09-14T02:20:00Z",
+            "as_of": "2026-09-13T23:59:59Z",
+            "staleness_hours": 8.5,
+            "last_run_id": "run_gold_20260914",
+            "last_error": None,
+        }
+        for kpi in kpis
+    ]
+
+
+def test_list_kpi_health_maps_every_registered_kpi_into_a_wire_kpi_health(monkeypatch):
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+    kpi = _kpi()
+    store = _ListableKpiStore(existing=kpi)
+
+    result = asyncio.run(
+        list_kpi_health(
+            _FakeRequest(authorization_enabled=False), store=store, engine=object()
+        )
+    )
+
+    assert len(result) == 1
+    row = result[0]
+    assert isinstance(row, wire_models.KpiHealth)
+    assert row.kpi_id == kpi.identifier
+    assert row.identifier == kpi.identifier
+    assert row.status == wire_models.KpiHealthStatus.fresh
+    assert row.staleness_hours == 8.5
+    assert row.last_run_id == "run_gold_20260914"
+
+
+def test_list_kpi_health_returns_an_empty_list_for_an_empty_registry(monkeypatch):
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+    store = _ListableKpiStore(existing=None)
+
+    result = asyncio.run(
+        list_kpi_health(
+            _FakeRequest(authorization_enabled=False), store=store, engine=object()
+        )
+    )
+    assert result == []
+
+
+def test_warehouse_engine_dependency_503s_when_the_warehouse_is_not_configured(
+    monkeypatch,
+):
+    def _refuse(settings):
+        raise RuntimeError("EGPT_RETAIL_WAREHOUSE_DB_URL is not set.")
+
+    monkeypatch.setattr(kpis_module, "build_warehouse_engine", _refuse)
+
+    with pytest.raises(HTTPException) as excinfo:
+        next(_warehouse_engine())
+    assert excinfo.value.status_code == 503
+    assert "EGPT_RETAIL_WAREHOUSE_DB_URL" in excinfo.value.detail
+
+
+def _health_app(monkeypatch, *, scopes):
+    """A real FastAPI app wired to the actual ``kpis.py`` router (not a direct function call),
+    so the scope-then-warehouse dependency order below is exercised through FastAPI's own
+    ``solve_dependencies`` rather than trusted from reading the signature."""
+
+    def _refuse(settings):
+        raise RuntimeError("EGPT_RETAIL_WAREHOUSE_DB_URL is not set.")
+
+    monkeypatch.setattr(kpis_module, "build_warehouse_engine", _refuse)
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health)
+
+    app = FastAPI()
+    app.include_router(kpis_module.router)
+    app.dependency_overrides[kpis_module._kpi_store] = lambda: _ListableKpiStore(
+        existing=_kpi()
+    )
+
+    @app.middleware("http")
+    async def _fake_auth(request, call_next):
+        request.state.authorization_enabled = True
+        request.state.scopes = scopes
+        request.state.admin_scope = None
+        return await call_next(request)
+
+    return TestClient(app)
+
+
+def test_list_kpi_health_403s_before_the_warehouse_503_when_the_scope_is_missing(
+    monkeypatch,
+):
+    """The ordering fix: an unauthorized caller must be refused for that reason, not learn
+    that the warehouse is unconfigured before the scope check ever runs."""
+    client = _health_app(monkeypatch, scopes=[])
+    response = client.get("/kpis/health")
+    assert response.status_code == 403
+
+
+def test_list_kpi_health_503s_for_an_authorized_caller_when_the_warehouse_is_not_configured(
+    monkeypatch,
+):
+    """A caller who does hold the scope still gets the honest 503 -- the fix only reorders
+    which check runs first, it doesn't swallow the warehouse-unconfigured case."""
+    client = _health_app(monkeypatch, scopes=["kpis:read"])
+    response = client.get("/kpis/health")
+    assert response.status_code == 503
+    assert "EGPT_RETAIL_WAREHOUSE_DB_URL" in response.json()["detail"]
+
+
+async def _fake_akpi_health_with_error(kpis, engine, **kwargs):
+    """Same shape as `_fake_akpi_health`, but with the failed-run `last_error` the contract's
+    own bundled example documents (a literal column-name refusal, verbatim from gold)."""
+    return [
+        {
+            "kpi_id": kpi.identifier,
+            "identifier": kpi.identifier,
+            "status": "failed",
+            "last_computed_at": None,
+            "as_of": None,
+            "staleness_hours": None,
+            "last_run_id": "run_gold_20260914",
+            "last_error": "column supplier_deliveries.actual_date does not exist",
+        }
+        for kpi in kpis
+    ]
+
+
+def _health_app_with_configured_warehouse(monkeypatch, *, scopes):
+    """Like `_health_app`, but the warehouse engine resolves instead of 503ing, and
+    `akpi_health` returns a row with a real `last_error` -- what the `last_error`-gating tests
+    below need to actually observe the field present/absent."""
+    monkeypatch.setattr(kpis_module, "akpi_health", _fake_akpi_health_with_error)
+
+    app = FastAPI()
+    app.include_router(kpis_module.router)
+    app.dependency_overrides[kpis_module._kpi_store] = lambda: _ListableKpiStore(
+        existing=_kpi()
+    )
+    app.dependency_overrides[kpis_module._warehouse_engine] = lambda: object()
+
+    @app.middleware("http")
+    async def _fake_auth(request, call_next):
+        request.state.authorization_enabled = True
+        request.state.scopes = scopes
+        request.state.admin_scope = None
+        return await call_next(request)
+
+    return TestClient(app)
+
+
+def test_list_kpi_health_hides_last_error_from_a_kpis_read_only_caller(monkeypatch):
+    """`last_error` is the database's own refusal text verbatim -- as sensitive as `Kpi.sql`,
+    which this router already gates behind `kpis:write` via `_may_read_sql`. A `kpis:read`-only
+    caller must see every other field but not the raw error string."""
+    client = _health_app_with_configured_warehouse(monkeypatch, scopes=["kpis:read"])
+    response = client.get("/kpis/health")
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["last_error"] is None
+    assert row["status"] == "failed"
+
+
+def test_list_kpi_health_shows_last_error_to_a_kpis_write_caller(monkeypatch):
+    """The same field, unhidden for a caller who already holds the write scope -- the same
+    posture `Kpi.sql`/`proposed_sql` have everywhere else in this router. Still needs
+    `kpis:read` too: that's the route's own scope gate, unrelated to `_may_read_sql`'s."""
+    client = _health_app_with_configured_warehouse(
+        monkeypatch, scopes=["kpis:read", "kpis:write"]
+    )
+    response = client.get("/kpis/health")
+    assert response.status_code == 200
+    row = response.json()[0]
+    assert row["last_error"] == "column supplier_deliveries.actual_date does not exist"
 
 
 # ---------------------------------------------------------------------------
