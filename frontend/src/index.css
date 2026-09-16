@@ -500,3 +500,18 @@ html.dark .playground-hub-composer-shell:focus-within {
     transform: none;
   }
 }
+
+
+/* Readiness check (K19): each verdict lands with a short rise; none under reduced motion. */
+@keyframes readiness-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.readiness-check {
+  animation: readiness-in 0.32s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .readiness-check {
+    animation: none;
+  }
+}

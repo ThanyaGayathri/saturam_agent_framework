@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, Check, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { KPI_DATA_CATALOG_DATASETS } from "../../domain/kpi-data-catalog";
 import { normalizeRules, unfedRules } from "../../domain/guardrail-rules";
 import { templateLabel } from "../../domain/extraction-templates";
@@ -31,6 +31,11 @@ const LEVEL = {
  fail: { Icon: X, cls: "text-status-critical", bg: "border-status-critical-border bg-status-critical-light" },
 };
 
+// Checks read in groups (K19): what is connected, what data it reads, what keeps it safe.
+const GROUP_ORDER = ["Connections", "Data", "Safeguards", "Checks"];
+const GROUP_OF_ID = { mailbox: "Connections", target: "Connections", writeback: "Connections", masterdata: "Data", template: "Data", golden: "Data", sources: "Data", measurable: "Data", stale: "Data", guardrails: "Safeguards", exceptions: "Safeguards", unattended: "Safeguards", approver: "Safeguards" };
+const groupOf = (c) => GROUP_OF_ID[c.id] || (/pii|personal|privacy|owner/i.test(`${c.id} ${c.title}`) ? "Safeguards" : "Checks");
+
 const SOURCE_TYPE = { SAP: "sap_s4hana", Snowflake: "snowflake", PostgreSQL: "postgres", Salesforce: "salesforce" };
 
 export default function UseCasePreflightScreen() {
@@ -48,7 +53,7 @@ export default function UseCasePreflightScreen() {
   fetchGoldenCases(id).then(setGolden).catch(() => setGolden([]));
  }, [spec.platform?.useCaseId, spec.template]);
 
- const checks = useMemo(() => {
+ const rawChecks = useMemo(() => {
   const spec_ = "/use-cases/builder/compose";
   if (spec.template === "document_to_record") {
    const md = spec.masterData || {};
@@ -62,7 +67,7 @@ export default function UseCasePreflightScreen() {
     { id: "mailbox", title: "Source mailbox", level: spec.mailbox ? "pass" : "fail", detail: spec.mailbox ? `${spec.mailbox} is connected and readable; the mailbox is only read; each message is carried once by its id, never flagged, never deleted.` : "No mailbox chosen.", fix: spec.mailbox ? null : { label: "Choose a mailbox", to: spec_ } },
     { id: "target", title: "Target system", level: spec.writeback ? "pass" : "fail", detail: spec.writeback ? `${spec.writeback} is connected with write permission; ${mappingLabel(spec) || (spec.targetObjects ? spec.targetObjects.replace(/_/g, " + ") : "the target objects")} will be created as ${spec.createdAs || "draft"}.` : "No target system chosen.", fix: spec.writeback ? null : { label: "Choose a target system", to: spec_ } },
     { id: "masterdata", title: "Master data", level: missingRequired.length ? "fail" : "pass", detail: missingRequired.length ? `${missingRequired.map((r) => r.label).join(", ")} not bound.` : `${bound.length} objects bound and harvested: ${rowsLabel || bound.map((r) => md[r.id]).join(", ")}.`, fix: missingRequired.length ? { label: "Bind master data", to: spec_ } : null },
-    { id: "template", title: "Extraction template", level: spec.extractionTemplate ? (spec.exampleDocument ? "pass" : "warn") : "fail", detail: spec.extractionTemplate ? (spec.exampleDocument ? `${templateLabel(spec) || spec.extractionTemplate.replace(/_/g, " ")} with an example document — the AI step has a golden case to be scored against.` : `${spec.extractionTemplate.replace(/_/g, " ")} without an example document. The simulation still runs on the sample set; a real example improves extraction on your format.`) : "No template chosen.", fix: spec.extractionTemplate ? null : { label: "Choose a template", to: spec_ } },
+    { id: "template", title: "Extraction template", level: spec.extractionTemplate ? (spec.exampleDocument ? "pass" : "warn") : "fail", detail: spec.extractionTemplate ? (spec.exampleDocument ? `${templateLabel(spec) || spec.extractionTemplate.replace(/_/g, " ")} with an example document — the AI step has a golden case to be scored against.` : `${spec.extractionTemplate.replace(/_/g, " ")} without an example document. Extraction works from the template's fields alone; an example of your own format makes it better, and the rehearse screen can save one as a golden case.`) : "No template chosen.", fix: spec.extractionTemplate ? null : { label: "Choose a template", to: spec_ } },
     { id: "guardrails", title: "Business guardrails", level: rows.length === 0 ? "fail" : unfed.length ? "warn" : "pass", detail: rows.length === 0 ? "No guardrail. A use case that writes needs at least one." : unfed.length ? `${rows.length} guardrails; ${unfed.map((g) => g.label).join(", ")} need${unfed.length === 1 ? "s" : ""} ${[...new Set(unfed.map((g) => MASTER_DATA_ROLES.find((r) => r.id === g.needs)?.label.toLowerCase()))].join(", ")} bound to run.` : `${rows.length} guardrails, evaluated as deterministic checks before any record is written — never by the AI step.`, fix: rows.length === 0 ? { label: "Add a guardrail", to: spec_ } : null },
     { id: "exceptions", title: "Exceptions", level: /@/.test(spec.exceptionsTo || "") ? "pass" : "fail", detail: /@/.test(spec.exceptionsTo || "") ? `Anything the automation cannot complete goes to ${spec.exceptionsTo}, and to the Alerts page.` : "No exceptions address.", fix: /@/.test(spec.exceptionsTo || "") ? null : { label: "Set the exceptions address", to: spec_ } },
     { id: "pii", title: "Personal data", level: "warn", detail: "Buyer names and email addresses are read from the documents and written to the target as contacts. Allowed for order processing; acknowledge that this use case handles personal data.", fix: null },
@@ -195,11 +200,30 @@ export default function UseCasePreflightScreen() {
   }
   return out;
  }, [spec, level, golden]);
+ const checks = useMemo(() => [...rawChecks].sort((a, b) => GROUP_ORDER.indexOf(groupOf(a)) - GROUP_ORDER.indexOf(groupOf(b))), [rawChecks]);
 
- const fails = checks.filter((c) => c.level === "fail");
- const warns = checks.filter((c) => c.level === "warn");
+ // The checks land one at a time, so a person can read each verdict as it arrives rather
+ // than meet a wall of results. The delay is theatre over deterministic checks and says so
+ // in the copy; a reader who prefers reduced motion gets every result at once.
+ const reduceMotion = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+ const waitingForPlatform = spec.template === "document_to_record" && !!spec.platform?.useCaseId && golden === null;
+ const [resolved, setResolved] = useState(0);
+ const [runKey, setRunKey] = useState(0);
+ useEffect(() => {
+  if (waitingForPlatform) return undefined;
+  if (reduceMotion) { setResolved(checks.length); return undefined; }
+  setResolved(0);
+  const timers = checks.map((_, i) => setTimeout(() => setResolved(i + 1), 380 + i * 520));
+  return () => timers.forEach(clearTimeout);
+ }, [checks.length, waitingForPlatform, reduceMotion, runKey]);
+ const done = resolved >= checks.length && !waitingForPlatform;
+ const landed = checks.slice(0, resolved);
+
+ const fails = landed.filter((c) => c.level === "fail");
+ const warns = landed.filter((c) => c.level === "warn");
+ const passes = landed.filter((c) => c.level === "pass");
  const unacked = warns.filter((w) => !acked.has(w.id));
- const blocked = fails.length > 0 || unacked.length > 0;
+ const blocked = !done || fails.length > 0 || unacked.length > 0;
 
  return (
   <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
@@ -211,15 +235,50 @@ export default function UseCasePreflightScreen() {
     </p>
    </div>
 
+   <div className="rounded-xl border border-border bg-surface px-4 py-3">
+    <div className="flex flex-wrap items-center gap-3 text-sm">
+     {done ? (
+      fails.length ? <span className="inline-flex items-center gap-1.5 font-semibold text-status-critical"><X size={15} /> {fails.length} to fix before this goes further</span>
+      : unacked.length ? <span className="inline-flex items-center gap-1.5 font-semibold text-status-warning"><AlertTriangle size={15} /> {unacked.length} to read and acknowledge</span>
+      : <span className="inline-flex items-center gap-1.5 font-semibold text-status-success"><ShieldCheck size={15} /> Ready to go further</span>
+     ) : (
+      <span className="inline-flex items-center gap-1.5 font-semibold text-text-primary"><Loader2 size={15} className="animate-spin text-primary" /> {waitingForPlatform ? "Reading the golden cases from the platform…" : `Checking ${Math.min(resolved + 1, checks.length)} of ${checks.length}…`}</span>
+     )}
+     <span className="ml-auto flex items-center gap-2 text-xs text-text-muted">
+      <span className="text-status-success">{passes.length} passed</span>·<span className="text-status-warning">{warns.length} to note</span>·<span className="text-status-critical">{fails.length} to fix</span>
+      {done && <button type="button" onClick={() => { setAcked(new Set()); setRunKey((k) => k + 1); }} className="ml-2 inline-flex items-center gap-1 rounded-md border border-border-light px-2 py-1 font-semibold text-text-secondary hover:text-text-primary"><RefreshCw size={11} /> Re-run</button>}
+     </span>
+    </div>
+    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary" aria-hidden>
+     <div className={`h-full rounded-full transition-[width] duration-500 ease-out ${done ? (fails.length ? "bg-status-critical" : unacked.length ? "bg-status-warning" : "bg-status-success") : "bg-primary"}`} style={{ width: `${checks.length ? Math.round((resolved / checks.length) * 100) : 0}%` }} />
+    </div>
+   </div>
+
    <div className="space-y-2">
-    {checks.map((c) => {
+    {checks.map((c, i) => {
+     if (i > resolved) return null;
+     const arriving = i === resolved && !done;
+     const groupLabel = groupOf(c);
+     const firstOfGroup = i === 0 || groupOf(checks[i - 1]) !== groupLabel;
+     if (arriving) {
+      return (
+       <div key={`${c.id}-arriving`}>
+        {firstOfGroup && <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{groupLabel}</p>}
+        <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-text-muted">
+         <Loader2 size={15} className="animate-spin text-primary" /> Checking {c.title.toLowerCase()}…
+        </div>
+       </div>
+      );
+     }
      const meta = LEVEL[c.level];
      const { Icon } = meta;
      const needsAck = c.level === "warn" && !acked.has(c.id);
      return (
-      <div key={c.id} className={`rounded-xl border px-4 py-3 ${meta.bg}`}>
+      <div key={c.id} className="readiness-check">
+       {firstOfGroup && <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">{groupLabel}</p>}
+       <div className={`rounded-xl border px-4 py-3 ${meta.bg}`}>
        <div className="flex flex-wrap items-start gap-2.5">
-        <Icon size={16} className={`mt-0.5 shrink-0 ${meta.cls}`} />
+        <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${c.level === "pass" ? "bg-status-success-light" : c.level === "warn" ? "bg-status-warning-light" : "bg-status-critical-light"}`}><Icon size={13} className={meta.cls} /></span>
         <div className="min-w-0 flex-1">
          <p className="text-sm font-bold text-text-primary">{c.title}</p>
          <p className="mt-0.5 text-sm text-text-secondary">{c.detail}</p>
@@ -230,6 +289,7 @@ export default function UseCasePreflightScreen() {
          {c.level === "warn" && acked.has(c.id) && <span className="text-xs font-semibold text-status-warning">Acknowledged</span>}
         </div>
        </div>
+       </div>
       </div>
      );
     })}
@@ -238,7 +298,7 @@ export default function UseCasePreflightScreen() {
    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
     <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">Back to the specification</button>
     <div className="flex items-center gap-3">
-     {blocked && <span className="text-xs text-text-muted">{fails.length > 0 ? `${fails.length} to fix` : `${unacked.length} to acknowledge`}</span>}
+     {blocked && <span className="text-xs text-text-muted">{!done ? "checking…" : fails.length > 0 ? `${fails.length} to fix` : `${unacked.length} to acknowledge`}</span>}
      <button type="button" disabled={blocked} onClick={() => navigate("/use-cases/builder/plan")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40">
       <ShieldCheck size={15} /> See how it will run <ArrowRight size={15} />
      </button>

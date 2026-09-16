@@ -6165,3 +6165,20 @@ and the model could draft more realistic ones; the mailbox listing shows sizes, 
 names, because it reads headers only.
 
 ---
+
+### K19 follow-up -- the readiness check lands one verdict at a time; the plan reads as a pipeline
+
+**Status:** PASS (16 Sep 2026, in the browser). The readiness screen now shows a progress
+strip ("Checking 5 of 10…", a bar, running counts of passed / to note / to fix) and each
+check arrives in turn about half a second apart, first as "Checking business guardrails…"
+then as its verdict with a short rise; checks are grouped as Connections, Data, Safeguards;
+the Continue button waits for the last verdict; "Re-run" replays it; reduced-motion readers
+get every result at once. "How it will run" replaced the SVG flowchart with a pipeline: a
+phase ribbon (Intake · Understand · Check · Write · Report, sized by step count), then a
+numbered rail of stage cards with who takes each step, the form values it uses as chips,
+the AI step lit differently and named "the only AI step", every write-guarding step with a
+red shield rail, and each decision with its two outcomes side by side ("One document: on
+to step 4" / "Fails: exception, the rest of the batch continues"). The old detailed list is
+still there as "Details".
+
+---

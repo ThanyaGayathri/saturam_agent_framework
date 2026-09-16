@@ -5,6 +5,7 @@ import {
  Play, ShieldCheck, UserCheck,
 } from "lucide-react";
 import { planFor, STEP_KIND } from "../../domain/use-case-plan";
+import PlanPipeline from "./PlanPipeline";
 import { displayName } from "../../domain/use-case-autonomy";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 
@@ -43,68 +44,6 @@ const WHO = {
  model: { label: "AI step", short: "AI", hint: "A language model with a brief written for this role. Explains and recommends. Never decides what is allowed.", cls: "bg-primary-light text-primary border-primary/30" },
  person: { label: "Approval step", short: "approval", hint: "Waits for a person.", cls: "bg-status-warning-light text-status-warning border-status-warning-border" },
 };
-
-/**
- * The same steps as a flowchart. Decision steps are diamonds with their "no" path drawn, because
- * that is what a chart shows that a list does not: where a run stops, and what happens to the
- * thing that stopped. Pure SVG, laid out from the step list -- nothing here is authored.
- */
-function PlanFlow({ steps }) {
- const W = 680, CX = 230, NW = 260, NH = 46, DH = 68, GAP = 26, SX = 470, SW = 190;
- const fill = { system: "var(--color-surface-secondary, #f5f5f7)", model: "var(--color-primary-light, #efe6fb)", person: "var(--color-status-warning-light, #fff4e0)" };
- const stroke = { system: "#c9c9d1", model: "#731dd8", person: "#d98c00" };
- let y = 16;
- const nodes = steps.map((s) => {
-  const h = s.branch ? DH : NH;
-  const n = { ...s, y, h, cy: y + h / 2 };
-  y += h + GAP;
-  return n;
- });
- const H = y;
- return (
-  <div className="overflow-x-auto rounded-xl border border-border bg-surface p-3">
-   <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 560, fontFamily: "Inter, system-ui, sans-serif" }} role="img" aria-label="Flow of the plan">
-    <defs>
-     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#9a9aa6" />
-     </marker>
-    </defs>
-    {nodes.map((n, i) => {
-     const next = nodes[i + 1];
-     const wide = n.branch;
-     return (
-      <g key={n.id}>
-       {wide ? (
-        <polygon
-         points={`${CX},${n.y} ${CX + NW / 2 + 20},${n.cy} ${CX},${n.y + n.h} ${CX - NW / 2 - 20},${n.cy}`}
-         fill={fill[n.who]} stroke={stroke[n.who]} strokeWidth={n.who === "system" ? 1 : 1.5}
-        />
-       ) : (
-        <rect x={CX - NW / 2} y={n.y} width={NW} height={n.h} rx="10" fill={n.satisfiedBy ? "#fff" : fill[n.who]} stroke={stroke[n.who]} strokeWidth={n.who === "system" ? 1 : 1.5} strokeDasharray={n.satisfiedBy ? "4 3" : undefined} />
-       )}
-       <text x={CX} y={n.cy - (wide ? 2 : 3)} textAnchor="middle" fontSize="12.5" fontWeight="700" fill={n.satisfiedBy ? "#7a7a88" : "#1a1a2e"}>{n.title}</text>
-       <text x={CX} y={n.cy + 12} textAnchor="middle" fontSize="10" fontWeight="600" fill={stroke[n.who] === "#c9c9d1" ? "#7a7a88" : stroke[n.who]} style={{ textTransform: "uppercase", letterSpacing: 0.6 }}>{n.satisfiedBy ? "already computed" : n.guardsWrite ? `${WHO[n.who].short} · protects the change` : WHO[n.who].short}</text>
-       {next && (
-        <>
-         <line x1={CX} y1={n.y + n.h} x2={CX} y2={next.y - 2} stroke="#9a9aa6" strokeWidth="1.2" markerEnd="url(#arr)" />
-         {n.branch && <text x={CX + 8} y={n.y + n.h + 15} fontSize="10" fill="#4a4a5a">{n.branch.yes}</text>}
-        </>
-       )}
-       {n.branch && (
-        <>
-         <line x1={CX + NW / 2 + 20} y1={n.cy} x2={SX - 2} y2={n.cy} stroke="#9a9aa6" strokeWidth="1.2" strokeDasharray="4 3" markerEnd="url(#arr)" />
-         <text x={(CX + NW / 2 + 20 + SX) / 2} y={n.cy - 5} textAnchor="middle" fontSize="10" fill="#4a4a5a">{n.branch.no}</text>
-         <rect x={SX} y={n.cy - 20} width={SW} height={40} rx="8" fill="#fff" stroke="#c9c9d1" strokeDasharray="4 3" />
-         <text x={SX + SW / 2} y={n.cy + 4} textAnchor="middle" fontSize="10.5" fill="#4a4a5a">{n.branch.outcome}</text>
-        </>
-       )}
-      </g>
-     );
-    })}
-   </svg>
-  </div>
- );
-}
 
 export default function UseCasePlanScreen() {
  const navigate = useNavigate();
@@ -168,12 +107,12 @@ export default function UseCasePlanScreen() {
    <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold w-fit">
     {["flow", "steps"].map((v) => (
      <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-md px-3 py-1 ${view === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>
-      {v === "flow" ? "Flow" : "Steps"}
+      {v === "flow" ? "Pipeline" : "Details"}
      </button>
     ))}
    </div>
 
-   {view === "flow" && <PlanFlow steps={plan.steps} />}
+   {view === "flow" && <PlanPipeline steps={plan.steps} />}
 
    {view === "steps" && <ol className="relative space-y-0">
     {plan.steps.map((s, i) => {
