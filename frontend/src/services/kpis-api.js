@@ -59,6 +59,14 @@ export function createKpi(body, { signal } = {}) {
   return apiJson("/kpis", "POST", body, { signal });
 }
 
+/** `GET /kpis/health` - freshness of every registered KPI from gold (a `KpiHealth[]`:
+ * `{kpi_id, identifier, status, last_computed_at, as_of, staleness_hours, last_run_id,
+ * last_error}`). `status` is one of `fresh`/`stale`/`never_computed`/`failed`/`not_scheduled` -
+ * every registered KPI gets a row, even one gold has never materialised. */
+export function fetchKpiHealth({ signal } = {}) {
+  return apiGet("/kpis/health", { signal });
+}
+
 /** `GET /kpis/{kpi_id}/series` - one KPI's value over its last `days` business dates, read
  * from gold (a `KpiSeries`: `{kpi_identifier, grain, interval: "day", days, unit, dimension,
  * dimensions, points: [{at, value}], value, delta, as_of, computed_at, status,
@@ -91,4 +99,15 @@ export function computeKpi(identifier, { signal } = {}) {
  * `ApiError.detail` names the dashboards the caller can see, so show it as-is. */
 export function deleteKpi(identifier, { signal } = {}) {
   return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "DELETE", undefined, { signal });
+}
+
+/** `PATCH /kpis/{kpi_id}` - edit an already-adopted KPI's definition. `body` is a `KpiWrite`,
+ * same shape as `createKpi`: the required fields (`name`, `description`, `business_area`,
+ * `grain`, `sql`, `source_tables`) must be sent in full every time -- the api carries forward
+ * only the *optional* ones (concept, unit, level, ...) omitted from the body, not the required
+ * ones. Editing `sql` moves the KPI back to review: the server drops `validated_against_snapshot`
+ * whenever `sql`/`source_tables` change. 422s naming the defect the same way `createKpi` does;
+ * 409 if the row changed between the server's own read and write of it (retry by re-fetching). */
+export function updateKpi(identifier, body, { signal } = {}) {
+  return apiJson(`/kpis/${encodeURIComponent(identifier)}`, "PATCH", body, { signal });
 }

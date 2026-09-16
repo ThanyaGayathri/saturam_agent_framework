@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Enterprise GPT API",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "summary": "Every endpoint the Enterprise GPT screens call.",
     "description": "The API contract between the Enterprise GPT backend (Lane R, Lane K) and the interface.\nWritten in phase zero and wired in phase five, per `docs/plan/delivery-plan.md`. It is\npublished as a schema, not a document: `egpt_retail/api/models/_generated.py` is generated\nfrom it, and the stub server in `egpt_retail/api/stub/` serves each operation's declared\nexamples so a screen can be pointed at the contract before any of it is implemented.\n\n**Derived, not invented.** The endpoint inventory maps the prototype's local-storage seam\n(`frontend/src/storage/*.js`) accessor by accessor, then corrects the four places where a\nliteral mapping would bake a demo artifact into the API (see CHANGELOG.md, 1.0.0).\n\n**What this contract does not re-specify.** Chat, run streaming and session history are\nalready served by the framework and must not be duplicated here:\n\n| Need | Framework endpoint |\n|---|---|\n| Chat with an agent, streamed | `POST /agents/{agent_id}/runs` (SSE) |\n| Conversation history | `GET /sessions`, `GET /sessions/{session_id}` |\n| Scheduled runs (definition, pause, history) | `/schedules`, `/schedules/{schedule_id}` |\n| Use case definitions as versioned components | `/components` |\n| Health and configuration | `GET /health`, `GET /config` |\n\nThis document adds only what those lack: the retail resources, the delivery fields on a\nschedule, and the provenance record every answer writes.\n\n**Every list is unpaginated in 1.0.0.** Phase-zero data volumes do not need it and adding\nit later is additive (a `next_cursor` field). Recorded in CHANGELOG.md as a known gap.\n\n**Semantic layer.** The `semantic` paths are the HTTP surface of Lane K's\n`SemanticRead` contract (`egpt_retail/contracts/semantic.py`, v1.0.0). The stub behind\nthem in phase zero is `StubSemanticRead`; K5 replaces it in phase two without changing\na caller.\n",
     "x-egpt-contract": {
@@ -2771,6 +2771,13 @@
           "rationale": {
             "type": "string",
             "description": "One sentence naming the tables or concepts it derives from."
+          },
+          "business_value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One or two sentences on why this metric is worth tracking -- what it lets someone decide or catch, distinct from `rationale`'s data provenance. Null on a suggestion from before this field existed."
           },
           "derived_from_tables": {
             "type": "array",
@@ -7693,6 +7700,7 @@
                           "grain": "supplier",
                           "result_shape": "scalar",
                           "rationale": "supplier_deliveries carries expected_date and actual_date for every delivery.",
+                          "business_value": "Late suppliers erode the promise dates the storefront shows; tracking this flags a drifting supplier before a stockout does.",
                           "derived_from_tables": [
                             "supplier_deliveries"
                           ],
@@ -7813,6 +7821,7 @@
                             "grain": "supplier",
                             "result_shape": "scalar",
                             "rationale": "supplier_deliveries carries expected_date and actual_date for every delivery.",
+                            "business_value": "Late suppliers erode the promise dates the storefront shows; tracking this flags a drifting supplier before a stockout does.",
                             "derived_from_tables": [
                               "supplier_deliveries"
                             ],

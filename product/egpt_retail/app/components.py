@@ -73,7 +73,11 @@ from egpt_retail.routing.providers import (
     provider_for,
     route_agents,
 )
-from egpt_retail.routing.table import assert_every_agent_routed, tier_for
+from egpt_retail.routing.table import (
+    LAZILY_BUILT_AGENT_IDS,
+    assert_every_agent_routed,
+    tier_for,
+)
 from egpt_retail.skills.funnel_explanation import FunnelExplanation
 from egpt_retail.skills.join_path_explainer import JoinExplanation
 from egpt_retail.skills.playground import PlaygroundAnswer
@@ -279,20 +283,25 @@ def build_agents(settings: RetailSettings, db: PostgresDb) -> List[RegisteredAge
     providers = build_tier_providers(settings)
     # R8: tier per agent, from the table; refuses an unrouted or model-pinning agent.
     route_agents(agents, providers)
-    # K12 and K13 are deliberately NOT registered here. A registered agent sits on the
-    # framework's generic run route, and a caller hitting it would get the raw draft set with
-    # none of assemble()'s discipline -- no dedup against the registry, no vocabulary check,
-    # no definition self-consistency -- from a prompt whose closed sets were rendered at
-    # startup. They run only through `egpt-retail suggest`, which builds them with the live
-    # registry via `build_suggestion_agents` and always assembles. Routing rows still exist
-    # and the builder still routes; `test_k12_k13_suggestion_pass` pins both.
+    # K12, K13, and dashboard_suggestion are deliberately NOT registered here. A registered
+    # agent sits on the framework's generic run route, and a caller hitting it would get the
+    # raw draft set with none of assemble()'s discipline -- no dedup against the registry, no
+    # vocabulary check, no definition self-consistency -- from a prompt whose closed sets were
+    # rendered at startup. They run only through their own dedicated call sites (`egpt-retail
+    # suggest` for K12/K13, `POST /dashboards/suggestions` for dashboard_suggestion), which
+    # build them with the live registry and always assemble. Routing rows still exist and each
+    # builder still routes -- asserted below via `LAZILY_BUILT_AGENT_IDS` rather than only by
+    # `test_k12_k13_suggestion_pass`/`test_r8_routing.py`'s own regression tests, since a row
+    # lost for one of these names must fail boot the same way a static agent's would (#272:
+    # dashboard_suggestion shipped with no row here and only surfaced as an
+    # `UnroutedAgentError` the first time someone actually triggered a suggestion run).
 
     # The playground agent is built per request by an AgentFactory (R11), not statically
-    # like the two above -- `route_agents` only ever sees the two static agents, so its own
+    # like the three above -- `route_agents` only ever sees the static agents, so its own
     # tier is asserted here instead, at the same startup point, rather than only surfacing
     # the first time a request resolves an unrouted agent id.
     factory = build_playground_agent_factory(settings, db, providers)
-    assert_every_agent_routed([factory.id])
+    assert_every_agent_routed([factory.id, *LAZILY_BUILT_AGENT_IDS])
     agents.append(factory)
     return agents
 
