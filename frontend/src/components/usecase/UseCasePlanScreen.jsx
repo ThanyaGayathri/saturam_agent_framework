@@ -1,11 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
- ArrowRight, Bot, Calculator, Check, Cpu, Database, FileCheck, GitBranch, Megaphone, PenLine,
- Play, ShieldCheck, UserCheck,
-} from "lucide-react";
-import { planFor, STEP_KIND } from "../../domain/use-case-plan";
+import { ArrowRight, Bot, Check } from "lucide-react";
+import { planFor } from "../../domain/use-case-plan";
 import PlanPipeline from "./PlanPipeline";
+import PlanOrchestration from "./PlanOrchestration";
 import { displayName } from "../../domain/use-case-autonomy";
 import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
 
@@ -24,18 +22,6 @@ import { loadSpecDraft, saveSpecDraft } from "../../domain/use-case-draft-spec";
  * they make: the model steps are always followed by a system check, and nothing is written
  * without a check or a person in front of it.
  */
-
-const ICON = {
- [STEP_KIND.trigger]: Play,
- [STEP_KIND.read]: Database,
- [STEP_KIND.compute]: Calculator,
- [STEP_KIND.check]: ShieldCheck,
- [STEP_KIND.model]: Bot,
- [STEP_KIND.gate]: UserCheck,
- [STEP_KIND.write]: PenLine,
- [STEP_KIND.notify]: Megaphone,
- [STEP_KIND.record]: FileCheck,
-};
 
 const WHO = {
  // Agno's vocabulary, so the plan reads the way the deployed workflow is built: an executor is
@@ -105,75 +91,16 @@ export default function UseCasePlanScreen() {
    </p>
 
    <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-secondary p-0.5 text-xs font-semibold w-fit">
-    {["flow", "steps"].map((v) => (
+    {["flow", "orchestration"].map((v) => (
      <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-md px-3 py-1 ${view === v ? "bg-surface text-text-primary shadow-sm" : "text-text-secondary hover:text-text-primary"}`}>
-      {v === "flow" ? "Pipeline" : "Details"}
+      {v === "flow" ? "Pipeline" : "Orchestration"}
      </button>
     ))}
    </div>
 
    {view === "flow" && <PlanPipeline steps={plan.steps} />}
 
-   {view === "steps" && <ol className="relative space-y-0">
-    {plan.steps.map((s, i) => {
-     const Icon = ICON[s.kind] || Cpu;
-     const who = WHO[s.who];
-     const last = i === plan.steps.length - 1;
-     return (
-      <li key={s.id} className="relative grid grid-cols-[2.25rem_1fr] gap-x-3">
-       <div className="flex flex-col items-center">
-        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${s.who === "person" ? "border-status-warning-border bg-status-warning-light text-status-warning" : s.who === "model" ? "border-primary/30 bg-primary-light text-primary" : "border-border bg-surface text-text-secondary"}`}>
-         <Icon size={16} />
-        </span>
-        {!last && <span className={`w-px flex-1 ${s.branch ? "border-l border-dashed border-border" : "bg-border"}`} style={{ minHeight: "1rem" }} />}
-       </div>
-       <div className={`pb-4 ${s.satisfiedBy ? "opacity-70" : ""}`}>
-        <div className={`rounded-xl border px-4 py-3 ${s.who === "person" ? "border-status-warning-border bg-status-warning-light/40" : s.satisfiedBy ? "border-dashed border-border bg-surface" : "border-border bg-surface"}`}>
-         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-semibold text-text-muted">{i + 1}</span>
-          <p className="text-sm font-bold text-text-primary">{s.title}</p>
-          <span title={who.hint} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${who.cls}`}>{who.label}</span>
-          {s.executorRef && <span className="font-mono text-[10px] text-text-muted">{s.executorRef}</span>}
-          {s.role && <span className="font-mono text-[10px] text-text-muted">role: {s.role}</span>}
-          {s.guardsWrite && <span className="rounded-full border border-status-critical-border bg-status-critical-light px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-status-critical">protects the change</span>}
-          {s.satisfiedBy && <span className="rounded-full border border-border bg-surface-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">already computed nightly</span>}
-          {s.conditional && <span className="inline-flex items-center gap-1 text-[11px] text-text-muted"><GitBranch size={11} />{s.conditional}</span>}
-         </div>
-         <p className="mt-1 text-sm text-text-secondary">{s.detail}</p>
-         {s.consumes?.length > 0 && (
-          <p className="mt-1.5 text-[11px] text-text-muted">
-           uses{" "}
-           {s.consumes.map((c, k) => (
-            <span key={c.slot}>{k > 0 && " · "}<span className="font-mono">{c.slot}</span> = <span className={c.value == null ? "text-status-warning" : "text-text-secondary"}>{c.value == null ? "not set" : String(c.value)}</span></span>
-           ))}
-          </p>
-         )}
-         {s.reads?.length > 0 && (
-          <ul className="mt-2 space-y-1">
-           {s.reads.map((r) => (
-            <li key={r.source} className="text-xs text-text-secondary">
-             <span className="font-semibold text-text-primary">{r.source}</span>
-             {" · "}
-             {r.datasets.map((d) => (
-              <span key={d.name} className="mr-1.5 inline-flex items-center gap-1 rounded-md bg-surface-secondary px-1.5 py-0.5 font-mono text-[11px]">
-               {d.name}{d.stale && <span className="font-sans text-status-warning">stale</span>}
-              </span>
-             ))}
-            </li>
-           ))}
-          </ul>
-         )}
-         {s.chips?.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-           {s.chips.map((c) => <span key={c} className="rounded-md bg-surface-secondary px-2 py-0.5 font-mono text-[11px] text-text-primary">{c}</span>)}
-          </div>
-         )}
-        </div>
-       </div>
-      </li>
-     );
-    })}
-   </ol>}
+   {view === "orchestration" && <PlanOrchestration steps={plan.steps} exceptionsTo={spec.exceptionsTo || spec.notify} />}
 
    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
     <button type="button" onClick={() => navigate("/use-cases/builder/compose")} className="rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-secondary hover:bg-surface-secondary">
