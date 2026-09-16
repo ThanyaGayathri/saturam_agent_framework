@@ -711,11 +711,13 @@ class _RecordingResults:
 async def test_arefresh_query_tiles_costs_max_duration_not_sum_across_tiles(
     monkeypatch,
 ):
-    """The sync `refresh_query_tiles` this replaced (for router callers) ran every tile's
-    check-then-query serially -- wall-clock cost scaled with `sum(duration)` across tiles.
-    Simulates two tiles each with a 150ms warehouse round trip and asserts the concurrent
-    version costs roughly one of them, not both, with genuine overlap (not just fast enough
-    sequential calls to coincidentally land under the threshold)."""
+    """The synchronous refresh loop this replaced (round 1; deleted outright in round 3 once
+    nothing called it any more -- there was a `refresh_query_tiles`/`_refresh_one` pair, no
+    longer present in this module) ran every tile's check-then-query serially, so wall-clock
+    cost scaled with `sum(duration)` across tiles. Simulates two tiles each with a 150ms
+    warehouse round trip and asserts the concurrent version costs roughly one of them, not
+    both, with genuine overlap (not just fast enough sequential calls to coincidentally land
+    under the threshold)."""
 
     @contextmanager
     def _fake_open_reader(settings):

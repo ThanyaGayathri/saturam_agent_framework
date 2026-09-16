@@ -670,6 +670,15 @@ async def arefresh_query_tiles(
     ``DashboardQueryResultStore`` holds one Postgres connection, which is not safe to use from
     more than one coroutine/thread at once, and a write is cheap next to a warehouse round
     trip, so serialising it costs nothing worth gathering for.
+
+    **Intentionally async-only** -- CLAUDE.md's usual "both sync and async" rule does not
+    apply here. Concurrency *is* the point of this function; a synchronous twin could only
+    offer it back by running its own event loop internally (what both call sites in
+    ``api/routers/dashboards.py`` already do via ``asyncio.run(...)``, since neither has one of
+    its own to await this on) or by degrading to the strictly serial loop round 3 deleted --
+    which would silently reintroduce that loop's own copy of round 2's fault-isolation finding
+    alongside it. No caller needs a sync entrypoint (both are plain ``def`` routes that already
+    call this via ``asyncio.run``); please don't add one just to satisfy the general rule.
     """
     wanted = set(only) if only is not None else None
     tiles = [
